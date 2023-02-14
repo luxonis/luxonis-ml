@@ -133,6 +133,7 @@ class LuxonisDataset:
             self._create_directory(".cache")
             self.calibration_set = set()
             self.classes = []
+            self.classes_by_task = {}
             self.keypoint_definitions = {}
             self.df = pd.DataFrame(columns=["basename", "split"])
 
@@ -273,9 +274,34 @@ class LuxonisDataset:
         elif path not in self.modified_files[bough]:
             self.modified_files[bough].append(path)
 
-    def _add_class(self, class_name):
+    def _add_class(self, ann):
+
+        class_name = ann['class_name']
         if class_name not in self.classes:
             self.classes.append(class_name)
+
+        for task in ann:
+            if task in ['class_name', 'class_id']:
+                continue
+            if task not in self.classes_by_task.keys():
+                self.classes_by_task[task] = []
+            if class_name not in self.classes_by_task[task]:
+                self.classes_by_task[task].append(class_name)
+
+        # ensure we use a "global" class index to be compatible with multiple sources
+        class_id = self.classes.index(class_name)
+        return class_id
+
+    def _add_class_2(self, ann):
+        class_name = ann['class_name']
+        tasks = list(ann.keys()) - ['class_name', 'class_id']
+        print(tasks)
+
+        for task in tasks:
+            if task not in self.classes.keys():
+                self.classes[task] = []
+            if class_name not in self.classes[task]:
+                self.classes[task].append(class_name)
         # ensure we use a "global" class index to be compatible with multiple sources
         class_id = self.classes.index(class_name)
         return class_id
@@ -475,7 +501,7 @@ class LuxonisDataset:
                 for i, ann in enumerate(json_dict[component]['annotations']):
                     if 'class_name' not in ann.keys():
                         raise Exception("class_name is required in an annotation")
-                    class_id = self._add_class(ann['class_name'])
+                    class_id = self._add_class(ann)
                     json_dict[component]['annotations'][i]['class'] = class_id
 
         if not self.s3:
