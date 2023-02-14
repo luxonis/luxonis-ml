@@ -1,5 +1,7 @@
 ## Luxonis Dataset Format
 
+**NOTICE:** This software is an early alpha version. The API is prone to significant changes.
+
 The Luxonis Dataset Format (LDF) is intended to standardize the way data is stored for ML training for OAK products. We can use LDF with the `luxonis_ml.ops` package. LDF should provide the foundation for tasks such as training, evaluation, querying, analytics, and visualization.
 
 The currently recommended way to use LDF is by adding, modifying, or removing data locally. Then, pushing this data to the cloud through LakeFS using the `LuxonisDatasetArtifact` versioning system.
@@ -59,6 +61,35 @@ EOT
 ```
 
 Here, `access_key_id`, `secret_access_key`, and `endpoint` are the LakeFS Access Key and LakeFS Secret Access Key, and LakeFS Endpoint respectively.
+
+#### b2
+
+The `b2` pip package will be automatically installed. However, there is some additional setup to
+1. Use the `b2` command line tool
+2. Add a `b2` bucket to `rclone`
+
+To configure the `b2` command line tool, you must run
+```bash
+b2 authorize-account [AWS_ACCESS_KEY_ID] [AWS_SECRET_ACCESS_KEY]
+```
+
+To add a `b2` remote store to `rclone`, run
+```bash
+cat <<EOT >> /home/[user]/.config/rclone/rclone.conf
+[b2]
+type = b2
+account = xxxxxxxxxxxxxxxxx
+key = xxxxxxxxxxxxxxxxx
+hard_delete = true
+EOT
+```
+where `account` is your AWS_ACCESS_KEY_ID and `key` is AWS_SECRET_ACCESS_KEY. More information on this process can be found [here](https://rclone.org/b2/).
+
+#### s3cmd
+
+If you wish to stream data from S3 using `LuxonisLoader`, `s3cmd` is needed. It can be installed [here](https://s3tools.org/s3cmd).
+
+To configure `s3cmd`, run `s3cmd --configure` after installation.
 
 #### luxonis_ml config
 
@@ -422,3 +453,9 @@ with LuxonisDataset("repo") as dataset:
 ### Known Bugs
 
 * There may be some issues with multiple processes working with the same local LDF filesystem simultaneously
+
+### Licenses
+
+* `lakefs`: [license](https://github.com/treeverse/lakeFS/blob/master/LICENSE)
+* `rclone`: [license](https://github.com/rclone/rclone/blob/master/COPYING)
+* `b2`: [license](https://github.com/Backblaze/B2_Command_Line_Tool/blob/master/LICENSE)

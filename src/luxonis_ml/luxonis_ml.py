@@ -90,7 +90,7 @@ def _dataset_pull(args):
 
     with LuxonisDataset(local_path=os.getcwd()) as dataset:
         artifact = LuxonisDatasetArtifact(dataset)
-        artifact.pull(s3_pull=args.pull_to_s3)
+        artifact.pull(s3_pull=args.pull_to_s3, rclone_s3_remote_name=args.rclone_remote)
 
 def _dataset_push(args):
 
@@ -126,6 +126,7 @@ def main():
 
     parser_dataset_pull = dataset_subparsers.add_parser('pull', help='Pull dataset version from LakeFS')
     parser_dataset_pull.add_argument('-s3', '--pull_to_s3', action='store_true', help='Pull to the S3 bucket instead of locally (for streaming)')
+    parser_dataset_pull.add_argument('-rr', '--rclone_remote', type=str, help='Name of the rclone remote store for S3 bucket', default='b2')
 
     parser_dataset_push = dataset_subparsers.add_parser('push', help='Push local dataset changes to LakeFS')
     parser_dataset_push.add_argument('-m', '--message', type=str, help='LakeFS commit message', required=False)

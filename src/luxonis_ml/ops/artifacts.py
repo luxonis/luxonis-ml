@@ -225,7 +225,7 @@ class LuxonisDatasetArtifact(Client):
         else:
             raise Exception("Must checkout a branch before pushing!")
 
-    def pull(self, s3_pull=False):
+    def pull(self, s3_pull=False, rclone_s3_remote_name='b2'):
 
         if hasattr(self.dataset, 'commit_id'):
             t0 = time.time()
@@ -233,7 +233,7 @@ class LuxonisDatasetArtifact(Client):
             if s3_pull:
                 print("Running rclone to sync with S3...")
                 bucket_path = self.dataset.s3_path.split('s3://')[-1]
-                cmd = f"rclone sync --s3-force-path-style=true lakefs:{self.name}/{self.dataset.commit_id}/ b2:{bucket_path}/{self.dataset.bough.value}"
+                cmd = f"rclone sync --s3-force-path-style=true lakefs:{self.name}/{self.dataset.commit_id}/ {rclone_s3_remote_name}:{bucket_path}/{self.dataset.bough.value}"
                 subprocess.check_output(cmd, shell=True)
                 # TODO: fix pull location of cache and metadata
             else:

@@ -211,7 +211,7 @@ class LuxonisDataset:
 
     def _init_boto3_client(self):
         self.client = boto3.client('s3',
-                        endpoint_url = 'https://s3.us-west-004.backblazeb2.com',
+                        endpoint_url = self._get_credentials('AWS_S3_ENDPOINT_URL'),
                         aws_access_key_id = self._get_credentials('AWS_ACCESS_KEY_ID'),
                         aws_secret_access_key = self._get_credentials('AWS_SECRET_ACCESS_KEY')
                       )
