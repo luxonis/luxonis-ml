@@ -224,10 +224,13 @@ This should yield an `oak-d` source and a `coco` source.
 For COCO and YOLO, it's quite easy to add data with the `from_coco` and `from_yolo` methods.
 
 ```python
+from luxonis_ml.ops.parsers import from_coco
+
 with LuxonisDataset("repo") as dataset:
 
     # add COCO 2017 val split
-    dataset.from_coco(
+    from_coco(
+        dataset,
         source_name="coco",
         image_dir="demo_source/coco/TODO",
         annotation_path="demo_source/coco/TODO",
