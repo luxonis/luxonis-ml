@@ -15,8 +15,7 @@ The work on this project is in an MVP state, so it may be missing some critical 
 Currently, the `luxonis_ml` package is in a private repo. To install,
 
 ```bash
-git clone https://github.com/luxonis/luxonis-ml-library.git && cd luxonis-ml-library
-git checkout ml-ops
+git clone https://github.com/luxonis/luxonis-ml.git && cd luxonis-ml
 pip install -e .
 ```
 
