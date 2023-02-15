@@ -292,20 +292,6 @@ class LuxonisDataset:
         class_id = self.classes.index(class_name)
         return class_id
 
-    def _add_class_2(self, ann):
-        class_name = ann['class_name']
-        tasks = list(ann.keys()) - ['class_name', 'class_id']
-        print(tasks)
-
-        for task in tasks:
-            if task not in self.classes.keys():
-                self.classes[task] = []
-            if class_name not in self.classes[task]:
-                self.classes[task].append(class_name)
-        # ensure we use a "global" class index to be compatible with multiple sources
-        class_id = self.classes.index(class_name)
-        return class_id
-
     def _add_keypoint_definition(self, class_id, definition):
         if class_id not in self.keypoint_definitions.keys():
             self.keypoint_definitions[class_id] = definition
@@ -538,9 +524,14 @@ class LuxonisDataset:
 
     def to_webdataset(self, view_name, query, shard_size=200):
 
-        tmp_bough = self.bough
-        self.bough = Bough.WEBDATASET
-        self._create_bough()
+        if self.bough == Bough.WEBDATASET:
+            webdataset_checked_out = True
+            tmp_bough = Bough.PROCESSED
+        else:
+            webdataset_checked_out = False
+            tmp_bough = self.bough
+            self.bough = Bough.WEBDATASET
+            self._create_bough()
 
         if not self.s3:
             prev_dir = os.getcwd()
@@ -598,7 +589,8 @@ class LuxonisDataset:
         if not self.s3:
             os.chdir(prev_dir)
 
-        self.bough = tmp_bough
+        if not webdataset_checked_out:
+            self.bough = tmp_bough
 
     def add_metadata(self, query, metadata_fn=None, **kwargs):
         """
