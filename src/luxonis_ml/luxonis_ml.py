@@ -100,8 +100,11 @@ def _dataset_push(args):
 
 def _dataset_webdataset(args):
 
+    sources = None if len(args.sources)==0 else args.sources
+    components = None if len(args.components)==0 else args.components
+
     with LuxonisDataset(local_path=os.getcwd()) as dataset:
-        dataset.to_webdataset(view_name=args.view, query=args.query)
+        dataset.to_webdataset(view_name=args.view, query=args.query, sources=sources, components=components)
 
 def main():
 
@@ -134,6 +137,8 @@ def main():
     parser_dataset_webdataset = dataset_subparsers.add_parser('webdataset', help='Convert local dataset to WebDataset format')
     parser_dataset_webdataset.add_argument('-v', '--view', type=str, help='View of the dataset and/or name of the webdataset', required=True)
     parser_dataset_webdataset.add_argument('-q', '--query', type=str, help='SQL query in format: SELECT basename FROM df WHERE [condition]', required=True)
+    parser_dataset_webdataset.add_argument('-s', '--sources', help='List of LDF sources to include, separated by spaces', nargs='+', default=[])
+    parser_dataset_webdataset.add_argument('-c', '--components', help='List of LDF components to include, separated by spaces', nargs='+', default=[])
 
     args = parser.parse_args()
 

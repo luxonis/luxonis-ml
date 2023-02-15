@@ -522,7 +522,7 @@ class LuxonisDataset:
         else:
             raise NotImplementedError()
 
-    def to_webdataset(self, view_name, query, shard_size=200):
+    def to_webdataset(self, view_name, query, sources=None, components=None, shard_size=200):
 
         if self.bough == Bough.WEBDATASET:
             webdataset_checked_out = True
@@ -546,8 +546,28 @@ class LuxonisDataset:
             file_list = []
             tar_count = 0
             for i, basename in tqdm(enumerate(basenames)):
-                if not self.s3: file_list += glob.glob(f"{basename}.*")
-                else: file_list += [file for file in files if file.startswith(basename)]
+                if not self.s3:
+                    if sources is None and components is None:
+                        file_list += glob.glob(f"{basename}.*")
+                    elif components is None:
+                        for source in sources:
+                            file_list += glob.glob(f"{basename}.{source}.*")
+                    elif sources is None:
+                        for component in components:
+                            if component == 'json':
+                                file_list += glob.glob(f"{basename}.*.{component}*")
+                            else:
+                                file_list += glob.glob(f"{basename}.*.{component}.*")
+                    else:
+                        for source in sources:
+                            for component in components:
+                                if component == 'json':
+                                    file_list += glob.glob(f"{basename}.{source}.{component}*")
+                                else:
+                                    file_list += glob.glob(f"{basename}.{source}.{component}.*")
+
+                else:
+                    file_list += [file for file in files if file.startswith(basename)]
 
                 if (i+1) % shard_size == 0 or (i+1) == len(basenames):
                     tar_count_str = str(tar_count).zfill(6)
