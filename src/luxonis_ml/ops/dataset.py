@@ -522,7 +522,7 @@ class LuxonisDataset:
         else:
             raise NotImplementedError()
 
-    def to_webdataset(self, view_name, query, sources=None, components=None, shard_size=200):
+    def to_webdataset(self, view_name, query, sources=None, components=None, shard_size=20):
 
         if self.bough == Bough.WEBDATASET:
             webdataset_checked_out = True

@@ -183,6 +183,7 @@ class LuxonisDatasetArtifact(Client):
                     subprocess.check_output(cmd, shell=True)
 
                 print("Uploading data to S3 - this could take some time...")
+                print(f"ldf_commit: {ldf_commit_number}")
                 cmd = f"b2 sync tmp/{self.dataset.bough.value} b2://{self.dataset.bucket}/lakefs/{self.name}/_ldf_commits/{ldf_commit_number}/"
                 subprocess.check_output(cmd, shell=True)
 
