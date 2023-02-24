@@ -110,7 +110,7 @@ class LuxonisLoader:
         bboxes = np.zeros((0,5))
         seg = np.zeros((self.nc, ih, iw))
         classify = np.zeros(self.nc)
-        keypoints = np.zeros((0,self.max_nk,3))
+        keypoints = np.zeros((0, self.max_nk*3+1))
 
         for ann in annotations:
             cls = ann['class']
@@ -133,10 +133,11 @@ class LuxonisLoader:
                 seg[cls] = seg[cls] + mask
 
             if 'keypoints' in ann.keys():
-                kps = np.array(ann['keypoints']).reshape((-1,3))
+                kps = np.array(ann['keypoints']).reshape((-1,3)).flatten()
                 nk = len(kps)
-                points = np.zeros((1,self.max_nk, 3))
-                points[0,:nk,:] = kps
+                kps = np.concatenate([[cls], kps])
+                points = np.zeros((1, self.max_nk*3+1))
+                points[0,:nk+1] = kps
                 keypoints = np.append(keypoints, points, axis=0)
 
         classify[classify > 0] = 1
@@ -171,9 +172,9 @@ class LuxonisLoader:
 
         label_keypoints = []
         for i, points in enumerate(label_kps):
-            l_kps = torch.zeros((points.shape[0], points.shape[1]*3+1))
+            l_kps = torch.zeros((points.shape[0], points.shape[1]+1))
             l_kps[:, 0] = i  # add target image index for build_targets()
-            l_kps[:, 1:] = points.reshape((points.shape[0], points.shape[1]*3))
+            l_kps[:, 1:] = points
             label_keypoints.append(l_kps)
 
         imgs = torch.stack(img, 0)
