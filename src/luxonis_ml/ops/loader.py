@@ -133,7 +133,10 @@ class LuxonisLoader:
                 seg[cls] = seg[cls] + mask
 
             if 'keypoints' in ann.keys():
-                kps = np.array(ann['keypoints']).reshape((-1,3)).flatten()
+                kps = np.array(ann['keypoints']).reshape((-1,3)).astype(np.float32)
+                kps[:,0] = kps[:,0]/iw
+                kps[:,1] = kps[:,1]/ih
+                kps = kps.flatten()
                 nk = len(kps)
                 kps = np.concatenate([[cls], kps])
                 points = np.zeros((1, self.max_nk*3+1))
