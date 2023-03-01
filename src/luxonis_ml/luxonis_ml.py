@@ -117,8 +117,8 @@ def main():
     dataset_subparsers = parser_dataset.add_subparsers(dest='dataset')
 
     parser_dataset_init = dataset_subparsers.add_parser('init', help='Initialize a dataset')
-    parser_dataset_init.add_argument('-s3', '--s3_path', type=str, help='S3 path where LDF is stored', required=True)
-    parser_dataset_init.add_argument('-lfs', '--lakefs_repo', type=str, help='Name of LakeFS repo', required=True)
+    parser_dataset_init.add_argument('-s3', '--s3_path', type=str, help='S3 path where LDF is stored', default=None)
+    parser_dataset_init.add_argument('-lfs', '--lakefs_repo', type=str, help='Name of LakeFS repo', default=None)
 
     parser_dataset_checkout = dataset_subparsers.add_parser('checkout', help='Checkout a LakeFS branch or commit')
     parser_dataset_checkout.add_argument('-b', '--branch', type=str, help='LakeFS branch to checkout', default=None)
