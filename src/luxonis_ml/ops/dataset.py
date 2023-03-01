@@ -90,7 +90,7 @@ class LuxonisDataset:
         local_path: optional but recommended path to local copy for faster processing
         """
 
-        if s3_path is None or local_path is None:
+        if s3_path is None and local_path is None:
             raise Exception("S3 path or local path required to initialize LDF!")
 
         self._init_path(s3_path, local_path)
