@@ -124,9 +124,7 @@ class LuxonisDataset:
             exists = 'Contents' in resp
 
         if not exists:
-            if self.s3_path is None:
-                raise Exception("s3 path is required to initialize a dataset for the first time")
-            self.name = os.path.basename(os.path.normpath(self.s3_path))
+            self.name = os.path.basename(os.path.normpath(os.getcwd()))
             self._create_bough()
 
             self.sources = {}
@@ -170,18 +168,13 @@ class LuxonisDataset:
                 self.s3_path = tmp_s3_path
             self.creds = tmp_creds
 
-            # S3 path required
-            if self.s3_path is None:
-                raise Exception("s3 path is required to initialize a dataset for the first time")
-            if not self.s3_path.startswith('s3://'):
+            if self.s3_path and not self.s3_path.startswith('s3://'):
                 raise Exception("s3_path must start with s3:// !")
 
             # ensure paths for the desired bough exist
             self._create_bough()
 
         self._init_boto3_client()
-        self.bucket = self.s3_path.split('//')[1].split('/')[0]
-        self.bucket_path = self.s3_path.split(self.bucket+'/')[-1]
 
         return self
 
@@ -211,11 +204,16 @@ class LuxonisDataset:
             return os.environ[key]
 
     def _init_boto3_client(self):
-        self.client = boto3.client('s3',
-                        endpoint_url = self._get_credentials('AWS_S3_ENDPOINT_URL'),
-                        aws_access_key_id = self._get_credentials('AWS_ACCESS_KEY_ID'),
-                        aws_secret_access_key = self._get_credentials('AWS_SECRET_ACCESS_KEY')
-                      )
+        if self.s3_path:
+            self.client = boto3.client('s3',
+                            endpoint_url = self._get_credentials('AWS_S3_ENDPOINT_URL'),
+                            aws_access_key_id = self._get_credentials('AWS_ACCESS_KEY_ID'),
+                            aws_secret_access_key = self._get_credentials('AWS_SECRET_ACCESS_KEY')
+                          )
+            self.bucket = self.s3_path.split('//')[1].split('/')[0]
+            self.bucket_path = self.s3_path.split(self.bucket+'/')[-1]
+        else:
+            self.client, self.bucket, self.bucket_path = None, None, None
 
     def _init_path(self, s3_path, local_path):
         self.s3_path = s3_path
