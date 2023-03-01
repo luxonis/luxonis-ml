@@ -6,6 +6,7 @@ import numpy as np
 import cv2
 from tqdm import tqdm
 from pathlib import Path
+import warnings
 
 """
 Functions used with LuxonisDataset to convert other data formats to LDF
@@ -51,13 +52,15 @@ def from_coco(dataset, source_name, image_dir, annotation_path, split='train', o
             for ann in anns:
                 cat_id = ann['category_id']
                 class_name = categories[cat_id]
-                class_id = dataset._add_class(class_name)
+
+                new_ann_instance = {}
+                new_ann_instance['class_name'] = class_name
+                class_id = dataset._add_class(new_ann_instance)
+                new_ann_instance['class'] = class_id
+
                 if cat_id in keypoint_definitions.keys():
                     dataset._add_keypoint_definition(class_id, keypoint_definitions[cat_id])
 
-                new_ann_instance = {}
-                new_ann_instance['class'] = class_id
-                new_ann_instance['class_name'] = class_name
                 if 'segmentation' in ann.keys():
                     segmentation = ann['segmentation']
                     if isinstance(segmentation, list) and len(segmentation) > 0: # polygon format
@@ -148,9 +151,9 @@ def from_yolo(dataset, source_name, yaml_path, split='all', override_main_compon
                 new_ann_instance = {}
                 yolo_class_id = int(row[0])
                 class_name = classes[yolo_class_id]
-                class_id = dataset._add_class(class_name)
-                new_ann_instance['class'] = class_id
                 new_ann_instance['class_name'] = class_name
+                class_id = dataset._add_class(new_ann_instance)
+                new_ann_instance['class'] = class_id
 
                 # bounding box
                 new_ann_instance['bbox'] = [row[1]*w, row[2]*h, row[3]*w, row[4]*h]

@@ -34,13 +34,15 @@ def _config():
 
     print(f"Credentials saved to {cache_file}!")
 
-    # TODO: add any config for integrated tools?
-
 def _dataset_init(args):
 
-    name = os.path.basename(os.path.normpath(args.s3_path))
-    if os.getcwd().split('/')[-1] != name:
-        raise Exception(f"Please initialize in directory with name {name}")
+    name = os.path.basename(os.path.normpath(os.getcwd()))
+    if args.s3_path:
+        if name != os.path.basename(os.path.normpath(args.s3_path)):
+            raise Exception(f"Please match end of s3 prefix with local directory name {name}")
+    if args.lakefs_repo:
+        if name != args.lakefs_repo:
+            raise Exception(f"Please match lakefs repo with local directory name {name}")
 
     if os.path.exists(f"{os.getcwd()}/.cache"):
         warnings.warn(f"Warning: LDF already exists in this directory")
@@ -49,6 +51,24 @@ def _dataset_init(args):
         pass
 
     print("Initialization successful!")
+
+def _dataset_set_s3(args):
+
+    name = os.path.basename(os.path.normpath(os.getcwd()))
+    if name != os.path.basename(os.path.normpath(args.s3_path)):
+        raise Exception(f"Please match end of s3 prefix with local directory name {name}")
+
+    with LuxonisDataset(local_path=os.getcwd(), s3_path=args.s3_path) as dataset:
+        pass
+
+def _dataset_set_lakefs_repo(args):
+
+    name = os.path.basename(os.path.normpath(os.getcwd()))
+    if name != args.lakefs_repo:
+        raise Exception(f"Please match lakefs repo with local directory name {name}")
+
+    with LuxonisDataset(local_path=os.getcwd(), artifact_repo=args.lakefs_repo) as dataset:
+        pass
 
 def _dataset_checkout(args):
 
@@ -117,6 +137,12 @@ def main():
     parser_dataset_init.add_argument('-s3', '--s3_path', type=str, help='S3 path where LDF is stored', default=None)
     parser_dataset_init.add_argument('-lfs', '--lakefs_repo', type=str, help='Name of LakeFS repo', default=None)
 
+    parser_dataset_set_s3 = dataset_subparsers.add_parser('set_s3', help='Set the S3 prefix for streaming')
+    parser_dataset_set_s3.add_argument('-s3', '--s3_path', type=str, help='S3 path where LDF is stored', default=None)
+
+    parser_dataset_set_lakefs_repo = dataset_subparsers.add_parser('set_lakefs_repo', help='Set the LakeFS repo for dataset versioning')
+    parser_dataset_set_lakefs_repo.add_argument('-lfs', '--lakefs_repo', type=str, help='Name of LakeFS repo', default=None)
+
     parser_dataset_checkout = dataset_subparsers.add_parser('checkout', help='Checkout a LakeFS branch or commit')
     parser_dataset_checkout.add_argument('-b', '--branch', type=str, help='LakeFS branch to checkout', default=None)
     parser_dataset_checkout.add_argument('-c', '--commit', type=str, help='LakeFS branch to checkout', default=None)
@@ -141,6 +167,10 @@ def main():
         _config()
     elif args.dataset == 'init':
         _dataset_init(args)
+    elif args.dataset == 'set_s3':
+        _dataset_set_s3(args)
+    elif args.dataset == 'set_lakefs_repo':
+        _dataset_set_lakefs_repo(args)
     elif args.dataset == 'checkout':
         _dataset_checkout(args)
     elif args.dataset == 'status':

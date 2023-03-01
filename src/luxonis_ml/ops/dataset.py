@@ -124,15 +124,14 @@ class LuxonisDataset:
             exists = 'Contents' in resp
 
         if not exists:
-            if self.s3_path is None:
-                raise Exception("s3 path is required to initialize a dataset for the first time")
-            self.name = os.path.basename(os.path.normpath(self.s3_path))
+            self.name = os.path.basename(os.path.normpath(os.getcwd()))
             self._create_bough()
 
             self.sources = {}
             self._create_directory(".cache")
             self.calibration_set = set()
             self.classes = []
+            self.classes_by_task = {}
             self.keypoint_definitions = {}
             self.df = pd.DataFrame(columns=["basename", "split"])
 
@@ -169,18 +168,13 @@ class LuxonisDataset:
                 self.s3_path = tmp_s3_path
             self.creds = tmp_creds
 
-            # S3 path required
-            if self.s3_path is None:
-                raise Exception("s3 path is required to initialize a dataset for the first time")
-            if not self.s3_path.startswith('s3://'):
+            if self.s3_path and not self.s3_path.startswith('s3://'):
                 raise Exception("s3_path must start with s3:// !")
 
             # ensure paths for the desired bough exist
             self._create_bough()
 
         self._init_boto3_client()
-        self.bucket = self.s3_path.split('//')[1].split('/')[0]
-        self.bucket_path = self.s3_path.split(self.bucket+'/')[-1]
 
         return self
 
@@ -210,11 +204,16 @@ class LuxonisDataset:
             return os.environ[key]
 
     def _init_boto3_client(self):
-        self.client = boto3.client('s3',
-                        endpoint_url = self._get_credentials('AWS_S3_ENDPOINT_URL'),
-                        aws_access_key_id = self._get_credentials('AWS_ACCESS_KEY_ID'),
-                        aws_secret_access_key = self._get_credentials('AWS_SECRET_ACCESS_KEY')
-                      )
+        if self.s3_path:
+            self.client = boto3.client('s3',
+                            endpoint_url = self._get_credentials('AWS_S3_ENDPOINT_URL'),
+                            aws_access_key_id = self._get_credentials('AWS_ACCESS_KEY_ID'),
+                            aws_secret_access_key = self._get_credentials('AWS_SECRET_ACCESS_KEY')
+                          )
+            self.bucket = self.s3_path.split('//')[1].split('/')[0]
+            self.bucket_path = self.s3_path.split(self.bucket+'/')[-1]
+        else:
+            self.client, self.bucket, self.bucket_path = None, None, None
 
     def _init_path(self, s3_path, local_path):
         self.s3_path = s3_path
@@ -273,9 +272,20 @@ class LuxonisDataset:
         elif path not in self.modified_files[bough]:
             self.modified_files[bough].append(path)
 
-    def _add_class(self, class_name):
+    def _add_class(self, ann):
+
+        class_name = ann['class_name']
         if class_name not in self.classes:
             self.classes.append(class_name)
+
+        for task in ann:
+            if task in ['class_name', 'class_id']:
+                continue
+            if task not in self.classes_by_task.keys():
+                self.classes_by_task[task] = []
+            if class_name not in self.classes_by_task[task]:
+                self.classes_by_task[task].append(class_name)
+
         # ensure we use a "global" class index to be compatible with multiple sources
         class_id = self.classes.index(class_name)
         return class_id
@@ -475,7 +485,7 @@ class LuxonisDataset:
                 for i, ann in enumerate(json_dict[component]['annotations']):
                     if 'class_name' not in ann.keys():
                         raise Exception("class_name is required in an annotation")
-                    class_id = self._add_class(ann['class_name'])
+                    class_id = self._add_class(ann)
                     json_dict[component]['annotations'][i]['class'] = class_id
 
         if not self.s3:
@@ -510,11 +520,16 @@ class LuxonisDataset:
         else:
             raise NotImplementedError()
 
-    def to_webdataset(self, view_name, query, shard_size=200):
+    def to_webdataset(self, view_name, query, sources=None, components=None, shard_size=20):
 
-        tmp_bough = self.bough
-        self.bough = Bough.WEBDATASET
-        self._create_bough()
+        if self.bough == Bough.WEBDATASET:
+            webdataset_checked_out = True
+            tmp_bough = Bough.PROCESSED
+        else:
+            webdataset_checked_out = False
+            tmp_bough = self.bough
+            self.bough = Bough.WEBDATASET
+            self._create_bough()
 
         if not self.s3:
             prev_dir = os.getcwd()
@@ -529,8 +544,28 @@ class LuxonisDataset:
             file_list = []
             tar_count = 0
             for i, basename in tqdm(enumerate(basenames)):
-                if not self.s3: file_list += glob.glob(f"{basename}.*")
-                else: file_list += [file for file in files if file.startswith(basename)]
+                if not self.s3:
+                    if sources is None and components is None:
+                        file_list += glob.glob(f"{basename}.*")
+                    elif components is None:
+                        for source in sources:
+                            file_list += glob.glob(f"{basename}.{source}.*")
+                    elif sources is None:
+                        for component in components:
+                            if component == 'json':
+                                file_list += glob.glob(f"{basename}.*.{component}*")
+                            else:
+                                file_list += glob.glob(f"{basename}.*.{component}.*")
+                    else:
+                        for source in sources:
+                            for component in components:
+                                if component == 'json':
+                                    file_list += glob.glob(f"{basename}.{source}.{component}*")
+                                else:
+                                    file_list += glob.glob(f"{basename}.{source}.{component}.*")
+
+                else:
+                    file_list += [file for file in files if file.startswith(basename)]
 
                 if (i+1) % shard_size == 0 or (i+1) == len(basenames):
                     tar_count_str = str(tar_count).zfill(6)
@@ -572,7 +607,8 @@ class LuxonisDataset:
         if not self.s3:
             os.chdir(prev_dir)
 
-        self.bough = tmp_bough
+        if not webdataset_checked_out:
+            self.bough = tmp_bough
 
     def add_metadata(self, query, metadata_fn=None, **kwargs):
         """
