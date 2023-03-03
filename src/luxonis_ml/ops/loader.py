@@ -29,7 +29,8 @@ class LuxonisLoader:
         self.webdataset = wds.WebDataset(self.url).shuffle(1000).decode(*handlers)
 
         self.nc = len(self.dataset.classes)
-        self.max_nk = max([len(definition['keypoints']) for definition in self.dataset.keypoint_definitions.values()])
+        nk = [len(definition["keypoints"]) for definition in self.dataset.keypoint_definitions.values()]
+        self.max_nk = max(nk) if nk else 0
 
     def get_tar_numbers(self):
         if not self.dataset.s3 and not self.stream:
