@@ -325,6 +325,14 @@ class LuxonisDataset:
         else:
             self.df.loc[len(self.df)] = insert_columns
 
+    def _update_df_row(self, basename, **kwargs):
+        idx = self.df.index[self.df['basename'] == basename].tolist()
+        insert_columns = self.df.loc[idx[0]].to_dict()
+        for col in insert_columns:
+            if col in kwargs.keys():
+                insert_columns[col] = kwargs[col]
+        self.df.loc[idx[0]] = insert_columns
+
     def _query_df(self, query):
         df = self.df
         return sqldf(query, locals())
@@ -519,6 +527,29 @@ class LuxonisDataset:
             self._modify_file('metadata.parquet')
         else:
             raise NotImplementedError()
+
+    def update_annotations(self, basename, ann_data):
+        json_path = glob.glob(f"{self.path}/{self.bough.value}/ldf/{basename}.*.json")[0]
+        with open(json_path) as file:
+            json_dict = json.load(file)
+
+        for component in ann_data:
+            if component in json_dict.keys():
+                json_dict[component]['annotations'] = ann_data[component]['annotations']
+            else:
+                warnings.warn(f"Component {component} not found for {basename}")
+
+    def update_metadata(self, basename, **kwargs):
+        json_path = glob.glob(f"{self.path}/{self.bough.value}/ldf/{basename}.*.json")[0]
+        with open(json_path) as file:
+            json_dict = json.load(file)
+
+        for attribute in kwargs:
+            if attribute not in self.df.columns:
+                self._add_df_column(attribute)
+            json_dict['metadata'][attribute] = kwargs[attribute]
+
+        self._update_df_row(basename, **kwargs)
 
     def to_webdataset(self, view_name, query, sources=None, components=None, shard_size=20):
 
