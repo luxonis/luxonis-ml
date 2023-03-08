@@ -534,10 +534,20 @@ class LuxonisDataset:
             json_dict = json.load(file)
 
         for component in ann_data:
+            for i, ann in enumerate(ann_data[component]['annotations']):
+                if 'class_name' not in ann.keys():
+                    raise Exception("class_name is required in an annotation")
+                class_id = self._add_class(ann)
+                ann_data[component]['annotations'][i]['class'] = class_id
+
+        for component in ann_data:
             if component in json_dict.keys():
                 json_dict[component]['annotations'] = ann_data[component]['annotations']
             else:
                 warnings.warn(f"Component {component} not found for {basename}")
+
+        with open(json_path, 'w') as file:
+            json.dump(json_dict, file)
 
     def update_metadata(self, basename, **kwargs):
         json_path = glob.glob(f"{self.path}/{self.bough.value}/ldf/{basename}.*.json")[0]
