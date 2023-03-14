@@ -107,6 +107,7 @@ class LuxonisLoader:
         json_key = f"{source_name}.json"
         json_data = data[json_key]
         annotations = json_data[source.main_component]["annotations"]
+        present_annotations = set()
 
         bboxes = np.zeros((0,5))
         seg = np.zeros((self.nc, ih, iw))
@@ -117,12 +118,17 @@ class LuxonisLoader:
             cls = ann['class']
             classify[cls] = classify[cls] + 1
 
+            if "class" in ann.keys():
+                present_annotations.add("class")
+
             if 'bbox' in ann.keys():
+                present_annotations.add("bbox")
                 x, y, w, h = ann['bbox']
                 box = np.array([cls, x/iw, y/ih, w/iw, h/ih]).reshape((1,5))
                 bboxes = np.append(bboxes, box, axis=0)
 
             if 'segmentation' in ann.keys():
+                present_annotations.add("segmentation")
                 segmentation = ann['segmentation']['data']
                 if isinstance(segmentation, list): # polygon format
                     rles = maskUtils.frPyObjects(segmentation, ih, iw)
@@ -134,6 +140,7 @@ class LuxonisLoader:
                 seg[cls] = seg[cls] + mask
 
             if 'keypoints' in ann.keys():
+                present_annotations.add("keypoints")
                 kps = np.array(ann['keypoints']).reshape((-1,3)).astype(np.float32)
                 kps[:,0] = kps[:,0]/iw
                 kps[:,1] = kps[:,1]/ih
@@ -147,44 +154,64 @@ class LuxonisLoader:
         classify[classify > 0] = 1
         seg[seg > 0] = 1
 
-        return img, classify, bboxes, seg, keypoints
+        anno_dict = {}
+        if "class" in present_annotations:
+            anno_dict["class"] = classify
+        if "bbox" in present_annotations:
+            anno_dict["bbox"] = bboxes
+        if "segmentation" in present_annotations:
+            anno_dict["segmentation"] = seg
+        if "keypoints" in present_annotations:
+            anno_dict["keypoints"] = keypoints
+
+        return img, anno_dict
 
     def auto_preprocess_numpy(self, data):
         return self._auto_preprocess(data)
 
     def auto_preprocess(self, data):
-        img, classify, bboxes, seg, keypoints = self._auto_preprocess(data)
+        img, anno_dict = self._auto_preprocess(data)
         img = torch.tensor(img)
-        classify = torch.tensor(classify)
-        bboxes = torch.tensor(bboxes)
-        seg = torch.tensor(seg)
-        keypoints = torch.tensor(keypoints)
-        return img, classify, bboxes, seg, keypoints
+        for key in anno_dict:
+            anno_dict[key] = torch.tensor(anno_dict[key])
+        return img, anno_dict
 
     @staticmethod
     def collate_fn(batch):
         # TODO: will also want to implement this for keypoints
         zipped = zip(*batch)
-        img, label_cls, label_bboxes, label_seg, label_kps = zipped
-
-        label_box = []
-        for i, box in enumerate(label_bboxes):
-            l_box = torch.zeros((box.shape[0], 6))
-            l_box[:, 0] = i  # add target image index for build_targets()
-            l_box[:, 1:] = box
-            label_box.append(l_box)
-
-        label_keypoints = []
-        for i, points in enumerate(label_kps):
-            l_kps = torch.zeros((points.shape[0], points.shape[1]+1))
-            l_kps[:, 0] = i  # add target image index for build_targets()
-            l_kps[:, 1:] = points
-            label_keypoints.append(l_kps)
-
+        img, anno_dicts = zipped
         imgs = torch.stack(img, 0)
-        cls = torch.stack(label_cls, 0)
-        boxs = torch.cat(label_box, 0)
-        segs = torch.stack(label_seg, 0)
-        kps = torch.cat(label_keypoints, 0)
 
-        return imgs, cls, boxs, segs, kps
+        present_annotations = anno_dicts[0].keys()
+        out_annotations = {anno: None for anno in present_annotations}
+        
+        if "class" in present_annotations:
+            class_annos = [anno["class"] for anno in anno_dicts]
+            out_annotations["class"] = torch.stack(class_annos, 0)
+
+        if "bbox" in present_annotations:
+            bbox_annos = [anno["bbox"] for anno in anno_dicts]
+            label_box = []
+            for i, box in enumerate(bbox_annos):
+                l_box = torch.zeros((box.shape[0], 6))
+                l_box[:, 0] = i  # add target image index for build_targets()
+                l_box[:, 1:] = box
+                label_box.append(l_box)
+            out_annotations["bbox"] = torch.cat(label_box, 0)
+
+        if "segmentation" in present_annotations:
+            seg_annos = [anno["segmentation"] for anno in anno_dicts]
+            out_annotations["segmentation"] = torch.stack(seg_annos, 0)
+
+        if "keypoints" in present_annotations:
+            keypoint_annos = [anno["keypoints"] for anno in anno_dicts]
+            label_keypoints = []
+            for i, points in enumerate(keypoint_annos):
+                l_kps = torch.zeros((points.shape[0], points.shape[1]+1))
+                l_kps[:, 0] = i  # add target image index for build_targets()
+                l_kps[:, 1:] = points
+                label_keypoints.append(l_kps)    
+            out_annotations["keypoints"] = torch.cat(label_keypoints, 0)
+
+        return imgs, out_annotations
