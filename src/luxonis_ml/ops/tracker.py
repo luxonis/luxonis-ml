@@ -5,9 +5,12 @@ from pathlib import Path
 import glob
 from unique_names_generator import get_random_name
 from PIL import Image
+import cv2
+import numpy as np
 
 from pytorch_lightning.utilities import rank_zero_only
 from pytorch_lightning.loggers.logger import Logger as plLogger
+
 
 class LuxonisTracker:
     """
@@ -289,6 +292,44 @@ class LuxonisTrackerPL(plLogger):
             self.experiment["wandb"].log(metrics, step)
         if self.is_mlflow:
             self.experiment["mlflow"].log_metrics(metrics, step)
+
+    @rank_zero_only
+    def log_image(self, img_tags, img, step):
+        """
+        img: Image in RGB order, uint8, HWC
+        """
+
+        if self.is_tensorboard:
+
+            image = cv2.resize(img, (252,252))
+            info_box = np.copy(image)
+            info_box[True] = 255 #change all values to 255
+
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            size = 0.5
+            color = (0, 0, 0)
+            stroke = 2
+
+            cv2.putText(info_box,f"image number: {img_tags['image_n']}",(5,25),font,size,color,stroke)
+            cv2.putText(info_box,f"epoch number: {img_tags['epoch_n']}",(5,75),font,size,color,stroke)
+            cv2.putText(info_box,f"label idx: {img_tags['label']}",(5,125),font,size,color,stroke)
+            cv2.putText(info_box,f"prediction idx: {img_tags['prediction']}",(5,175),font,size,color,stroke)
+
+            final_image = np.concatenate((image, info_box), axis=1)
+            self.experiment["tensorboard"].add_image(f"Image {img_tags['image_n']}", final_image, step, dataformats='HWC')
+
+        if self.is_wandb:
+            ## has yet to be tested!
+            name = f"Image {img_tags['image_n']}"
+            wandb_image = self.wandb.Image(img, caption=name)
+            self.wandb.log({name: wandb_image})
+
+        if self.is_mlflow:
+            ## has yet to be tested!
+            name = f"Image {img_tags['image_n']}"
+            self.mlflow.log_image(
+                img, f"{name}_{step}.png"
+            )
 
     @rank_zero_only
     def save(self):
