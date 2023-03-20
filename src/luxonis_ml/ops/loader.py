@@ -26,7 +26,10 @@ class LuxonisLoader:
             self.url = f"pipe:s3cmd -q get s3://{self.dataset.bucket}/{self.dataset.bucket_path}/{Bough.WEBDATASET.value}/{self.view}_{tar_numbers}.tar -"
 
         handlers = self.get_source_handlers()
-        self.webdataset = wds.WebDataset(self.url).shuffle(1000).decode(*handlers)
+        if self.view == 'train':
+            self.webdataset = wds.WebDataset(self.url).shuffle(1000).decode(*handlers)
+        else: # load webdataset without shuffling
+            self.webdataset = wds.WebDataset(self.url).decode(*handlers)
 
         self.nc = len(self.dataset.classes)
         nk = [len(definition["keypoints"]) for definition in self.dataset.keypoint_definitions.values()]
