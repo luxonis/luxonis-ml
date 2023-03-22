@@ -158,7 +158,9 @@ class LuxonisTrackerPL(plLogger):
                  is_wandb=False,
                  is_mlflow=False,
                  is_sweep=False,
-                 rank=0):
+                 wandb_entity=None,
+                 mlflow_tracking_uri=None,
+                 rank=0):             
         
         plLogger.__init__(self)
 
@@ -169,6 +171,15 @@ class LuxonisTrackerPL(plLogger):
         self.is_mlflow = is_mlflow
         self.is_sweep = is_sweep
         self.rank = rank
+
+        if self.is_wandb and wandb_entity is None:
+            raise Exception("Must specify wandb_entity when using wandb!")
+        else:
+            self.wandb_entity = wandb_entity
+        if self.is_mlflow and mlflow_tracking_uri is None:
+            raise Exception("Must specify mlflow_tracking_uri when using mlflow!")
+        else:
+            self.mlflow_tracking_uri = mlflow_tracking_uri
 
         if not (
             self.is_tensorboard or \
@@ -224,9 +235,10 @@ class LuxonisTrackerPL(plLogger):
 
             self._experiment["wandb"].init(
                 project=self.project_name,
-                entity="luxonis",
+                entity=self.wandb_entity,
                 dir=log_dir,
                 name=self.run_name,
+                #config=self.config # TODO: this also?
             )
 
         if self.is_mlflow:
@@ -324,10 +336,9 @@ class LuxonisTrackerPL(plLogger):
             self.experiment["tensorboard"].add_image(head_name, img, step, dataformats='HWC')
 
         if self.is_wandb:
-            ## TODO: has yet to be tested!
             name = "name_of_choice"
-            wandb_image = self.wandb.Image(img, caption=name)
-            self.wandb.log({name: wandb_image})
+            wandb_image = self._experiment["wandb"].Image(img, caption=name)
+            self._experiment["wandb"].log({name: wandb_image})
 
         if self.is_mlflow:
             ## TODO: has yet to be tested!
