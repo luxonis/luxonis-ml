@@ -294,39 +294,44 @@ class LuxonisTrackerPL(plLogger):
             self.experiment["mlflow"].log_metrics(metrics, step)
 
     @rank_zero_only
-    def log_image(self, img_tags, img, step):
+    def log_images(self, head_name, img_batch, step):
         """
+        head_name: name of the model head
+        img_batch: np.array of images in RGB order, uint8, NHWC
+        step: epoch in which we logged the image
+        """
+        if self.is_tensorboard:
+            self.experiment["tensorboard"].add_images(head_name, img_batch, step, dataformats='NHWC')
+        
+        if self.is_wandb:
+            ## TODO
+            pass
+
+        if self.is_mlflow:
+            ## TODO
+            pass
+
+
+    @rank_zero_only
+    def log_image(self, head_name, img, step):
+        """
+        head_name: name of the model head
         img: Image in RGB order, uint8, HWC
+        step: epoch in which we logged the image
         """
 
         if self.is_tensorboard:
-
-            image = cv2.resize(img, (252,252))
-            info_box = np.copy(image)
-            info_box[True] = 255 #change all values to 255
-
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            size = 0.5
-            color = (0, 0, 0)
-            stroke = 2
-
-            cv2.putText(info_box,f"image number: {img_tags['image_n']}",(5,25),font,size,color,stroke)
-            cv2.putText(info_box,f"epoch number: {img_tags['epoch_n']}",(5,75),font,size,color,stroke)
-            cv2.putText(info_box,f"label idx: {img_tags['label']}",(5,125),font,size,color,stroke)
-            cv2.putText(info_box,f"prediction idx: {img_tags['prediction']}",(5,175),font,size,color,stroke)
-
-            final_image = np.concatenate((image, info_box), axis=1)
-            self.experiment["tensorboard"].add_image(f"Image {img_tags['image_n']}", final_image, step, dataformats='HWC')
+            self.experiment["tensorboard"].add_image(head_name, img, step, dataformats='HWC')
 
         if self.is_wandb:
-            ## has yet to be tested!
-            name = f"Image {img_tags['image_n']}"
+            ## TODO: has yet to be tested!
+            name = "name_of_choice"
             wandb_image = self.wandb.Image(img, caption=name)
             self.wandb.log({name: wandb_image})
 
         if self.is_mlflow:
-            ## has yet to be tested!
-            name = f"Image {img_tags['image_n']}"
+            ## TODO: has yet to be tested!
+            name = "name_of_choice"
             self.mlflow.log_image(
                 img, f"{name}_{step}.png"
             )
