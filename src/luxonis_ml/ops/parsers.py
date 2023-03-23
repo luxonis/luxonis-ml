@@ -7,6 +7,8 @@ import cv2
 from tqdm import tqdm
 from pathlib import Path
 import warnings
+import random
+import shutil
 
 """
 Functions used with LuxonisDataset to convert other data formats to LDF
@@ -211,6 +213,47 @@ def from_numpy_format(
         dataset.add_data(
             source_name, {component_name: image, "json": new_ann}, split=split
         )
+
+def train_test_split_image_classification_directory_tree(
+        directory_tree_path, 
+        destination_path1, 
+        destination_path2,
+        split_proportion,
+        folders_to_ignore=[]
+    ):
+    """
+    Split directory tree into two parts. This is useful as some classification directory tree format datasets 
+    (e.g. Caltech101) do not separately provide data for training, validation and testing.
+    Arguments:
+        directory_tree_path: [string] path to the directory tree folder
+        destination_path1: [string] path to the destination directory 1 - must be an existing and empty folder
+        destination_path2: [string] path to the destination directory 2 - must be an existing and empty folder
+        split_proportion: [float] proportion of dataset going into output directory 1
+        folders_to_ignore: [list] list of folder names which should not be included in the split
+    Returns:
+        None
+    """
+
+    for folder_name in os.listdir(directory_tree_path):
+        
+        if folder_name in folders_to_ignore:
+            continue
+
+        image_names = os.listdir(f"{directory_tree_path}/{folder_name}")
+        random.shuffle(image_names)
+        split_idx = int(len(image_names)*split_proportion)
+        image_names1 = image_names[:split_idx]
+        image_names2 = image_names[split_idx:]
+
+        os.mkdir(f"{destination_path1}/{folder_name}")
+        os.mkdir(f"{destination_path2}/{folder_name}")
+        
+        for image_name in image_names1:
+            shutil.copyfile(src=f"{directory_tree_path}/{folder_name}/{image_name}", 
+                            dst=f"{destination_path1}/{folder_name}/{image_name}")
+        for image_name in image_names2:
+            shutil.copyfile(src=f"{directory_tree_path}/{folder_name}/{image_name}", 
+                            dst=f"{destination_path2}/{folder_name}/{image_name}")
 
 def from_image_classification_directory_tree_format(
         dataset, 
