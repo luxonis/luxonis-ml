@@ -211,3 +211,63 @@ def from_numpy_format(
         dataset.add_data(
             source_name, {component_name: image, "json": new_ann}, split=split
         )
+
+def from_image_classification_directory_tree_format(
+        dataset, 
+        source_name, 
+        directory_root, 
+        split,
+        dataset_size=None,
+        override_main_component=None
+    ):
+    """
+    Constructs a LDF dataset from a directory tree whose subfolders define image classes.
+    Arguments:
+        dataset: [LuxonisDataset] LDF dataset instance
+        source_name: [string] name of the LDFSource to add to
+        directory_root: [string] path to the root of directory tree
+        split: [string] 'train', 'val', or 'test'
+        dataset_size: [int] number of data instances to include in the LDF dataset (if None include all)
+        override_main_component: [LDFComponent] provide another LDFComponent if not using the main component from the LDFSource
+    Returns:
+        None
+    """
+
+    ## define source component name
+    if override_main_component is not None:
+        component_name = override_main_component
+    else:
+        component_name = dataset.sources[source_name].main_component
+    
+    if len(os.listdir(directory_root)) == 0:
+        raise RuntimeError('Directory tree is empty')
+
+    count = 0
+    for class_folder_name in os.listdir(directory_root):
+        class_folder_path = os.path.join(directory_root, class_folder_name)
+
+        for image_name in os.listdir(class_folder_path):
+            ## check dataset size limit
+            count += 1
+            if dataset_size is not None and count > dataset_size:
+                break
+
+            image_path = os.path.join(directory_root, class_folder_name, image_name)
+            if os.path.exists(image_path):
+                
+                ## read image
+                image = cv2.imread(image_path)
+
+                ## structure annotations
+                new_ann = {component_name: {"annotations": []}}
+                new_ann_instance = {}
+                new_ann_instance["class_name"] = str(class_folder_name)
+                new_ann[component_name]["annotations"].append(new_ann_instance)
+
+                ## add data to the provided LDF dataset instance
+                dataset.add_data(
+                    source_name, {component_name: image, "json": new_ann}, split=split
+                )
+
+            else:
+                raise RuntimeError('A non-valid image path was encountered')
