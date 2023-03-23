@@ -271,3 +271,67 @@ def from_image_classification_directory_tree_format(
 
             else:
                 raise RuntimeError('A non-valid image path was encountered')
+            
+def from_image_classification_with_text_annotations_format(
+        dataset, 
+        source_name, 
+        image_folder_path,
+        info_file_path,
+        delimiter,
+        split,
+        dataset_size=None,
+        override_main_component=None
+    ):
+
+    """
+    Constructs a LDF dataset based on image paths and labels from text annotations.
+    Arguments:
+        dataset: [LuxonisDataset] LDF dataset instance
+        source_name: [string] name of the LDFSource to add to
+        image_folder_path: [string] path to the directory where images are stored
+        info_file_path: [string] path to the text annotations file where each line encodes a name and the associated class of an image
+        delimiter: [string] how image names and classes are separated in the info file (e.g. " ", "," or ";")
+        split: [string] 'train', 'val', or 'test'
+        dataset_size: [int] number of data instances to include in our dataset (if None include all)
+        override_main_component: [LDFComponent] provide another LDFComponent if not using the main component from the LDFSource
+    Returns:
+        None
+    """
+
+    ## define source component name
+    if override_main_component is not None:
+        component_name = override_main_component
+    else:
+        component_name = dataset.sources[source_name].main_component
+    
+    if not os.path.exists(info_file_path):
+        raise RuntimeError('Info file path non-existent.')
+
+    count = 0
+    with open(info_file_path) as f:
+        
+        for line in f:
+
+            try:
+                image_path, label = line.split(delimiter)
+            except:
+                raise RuntimeError('Unable to split the info file based on the provided delimiter.')
+
+            ## read image
+            image = cv2.imread(os.path.join(image_folder_path, image_path))
+
+            ## structure annotations
+            new_ann = {component_name: {"annotations": []}}
+            new_ann_instance = {}
+            new_ann_instance["class_name"] = str(label)
+            new_ann[component_name]["annotations"].append(new_ann_instance)
+
+            ## add data to the provided LDF dataset instance
+            dataset.add_data(
+                source_name, {component_name: image, "json": new_ann}, split=split
+            )
+
+            ## dataset size limit
+            count += 1
+            if dataset_size is not None and count >= dataset_size:
+                break
