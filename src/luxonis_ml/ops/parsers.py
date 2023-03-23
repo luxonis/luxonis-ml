@@ -164,3 +164,50 @@ def from_yolo(dataset, source_name, yaml_path, split='all', override_main_compon
                 component_name: img,
                 'json': new_ann
             }, split=split)
+
+def from_numpy_format(
+        dataset, 
+        source_name, 
+        images, 
+        labels, 
+        split, 
+        dataset_size=None, 
+        override_main_component=None
+    ):
+    """
+    Constructs a LDF dataset from data provided in numpy arrays.
+    Arguments:
+        dataset: [LuxonisDataset] LDF dataset instance
+        source_name: [string] name of the LDFSource to add to
+        images: [numpy.array] numpy.array of images of shape (N, image_height, image_width) or (N, image_height, image_width, color)
+        labels: [numpy.array] classification labels in numpy.array of shape (N,)
+        split: [string] 'train', 'val', or 'test'
+        dataset_size: [int] number of data instances to include in our dataset (if None include all)
+        override_main_component: [LDFComponent] provide another LDFComponent if not using the main component from the LDFSource
+    Returns:
+        None
+    """
+
+    ## define source component name
+    if override_main_component is not None:
+        component_name = override_main_component
+    else:
+        component_name = dataset.sources[source_name].main_component
+    
+    ## dataset size limit
+    if dataset_size is not None:
+        images = images[:dataset_size]
+        labels = labels[:dataset_size]
+
+    for image, label in zip(images, labels):
+
+        ## structure annotations
+        new_ann = {component_name: {"annotations": []}}
+        new_ann_instance = {}
+        new_ann_instance["class_name"] = str(label)
+        new_ann[component_name]["annotations"].append(new_ann_instance)
+
+        ## add data to the provided LDF dataset instance
+        dataset.add_data(
+            source_name, {component_name: image, "json": new_ann}, split=split
+        )
