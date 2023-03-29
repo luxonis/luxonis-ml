@@ -320,8 +320,8 @@ def from_image_classification_with_text_annotations_format(
         source_name, 
         image_folder_path,
         info_file_path,
-        delimiter,
         split,
+        delimiter=" ",
         dataset_size=None,
         override_main_component=None
     ):
@@ -333,8 +333,8 @@ def from_image_classification_with_text_annotations_format(
         source_name: [string] name of the LDFSource to add to
         image_folder_path: [string] path to the directory where images are stored
         info_file_path: [string] path to the text annotations file where each line encodes a name and the associated class of an image
-        delimiter: [string] how image names and classes are separated in the info file (e.g. " ", "," or ";")
         split: [string] 'train', 'val', or 'test'
+        delimiter: [string] how image names and classes are separated in the info file (e.g. " ", "," or ";")
         dataset_size: [int] number of data instances to include in our dataset (if None include all)
         override_main_component: [LDFComponent] provide another LDFComponent if not using the main component from the LDFSource
     Returns:
