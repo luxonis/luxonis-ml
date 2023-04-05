@@ -51,6 +51,9 @@ def list_all_txt_files(root):
 def list_all_tfrecord_files(root):
     return list_files(root, ["tfrecord"]) 
 
+def list_all_yaml_files(root):
+    return list_files(root, ["yaml"]) 
+
 # TODO: place for common parser args
 def recognize(dataset_path: str) -> str:
     """
@@ -71,6 +74,7 @@ def recognize(dataset_path: str) -> str:
     xml_files = list_all_xml_files(dataset_path)
     txt_files = list_all_txt_files(dataset_path)
     tfrecord_files = list_all_tfrecord_files(dataset_path)
+    yaml_files = list_all_yaml_files(dataset_path)
 
     n_of_images = len(image_files)
     if n_of_images == 0:
@@ -145,7 +149,9 @@ def recognize(dataset_path: str) -> str:
     if not json_files and not xml_files and not txt_files and not tfrecord_files:
         return "ClassificationDirectoryTree"
 
-    if yaml_files and dirs:
+    ## Recognize based on YAML files
+    # TODO - legacy code - not sure what this detects
+    if yaml_files:
         if len(yaml_files) > 1:
             raise Exception("Possible YOLO dataset but multiple yaml files present - possible ambiguity.")
         yaml_file = yaml_files[0]
@@ -153,9 +159,7 @@ def recognize(dataset_path: str) -> str:
             yaml.safe_load(Path(yaml_file).read_text())
         except ScannerError:
             raise Exception(f"{yaml_file} is not a valid yaml file.")
-
         return "YAML"
 
     return "Unknown dataset"
     # TODO: - rest of datasets + appropriate parsers call
-    ...
