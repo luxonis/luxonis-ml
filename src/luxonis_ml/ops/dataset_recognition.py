@@ -68,7 +68,7 @@ def recognize(dataset_path: str) -> str:
     if not os.path.isdir(dataset_path):
         raise Exception("Invalid path name - not a directory.")
 
-    ## get characteristics
+    ## get dataset characteristics
     image_files = list_all_image_files(dataset_path)
     image_names = [os.path.split(image_file)[-1] for image_file in image_files]
     json_files = list_all_json_files(dataset_path)
@@ -129,15 +129,25 @@ def recognize(dataset_path: str) -> str:
     ## Recognize based on TXT - YOLO4, YOLO5, and KITTY data formats
     for txt_file in txt_files:
         with open(txt_file, 'r', encoding='utf-8-sig') as text:
+            possible_formats = []
             for line in text.readlines():
-                #breakpoint()
-                if len(line.split(" ")) == 2:
-                    if line.split(" ")[0] in image_names:
-                        return "ClassificationWithTextAnnotations"
-                elif len(line.split(" ")) >= 5:
-                    if line.split(" ")[0] in image_names:
-                        return "YOLO4"
-                    return "YOLO5 or KITTY"
+                line_split = line.split(" ")
+                
+                if len(line_split) == 2:
+                    if line_split[0] in image_names:
+                        if line_split[1].split(",")[0] == line_split[1]:
+                            possible_formats.append("ClassificationWithTextAnnotations")
+                        else:
+                            possible_formats.append("YOLO4")
+                
+                elif len(line_split) > 2:
+                    if line_split[0] in image_names:
+                        possible_formats.append("YOLO4")
+                    else:
+                        possible_formats.append("YOLO5 or KITTY")
+
+            if len(set(possible_formats)) == 1:
+                return possible_formats[0]
 
     ## Recognize based on TFRECORD - TFObjectDetectionDataset
     if tfrecord_files:
