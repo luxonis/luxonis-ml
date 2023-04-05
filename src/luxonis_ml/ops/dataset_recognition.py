@@ -134,6 +134,13 @@ def recognize(dataset_path: str) -> str:
                         return "YOLO4"
                     return "YOLO5 or KITTY"
 
+    ## Recognize based on TFRECORD - TFObjectDetectionDataset
+    if tfrecord_files:
+        if len(json_files) > 1:
+            raise Exception("Multiple TFRECORD files present - possible ambiguity.")
+        else:
+            return "TFObjectDetectionDataset"
+
     if yaml_files and dirs:
         if len(yaml_files) > 1:
             raise Exception("Possible YOLO dataset but multiple yaml files present - possible ambiguity.")
