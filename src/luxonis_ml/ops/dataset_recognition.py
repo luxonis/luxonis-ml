@@ -4,6 +4,31 @@ import yaml
 from yaml.scanner import ScannerError
 from pathlib import Path
 
+## image formats supported by cv2
+IMAGE_EXTENSIONS = [
+    "bmp", 
+    "dib",
+    "jpeg",
+    "jpg",
+    "jpe",
+    "jp2",
+    "png",
+    "WebP",
+    "webp",
+    "pbm",
+    "pgm",
+    "ppm",
+    "pxm",
+    "pnm",
+    "sr",
+    "ras",
+    "tiff",
+    "tif",
+    "exr",
+    "hdr",
+    "pic"
+    ]
+
 # TODO: place for common parser args
 def recognize(dataset_path: str) -> str:
     """
