@@ -79,19 +79,36 @@ def recognize(dataset_path: str) -> str:
         else:
             raise Exception("No images found.")
 
-    if json_files and dirs:
+    ## Recognition based on JSON - COCO, FiftyOneImageDetection, and CreateML data formats
+    if json_files:
+        
         if len(json_files) > 1:
-            raise Exception("Possible COCO dataset but multiple json files present - possible ambiguity.")
-        json_file = json_files[0]
+            raise Exception("Multiple JSON files present - possible ambiguity.")
 
         try:
-            with open(json_file) as file:
-                json.load(file)
+            with open(json_files[0]) as file:
+                json_file = json.load(file)
         except ValueError:
             raise Exception(f"{json_file} is not a valid json file.")
 
-        # NOTE: if we want to validate the file further, we can use `if all(key in coco for key in ['images', 'annotations', 'categories']):``
-        return "COCO"
+        if isinstance(json_file, dict):
+            if all(key in json_file for key in ['info', 'licenses', 'images', 'annotations', 'categories']):
+                for image in json_file["images"]:
+                    if image["file_name"] not in image_names:
+                        return "unmatching json annotations"
+                return "COCO"
+            
+            if all(key in json_file for key in ['classes', 'labels']):
+                if False: # TODO
+                    return "unmatching json annotations"
+                return "FiftyOneDetection"
+            
+        if isinstance(json_file, list):
+            if all(key in json_file[0] for key in ["image", "annotations"]):
+                for data_instance in json_file:
+                    if data_instance["image"] not in image_names:
+                        return "unmatching json annotations"
+                return "CreateML"
 
     if yaml_files and dirs:
         if len(yaml_files) > 1:
