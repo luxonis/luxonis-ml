@@ -64,10 +64,20 @@ def recognize(dataset_path: str) -> str:
     if not os.path.isdir(dataset_path):
         raise Exception("Invalid path name - not a directory.")
 
-    file_dir_list = [f"{dataset_path}/{dir_file}" for dir_file in os.listdir(dataset_path)] 
-    json_files = list(filter(lambda file_dir: file_dir.split(".")[-1] == "json", file_dir_list))
-    yaml_files = list(filter(lambda file_dir: file_dir.split(".")[-1] == "yaml", file_dir_list))
-    dirs = list(filter(lambda file_dir: os.path.isdir(file_dir), file_dir_list))
+    ## get characteristics
+    image_files = list_all_image_files(dataset_path)
+    image_names = [os.path.split(image_file)[-1] for image_file in image_files]
+    json_files = list_all_json_files(dataset_path)
+    xml_files = list_all_xml_files(dataset_path)
+    txt_files = list_all_txt_files(dataset_path)
+    tfrecord_files = list_all_tfrecord_files(dataset_path)
+
+    n_of_images = len(image_files)
+    if n_of_images == 0:
+        if tfrecord_files:
+            pass # images packed in the TFRECORD file
+        else:
+            raise Exception("No images found.")
 
     if json_files and dirs:
         if len(json_files) > 1:
