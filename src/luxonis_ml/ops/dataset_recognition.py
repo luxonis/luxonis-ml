@@ -4,6 +4,7 @@ import yaml
 from yaml.scanner import ScannerError
 from pathlib import Path
 import xml.etree.ElementTree as ET
+import pandas as pd
 
 ## image formats supported by cv2
 IMAGE_EXTENSIONS = [
@@ -55,6 +56,9 @@ def list_all_tfrecord_files(root):
 def list_all_yaml_files(root):
     return list_files(root, ["yaml"]) 
 
+def list_all_csv_files(root):
+    return list_files(root, ["csv"]) 
+
 # TODO: place for common parser args
 def recognize(dataset_path: str) -> str:
     """
@@ -76,6 +80,7 @@ def recognize(dataset_path: str) -> str:
     txt_files = list_all_txt_files(dataset_path)
     tfrecord_files = list_all_tfrecord_files(dataset_path)
     yaml_files = list_all_yaml_files(dataset_path)
+    csv_files = list_all_csv_files(dataset_path)
 
     n_of_images = len(image_files)
     if n_of_images == 0:
@@ -156,9 +161,18 @@ def recognize(dataset_path: str) -> str:
         else:
             return "TFObjectDetectionDataset"
 
+    ## Recognize based on CSV - TFObjectDetectionCSV
+    if csv_files:
+        for csv_file in csv_files:
+            for instance_name in pd.read_csv(csv_file)["filename"]:
+                if instance_name not in image_names:
+                    return "unmatching csv annotations"
+        return "TFObjectDetectionCSV"
+
     ## No characteristic files
-    if not json_files and not xml_files and not txt_files and not tfrecord_files:
-        return "ClassificationDirectoryTree"
+    if not json_files and not xml_files and not txt_files:
+        if not tfrecord_files and not yaml_files and not csv_files:
+            return "ClassificationDirectoryTree"
 
     ## Recognize based on YAML files
     # TODO - legacy code - not sure what this detects
