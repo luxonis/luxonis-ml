@@ -110,6 +110,17 @@ def recognize(dataset_path: str) -> str:
                         return "unmatching json annotations"
                 return "CreateML"
 
+    ## Recognize based on XML - PascalVOC data format
+    if xml_files:
+        for xml_file in xml_files:
+            instance_tree = ET.parse(xml_file)
+            instance_root = instance_tree.getroot()
+            for child in instance_root:
+                if child.tag == "filename":
+                    if child.text not in image_names:
+                        return "unmatching xml annotations"
+        return "VOC"
+
     if yaml_files and dirs:
         if len(yaml_files) > 1:
             raise Exception("Possible YOLO dataset but multiple yaml files present - possible ambiguity.")
