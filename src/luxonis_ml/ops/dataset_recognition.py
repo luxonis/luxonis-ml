@@ -29,6 +29,28 @@ IMAGE_EXTENSIONS = [
     "pic"
     ]
 
+def list_files(root="", extensions=[]):
+    file_paths = []
+    for path, subdirs, files in os.walk(root):
+        for name in files:
+            file_paths.append(os.path.join(path, name))
+    return [file_path for file_path in file_paths if file_path.split(".")[-1] in extensions]
+
+def list_all_image_files(root):
+    return list_files(root, IMAGE_EXTENSIONS)
+
+def list_all_json_files(root):
+    return list_files(root, ["json"])
+
+def list_all_xml_files(root):
+    return list_files(root, ["xml"])
+
+def list_all_txt_files(root):
+    return list_files(root, ["txt"])
+
+def list_all_tfrecord_files(root):
+    return list_files(root, ["tfrecord"]) 
+
 # TODO: place for common parser args
 def recognize(dataset_path: str) -> str:
     """
