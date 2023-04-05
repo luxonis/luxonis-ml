@@ -141,6 +141,10 @@ def recognize(dataset_path: str) -> str:
         else:
             return "TFObjectDetectionDataset"
 
+    ## No characteristic files
+    if not json_files and not xml_files and not txt_files and not tfrecord_files:
+        return "ClassificationDirectoryTree"
+
     if yaml_files and dirs:
         if len(yaml_files) > 1:
             raise Exception("Possible YOLO dataset but multiple yaml files present - possible ambiguity.")
