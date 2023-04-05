@@ -3,6 +3,7 @@ import os
 import yaml
 from yaml.scanner import ScannerError
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
 ## image formats supported by cv2
 IMAGE_EXTENSIONS = [
