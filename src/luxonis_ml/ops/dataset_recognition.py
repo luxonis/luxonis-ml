@@ -121,6 +121,19 @@ def recognize(dataset_path: str) -> str:
                         return "unmatching xml annotations"
         return "VOC"
 
+    ## Recognize based on TXT - YOLO4, YOLO5, and KITTY data formats
+    for txt_file in txt_files:
+        with open(txt_file, 'r', encoding='utf-8-sig') as text:
+            for line in text.readlines():
+                #breakpoint()
+                if len(line.split(" ")) == 2:
+                    if line.split(" ")[0] in image_names:
+                        return "ClassificationWithTextAnnotations"
+                elif len(line.split(" ")) >= 5:
+                    if line.split(" ")[0] in image_names:
+                        return "YOLO4"
+                    return "YOLO5 or KITTY"
+
     if yaml_files and dirs:
         if len(yaml_files) > 1:
             raise Exception("Possible YOLO dataset but multiple yaml files present - possible ambiguity.")
