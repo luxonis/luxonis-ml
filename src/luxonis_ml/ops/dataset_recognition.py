@@ -147,14 +147,30 @@ def recognize(dataset_path: str) -> str:
 
     ## Recognize based on XML - PascalVOC data format
     if xml_files:
+        image_paths = []
+        annotation_paths = []
+
         for xml_file in xml_files:
             instance_tree = ET.parse(xml_file)
             instance_root = instance_tree.getroot()
             for child in instance_root:
                 if child.tag == "filename":
-                    if child.text not in image_names:
+                    image_name = child.text
+                    image_path = find_path(image_name, image_files)
+                    if image_path == None:
                         return "unmatching xml annotations"
-        return "VOC"
+                    image_paths.append(image_path)
+            annotation_paths.append(os.path.split(xml_file)[0])
+                
+        if len(set(image_paths)) > 1:
+            return "multiple image paths - possible ambiguity."
+        images_path = image_paths[0]
+
+        if len(set(annotation_paths)) > 1:
+            return "multiple image paths - possible ambiguity."
+        annotations_path = annotation_paths[0]
+
+        return "VOC", {"images_path": images_path, "annotations_path": annotations_path}
 
     ## Recognize based on TXT - YOLO4, YOLO5, and KITTY data formats
     for txt_file in txt_files:
