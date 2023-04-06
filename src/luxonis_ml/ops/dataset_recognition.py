@@ -133,9 +133,17 @@ def recognize(dataset_path: str) -> str:
         if isinstance(json_file, list):
             if all(key in json_file[0] for key in ["image", "annotations"]):
                 for data_instance in json_file:
-                    if data_instance["image"] not in image_names:
+                    image_name = data_instance["image"]
+                    image_path = find_path(image_name, image_files)
+                    if image_path == None:
                         return "unmatching json annotations"
-                return "CreateML"
+                    image_paths.append(image_path)
+                
+                if len(set(image_paths)) > 1:
+                    return "multiple image paths - possible ambiguity."
+                images_path = image_paths[0]
+
+                return "CreateML", {"images_path": images_path, "annotations_path": annotations_path}
 
     ## Recognize based on XML - PascalVOC data format
     if xml_files:
