@@ -59,6 +59,12 @@ def list_all_yaml_files(root):
 def list_all_csv_files(root):
     return list_files(root, ["csv"]) 
 
+def find_path(file_name, file_paths):
+    for file_path in file_paths:
+        if file_path.endswith(file_name):
+            return file_path.replace(file_name,"")
+    return None
+
 # TODO: place for common parser args
 def recognize(dataset_path: str) -> str:
     """
@@ -101,12 +107,23 @@ def recognize(dataset_path: str) -> str:
         except ValueError:
             raise Exception(f"{json_file} is not a valid json file.")
 
+        annotations_path = os.path.split(json_files[0])[0]
+        image_paths = []
+
         if isinstance(json_file, dict):
             if all(key in json_file for key in ['info', 'licenses', 'images', 'annotations', 'categories']):
                 for image in json_file["images"]:
-                    if image["file_name"] not in image_names:
+                    image_name = image["file_name"]
+                    image_path = find_path(image_name, image_files)
+                    if image_path == None:
                         return "unmatching json annotations"
-                return "COCO"
+                    image_paths.append(image_path)
+                
+                if len(set(image_paths)) > 1:
+                    return "multiple image paths - possible ambiguity."
+                images_path = image_paths[0]
+
+                return "COCO", {"images_path": images_path, "annotations_path": annotations_path}
             
             if all(key in json_file for key in ['classes', 'labels']):
                 if False: # TODO
