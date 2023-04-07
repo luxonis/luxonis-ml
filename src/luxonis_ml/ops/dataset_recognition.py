@@ -5,6 +5,21 @@ from yaml.scanner import ScannerError
 from pathlib import Path
 import xml.etree.ElementTree as ET
 import pandas as pd
+from enum import Enum
+
+class DatasetType(Enum):
+    COCO = "COCO"
+    CDT = "ClassificationDirectoryTree"
+    CTA = "ClassificationWithTextAnnotations"
+    FOD = "FiftyOneDetection"
+    CML = "CreateML"
+    VOC = "VOC"
+    YOLO4 = "YOLO4"
+    YOLO5 = "YOLO5"
+    TFODD = "TFObjectDetectionDataset"
+    TFODC = "TFObjectDetectionCSV"
+    YAML = "YAML"
+    UNKNOWN = "unknown"
 
 def list_files(root="", extensions=[]):
     file_paths = []
@@ -96,13 +111,13 @@ def recognize(dataset_path: str) -> str:
     image_dirs = get_unique_paths(image_files)  
     if len(image_dirs) > 1:
         if not any ([json_files, xml_files, txt_files, tfrecord_files, yaml_files, csv_files]):
-            return "ClassificationDirectoryTree", {"image_dirs": image_dirs}
+            return DatasetType.CDT, {"image_dirs": image_dirs}
         else:
-            return "multiple directories with image files - possible ambiguity."
+            raise Exception("multiple directories with image files - possible ambiguity.")
     
     xml_dirs = get_unique_paths(xml_files)
     if len(xml_dirs) > 1:
-        return "multiple directories with xml files - possible ambiguity."
+        raise Exception("multiple directories with xml files - possible ambiguity.")
 
     ## Recognition based on JSON - COCO, FiftyOneImageDetection, and CreateML data formats
     if json_files:
@@ -121,21 +136,21 @@ def recognize(dataset_path: str) -> str:
                 for image in json_file["images"]:
                     image_name = image["file_name"]
                     if image_name not in image_names:
-                        return "unmatching json annotations"
-                return "COCO", {"image_dir": image_dirs[0], "json_file_path": json_files[0]}
+                        raise Exception("unmatching json annotations")
+                return DatasetType.COCO, {"image_dir": image_dirs[0], "json_file_path": json_files[0]}
             
             if all(key in json_file for key in ['classes', 'labels']):
                 if False: # TODO
-                    return "unmatching json annotations"
-                return "FiftyOneDetection"
+                    raise Exception("unmatching json annotations")
+                return DatasetType.FOD
             
         if isinstance(json_file, list):
             if all(key in json_file[0] for key in ["image", "annotations"]):
                 for data_instance in json_file:
                     image_name = data_instance["image"]
                     if image_name not in image_names:
-                        return "unmatching json annotations"
-                return "CreateML", {"image_dir": image_dirs[0], "json_file_path": json_files[0]}
+                        raise Exception("unmatching json annotations")
+                return DatasetType.CML, {"image_dir": image_dirs[0], "json_file_path": json_files[0]}
 
     ## Recognize based on XML - PascalVOC data format
     if xml_files:
@@ -146,9 +161,9 @@ def recognize(dataset_path: str) -> str:
                 if child.tag == "filename":
                     image_name = child.text
                     if image_name not in image_names:
-                        return "unmatching xml annotations"
+                        raise Exception("unmatching xml annotations")
 
-        return "VOC", {"image_dir": image_dirs[0], "xml_files_paths": xml_files}
+        return DatasetType.VOC, {"image_dir": image_dirs[0], "xml_files_paths": xml_files}
 
     ## Recognize based on TXT - YOLO4, YOLO5, and KITTY data formats
     if txt_files:
@@ -159,7 +174,7 @@ def recognize(dataset_path: str) -> str:
 
             for ext in image_extensions:
                 if os.path.split(txt_file)[1].replace(".txt", f".{ext}") in image_names:
-                    possible_dataset_types.append("YOLO5 or KITTY")
+                    possible_dataset_types.append(DatasetType.YOLO5)
                     relevant_txt_file = True
 
             with open(txt_file, 'r', encoding='utf-8-sig') as text:
@@ -168,11 +183,11 @@ def recognize(dataset_path: str) -> str:
                     if line_split[0] in image_names:
                         if len(line_split) == 2:
                                 if line_split[1].split(",")[0] == line_split[1]:
-                                    possible_dataset_types.append("ClassificationWithTextAnnotations")
+                                    possible_dataset_types.append(DatasetType.CTA)
                                 else:
-                                    possible_dataset_types.append("YOLO4")
+                                    possible_dataset_types.append(DatasetType.YOLO4)
                         elif len(line_split) > 2:
-                                possible_dataset_types.append("YOLO4")
+                                possible_dataset_types.append(DatasetType.YOLO4)
                         relevant_txt_file = True
 
             if relevant_txt_file:
@@ -186,7 +201,7 @@ def recognize(dataset_path: str) -> str:
         if len(json_files) > 1:
             raise Exception("Multiple TFRECORD files present - possible ambiguity.")
         else:
-            return "TFObjectDetectionDataset", {"tfrecord_file_path": tfrecord_files[0]}
+            return DatasetType.TFODD, {"tfrecord_file_path": tfrecord_files[0]}
 
     ## Recognize based on CSV - TFObjectDetectionCSV
     if csv_files:
@@ -196,9 +211,9 @@ def recognize(dataset_path: str) -> str:
 
         for instance_name in pd.read_csv(csv_files[0])["filename"]:
             if instance_name not in image_names:
-                return "unmatching csv annotations"
+                raise Exception("unmatching csv annotations")
         
-        return "TFObjectDetectionCSV", {"image_dir": image_dirs[0], "csv_file_path": csv_files[0]}
+        return DatasetType.TFODC, {"image_dir": image_dirs[0], "csv_file_path": csv_files[0]}
 
     ## Recognize based on YAML files
     # TODO - legacy code - not sure what this detects
@@ -210,7 +225,7 @@ def recognize(dataset_path: str) -> str:
             yaml.safe_load(Path(yaml_file).read_text())
         except ScannerError:
             raise Exception(f"{yaml_file} is not a valid yaml file.")
-        return "YAML"
+        return DatasetType.YAML, {"image_dir": image_dirs[0], "yaml_file_path": yaml_files[0]}
 
-    return "Unknown dataset"
+    return DatasetType.UNKNOWN, "Unknown dataset"
     # TODO: - rest of datasets + appropriate parsers call
