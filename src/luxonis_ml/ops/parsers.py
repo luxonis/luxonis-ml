@@ -258,7 +258,7 @@ def train_test_split_image_classification_directory_tree(
 def from_image_classification_directory_tree_format(
         dataset, 
         source_name, 
-        directory_root, 
+        class_folders_paths, 
         split,
         dataset_size=None,
         override_main_component=None
@@ -268,7 +268,7 @@ def from_image_classification_directory_tree_format(
     Arguments:
         dataset: [LuxonisDataset] LDF dataset instance
         source_name: [string] name of the LDFSource to add to
-        directory_root: [string] path to the root of directory tree
+        class_folders_paths: [list of strings] paths to folders containing images of specific class
         split: [string] 'train', 'val', or 'test'
         dataset_size: [int] number of data instances to include in the LDF dataset (if None include all)
         override_main_component: [LDFComponent] provide another LDFComponent if not using the main component from the LDFSource
@@ -282,12 +282,13 @@ def from_image_classification_directory_tree_format(
     else:
         component_name = dataset.sources[source_name].main_component
     
-    if len(os.listdir(directory_root)) == 0:
+    if len(class_folders_paths) == 0:
         raise RuntimeError('Directory tree is empty')
 
     count = 0
-    for class_folder_name in os.listdir(directory_root):
-        class_folder_path = os.path.join(directory_root, class_folder_name)
+    for class_folder_path in class_folders_paths:
+
+        class_folder_name = os.path.split(class_folder_path)[-1]
 
         for image_name in os.listdir(class_folder_path):
             ## check dataset size limit
@@ -295,7 +296,7 @@ def from_image_classification_directory_tree_format(
             if dataset_size is not None and count > dataset_size:
                 break
 
-            image_path = os.path.join(directory_root, class_folder_name, image_name)
+            image_path = os.path.join(class_folder_path, image_name)
             if os.path.exists(image_path):
                 
                 ## read image
@@ -352,13 +353,16 @@ def from_image_classification_with_text_annotations_format(
 
     count = 0
     with open(info_file_path) as f:
-        
+       
         for line in f:
 
             try:
                 image_path, label = line.split(delimiter)
             except:
                 raise RuntimeError('Unable to split the info file based on the provided delimiter.')
+
+            if label.endswith('\n'):
+                label.replace('\n','')
 
             ## read image
             image = cv2.imread(os.path.join(image_folder_path, image_path))
