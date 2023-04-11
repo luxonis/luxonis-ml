@@ -101,9 +101,9 @@ class LuxonisTracker:
     def _get_next_run_number(self):
         # find all directories that should be runs
         log_dirs = glob.glob(f"{self.save_directory}/*")
-        log_dirs = [path for path in log_dirs if os.path.isdir(path)]
+        log_dirs = [path.split("/")[-1] for path in log_dirs if os.path.isdir(path)]
         # find the numbers based on the naming convention
-        nums = [path.split('-')[-1] for path in log_dirs]
+        nums = [path.split('-')[0] for path in log_dirs]
         nums = [int(num) for num in nums if num.isnumeric()]
 
         if len(nums) == 0:
@@ -114,7 +114,7 @@ class LuxonisTracker:
     def _get_run_name(self):
         name_without_number = get_random_name(separator="-", style="lowercase")
         number = self._get_next_run_number()
-        return f"{name_without_number}-{number}"
+        return f"{number}-{name_without_number}"
 
     def log_metric(self, name, value, step):
         """
@@ -259,9 +259,9 @@ class LuxonisTrackerPL(plLogger):
     def _get_next_run_number(self):
         # find all directories that should be runs
         log_dirs = glob.glob(f"{self.save_directory}/*")
-        log_dirs = [path for path in log_dirs if os.path.isdir(path)]
+        log_dirs = [path.split("/")[-1] for path in log_dirs if os.path.isdir(path)]
         # find the numbers based on the naming convention
-        nums = [path.split('-')[-1] for path in log_dirs]
+        nums = [path.split('-')[0] for path in log_dirs]
         nums = [int(num) for num in nums if num.isnumeric()]
 
         if len(nums) == 0:
@@ -272,14 +272,14 @@ class LuxonisTrackerPL(plLogger):
     def _get_run_name(self):
         name_without_number = get_random_name(separator="-", style="lowercase")
         number = self._get_next_run_number()
-        return f"{name_without_number}-{number}"
+        return f"{number}-{name_without_number}"
 
     def _get_latest_run_name(self):
         # find all directories that should be runs
         log_dirs = glob.glob(f"{self.save_directory}/*")
         log_dirs = [path for path in log_dirs if os.path.isdir(path)]
         # find run names based on the naming convention and sort them by last modified time
-        runs = [l.replace(f"{self.save_directory}/","") for l in log_dirs if l.split("-")[-1].isnumeric()]
+        runs = [l.replace(f"{self.save_directory}/","") for l in log_dirs if l.split("-")[0].isnumeric()]
         runs.sort(key = lambda x: os.path.getmtime(os.path.join(self.save_directory, x)), reverse=True)
         return runs[0]
 
