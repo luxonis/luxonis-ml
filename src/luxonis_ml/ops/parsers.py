@@ -171,7 +171,7 @@ def from_numpy_format(
         dataset, 
         source_name, 
         images, 
-        labels, 
+        labels,
         split, 
         dataset_size=None, 
         override_main_component=None
@@ -181,7 +181,7 @@ def from_numpy_format(
     Arguments:
         dataset: [LuxonisDataset] LDF dataset instance
         source_name: [string] name of the LDFSource to add to
-        images: [numpy.array] numpy.array of images of shape (N, image_height, image_width) or (N, image_height, image_width, color)
+        images: [numpy.array] numpy.array of RGB images of shape (N, image_height, image_width) or (N, image_height, image_width, color)
         labels: [numpy.array] classification labels in numpy.array of shape (N,)
         split: [string] 'train', 'val', or 'test'
         dataset_size: [int] number of data instances to include in our dataset (if None include all)
@@ -202,6 +202,9 @@ def from_numpy_format(
         labels = labels[:dataset_size]
 
     for image, label in zip(images, labels):
+
+        ## change image to BGR
+        image = image[:,:,::-1]
 
         ## structure annotations
         new_ann = {component_name: {"annotations": []}}
