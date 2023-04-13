@@ -5,7 +5,7 @@ from yaml.scanner import ScannerError
 from pathlib import Path
 import xml.etree.ElementTree as ET
 import pandas as pd
-from src.luxonis_ml.ops.dataset_type import DatasetType
+from luxonis_ml.ops.dataset_type import DatasetType
 
 def list_files(root="", extensions=[]):
     file_paths = []
