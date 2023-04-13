@@ -187,7 +187,7 @@ def from_yolo5(
         dataset, 
         source_name, 
         image_folder_path,
-        txt_annotation_files_paths,
+        #txt_annotation_files_paths, # list of paths to the text annotation files where each line encodes a bounding box
         split, 
         dataset_size=None, 
         override_main_component=None
@@ -198,7 +198,6 @@ def from_yolo5(
         dataset: [LuxonisDataset] LDF dataset instance
         source_name: [string] name of the LDFSource to add to
         image_folder_path: [string] path to the directory where images are stored
-        txt_annotation_files_paths: [strings] list of paths to the text annotation files where each line encodes a bounding box
         split: [string] 'train', 'val', or 'test'
         dataset_size: [int] number of data instances to include in our dataset (if None include all)
         override_main_component: [LDFComponent] provide another LDFComponent if not using the main component from the LDFSource
@@ -207,6 +206,18 @@ def from_yolo5(
     Note: 
         only bounding boxes supported for now
     """
+
+    ## get classes
+    root_path = os.path.split(os.path.split(image_folder_path)[0])[0] #go two levels up
+    yaml_files = [fname for fname in os.listdir(root_path) if fname.endswith('.yaml')]
+    if len(yaml_files) > 1:
+        raise RuntimeError('Multiple YAML files - possible ambiguity')
+    else:
+        yaml_path = yaml_files[0]
+        yolo = yaml.safe_load(Path(os.path.join(root_path,yaml_path)).read_text())
+        classes = yolo['names']
+        if yolo['nc'] != len(classes):
+            raise Exception(f"nc in YOLO YAML file does not match names!")
 
     ## define source component name
     if override_main_component is not None:
@@ -218,7 +229,12 @@ def from_yolo5(
         raise RuntimeError('image folder path non-existent.')
 
     count = 0
-    for image_path in tqdm(os.listdir(image_folder_path)):
+    for image_name in tqdm(os.listdir(image_folder_path)):
+
+        image_path = os.path.join(image_folder_path, image_name)
+
+        #breakpoint()
+
         if not os.path.exists(image_path):
             warnings.warn(f"Skipping image {image_path} - not found!")
             continue
@@ -227,6 +243,11 @@ def from_yolo5(
         if not os.path.exists(label_path):
             warnings.warn(f"Skipping image {image_path} - label {label_path} not found!")
             continue
+
+        ## check dataset size limit
+        count += 1
+        if dataset_size is not None and count > dataset_size:
+            break
 
         # add YOLO data
         new_ann = {
@@ -247,7 +268,7 @@ def from_yolo5(
         for row in data:
             new_ann_instance = {}
             yolo_class_id = int(row[0])
-            class_name = str(yolo_class_id)
+            class_name = classes[yolo_class_id]
             new_ann_instance['class_name'] = class_name
             class_id = dataset._add_class(new_ann_instance)
             new_ann_instance['class'] = class_id
@@ -546,5 +567,18 @@ def recognize_and_load(
             image_dir, 
             annotation_path, 
             split, 
+            override_main_component
+        )
+    
+    elif dataset_type.value == "YOLO5":
+        
+        image_folder_path = dataset_info["image_dir"]
+
+        from_yolo5(
+            dataset, 
+            source_name, 
+            image_folder_path,
+            split, 
+            dataset_size, 
             override_main_component
         )
