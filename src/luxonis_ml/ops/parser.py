@@ -9,7 +9,7 @@ from pathlib import Path
 import warnings
 import random
 import shutil
-from src.luxonis_ml.ops.dataset_type import DatasetType as dt
+from luxonis_ml.ops.dataset_type import DatasetType as dt
 import threading
 from threading import Thread
 
@@ -32,7 +32,15 @@ class Parser:
         return inner
     
     @parsing_wrapper
-    def from_coco(self, dataset, source_name, image_dir, annotation_path, split='train', override_main_component=None):
+    def from_coco_format(
+            self,
+            dataset, 
+            source_name, 
+            image_dir, 
+            annotation_path, 
+            split, 
+            override_main_component=None
+        ):
         """
         dataset: LuxonisDataset instance
         source_name: name of the LDFSource to add to
@@ -56,7 +64,7 @@ class Parser:
             component_name = override_main_component
         else:
             component_name = dataset.sources[source_name].main_component
-        
+
         iter = tqdm(images)
         for image in iter:
             self.percentage = round((iter.n/iter.total)*100, 2)
@@ -105,7 +113,8 @@ class Parser:
                 warnings.warn(f"skipping {fn} as it does no exist!")
 
     @parsing_wrapper
-    def from_yolo5(
+    def from_yolo5_format(
+            self,
             dataset, 
             source_name, 
             image_folder_path,
@@ -202,6 +211,7 @@ class Parser:
                 'json': new_ann
             }, split=split)
 
+    @parsing_wrapper
     def from_numpy_format(
             self,
             dataset, 
@@ -253,9 +263,8 @@ class Parser:
                 source_name, {component_name: image, "json": new_ann}, split=split
             )
 
-    @parsing_wrapper
     def train_test_split_image_classification_directory_tree(
-            self, 
+            self,
             directory_tree_path, 
             destination_path1, 
             destination_path2,
@@ -298,7 +307,7 @@ class Parser:
 
     @parsing_wrapper
     def from_image_classification_directory_tree_format(
-            self, 
+            self,
             dataset, 
             source_name, 
             class_folders_paths, 
@@ -359,9 +368,10 @@ class Parser:
 
                 else:
                     raise RuntimeError('A non-valid image path was encountered')
-                
+
+    @parsing_wrapper    
     def from_image_classification_with_text_annotations_format(
-            self, 
+            self,
             dataset, 
             source_name, 
             image_folder_path,
@@ -371,7 +381,6 @@ class Parser:
             dataset_size=None,
             override_main_component=None
         ):
-
         """
         Constructs a LDF dataset based on image paths and labels from text annotations.
         Arguments:
@@ -430,7 +439,8 @@ class Parser:
     
     # Defining this below all the functions
     DATASET_TYPE_TO_FUNCTION = {
-        dt.COCO: from_coco,
+        dt.COCO: from_coco_format,
+        dt.YOLO5: from_yolo5_format,
         dt.CDT: from_image_classification_directory_tree_format,
         dt.CTA: from_image_classification_with_text_annotations_format,
     }
