@@ -41,8 +41,11 @@ def recognize_and_load_ldf(
     dataset_type, dataset_info = recognize(dataset_path)
 
     parser = Parser()
+
+    if dataset_type.value == "LDF":
+        print("Already LDF")
     
-    if dataset_type.value == "ClassificationDirectoryTree":
+    elif dataset_type.value == "ClassificationDirectoryTree":
 
         class_folders_paths = dataset_info["image_dirs"] #image_dirs
 
