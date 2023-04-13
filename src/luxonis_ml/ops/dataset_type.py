@@ -1,6 +1,7 @@
 from enum import Enum
 
 class DatasetType(Enum):
+    LDF = "LDF"
     COCO = "COCO"
     CDT = "ClassificationDirectoryTree"
     CTA = "ClassificationWithTextAnnotations"
