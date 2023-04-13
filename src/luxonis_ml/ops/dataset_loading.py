@@ -10,6 +10,8 @@ import warnings
 import random
 import shutil
 
+from luxonis_ml.ops import *
+
 from luxonis_ml.ops.dataset_recognition import recognize
 from luxonis_ml.ops.parser import Parser
 from luxonis_ml.ops.dataset_type import DatasetType
@@ -18,7 +20,6 @@ from luxonis_ml.ops.dataset_type import DatasetType
 
 def recognize_and_load_ldf(
         dataset_path,
-        dataset,
         source_name,
         split,
         new_thread=True,
@@ -38,92 +39,110 @@ def recognize_and_load_ldf(
         None
     """
     
-    dataset_type, dataset_info = recognize(dataset_path)
+    dataset_path = dataset_path if dataset_path[-1] != '/' else dataset_path[:-1]
+    DATASET_DIR = dataset_path + "_ldf"
 
-    parser = Parser()
+    dataset_type, dataset_info = recognize(dataset_path)
 
     if dataset_type.value == "LDF":
         print("Already a LDF")
+        return None
     
-    elif dataset_type.value == "ClassificationDirectoryTree":
+    parser = Parser()
 
-        class_folders_paths = dataset_info["image_dirs"] #image_dirs
-
-        parser.parse_to_ldf(
-            DatasetType.CDT, 
-            new_thread=new_thread,
-            dataset=dataset, 
-            source_name=source_name, 
-            class_folders_paths=class_folders_paths,
-            split=split,
-            dataset_size=dataset_size,
-            override_main_component=override_main_component
+    ## initialize a local LDF repository
+    with LuxonisDataset(DATASET_DIR) as dataset:
+        custom_components = [
+            LDFComponent(name="image", 
+                        htype=HType.IMAGE, # data component type
+                        itype=IType.BGR # image type
+            )
+        ]
+        dataset.create_source(
+            name=source_name, custom_components=custom_components
         )
-
-        while(parser.get_percentage() < 100):
-            print(parser.get_percentage())
     
-    elif dataset_type.value == "ClassificationWithTextAnnotations":
+        if dataset_type.value == "ClassificationDirectoryTree":
 
-        image_folder_path = dataset_info["image_dir"]
-        info_file_path = dataset_info["txt_annotation_files_paths"][0]
-        delimiter=" " #TODO: automatically detect required delimiter
+            class_folders_paths = dataset_info["image_dirs"] #image_dirs
 
-        parser.parse_to_ldf(
-            DatasetType.CTA, 
-            new_thread=new_thread,
-            dataset=dataset, 
-            source_name=source_name, 
-            image_folder_path=image_folder_path,
-            info_file_path=info_file_path,
-            split=split,
-            delimiter=delimiter, #TODO: automatically detect required delimiter
-            dataset_size=dataset_size,
-            override_main_component=override_main_component
-        )
+            parser.parse_to_ldf(
+                DatasetType.CDT, 
+                new_thread=new_thread,
+                dataset=dataset, 
+                source_name=source_name, 
+                class_folders_paths=class_folders_paths,
+                split=split,
+                dataset_size=dataset_size,
+                override_main_component=override_main_component
+            )
 
-        while(parser.get_percentage() < 100):
-            print(parser.get_percentage())
+            while(parser.get_percentage() < 100):
+                print(parser.get_percentage())
 
-    elif dataset_type.value == "COCO":
+        elif dataset_type.value == "ClassificationWithTextAnnotations":
 
-        image_dir = dataset_info["image_dir"]
-        annotation_path = dataset_info["json_file_path"]
+            image_folder_path = dataset_info["image_dir"]
+            info_file_path = dataset_info["txt_annotation_files_paths"][0]
+            delimiter=" " #TODO: automatically detect required delimiter
 
-        parser.parse_to_ldf(
-            DatasetType.COCO, 
-            new_thread=new_thread,
-            dataset=dataset, 
-            source_name=source_name, 
-            image_dir=image_dir, 
-            annotation_path=annotation_path, 
-            split=split,
-            override_main_component=override_main_component
-        )
+            parser.parse_to_ldf(
+                DatasetType.CTA, 
+                new_thread=new_thread,
+                dataset=dataset, 
+                source_name=source_name, 
+                image_folder_path=image_folder_path,
+                info_file_path=info_file_path,
+                split=split,
+                delimiter=delimiter, #TODO: automatically detect required delimiter
+                dataset_size=dataset_size,
+                override_main_component=override_main_component
+            )
 
-        while(parser.get_percentage() < 100):
-            print(parser.get_percentage())
-    
-    elif dataset_type.value == "YOLO5":
-        
-        image_folder_path = dataset_info["image_dir"]
+            while(parser.get_percentage() < 100):
+                print(parser.get_percentage())
 
-        parser.parse_to_ldf(
-            DatasetType.YOLO5, 
-            new_thread=new_thread,
-            dataset=dataset, 
-            source_name=source_name, 
-            image_folder_path=image_folder_path,
-            split=split,
-            dataset_size=dataset_size,
-            override_main_component=override_main_component
-        )
+        elif dataset_type.value == "COCO":
 
-        while(parser.get_percentage() < 100):
-            print(parser.get_percentage())
+            image_dir = dataset_info["image_dir"]
+            annotation_path = dataset_info["json_file_path"]
 
-    elif dataset_type.value == "unknown":
-        print("Cannot recognize dataset type")
+            parser.parse_to_ldf(
+                DatasetType.COCO, 
+                new_thread=new_thread,
+                dataset=dataset, 
+                source_name=source_name, 
+                image_dir=image_dir, 
+                annotation_path=annotation_path, 
+                split=split,
+                override_main_component=override_main_component
+            )
 
-    else:
-        print("Cannot load the provided dataset")
+            while(parser.get_percentage() < 100):
+                print(parser.get_percentage())
+
+        elif dataset_type.value == "YOLO5":
+            
+            image_folder_path = dataset_info["image_dir"]
+
+            parser.parse_to_ldf(
+                DatasetType.YOLO5, 
+                new_thread=new_thread,
+                dataset=dataset, 
+                source_name=source_name, 
+                image_folder_path=image_folder_path,
+                split=split,
+                dataset_size=dataset_size,
+                override_main_component=override_main_component
+            )
+
+            while(parser.get_percentage() < 100):
+                print(parser.get_percentage())
+
+        elif dataset_type.value == "unknown":
+            print("Cannot recognize dataset type")
+            return None
+
+        else:
+            print("Cannot load the provided dataset")
+            return None
