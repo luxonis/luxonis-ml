@@ -5,21 +5,7 @@ from yaml.scanner import ScannerError
 from pathlib import Path
 import xml.etree.ElementTree as ET
 import pandas as pd
-from enum import Enum
-
-class DatasetType(Enum):
-    COCO = "COCO"
-    CDT = "ClassificationDirectoryTree"
-    CTA = "ClassificationWithTextAnnotations"
-    FOD = "FiftyOneDetection"
-    CML = "CreateML"
-    VOC = "VOC"
-    YOLO4 = "YOLO4"
-    YOLO5 = "YOLO5"
-    TFODD = "TFObjectDetectionDataset"
-    TFODC = "TFObjectDetectionCSV"
-    YAML = "YAML"
-    UNKNOWN = "unknown"
+from src.luxonis_ml.ops.dataset_type import DatasetType
 
 def list_files(root="", extensions=[]):
     file_paths = []
