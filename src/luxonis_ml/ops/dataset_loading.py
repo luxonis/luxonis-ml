@@ -344,7 +344,6 @@ def from_image_classification_with_text_annotations_format(
         dataset_size=None,
         override_main_component=None
     ):
-
     """
     Constructs a LDF dataset based on image paths and labels from text annotations.
     Arguments:
@@ -404,14 +403,25 @@ def from_image_classification_with_text_annotations_format(
 
 # TODO: find location for the following function/method
 def recognize_and_load(
-        dataset_path, #path to dataset root
-        dataset, # dataset object to which we add to
-        source_name, 
-        #dataset_specific_parameters, #{}
+        dataset_path,
+        dataset,
+        source_name,
         split,
         dataset_size=None,
         override_main_component=None
     ):
+    """
+    Based on the provided path, automatically detects a dataset type and constructs a LDF dataset.
+    Arguments:
+        dataset_path (str): Path to the root folder of the dataset.
+        dataset: [LuxonisDataset] LDF dataset instance
+        source_name: [string] name of the LDFSource to add to
+        split: [string] 'train', 'val', or 'test'
+        dataset_size: [int] number of data instances to include in our dataset (if None include all)
+        override_main_component: [LDFComponent] provide another LDFComponent if not using the main component from the LDFSource
+    Returns:
+        None
+    """
     
     dataset_type, dataset_info = recognize(dataset_path)
     
