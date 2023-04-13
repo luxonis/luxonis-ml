@@ -56,15 +56,12 @@ def recognize_and_load_ldf(
             dataset_size=dataset_size,
             override_main_component=override_main_component
         )
-
-        while(parser.get_percentage() < 100):
-            print(parser.get_percentage())
     
     elif dataset_type.value == "ClassificationWithTextAnnotations":
 
         image_folder_path = dataset_info["image_dir"]
         info_file_path = dataset_info["txt_annotation_files_paths"][0]
-        delimiter=" " #TODO: automatically detect required delimiter
+        delimiter=" " #todo: automatically detect required delimiter
 
         parser.parse_to_ldf(
             DatasetType.CTA, 
@@ -74,13 +71,10 @@ def recognize_and_load_ldf(
             image_folder_path=image_folder_path,
             info_file_path=info_file_path,
             split=split,
-            delimiter=delimiter, #TODO: automatically detect required delimiter
+            delimiter=delimiter,  #todo: automatically detect required delimiter
             dataset_size=dataset_size,
             override_main_component=override_main_component
         )
-
-        while(parser.get_percentage() < 100):
-            print(parser.get_percentage())
 
     elif dataset_type.value == "COCO":
 
@@ -97,9 +91,6 @@ def recognize_and_load_ldf(
             split=split,
             override_main_component=override_main_component
         )
-
-        while(parser.get_percentage() < 100):
-            print(parser.get_percentage())
     
     elif dataset_type.value == "YOLO5":
         
@@ -115,6 +106,3 @@ def recognize_and_load_ldf(
             dataset_size=dataset_size,
             override_main_component=override_main_component
         )
-
-        while(parser.get_percentage() < 100):
-            print(parser.get_percentage())
