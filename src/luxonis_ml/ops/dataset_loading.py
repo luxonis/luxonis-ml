@@ -20,8 +20,8 @@ from luxonis_ml.ops.dataset_type import DatasetType
 
 def recognize_and_load_ldf(
         dataset_path,
-        source_name,
-        split,
+        output_path=".",
+        split="train",
         new_thread=True,
         dataset_size=None,
         override_main_component=None
@@ -39,10 +39,12 @@ def recognize_and_load_ldf(
         None
     """
     
-    dataset_path = dataset_path if dataset_path[-1] != '/' else dataset_path[:-1]
-    DATASET_DIR = dataset_path + "_ldf"
+    dataset_path = Path(dataset_path)
+    output_path = Path(output_path)
+    DATASET_DIR = f"{str(output_path)}/{str(dataset_path.name)}_ldf"
 
     dataset_type, dataset_info = recognize(dataset_path)
+    source_name = dataset_type.value
 
     if dataset_type.value == "LDF":
         print("Already a LDF")
