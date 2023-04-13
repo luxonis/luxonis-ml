@@ -444,8 +444,6 @@ def recognize_and_load(
         info_file_path = dataset_info["txt_annotation_files_paths"][0]
         delimiter=" " #TODO: automatically detect required delimiter
 
-        breakpoint()
-
         from_image_classification_with_text_annotations_format(
             dataset, 
             source_name, 
@@ -454,5 +452,19 @@ def recognize_and_load(
             split,
             delimiter,
             dataset_size,
+            override_main_component
+        )
+    
+    elif dataset_type.value == "COCO":
+
+        image_dir = dataset_info["image_dir"]
+        annotation_path = dataset_info["json_file_path"]
+
+        from_coco(
+            dataset, 
+            source_name, 
+            image_dir, 
+            annotation_path, 
+            split, 
             override_main_component
         )
