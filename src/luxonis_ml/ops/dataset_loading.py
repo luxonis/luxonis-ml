@@ -43,7 +43,7 @@ def recognize_and_load_ldf(
     parser = Parser()
 
     if dataset_type.value == "LDF":
-        print("Already LDF")
+        print("Already a LDF")
     
     elif dataset_type.value == "ClassificationDirectoryTree":
 

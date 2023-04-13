@@ -40,6 +40,13 @@ def list_all_image_files(root):
     ]
     return list_files(root, cv2_supported_image_formats)
 
+def list_all_folders(root):
+    folders = []
+    for path, subdirs, files in os.walk(root):
+        for subdir in subdirs:
+            folders.append(subdir)
+    return folders
+
 def list_all_json_files(root):
     return list_files(root, ["json"])
 
@@ -73,6 +80,10 @@ def recognize(dataset_path: str) -> str:
 
     if not os.path.isdir(dataset_path):
         raise Exception("Invalid path name - not a directory.")
+    
+    ## recognize LDF
+    if "ldf" in list_all_folders(dataset_path):
+        return DatasetType.LDF, {}
 
     ## get dataset characteristics
     image_files = list_all_image_files(dataset_path)
@@ -125,10 +136,10 @@ def recognize(dataset_path: str) -> str:
                         raise Exception("unmatching json annotations")
                 return DatasetType.COCO, {"image_dir": image_dirs[0], "json_file_path": json_files[0]}
             
-            if all(key in json_file for key in ['classes', 'labels']):
+            elif all(key in json_file for key in ['classes', 'labels']):
                 if False: # TODO
                     raise Exception("unmatching json annotations")
-                return DatasetType.FOD
+                return DatasetType.FOD, {}
             
         if isinstance(json_file, list):
             if all(key in json_file[0] for key in ["image", "annotations"]):
