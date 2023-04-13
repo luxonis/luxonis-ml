@@ -93,7 +93,8 @@ def from_coco(
         else:
             warnings.warn(f"skipping {fn} as it does no exist!")
 
-def from_yolo(
+#TODO: the following function is probaly legacy code!
+def from_yolo( 
         dataset, 
         source_name, 
         yaml_path, 
@@ -181,6 +182,85 @@ def from_yolo(
                 component_name: img,
                 'json': new_ann
             }, split=split)
+
+def from_yolo5(
+        dataset, 
+        source_name, 
+        image_folder_path,
+        txt_annotation_files_paths,
+        split, 
+        dataset_size=None, 
+        override_main_component=None
+    ):
+    """
+    Constructs a LDF dataset from a YOLO5 type dataset.
+    Arguments:
+        dataset: [LuxonisDataset] LDF dataset instance
+        source_name: [string] name of the LDFSource to add to
+        image_folder_path: [string] path to the directory where images are stored
+        txt_annotation_files_paths: [strings] list of paths to the text annotation files where each line encodes a bounding box
+        split: [string] 'train', 'val', or 'test'
+        dataset_size: [int] number of data instances to include in our dataset (if None include all)
+        override_main_component: [LDFComponent] provide another LDFComponent if not using the main component from the LDFSource
+    Returns:
+        None
+    Note: 
+        only bounding boxes supported for now
+    """
+
+    ## define source component name
+    if override_main_component is not None:
+        component_name = override_main_component
+    else:
+        component_name = dataset.sources[source_name].main_component
+    
+    if not os.path.exists(image_folder_path):
+        raise RuntimeError('image folder path non-existent.')
+
+    count = 0
+    for image_path in tqdm(os.listdir(image_folder_path)):
+        if not os.path.exists(image_path):
+            warnings.warn(f"Skipping image {image_path} - not found!")
+            continue
+        ext = image_path.split('.')[-1]
+        label_path = image_path.replace('/images/', '/labels/').replace(f".{ext}", '.txt')
+        if not os.path.exists(label_path):
+            warnings.warn(f"Skipping image {image_path} - label {label_path} not found!")
+            continue
+
+        # add YOLO data
+        new_ann = {
+            component_name: {
+                'annotations': []
+            }
+        }
+
+        img = cv2.imread(image_path)
+        h, w = img.shape[0], img.shape[1]
+
+        with open(label_path) as file:
+            lines = file.readlines()
+            rows = len(lines)
+            data = np.array([float(num) for line in lines for num in line.replace('\n','').split(' ')])
+            data = data.reshape(rows, -1).tolist()
+
+        for row in data:
+            new_ann_instance = {}
+            yolo_class_id = int(row[0])
+            class_name = str(yolo_class_id)
+            new_ann_instance['class_name'] = class_name
+            class_id = dataset._add_class(new_ann_instance)
+            new_ann_instance['class'] = class_id
+
+            # bounding box
+            new_ann_instance['bbox'] = [row[1]*w, row[2]*h, row[3]*w, row[4]*h]
+
+            new_ann[component_name]['annotations'].append(new_ann_instance)
+
+        dataset.add_data(source_name, {
+            component_name: img,
+            'json': new_ann
+        }, split=split)
 
 def from_numpy_format(
         dataset, 
