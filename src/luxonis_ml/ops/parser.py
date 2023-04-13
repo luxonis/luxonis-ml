@@ -104,88 +104,103 @@ class Parser:
             else:
                 warnings.warn(f"skipping {fn} as it does no exist!")
 
-    def from_yolo(self, dataset, source_name, yaml_path, split='all', override_main_component=None):
+    @parsing_wrapper
+    def from_yolo5(
+            dataset, 
+            source_name, 
+            image_folder_path,
+            #txt_annotation_files_paths, # list of paths to the text annotation files where each line encodes a bounding box
+            split, 
+            dataset_size=None, 
+            override_main_component=None
+        ):
         """
-        dataset: LuxonisDataset instance
-        source_name: name of the LDFSource to add to
-        yaml_path: path to YAML file for YOLO format (be careful about relative paths in this file)
-        split: train, val, or test split
-        override_main_component: provide another LDFComponent if not using the main component from the LDFSource
-
-        Note: only bounding boxes supported for now
+        Constructs a LDF dataset from a YOLO5 type dataset.
+        Arguments:
+            dataset: [LuxonisDataset] LDF dataset instance
+            source_name: [string] name of the LDFSource to add to
+            image_folder_path: [string] path to the directory where images are stored
+            split: [string] 'train', 'val', or 'test'
+            dataset_size: [int] number of data instances to include in our dataset (if None include all)
+            override_main_component: [LDFComponent] provide another LDFComponent if not using the main component from the LDFSource
+        Returns:
+            None
+        Note: 
+            only bounding boxes supported for now
         """
 
-        yolo = yaml.safe_load(Path(yaml_path).read_text())
-        classes = yolo['names']
-        if yolo['nc'] != len(classes):
-            raise Exception(f"nc in YOLO YAML file does not match names!")
+        ## get classes
+        root_path = os.path.split(os.path.split(image_folder_path)[0])[0] #go two levels up
+        yaml_files = [fname for fname in os.listdir(root_path) if fname.endswith('.yaml')]
+        if len(yaml_files) > 1:
+            raise RuntimeError('Multiple YAML files - possible ambiguity')
+        else:
+            yaml_path = yaml_files[0]
+            yolo = yaml.safe_load(Path(os.path.join(root_path,yaml_path)).read_text())
+            classes = yolo['names']
+            if yolo['nc'] != len(classes):
+                raise Exception(f"nc in YOLO YAML file does not match names!")
 
-        if split == 'all': splits = ['train', 'val', 'test']
-        else: splits = [split]
-
+        ## define source component name
         if override_main_component is not None:
             component_name = override_main_component
         else:
             component_name = dataset.sources[source_name].main_component
+        
+        if not os.path.exists(image_folder_path):
+            raise RuntimeError('image folder path non-existent.')
 
-        for split in splits:
-            path = yolo[split]
-            if not os.path.exists(path):
-                if 'path' in yolo.keys():
-                    path = f"{yolo['path']}/{path}"
+        count = 0
+        for image_name in tqdm(os.listdir(image_folder_path)):
+            image_path = os.path.join(image_folder_path, image_name)
 
-            if not os.path.exists(path):
-                raise Exception(f"Cannot find {split} file {path} from YOLO YAML file!")
+            if not os.path.exists(image_path):
+                warnings.warn(f"Skipping image {image_path} - not found!")
+                continue
+            ext = image_path.split('.')[-1]
+            label_path = image_path.replace('/images/', '/labels/').replace(f".{ext}", '.txt')
+            if not os.path.exists(label_path):
+                warnings.warn(f"Skipping image {image_path} - label {label_path} not found!")
+                continue
 
-            dir_path = path.replace(path.split('/')[-1], '')
-            with open(path) as file:
-                lines = file.readlines()
-                image_paths = [line.replace('\n','') for line in lines]
-                image_paths = [f"{dir_path}/{path}" for path in image_paths]
+            ## check dataset size limit
+            count += 1
+            if dataset_size is not None and count > dataset_size:
+                break
 
-            for image_path in tqdm(image_paths):
-                if not os.path.exists(image_path):
-                    warnings.warn(f"Skipping image {image_path} - not found!")
-                    continue
-                ext = image_path.split('.')[-1]
-                label_path = image_path.replace('/images/', '/labels/').replace(f".{ext}", '.txt')
-                if not os.path.exists(label_path):
-                    warnings.warn(f"Skipping image {image_path} - label {label_path} not found!")
-                    continue
-
-                # add YOLO data
-                new_ann = {
-                    component_name: {
-                        'annotations': []
-                    }
+            # add YOLO data
+            new_ann = {
+                component_name: {
+                    'annotations': []
                 }
+            }
 
-                img = cv2.imread(image_path)
-                h, w = img.shape[0], img.shape[1]
+            img = cv2.imread(image_path)
+            h, w = img.shape[0], img.shape[1]
 
-                with open(label_path) as file:
-                    lines = file.readlines()
-                    rows = len(lines)
-                    data = np.array([float(num) for line in lines for num in line.replace('\n','').split(' ')])
-                    data = data.reshape(rows, -1).tolist()
+            with open(label_path) as file:
+                lines = file.readlines()
+                rows = len(lines)
+                data = np.array([float(num) for line in lines for num in line.replace('\n','').split(' ')])
+                data = data.reshape(rows, -1).tolist()
 
-                for row in data:
-                    new_ann_instance = {}
-                    yolo_class_id = int(row[0])
-                    class_name = classes[yolo_class_id]
-                    new_ann_instance['class_name'] = class_name
-                    class_id = dataset._add_class(new_ann_instance)
-                    new_ann_instance['class'] = class_id
+            for row in data:
+                new_ann_instance = {}
+                yolo_class_id = int(row[0])
+                class_name = classes[yolo_class_id]
+                new_ann_instance['class_name'] = class_name
+                class_id = dataset._add_class(new_ann_instance)
+                new_ann_instance['class'] = class_id
 
-                    # bounding box
-                    new_ann_instance['bbox'] = [row[1]*w, row[2]*h, row[3]*w, row[4]*h]
+                # bounding box
+                new_ann_instance['bbox'] = [row[1]*w, row[2]*h, row[3]*w, row[4]*h]
 
-                    new_ann[component_name]['annotations'].append(new_ann_instance)
+                new_ann[component_name]['annotations'].append(new_ann_instance)
 
-                dataset.add_data(source_name, {
-                    component_name: img,
-                    'json': new_ann
-                }, split=split)
+            dataset.add_data(source_name, {
+                component_name: img,
+                'json': new_ann
+            }, split=split)
 
     def from_numpy_format(
             self,
