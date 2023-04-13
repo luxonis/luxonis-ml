@@ -121,3 +121,9 @@ def recognize_and_load_ldf(
 
         while(parser.get_percentage() < 100):
             print(parser.get_percentage())
+
+    elif dataset_type.value == "unknown":
+        print("Cannot recognize dataset type")
+
+    else:
+        print("Cannot load the provided dataset")
