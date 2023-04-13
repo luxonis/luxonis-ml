@@ -10,11 +10,20 @@ import warnings
 import random
 import shutil
 
+from luxonis_ml.ops.dataset_recognition import recognize
+
 """
 Functions used with LuxonisDataset to convert other data formats to LDF
 """
 
-def from_coco(dataset, source_name, image_dir, annotation_path, split='train', override_main_component=None):
+def from_coco(
+        dataset, 
+        source_name, 
+        image_dir, 
+        annotation_path, 
+        split='train', 
+        override_main_component=None
+    ):
     """
     dataset: LuxonisDataset instance
     source_name: name of the LDFSource to add to
@@ -84,7 +93,13 @@ def from_coco(dataset, source_name, image_dir, annotation_path, split='train', o
         else:
             warnings.warn(f"skipping {fn} as it does no exist!")
 
-def from_yolo(dataset, source_name, yaml_path, split='all', override_main_component=None):
+def from_yolo(
+        dataset, 
+        source_name, 
+        yaml_path, 
+        split='all', 
+        override_main_component=None
+    ):
     """
     dataset: LuxonisDataset instance
     source_name: name of the LDFSource to add to
@@ -385,3 +400,49 @@ def from_image_classification_with_text_annotations_format(
             count += 1
             if dataset_size is not None and count >= dataset_size:
                 break
+
+
+# TODO: find location for the following function/method
+def recognize_and_load(
+        dataset_path, #path to dataset root
+        dataset, # dataset object to which we add to
+        source_name, 
+        #dataset_specific_parameters, #{}
+        split,
+        dataset_size=None,
+        override_main_component=None
+    ):
+    
+    dataset_type, dataset_info = recognize(dataset_path)
+    
+    if dataset_type.value == "ClassificationDirectoryTree":
+
+        class_folders_paths = dataset_info["image_dirs"] #image_dirs
+
+        from_image_classification_directory_tree_format(
+            dataset, 
+            source_name, 
+            class_folders_paths,
+            split,
+            dataset_size,
+            override_main_component
+        )
+    
+    elif dataset_type.value == "ClassificationWithTextAnnotations":
+
+        image_folder_path = dataset_info["image_dir"]
+        info_file_path = dataset_info["txt_annotation_files_paths"][0]
+        delimiter=" " #TODO: automatically detect required delimiter
+
+        breakpoint()
+
+        from_image_classification_with_text_annotations_format(
+            dataset, 
+            source_name, 
+            image_folder_path,
+            info_file_path,
+            split,
+            delimiter,
+            dataset_size,
+            override_main_component
+        )
