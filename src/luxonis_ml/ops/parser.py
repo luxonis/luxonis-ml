@@ -395,6 +395,7 @@ class Parser:
         Returns:
             None
         """
+        
 
         ## define source component name
         if override_main_component is not None:
@@ -407,7 +408,8 @@ class Parser:
 
         count = 0
         with open(info_file_path) as f:
-            iter = tqdm(f)
+            lines = f.readlines()
+            iter = tqdm(lines)
             for line in iter:
                 self.percentage = round((iter.n/iter.total)*100, 2)
                 try:
