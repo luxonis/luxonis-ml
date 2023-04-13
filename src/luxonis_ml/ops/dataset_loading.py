@@ -10,11 +10,20 @@ import warnings
 import random
 import shutil
 
+from luxonis_ml.ops.dataset_recognition import recognize
+
 """
 Functions used with LuxonisDataset to convert other data formats to LDF
 """
 
-def from_coco(dataset, source_name, image_dir, annotation_path, split='train', override_main_component=None):
+def from_coco(
+        dataset, 
+        source_name, 
+        image_dir, 
+        annotation_path, 
+        split='train', 
+        override_main_component=None
+    ):
     """
     dataset: LuxonisDataset instance
     source_name: name of the LDFSource to add to
@@ -84,7 +93,13 @@ def from_coco(dataset, source_name, image_dir, annotation_path, split='train', o
         else:
             warnings.warn(f"skipping {fn} as it does no exist!")
 
-def from_yolo(dataset, source_name, yaml_path, split='all', override_main_component=None):
+def from_yolo(
+        dataset, 
+        source_name, 
+        yaml_path, 
+        split='all', 
+        override_main_component=None
+    ):
     """
     dataset: LuxonisDataset instance
     source_name: name of the LDFSource to add to
@@ -329,7 +344,6 @@ def from_image_classification_with_text_annotations_format(
         dataset_size=None,
         override_main_component=None
     ):
-
     """
     Constructs a LDF dataset based on image paths and labels from text annotations.
     Arguments:
@@ -385,3 +399,72 @@ def from_image_classification_with_text_annotations_format(
             count += 1
             if dataset_size is not None and count >= dataset_size:
                 break
+
+
+# TODO: find location for the following function/method
+def recognize_and_load(
+        dataset_path,
+        dataset,
+        source_name,
+        split,
+        dataset_size=None,
+        override_main_component=None
+    ):
+    """
+    Based on the provided path, automatically detects a dataset type and constructs a LDF dataset.
+    Arguments:
+        dataset_path (str): Path to the root folder of the dataset.
+        dataset: [LuxonisDataset] LDF dataset instance
+        source_name: [string] name of the LDFSource to add to
+        split: [string] 'train', 'val', or 'test'
+        dataset_size: [int] number of data instances to include in our dataset (if None include all)
+        override_main_component: [LDFComponent] provide another LDFComponent if not using the main component from the LDFSource
+    Returns:
+        None
+    """
+    
+    dataset_type, dataset_info = recognize(dataset_path)
+    
+    if dataset_type.value == "ClassificationDirectoryTree":
+
+        class_folders_paths = dataset_info["image_dirs"] #image_dirs
+
+        from_image_classification_directory_tree_format(
+            dataset, 
+            source_name, 
+            class_folders_paths,
+            split,
+            dataset_size,
+            override_main_component
+        )
+    
+    elif dataset_type.value == "ClassificationWithTextAnnotations":
+
+        image_folder_path = dataset_info["image_dir"]
+        info_file_path = dataset_info["txt_annotation_files_paths"][0]
+        delimiter=" " #TODO: automatically detect required delimiter
+
+        from_image_classification_with_text_annotations_format(
+            dataset, 
+            source_name, 
+            image_folder_path,
+            info_file_path,
+            split,
+            delimiter,
+            dataset_size,
+            override_main_component
+        )
+    
+    elif dataset_type.value == "COCO":
+
+        image_dir = dataset_info["image_dir"]
+        annotation_path = dataset_info["json_file_path"]
+
+        from_coco(
+            dataset, 
+            source_name, 
+            image_dir, 
+            annotation_path, 
+            split, 
+            override_main_component
+        )
