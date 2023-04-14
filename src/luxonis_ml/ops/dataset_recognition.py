@@ -82,7 +82,7 @@ def recognize(dataset_path: str) -> str:
         raise Exception("Invalid path name - not a directory.")
     
     ## recognize LDF
-    if "ldf" in list_all_folders(dataset_path):
+    if "ldf" == os.path.split(dataset_path)[-1] or "ldf" in list_all_folders(dataset_path):
         return DatasetType.LDF, {}
 
     ## get dataset characteristics
