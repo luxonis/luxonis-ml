@@ -22,7 +22,7 @@ def recognize_and_load_ldf(
         dataset_path,
         output_path=".",
         split="train",
-        new_thread=True,
+        new_thread=False,
         dataset_size=None,
         override_main_component=None
     ):
@@ -131,8 +131,21 @@ def recognize_and_load_ldf(
 
         elif dataset_type.value == "unknown":
             print("Cannot recognize dataset type")
-            return None
+            if(new_thread):
+                return None
+            else:
+                return False
 
         else:
             print("Cannot load the provided dataset")
-            return None
+            if(new_thread):
+                return None
+            else:
+                return False
+            
+        
+        # If we are running in another thread, we return parser (for progress inspection), other True for succesful parsing
+        if(new_thread):
+            return parser
+        else:
+            return True
