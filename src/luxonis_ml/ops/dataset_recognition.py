@@ -76,13 +76,13 @@ def recognize(dataset_path: str) -> str:
     NOTE: Dataset type checking is done by some significant property of the dataset (has to contain json file, yaml file,..).
     """
 
-    dataset_path = dataset_path if dataset_path[-1] != '/' else dataset_path[:-1]
+    dataset_path = Path(dataset_path)
 
     if not os.path.isdir(dataset_path):
         raise Exception("Invalid path name - not a directory.")
     
     ## recognize LDF
-    if "ldf" in list_all_folders(dataset_path):
+    if "ldf" == os.path.split(dataset_path)[-1] or "ldf" in list_all_folders(dataset_path):
         return DatasetType.LDF, {}
 
     ## get dataset characteristics
