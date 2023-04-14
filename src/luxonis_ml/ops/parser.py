@@ -416,9 +416,8 @@ class Parser:
                     image_path, label = line.split(delimiter)
                 except:
                     raise RuntimeError('Unable to split the info file based on the provided delimiter.')
-
-                if label.endswith('\n'):
-                    label.replace('\n','')
+                
+                label = label.strip() 
 
                 ## read image
                 image = cv2.imread(os.path.join(image_folder_path, image_path))
@@ -438,7 +437,7 @@ class Parser:
                 count += 1
                 if dataset_size is not None and count >= dataset_size:
                     break
-    
+
     # Defining this below all the functions
     DATASET_TYPE_TO_FUNCTION = {
         dt.COCO: from_coco_format,
