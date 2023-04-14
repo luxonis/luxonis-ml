@@ -445,6 +445,7 @@ class Parser:
         dt.YOLO5: from_yolo5_format,
         dt.CDT: from_image_classification_directory_tree_format,
         dt.CTA: from_image_classification_with_text_annotations_format,
+        dt.NUMPY: from_numpy_format,
     }
 
     def get_percentage(self):

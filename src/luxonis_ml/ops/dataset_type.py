@@ -13,4 +13,5 @@ class DatasetType(Enum):
     TFODD = "TFObjectDetectionDataset"
     TFODC = "TFObjectDetectionCSV"
     YAML = "YAML"
+    NUMPY = "numpy"
     UNKNOWN = "unknown"
