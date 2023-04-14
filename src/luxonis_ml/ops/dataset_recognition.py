@@ -76,7 +76,7 @@ def recognize(dataset_path: str) -> str:
     NOTE: Dataset type checking is done by some significant property of the dataset (has to contain json file, yaml file,..).
     """
 
-    dataset_path = dataset_path if dataset_path[-1] != '/' else dataset_path[:-1]
+    dataset_path = Path(dataset_path)
 
     if not os.path.isdir(dataset_path):
         raise Exception("Invalid path name - not a directory.")
