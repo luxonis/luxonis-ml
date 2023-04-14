@@ -29,14 +29,14 @@ def recognize_and_load_ldf(
     """
     Based on the provided path, automatically detects a dataset type and constructs a LDF dataset.
     Arguments:
-        dataset_path (str): Path to the root folder of the dataset.
-        dataset: [LuxonisDataset] LDF dataset instance
-        source_name: [string] name of the LDFSource to add to
+        dataset_path [string]: Path to the root folder of the dataset.
+        output_path [string]: Path to the output folder
         split: [string] 'train', 'val', or 'test'
         dataset_size: [int] number of data instances to include in our dataset (if None include all)
         override_main_component: [LDFComponent] provide another LDFComponent if not using the main component from the LDFSource
     Returns:
-        None
+        If new_thread=True: returns [Parser] object if conversion started successfully, otherwise [None]
+        If new_thread=False: returns [Bool] True if conversion was succesful, otherwise [Bool] False 
     """
     
     dataset_path = Path(dataset_path)
