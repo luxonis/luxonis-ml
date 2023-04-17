@@ -12,6 +12,7 @@ import shutil
 from luxonis_ml.ops.dataset_type import DatasetType as dt
 import threading
 from threading import Thread
+import xml.etree.ElementTree as ET
 
 """
 Functions used with LuxonisDataset to convert other data formats to LDF
@@ -111,6 +112,93 @@ class Parser:
 
             else:
                 warnings.warn(f"skipping {fn} as it does no exist!")
+
+    @parsing_wrapper
+    def from_voc_format(
+            self,
+            dataset,
+            source_name,
+            image_dir,
+            xml_annotation_files_paths,
+            split,
+            dataset_size=None,
+            override_main_component=None
+        ):
+        
+        """
+        Constructs a LDF dataset from a VOC type dataset.
+        Arguments:
+            dataset: [LuxonisDataset] LDF dataset instance
+            source_name: [string] name of the LDFSource to add to
+            image_dir: [string] path to root directory containing images
+            annotation_path: [list of strings] path to xml annotation files
+            split: [string] 'train', 'val', or 'test'
+            dataset_size: [int] number of data instances to include in our dataset (if None include all)
+            override_main_component: [LDFComponent] provide another LDFComponent if not using the main component from the LDFSource
+        Returns:
+            None
+        Note: 
+            only bounding boxes supported for now
+        """
+
+        if override_main_component is not None:
+            component_name = override_main_component
+        else:
+            component_name = dataset.sources[source_name].main_component
+
+        count = 0
+        for xml_annotation_file_path in tqdm(xml_annotation_files_paths):
+            
+            new_ann = {component_name: {"annotations": []}}
+
+            instance_tree = ET.parse(xml_annotation_file_path)
+            instance_root = instance_tree.getroot()
+            
+            image = None
+
+            for child in instance_root:
+                if child.tag == "filename":
+                    image_path = os.path.join(image_dir, child.text)
+                    if os.path.exists(image_path):
+                        image = cv2.imread(image_path)
+                    else:
+                        warnings.warn(f"skipping {image_path} as it does no exist!")
+
+                if child.tag == "object":
+                    new_ann_instance = {}
+                    
+                    for info in child:
+                        if info.tag == "name":
+                            new_ann_instance["class_name"] = info.text
+                            class_id = dataset._add_class(new_ann_instance)
+                            new_ann_instance['class'] = class_id
+                        if info.tag == "bndbox":
+                            for point in info:
+                                if point.tag=="xmin":
+                                    bbox_xmin = int(point.text)
+                                if point.tag=="ymin":
+                                    bbox_ymin = int(point.text)
+                                if point.tag=="xmax":
+                                    bbox_xmax = int(point.text)
+                                if point.tag=="ymax":
+                                    bbox_ymax = int(point.text)
+                    try:
+                        new_ann_instance["bbox"] = [bbox_xmin, bbox_ymin, bbox_xmax, bbox_ymax]
+                        new_ann[component_name]["annotations"].append(new_ann_instance)
+                    except: 
+                        pass
+
+            if image is not None:
+
+                ## add to dataset
+                dataset.add_data(
+                    source_name, {component_name: image, "json": new_ann}, split=split
+                )  
+
+                ## check dataset size limit
+                count += 1
+                if dataset_size is not None and count > dataset_size:
+                    break       
 
     @parsing_wrapper
     def from_yolo5_format(
@@ -248,9 +336,6 @@ class Parser:
             labels = labels[:dataset_size]
 
         for image, label in zip(images, labels):
-
-            ## change image to BGR
-            image = image[:,:,::-1]
 
             ## structure annotations
             new_ann = {component_name: {"annotations": []}}
@@ -445,6 +530,7 @@ class Parser:
         dt.CDT: from_image_classification_directory_tree_format,
         dt.CTA: from_image_classification_with_text_annotations_format,
         dt.NUMPY: from_numpy_format,
+        dt.VOC: from_voc_format,
     }
 
     def get_percentage(self):

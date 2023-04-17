@@ -114,6 +114,22 @@ def recognize_and_load_ldf(
                 override_main_component=override_main_component
             )
 
+        elif dataset_type.value == "VOC":
+
+            image_dir = dataset_info["image_dir"]
+            xml_annotation_files_paths = dataset_info["xml_files_paths"]
+
+            parser.parse_to_ldf(
+                DatasetType.VOC, 
+                new_thread=new_thread,
+                dataset=dataset, 
+                source_name=source_name, 
+                image_dir=image_dir, 
+                xml_annotation_files_paths=xml_annotation_files_paths, 
+                split=split,
+                override_main_component=override_main_component
+            )        
+
         elif dataset_type.value == "YOLO5":
             
             image_folder_path = dataset_info["image_dir"]
