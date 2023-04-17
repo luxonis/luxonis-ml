@@ -166,6 +166,7 @@ def recognize(dataset_path: str) -> str:
     if txt_files:
         possible_dataset_types = []
         relevant_txt_files = [] # exclude README files etc.
+        classes_txt_files = []
         for txt_file in txt_files:
             relevant_txt_file = False
 
@@ -175,9 +176,15 @@ def recognize(dataset_path: str) -> str:
                     relevant_txt_file = True
 
             with open(txt_file, 'r', encoding='utf-8-sig') as text:
+                lines_with_single_element = []
                 for line in text.readlines():
                     line_split = line.split(" ")
                     if line_split[0] in image_names:
+                        if len(line_split) == 1:
+                            lines_with_single_element.append(True)
+                        else:
+                            lines_with_single_element.append(False)
+
                         if len(line_split) == 2:
                                 if line_split[1].split(",")[0] == line_split[1]:
                                     possible_dataset_types.append(DatasetType.CTA)
@@ -190,8 +197,15 @@ def recognize(dataset_path: str) -> str:
             if relevant_txt_file:
                 relevant_txt_files.append(txt_file)
             
+            if all(lines_with_single_element):
+                classes_txt_files.append(txt_file)
+
+        if len(classes_txt_files)>1:
+            raise Exception("Multiple txt files with potential to encode classnames - possible ambiguity")
+
         if len(set(possible_dataset_types)) == 1:
-            return possible_dataset_types[0], {"image_dir": image_dirs[0], "txt_annotation_files_paths": relevant_txt_files}
+            classes = classes_txt_files[0] if classes_txt_files != [] else None
+            return possible_dataset_types[0], {"image_dir": image_dirs[0], "txt_annotation_files_paths": relevant_txt_files, "classes_txt_file": classes}
 
     ## Recognize based on TFRECORD - TFObjectDetectionDataset
     if tfrecord_files:
