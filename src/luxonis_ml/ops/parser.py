@@ -188,7 +188,8 @@ class Parser:
                                 if point.tag=="ymax":
                                     bbox_ymax = int(point.text)
                     try:
-                        new_ann_instance["bbox"] = [bbox_xmin, bbox_ymin, bbox_xmax, bbox_ymax]
+                        coco_bbox_format = [bbox_xmin, bbox_ymin, bbox_xmax-bbox_xmin, bbox_ymax-bbox_ymin] #x_min, y_min, width, height
+                        new_ann_instance["bbox"] = coco_bbox_format
                         new_ann[component_name]["annotations"].append(new_ann_instance)
                     except: 
                         pass
