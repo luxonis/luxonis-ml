@@ -130,6 +130,25 @@ def recognize_and_load_ldf(
                 override_main_component=override_main_component
             )        
 
+        elif dataset_type.value == "YOLO4":
+            
+            image_folder_path = dataset_info["image_dir"]
+            txt_annotations_file_path = dataset_info["txt_annotation_files_paths"][0]
+            classes_txt_file_path = dataset_info["classes_txt_file"]
+
+            parser.parse_to_ldf(
+                DatasetType.YOLO4, 
+                new_thread=new_thread,
+                dataset=dataset, 
+                source_name=source_name, 
+                image_folder_path=image_folder_path,
+                txt_annotations_file_path=txt_annotations_file_path,
+                classes_txt_file_path=classes_txt_file_path,
+                split=split,
+                dataset_size=dataset_size,
+                override_main_component=override_main_component
+            )
+        
         elif dataset_type.value == "YOLO5":
             
             image_folder_path = dataset_info["image_dir"]

@@ -202,6 +202,91 @@ class Parser:
                     break       
 
     @parsing_wrapper
+    def from_yolo4_format(
+            self,
+            dataset, 
+            source_name, 
+            image_folder_path,
+            txt_annotations_file_path,
+            classes_txt_file_path,
+            split, 
+            dataset_size=None, 
+            override_main_component=None
+        ):
+        """
+        Constructs a LDF dataset from a YOLO5 type dataset.
+        Arguments:
+            dataset: [LuxonisDataset] LDF dataset instance
+            source_name: [string] name of the LDFSource to add to
+            image_folder_path: [string] path to the directory where images are stored
+            split: [string] 'train', 'val', or 'test'
+            dataset_size: [int] number of data instances to include in our dataset (if None include all)
+            override_main_component: [LDFComponent] provide another LDFComponent if not using the main component from the LDFSource
+        Returns:
+            None
+        Note: 
+            only bounding boxes supported for now
+        """    
+
+        ## define source component name
+        if override_main_component is not None:
+            component_name = override_main_component
+        else:
+            component_name = dataset.sources[source_name].main_component
+        
+        ## get classes
+        if not os.path.exists(classes_txt_file_path):
+            raise RuntimeError('classes file path non-existent.')
+        with open(classes_txt_file_path, 'r', encoding='utf-8-sig') as text:
+            classes = text.readlines()
+            classes = [x.replace("\n", "") for x in classes] # remove '\n'
+
+        count = 0
+        with open(txt_annotations_file_path, 'r', encoding='utf-8-sig') as text:
+        #    lines = text.readlines()
+        #for line in tqdm(lines):
+            for line in tqdm(text.readlines()):
+                new_ann = {component_name: {"annotations": []}}
+
+                image_name = line.split(' ')[0]
+                image_path = os.path.join(image_folder_path, image_name)
+                if os.path.exists(image_path):
+                    image = cv2.imread(image_path)
+                else:
+                    warnings.warn(f"skipping {image_path} as it does no exist!")
+                
+                for annotation in line.split(' ')[1:]:
+
+                    new_ann_instance = {}
+
+                    bbox_xmin, bbox_ymin, bbox_xmax, bbox_ymax, class_idx = [int(x) for x in annotation.split(',')]
+                    """bbox_xmin = int(bbox_xmin)
+                    bbox_ymin = int(bbox_ymin)
+                    bbox_xmax = int(bbox_xmax)
+                    bbox_ymax = int(bbox_ymax) 
+                    class_idx = int(class_idx)"""
+
+                    ## name
+                    new_ann_instance["class_name"] = classes[class_idx]
+                    class_id = dataset._add_class(new_ann_instance)
+                    new_ann_instance['class'] = class_id
+
+                    ## bbox
+                    coco_bbox_format = [bbox_xmin, bbox_ymin, bbox_xmax-bbox_xmin, bbox_ymax-bbox_ymin] #x_min, y_min, width, height
+                    new_ann_instance["bbox"] = coco_bbox_format
+                    new_ann[component_name]["annotations"].append(new_ann_instance)
+
+                ## add to dataset
+                dataset.add_data(
+                    source_name, {component_name: image, "json": new_ann}, split=split
+                )  
+
+                ## check dataset size limit
+                count += 1
+                if dataset_size is not None and count > dataset_size:
+                    break   
+
+    @parsing_wrapper
     def from_yolo5_format(
             self,
             dataset, 
@@ -527,6 +612,7 @@ class Parser:
     # Defining this below all the functions
     DATASET_TYPE_TO_FUNCTION = {
         dt.COCO: from_coco_format,
+        dt.YOLO4: from_yolo4_format,
         dt.YOLO5: from_yolo5_format,
         dt.CDT: from_image_classification_directory_tree_format,
         dt.CTA: from_image_classification_with_text_annotations_format,
