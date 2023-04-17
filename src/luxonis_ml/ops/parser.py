@@ -13,6 +13,7 @@ from luxonis_ml.ops.dataset_type import DatasetType as dt
 import threading
 from threading import Thread
 import xml.etree.ElementTree as ET
+from luxonis_ml.ops import *
 
 """
 Functions used with LuxonisDataset to convert other data formats to LDF
@@ -29,7 +30,7 @@ class Parser:
             args[0].parsing_in_progress = True
             func(*args, **kwargs)
             args[0].parsing_in_progress = False
-            args[0].percentage = 100
+            args[0].percentage = 100.0
         return inner
     
     @parsing_wrapper
@@ -112,6 +113,10 @@ class Parser:
 
             else:
                 warnings.warn(f"skipping {fn} as it does no exist!")
+            
+        # Convert to webdataset
+        query = f"SELECT basename FROM df WHERE split='{split}';"
+        dataset.to_webdataset(split, query)
 
     @parsing_wrapper
     def from_voc_format(
@@ -199,7 +204,11 @@ class Parser:
                 ## check dataset size limit
                 count += 1
                 if dataset_size is not None and count > dataset_size:
-                    break       
+                    break
+        
+        # Convert to webdataset
+        query = f"SELECT basename FROM df WHERE split='{split}';"
+        dataset.to_webdataset(split, query)
 
     @parsing_wrapper
     def from_yolo4_format(
@@ -384,6 +393,10 @@ class Parser:
                 component_name: img,
                 'json': new_ann
             }, split=split)
+        
+        # Convert to webdataset
+        query = f"SELECT basename FROM df WHERE split='{split}';"
+        dataset.to_webdataset(split, query)
 
     @parsing_wrapper
     def from_numpy_format(
@@ -433,6 +446,10 @@ class Parser:
             dataset.add_data(
                 source_name, {component_name: image, "json": new_ann}, split=split
             )
+        
+        # Convert to webdataset
+        query = f"SELECT basename FROM df WHERE split='{split}';"
+        dataset.to_webdataset(split, query)
 
     def train_test_split_image_classification_directory_tree(
             self,
@@ -539,6 +556,10 @@ class Parser:
 
                 else:
                     raise RuntimeError('A non-valid image path was encountered')
+                
+        # Convert to webdataset
+        query = f"SELECT basename FROM df WHERE split='{split}';"
+        dataset.to_webdataset(split, query)
 
     @parsing_wrapper    
     def from_image_classification_with_text_annotations_format(
@@ -608,6 +629,10 @@ class Parser:
                 count += 1
                 if dataset_size is not None and count >= dataset_size:
                     break
+
+        # Convert to webdataset
+        query = f"SELECT basename FROM df WHERE split='{split}';"
+        dataset.to_webdataset(split, query)
 
     # Defining this below all the functions
     DATASET_TYPE_TO_FUNCTION = {

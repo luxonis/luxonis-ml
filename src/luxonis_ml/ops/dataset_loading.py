@@ -9,6 +9,7 @@ from pathlib import Path
 import warnings
 import random
 import shutil
+import time
 
 from luxonis_ml.ops import *
 
@@ -177,13 +178,8 @@ def recognize_and_load_ldf(
                 return None
             else:
                 return False
-            
-    ## make training, validation, and testing data available as a WebDataset
-    with LuxonisDataset(local_path=DATASET_DIR) as dataset:
-        query = f"SELECT basename FROM df WHERE split='{split}';"
-        dataset.to_webdataset(split, query)
 
-    # If we are running in another thread, we return parser (for progress inspection), other True for succesful parsing
+    # If we are running in another thread, we return parser (for progress inspection), otherwise True for succesful parsing
     if(new_thread):
         return parser
     else:
