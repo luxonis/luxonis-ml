@@ -37,85 +37,98 @@ class Parser:
     @parsing_wrapper
     def from_coco_format(
             self,
-            dataset, 
-            source_name, 
-            image_dir, 
+            dataset,
+            source_name,
+            image_dir,
             annotation_path, 
-            split, 
+            split,
+            dataset_size=None,
             override_main_component=None
         ):
         """
-        dataset: LuxonisDataset instance
-        source_name: name of the LDFSource to add to
-        image_dir: path to root directory containing images with COCO basenames
-        annotation_path: path to COCO annotation file
-        split: train, val, or test split
-        override_main_component: provide another LDFComponent if not using the main component from the LDFSource
+        Constructs a LDF dataset from a COCO type dataset.
+        Arguments:
+            dataset: [LuxonisDataset] LDF dataset instance
+            source_name: [string] name of the LDFSource to add to
+            image_dir: [string] path to root directory containing images
+            annotation_path: [string] path to json annotations file
+            split: [string] 'train', 'val', or 'test'
+            dataset_size: [int] number of data instances to include in our dataset (if None include all)
+            override_main_component: [LDFComponent] provide another LDFComponent if not using the main component from the LDFSource
+        Returns:
+            None
         """
 
+        ## define main component
+        if override_main_component is not None:
+            component_name = override_main_component
+        else:
+            component_name = dataset.sources[source_name].main_component
+            
+        ## load data
         with open(annotation_path) as file:
             coco = json.load(file)
-
-        images = coco['images']
-        annotations = coco['annotations']
+        coco_images = coco['images']
+        coco_annotations = coco['annotations']
         coco_categories = coco['categories']
         categories = {cat['id']:cat['name'] for cat in coco_categories}
         keypoint_definitions = {cat['id']:{'keypoints':cat['keypoints'],'skeleton':cat['skeleton']} \
                                 for cat in coco_categories if 'keypoints' in cat.keys() and 'skeleton' in cat.keys()}
 
-        if override_main_component is not None:
-            component_name = override_main_component
-        else:
-            component_name = dataset.sources[source_name].main_component
-
-        iter = tqdm(images)
+        ## dataset construction loop
+        iter = tqdm(coco_images)
         for image in iter:
             self.percentage = round((iter.n/iter.total)*100, 2)
-            new_ann = {
-                component_name: {
-                    'annotations': []
-                }
-            }
-            fn = image['file_name']
-            image_id = image['id']
-            image_path = f"{image_dir}/{fn}"
-            if os.path.exists(image_path):
-                img = cv2.imread(image_path)
-                anns = [ann for ann in annotations if ann['image_id'] == image_id]
-                for ann in anns:
-                    cat_id = ann['category_id']
-                    class_name = categories[cat_id]
-
-                    new_ann_instance = {}
-                    new_ann_instance['class_name'] = class_name
-                    class_id = dataset._add_class(new_ann_instance)
-                    new_ann_instance['class'] = class_id
-
-                    if cat_id in keypoint_definitions.keys():
-                        dataset._add_keypoint_definition(class_id, keypoint_definitions[cat_id])
-
-                    if 'segmentation' in ann.keys():
-                        segmentation = ann['segmentation']
-                        if isinstance(segmentation, list) and len(segmentation) > 0: # polygon format
-                            new_ann_instance['segmentation'] = {'type':'polygon', 'task':'instance', 'data':segmentation}
-                        elif isinstance(segmentation, dict) and len(segmentation['counts']) > 0:
-                            new_ann_instance['segmentation'] = {'type':'mask', 'task':'instance', 'data':segmentation}
-                    if 'bbox' in ann.keys():
-                        new_ann_instance['bbox'] = ann['bbox']
-                    if 'keypoints' in ann.keys():
-                        new_ann_instance['keypoints'] = ann['keypoints']
-
-                    new_ann[component_name]['annotations'].append(new_ann_instance)
-
-                dataset.add_data(source_name, {
-                    component_name: img,
-                    'json': new_ann
-                }, split=split)
-
-            else:
-                warnings.warn(f"skipping {fn} as it does no exist!")
             
-        # Convert to webdataset
+            new_ann = {component_name: {"annotations": []}}
+            
+            image_name = image['file_name']
+            image_id = image['id']
+            image_path = os.path.join(image_dir, image_name)
+            if os.path.exists(image_path):
+                image = cv2.imread(image_path)
+            else:
+                warnings.warn(f"skipping {image_path} as it does no exist!")
+
+            annotations = [ann for ann in coco_annotations if ann['image_id'] == image_id]
+            for annotation in annotations:
+                new_ann_instance = {}
+
+                cat_id = annotation['category_id']
+                class_name = categories[cat_id]
+                new_ann_instance['class_name'] = class_name
+
+                class_id = dataset._add_class(new_ann_instance)
+                new_ann_instance['class'] = class_id
+
+                if cat_id in keypoint_definitions.keys():
+                    dataset._add_keypoint_definition(class_id, keypoint_definitions[cat_id])
+
+                if 'segmentation' in annotation.keys():
+                    segmentation = annotation['segmentation']
+                    if isinstance(segmentation, list) and len(segmentation) > 0: # polygon format
+                        new_ann_instance['segmentation'] = {'type':'polygon', 'task':'instance', 'data':segmentation}
+                    elif isinstance(segmentation, dict) and len(segmentation['counts']) > 0:
+                        new_ann_instance['segmentation'] = {'type':'mask', 'task':'instance', 'data':segmentation}
+                
+                if 'bbox' in annotation.keys():
+                    new_ann_instance['bbox'] = annotation['bbox']
+                
+                if 'keypoints' in annotation.keys():
+                    new_ann_instance['keypoints'] = annotation['keypoints']
+
+                new_ann[component_name]['annotations'].append(new_ann_instance)
+            
+            ## add instance to the dataset
+            dataset.add_data(
+                source_name, {component_name: image, "json": new_ann}, split=split
+            )  
+
+            ## limit dataset size 
+            if dataset_size is not None and iter.n+1 >= dataset_size:
+                break
+        
+        ## Convert to webdataset
         query = f"SELECT basename FROM df WHERE split='{split}';"
         dataset.to_webdataset(split, query)
 
@@ -137,7 +150,7 @@ class Parser:
             dataset: [LuxonisDataset] LDF dataset instance
             source_name: [string] name of the LDFSource to add to
             image_dir: [string] path to root directory containing images
-            annotation_path: [list of strings] path to xml annotation files
+            xml_annotation_files_paths: [list of strings] path to xml annotation files
             split: [string] 'train', 'val', or 'test'
             dataset_size: [int] number of data instances to include in our dataset (if None include all)
             override_main_component: [LDFComponent] provide another LDFComponent if not using the main component from the LDFSource
@@ -147,20 +160,21 @@ class Parser:
             only bounding boxes supported for now
         """
 
+        ## define main component
         if override_main_component is not None:
             component_name = override_main_component
         else:
             component_name = dataset.sources[source_name].main_component
 
-        count = 0
-        for xml_annotation_file_path in tqdm(xml_annotation_files_paths):
+        ## dataset construction loop
+        iter = tqdm(xml_annotation_files_paths)
+        for xml_annotation_file_path in iter:
+            self.percentage = round((iter.n/iter.total)*100, 2)
             
             new_ann = {component_name: {"annotations": []}}
 
             instance_tree = ET.parse(xml_annotation_file_path)
             instance_root = instance_tree.getroot()
-            
-            image = None
 
             for child in instance_root:
                 if child.tag == "filename":
@@ -169,6 +183,7 @@ class Parser:
                         image = cv2.imread(image_path)
                     else:
                         warnings.warn(f"skipping {image_path} as it does no exist!")
+                        continue
 
                 if child.tag == "object":
                     new_ann_instance = {}
@@ -188,26 +203,21 @@ class Parser:
                                     bbox_xmax = int(point.text)
                                 if point.tag=="ymax":
                                     bbox_ymax = int(point.text)
-                    try:
-                        coco_bbox_format = [bbox_xmin, bbox_ymin, bbox_xmax-bbox_xmin, bbox_ymax-bbox_ymin] #x_min, y_min, width, height
-                        new_ann_instance["bbox"] = coco_bbox_format
-                        new_ann[component_name]["annotations"].append(new_ann_instance)
-                    except: 
-                        pass
+                            coco_bbox = [bbox_xmin, bbox_ymin, bbox_xmax-bbox_xmin, bbox_ymax-bbox_ymin] #x_min, y_min, width, height
+                            new_ann_instance["bbox"] = coco_bbox
+                    
+                    new_ann[component_name]["annotations"].append(new_ann_instance)
 
-            if image is not None:
+            ## add to dataset
+            dataset.add_data(
+                source_name, {component_name: image, "json": new_ann}, split=split
+            )  
 
-                ## add to dataset
-                dataset.add_data(
-                    source_name, {component_name: image, "json": new_ann}, split=split
-                )  
-
-                ## check dataset size limit
-                count += 1
-                if dataset_size is not None and count > dataset_size:
-                    break
+            ## limit dataset size 
+            if dataset_size is not None and iter.n+1 >= dataset_size:
+                break
         
-        # Convert to webdataset
+        ## Convert to webdataset
         query = f"SELECT basename FROM df WHERE split='{split}';"
         dataset.to_webdataset(split, query)
 
@@ -216,7 +226,7 @@ class Parser:
             self,
             dataset, 
             source_name, 
-            image_folder_path,
+            image_dir,
             txt_annotations_file_path,
             classes_txt_file_path,
             split, 
@@ -224,11 +234,11 @@ class Parser:
             override_main_component=None
         ):
         """
-        Constructs a LDF dataset from a YOLO5 type dataset.
+        Constructs a LDF dataset from a YOLO4 type dataset.
         Arguments:
             dataset: [LuxonisDataset] LDF dataset instance
             source_name: [string] name of the LDFSource to add to
-            image_folder_path: [string] path to the directory where images are stored
+            image_dir: [string] path to the directory where images are stored
             split: [string] 'train', 'val', or 'test'
             dataset_size: [int] number of data instances to include in our dataset (if None include all)
             override_main_component: [LDFComponent] provide another LDFComponent if not using the main component from the LDFSource
@@ -238,50 +248,44 @@ class Parser:
             only bounding boxes supported for now
         """    
 
-        ## define source component name
+        ## define main component
         if override_main_component is not None:
             component_name = override_main_component
         else:
             component_name = dataset.sources[source_name].main_component
         
-        ## get classes
+        ## get class names
         if not os.path.exists(classes_txt_file_path):
             raise RuntimeError('classes file path non-existent.')
         with open(classes_txt_file_path, 'r', encoding='utf-8-sig') as text:
             classes = text.readlines()
-            classes = [x.replace("\n", "") for x in classes] # remove '\n'
+            classes = [class_name.replace("\n", "") for class_name in classes]
 
-        count = 0
+        ## dataset construction loop
         with open(txt_annotations_file_path, 'r', encoding='utf-8-sig') as text:
-        #    lines = text.readlines()
-        #for line in tqdm(lines):
-            for line in tqdm(text.readlines()):
+            iter = tqdm(text.readlines())
+            for line in iter:
+                self.percentage = round((iter.n/iter.total)*100, 2)
+            
                 new_ann = {component_name: {"annotations": []}}
 
                 image_name = line.split(' ')[0]
-                image_path = os.path.join(image_folder_path, image_name)
+                image_path = os.path.join(image_dir, image_name)
                 if os.path.exists(image_path):
                     image = cv2.imread(image_path)
                 else:
                     warnings.warn(f"skipping {image_path} as it does no exist!")
+                    continue
                 
                 for annotation in line.split(' ')[1:]:
-
                     new_ann_instance = {}
 
                     bbox_xmin, bbox_ymin, bbox_xmax, bbox_ymax, class_idx = [int(x) for x in annotation.split(',')]
-                    """bbox_xmin = int(bbox_xmin)
-                    bbox_ymin = int(bbox_ymin)
-                    bbox_xmax = int(bbox_xmax)
-                    bbox_ymax = int(bbox_ymax) 
-                    class_idx = int(class_idx)"""
 
-                    ## name
                     new_ann_instance["class_name"] = classes[class_idx]
                     class_id = dataset._add_class(new_ann_instance)
                     new_ann_instance['class'] = class_id
 
-                    ## bbox
                     coco_bbox_format = [bbox_xmin, bbox_ymin, bbox_xmax-bbox_xmin, bbox_ymax-bbox_ymin] #x_min, y_min, width, height
                     new_ann_instance["bbox"] = coco_bbox_format
                     new_ann[component_name]["annotations"].append(new_ann_instance)
@@ -291,12 +295,11 @@ class Parser:
                     source_name, {component_name: image, "json": new_ann}, split=split
                 )  
 
-                ## check dataset size limit
-                count += 1
-                if dataset_size is not None and count > dataset_size:
-                    break   
+                ## limit dataset size 
+                if dataset_size is not None and iter.n+1 >= dataset_size:
+                    break
 
-        # Convert to webdataset
+        ## Convert to webdataset
         query = f"SELECT basename FROM df WHERE split='{split}';"
         dataset.to_webdataset(split, query)
 
@@ -305,8 +308,7 @@ class Parser:
             self,
             dataset, 
             source_name, 
-            image_folder_path,
-            #txt_annotation_files_paths, # list of paths to the text annotation files where each line encodes a bounding box
+            image_dir,
             split, 
             dataset_size=None, 
             override_main_component=None
@@ -316,7 +318,7 @@ class Parser:
         Arguments:
             dataset: [LuxonisDataset] LDF dataset instance
             source_name: [string] name of the LDFSource to add to
-            image_folder_path: [string] path to the directory where images are stored
+            image_dir: [string] path to the directory where images are stored
             split: [string] 'train', 'val', or 'test'
             dataset_size: [int] number of data instances to include in our dataset (if None include all)
             override_main_component: [LDFComponent] provide another LDFComponent if not using the main component from the LDFSource
@@ -326,8 +328,14 @@ class Parser:
             only bounding boxes supported for now
         """
 
-        ## get classes
-        root_path = os.path.split(os.path.split(image_folder_path)[0])[0] #go two levels up
+        ## define main component
+        if override_main_component is not None:
+            component_name = override_main_component
+        else:
+            component_name = dataset.sources[source_name].main_component
+
+        ## get class names
+        root_path = os.path.split(os.path.split(image_dir)[0])[0] #go two levels up
         yaml_files = [fname for fname in os.listdir(root_path) if fname.endswith('.yaml')]
         if len(yaml_files) > 1:
             raise RuntimeError('Multiple YAML files - possible ambiguity')
@@ -338,42 +346,27 @@ class Parser:
             if yolo['nc'] != len(classes):
                 raise Exception(f"nc in YOLO YAML file does not match names!")
 
-        ## define source component name
-        if override_main_component is not None:
-            component_name = override_main_component
-        else:
-            component_name = dataset.sources[source_name].main_component
-        
-        if not os.path.exists(image_folder_path):
-            raise RuntimeError('image folder path non-existent.')
+        ## dataset construction loop
+        iter = tqdm(os.listdir(image_dir))
+        for image_name in iter:
+            self.percentage = round((iter.n/iter.total)*100, 2)
 
-        count = 0
-        for image_name in tqdm(os.listdir(image_folder_path)):
-            image_path = os.path.join(image_folder_path, image_name)
-
-            if not os.path.exists(image_path):
-                warnings.warn(f"Skipping image {image_path} - not found!")
+            image_path = os.path.join(image_dir, image_name)
+            if os.path.exists(image_path):
+                image = cv2.imread(image_path)
+            else:
+                warnings.warn(f"skipping {image_path} as it does no exist!")
                 continue
+
             ext = image_path.split('.')[-1]
             label_path = image_path.replace('/images/', '/labels/').replace(f".{ext}", '.txt')
             if not os.path.exists(label_path):
                 warnings.warn(f"Skipping image {image_path} - label {label_path} not found!")
                 continue
 
-            ## check dataset size limit
-            count += 1
-            if dataset_size is not None and count > dataset_size:
-                break
+            new_ann = {component_name: {'annotations': []}}
 
-            # add YOLO data
-            new_ann = {
-                component_name: {
-                    'annotations': []
-                }
-            }
-
-            img = cv2.imread(image_path)
-            h, w = img.shape[0], img.shape[1]
+            h, w = image.shape[0], image.shape[1]
 
             with open(label_path) as file:
                 lines = file.readlines()
@@ -390,16 +383,37 @@ class Parser:
                 new_ann_instance['class'] = class_id
 
                 # bounding box
-                new_ann_instance['bbox'] = [row[1]*w, row[2]*h, row[3]*w, row[4]*h]
 
-                new_ann[component_name]['annotations'].append(new_ann_instance)
+                bbox_xcenter = row[1]*w
+                bbox_ycenter = row[2]*h
 
-            dataset.add_data(source_name, {
-                component_name: img,
-                'json': new_ann
-            }, split=split)
+                #bbox_xmin = annotation["coordinates"]["x"]
+                #bbox_ymin = annotation["coordinates"]["y"]
+                bbox_width = row[3]*w
+                bbox_height = row[4]*h
+
+                bbox_xmin = bbox_xcenter - bbox_width / 2
+                bbox_ymin = bbox_ycenter - bbox_height / 2
+
+                coco_bbox_format = [bbox_xmin, bbox_ymin, bbox_width, bbox_height]
+                new_ann_instance["bbox"] = coco_bbox_format
+                new_ann[component_name]["annotations"].append(new_ann_instance)
+
+
+                #############################
+                #new_ann_instance['bbox'] = [, , , ]
+                #new_ann[component_name]['annotations'].append(new_ann_instance)
+
+            ## add to dataset
+            dataset.add_data(
+                source_name, {component_name: image, "json": new_ann}, split=split
+            )  
+
+            ## limit dataset size 
+            if dataset_size is not None and iter.n+1 >= dataset_size:
+                break
         
-        # Convert to webdataset
+        ## Convert to webdataset
         query = f"SELECT basename FROM df WHERE split='{split}';"
         dataset.to_webdataset(split, query)
 
@@ -408,14 +422,14 @@ class Parser:
             self,
             dataset, 
             source_name, 
-            image_folder_path,
+            image_dir,
             csv_file_path,
             split, 
             dataset_size=None, 
             override_main_component=None
         ):
         """
-        Constructs a LDF dataset from a YOLO5 type dataset.
+        Constructs a LDF dataset from a TFObjectDetectionCSV type dataset.
         Arguments:
             dataset: [LuxonisDataset] LDF dataset instance
             source_name: [string] name of the LDFSource to add to
@@ -430,7 +444,7 @@ class Parser:
             only bounding boxes supported for now
         """
 
-        ## define source component name
+        ## define main component
         if override_main_component is not None:
             component_name = override_main_component
         else:
@@ -461,25 +475,31 @@ class Parser:
                     annotations[image_name] = []
                 annotations[image_name].append((class_name, xmin, ymin, xmax, ymax))
 
-        count = 0
-        for image_name in annotations:
+        ## dataset construction loop
+        iter = tqdm(annotations.keys())
+        for image_name in iter:
+            self.percentage = round((iter.n/iter.total)*100, 2)
 
-            ## load image
-            image = cv2.imread(os.path.join(image_folder_path, image_name))
+            image_path = os.path.join(image_dir, image_name)
+            if os.path.exists(image_path):
+                image = cv2.imread(image_path)
+            else:
+                warnings.warn(f"skipping {image_path} as it does no exist!")
+                continue
 
-            ## structure annotations
             new_ann = {component_name: {"annotations": []}}
+
             for annotation in annotations[image_name]:
                 class_name, bbox_xmin, bbox_ymin, bbox_xmax, bbox_ymax = annotation
                 
                 new_ann_instance = {}
-                ## name
+
                 new_ann_instance["class_name"] = class_name
                 class_id = dataset._add_class(new_ann_instance)
                 new_ann_instance['class'] = class_id
-                ## bbox
-                coco_bbox_format = [bbox_xmin, bbox_ymin, bbox_xmax-bbox_xmin, bbox_ymax-bbox_ymin] #x_min, y_min, width, height
-                new_ann_instance["bbox"] = coco_bbox_format
+
+                coco_bbox = [bbox_xmin, bbox_ymin, bbox_xmax-bbox_xmin, bbox_ymax-bbox_ymin] #x_min, y_min, width, height
+                new_ann_instance["bbox"] = coco_bbox
                 new_ann[component_name]["annotations"].append(new_ann_instance)
 
             ## add data to the provided LDF dataset instance
@@ -487,12 +507,11 @@ class Parser:
                 source_name, {component_name: image, "json": new_ann}, split=split
             )
 
-            ## check dataset size limit
-            count += 1
-            if dataset_size is not None and count > dataset_size:
+            ## limit dataset size 
+            if dataset_size is not None and iter.n+1 >= dataset_size:
                 break
     
-        # Convert to webdataset
+        ## Convert to webdataset
         query = f"SELECT basename FROM df WHERE split='{split}';"
         dataset.to_webdataset(split, query)
 
@@ -508,51 +527,68 @@ class Parser:
             override_main_component=None
         ):
         """
-        dataset: LuxonisDataset instance
-        source_name: name of the LDFSource to add to
-        image_dir: path to root directory containing images with COCO basenames
-        annotation_path: path to COCO annotation file
-        split: train, val, or test split
-        override_main_component: provide another LDFComponent if not using the main component from the LDFSource
+        Constructs a LDF dataset from a CreateML type dataset.
+        Arguments:
+            dataset: [LuxonisDataset] LDF dataset instance
+            source_name: [string] name of the LDFSource to add to
+            image_dir: [string] path to the directory where images are stored
+            annotation_path: [string] path to json file where annotations are stored
+            split: [string] 'train', 'val', or 'test'
+            dataset_size: [int] number of data instances to include in our dataset (if None include all)
+            override_main_component: [LDFComponent] provide another LDFComponent if not using the main component from the LDFSource
+        Returns:
+            None
+        Note: 
+            only bounding boxes supported for now
         """
 
+        ## define main component
         if override_main_component is not None:
             component_name = override_main_component
         else:
             component_name = dataset.sources[source_name].main_component
 
-        ## read annotations path json
+        ## read annotations file
         with open(annotation_path) as file:
             cml_annotations = json.load(file)
 
-        ## iterate
-        count = 0
-        for annotations_instance in tqdm(cml_annotations):
+        ## dataset construction loop
+        iter = tqdm(cml_annotations)
+        for annotations_instance in iter:
+            self.percentage = round((iter.n/iter.total)*100, 2)
 
             image_name = annotations_instance["image"]
-            annotations = annotations_instance["annotations"]
+            image_path = os.path.join(image_dir, image_name)
+            if os.path.exists(image_path):
+                image = cv2.imread(image_path)
+            else:
+                warnings.warn(f"skipping {image_path} as it does no exist!")
+                continue
 
-            ## load image
-            image = cv2.imread(os.path.join(image_dir, image_name))
-
-            ## structure annotations
             new_ann = {component_name: {"annotations": []}}
-            #breakpoint()
+
+            annotations = annotations_instance["annotations"]
             for annotation in annotations:
 
                 class_name = annotation["label"]
-                bbox_xmin = annotation["coordinates"]["x"]
-                bbox_ymin = annotation["coordinates"]["y"]
-                width = annotation["coordinates"]["width"]
-                height = annotation["coordinates"]["height"]
+                bbox_xcenter = annotation["coordinates"]["x"]
+                bbox_ycenter = annotation["coordinates"]["y"]
+
+                #bbox_xmin = annotation["coordinates"]["x"]
+                #bbox_ymin = annotation["coordinates"]["y"]
+                bbox_width = annotation["coordinates"]["width"]
+                bbox_height = annotation["coordinates"]["height"]
+
+                bbox_xmin = bbox_xcenter - bbox_width / 2
+                bbox_ymin = bbox_ycenter - bbox_height / 2
                 
                 new_ann_instance = {}
-                ## name
+
                 new_ann_instance["class_name"] = class_name
                 class_id = dataset._add_class(new_ann_instance)
                 new_ann_instance['class'] = class_id
-                ## bbox
-                coco_bbox_format = [bbox_xmin, bbox_ymin, width, height]
+
+                coco_bbox_format = [bbox_xmin, bbox_ymin, bbox_width, bbox_height]
                 new_ann_instance["bbox"] = coco_bbox_format
                 new_ann[component_name]["annotations"].append(new_ann_instance)
 
@@ -561,12 +597,11 @@ class Parser:
                 source_name, {component_name: image, "json": new_ann}, split=split
             )
 
-            ## check dataset size limit
-            count += 1
-            if dataset_size is not None and count > dataset_size:
+            ## limit dataset size 
+            if dataset_size is not None and iter.n+1 >= dataset_size:
                 break
     
-        # Convert to webdataset
+        ## Convert to webdataset
         query = f"SELECT basename FROM df WHERE split='{split}';"
         dataset.to_webdataset(split, query)
 
@@ -595,7 +630,7 @@ class Parser:
             None
         """
 
-        ## define source component name
+        ## define main component
         if override_main_component is not None:
             component_name = override_main_component
         else:
@@ -606,20 +641,21 @@ class Parser:
             images = images[:dataset_size]
             labels = labels[:dataset_size]
 
-        for image, label in zip(images, labels):
+        ## dataset construction loop
+        iter = tqdm(zip(images, labels))
+        for image, label in iter:
+            self.percentage = round((iter.n/iter.total)*100, 2)
 
-            ## structure annotations
             new_ann = {component_name: {"annotations": []}}
             new_ann_instance = {}
             new_ann_instance["class_name"] = str(label)
             new_ann[component_name]["annotations"].append(new_ann_instance)
 
-            ## add data to the provided LDF dataset instance
             dataset.add_data(
                 source_name, {component_name: image, "json": new_ann}, split=split
             )
         
-        # Convert to webdataset
+        ## Convert to webdataset
         query = f"SELECT basename FROM df WHERE split='{split}';"
         dataset.to_webdataset(split, query)
 
@@ -649,21 +685,21 @@ class Parser:
             if folder_name in folders_to_ignore:
                 continue
 
-            image_names = os.listdir(f"{directory_tree_path}/{folder_name}")
+            image_names = os.listdir(os.path.join(directory_tree_path, folder_name))
             random.shuffle(image_names)
             split_idx = int(len(image_names)*split_proportion)
             image_names1 = image_names[:split_idx]
             image_names2 = image_names[split_idx:]
 
-            os.mkdir(f"{destination_path1}/{folder_name}")
-            os.mkdir(f"{destination_path2}/{folder_name}")
+            os.mkdir(os.path.join(destination_path1, folder_name))
+            os.mkdir(os.path.join(destination_path2, folder_name))
             
             for image_name in image_names1:
-                shutil.copyfile(src=f"{directory_tree_path}/{folder_name}/{image_name}", 
-                                dst=f"{destination_path1}/{folder_name}/{image_name}")
+                shutil.copyfile(src=os.path.join(directory_tree_path, folder_name, image_name), 
+                                dst=os.path.join(destination_path1, folder_name, image_name))
             for image_name in image_names2:
-                shutil.copyfile(src=f"{directory_tree_path}/{folder_name}/{image_name}", 
-                                dst=f"{destination_path2}/{folder_name}/{image_name}")
+                shutil.copyfile(src=os.path.join(directory_tree_path, folder_name, image_name), 
+                                dst=os.path.join(destination_path2, folder_name, image_name))
 
     @parsing_wrapper
     def from_image_classification_directory_tree_format(
@@ -688,7 +724,7 @@ class Parser:
             None
         """
 
-        ## define source component name
+        ## define main component
         if override_main_component is not None:
             component_name = override_main_component
         else:
@@ -697,39 +733,37 @@ class Parser:
         if len(class_folders_paths) == 0:
             raise RuntimeError('Directory tree is empty')
 
-        count = 0
+        ## dataset construction loop
         iter1 = tqdm(class_folders_paths)
         for class_folder_path in iter1:
             class_folder_name = os.path.split(class_folder_path)[-1]
             iter2 = tqdm(os.listdir(class_folder_path))
             for image_name in iter2:
                 self.percentage = round((iter1.n/iter1.total)*100, 2) + round(((iter2.n/iter2.total)/iter1.total)*100, 2)
-                ## check dataset size limit
-                count += 1
-                if dataset_size is not None and count > dataset_size:
-                    break
 
                 image_path = os.path.join(class_folder_path, image_name)
                 if os.path.exists(image_path):
-                    
-                    ## read image
                     image = cv2.imread(image_path)
-
-                    ## structure annotations
-                    new_ann = {component_name: {"annotations": []}}
-                    new_ann_instance = {}
-                    new_ann_instance["class_name"] = str(class_folder_name)
-                    new_ann[component_name]["annotations"].append(new_ann_instance)
-
-                    ## add data to the provided LDF dataset instance
-                    dataset.add_data(
-                        source_name, {component_name: image, "json": new_ann}, split=split
-                    )
-
                 else:
-                    raise RuntimeError('A non-valid image path was encountered')
-                
-        # Convert to webdataset
+                    warnings.warn(f"skipping {image_path} as it does no exist!")
+                    continue
+
+                ## structure annotations
+                new_ann = {component_name: {"annotations": []}}
+                new_ann_instance = {}
+                new_ann_instance["class_name"] = str(class_folder_name)
+                new_ann[component_name]["annotations"].append(new_ann_instance)
+
+                ## add data to the provided LDF dataset instance
+                dataset.add_data(
+                    source_name, {component_name: image, "json": new_ann}, split=split
+                )
+
+                ## limit dataset size 
+                if dataset_size is not None and iter.n+1 >= dataset_size:
+                    break
+
+        ## Convert to webdataset
         query = f"SELECT basename FROM df WHERE split='{split}';"
         dataset.to_webdataset(split, query)
 
@@ -738,7 +772,7 @@ class Parser:
             self,
             dataset, 
             source_name, 
-            image_folder_path,
+            image_dir,
             info_file_path,
             split,
             delimiter=" ",
@@ -750,7 +784,7 @@ class Parser:
         Arguments:
             dataset: [LuxonisDataset] LDF dataset instance
             source_name: [string] name of the LDFSource to add to
-            image_folder_path: [string] path to the directory where images are stored
+            image_dir: [string] path to the directory where images are stored
             info_file_path: [string] path to the text annotations file where each line encodes a name and the associated class of an image
             split: [string] 'train', 'val', or 'test'
             delimiter: [string] how image names and classes are separated in the info file (e.g. " ", "," or ";")
@@ -760,8 +794,7 @@ class Parser:
             None
         """
         
-
-        ## define source component name
+        ## define main component
         if override_main_component is not None:
             component_name = override_main_component
         else:
@@ -770,7 +803,7 @@ class Parser:
         if not os.path.exists(info_file_path):
             raise RuntimeError('Info file path non-existent.')
 
-        count = 0
+        ## dataset construction loop
         with open(info_file_path) as f:
             lines = f.readlines()
             iter = tqdm(lines)
@@ -783,10 +816,13 @@ class Parser:
                 
                 label = label.strip() 
 
-                ## read image
-                image = cv2.imread(os.path.join(image_folder_path, image_path))
+                image_path = os.path.join(image_dir, image_path)
+                if os.path.exists(image_path):
+                    image = cv2.imread(image_path)
+                else:
+                    warnings.warn(f"skipping {image_path} as it does no exist!")
+                    continue
 
-                ## structure annotations
                 new_ann = {component_name: {"annotations": []}}
                 new_ann_instance = {}
                 new_ann_instance["class_name"] = str(label)
@@ -797,9 +833,8 @@ class Parser:
                     source_name, {component_name: image, "json": new_ann}, split=split
                 )
 
-                ## dataset size limit
-                count += 1
-                if dataset_size is not None and count >= dataset_size:
+                ## limit dataset size 
+                if dataset_size is not None and iter.n+1 >= dataset_size:
                     break
 
         # Convert to webdataset

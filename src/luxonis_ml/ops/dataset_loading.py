@@ -82,7 +82,7 @@ def recognize_and_load_ldf(
 
         elif dataset_type.value == "ClassificationWithTextAnnotations":
 
-            image_folder_path = dataset_info["image_dir"]
+            image_dir = dataset_info["image_dir"]
             info_file_path = dataset_info["txt_annotation_files_paths"][0]
             delimiter=" " #TODO: automatically detect required delimiter
 
@@ -91,7 +91,7 @@ def recognize_and_load_ldf(
                 new_thread=new_thread,
                 dataset=dataset, 
                 source_name=source_name, 
-                image_folder_path=image_folder_path,
+                image_dir=image_dir,
                 info_file_path=info_file_path,
                 split=split,
                 delimiter=delimiter, #TODO: automatically detect required delimiter
@@ -133,7 +133,7 @@ def recognize_and_load_ldf(
 
         elif dataset_type.value == "YOLO4":
             
-            image_folder_path = dataset_info["image_dir"]
+            image_dir = dataset_info["image_dir"]
             txt_annotations_file_path = dataset_info["txt_annotation_files_paths"][0]
             classes_txt_file_path = dataset_info["classes_txt_file"]
 
@@ -142,7 +142,7 @@ def recognize_and_load_ldf(
                 new_thread=new_thread,
                 dataset=dataset, 
                 source_name=source_name, 
-                image_folder_path=image_folder_path,
+                image_dir=image_dir,
                 txt_annotations_file_path=txt_annotations_file_path,
                 classes_txt_file_path=classes_txt_file_path,
                 split=split,
@@ -152,14 +152,14 @@ def recognize_and_load_ldf(
         
         elif dataset_type.value == "YOLO5":
             
-            image_folder_path = dataset_info["image_dir"]
+            image_dir = dataset_info["image_dir"]
 
             parser.parse_to_ldf(
                 DatasetType.YOLO5, 
                 new_thread=new_thread,
                 dataset=dataset, 
                 source_name=source_name, 
-                image_folder_path=image_folder_path,
+                image_dir=image_dir,
                 split=split,
                 dataset_size=dataset_size,
                 override_main_component=override_main_component
@@ -167,7 +167,7 @@ def recognize_and_load_ldf(
 
         elif dataset_type.value == "TFObjectDetectionCSV":
             
-            image_folder_path = dataset_info["image_dir"]
+            image_dir = dataset_info["image_dir"]
             csv_file_path = dataset_info["csv_file_path"]
 
             parser.parse_to_ldf(
@@ -175,7 +175,7 @@ def recognize_and_load_ldf(
                 new_thread=new_thread,
                 dataset=dataset, 
                 source_name=source_name, 
-                image_folder_path=image_folder_path,
+                image_dir=image_dir,
                 csv_file_path=csv_file_path,
                 split=split,
                 dataset_size=dataset_size,

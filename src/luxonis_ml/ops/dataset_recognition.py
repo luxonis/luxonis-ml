@@ -166,7 +166,7 @@ def recognize(dataset_path: str) -> str:
     if txt_files:
         possible_dataset_types = []
         relevant_txt_files = [] # exclude README files etc.
-        classes_txt_files = []
+        txt_files_w_class_names = []
         for txt_file in txt_files:
             relevant_txt_file = False
 
@@ -179,17 +179,21 @@ def recognize(dataset_path: str) -> str:
                 lines_with_single_element = []
                 for line in text.readlines():
                     line_split = line.split(" ")
-                    if line_split[0] in image_names:
-                        if len(line_split) == 1:
-                            lines_with_single_element.append(True)
-                        else:
-                            lines_with_single_element.append(False)
 
+                    if len(line_split) == 0:
+                        continue
+
+                    if len(line_split) == 1:
+                        lines_with_single_element.append(True)
+                    else:
+                        lines_with_single_element.append(False)
+                    
+                    if line_split[0] in image_names:
                         if len(line_split) == 2:
-                                if line_split[1].split(",")[0] == line_split[1]:
-                                    possible_dataset_types.append(DatasetType.CTA)
-                                else:
-                                    possible_dataset_types.append(DatasetType.YOLO4)
+                            if line_split[1].split(",")[0] == line_split[1]:
+                                possible_dataset_types.append(DatasetType.CTA)
+                            else:
+                                possible_dataset_types.append(DatasetType.YOLO4)
                         elif len(line_split) > 2:
                                 possible_dataset_types.append(DatasetType.YOLO4)
                         relevant_txt_file = True
@@ -198,13 +202,13 @@ def recognize(dataset_path: str) -> str:
                 relevant_txt_files.append(txt_file)
             
             if all(lines_with_single_element):
-                classes_txt_files.append(txt_file)
+                txt_files_w_class_names.append(txt_file)
 
-        if len(classes_txt_files)>1:
-            raise Exception("Multiple txt files with potential to encode classnames - possible ambiguity")
+        """if len(txt_files_w_class_names)>1:
+            raise Exception("Multiple txt files with potential to encode classnames - possible ambiguity")"""
 
         if len(set(possible_dataset_types)) == 1:
-            classes = classes_txt_files[0] if classes_txt_files != [] else None
+            classes = txt_files_w_class_names[0] if txt_files_w_class_names != [] else None
             return possible_dataset_types[0], {"image_dir": image_dirs[0], "txt_annotation_files_paths": relevant_txt_files, "classes_txt_file": classes}
 
     ## Recognize based on TFRECORD - TFObjectDetectionDataset
