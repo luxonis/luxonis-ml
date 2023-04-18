@@ -165,6 +165,23 @@ def recognize_and_load_ldf(
                 override_main_component=override_main_component
             )
 
+        elif dataset_type.value == "TFObjectDetectionCSV":
+            
+            image_folder_path = dataset_info["image_dir"]
+            csv_file_path = dataset_info["csv_file_path"]
+
+            parser.parse_to_ldf(
+                DatasetType.TFODC, 
+                new_thread=new_thread,
+                dataset=dataset, 
+                source_name=source_name, 
+                image_folder_path=image_folder_path,
+                csv_file_path=csv_file_path,
+                split=split,
+                dataset_size=dataset_size,
+                override_main_component=override_main_component
+            )
+
         elif dataset_type.value == "unknown":
             print("Cannot recognize dataset type")
             if(new_thread):

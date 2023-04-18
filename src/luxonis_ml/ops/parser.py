@@ -14,6 +14,7 @@ import threading
 from threading import Thread
 import xml.etree.ElementTree as ET
 from luxonis_ml.ops import *
+import csv
 
 """
 Functions used with LuxonisDataset to convert other data formats to LDF
@@ -399,6 +400,100 @@ class Parser:
         dataset.to_webdataset(split, query)
 
     @parsing_wrapper
+    def from_tfodc_format(
+            self,
+            dataset, 
+            source_name, 
+            image_folder_path,
+            csv_file_path,
+            split, 
+            dataset_size=None, 
+            override_main_component=None
+        ):
+        """
+        Constructs a LDF dataset from a YOLO5 type dataset.
+        Arguments:
+            dataset: [LuxonisDataset] LDF dataset instance
+            source_name: [string] name of the LDFSource to add to
+            image_folder_path: [string] path to the directory where images are stored
+            csv_file_path: [string] path to csv file where annotations are stored
+            split: [string] 'train', 'val', or 'test'
+            dataset_size: [int] number of data instances to include in our dataset (if None include all)
+            override_main_component: [LDFComponent] provide another LDFComponent if not using the main component from the LDFSource
+        Returns:
+            None
+        Note: 
+            only bounding boxes supported for now
+        """
+
+        ## define source component name
+        if override_main_component is not None:
+            component_name = override_main_component
+        else:
+            component_name = dataset.sources[source_name].main_component
+        
+        ## extract annotations for each image
+        annotations = {}
+        reader = csv.reader(open(csv_file_path),delimiter=',')
+        for n, row in enumerate(reader):
+
+            if n == 0:
+                idx_fname = row.index("filename")
+                idx_class = row.index("class")
+                idx_xmin = row.index("xmin")
+                idx_ymin = row.index("ymin")
+                idx_xmax = row.index("xmax")
+                idx_ymax = row.index("ymax")
+
+            else:
+                image_name = row[idx_fname]
+                class_name = row[idx_class]
+                xmin = int(row[idx_xmin])
+                ymin = int(row[idx_ymin])
+                xmax = int(row[idx_xmax])
+                ymax = int(row[idx_ymax])
+                
+                if image_name not in annotations:
+                    annotations[image_name] = []
+                annotations[image_name].append((class_name, xmin, ymin, xmax, ymax))
+
+        count = 0
+        for image_name in annotations:
+
+            ## load image
+            image = cv2.imread(os.path.join(image_folder_path, image_name))
+
+            ## structure annotations
+            new_ann = {component_name: {"annotations": []}}
+            for annotation in annotations[image_name]:
+                class_name, bbox_xmin, bbox_ymin, bbox_xmax, bbox_ymax = annotation
+                
+                new_ann_instance = {}
+                ## name
+                new_ann_instance["class_name"] = class_name
+                class_id = dataset._add_class(new_ann_instance)
+                new_ann_instance['class'] = class_id
+                ## bbox
+                coco_bbox_format = [bbox_xmin, bbox_ymin, bbox_xmax-bbox_xmin, bbox_ymax-bbox_ymin] #x_min, y_min, width, height
+                new_ann_instance["bbox"] = coco_bbox_format
+                new_ann[component_name]["annotations"].append(new_ann_instance)
+
+            ## add data to the provided LDF dataset instance
+            dataset.add_data(
+                source_name, {component_name: image, "json": new_ann}, split=split
+            )
+
+            ## check dataset size limit
+            count += 1
+            if dataset_size is not None and count > dataset_size:
+                break
+    
+        # Convert to webdataset
+        query = f"SELECT basename FROM df WHERE split='{split}';"
+        dataset.to_webdataset(split, query)
+
+
+    @parsing_wrapper
     def from_numpy_format(
             self,
             dataset, 
@@ -639,6 +734,7 @@ class Parser:
         dt.COCO: from_coco_format,
         dt.YOLO4: from_yolo4_format,
         dt.YOLO5: from_yolo5_format,
+        dt.TFODC: from_tfodc_format,
         dt.CDT: from_image_classification_directory_tree_format,
         dt.CTA: from_image_classification_with_text_annotations_format,
         dt.NUMPY: from_numpy_format,
