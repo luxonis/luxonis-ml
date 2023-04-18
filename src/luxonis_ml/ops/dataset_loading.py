@@ -182,6 +182,22 @@ def recognize_and_load_ldf(
                 override_main_component=override_main_component
             )
 
+        elif dataset_type.value == "CreateML":
+
+            image_dir = dataset_info["image_dir"]
+            annotation_path = dataset_info["json_file_path"]
+
+            parser.parse_to_ldf(
+                DatasetType.CML, 
+                new_thread=new_thread,
+                dataset=dataset, 
+                source_name=source_name, 
+                image_dir=image_dir, 
+                annotation_path=annotation_path, 
+                split=split,
+                override_main_component=override_main_component
+            )
+
         elif dataset_type.value == "unknown":
             print("Cannot recognize dataset type")
             if(new_thread):
