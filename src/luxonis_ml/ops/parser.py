@@ -296,6 +296,10 @@ class Parser:
                 if dataset_size is not None and count > dataset_size:
                     break   
 
+        # Convert to webdataset
+        query = f"SELECT basename FROM df WHERE split='{split}';"
+        dataset.to_webdataset(split, query)
+
     @parsing_wrapper
     def from_yolo5_format(
             self,
