@@ -42,7 +42,7 @@ def recognize_and_load_ldf(
     
     dataset_path = Path(dataset_path)
     output_path = Path(output_path)
-    DATASET_DIR = f"{str(output_path)}/{str(dataset_path.name)}_ldf"
+    DATASET_DIR = str(output_path)
 
     dataset_type, dataset_info = recognize(dataset_path)
     source_name = dataset_type.value
