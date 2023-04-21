@@ -574,8 +574,6 @@ class Parser:
                 bbox_xcenter = annotation["coordinates"]["x"]
                 bbox_ycenter = annotation["coordinates"]["y"]
 
-                #bbox_xmin = annotation["coordinates"]["x"]
-                #bbox_ymin = annotation["coordinates"]["y"]
                 bbox_width = annotation["coordinates"]["width"]
                 bbox_height = annotation["coordinates"]["height"]
 
