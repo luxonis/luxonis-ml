@@ -108,3 +108,5 @@ venv.bak/
 files_needed.txt
 
 test.py
+
+dataset_ClassDirectoryTree_ldf/*

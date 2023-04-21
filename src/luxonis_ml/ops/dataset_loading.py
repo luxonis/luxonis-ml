@@ -45,7 +45,6 @@ def recognize_and_load_ldf(
     DATASET_DIR = f"{str(output_path)}/{str(dataset_path.name)}_ldf"
 
     dataset_type, dataset_info = recognize(dataset_path)
-    source_name = dataset_type.value
 
     if dataset_type.value == "LDF":
         print("Already a LDF")
@@ -53,112 +52,95 @@ def recognize_and_load_ldf(
     
     parser = Parser()
 
-    ## initialize a local LDF repository
-    with LuxonisDataset(DATASET_DIR) as dataset:
-        custom_components = [
-            LDFComponent(name="image", 
-                        htype=HType.IMAGE, # data component type
-                        itype=IType.BGR # image type
-            )
-        ]
-        dataset.create_source(
-            name=source_name, custom_components=custom_components
+    if dataset_type.value == "ClassificationDirectoryTree":
+
+        class_folders_paths = dataset_info["image_dirs"] #image_dirs
+
+        parser.parse_to_ldf(
+            DatasetType.CDT, 
+            DATASET_DIR,
+            new_thread=new_thread,
+            class_folders_paths=class_folders_paths,
+            split=split,
+            dataset_size=dataset_size,
+            override_main_component=override_main_component
         )
-    
-        if dataset_type.value == "ClassificationDirectoryTree":
 
-            class_folders_paths = dataset_info["image_dirs"] #image_dirs
+    elif dataset_type.value == "ClassificationWithTextAnnotations":
 
-            parser.parse_to_ldf(
-                DatasetType.CDT, 
-                new_thread=new_thread,
-                dataset=dataset, 
-                source_name=source_name, 
-                class_folders_paths=class_folders_paths,
-                split=split,
-                dataset_size=dataset_size,
-                override_main_component=override_main_component
-            )
+        image_folder_path = dataset_info["image_dir"]
+        info_file_path = dataset_info["txt_annotation_files_paths"][0]
+        delimiter=" " #TODO: automatically detect required delimiter
 
-        elif dataset_type.value == "ClassificationWithTextAnnotations":
+        parser.parse_to_ldf(
+            DatasetType.CTA, 
+            DATASET_DIR,
+            new_thread=new_thread,
+            image_folder_path=image_folder_path,
+            info_file_path=info_file_path,
+            split=split,
+            delimiter=delimiter, #TODO: automatically detect required delimiter
+            dataset_size=dataset_size,
+            override_main_component=override_main_component
+        )
 
-            image_folder_path = dataset_info["image_dir"]
-            info_file_path = dataset_info["txt_annotation_files_paths"][0]
-            delimiter=" " #TODO: automatically detect required delimiter
+    elif dataset_type.value == "COCO":
 
-            parser.parse_to_ldf(
-                DatasetType.CTA, 
-                new_thread=new_thread,
-                dataset=dataset, 
-                source_name=source_name, 
-                image_folder_path=image_folder_path,
-                info_file_path=info_file_path,
-                split=split,
-                delimiter=delimiter, #TODO: automatically detect required delimiter
-                dataset_size=dataset_size,
-                override_main_component=override_main_component
-            )
+        image_dir = dataset_info["image_dir"]
+        annotation_path = dataset_info["json_file_path"]
 
-        elif dataset_type.value == "COCO":
+        parser.parse_to_ldf(
+            DatasetType.COCO, 
+            DATASET_DIR,
+            new_thread=new_thread,
+            image_dir=image_dir, 
+            annotation_path=annotation_path, 
+            split=split,
+            override_main_component=override_main_component
+        )
 
-            image_dir = dataset_info["image_dir"]
-            annotation_path = dataset_info["json_file_path"]
+    elif dataset_type.value == "VOC":
 
-            parser.parse_to_ldf(
-                DatasetType.COCO, 
-                new_thread=new_thread,
-                dataset=dataset, 
-                source_name=source_name, 
-                image_dir=image_dir, 
-                annotation_path=annotation_path, 
-                split=split,
-                override_main_component=override_main_component
-            )
+        image_dir = dataset_info["image_dir"]
+        xml_annotation_files_paths = dataset_info["xml_files_paths"]
 
-        elif dataset_type.value == "VOC":
+        parser.parse_to_ldf(
+            DatasetType.VOC, 
+            DATASET_DIR,
+            new_thread=new_thread,
+            image_dir=image_dir, 
+            xml_annotation_files_paths=xml_annotation_files_paths, 
+            split=split,
+            override_main_component=override_main_component
+        )        
 
-            image_dir = dataset_info["image_dir"]
-            xml_annotation_files_paths = dataset_info["xml_files_paths"]
+    elif dataset_type.value == "YOLO5":
+        
+        image_folder_path = dataset_info["image_dir"]
 
-            parser.parse_to_ldf(
-                DatasetType.VOC, 
-                new_thread=new_thread,
-                dataset=dataset, 
-                source_name=source_name, 
-                image_dir=image_dir, 
-                xml_annotation_files_paths=xml_annotation_files_paths, 
-                split=split,
-                override_main_component=override_main_component
-            )        
+        parser.parse_to_ldf(
+            DatasetType.YOLO5,
+            DATASET_DIR,
+            new_thread=new_thread,
+            image_folder_path=image_folder_path,
+            split=split,
+            dataset_size=dataset_size,
+            override_main_component=override_main_component
+        )
 
-        elif dataset_type.value == "YOLO5":
-            
-            image_folder_path = dataset_info["image_dir"]
-
-            parser.parse_to_ldf(
-                DatasetType.YOLO5, 
-                new_thread=new_thread,
-                dataset=dataset, 
-                source_name=source_name, 
-                image_folder_path=image_folder_path,
-                split=split,
-                dataset_size=dataset_size,
-                override_main_component=override_main_component
-            )
-
-        elif dataset_type.value == "unknown":
-            print("Cannot recognize dataset type")
-            if(new_thread):
-                return None
-            else:
-                return False
-
+    elif dataset_type.value == "unknown":
+        print("Cannot recognize dataset type")
+        if(new_thread):
+            return None
         else:
-            print("Cannot load the provided dataset")
-            if(new_thread):
-                return None
-            else:
-                return False
+            return False
+
+    else:
+        print("Cannot load the provided dataset")
+        if(new_thread):
+            return None
+        else:
+            return False
 
     # If we are running in another thread, we return parser (for progress inspection), otherwise True for succesful parsing
     if(new_thread):

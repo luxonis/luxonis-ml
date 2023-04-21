@@ -24,11 +24,32 @@ class Parser:
         self.percentage = 0
         self.error_message = None
         self.parsing_in_progress = False
+        self.source_name = "source1"
 
+    # This wrapper enables us to decorate parser functions to do some thing before and after every parser call
     def parsing_wrapper(func):
         def inner(*args, **kwargs):
             args[0].parsing_in_progress = True
-            func(*args, **kwargs)
+            with LuxonisDataset(args[1]) as dataset:
+                print("setting component")
+                custom_components = [
+                    LDFComponent(name="image", 
+                                htype=HType.IMAGE, # data component type
+                                itype=IType.BGR # image type
+                    )
+                ]
+                # Just set source to some default name, as of right now, I think that parser users will care about its name
+                print("setting source")
+                dataset.create_source(
+                    name=args[0].source_name, custom_components=custom_components
+                )
+                # once we create dataset, we just replace "dataset_dir" with an actual "dataset" object and everything should work
+                args = list(args)
+                args[1] = dataset
+
+                print("started parsing..")
+                func(*tuple(args), **kwargs)
+                
             args[0].parsing_in_progress = False
             args[0].percentage = 100.0
         return inner
@@ -37,7 +58,6 @@ class Parser:
     def from_coco_format(
             self,
             dataset, 
-            source_name, 
             image_dir, 
             annotation_path, 
             split, 
@@ -65,7 +85,7 @@ class Parser:
         if override_main_component is not None:
             component_name = override_main_component
         else:
-            component_name = dataset.sources[source_name].main_component
+            component_name = dataset.sources[self.source_name].main_component
 
         iter = tqdm(images)
         for image in iter:
@@ -106,7 +126,7 @@ class Parser:
 
                     new_ann[component_name]['annotations'].append(new_ann_instance)
 
-                dataset.add_data(source_name, {
+                dataset.add_data(self.source_name, {
                     component_name: img,
                     'json': new_ann
                 }, split=split)
@@ -122,7 +142,6 @@ class Parser:
     def from_voc_format(
             self,
             dataset,
-            source_name,
             image_dir,
             xml_annotation_files_paths,
             split,
@@ -149,7 +168,7 @@ class Parser:
         if override_main_component is not None:
             component_name = override_main_component
         else:
-            component_name = dataset.sources[source_name].main_component
+            component_name = dataset.sources[self.source_name].main_component
 
         count = 0
         for xml_annotation_file_path in tqdm(xml_annotation_files_paths):
@@ -198,7 +217,7 @@ class Parser:
 
                 ## add to dataset
                 dataset.add_data(
-                    source_name, {component_name: image, "json": new_ann}, split=split
+                    self.source_name, {component_name: image, "json": new_ann}, split=split
                 )  
 
                 ## check dataset size limit
@@ -214,7 +233,6 @@ class Parser:
     def from_yolo5_format(
             self,
             dataset, 
-            source_name, 
             image_folder_path,
             #txt_annotation_files_paths, # list of paths to the text annotation files where each line encodes a bounding box
             split, 
@@ -252,7 +270,7 @@ class Parser:
         if override_main_component is not None:
             component_name = override_main_component
         else:
-            component_name = dataset.sources[source_name].main_component
+            component_name = dataset.sources[self.source_name].main_component
         
         if not os.path.exists(image_folder_path):
             raise RuntimeError('image folder path non-existent.')
@@ -304,7 +322,7 @@ class Parser:
 
                 new_ann[component_name]['annotations'].append(new_ann_instance)
 
-            dataset.add_data(source_name, {
+            dataset.add_data(self.source_name, {
                 component_name: img,
                 'json': new_ann
             }, split=split)
@@ -317,7 +335,6 @@ class Parser:
     def from_numpy_format(
             self,
             dataset, 
-            source_name, 
             images, 
             labels,
             split, 
@@ -342,7 +359,7 @@ class Parser:
         if override_main_component is not None:
             component_name = override_main_component
         else:
-            component_name = dataset.sources[source_name].main_component
+            component_name = dataset.sources[self.source_name].main_component
         
         ## dataset size limit
         if dataset_size is not None:
@@ -359,7 +376,7 @@ class Parser:
 
             ## add data to the provided LDF dataset instance
             dataset.add_data(
-                source_name, {component_name: image, "json": new_ann}, split=split
+                self.source_name, {component_name: image, "json": new_ann}, split=split
             )
         
         # Convert to webdataset
@@ -412,8 +429,7 @@ class Parser:
     def from_image_classification_directory_tree_format(
             self,
             dataset, 
-            source_name, 
-            class_folders_paths, 
+            class_folders_paths,
             split,
             dataset_size=None,
             override_main_component=None
@@ -435,7 +451,7 @@ class Parser:
         if override_main_component is not None:
             component_name = override_main_component
         else:
-            component_name = dataset.sources[source_name].main_component
+            component_name = dataset.sources[self.source_name].main_component
         
         if len(class_folders_paths) == 0:
             raise RuntimeError('Directory tree is empty')
@@ -466,21 +482,23 @@ class Parser:
 
                     ## add data to the provided LDF dataset instance
                     dataset.add_data(
-                        source_name, {component_name: image, "json": new_ann}, split=split
+                        self.source_name, {component_name: image, "json": new_ann}, split=split
                     )
 
                 else:
                     raise RuntimeError('A non-valid image path was encountered')
                 
         # Convert to webdataset
+        print("querying")
         query = f"SELECT basename FROM df WHERE split='{split}';"
+        print("to webdataset")
         dataset.to_webdataset(split, query)
+        print("finished")
 
     @parsing_wrapper    
     def from_image_classification_with_text_annotations_format(
             self,
             dataset, 
-            source_name, 
             image_folder_path,
             info_file_path,
             split,
@@ -508,7 +526,7 @@ class Parser:
         if override_main_component is not None:
             component_name = override_main_component
         else:
-            component_name = dataset.sources[source_name].main_component
+            component_name = dataset.sources[self.source_name].main_component
         
         if not os.path.exists(info_file_path):
             raise RuntimeError('Info file path non-existent.')
@@ -537,7 +555,7 @@ class Parser:
 
                 ## add data to the provided LDF dataset instance
                 dataset.add_data(
-                    source_name, {component_name: image, "json": new_ann}, split=split
+                    self.source_name, {component_name: image, "json": new_ann}, split=split
                 )
 
                 ## dataset size limit
@@ -568,9 +586,10 @@ class Parser:
     def get_parsing_in_progress(self):
         return self.parsing_in_progress
     
-    def parse_to_ldf(self, dataset_type, *args, new_thread = False, **kwargs):
+    def parse_to_ldf(self, dataset_type, dataset_dir, *args, new_thread = False, **kwargs):
+        # Order of args passed in parsing functions has to be (self, dataset_dir) + other args
         if not new_thread:
-            Parser.DATASET_TYPE_TO_FUNCTION[dataset_type](self, *args, **kwargs)
+            Parser.DATASET_TYPE_TO_FUNCTION[dataset_type](self, dataset_dir, *args, **kwargs)
         else:
             def thread_exception_hook(args):
                 self.error_message = str(args.exc_value)
@@ -579,9 +598,8 @@ class Parser:
 
             self.thread = threading.Thread(
                 target=Parser.DATASET_TYPE_TO_FUNCTION[dataset_type],
-                args=(self, ) + args,
+                args=(self, dataset_dir) + args,
                 kwargs=kwargs,
                 daemon=True
             )
             self.thread.start()
-        
