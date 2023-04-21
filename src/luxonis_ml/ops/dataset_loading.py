@@ -21,7 +21,7 @@ from luxonis_ml.ops.dataset_type import DatasetType
 
 def recognize_and_load_ldf(
         dataset_path,
-        output_path=".",
+        output_path=None,
         split="train",
         new_thread=False,
         dataset_size=None,
@@ -41,8 +41,12 @@ def recognize_and_load_ldf(
     """
     
     dataset_path = Path(dataset_path)
-    output_path = Path(output_path)
-    DATASET_DIR = f"{str(output_path)}/{str(dataset_path.name)}_ldf"
+    if(output_path is not None):
+        output_path = Path(output_path)
+    else:
+        f"./{str(dataset_path.name)}_ldf"
+
+    DATASET_DIR = str(output_path)
 
     dataset_type, dataset_info = recognize(dataset_path)
 
@@ -68,7 +72,7 @@ def recognize_and_load_ldf(
 
     elif dataset_type.value == "ClassificationWithTextAnnotations":
 
-        image_folder_path = dataset_info["image_dir"]
+        image_dir = dataset_info["image_dir"]
         info_file_path = dataset_info["txt_annotation_files_paths"][0]
         delimiter=" " #TODO: automatically detect required delimiter
 
@@ -76,7 +80,7 @@ def recognize_and_load_ldf(
             DatasetType.CTA, 
             DATASET_DIR,
             new_thread=new_thread,
-            image_folder_path=image_folder_path,
+            image_dir=image_dir,
             info_file_path=info_file_path,
             split=split,
             delimiter=delimiter, #TODO: automatically detect required delimiter
@@ -114,15 +118,33 @@ def recognize_and_load_ldf(
             override_main_component=override_main_component
         )        
 
+    elif dataset_type.value == "YOLO4":
+        
+        image_dir = dataset_info["image_dir"]
+        txt_annotations_file_path = dataset_info["txt_annotation_files_paths"][0]
+        classes_txt_file_path = dataset_info["classes_txt_file"]
+
+        parser.parse_to_ldf(
+            DatasetType.YOLO4,
+            DATASET_DIR,
+            new_thread=new_thread,
+            image_dir=image_dir,
+            txt_annotations_file_path=txt_annotations_file_path,
+            classes_txt_file_path=classes_txt_file_path,
+            split=split,
+            dataset_size=dataset_size,
+            override_main_component=override_main_component
+        )
+    
     elif dataset_type.value == "YOLO5":
         
-        image_folder_path = dataset_info["image_dir"]
+        image_dir = dataset_info["image_dir"]
 
         parser.parse_to_ldf(
             DatasetType.YOLO5,
             DATASET_DIR,
             new_thread=new_thread,
-            image_folder_path=image_folder_path,
+            image_dir=image_dir,
             split=split,
             dataset_size=dataset_size,
             override_main_component=override_main_component
