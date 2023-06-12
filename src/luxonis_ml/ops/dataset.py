@@ -13,7 +13,6 @@ import cv2
 from PIL import Image
 import pickle
 import json
-from pathlib import Path
 import boto3
 import glob
 from tqdm import tqdm

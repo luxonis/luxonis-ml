@@ -75,7 +75,7 @@ def check_classification(val1, val2):
         return False
     return True
 
-def check_boxes(val1, val2):
+def check_boxes(dataset, val1, val2):
     if len(val1) == len(val2['detections']):
         for val1, val2 in list(zip(val1, val2['detections'])):
             if isinstance(val1[0], str) and val2['label'] != val1[0]:
@@ -136,7 +136,7 @@ def check_fields(dataset, latest_sample, addition, component_name):
                 check = check_classification(val1, val2)
                 if not check: return False
             elif field == 'boxes':
-                check = check_boxes(val1, val2)
+                check = check_boxes(dataset, val1, val2)
                 if not check: return False
             elif field == 'segmentation':
                 val2 = latest_sample.segmentation.mask
