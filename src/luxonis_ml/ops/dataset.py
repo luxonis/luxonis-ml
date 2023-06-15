@@ -18,6 +18,8 @@ import glob
 from tqdm import tqdm
 from enum import Enum
 import numpy as np
+from datetime import datetime
+import pymongo
 from .version import LuxonisVersion
 
 class HType(Enum):
@@ -31,6 +33,13 @@ class IType(Enum):
     MONO = 2
     DISPARITY = 3
     DEPTH = 4
+
+class LDFTransactionType(Enum):
+    """ The type of transaction """
+    END = "END"
+    ADD = "ADD"
+    UPDATE = "UPDATE"
+    DELETE = "DELETE"
 
 class LDFComponent:
     htypes = [HType.IMAGE, HType.JSON]
@@ -380,16 +389,54 @@ class LuxonisDataset:
         if len(res):
             ldf_doc = res[0]
 
+            print(type(ldf_doc["_id"]), type(ldf_doc["_dataset_id"]))
             self.conn.luxonis_source_document.delete_many(
                 { "_luxonis_dataset_id": ldf_doc["_id"] }
             )
             self.conn.version_document.delete_many(
                 { "_dataset_id": ldf_doc["_dataset_id"] }
             )
+            self.conn.transaction_document.delete_many(
+                { "_dataset_id": ldf_doc["_id"] }
+            )
             self.conn.luxonis_dataset_document.delete_many(
                 { "$and": [{"team_name": self.team}, {"dataset_name": self.name}] }
             )
         fo.delete_dataset(self.full_name)
+
+    def _make_transaction(self, action, sample_id, field, value):
+
+        transaction_doc = fop.TransactionDocument(
+            dataset_id=self.dataset_doc.id,
+            created_at=datetime.utcnow(),
+            executed=False,
+            action=action.value,
+            sample_id=sample_id,
+            field=field,
+            value={'value':value}
+        )
+        transaction_doc.save(upsert=True)
+
+    def _check_transactions(self):
+
+        transactions = list(self.conn.transaction_document.find(
+            { '_dataset_id': self.dataset_doc.id }
+        ).sort('created_at', pymongo.ASCENDING))
+        if len(transactions):
+            if transactions[-1]['action'] != LDFTransactionType.END.value:
+                i = -1
+                while transactions[i]['action'] != LDFTransactionType.END.value \
+                    and i != -len(transactions)-1:
+                    
+                    self.conn.transaction_document.delete_many(
+                        { '_id': transactions[i]['_id'] }
+                    )
+                    i -= 1
+                return 1
+            else:
+                return 0
+        else:
+            return -1
 
     def _incr_version(self, version_code):
         if version_code == 0: # major change
@@ -410,11 +457,8 @@ class LuxonisDataset:
         )
         filepaths = [sample['filepath'] for sample in latest_view]
         filepaths = np.array([f"{path.split('/')[-2]}/{path.split('/')[-1]}" for path in filepaths])
-        updated = np.zeros(len(filepaths))
 
         print("Checking for additions or modifications...")
-
-        filtered = []
 
         media_change = False
         field_change = False
@@ -427,7 +471,7 @@ class LuxonisDataset:
                 if candidate not in list(filepaths):
                     # ADD case
                     media_change = True
-                    filtered.append(addition)
+                    filtered.append()
                     break
                 else:
                     # check for UPDATE
@@ -560,7 +604,7 @@ class LuxonisDataset:
 
         return additions
 
-    def _add_fiftyone(self, additions, version_samples, compute_heatmaps):
+    def _add_execute(self, additions, version_samples, compute_heatmaps):
         source = self.source
         samples = []
         for i, addition in enumerate(additions):
@@ -618,7 +662,6 @@ class LuxonisDataset:
         note,
         from_bucket=False,
         compute_heatmaps=True,
-        skip_media_check=False
     ):
         """
         Function to add data and automatically version the data
@@ -638,7 +681,7 @@ class LuxonisDataset:
         if from_bucket and self.bucket_type == 'local':
             raise Exception('from_bucket must be False for local dataset!')
 
-        filter_result = self._add_filter(additions, from_bucket, skip_media_check)
+        filter_result = self._add_filter(additions, from_bucket)
         if filter_result is None:
             return
         else:
@@ -648,6 +691,6 @@ class LuxonisDataset:
 
         additions = self._add_extract(additions, from_bucket, compute_heatmaps)
 
-        version_samples = self._add_fiftyone(additions, version_samples, compute_heatmaps)
+        version_samples = self._add_execute(additions, version_samples, compute_heatmaps)
 
         self._save_version(version_samples, note)
