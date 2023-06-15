@@ -70,48 +70,48 @@ def check_classification(val1, val2):
         for key in val1:
             if not key.startswith('_'):
                 if val1[key] != val2[key]:
-                    return False
+                    return [{'classification': val1}]
     else:
-        return False
-    return True
+        return [{'classification': val1}]
+    return []
 
 def check_boxes(dataset, val1, val2):
     if len(val1) == len(val2['detections']):
         for val1, val2 in list(zip(val1, val2['detections'])):
             if isinstance(val1[0], str) and val2['label'] != val1[0]:
-                return False
+                return [{'boxes': val1}]
             if not isinstance(val1[0], str) and val2['label'] != dataset.fo_dataset.classes['boxes'][val1[0]]:
-                return False
+                return [{'boxes': val1}]
             for c1, c2 in list(zip(val1[1:], val2['bounding_box'])):
                 if abs(c1-c2) > 1e-8:
-                    return False
+                    return [{'boxes': val1}]
     else:
-        return False
-    return True
+        return [{'boxes': val1}]
+    return []
 
 def check_segmentation(val1, val2):
     if (val1.shape != val2.shape) or (np.linalg.norm(val1-val2) > 1e-8):
-        return False
-    return True
+        return [{'segmentation': val1}]
+    return []
 
 def check_keypoints(val1, val2):
     if len(val1) == len(val2['keypoints']):
         for val1, val2 in list(zip(val1, val2['keypoints'])):
             if isinstance(val1[0], str) and val2['label'] != val1[0]:
-                return False
+                return [{'keypoints': val1}]
             if not isinstance(val1[0], str) and val2['label'] != dataset.fo_dataset.classes['keypoints'][val1[0]]:
-                return False
+                return [{'keypoints': val1}]
             for c1, c2 in list(zip(val1[1], val2['points'])):
                 if not (np.isnan(c1[0]) and isinstance(c2[0], dict)):
                     if not np.isnan(c1[0]) and not isinstance(c2[0], dict):
                         if c1[0] != c2[0] or c1[1] != c2[1]:
-                            return False
+                            return [{'keypoints': val1}]
                     else:
-                        return False
+                        return [{'keypoints': val1}]
 
     else:
-        return False
-    return True
+        return [{'keypoints': val1}]
+    return []
 
 def check_fields(dataset, latest_sample, addition, component_name):
 
@@ -123,32 +123,31 @@ def check_fields(dataset, latest_sample, addition, component_name):
     f2 = set(sample_dict.keys())
     new = f1 - f1.intersection(f2)
     missing = f2 - f1.intersection(f2) - ignore_fields_match
-    if len(new) or len(missing):
-        return False
+    # if len(new) or len(missing):
+    #     return False
+    # TODO: implement versioning for new or missing fields
 
     check_fields = list(f1.intersection(f2) - ignore_fields_check)
+
+    changes = []
     for field in check_fields:
         val1 = addition[component_name][field]
         val2 = sample_dict[field]
 
         if field in dataset.tasks:
             if field == 'class':
-                check = check_classification(val1, val2)
-                if not check: return False
+                changes += check_classification(val1, val2)
             elif field == 'boxes':
-                check = check_boxes(dataset, val1, val2)
-                if not check: return False
+                changes += check_boxes(dataset, val1, val2)
             elif field == 'segmentation':
                 val2 = latest_sample.segmentation.mask
-                check = check_segmentation(val1, val2)
-                if not check: return False
+                changes += check_segmentation(val1, val2)
             elif field == 'keypoints':
-                check = check_keypoints(val1, val2)
-                if not check: return False
+                changes += check_keypoints(val1, val2)
             else:
                 raise NotImplementedError()
         else:
             if not val1 == val2:
-                return False
+                changes.append({field: val1})
 
-    return True
+    return changes

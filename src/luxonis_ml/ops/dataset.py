@@ -110,8 +110,9 @@ class LuxonisDataset:
             self.creds = {}
 
         self._init_path()
-        self.version = -1
+        self.version = 0
         self.tasks = ['class', 'boxes', 'segmentation', 'keypoints']
+        self.compute_heatmaps = True # TODO: could make this configurable
 
     def __enter__(self):
 
@@ -389,7 +390,6 @@ class LuxonisDataset:
         if len(res):
             ldf_doc = res[0]
 
-            print(type(ldf_doc["_id"]), type(ldf_doc["_dataset_id"]))
             self.conn.luxonis_source_document.delete_many(
                 { "_luxonis_dataset_id": ldf_doc["_id"] }
             )
@@ -413,7 +413,8 @@ class LuxonisDataset:
             action=action.value,
             sample_id=sample_id,
             field=field,
-            value={'value':value}
+            value={'value':value},
+            current_version=self.version
         )
         transaction_doc.save(upsert=True)
 
@@ -427,24 +428,28 @@ class LuxonisDataset:
                 i = -1
                 while transactions[i]['action'] != LDFTransactionType.END.value \
                     and i != -len(transactions)-1:
-                    
+
                     self.conn.transaction_document.delete_many(
                         { '_id': transactions[i]['_id'] }
                     )
                     i -= 1
-                return 1
+                return None
             else:
-                return 0
+                i = -2
+                while transactions[i]['action'] != LDFTransactionType.END.value \
+                    and i != -len(transactions)-1:
+                    i -= 1
+                return transactions[i+1:]
         else:
-            return -1
+            return None
 
-    def _incr_version(self, version_code):
-        if version_code == 0: # major change
+    def _incr_version(self, media_change, field_change):
+        if media_change: # major change
             self.version += 1
-        elif version_code == 1: # minor change
+        if field_change: # minor change
             self.version += 0.1
 
-    def _add_filter(self, additions, from_bucket, skip_media_check):
+    def _add_filter(self, additions):
         """
         Filters out any additions to the dataset already existing
         """
@@ -467,11 +472,17 @@ class LuxonisDataset:
             for component_name in addition.keys():
                 filepath = addition[component_name]['filepath']
                 granule = data_utils.get_granule(filepath, addition, component_name)
+                new_filepath = f"/{self.team}/datasets/{self.name}/{component_name}/{granule}"
                 candidate = f"{component_name}/{granule}"
                 if candidate not in list(filepaths):
                     # ADD case
                     media_change = True
-                    filtered.append()
+                    self._make_transaction(
+                        LDFTransactionType.ADD,
+                        sample_id=None,
+                        field='filepath',
+                        value=new_filepath
+                    )
                     break
                 else:
                     # check for UPDATE
@@ -479,52 +490,55 @@ class LuxonisDataset:
                     sample_view = self.fo_dataset.match( # TODO: could probably make this more efficient
                         F("filepath") == mount_path
                     )
+                    # find the most up to date sample
                     max_version = -1
                     for sample in sample_view:
                         if sample.version > max_version:
                             latest_sample = sample
+                            max_version = sample.version
 
-                    if not skip_media_check:
-                        check = data_utils.check_media(self, filepath, mount_path, component_name, granule, from_bucket)
-                        if not check:
-                            media_change = True
-                            filtered.append(addition)
-                            if len(updated): updated[filepaths==candidate] = 1
-                            break
-
-                    check = data_utils.check_fields(
+                    changes = data_utils.check_fields(
                         self,
                         latest_sample,
                         addition,
                         component_name
                     )
-                    if not check:
+                    for change in changes:
+                        field, value = change.items()
                         field_change = True
-                        filtered.append(addition)
-                        if len(updated): updated[filepaths==candidate] = 1
-                        break
+                        self._make_transaction(
+                            LDFTransactionType.UPDATE,
+                            sample_id=latest_sample._id,
+                            field=field,
+                            value=value
+                        )
 
-        additions = filtered
-        if len(additions) == 0:
-            print('No new additions!')
-            return None
+        # additions = filtered
+        # if len(additions) == 0:
+        #     print('No new additions!')
+        #     return None
+        # else:
+        #     version_samples = []
+        #     for i, sample in tqdm(enumerate(latest_view), total=len(latest_view)):
+        #         if updated[i]:
+        #             sample.latest = False
+        #             sample.save()
+        #         else:
+        #             version_samples.append(sample.id)
+
+        if media_change or field_change:
+            self._make_transaction(
+                LDFTransactionType.END,
+                sample_id=None,
+                field=None,
+                value=None
+            )
+
+            return media_change, field_change
         else:
-            version_samples = []
-            for i, sample in tqdm(enumerate(latest_view), total=len(latest_view)):
-                if updated[i]:
-                    sample.latest = False
-                    sample.save()
-                else:
-                    version_samples.append(sample.id)
-            if media_change:
-                version_code = 0
-            elif field_change:
-                version_code = 1
-            else:
-                version_code = -1
-            return additions, version_samples, version_code
+            return None
 
-    def _add_extract(self, additions, from_bucket, compute_heatmaps):
+    def _add_extract(self, additions, from_bucket):
         """
         Filters out any additions to the dataset already existing
         """
@@ -566,7 +580,7 @@ class LuxonisDataset:
                     cmd = f"cp {filepath} {local_cache}/{component_name}/{granule}"
                     subprocess.check_output(cmd, shell=True)
 
-                if compute_heatmaps and not from_bucket and \
+                if self.compute_heatmaps and not from_bucket and \
                 (components[component_name].itype == IType.DISPARITY or \
                 components[component_name].itype == IType.DEPTH):
 
@@ -581,7 +595,7 @@ class LuxonisDataset:
                     new_filepath = f"/{self.team}/datasets/{self.name}/{heatmap_component}/{granule}"
                     add_heatmaps[heatmap_component] = new_filepath
 
-            if compute_heatmaps and not from_bucket:
+            if self.compute_heatmaps and not from_bucket:
                 for heatmap_component in add_heatmaps:
                     additions[i][heatmap_component] = {}
                     additions[i][heatmap_component]['filepath'] = add_heatmaps[heatmap_component]
@@ -604,7 +618,7 @@ class LuxonisDataset:
 
         return additions
 
-    def _add_execute(self, additions, version_samples, compute_heatmaps):
+    def _add_execute(self, additions, version_samples):
         source = self.source
         samples = []
         for i, addition in enumerate(additions):
@@ -646,7 +660,7 @@ class LuxonisDataset:
                 if 'split' not in component.keys():
                     sample['split'] = 'train' # default split
 
-                if compute_heatmaps and f'{component_name}_heatmap' in addition.keys():
+                if self.compute_heatmaps and f'{component_name}_heatmap' in addition.keys():
                     sample['heatmap'] = fo.Heatmap(map_path=addition[f'{component_name}_heatmap']['filepath'])
 
                 samples.append(sample)
@@ -661,7 +675,6 @@ class LuxonisDataset:
         additions,
         note,
         from_bucket=False,
-        compute_heatmaps=True,
     ):
         """
         Function to add data and automatically version the data
@@ -681,16 +694,23 @@ class LuxonisDataset:
         if from_bucket and self.bucket_type == 'local':
             raise Exception('from_bucket must be False for local dataset!')
 
-        filter_result = self._add_filter(additions, from_bucket)
+        self._check_transactions() # will clear transactions any interrupted transactions
+
+        # TODO: add a try/except to gracefully handle any errors
+        # try:
+
+        filter_result = self._add_filter(additions)
         if filter_result is None:
             return
         else:
-            additions, version_samples, version_code = filter_result
+            media_change, field_change = filter_result
 
-        self._incr_version(version_code)
+        self._incr_version(media_change, field_change)
 
-        additions = self._add_extract(additions, from_bucket, compute_heatmaps)
+        additions = self._add_extract(additions, from_bucket)
 
-        version_samples = self._add_execute(additions, version_samples, compute_heatmaps)
+        version_samples = self._add_execute(additions, version_samples)
 
         self._save_version(version_samples, note)
+
+        # except Exception as e:

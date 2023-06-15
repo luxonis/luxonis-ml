@@ -54,3 +54,4 @@ class TransactionDocument(Document):
     sample_id = ObjectIdField()
     field = StringField()
     value = DictField()
+    current_version = FloatField()
