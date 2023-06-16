@@ -36,7 +36,7 @@ class LuxonisSourceDocument(Document):
 class VersionDocument(Document):
     """Backing document for LuxonisDataset versions."""
 
-    id = ObjectIdField()
+    # id = ObjectIdField()
     number = FloatField(required=True)
     dataset_id = ObjectIdField(db_field="_dataset_id", required=True)
     dataset_id_str = StringField(required=True)
@@ -54,4 +54,5 @@ class TransactionDocument(Document):
     sample_id = ObjectIdField()
     field = StringField()
     value = DictField()
+    component = StringField()
     current_version = FloatField()

@@ -404,7 +404,14 @@ class LuxonisDataset:
             )
         fo.delete_dataset(self.full_name)
 
-    def _make_transaction(self, action, sample_id, field, value):
+    def _make_transaction(
+        self,
+        action,
+        sample_id=None,
+        field=None,
+        value=None,
+        component=None
+    ):
 
         transaction_doc = fop.TransactionDocument(
             dataset_id=self.dataset_doc.id,
@@ -416,9 +423,13 @@ class LuxonisDataset:
             value={'value':value},
             current_version=self.version
         )
-        transaction_doc.save(upsert=True)
+        transaction_doc = transaction_doc.save(upsert=True)
+
+        return transaction_doc.id
 
     def _check_transactions(self):
+
+        # TODO: maybe this should look for the last non-executed transaction instead of END
 
         transactions = list(self.conn.transaction_document.find(
             { '_dataset_id': self.dataset_doc.id }
@@ -437,7 +448,7 @@ class LuxonisDataset:
             else:
                 i = -2
                 while transactions[i]['action'] != LDFTransactionType.END.value \
-                    and i != -len(transactions)-1:
+                    and i != -len(transactions):
                     i -= 1
                 return transactions[i+1:]
         else:
@@ -465,6 +476,7 @@ class LuxonisDataset:
 
         print("Checking for additions or modifications...")
 
+        transaction_to_additions = {}
         media_change = False
         field_change = False
 
@@ -477,12 +489,13 @@ class LuxonisDataset:
                 if candidate not in list(filepaths):
                     # ADD case
                     media_change = True
-                    self._make_transaction(
+                    tid = self._make_transaction(
                         LDFTransactionType.ADD,
                         sample_id=None,
                         field='filepath',
                         value=new_filepath
                     )
+                    transaction_to_additions[tid] = i
                     break
                 else:
                     # check for UPDATE
@@ -506,12 +519,14 @@ class LuxonisDataset:
                     for change in changes:
                         field, value = change.items()
                         field_change = True
-                        self._make_transaction(
+                        tid = self._make_transaction(
                             LDFTransactionType.UPDATE,
                             sample_id=latest_sample._id,
                             field=field,
-                            value=value
+                            value=value,
+                            component=component_name
                         )
+                        transaction_to_additions[tid] = i
 
         # additions = filtered
         # if len(additions) == 0:
@@ -528,13 +543,10 @@ class LuxonisDataset:
 
         if media_change or field_change:
             self._make_transaction(
-                LDFTransactionType.END,
-                sample_id=None,
-                field=None,
-                value=None
+                LDFTransactionType.END
             )
 
-            return media_change, field_change
+            return transaction_to_additions, media_change, field_change
         else:
             return None
 
@@ -543,7 +555,7 @@ class LuxonisDataset:
         Filters out any additions to the dataset already existing
         """
 
-        print("Extractig dataset media...")
+        print("Extracting dataset media...")
 
         components = self.source.components
         if self.bucket_type == 'local':
@@ -618,62 +630,82 @@ class LuxonisDataset:
 
         return additions
 
-    def _add_execute(self, additions, version_samples):
+    def _add_execute(self, additions, transaction_to_additions):
+
         source = self.source
+        group = fo.Group(name=source.name)
         samples = []
-        for i, addition in enumerate(additions):
-            component_names = [component_name for component_name in addition.keys() if not component_name.endswith('_heatmap')]
-            group = fo.Group(name=source.name)
-            for component_name in component_names:
+        latest_view = self.fo_dataset.match(
+            F("latest") == True
+        )
+        sample_ids = np.array([sample['_id'] for sample in latest_view])
+        samples = [sample for sample in latest_view]
 
-                component = addition[component_name]
+        transactions = self._check_transactions()
 
-                sample = fo.Sample(filepath=component['filepath'], version=self.version, latest=True)
-                sample[source.name] = group.element(component_name)
+        if transactions is None:
+            raise Exception('There are no changes to the dataset to execute!')
 
-                for ann in component.keys():
-                    if ann == 'class':
-                        sample['class'] = fo.Classification(label=component['class'])
-                    elif ann == 'boxes':
-                        sample['boxes'] = fo.Detections(detections=[
-                            fo.Detection(
-                                label=box[0] if isinstance(box[0], str) else self.fo_dataset.classes['boxes'][int(box[0])],
-                                bounding_box=box[1:5]
-                            )
-                            for box in component['boxes']
-                        ])
-                    elif ann == 'segmentation':
-                        sample['segmentation'] = fo.Segmentation(mask=component['segmentation'])
-                    elif ann == 'keypoints':
-                        sample['keypoints'] = fo.Keypoints(keypoints=[
-                            fo.Keypoint(
-                                label=kp[0] if isinstance(kp[0], str) else self.fo_dataset.classes['keypoints'][int(kp[0])],
-                                points=kp[1]
-                            )
-                            for kp in component['keypoints']
-                        ])
-                    elif ann == 'new_image_name':
-                        continue # ignore this as an attribute
-                    else:
-                        sample[ann] = component[ann]
+        for transaction in transactions:
+            if transaction['action'] == LDFTransactionType.ADD.value:
+                addition = additions[transaction_to_additions[transaction['_id']]]
+                component_names = [component_name for component_name in addition.keys() if not component_name.endswith('_heatmap')]
+                for component_name in component_names:
 
-                if 'split' not in component.keys():
-                    sample['split'] = 'train' # default split
+                    component = addition[component_name]
 
-                if self.compute_heatmaps and f'{component_name}_heatmap' in addition.keys():
-                    sample['heatmap'] = fo.Heatmap(map_path=addition[f'{component_name}_heatmap']['filepath'])
+                    sample = fo.Sample(filepath=component['filepath'], version=self.version, latest=True)
+                    sample[source.name] = group.element(component_name)
 
-                samples.append(sample)
+                    for ann in component.keys():
+                        if ann == 'class':
+                            sample['class'] = fo.Classification(label=component['class'])
+                        elif ann == 'boxes':
+                            sample['boxes'] = fo.Detections(detections=[
+                                fo.Detection(
+                                    label=box[0] if isinstance(box[0], str) else self.fo_dataset.classes['boxes'][int(box[0])],
+                                    bounding_box=box[1:5]
+                                )
+                                for box in component['boxes']
+                            ])
+                        elif ann == 'segmentation':
+                            sample['segmentation'] = fo.Segmentation(mask=component['segmentation'])
+                        elif ann == 'keypoints':
+                            sample['keypoints'] = fo.Keypoints(keypoints=[
+                                fo.Keypoint(
+                                    label=kp[0] if isinstance(kp[0], str) else self.fo_dataset.classes['keypoints'][int(kp[0])],
+                                    points=kp[1]
+                                )
+                                for kp in component['keypoints']
+                            ])
+                        elif ann == 'new_image_name':
+                            continue # ignore this as an attribute
+                        else:
+                            sample[ann] = component[ann]
 
-        new_ids = self.fo_dataset.add_samples(samples)
-        version_samples += new_ids
+                    if 'split' not in component.keys():
+                        sample['split'] = 'train' # default split
 
-        return version_samples
+                    if self.compute_heatmaps and f'{component_name}_heatmap' in addition.keys():
+                        sample['heatmap'] = fo.Heatmap(map_path=addition[f'{component_name}_heatmap']['filepath'])
+
+                    samples.append(sample)
+
+            elif transaction['action'] == LDFTransactionType.UPDATE.value:
+
+                addition = additions[transaction_to_additions[transaction['_id']]]
+                idx = np.where(sample == transaction['sample_id'])
+                previous_sample = samples[idx]
+                # TODO: change only the field specified in the update transaction
+
+            elif transaction['action'] == LDFTransactionType.END.value:
+                # TODO: compute version_samples
+                new_ids = self.fo_dataset.add_samples(samples)
+                return
 
     def add(
         self,
         additions,
-        note,
         from_bucket=False,
     ):
         """
@@ -701,16 +733,17 @@ class LuxonisDataset:
 
         filter_result = self._add_filter(additions)
         if filter_result is None:
+            print('No additions or modifications')
             return
         else:
-            media_change, field_change = filter_result
+            transaction_to_additions, media_change, field_change = filter_result
 
         self._incr_version(media_change, field_change)
 
         additions = self._add_extract(additions, from_bucket)
 
-        version_samples = self._add_execute(additions, version_samples)
+        version_samples = self._add_execute(additions, transaction_to_additions)
 
-        self._save_version(version_samples, note)
+        # self._save_version(version_samples, note)
 
         # except Exception as e:
