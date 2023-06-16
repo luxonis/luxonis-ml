@@ -270,7 +270,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             # cleanup
             self.conn.transaction_document.delete_many({ '_dataset_id': dataset.dataset_doc.id })
 
-    def test_add_filter(self):
+    def test_add(self):
 
         with LuxonisDataset(self.team, self.name) as dataset:
 
@@ -293,21 +293,35 @@ class LuxonisDatasetTester(unittest.TestCase):
             )
             res = list(curr)
             self.assertEqual(len(res), 16, "Wrong number of saved transactions")
-            num_adds = np.sum([True if t['action']=='ADD' else False for t in res ])
-            num_updates = np.sum([True if t['action']=='UPDATE' else False for t in res ])
-            num_deletes = np.sum([True if t['action']=='DELETE' else False for t in res ])
-            num_ends = np.sum([True if t['action']=='END' else False for t in res ])
+            num_adds = np.sum([True if t['action']=='ADD' else False for t in res])
+            num_updates = np.sum([True if t['action']=='UPDATE' else False for t in res])
+            num_deletes = np.sum([True if t['action']=='DELETE' else False for t in res])
+            num_ends = np.sum([True if t['action']=='END' else False for t in res])
             self.assertEqual(num_adds, 15, "Wrong number of ADDs")
             self.assertEqual(num_updates, 0, "Wrong number of UPDATEs")
             self.assertEqual(num_deletes, 0, "Wrong number of DELETEs")
             self.assertEqual(num_ends, 1, "Wrong number of ENDs")
 
-    def test_add_extract(self):
-        pass
+            # Execution
+            dataset._add_execute(self.additions, transaction_to_additions)
 
-    def test_add_execute(self):
-        pass
-        # self.assertEqual(len(dataset.fo_dataset), 15, "Not added to dataset")
+            self.assertEqual(len(dataset.fo_dataset), 15, "Not added to dataset")
+            curr = self.conn.transaction_document.find(
+                { "_dataset_id": dataset.dataset_doc.id }
+            )
+            res = list(curr)
+            num_executed = np.sum([True if t['executed']==True else False for t in res])
+            self.assertEqual(num_executed, 16, "Wrong number of executed transactions")
+
+    def test_modify(self):
+
+        with LuxonisDataset(self.team, self.name) as dataset:
+            a = self.additions[-1]
+            a['A']['new_field'] = 'test'
+            transaction_to_additions, media_change, field_change = dataset._add_filter([a])
+
+            # TODO: complete this test
+            # print(dataset._check_transactions())
 
     @classmethod
     def tearDownClass(self):
@@ -324,6 +338,7 @@ if __name__ == "__main__":
     suite.addTest(LuxonisDatasetTester('test_source'))
     suite.addTest(LuxonisDatasetTester('test_delete'))
     suite.addTest(LuxonisDatasetTester('test_transactions'))
-    suite.addTest(LuxonisDatasetTester('test_add_filter'))
+    suite.addTest(LuxonisDatasetTester('test_add'))
+    suite.addTest(LuxonisDatasetTester('test_modify'))
     runner = unittest.TextTestRunner()
     runner.run(suite)

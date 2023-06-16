@@ -706,12 +706,8 @@ class LuxonisDataset:
 
                 # samples.append(sample)
 
-            elif transaction['action'] == LDFTransactionType.END.value:
-                # TODO: compute version_samples
-                new_ids = self.fo_dataset.add_samples(samples)
-                return
-
             self._execute_transaction(transaction['_id'])
+        new_ids = self.fo_dataset.add_samples(samples)
 
     def add(
         self,
@@ -752,8 +748,6 @@ class LuxonisDataset:
 
         additions = self._add_extract(additions, from_bucket)
 
-        version_samples = self._add_execute(additions, transaction_to_additions)
-
-        # self._save_version(version_samples, note)
+        self._add_execute(additions, transaction_to_additions)
 
         # except Exception as e:
