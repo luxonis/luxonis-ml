@@ -437,8 +437,8 @@ class LuxonisDataset:
         if len(transactions):
             if transactions[-1]['action'] != LDFTransactionType.END.value:
                 i = -1
-                while transactions[i]['action'] != LDFTransactionType.END.value \
-                    and i != -len(transactions)-1:
+                while i != -len(transactions)-1 and \
+                    transactions[i]['executed'] == False:
 
                     self.conn.transaction_document.delete_many(
                         { '_id': transactions[i]['_id'] }
@@ -447,12 +447,18 @@ class LuxonisDataset:
                 return None
             else:
                 i = -2
-                while transactions[i]['action'] != LDFTransactionType.END.value \
-                    and i != -len(transactions):
+                while i != -len(transactions)-1 and \
+                    transactions[i]['executed'] == False:
                     i -= 1
                 return transactions[i+1:]
         else:
             return None
+
+    def _execute_transaction(self, tid):
+
+        self.conn.transaction_document.update_one(
+            { '_id': tid}, { '$set': { 'executed': True } }
+        )
 
     def _incr_version(self, media_change, field_change):
         if media_change: # major change
@@ -698,10 +704,14 @@ class LuxonisDataset:
                 previous_sample = samples[idx]
                 # TODO: change only the field specified in the update transaction
 
+                # samples.append(sample)
+
             elif transaction['action'] == LDFTransactionType.END.value:
                 # TODO: compute version_samples
                 new_ids = self.fo_dataset.add_samples(samples)
                 return
+
+            self._execute_transaction(transaction['_id'])
 
     def add(
         self,
