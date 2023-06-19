@@ -115,7 +115,9 @@ def check_keypoints(val1, val2):
 
 def check_fields(dataset, latest_sample, addition, component_name):
 
-    ignore_fields_match = set([dataset.source.name, 'version', 'metadata', 'latest', 'tags', 'split'])
+    changes = []
+
+    ignore_fields_match = set([dataset.source.name, 'version', 'metadata', 'latest', 'tags'])
     ignore_fields_check = set(['filepath'])
 
     sample_dict = latest_sample.to_dict()
@@ -123,13 +125,15 @@ def check_fields(dataset, latest_sample, addition, component_name):
     f2 = set(sample_dict.keys())
     new = f1 - f1.intersection(f2)
     missing = f2 - f1.intersection(f2) - ignore_fields_match
-    # if len(new) or len(missing):
-    #     return False
-    # TODO: implement versioning for new or missing fields
+    if len(new):
+        for new_field in list(new):
+            changes.append({new_field: addition[component_name][new_field]})
+    if len(missing):
+        for missing_field in list(missing):
+            changes.append({missing_field: None})
 
     check_fields = list(f1.intersection(f2) - ignore_fields_check)
 
-    changes = []
     for field in check_fields:
         val1 = addition[component_name][field]
         val2 = sample_dict[field]

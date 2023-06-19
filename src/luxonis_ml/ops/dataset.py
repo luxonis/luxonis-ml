@@ -477,8 +477,11 @@ class LuxonisDataset:
         latest_view = self.fo_dataset.match(
             F("latest") == True
         )
-        filepaths = [sample['filepath'] for sample in latest_view]
-        filepaths = np.array([f"{path.split('/')[-2]}/{path.split('/')[-1]}" for path in filepaths])
+        filepaths = {component_name: [] for component_name in components}
+        for component_name in self.fo_dataset.group_slices:
+            self.fo_dataset.group_slice = component_name
+            paths = [sample['filepath'] for sample in latest_view]
+            filepaths[component_name] = list(np.array([f"{path.split('/')[-2]}/{path.split('/')[-1]}" for path in paths]))
 
         print("Checking for additions or modifications...")
 
@@ -487,12 +490,19 @@ class LuxonisDataset:
         field_change = False
 
         for i, addition in tqdm(enumerate(additions), total=len(additions)):
+            # change the filepath for all components
+            for component_name in addition.keys():
+                filepath = addition[component_name]['filepath']
+                granule = data_utils.get_granule(filepath, addition, component_name)
+                new_filepath = f"/{self.team}/datasets/{self.name}/{component_name}/{granule}"
+                additions[i][component_name]['filepath'] = new_filepath
+            # check for ADD or UPDATE cases in the dataset
             for component_name in addition.keys():
                 filepath = addition[component_name]['filepath']
                 granule = data_utils.get_granule(filepath, addition, component_name)
                 new_filepath = f"/{self.team}/datasets/{self.name}/{component_name}/{granule}"
                 candidate = f"{component_name}/{granule}"
-                if candidate not in list(filepaths):
+                if candidate not in filepaths[component_name]:
                     # ADD case
                     media_change = True
                     tid = self._make_transaction(
@@ -505,9 +515,9 @@ class LuxonisDataset:
                     break
                 else:
                     # check for UPDATE
-                    mount_path = f"/{self.team}/datasets/{self.name}/{component_name}/{granule}"
+                    self.fo_dataset.group_slice = component_name
                     sample_view = self.fo_dataset.match( # TODO: could probably make this more efficient
-                        F("filepath") == mount_path
+                        F("filepath") == new_filepath
                     )
                     # find the most up to date sample
                     max_version = -1
@@ -523,7 +533,7 @@ class LuxonisDataset:
                         component_name
                     )
                     for change in changes:
-                        field, value = change.items()
+                        field, value = list(change.items())[0]
                         field_change = True
                         tid = self._make_transaction(
                             LDFTransactionType.UPDATE,
@@ -533,19 +543,6 @@ class LuxonisDataset:
                             component=component_name
                         )
                         transaction_to_additions[tid] = i
-
-        # additions = filtered
-        # if len(additions) == 0:
-        #     print('No new additions!')
-        #     return None
-        # else:
-        #     version_samples = []
-        #     for i, sample in tqdm(enumerate(latest_view), total=len(latest_view)):
-        #         if updated[i]:
-        #             sample.latest = False
-        #             sample.save()
-        #         else:
-        #             version_samples.append(sample.id)
 
         if media_change or field_change:
             self._make_transaction(
@@ -584,8 +581,8 @@ class LuxonisDataset:
 
                 filepath = component['filepath']
                 granule = data_utils.get_granule(filepath, addition, component_name)
-                new_filepath = f"/{self.team}/datasets/{self.name}/{component_name}/{granule}"
-                additions[i][component_name]['filepath'] = new_filepath
+                # new_filepath = f"/{self.team}/datasets/{self.name}/{component_name}/{granule}"
+                # additions[i][component_name]['filepath'] = new_filepath
 
                 if from_bucket:
                     new_prefix = f'{self.bucket_path}/{component_name}/{granule}'
@@ -659,7 +656,6 @@ class LuxonisDataset:
                 for component_name in component_names:
 
                     component = addition[component_name]
-
                     sample = fo.Sample(filepath=component['filepath'], version=self.version, latest=True)
                     sample[source.name] = group.element(component_name)
 
@@ -744,7 +740,7 @@ class LuxonisDataset:
         else:
             transaction_to_additions, media_change, field_change = filter_result
 
-        self._incr_version(media_change, field_change)
+        # self._incr_version(media_change, field_change)
 
         additions = self._add_extract(additions, from_bucket)
 

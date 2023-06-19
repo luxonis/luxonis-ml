@@ -317,11 +317,25 @@ class LuxonisDatasetTester(unittest.TestCase):
 
         with LuxonisDataset(self.team, self.name) as dataset:
             a = self.additions[-1]
-            a['A']['new_field'] = 'test'
-            transaction_to_additions, media_change, field_change = dataset._add_filter([a])
 
-            # TODO: complete this test
-            # print(dataset._check_transactions())
+            a['A']['new_field'] = 'test' # adding a new field
+            del a['A']['split'] # removing a field
+            transaction_to_additions, media_change, field_change = dataset._add_filter([a])
+            self.assertEqual(media_change, False, "media_change failed")
+            self.assertEqual(field_change, True, "field_change failed")
+
+            res = dataset._check_transactions()
+            self.assertEqual(len(res), 3, "Correct number of new transactions")
+            num_adds = np.sum([True if t['action']=='ADD' else False for t in res])
+            num_updates = np.sum([True if t['action']=='UPDATE' else False for t in res])
+            num_deletes = np.sum([True if t['action']=='DELETE' else False for t in res])
+            num_ends = np.sum([True if t['action']=='END' else False for t in res])
+            num_executed = np.sum([True if t['executed']==True else False for t in res])
+            self.assertEqual(num_adds, 0, "Wrong number of ADDs")
+            self.assertEqual(num_updates, 2, "Wrong number of UPDATEs")
+            self.assertEqual(num_deletes, 0, "Wrong number of DELETEs")
+            self.assertEqual(num_ends, 1, "Wrong number of ENDs")
+            self.assertEqual(num_executed, 0, "Some transactions are unexpectedly executed")
 
     @classmethod
     def tearDownClass(self):
