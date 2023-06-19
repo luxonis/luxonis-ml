@@ -119,7 +119,7 @@ def check_fields(dataset, latest_sample, addition, component_name):
 
     changes = []
 
-    ignore_fields_match = set([dataset.source.name, 'version', 'metadata', 'latest', 'tags'])
+    ignore_fields_match = set([dataset.source.name, 'version', 'metadata', 'latest', 'tags', 'tid'])
     ignore_fields_check = set(['filepath'])
 
     sample_dict = latest_sample.to_dict()

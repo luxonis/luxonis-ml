@@ -398,6 +398,13 @@ class LuxonisDatasetTester(unittest.TestCase):
 
             # TODO: execution tests after versioning tests
 
+    def test_version(self):
+
+        with LuxonisDataset(self.team, self.name) as dataset:
+            print(len(dataset._check_transactions(for_versioning=True)))
+
+            dataset.create_version(note="unitest version")
+
     @classmethod
     def tearDownClass(self):
 
@@ -415,5 +422,6 @@ if __name__ == "__main__":
     suite.addTest(LuxonisDatasetTester('test_transactions'))
     suite.addTest(LuxonisDatasetTester('test_add'))
     suite.addTest(LuxonisDatasetTester('test_modify'))
+    # suite.addTest(LuxonisDatasetTester('test_version'))
     runner = unittest.TextTestRunner()
     runner.run(suite)

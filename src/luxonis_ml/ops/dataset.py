@@ -422,15 +422,18 @@ class LuxonisDataset:
             field=field,
             value={'value':value},
             component=component,
-            version=None # do not want to assign a version to start
+            version=-1 # encodes no version yet assigned
         )
         transaction_doc = transaction_doc.save(upsert=True)
 
         return transaction_doc.id
 
-    def _check_transactions(self):
+    def _check_transactions(self, for_versioning=False):
 
-        # TODO: maybe this should look for the last non-executed transaction instead of END
+        if for_versioning:
+            attribute, value = 'version', -1
+        else:
+            attribute, value = 'executed', False
 
         transactions = list(self.conn.transaction_document.find(
             { '_dataset_id': self.dataset_doc.id }
@@ -439,7 +442,7 @@ class LuxonisDataset:
             if transactions[-1]['action'] != LDFTransactionType.END.value:
                 i = -1
                 while i != -len(transactions)-1 and \
-                    transactions[i]['executed'] == False:
+                    transactions[i][attribute] == value:
 
                     self.conn.transaction_document.delete_many(
                         { '_id': transactions[i]['_id'] }
@@ -449,7 +452,7 @@ class LuxonisDataset:
             else:
                 i = -2
                 while i != -len(transactions)-1 and \
-                    transactions[i]['executed'] == False:
+                    transactions[i][attribute] == value:
                     i -= 1
                 return transactions[i+1:]
         else:
@@ -476,7 +479,7 @@ class LuxonisDataset:
         components = self.source.components
 
         latest_view = self.fo_dataset.match(
-            F("latest") == True
+            (F("latest") == True) | (F("version") == -1)
         )
         filepaths = {component_name: [] for component_name in components}
         for component_name in self.fo_dataset.group_slices:
@@ -517,11 +520,11 @@ class LuxonisDataset:
                 else:
                     # check for UPDATE
                     self.fo_dataset.group_slice = component_name
-                    sample_view = self.fo_dataset.match( # TODO: could probably make this more efficient
+                    sample_view = self.fo_dataset.match(
                         F("filepath") == new_filepath
                     )
                     # find the most up to date sample
-                    max_version = -1
+                    max_version = -np.inf
                     for sample in sample_view:
                         if sample.version > max_version:
                             latest_sample = sample
@@ -639,11 +642,11 @@ class LuxonisDataset:
         source = self.source
         group = fo.Group(name=source.name)
         samples = []
-        latest_view = self.fo_dataset.match(
-            F("latest") == True
-        )
-        sample_ids = np.array([sample['_id'] for sample in latest_view])
-        samples = [sample for sample in latest_view]
+        # latest_view = self.fo_dataset.match(
+        #     F("latest") == True
+        # )
+        # sample_ids = np.array([sample['_id'] for sample in latest_view])
+        # samples = [sample for sample in latest_view]
 
         transactions = self._check_transactions()
 
@@ -692,19 +695,34 @@ class LuxonisDataset:
                     if self.compute_heatmaps and f'{component_name}_heatmap' in addition.keys():
                         sample['heatmap'] = fo.Heatmap(map_path=addition[f'{component_name}_heatmap']['filepath'])
 
+                    sample['tid'] = transaction['_id'].binary.hex()
+                    sample['latest'] = False
+                    sample['version'] = -1
                     samples.append(sample)
 
             elif transaction['action'] == LDFTransactionType.UPDATE.value:
 
                 addition = additions[transaction_to_additions[transaction['_id']]]
-                idx = np.where(sample == transaction['sample_id'])
-                previous_sample = samples[idx]
-                # TODO: change only the field specified in the update transaction
+                component_name = transaction['component']
+                self.fo_dataset.group_slice = component_name
 
-                # samples.append(sample)
+                # check if there is already a working example with filepath and version as -1
+                sample = self.fo_dataset.match(
+                    (F('filepath') == addition[component_name]['filepath']) & \
+                    (F('version') == -1)
+                )
+                if len(sample):
+                    pass # TODO: update the existing "working" sample
+                    # TODO: update the specified field
+                    # sample.save()
+                else:
+                    pass # TODO: create a new sample which is a copy of the transaction['sample_id']
+                    # TODO: update the specified field
+                    # samples.append(sample)
 
             self._execute_transaction(transaction['_id'])
-        new_ids = self.fo_dataset.add_samples(samples)
+
+        self.fo_dataset.add_samples(samples)
 
     def add(
         self,
@@ -743,3 +761,45 @@ class LuxonisDataset:
         additions = self._add_extract(additions, from_bucket)
 
         self._add_execute(additions, transaction_to_additions)
+
+    def create_version(self, note):
+
+        def get_current_sample(transaction):
+            sample = self.fo_dataset.match(
+                F("tid") == transaction['_id'].binary.hex()
+            )
+            for sample in sample:
+                break
+            return sample
+
+        def get_previous_sample(transaction):
+            sample = self.fo_dataset.match(
+                F("_id") == transaction['sample_id']
+            )
+            for sample in sample:
+                break
+
+            print(sample.version)
+            # return sample
+
+        # TODO: exception handling
+
+        # TODO: version increment by real media check and field check
+        self._incr_version(True, False)
+
+        transactions = self._check_transactions(for_versioning=True)
+        if transactions is None:
+            raise Exception('There are no changes to the dataset to version!')
+
+        add_samples = []
+        deprecate_samples = []
+        for transaction in transactions:
+
+            if transaction['action'] == LDFTransactionType.ADD.value:
+                sample = get_current_sample(transaction)
+                add_samples.append(sample._id)
+
+            elif transaction['action'] == LDFTransactionType.UPDATE.value:
+                sample = get_current_sample(transaction)
+                add_samples.append(sample._id)
+                get_previous_sample(transaction)
