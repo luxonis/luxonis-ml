@@ -55,4 +55,4 @@ class TransactionDocument(Document):
     field = StringField()
     value = DictField()
     component = StringField()
-    current_version = FloatField()
+    version = FloatField()

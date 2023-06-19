@@ -6,6 +6,7 @@ from PIL import Image, ImageDraw
 from pathlib import Path
 import fiftyone.core.odm as foo
 from luxonis_ml.ops import *
+from copy import deepcopy
 
 unittest.TestLoader.sortTestMethodsUsing = None
 
@@ -56,6 +57,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             data = json.load(file)
         imgs = data['images']
         anns = data['annotations']
+        self.categories = data['categories']
 
         # create some artificial splits
         splits = ['train' for _ in range(20)] + ['val' for _ in range(10)]
@@ -243,7 +245,13 @@ class LuxonisDatasetTester(unittest.TestCase):
     def test_transactions(self):
 
         with LuxonisDataset(self.team, self.name) as dataset:
-            pass # needed to initialize dataset ID for the first time
+            # pass # needed to initialize dataset ID for the first time
+            dataset.set_classes(['person', 'orange']) # needed for classification and detection
+            dataset.set_mask_targets({1:'person', 2:'orange'}) # needed for segmentation
+            dataset.set_skeleton({
+                'labels': self.categories[0]['keypoints'],
+                'edges': (np.array(self.categories[0]['skeleton'])-1).tolist()
+            }) # optional for keypoints to define the skeleton visualization
 
         with LuxonisDataset(self.team, self.name) as dataset:
 
@@ -316,26 +324,79 @@ class LuxonisDatasetTester(unittest.TestCase):
     def test_modify(self):
 
         with LuxonisDataset(self.team, self.name) as dataset:
-            a = self.additions[-1]
 
-            a['A']['new_field'] = 'test' # adding a new field
+            a = deepcopy(self.additions[-1])
+            a['A']['class'] = 'person' # adding a new field (classification)
+            a['A']['weather'] = 'sunny' # adding a new field
             del a['A']['split'] # removing a field
             transaction_to_additions, media_change, field_change = dataset._add_filter([a])
             self.assertEqual(media_change, False, "media_change failed")
             self.assertEqual(field_change, True, "field_change failed")
 
             res = dataset._check_transactions()
-            self.assertEqual(len(res), 3, "Correct number of new transactions")
+            self.assertEqual(len(res), 4, "Correct number of new transactions")
             num_adds = np.sum([True if t['action']=='ADD' else False for t in res])
             num_updates = np.sum([True if t['action']=='UPDATE' else False for t in res])
             num_deletes = np.sum([True if t['action']=='DELETE' else False for t in res])
             num_ends = np.sum([True if t['action']=='END' else False for t in res])
             num_executed = np.sum([True if t['executed']==True else False for t in res])
             self.assertEqual(num_adds, 0, "Wrong number of ADDs")
-            self.assertEqual(num_updates, 2, "Wrong number of UPDATEs")
+            self.assertEqual(num_updates, 3, "Wrong number of UPDATEs")
             self.assertEqual(num_deletes, 0, "Wrong number of DELETEs")
             self.assertEqual(num_ends, 1, "Wrong number of ENDs")
             self.assertEqual(num_executed, 0, "Some transactions are unexpectedly executed")
+
+            # non-annotation field change
+            a = deepcopy(self.additions[-1])
+            a['A']['weather'] = 'stormy'
+            transaction_to_additions, media_change, field_change = dataset._add_filter([a])
+            self.assertEqual(field_change, True, "Non-annotation field update")
+            # classification change
+            a = deepcopy(self.additions[-1])
+            a['A']['class'] = 'orange'
+            transaction_to_additions, media_change, field_change = dataset._add_filter([a])
+            self.assertEqual(field_change, True, "Classification update")
+            # boxes change
+            a = deepcopy(self.additions[-1])
+            a['A']['boxes'][0][0] = 'orange' # test class change with str
+            transaction_to_additions, media_change, field_change = dataset._add_filter([a])
+            self.assertEqual(field_change, True, "Boxes update (change class str)")
+            a = deepcopy(self.additions[-1])
+            a['A']['boxes'][0][0] = 1 # test class change with int
+            transaction_to_additions, media_change, field_change = dataset._add_filter([a])
+            self.assertEqual(field_change, True, "Boxes update (change class int)")
+            a = deepcopy(self.additions[-1])
+            a['A']['boxes'][0][1] += 0.1 # test coordinate change
+            transaction_to_additions, media_change, field_change = dataset._add_filter([a])
+            self.assertEqual(field_change, True, "Boxes update (change coordinate)")
+            # segmentation change
+            a = deepcopy(self.additions[-1])
+            a['A']['segmentation'] = np.zeros(a['A']['segmentation'].shape)
+            transaction_to_additions, media_change, field_change = dataset._add_filter([a])
+            self.assertEqual(field_change, True, "Segmentation update")
+            # keypoints change
+            a = deepcopy(self.additions[-1])
+            a['A']['keypoints'][0][0] = 'orange' # test class change with str
+            transaction_to_additions, media_change, field_change = dataset._add_filter([a])
+            self.assertEqual(field_change, True, "Keypoints update (change class str)")
+            a = deepcopy(self.additions[-1])
+            a['A']['keypoints'][0][0] = 1 # test class change with int
+            transaction_to_additions, media_change, field_change = dataset._add_filter([a])
+            self.assertEqual(field_change, True, "Keypoints update (change class int)")
+            a = deepcopy(self.additions[-1])
+            a['A']['keypoints'][0][1][0] = (a['A']['keypoints'][0][1][0][0]+0.1, a['A']['keypoints'][0][1][0][1])
+            transaction_to_additions, media_change, field_change = dataset._add_filter([a])
+            self.assertEqual(field_change, True, "Keypoints update (change coordinate non-NaN->non-NaN)")
+            a = deepcopy(self.additions[-1])
+            a['B']['keypoints'][0][1][8] = (a['A']['keypoints'][0][1][0][0]+0.1, a['A']['keypoints'][0][1][0][1])
+            transaction_to_additions, media_change, field_change = dataset._add_filter([a])
+            self.assertEqual(field_change, True, "Keypoints update (change coordinate NaN->non-Nan)")
+            a = deepcopy(self.additions[-1])
+            a['A']['keypoints'][0][1][0] = (np.nan, np.nan)
+            transaction_to_additions, media_change, field_change = dataset._add_filter([a])
+            self.assertEqual(field_change, True, "Keypoints update (change coordinate non-NaN->NaN)")
+
+            # TODO: execution tests after versioning tests
 
     @classmethod
     def tearDownClass(self):

@@ -81,6 +81,7 @@ def check_boxes(dataset, val1, val2):
             if isinstance(val1[0], str) and val2['label'] != val1[0]:
                 return [{'boxes': val1}]
             if not isinstance(val1[0], str) and val2['label'] != dataset.fo_dataset.classes['boxes'][val1[0]]:
+                val1[0] = dataset.fo_dataset.classes['boxes'][val1[0]]
                 return [{'boxes': val1}]
             for c1, c2 in list(zip(val1[1:], val2['bounding_box'])):
                 if abs(c1-c2) > 1e-8:
@@ -94,12 +95,13 @@ def check_segmentation(val1, val2):
         return [{'segmentation': val1}]
     return []
 
-def check_keypoints(val1, val2):
+def check_keypoints(dataset, val1, val2):
     if len(val1) == len(val2['keypoints']):
         for val1, val2 in list(zip(val1, val2['keypoints'])):
             if isinstance(val1[0], str) and val2['label'] != val1[0]:
                 return [{'keypoints': val1}]
             if not isinstance(val1[0], str) and val2['label'] != dataset.fo_dataset.classes['keypoints'][val1[0]]:
+                val1[0] = dataset.fo_dataset.classes['keypoints'][val1[0]]
                 return [{'keypoints': val1}]
             for c1, c2 in list(zip(val1[1], val2['points'])):
                 if not (np.isnan(c1[0]) and isinstance(c2[0], dict)):
@@ -147,7 +149,7 @@ def check_fields(dataset, latest_sample, addition, component_name):
                 val2 = latest_sample.segmentation.mask
                 changes += check_segmentation(val1, val2)
             elif field == 'keypoints':
-                changes += check_keypoints(val1, val2)
+                changes += check_keypoints(dataset, val1, val2)
             else:
                 raise NotImplementedError()
         else:

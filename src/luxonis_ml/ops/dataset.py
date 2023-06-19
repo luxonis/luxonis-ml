@@ -421,7 +421,8 @@ class LuxonisDataset:
             sample_id=sample_id,
             field=field,
             value={'value':value},
-            current_version=self.version
+            component=component,
+            version=None # do not want to assign a version to start
         )
         transaction_doc = transaction_doc.save(upsert=True)
 
@@ -720,7 +721,7 @@ class LuxonisDataset:
                 filepath (media) : path to image, video, point cloud, or voxel
                 -----
                 class              : name of class for an entire image (Image Classification)
-                boxes              : list of Nx6 numpy arrays [class, xmin, ymin, width, height] (Object Detection)
+                boxes              : list of Nx5 numpy arrays [class, xmin, ymin, width, height] (Object Detection)
                 segmentation       : numpy array where pixels correspond to integer values of classes
                 keypoints          : list of classes and (x,y) keypoints
         """
@@ -731,7 +732,6 @@ class LuxonisDataset:
         self._check_transactions() # will clear transactions any interrupted transactions
 
         # TODO: add a try/except to gracefully handle any errors
-        # try:
 
         filter_result = self._add_filter(additions)
         if filter_result is None:
@@ -740,10 +740,6 @@ class LuxonisDataset:
         else:
             transaction_to_additions, media_change, field_change = filter_result
 
-        # self._incr_version(media_change, field_change)
-
         additions = self._add_extract(additions, from_bucket)
 
         self._add_execute(additions, transaction_to_additions)
-
-        # except Exception as e:
