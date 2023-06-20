@@ -110,7 +110,7 @@ class LuxonisDataset:
             self.creds = {}
 
         self._init_path()
-        self.version = 0
+        self.version = 0.0
         self.tasks = ['class', 'boxes', 'segmentation', 'keypoints']
         self.compute_heatmaps = True # TODO: could make this configurable
 
@@ -464,11 +464,18 @@ class LuxonisDataset:
             { '_id': tid}, { '$set': { 'executed': True } }
         )
 
+    def _version_transaction(self, tid):
+
+        self.conn.transaction_document.update_one(
+            { '_id': tid}, { '$set': { 'version': self.version } }
+        )
+
     def _incr_version(self, media_change, field_change):
         if media_change: # major change
             self.version += 1
         if field_change: # minor change
             self.version += 0.1
+        self.version = round(self.version, 1)
 
     def _add_filter(self, additions):
         """
@@ -497,9 +504,13 @@ class LuxonisDataset:
             # change the filepath for all components
             for component_name in addition.keys():
                 filepath = addition[component_name]['filepath']
+                additions[i][component_name]['_old_filepath'] = filepath
                 granule = data_utils.get_granule(filepath, addition, component_name)
                 new_filepath = f"/{self.team}/datasets/{self.name}/{component_name}/{granule}"
                 additions[i][component_name]['filepath'] = new_filepath
+
+            group = fo.Group(name=source.name)
+
             # check for ADD or UPDATE cases in the dataset
             for component_name in addition.keys():
                 filepath = addition[component_name]['filepath']
@@ -509,6 +520,7 @@ class LuxonisDataset:
                 if candidate not in filepaths[component_name]:
                     # ADD case
                     media_change = True
+                    additions[i][component_name]['_group'] = group
                     tid = self._make_transaction(
                         LDFTransactionType.ADD,
                         sample_id=None,
@@ -582,7 +594,7 @@ class LuxonisDataset:
                 if 'filepath' not in component.keys():
                     raise Exception("Must specify filepath for every component!")
 
-                filepath = component['filepath']
+                filepath = component['_old_filepath']
                 granule = data_utils.get_granule(filepath, addition, component_name)
                 # new_filepath = f"/{self.team}/datasets/{self.name}/{component_name}/{granule}"
                 # additions[i][component_name]['filepath'] = new_filepath
@@ -639,7 +651,6 @@ class LuxonisDataset:
     def _add_execute(self, additions=None, transaction_to_additions=None):
 
         source = self.source
-        group = fo.Group(name=source.name)
         samples = []
 
         transactions = self._check_transactions()
@@ -657,6 +668,7 @@ class LuxonisDataset:
                 addition = additions[transaction_to_additions[transaction['_id']]]
                 component_name = transaction['component']
                 component = addition[component_name]
+                group = component['_group']
                 sample = fo.Sample(
                     filepath=component['filepath'],
                     version=self.version,
@@ -673,8 +685,8 @@ class LuxonisDataset:
                         sample['segmentation'] = data_utils.construct_segmentation_label(self, component['segmentation'])
                     elif ann == 'keypoints':
                         sample['keypoints'] = data_utils.construct_keypoints_label(self, component['keypoints'])
-                    elif ann == 'new_image_name':
-                        continue # ignore this as an attribute
+                    elif ann.startswith('_'):
+                        continue # ignore temporary attributes
                     else:
                         sample[ann] = component[ann]
 
@@ -686,7 +698,7 @@ class LuxonisDataset:
 
                 sample['tid'] = transaction['_id'].binary.hex()
                 sample['latest'] = False
-                sample['version'] = -1
+                sample['version'] = -1.0
                 samples.append(sample)
 
             elif transaction['action'] == LDFTransactionType.UPDATE.value:
@@ -731,10 +743,10 @@ class LuxonisDataset:
                     else:
                         sample[transaction['field']] = transaction['value']['value']
 
+                    sample['tid'] = transaction['_id'].binary.hex()
                     sample['latest'] = False
-                    sample['version'] = -1
+                    sample['version'] = -1.0
                     self.fo_dataset.add_sample(sample)
-                    sample[self.source.name] = group.element(transaction['component'])
 
             self._execute_transaction(transaction['_id'])
 
@@ -810,7 +822,6 @@ class LuxonisDataset:
 
         add_samples = set()
         deprecate_samples = set()
-        # self.fo_dataset.group_slice = self.source.main_component
         for transaction in transactions:
 
             if transaction['action'] != LDFTransactionType.END.value:
@@ -818,18 +829,19 @@ class LuxonisDataset:
 
             if transaction['action'] == LDFTransactionType.ADD.value:
                 sample = get_current_sample(transaction)
-                if sample is None: # a new sample which has had both ADD and UPDATE
-                    sample = get_previous_sample(transaction)
                 add_samples.add(sample['id'])
 
             elif transaction['action'] == LDFTransactionType.UPDATE.value:
                 sample = get_current_sample(transaction)
                 if sample is None: # a new sample which has had both ADD and UPDATE
-                    sample = get_previous_sample(transaction)
+                    # sample = get_previous_sample(transaction)
+                    continue
                 else:
+                    add_samples.add(sample['id'])
                     prev_sample = get_previous_sample(transaction)
                     deprecate_samples.add(prev_sample['id'])
-                add_samples.add(sample['id'])
+
+            self._version_transaction(transaction['_id'])
 
         for sample_id in add_samples:
             sample = self.fo_dataset[sample_id]
@@ -838,5 +850,14 @@ class LuxonisDataset:
             sample.save()
         for sample_id in deprecate_samples:
             sample = self.fo_dataset[sample_id]
-            self['latest'] = False
+            sample['latest'] = False
             sample.save()
+
+        version_samples = []
+        for component_name in self.source.components:
+            self.fo_dataset.group_slice = component_name
+            latest_view = self.fo_dataset.match(
+                F("latest") == True
+            )
+            version_samples += [sample.id for sample in latest_view]
+        self._save_version(version_samples, note)

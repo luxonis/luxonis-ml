@@ -11,6 +11,12 @@ from fiftyone import ViewField as F
 
 unittest.TestLoader.sortTestMethodsUsing = None
 
+"""
+NOTE: Depsite the name, this is integration testing not unit testing.
+The test cases are meant to happen in a certain order to check how
+the state of the LDF changes with each step.
+"""
+
 class LuxonisDatasetTester(unittest.TestCase):
 
     @classmethod
@@ -349,7 +355,11 @@ class LuxonisDatasetTester(unittest.TestCase):
             self.assertEqual(num_latest, 15, "Not all versioned samples are latest for B")
             self.assertEqual(num_version, 15, "Not all versioned samples have the right version for B")
 
-            # TODO: test if the version saves in the version collection
+            curr = self.conn.version_document.find(
+                { "dataset_id_str": dataset.dataset_doc.dataset_id }
+            )
+            res = list(curr)
+            self.assertEqual(len(res), 1, "Number of saved versions")
 
     def test_modify(self):
 
@@ -450,9 +460,9 @@ class LuxonisDatasetTester(unittest.TestCase):
             self.assertEqual(sample['weather'], 'stormy', "Executed change to added field")
             self.assertEqual(sample['split'], None, "Executed change to added field")
             self.assertEqual(sample['class']['label'], 'orange', "Executed change to classification label")
-            self.assertEqual(sample['boxes']['detections'][0]['label'], 'orange', "Executed change to boxes label")
-            # TODO: more box attr
+            # TODO: better box test
             self.assertEqual(np.sum(sample['segmentation']['mask']), 0., "Executed change to segmentation mask")
+            # TODO: better keypoint test
 
             dataset.fo_dataset.group_slice = 'B'
             query = dataset.fo_dataset.match(
@@ -461,7 +471,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             self.assertEqual(len(query), 1, "Only one change in B when executing modifications")
             for sample in query:
                 break
-            # TODO: checks for the sample actually having the changes made
+            # TODO: keypoint test
 
     def test_version_2(self):
 
@@ -470,12 +480,43 @@ class LuxonisDatasetTester(unittest.TestCase):
             dataset.create_version(note="test version 2")
             self.assertEqual(dataset.version, 1.1, "Wrong data version incr")
 
+            num_latest, num_version = 0, 0
+            dataset.fo_dataset.group_slice = 'A'
+            for sample in dataset.fo_dataset:
+                if sample.latest:
+                    num_latest += 1
+                if sample.version == 1.1:
+                    num_version += 1
+            self.assertEqual(num_latest, 15, "Not all versioned samples are latest for A")
+            self.assertEqual(num_version, 1, "Not all versioned samples have the right version for A")
 
-    # @classmethod
-    # def tearDownClass(self):
-    #
-    #     with LuxonisDataset(self.team, self.name) as dataset:
-    #         dataset.delete()
+            num_latest, num_version = 0, 0
+            dataset.fo_dataset.group_slice = 'B'
+            for sample in dataset.fo_dataset:
+                if sample.latest:
+                    num_latest += 1
+                if sample.version == 1.1:
+                    num_version += 1
+            self.assertEqual(num_latest, 15, "Not all versioned samples are latest for B")
+            self.assertEqual(num_version, 1, "Not all versioned samples have the right version for B")
+
+            curr = self.conn.version_document.find(
+                { "dataset_id_str": dataset.dataset_doc.dataset_id }
+            )
+            res = list(curr)
+            self.assertEqual(len(res), 2, "Number of saved versions")
+            set1 = set(res[0]['samples'])
+            set2 = set(res[1]['samples'])
+            set1_unique = set1.union(set2) - set2
+            set2_unique = set1.union(set2) - set1
+            self.assertEqual(len(set1_unique), 2, "One deprecated sample")
+            self.assertEqual(len(set2_unique), 2, "One added sample")
+
+    @classmethod
+    def tearDownClass(self):
+
+        with LuxonisDataset(self.team, self.name) as dataset:
+            dataset.delete()
 
 
 if __name__ == "__main__":
@@ -489,6 +530,6 @@ if __name__ == "__main__":
     suite.addTest(LuxonisDatasetTester('test_add'))
     suite.addTest(LuxonisDatasetTester('test_version_1'))
     suite.addTest(LuxonisDatasetTester('test_modify'))
-    # suite.addTest(LuxonisDatasetTester('test_version_2'))
+    suite.addTest(LuxonisDatasetTester('test_version_2'))
     runner = unittest.TextTestRunner()
     runner.run(suite)

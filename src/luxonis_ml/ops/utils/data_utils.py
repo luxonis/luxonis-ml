@@ -4,9 +4,9 @@ import fiftyone as fo
 
 def get_granule(filepath, addition, component_name):
     granule = filepath.split('/')[-1]
-    if 'new_image_name' in addition[component_name].keys():
-        filepath = filepath.replace(granule, addition[component_name]['new_image_name'])
-        granule = addition[component_name]['new_image_name']
+    if '_new_image_name' in addition[component_name].keys():
+        filepath = filepath.replace(granule, addition[component_name]['_new_image_name'])
+        granule = addition[component_name]['_new_image_name']
     return granule
 
 def check_media(dataset, filepath, mount_path, component_name, granule, from_bucket):
@@ -120,13 +120,26 @@ def check_fields(dataset, latest_sample, addition, component_name):
 
     changes = []
 
-    ignore_fields_match = set([dataset.source.name, 'version', 'metadata', 'latest', 'tags', 'tid'])
-    ignore_fields_check = set(['filepath'])
+    ignore_fields_match = set([
+        dataset.source.name,
+        'version',
+        'metadata',
+        'latest',
+        'tags',
+        'tid',
+        '_group',
+        '_old_filepath'
+    ])
+    ignore_fields_check = set([
+        'filepath',
+        '_group',
+        '_old_filepath'
+    ])
 
     sample_dict = latest_sample.to_dict()
     f1 = set(addition[component_name].keys())
     f2 = set(sample_dict.keys())
-    new = f1 - f1.intersection(f2)
+    new = f1 - f1.intersection(f2) - ignore_fields_match
     missing = f2 - f1.intersection(f2) - ignore_fields_match
     if len(new):
         for new_field in list(new):
