@@ -513,10 +513,10 @@ class LuxonisDataset:
                         LDFTransactionType.ADD,
                         sample_id=None,
                         field='filepath',
-                        value=new_filepath
+                        value=new_filepath,
+                        component=component_name
                     )
                     transaction_to_additions[tid] = i
-                    break
                 else:
                     # check for UPDATE
                     self.fo_dataset.group_slice = component_name
@@ -546,7 +546,6 @@ class LuxonisDataset:
                             value=value,
                             component=component_name
                         )
-                        transaction_to_additions[tid] = i
 
         if media_change or field_change:
             self._make_transaction(
@@ -637,16 +636,11 @@ class LuxonisDataset:
 
         return additions
 
-    def _add_execute(self, additions, transaction_to_additions):
+    def _add_execute(self, additions=None, transaction_to_additions=None):
 
         source = self.source
         group = fo.Group(name=source.name)
         samples = []
-        # latest_view = self.fo_dataset.match(
-        #     F("latest") == True
-        # )
-        # sample_ids = np.array([sample['_id'] for sample in latest_view])
-        # samples = [sample for sample in latest_view]
 
         transactions = self._check_transactions()
 
@@ -654,75 +648,98 @@ class LuxonisDataset:
             raise Exception('There are no changes to the dataset to execute!')
 
         for transaction in transactions:
+
             if transaction['action'] == LDFTransactionType.ADD.value:
-                addition = additions[transaction_to_additions[transaction['_id']]]
-                component_names = [component_name for component_name in addition.keys() if not component_name.endswith('_heatmap')]
-                for component_name in component_names:
 
-                    component = addition[component_name]
-                    sample = fo.Sample(filepath=component['filepath'], version=self.version, latest=True)
-                    sample[source.name] = group.element(component_name)
-
-                    for ann in component.keys():
-                        if ann == 'class':
-                            sample['class'] = fo.Classification(label=component['class'])
-                        elif ann == 'boxes':
-                            sample['boxes'] = fo.Detections(detections=[
-                                fo.Detection(
-                                    label=box[0] if isinstance(box[0], str) else self.fo_dataset.classes['boxes'][int(box[0])],
-                                    bounding_box=box[1:5]
-                                )
-                                for box in component['boxes']
-                            ])
-                        elif ann == 'segmentation':
-                            sample['segmentation'] = fo.Segmentation(mask=component['segmentation'])
-                        elif ann == 'keypoints':
-                            sample['keypoints'] = fo.Keypoints(keypoints=[
-                                fo.Keypoint(
-                                    label=kp[0] if isinstance(kp[0], str) else self.fo_dataset.classes['keypoints'][int(kp[0])],
-                                    points=kp[1]
-                                )
-                                for kp in component['keypoints']
-                            ])
-                        elif ann == 'new_image_name':
-                            continue # ignore this as an attribute
-                        else:
-                            sample[ann] = component[ann]
-
-                    if 'split' not in component.keys():
-                        sample['split'] = 'train' # default split
-
-                    if self.compute_heatmaps and f'{component_name}_heatmap' in addition.keys():
-                        sample['heatmap'] = fo.Heatmap(map_path=addition[f'{component_name}_heatmap']['filepath'])
-
-                    sample['tid'] = transaction['_id'].binary.hex()
-                    sample['latest'] = False
-                    sample['version'] = -1
-                    samples.append(sample)
-
-            elif transaction['action'] == LDFTransactionType.UPDATE.value:
+                if additions is None or transaction_to_additions is None:
+                    raise Exception("additions and transaction_to_additions required for adding data")
 
                 addition = additions[transaction_to_additions[transaction['_id']]]
                 component_name = transaction['component']
-                self.fo_dataset.group_slice = component_name
+                component = addition[component_name]
+                sample = fo.Sample(
+                    filepath=component['filepath'],
+                    version=self.version,
+                    latest=True
+                )
+                sample[source.name] = group.element(component_name)
+
+                for ann in component.keys():
+                    if ann == 'class':
+                        sample['class'] = data_utils.construct_class_label(self, component['class'])
+                    elif ann == 'boxes':
+                        sample['boxes'] = data_utils.construct_boxes_label(self, component['boxes'])
+                    elif ann == 'segmentation':
+                        sample['segmentation'] = data_utils.construct_segmentation_label(self, component['segmentation'])
+                    elif ann == 'keypoints':
+                        sample['keypoints'] = data_utils.construct_keypoints_label(self, component['keypoints'])
+                    elif ann == 'new_image_name':
+                        continue # ignore this as an attribute
+                    else:
+                        sample[ann] = component[ann]
+
+                if 'split' not in component.keys():
+                    sample['split'] = 'train' # default split
+
+                if self.compute_heatmaps and f'{component_name}_heatmap' in addition.keys():
+                    sample['heatmap'] = fo.Heatmap(map_path=addition[f'{component_name}_heatmap']['filepath'])
+
+                sample['tid'] = transaction['_id'].binary.hex()
+                sample['latest'] = False
+                sample['version'] = -1
+                samples.append(sample)
+
+            elif transaction['action'] == LDFTransactionType.UPDATE.value:
+
+                self.fo_dataset.group_slice = transaction['component']
+                old_sample = self.fo_dataset[transaction['sample_id']]
 
                 # check if there is already a working example with filepath and version as -1
                 sample = self.fo_dataset.match(
-                    (F('filepath') == addition[component_name]['filepath']) & \
+                    (F('filepath') == old_sample.filepath) & \
                     (F('version') == -1)
                 )
                 if len(sample):
-                    pass # TODO: update the existing "working" sample
-                    # TODO: update the specified field
-                    # sample.save()
+                    # update the existing sample
+                    for sample in sample:
+                        break
+                    if transaction['field'] in self.tasks:
+                        if transaction['field'] == 'class':
+                            sample[transaction['field']] = data_utils.construct_class_label(self, transaction['value']['value'])
+                        elif transaction['field'] == 'boxes':
+                            sample[transaction['field']] = data_utils.construct_boxes_label(self, transaction['value']['value'])
+                        elif transaction['field'] == 'segmentation':
+                            sample[transaction['field']] = data_utils.construct_segmentation_label(self, transaction['value']['value'])
+                        elif transaction['field'] == 'keypoints':
+                            sample[transaction['field']] = data_utils.construct_keypoints_label(self, transaction['value']['value'])
+                    else:
+                        sample[transaction['field']] = transaction['value']['value']
+                    sample.save()
                 else:
-                    pass # TODO: create a new sample which is a copy of the transaction['sample_id']
-                    # TODO: update the specified field
-                    # samples.append(sample)
+                    # create a new sample which is a copy of an old sample
+                    sample_dict = old_sample.to_dict()
+                    sample = fo.Sample.from_dict(sample_dict)
+                    if transaction['field'] in self.tasks:
+                        if transaction['field'] == 'class':
+                            sample[transaction['field']] = data_utils.construct_class_label(self, transaction['value']['value'])
+                        elif transaction['field'] == 'boxes':
+                            sample[transaction['field']] = data_utils.construct_boxes_label(self, transaction['value']['value'])
+                        elif transaction['field'] == 'segmentation':
+                            sample[transaction['field']] = data_utils.construct_segmentation_label(self, transaction['value']['value'])
+                        elif transaction['field'] == 'keypoints':
+                            sample[transaction['field']] = data_utils.construct_keypoints_label(self, transaction['value']['value'])
+                    else:
+                        sample[transaction['field']] = transaction['value']['value']
+
+                    sample['latest'] = False
+                    sample['version'] = -1
+                    self.fo_dataset.add_sample(sample)
+                    sample[self.source.name] = group.element(transaction['component'])
 
             self._execute_transaction(transaction['_id'])
 
-        self.fo_dataset.add_samples(samples)
+        if len(samples):
+            self.fo_dataset.add_samples(samples)
 
     def add(
         self,
@@ -768,38 +785,58 @@ class LuxonisDataset:
             sample = self.fo_dataset.match(
                 F("tid") == transaction['_id'].binary.hex()
             )
+            if not len(sample):
+                return None
             for sample in sample:
                 break
             return sample
 
         def get_previous_sample(transaction):
-            sample = self.fo_dataset.match(
-                F("_id") == transaction['sample_id']
-            )
-            for sample in sample:
-                break
-
-            print(sample.version)
-            # return sample
+            sample = self.fo_dataset[transaction['sample_id']]
+            return sample
 
         # TODO: exception handling
-
-        # TODO: version increment by real media check and field check
-        self._incr_version(True, False)
 
         transactions = self._check_transactions(for_versioning=True)
         if transactions is None:
             raise Exception('There are no changes to the dataset to version!')
 
-        add_samples = []
-        deprecate_samples = []
+        contains_add = True if np.sum([t['action'] == LDFTransactionType.ADD.value for t in transactions]) else False
+        contains_update = True if np.sum([t['action'] == LDFTransactionType.UPDATE.value for t in transactions]) else False
+        contains_delete = True if np.sum([t['action'] == LDFTransactionType.DELETE.value for t in transactions]) else False
+        media_change = contains_add or contains_delete
+        field_change = contains_update
+        self._incr_version(media_change, field_change)
+
+        add_samples = set()
+        deprecate_samples = set()
+        # self.fo_dataset.group_slice = self.source.main_component
         for transaction in transactions:
+
+            if transaction['action'] != LDFTransactionType.END.value:
+                self.fo_dataset.group_slice = transaction['component']
 
             if transaction['action'] == LDFTransactionType.ADD.value:
                 sample = get_current_sample(transaction)
-                add_samples.append(sample._id)
+                if sample is None: # a new sample which has had both ADD and UPDATE
+                    sample = get_previous_sample(transaction)
+                add_samples.add(sample['id'])
 
             elif transaction['action'] == LDFTransactionType.UPDATE.value:
                 sample = get_current_sample(transaction)
-                add_samples.append(sample._id)
-                get_previous_sample(transaction)
+                if sample is None: # a new sample which has had both ADD and UPDATE
+                    sample = get_previous_sample(transaction)
+                else:
+                    prev_sample = get_previous_sample(transaction)
+                    deprecate_samples.add(prev_sample['id'])
+                add_samples.add(sample['id'])
+
+        for sample_id in add_samples:
+            sample = self.fo_dataset[sample_id]
+            sample['latest'] = True
+            sample['version'] = self.version
+            sample.save()
+        for sample_id in deprecate_samples:
+            sample = self.fo_dataset[sample_id]
+            self['latest'] = False
+            sample.save()

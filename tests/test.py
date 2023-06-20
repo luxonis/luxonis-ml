@@ -7,6 +7,7 @@ from pathlib import Path
 import fiftyone.core.odm as foo
 from luxonis_ml.ops import *
 from copy import deepcopy
+from fiftyone import ViewField as F
 
 unittest.TestLoader.sortTestMethodsUsing = None
 
@@ -292,7 +293,7 @@ class LuxonisDatasetTester(unittest.TestCase):
 
             transaction_to_additions, media_change, field_change = dataset._add_filter(self.additions)
 
-            self.assertEqual(len(transaction_to_additions), 15, "Wrong number of entries in transaction_to_additions")
+            self.assertEqual(len(transaction_to_additions), 30, "Wrong number of entries in transaction_to_additions")
             self.assertEqual(media_change, True, "media_change failed")
             self.assertEqual(field_change, False, "field_change failed")
 
@@ -300,12 +301,12 @@ class LuxonisDatasetTester(unittest.TestCase):
                 { "_dataset_id": dataset.dataset_doc.id }
             )
             res = list(curr)
-            self.assertEqual(len(res), 16, "Wrong number of saved transactions")
+            self.assertEqual(len(res), 31, "Wrong number of saved transactions")
             num_adds = np.sum([True if t['action']=='ADD' else False for t in res])
             num_updates = np.sum([True if t['action']=='UPDATE' else False for t in res])
             num_deletes = np.sum([True if t['action']=='DELETE' else False for t in res])
             num_ends = np.sum([True if t['action']=='END' else False for t in res])
-            self.assertEqual(num_adds, 15, "Wrong number of ADDs")
+            self.assertEqual(num_adds, 30, "Wrong number of ADDs")
             self.assertEqual(num_updates, 0, "Wrong number of UPDATEs")
             self.assertEqual(num_deletes, 0, "Wrong number of DELETEs")
             self.assertEqual(num_ends, 1, "Wrong number of ENDs")
@@ -319,17 +320,48 @@ class LuxonisDatasetTester(unittest.TestCase):
             )
             res = list(curr)
             num_executed = np.sum([True if t['executed']==True else False for t in res])
-            self.assertEqual(num_executed, 16, "Wrong number of executed transactions")
+            self.assertEqual(num_executed, 31, "Wrong number of executed transactions")
+
+    def test_version_1(self):
+
+        with LuxonisDataset(self.team, self.name) as dataset:
+
+            dataset.create_version(note="test version 1")
+            self.assertEqual(dataset.version, 1.0, "Wrong data version incr")
+
+            num_latest, num_version = 0, 0
+            dataset.fo_dataset.group_slice = 'A'
+            for sample in dataset.fo_dataset:
+                if sample.latest:
+                    num_latest += 1
+                if sample.version == 1.0:
+                    num_version += 1
+            self.assertEqual(num_latest, 15, "Not all versioned samples are latest for A")
+            self.assertEqual(num_version, 15, "Not all versioned samples have the right version for A")
+
+            num_latest, num_version = 0, 0
+            dataset.fo_dataset.group_slice = 'B'
+            for sample in dataset.fo_dataset:
+                if sample.latest:
+                    num_latest += 1
+                if sample.version == 1.0:
+                    num_version += 1
+            self.assertEqual(num_latest, 15, "Not all versioned samples are latest for B")
+            self.assertEqual(num_version, 15, "Not all versioned samples have the right version for B")
+
+            # TODO: test if the version saves in the version collection
 
     def test_modify(self):
 
         with LuxonisDataset(self.team, self.name) as dataset:
 
+            transaction_to_additions = []
             a = deepcopy(self.additions[-1])
             a['A']['class'] = 'person' # adding a new field (classification)
             a['A']['weather'] = 'sunny' # adding a new field
             del a['A']['split'] # removing a field
-            transaction_to_additions, media_change, field_change = dataset._add_filter([a])
+            tta, media_change, field_change = dataset._add_filter([a])
+            transaction_to_additions += tta
             self.assertEqual(media_change, False, "media_change failed")
             self.assertEqual(field_change, True, "field_change failed")
 
@@ -349,67 +381,101 @@ class LuxonisDatasetTester(unittest.TestCase):
             # non-annotation field change
             a = deepcopy(self.additions[-1])
             a['A']['weather'] = 'stormy'
-            transaction_to_additions, media_change, field_change = dataset._add_filter([a])
+            tta, media_change, field_change = dataset._add_filter([a])
+            transaction_to_additions += tta
             self.assertEqual(field_change, True, "Non-annotation field update")
             # classification change
             a = deepcopy(self.additions[-1])
             a['A']['class'] = 'orange'
-            transaction_to_additions, media_change, field_change = dataset._add_filter([a])
+            tta, media_change, field_change = dataset._add_filter([a])
+            transaction_to_additions += tta
             self.assertEqual(field_change, True, "Classification update")
             # boxes change
             a = deepcopy(self.additions[-1])
             a['A']['boxes'][0][0] = 'orange' # test class change with str
-            transaction_to_additions, media_change, field_change = dataset._add_filter([a])
+            tta, media_change, field_change = dataset._add_filter([a])
+            transaction_to_additions += tta
             self.assertEqual(field_change, True, "Boxes update (change class str)")
             a = deepcopy(self.additions[-1])
             a['A']['boxes'][0][0] = 1 # test class change with int
-            transaction_to_additions, media_change, field_change = dataset._add_filter([a])
+            tta, media_change, field_change = dataset._add_filter([a])
+            transaction_to_additions += tta
             self.assertEqual(field_change, True, "Boxes update (change class int)")
             a = deepcopy(self.additions[-1])
             a['A']['boxes'][0][1] += 0.1 # test coordinate change
-            transaction_to_additions, media_change, field_change = dataset._add_filter([a])
+            tta, media_change, field_change = dataset._add_filter([a])
+            transaction_to_additions += tta
             self.assertEqual(field_change, True, "Boxes update (change coordinate)")
             # segmentation change
             a = deepcopy(self.additions[-1])
             a['A']['segmentation'] = np.zeros(a['A']['segmentation'].shape)
-            transaction_to_additions, media_change, field_change = dataset._add_filter([a])
+            tta, media_change, field_change = dataset._add_filter([a])
+            transaction_to_additions += tta
             self.assertEqual(field_change, True, "Segmentation update")
             # keypoints change
             a = deepcopy(self.additions[-1])
             a['A']['keypoints'][0][0] = 'orange' # test class change with str
-            transaction_to_additions, media_change, field_change = dataset._add_filter([a])
+            tta, media_change, field_change = dataset._add_filter([a])
+            transaction_to_additions += tta
             self.assertEqual(field_change, True, "Keypoints update (change class str)")
             a = deepcopy(self.additions[-1])
             a['A']['keypoints'][0][0] = 1 # test class change with int
-            transaction_to_additions, media_change, field_change = dataset._add_filter([a])
+            tta, media_change, field_change = dataset._add_filter([a])
+            transaction_to_additions += tta
             self.assertEqual(field_change, True, "Keypoints update (change class int)")
             a = deepcopy(self.additions[-1])
             a['A']['keypoints'][0][1][0] = (a['A']['keypoints'][0][1][0][0]+0.1, a['A']['keypoints'][0][1][0][1])
-            transaction_to_additions, media_change, field_change = dataset._add_filter([a])
+            tta, media_change, field_change = dataset._add_filter([a])
+            transaction_to_additions += tta
             self.assertEqual(field_change, True, "Keypoints update (change coordinate non-NaN->non-NaN)")
             a = deepcopy(self.additions[-1])
             a['B']['keypoints'][0][1][8] = (a['A']['keypoints'][0][1][0][0]+0.1, a['A']['keypoints'][0][1][0][1])
-            transaction_to_additions, media_change, field_change = dataset._add_filter([a])
+            tta, media_change, field_change = dataset._add_filter([a])
+            transaction_to_additions += tta
             self.assertEqual(field_change, True, "Keypoints update (change coordinate NaN->non-Nan)")
             a = deepcopy(self.additions[-1])
             a['A']['keypoints'][0][1][0] = (np.nan, np.nan)
-            transaction_to_additions, media_change, field_change = dataset._add_filter([a])
+            tta, media_change, field_change = dataset._add_filter([a])
+            transaction_to_additions += tta
             self.assertEqual(field_change, True, "Keypoints update (change coordinate non-NaN->NaN)")
 
-            # TODO: execution tests after versioning tests
+            dataset._add_execute()
+            dataset.fo_dataset.group_slice = 'A'
+            query = dataset.fo_dataset.match(
+                (F('latest') == False) & (F('version') == -1)
+            )
+            self.assertEqual(len(query), 1, "Only one change in A when executing modifications")
+            for sample in query:
+                break
+            self.assertEqual(sample['weather'], 'stormy', "Executed change to added field")
+            self.assertEqual(sample['split'], None, "Executed change to added field")
+            self.assertEqual(sample['class']['label'], 'orange', "Executed change to classification label")
+            self.assertEqual(sample['boxes']['detections'][0]['label'], 'orange', "Executed change to boxes label")
+            # TODO: more box attr
+            self.assertEqual(np.sum(sample['segmentation']['mask']), 0., "Executed change to segmentation mask")
 
-    def test_version(self):
+            dataset.fo_dataset.group_slice = 'B'
+            query = dataset.fo_dataset.match(
+                (F('latest') == False) & (F('version') == -1)
+            )
+            self.assertEqual(len(query), 1, "Only one change in B when executing modifications")
+            for sample in query:
+                break
+            # TODO: checks for the sample actually having the changes made
+
+    def test_version_2(self):
 
         with LuxonisDataset(self.team, self.name) as dataset:
-            print(len(dataset._check_transactions(for_versioning=True)))
 
-            dataset.create_version(note="unitest version")
+            dataset.create_version(note="test version 2")
+            self.assertEqual(dataset.version, 1.1, "Wrong data version incr")
 
-    @classmethod
-    def tearDownClass(self):
 
-        with LuxonisDataset(self.team, self.name) as dataset:
-            dataset.delete()
+    # @classmethod
+    # def tearDownClass(self):
+    #
+    #     with LuxonisDataset(self.team, self.name) as dataset:
+    #         dataset.delete()
 
 
 if __name__ == "__main__":
@@ -421,7 +487,8 @@ if __name__ == "__main__":
     suite.addTest(LuxonisDatasetTester('test_delete'))
     suite.addTest(LuxonisDatasetTester('test_transactions'))
     suite.addTest(LuxonisDatasetTester('test_add'))
+    suite.addTest(LuxonisDatasetTester('test_version_1'))
     suite.addTest(LuxonisDatasetTester('test_modify'))
-    # suite.addTest(LuxonisDatasetTester('test_version'))
+    # suite.addTest(LuxonisDatasetTester('test_version_2'))
     runner = unittest.TextTestRunner()
     runner.run(suite)

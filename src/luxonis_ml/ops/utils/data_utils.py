@@ -1,5 +1,6 @@
 import numpy as np
 import hashlib
+import fiftyone as fo
 
 def get_granule(filepath, addition, component_name):
     granule = filepath.split('/')[-1]
@@ -157,3 +158,35 @@ def check_fields(dataset, latest_sample, addition, component_name):
                 changes.append({field: val1})
 
     return changes
+
+def construct_class_label(dataset, cls):
+    return fo.Classification(
+        label=cls if isinstance(cls, str) else dataset.fo_dataset.classes['class'][int(cls)]
+    )
+
+def construct_boxes_label(dataset, boxes):
+    if not isinstance(boxes[0], list): # fix for only one box without a nested list
+        boxes = [boxes]
+    return fo.Detections(detections=[
+        fo.Detection(
+            label=box[0] if isinstance(box[0], str) else dataset.fo_dataset.classes['boxes'][int(box[0])],
+            bounding_box=box[1:5]
+        )
+        for box in boxes
+    ])
+
+def construct_segmentation_label(dataset, mask):
+    if isinstance(mask, list):
+        mask = np.array(mask)
+    return fo.Segmentation(mask=mask)
+
+def construct_keypoints_label(dataset, kps):
+    if not isinstance(kps[0], list): # fix for only one box without a nested list
+        kps = [kps]
+    return fo.Keypoints(keypoints=[
+        fo.Keypoint(
+            label=kp[0] if isinstance(kp[0], str) else dataset.fo_dataset.classes['keypoints'][int(kp[0])],
+            points=kp[1]
+        )
+        for kp in kps
+    ])
