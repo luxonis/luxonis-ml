@@ -23,10 +23,7 @@ class LuxonisVersion:
             if samples is None:
                 raise Exception("samples must be defined for creating a new version")
 
-            _id = ObjectId()
-
             version_doc = fop.VersionDocument(
-                id=_id,
                 number=self.version_number,
                 dataset_id=dataset_id,
                 dataset_id_str=self.dataset_id_str,
@@ -34,10 +31,8 @@ class LuxonisVersion:
                 samples=samples,
                 note=note
             )
-
+            
             version_doc.save(upsert=True)
-        else:
-            print("this already exists")
 
         self.doc = self._find()
 
