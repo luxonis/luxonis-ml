@@ -66,14 +66,15 @@ def check_media(dataset, filepath, mount_path, component_name, granule, from_buc
         return True
 
 def check_classification(val1, val2):
-    val1 = fo.Classification(label=val1).to_dict()
-    if len(val1.keys()) == len(val2.keys()):
-        for key in val1:
-            if not key.startswith('_'):
-                if val1[key] != val2[key]:
-                    return [{'classification': val1}]
+    for val1, val2 in list(zip(val1, val2['classifications'])):
+        val1 = fo.Classification(label=val1).to_dict()
+        if len(val1.keys()) == len(val2.keys()):
+            for key in val1:
+                if not key.startswith('_'):
+                    if val1[key] != val2[key]:
+                        return [{'class': val1}]
     else:
-        return [{'classification': val1}]
+        return [{'class': val1}]
     return []
 
 def check_boxes(dataset, val1, val2):
@@ -172,10 +173,15 @@ def check_fields(dataset, latest_sample, addition, component_name):
 
     return changes
 
-def construct_class_label(dataset, cls):
-    return fo.Classification(
-        label=cls if isinstance(cls, str) else dataset.fo_dataset.classes['class'][int(cls)]
-    )
+def construct_class_label(dataset, classes):
+    if not isinstance(classes, list): # fix for only one class
+        classes = [classes]
+    return fo.Classifications(classifications=[
+        fo.Classification(
+            label=cls if isinstance(cls, str) else dataset.fo_dataset.classes['class'][int(cls)]
+        )
+        for cls in classes
+    ])
 
 def construct_boxes_label(dataset, boxes):
     if not isinstance(boxes[0], list): # fix for only one box without a nested list
@@ -194,7 +200,7 @@ def construct_segmentation_label(dataset, mask):
     return fo.Segmentation(mask=mask)
 
 def construct_keypoints_label(dataset, kps):
-    if not isinstance(kps[0], list): # fix for only one box without a nested list
+    if not isinstance(kps[0], list): # fix for only one kp without a nested list
         kps = [kps]
     return fo.Keypoints(keypoints=[
         fo.Keypoint(

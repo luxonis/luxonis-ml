@@ -253,8 +253,8 @@ class LuxonisDatasetTester(unittest.TestCase):
 
         with LuxonisDataset(self.team, self.name) as dataset:
             # pass # needed to initialize dataset ID for the first time
-            dataset.set_classes(['person', 'orange']) # needed for classification and detection
-            dataset.set_mask_targets({1:'person', 2:'orange'}) # needed for segmentation
+            dataset.set_classes(['person', 'orange', 'pear']) # needed for classification and detection
+            dataset.set_mask_targets({1:'person', 2:'orange', 3: 'pear'}) # needed for segmentation
             dataset.set_skeleton({
                 'labels': self.categories[0]['keypoints'],
                 'edges': (np.array(self.categories[0]['skeleton'])-1).tolist()
@@ -367,7 +367,7 @@ class LuxonisDatasetTester(unittest.TestCase):
 
             transaction_to_additions = []
             a = deepcopy(self.additions[-1])
-            a['A']['class'] = 'person' # adding a new field (classification)
+            a['A']['class'] = ['person'] # adding a new field (classification)
             a['A']['weather'] = 'sunny' # adding a new field
             del a['A']['split'] # removing a field
             tta, media_change, field_change = dataset._add_filter([a])
@@ -396,7 +396,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             self.assertEqual(field_change, True, "Non-annotation field update")
             # classification change
             a = deepcopy(self.additions[-1])
-            a['A']['class'] = 'orange'
+            a['A']['class'] = ['orange', 'pear']
             tta, media_change, field_change = dataset._add_filter([a])
             transaction_to_additions += tta
             self.assertEqual(field_change, True, "Classification update")
@@ -459,7 +459,7 @@ class LuxonisDatasetTester(unittest.TestCase):
                 break
             self.assertEqual(sample['weather'], 'stormy', "Executed change to added field")
             self.assertEqual(sample['split'], None, "Executed change to added field")
-            self.assertEqual(sample['class']['label'], 'orange', "Executed change to classification label")
+            self.assertEqual(sample['class']['classifications'][0]['label'], 'orange', "Executed change to classification label")
             # TODO: better box test
             self.assertEqual(np.sum(sample['segmentation']['mask']), 0., "Executed change to segmentation mask")
             # TODO: better keypoint test
