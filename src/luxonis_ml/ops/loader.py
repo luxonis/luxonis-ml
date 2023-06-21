@@ -27,6 +27,7 @@ class LuxonisLoader(torch.utils.data.Dataset):
 
         # this will automatically use the main component in a group
         # if another component is desired, you must set dataset.fo_dataset.group_slice = 'other component'
+        self.ids = self.samples.values("id")
         self.paths = self.samples.values("filepath")
         self.stream = stream
         self.classes, self.classes_by_task = self.dataset.get_classes()
@@ -42,19 +43,18 @@ class LuxonisLoader(torch.utils.data.Dataset):
             self.dataset.sync_from_cloud()
 
     def __len__(self):
-        return len(self.paths)
+        return len(self.ids)
 
     def __getitem__(self, idx):
+        sample_id = self.ids[idx]
         path = self.paths[idx]
-        sample = self.samples[path]
+        sample = self.dataset.fo_dataset[sample_id]
         if self.stream and self.dataset.bucket_type != 'local':
             img_path = f'{str(Path.home())}/.luxonis_mount/{path}'
         else:
             img_path = f'{str(Path.home())}/.cache/luxonis_ml/data/{path}'
         img = np.transpose(cv2.imread(img_path), (2,0,1))
         _, ih, iw = img.shape
-
-        keys = sample.to_dict().keys()
 
         classify = np.zeros(self.nc)
         bboxes = np.zeros((0,5))
@@ -63,11 +63,13 @@ class LuxonisLoader(torch.utils.data.Dataset):
         present_annotations = set()
 
         anno_dict = {}
-        if "classification" in keys:
-            cls = self.classes.index(sample.classification)
-            classify[cls] = classify[cls] + 1
+        if "class" in sample and sample["class"] is not None:
+            classes = sample["class"]["classifications"]
+            for cls in classes:
+                cls = self.classes.index(cls.label)
+                classify[cls] = classify[cls] + 1
             present_annotations.add("class")
-        if "boxes" in keys:
+        if "boxes" in sample and sample["boxes"] is not None:
             detections = sample.boxes.detections
             for det in detections:
                 box = np.array([
@@ -79,13 +81,13 @@ class LuxonisLoader(torch.utils.data.Dataset):
                 ]).reshape(1,5)
                 bboxes = np.append(bboxes, box, axis=0)
             present_annotations.add("bbox")
-        if "segmentation" in keys:
+        if "segmentation" in sample and sample["segmentation"] is not None:
             mask = sample.segmentation.mask
             for key in np.unique(mask):
                 if key != 0:
                     seg[int(key)-1,...] = mask==key
             present_annotations.add("segmentation")
-        if "keypoints" in keys:
+        if "keypoints" in sample and sample["keypoints"] is not None:
             for kps in sample.keypoints.keypoints:
                 cls = self.classes.index(kps.label)
                 pnts = np.array(kps.points).reshape((-1,2)).astype(np.float32)
