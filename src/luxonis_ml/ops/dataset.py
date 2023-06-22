@@ -379,6 +379,15 @@ class LuxonisDataset:
 
         return classes, classes_by_task
 
+    def get_classes_count(self):
+        """ Returns dictionary with number of occurances for each class. If no class label is present returns empty dict."""
+        try:
+            count_dict = self.fo_dataset.count_values("class.classifications.label")
+        except:
+            warnings.warn("No 'class' label present in the dataset. Returning empty dictionary.")
+            count_dict = {}
+        return count_dict
+
     def delete(self):
         """
         Deletes the entire dataset, aside from the images
