@@ -902,3 +902,16 @@ class LuxonisDataset:
             )
             version_samples += [sample.id for sample in latest_view]
         self._save_version(version_samples, note)
+
+    def create_view(self, name, expr, version=None):
+
+        if version is None:
+            version = self.version
+
+        version_view = self.fo_dataset.load_saved_view(f'version_{version}')
+
+        view = version_view.match(expr)
+
+        self.fo_dataset.save_view(name, view)
+
+        return view

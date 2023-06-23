@@ -19,7 +19,8 @@ class LuxonisLoader(torch.utils.data.Dataset):
 
         self.dataset = dataset
         if view in ['train', 'val', 'test']:
-            self.samples = dataset.fo_dataset.match(
+            version_view = self.dataset.fo_dataset.load_saved_view(f'version_{dataset.version}')
+            self.samples = version_view.match(
                 (F("latest") == True) & (F("split") == view)
             )
         else:
@@ -42,7 +43,7 @@ class LuxonisLoader(torch.utils.data.Dataset):
         if not self.stream and self.dataset.bucket_type != 'local':
             self.dataset.sync_from_cloud()
 
-        self.fo_dataset.group_slice = self.dataset.source.main_component
+        self.dataset.fo_dataset.group_slice = self.dataset.source.main_component
 
     def __len__(self):
         return len(self.ids)
