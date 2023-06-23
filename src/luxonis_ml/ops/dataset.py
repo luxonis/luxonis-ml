@@ -379,7 +379,7 @@ class LuxonisDataset:
 
         return classes, classes_by_task
 
-    def delete(self):
+    def delete_dataset(self):
         """
         Deletes the entire dataset, aside from the images
         """
@@ -759,10 +759,9 @@ class LuxonisDataset:
         from_bucket=False,
     ):
         """
-        Function to add data and automatically version the data
+        Function to add data and automatically log transactions
 
-        dataset: LuxonisDataset instance
-        dict: a list of dictionaries describing each Voxel51 sample
+        additions: a list of dictionaries describing each Voxel51 sample
             Each dict contains keys of components
             The value of each component can contain the following keys:
                 filepath (media) : path to image, video, point cloud, or voxel
@@ -771,6 +770,7 @@ class LuxonisDataset:
                 boxes              : list of Nx5 numpy arrays [class, xmin, ymin, width, height] (Object Detection)
                 segmentation       : numpy array where pixels correspond to integer values of classes
                 keypoints          : list of classes and (x,y) keypoints
+        from_bucket: True if adding images to a cloud bucket instead of locally
         """
 
         if from_bucket and self.bucket_type == 'local':
@@ -790,6 +790,37 @@ class LuxonisDataset:
         additions = self._add_extract(additions, from_bucket)
 
         self._add_execute(additions, transaction_to_additions)
+
+    def delete(self, deletions):
+        """
+        Function to delete data by sample ID
+        
+        deletions: a list of sample IDs as strings
+        """
+
+        # TODO: add a try/except to gracefully handle any errors
+
+        self._check_transactions() # will clear transactions any interrupted transactions
+
+        for delete_id in deletions:
+
+            # assume we want to delete all components in a group
+            sample = self.fo_dataset[delete_id]
+            gid = sample[self.source.name]['id']
+            group = self.fo_dataset.get_group(gid)
+            for component_name in group:
+                sample = self.fo_dataset[group[component_name]['id']]
+                tid = self._make_transaction(
+                    LDFTransactionType.DELETE,
+                    sample_id=sample.id,
+                    component=component_name
+                )
+                sample.latest = False
+                sample.save()
+                self._execute_transaction(tid)
+
+        tid = self._make_transaction(LDFTransactionType.END)
+        self._execute_transaction(tid)
 
     def create_version(self, note):
 

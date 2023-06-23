@@ -42,6 +42,8 @@ class LuxonisLoader(torch.utils.data.Dataset):
         if not self.stream and self.dataset.bucket_type != 'local':
             self.dataset.sync_from_cloud()
 
+        self.fo_dataset.group_slice = self.dataset.source.main_component
+
     def __len__(self):
         return len(self.ids)
 

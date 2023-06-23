@@ -41,13 +41,13 @@ class LuxonisDatasetTester(unittest.TestCase):
 
         self.conn = foo.get_db_conn()
         # if dataset already exists, delete it
-        # could be problematic if .delete() breaks
+        # could be problematic if .delete_dataset() breaks
         res = list(self.conn.luxonis_dataset_document.find(
             { "$and": [{"team_name": self.team}, {"dataset_name": self.name}] }
         ))
         if len(res):
             with LuxonisDataset(self.team, self.name) as dataset:
-                dataset.delete()
+                dataset.delete_dataset()
 
         # get COCO data for testing
         img_dir = '../data/person_val2017_subset'
@@ -223,7 +223,7 @@ class LuxonisDatasetTester(unittest.TestCase):
         res2 = list(curr)[0]
         self.assertEqual(res2['component_itypes'], [1,1], "Wrong IType after changing source")
 
-    def test_delete(self):
+    def test_delete_dataset(self):
 
         curr = self.conn.luxonis_dataset_document.find(
             { "$and": [{"team_name": self.team}, {"dataset_name": self.name}] }
@@ -232,7 +232,7 @@ class LuxonisDatasetTester(unittest.TestCase):
         old_id = res["_id"]
 
         with LuxonisDataset(self.team, self.name) as dataset:
-            dataset.delete()
+            dataset.delete_dataset()
 
         curr = self.conn.luxonis_dataset_document.find(
             { "$and": [{"team_name": self.team}, {"dataset_name": self.name}] }
@@ -512,11 +512,69 @@ class LuxonisDatasetTester(unittest.TestCase):
             self.assertEqual(len(set1_unique), 2, "One deprecated sample")
             self.assertEqual(len(set2_unique), 2, "One added sample")
 
+    def test_delete(self):
+        
+        with LuxonisDataset(self.team, self.name) as dataset:
+
+            sample = dataset.fo_dataset["/unittest/datasets/coco/A/000000000139.jpg"]
+            dataset.delete([sample.id])
+
+            res = dataset._check_transactions(for_versioning=True) # will show the latest 3 transactions
+            self.assertEqual(len(res), 3, "Wrong number of transactions for delete")
+            num_executed = np.sum([True if t['executed']==True else False for t in res])
+            num_adds = np.sum([True if t['action']=='ADD' else False for t in res])
+            num_updates = np.sum([True if t['action']=='UPDATE' else False for t in res])
+            num_deletes = np.sum([True if t['action']=='DELETE' else False for t in res])
+            num_ends = np.sum([True if t['action']=='END' else False for t in res])
+            self.assertEqual(num_executed, 3, "Wrong number of executed transactions")
+            self.assertEqual(num_adds, 0, "Wrong number of ADD transactions")
+            self.assertEqual(num_updates, 0, "Wrong number of UPDATE transactions")
+            self.assertEqual(num_deletes, 2, "Wrong number of DELETE transactions")
+            self.assertEqual(num_ends, 1, "Wrong number of END transactions")
+
+            dres = [t for t in res if t['action']=='DELETE']
+            for t in dres:
+                sample = dataset.fo_dataset[t['sample_id']]
+                self.assertEqual(sample.latest, False, "Delete latest!=False")
+
+    def test_version_3(self):
+            
+        with LuxonisDataset(self.team, self.name) as dataset:
+
+            dataset.create_version(note="deleted some samples")
+            self.assertEqual(dataset.version, 2.1, "Wrong data version incr")
+
+            num_latest, num_version = 0, 0
+            dataset.fo_dataset.group_slice = 'A'
+            for sample in dataset.fo_dataset:
+                if sample.latest:
+                    num_latest += 1
+                if sample.version == 2.1:
+                    num_version += 1
+            self.assertEqual(num_latest, 14, "Not all versioned samples are latest for A")
+            self.assertEqual(num_version, 0, "Not all versioned samples have the right version for A")
+
+            num_latest, num_version = 0, 0
+            dataset.fo_dataset.group_slice = 'B'
+            for sample in dataset.fo_dataset:
+                if sample.latest:
+                    num_latest += 1
+                if sample.version == 2.1:
+                    num_version += 1
+            self.assertEqual(num_latest, 14, "Not all versioned samples are latest for B")
+            self.assertEqual(num_version, 0, "Not all versioned samples have the right version for B")
+
+            curr = self.conn.version_document.find(
+                { "dataset_id_str": dataset.dataset_doc.dataset_id }
+            )
+            res = list(curr)
+            self.assertEqual(len(res), 3, "Number of saved versions")
+
     @classmethod
     def tearDownClass(self):
 
         with LuxonisDataset(self.team, self.name) as dataset:
-            dataset.delete()
+            dataset.delete_dataset()
 
 
 if __name__ == "__main__":
@@ -525,11 +583,13 @@ if __name__ == "__main__":
     suite.addTest(LuxonisDatasetTester('test_local_init'))
     suite.addTest(LuxonisDatasetTester('test_aws_init'))
     suite.addTest(LuxonisDatasetTester('test_source'))
-    suite.addTest(LuxonisDatasetTester('test_delete'))
+    suite.addTest(LuxonisDatasetTester('test_delete_dataset'))
     suite.addTest(LuxonisDatasetTester('test_transactions'))
     suite.addTest(LuxonisDatasetTester('test_add'))
     suite.addTest(LuxonisDatasetTester('test_version_1'))
     suite.addTest(LuxonisDatasetTester('test_modify'))
     suite.addTest(LuxonisDatasetTester('test_version_2'))
+    suite.addTest(LuxonisDatasetTester('test_delete'))
+    suite.addTest(LuxonisDatasetTester('test_version_3'))
     runner = unittest.TextTestRunner()
     runner.run(suite)
