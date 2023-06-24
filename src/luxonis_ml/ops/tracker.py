@@ -241,14 +241,14 @@ class LuxonisTrackerPL(plLogger):
                 #config=self.config # TODO: this also?
             )
 
-        if self.is_mlflow:
+        if self.is_mlflow:        
             import mlflow
             self._experiment["mlflow"] = mlflow
 
             self.artifacts_dir = f"{self.save_directory}/{self.run_name}/artifacts"
             Path(self.artifacts_dir).mkdir(parents=True, exist_ok=True)
 
-            self._experiment["mlflow"].set_tracking_uri("https://ml-track.luxonis.com")
+            self._experiment["mlflow"].set_tracking_uri(self.mlflow_tracking_uri)
             self._experiment["mlflow"].set_experiment(self.project_name)
             self._experiment["mlflow"].start_run(
                 run_name=self.run_name, nested=self.is_sweep
@@ -346,10 +346,8 @@ class LuxonisTrackerPL(plLogger):
             self._experiment["wandb"].log({caption: wandb_image})
 
         if self.is_mlflow:
-            ## TODO: has yet to be tested!
-            name = "name_of_choice"
-            self.mlflow.log_image(
-                img, f"{name}_{step}.png"
+            self._experiment["mlflow"].log_image(
+                img, f"{caption}_{step}.png"
             )
 
     @rank_zero_only
