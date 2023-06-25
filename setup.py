@@ -1,6 +1,6 @@
 import io
 
-from setuptools import setup
+from setuptools import setup, find_packages
 
 with open('requirements.txt') as f:
     required = f.readlines()
@@ -16,9 +16,8 @@ setup(
     author='Luxonis',
     author_email='support@luxonis.com',
     license='MIT',
-    packages=['luxonis_ml'], # https://docs.python.org/3/distutils/setupscript.html point 2.1
+    packages=find_packages(where="src"),
     package_dir={"": "src"},  # https://stackoverflow.com/a/67238346/5494277
-    package_data={"luxonis_ml": ["ops/*.py"]},
     install_requires=required,
     include_package_data=True,
     classifiers=[
