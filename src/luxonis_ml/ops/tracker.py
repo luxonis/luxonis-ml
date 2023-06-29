@@ -21,8 +21,9 @@ class LuxonisTracker:
     """
 
     def __init__(self,
-                 project_name,
+                 project_id,
                  run_name=None,
+                 run_id=None,
                  hyperparameter_config=None,
                  save_directory='runs',
                  is_tensorboard=False,
@@ -32,12 +33,14 @@ class LuxonisTracker:
                  wandb_entity=None,
                  mlflow_tracking_uri=None):
 
-        self.project_name = project_name
+        self.project_id = project_id
         self.save_directory = save_directory
         self.is_tensorboard = is_tensorboard
         self.is_wandb = is_wandb
         self.is_mlflow = is_mlflow
         self.config = hyperparameter_config
+
+        self.run_id = run_id # if using MLFlow then it will continue previous run
 
         if self.is_wandb and wandb_entity is None:
             raise Exception("Must specify wandb_entity when using wandb!")
@@ -77,7 +80,7 @@ class LuxonisTracker:
             Path(log_dir).mkdir(parents=True, exist_ok=True)
 
             self.wandb.init(
-                project=project_name,
+                project=project_id,
                 entity=self.wandb_entity,
                 dir=log_dir,
                 name=self.run_name,
@@ -92,9 +95,12 @@ class LuxonisTracker:
             Path(self.artifacts_dir).mkdir(parents=True, exist_ok=True)
 
             self.mlflow.set_tracking_uri(self.mlflow_tracking_uri)
-            self.mlflow.set_experiment(self.project_name)
+            self.mlflow.set_experiment(self.project_id)
+            # if self.run_id == None then create new run, else use alredy created one
             self.mlflow.start_run(
-                run_name=self.run_name, nested=is_sweep
+                run_id=self.run_id, 
+                run_name=self.run_name,
+                nested=self.is_sweep
             )
             self.mlflow.log_params(self.config)
 
@@ -151,8 +157,9 @@ class LuxonisTracker:
 
 class LuxonisTrackerPL(plLogger):
     def __init__(self,
-                 project_name,
+                 project_id,
                  run_name=None,
+                 run_id=None,
                  save_directory='runs',
                  is_tensorboard=False,
                  is_wandb=False,
@@ -164,13 +171,15 @@ class LuxonisTrackerPL(plLogger):
         
         plLogger.__init__(self)
 
-        self.project_name = project_name
+        self.project_id = project_id
         self.save_directory = save_directory
         self.is_tensorboard = is_tensorboard
         self.is_wandb = is_wandb
         self.is_mlflow = is_mlflow
         self.is_sweep = is_sweep
-        self.rank = rank
+        self.rank = rank        
+
+        self.run_id = run_id # if using MLFlow then it will continue previous run
 
         if self.is_wandb and wandb_entity is None:
             raise Exception("Must specify wandb_entity when using wandb!")
@@ -234,7 +243,7 @@ class LuxonisTrackerPL(plLogger):
             Path(log_dir).mkdir(parents=True, exist_ok=True)
 
             self._experiment["wandb"].init(
-                project=self.project_name,
+                project=self.project_id,
                 entity=self.wandb_entity,
                 dir=log_dir,
                 name=self.run_name,
@@ -249,9 +258,12 @@ class LuxonisTrackerPL(plLogger):
             Path(self.artifacts_dir).mkdir(parents=True, exist_ok=True)
 
             self._experiment["mlflow"].set_tracking_uri(self.mlflow_tracking_uri)
-            self._experiment["mlflow"].set_experiment(self.project_name)
+            self._experiment["mlflow"].set_experiment(self.project_id)
+            # if self.run_id == None then create new run, else use alredy created one
             self._experiment["mlflow"].start_run(
-                run_name=self.run_name, nested=self.is_sweep
+                run_id=self.run_id, 
+                run_name=self.run_name,
+                nested=self.is_sweep
             )
         
         return self._experiment
