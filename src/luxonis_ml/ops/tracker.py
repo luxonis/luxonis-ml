@@ -21,7 +21,8 @@ class LuxonisTracker:
     """
 
     def __init__(self,
-                 project_id,
+                 project_name=None,
+                 project_id=None,
                  run_name=None,
                  run_id=None,
                  hyperparameter_config=None,
@@ -33,6 +34,7 @@ class LuxonisTracker:
                  wandb_entity=None,
                  mlflow_tracking_uri=None):
 
+        self.project_name = project_name
         self.project_id = project_id
         self.save_directory = save_directory
         self.is_tensorboard = is_tensorboard
@@ -41,6 +43,10 @@ class LuxonisTracker:
         self.config = hyperparameter_config
 
         self.run_id = run_id # if using MLFlow then it will continue previous run
+
+        if is_wandb or is_mlflow:
+            if self.project_name is None and self.project_id is None:
+                raise Exception("Either project_name or project_id must be specified!")
 
         if self.is_wandb and wandb_entity is None:
             raise Exception("Must specify wandb_entity when using wandb!")
@@ -80,7 +86,7 @@ class LuxonisTracker:
             Path(log_dir).mkdir(parents=True, exist_ok=True)
 
             self.wandb.init(
-                project=project_id,
+                project=self.project_name if self.project_name != None else self.project_id,
                 entity=self.wandb_entity,
                 dir=log_dir,
                 name=self.run_name,
@@ -95,7 +101,13 @@ class LuxonisTracker:
             Path(self.artifacts_dir).mkdir(parents=True, exist_ok=True)
 
             self.mlflow.set_tracking_uri(self.mlflow_tracking_uri)
-            self.mlflow.set_experiment(self.project_id)
+
+            if self.project_id is not None:
+                self.project_name = None
+            self.mlflow.set_experiment(
+                experiment_name=self.project_name, 
+                experiment_id=self.project_id)
+
             # if self.run_id == None then create new run, else use alredy created one
             self.mlflow.start_run(
                 run_id=self.run_id, 
@@ -157,7 +169,8 @@ class LuxonisTracker:
 
 class LuxonisTrackerPL(plLogger):
     def __init__(self,
-                 project_id,
+                 project_name=None,
+                 project_id=None,
                  run_name=None,
                  run_id=None,
                  save_directory='runs',
@@ -171,6 +184,7 @@ class LuxonisTrackerPL(plLogger):
         
         plLogger.__init__(self)
 
+        self.project_name = project_name
         self.project_id = project_id
         self.save_directory = save_directory
         self.is_tensorboard = is_tensorboard
@@ -180,6 +194,10 @@ class LuxonisTrackerPL(plLogger):
         self.rank = rank        
 
         self.run_id = run_id # if using MLFlow then it will continue previous run
+
+        if is_wandb or is_mlflow:
+            if self.project_name is None and self.project_id is None:
+                raise Exception("Either project_name or project_id must be specified!")
 
         if self.is_wandb and wandb_entity is None:
             raise Exception("Must specify wandb_entity when using wandb!")
@@ -243,7 +261,7 @@ class LuxonisTrackerPL(plLogger):
             Path(log_dir).mkdir(parents=True, exist_ok=True)
 
             self._experiment["wandb"].init(
-                project=self.project_id,
+                project=self.project_name if self.project_name != None else self.project_id,
                 entity=self.wandb_entity,
                 dir=log_dir,
                 name=self.run_name,
@@ -258,7 +276,13 @@ class LuxonisTrackerPL(plLogger):
             Path(self.artifacts_dir).mkdir(parents=True, exist_ok=True)
 
             self._experiment["mlflow"].set_tracking_uri(self.mlflow_tracking_uri)
-            self._experiment["mlflow"].set_experiment(self.project_id)
+            
+            if self.project_id is not None:
+                self.project_name = None
+            self._experiment["mlflow"].set_experiment(
+                experiment_name=self.project_name, 
+                experiment_id=self.project_id)
+            
             # if self.run_id == None then create new run, else use alredy created one
             self._experiment["mlflow"].start_run(
                 run_id=self.run_id, 
