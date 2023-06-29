@@ -4,3 +4,4 @@ from .dataset import LuxonisDataset, LDFComponent, IType, HType, LDFTransactionT
 from .loader import LuxonisLoader
 from .version import LuxonisVersion
 from .parsers import LuxonisParser, DatasetType
+from .labelstudio import LabelStudioConnector

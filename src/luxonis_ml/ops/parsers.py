@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import json, yaml
 import os
 import numpy as np

@@ -2,8 +2,7 @@
 
 from luxonis_ml.ops import *
 import argparse
-import sys, os
-import warnings
+import os
 import json
 from pathlib import Path
 
@@ -13,6 +12,8 @@ def _config():
     AWS_SECRET_ACCESS_KEY = input("AWS Secret Access Key: ")
     AWS_S3_ENDPOINT_URL = input("AWS Endpoint URL: ")
     MONGO_URI = input("MongoDB URI: ")
+    LABELSTUDIO_URL = input("label-studio URL: ")
+    LABELSTUDIO_KEY = input("label-studio API Key: ")
 
     cache_dir = f'{str(Path.home())}/.cache/luxonis_ml'
     if not os.path.exists(cache_dir):
@@ -24,7 +25,9 @@ def _config():
         "AWS_ACCESS_KEY_ID": AWS_ACCESS_KEY_ID,
         "AWS_SECRET_ACCESS_KEY": AWS_SECRET_ACCESS_KEY,
         "AWS_S3_ENDPOINT_URL": AWS_S3_ENDPOINT_URL,
-        "MONGO_URI": MONGO_URI
+        "MONGO_URI": MONGO_URI,
+        "LABELSTUDIO_URL": LABELSTUDIO_URL,
+        "LABELSTUDIO_KEY": LABELSTUDIO_KEY
     }
 
     with open(cache_file, 'w') as file:

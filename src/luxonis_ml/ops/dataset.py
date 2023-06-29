@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import fiftyone as fo
 import fiftyone.core.odm as foo
 import luxonis_ml.fiftyone_plugins as fop
@@ -687,13 +685,13 @@ class LuxonisDataset:
                 sample[source.name] = group.element(component_name)
 
                 for ann in component.keys():
-                    if ann == 'class':
+                    if ann == 'class' and component['class'] is not None:
                         sample['class'] = data_utils.construct_class_label(self, component['class'])
-                    elif ann == 'boxes':
+                    elif ann == 'boxes' and component['boxes'] is not None:
                         sample['boxes'] = data_utils.construct_boxes_label(self, component['boxes'])
-                    elif ann == 'segmentation':
+                    elif ann == 'segmentation' and component['segmentation'] is not None:
                         sample['segmentation'] = data_utils.construct_segmentation_label(self, component['segmentation'])
-                    elif ann == 'keypoints':
+                    elif ann == 'keypoints' and component['keypoints'] is not None:
                         sample['keypoints'] = data_utils.construct_keypoints_label(self, component['keypoints'])
                     elif ann.startswith('_'):
                         continue # ignore temporary attributes
@@ -766,6 +764,7 @@ class LuxonisDataset:
     def add(
         self,
         additions,
+        media_exists=False,
         from_bucket=False,
     ):
         """
@@ -797,7 +796,8 @@ class LuxonisDataset:
         else:
             transaction_to_additions, media_change, field_change = filter_result
 
-        additions = self._add_extract(additions, from_bucket)
+        if not media_exists:
+            additions = self._add_extract(additions, from_bucket)
 
         self._add_execute(additions, transaction_to_additions)
 
