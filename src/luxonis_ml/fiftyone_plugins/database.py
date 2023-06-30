@@ -15,12 +15,12 @@ from fiftyone.core.odm.dataset import DatasetDocument
 class LuxonisDatasetDocument(Document):
     """Backing document for LuxonisDataset."""
 
-    dataset_id = ObjectIdField(db_field="_dataset_id", required=True)
-    dataset_id_str = StringField(required=True)
-    team_name = StringField(required=True)
-    dataset_name = StringField(required=True)
-    path = StringField(required=True)
-    bucket_type = StringField(required=True)
+    team_id = StringField(required=True)
+    team_name = StringField()
+    dataset_name = StringField()
+    fo_dataset_id = ObjectIdField(db_field="_dataset_id")
+    path = StringField()
+    bucket_type = StringField()
     current_version = FloatField()
 
 class LuxonisSourceDocument(Document):

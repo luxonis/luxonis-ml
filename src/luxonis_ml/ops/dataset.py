@@ -18,6 +18,7 @@ from enum import Enum
 import numpy as np
 from datetime import datetime
 import pymongo
+from bson.objectid import ObjectId
 from .version import LuxonisVersion
 
 class HType(Enum):
@@ -81,7 +82,31 @@ class LuxonisDataset:
     The goal is to standardize an arbitrary number of devices and sensor configurations, synthetic OAKs, and other sources
     """
 
-    def __init__(self, team_name, dataset_name, bucket_type='local', override_bucket_type=False):
+    @staticmethod
+    def create(
+        team_id,
+        team_name,
+        dataset_name,
+    ):
+        
+        dataset_doc = fop.LuxonisDatasetDocument(
+            team_id=team_id,
+            team_name=team_name,
+            dataset_name=dataset_name
+        )
+        dataset_doc = dataset_doc.save(upsert=True)
+        
+        return str(dataset_doc.id)
+
+    def __init__(
+        self, 
+        team_id, 
+        dataset_id, 
+        team_name=None,
+        dataset_name=None,
+        bucket_type='local', 
+        override_bucket_type=False
+    ):
         """
         team name: team under which you can find all datasets
         dataset name: name of the dataset
@@ -91,9 +116,11 @@ class LuxonisDataset:
 
         self.conn = foo.get_db_conn()
 
-        self.team = team_name
-        self.name = dataset_name
-        self.full_name = f"{self.team}-{self.name}"
+        self.team_id = team_id
+        self.dataset_id = dataset_id
+        self.team_name = team_name
+        self.dataset_name = dataset_name
+        self.full_name = f"{self.team_id}-{self.dataset_id}"
         self.bucket_type = bucket_type
         self.bucket_choices = ['local', 'aws']
         self.override_bucket_type = override_bucket_type
@@ -118,17 +145,18 @@ class LuxonisDataset:
             self.fo_dataset = fo.load_dataset(self.full_name)
         else:
             self.fo_dataset = fo.Dataset(self.full_name)
+            self.conn.luxonis_dataset_document.update_one
         self.fo_dataset.persistent = True
 
         res = list(self.conn.luxonis_dataset_document.find(
-            { "$and": [{"team_name": self.team}, {"dataset_name": self.name}] }
+            { "$and": [{"team_id": self.team_id}, {"_id": ObjectId(self.dataset_id)}] }
         ))
 
-        if len(res): # already exists
+        if len(res):
             assert len(res) == 1
             self.dataset_doc = fop.LuxonisDatasetDocument.objects.get(
-                team_name=self.team,
-                dataset_name=self.name
+                team_id=self.team_id,
+                id=ObjectId(self.dataset_id)
             )
 
             tmp_bucket_type = self.bucket_type
@@ -140,34 +168,24 @@ class LuxonisDataset:
 
             self._init_path()
 
-        else: # create new
-            dataset_id = self.fo_dataset._doc.id
-            dataset_id_str = dataset_id.binary.hex()
-            self.dataset_doc = fop.LuxonisDatasetDocument(
-                dataset_id=dataset_id,
-                dataset_id_str=dataset_id_str,
-                team_name=self.team,
-                dataset_name=self.name,
-                path=self.path,
-                bucket_type='aws',
-                current_version=self.version,
-            )
-
-            self._init_path()
-            self.source = None # assuming a single dataset can only have one source
+        else:
+            raise Exception("Dataset not found!")
 
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
 
         self._class_to_doc()
-        self.dataset_doc.save(safe=True, upsert=True)
+        self.dataset_doc.save(upsert=True)
 
     def _doc_to_class(self):
 
-        self.path = self.dataset_doc.path
-        self.bucket_type = self.dataset_doc.bucket_type
-        self.version = self.dataset_doc.current_version
+        if hasattr(self.dataset_doc, 'path') and self.dataset_doc.path is not None:
+            self.path = self.dataset_doc.path
+        if hasattr(self.dataset_doc, 'bucket_type') and self.dataset_doc.bucket_type is not None:
+            self.bucket_type = self.dataset_doc.bucket_type
+        if hasattr(self.dataset_doc, 'current_version') and self.dataset_doc.current_version is not None:
+            self.version = self.dataset_doc.current_version
 
         doc = list(self._get_source())
         if len(doc):
@@ -188,6 +206,7 @@ class LuxonisDataset:
 
     def _class_to_doc(self):
 
+        self.dataset_doc.fo_dataset_id = self.fo_dataset._doc.id
         self.dataset_doc.path = self.path
         self.dataset_doc.bucket_type = self.bucket_type
         self.dataset_doc.current_version = self.version
@@ -215,10 +234,10 @@ class LuxonisDataset:
 
     def _init_path(self):
         if self.bucket_type == 'local':
-            self.path = f"{str(Path.home())}/.cache/luxonis_ml/data/{self.team}/datasets/{self.name}"
+            self.path = f"{str(Path.home())}/.cache/luxonis_ml/data/{self.team_id}/datasets/{self.dataset_id}"
             os.makedirs(self.path, exist_ok=True)
         elif self.bucket_type == 'aws':
-            self.path = f"s3://{self._get_credentials('AWS_BUCKET')}/{self.team}/datasets/{self.name}"
+            self.path = f"s3://{self._get_credentials('AWS_BUCKET')}/{self.team_id}/datasets/{self.dataset_id}"
             self._init_boto3_client()
 
     def _create_directory(self, path, clear_contents=False):
@@ -340,14 +359,14 @@ class LuxonisDataset:
 
     def sync_from_cloud(self):
 
-        self.non_streaming_dir = f"{str(Path.home())}/.cache/luxonis_ml/data/{self.team}/datasets/{self.name}"
+        self.non_streaming_dir = f"{str(Path.home())}/.cache/luxonis_ml/data/{self.team_id}/datasets/{self.dataset_id}"
         os.makedirs(self.non_streaming_dir, exist_ok=True)
 
         if self.bucket_type == 'local':
             print("This is a local dataset! Cannot sync")
         elif self.bucket_type == 'aws':
             print("Syncing from cloud...")
-            cmd = f"aws s3 sync s3://{self.bucket}/{self.team}/datasets/{self.name} \
+            cmd = f"aws s3 sync s3://{self.bucket}/{self.team_id}/datasets/{self.dataset_id} \
                     {self.non_streaming_dir} \
                     --endpoint-url={self._get_credentials('AWS_S3_ENDPOINT_URL')}"
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
@@ -393,7 +412,7 @@ class LuxonisDataset:
         """
 
         res = list(self.conn.luxonis_dataset_document.find(
-            { "$and": [{"team_name": self.team}, {"dataset_name": self.name}] }
+            { "$and": [{"team_id": self.team_id}, {"_id": ObjectId(self.dataset_id)}] }
         ))
         if len(res):
             ldf_doc = res[0]
@@ -408,7 +427,7 @@ class LuxonisDataset:
                 { "_dataset_id": ldf_doc["_id"] }
             )
             self.conn.luxonis_dataset_document.delete_many(
-                { "$and": [{"team_name": self.team}, {"dataset_name": self.name}] }
+                { "$and": [{"team_id": self.team_id}, {"_id": ObjectId(self.dataset_id)}] }
             )
         fo.delete_dataset(self.full_name)
 
@@ -514,7 +533,7 @@ class LuxonisDataset:
                 filepath = addition[component_name]['filepath']
                 additions[i][component_name]['_old_filepath'] = filepath
                 granule = data_utils.get_granule(filepath, addition, component_name)
-                new_filepath = f"/{self.team}/datasets/{self.name}/{component_name}/{granule}"
+                new_filepath = f"/{self.team_id}/datasets/{self.dataset_id}/{component_name}/{granule}"
                 additions[i][component_name]['filepath'] = new_filepath
 
             group = fo.Group(name=source.name)
@@ -523,7 +542,7 @@ class LuxonisDataset:
             for component_name in addition.keys():
                 filepath = addition[component_name]['filepath']
                 granule = data_utils.get_granule(filepath, addition, component_name)
-                new_filepath = f"/{self.team}/datasets/{self.name}/{component_name}/{granule}"
+                new_filepath = f"/{self.team_id}/datasets/{self.dataset_id}/{component_name}/{granule}"
                 candidate = f"{component_name}/{granule}"
                 if candidate not in filepaths[component_name]:
                     # ADD case
@@ -585,7 +604,7 @@ class LuxonisDataset:
 
         components = self.source.components
         if self.bucket_type == 'local':
-            local_cache = f'{str(Path.home())}/.cache/luxonis_ml/data/{self.team}/datasets/{self.name}'
+            local_cache = f'{str(Path.home())}/.cache/luxonis_ml/data/{self.team_id}/datasets/{self.dataset_id}'
         elif self.bucket_type == 'aws':
             local_cache = f'{str(Path.home())}/.cache/luxonis_ml/tmp'
         os.makedirs(local_cache, exist_ok=True)
@@ -604,7 +623,7 @@ class LuxonisDataset:
 
                 filepath = component['_old_filepath']
                 granule = data_utils.get_granule(filepath, addition, component_name)
-                # new_filepath = f"/{self.team}/datasets/{self.name}/{component_name}/{granule}"
+                # new_filepath = f"/{self.team_id}/datasets/{self.dataset_id}/{component_name}/{granule}"
                 # additions[i][component_name]['filepath'] = new_filepath
 
                 if from_bucket:
@@ -630,7 +649,7 @@ class LuxonisDataset:
                     heatmap = (im/96*255).astype(np.uint8)
                     heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
                     cv2.imwrite(f'{local_cache}/{heatmap_component}/{granule}', heatmap)
-                    new_filepath = f"/{self.team}/datasets/{self.name}/{heatmap_component}/{granule}"
+                    new_filepath = f"/{self.team_id}/datasets/{self.dataset_id}/{heatmap_component}/{granule}"
                     add_heatmaps[heatmap_component] = new_filepath
 
             if self.compute_heatmaps and not from_bucket:
@@ -641,7 +660,7 @@ class LuxonisDataset:
         if self.bucket_type == 'aws' and not from_bucket:
             print("Syncing to S3 bucket...")
             cmd = f"aws s3 sync {local_cache} \
-                    s3://{self.bucket}/{self.team}/datasets/{self.name} \
+                    s3://{self.bucket}/{self.team_id}/datasets/{self.dataset_id} \
                     --endpoint-url={self._get_credentials('AWS_S3_ENDPOINT_URL')}"
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
             while True:

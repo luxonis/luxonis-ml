@@ -8,6 +8,7 @@ import fiftyone.core.odm as foo
 from luxonis_ml.ops import *
 from copy import deepcopy
 from fiftyone import ViewField as F
+from bson.objectid import ObjectId
 
 unittest.TestLoader.sortTestMethodsUsing = None
 
@@ -21,8 +22,9 @@ class LuxonisDatasetTester(unittest.TestCase):
 
     @classmethod
     def setUpClass(self):
-        self.team = "unittest"
-        self.name = "coco"
+        self.team_id = "d7625eef-ad99-4019-af95-ffa5ebd48e3c"
+        self.team_name = "unittest"
+        self.dataset_name = "coco"
 
         self.coco_images_path = "../data/person_val2017_subset"
         self.coco_annotation_path = "../data/person_keypoints_val2017.json"
@@ -40,14 +42,14 @@ class LuxonisDatasetTester(unittest.TestCase):
         subprocess.check_output(cmd, shell=True)
 
         self.conn = foo.get_db_conn()
-        # if dataset already exists, delete it
-        # could be problematic if .delete_dataset() breaks
-        res = list(self.conn.luxonis_dataset_document.find(
-            { "$and": [{"team_name": self.team}, {"dataset_name": self.name}] }
-        ))
-        if len(res):
-            with LuxonisDataset(self.team, self.name) as dataset:
-                dataset.delete_dataset()
+        # # if dataset already exists, delete it
+        # # could be problematic if .delete_dataset() breaks
+        # res = list(self.conn.luxonis_dataset_document.find(
+        #     { "$and": [{"team_id": self.team_id}, {"_id": ObjectId(self.dataset_id)}] }
+        # ))
+        # if len(res):
+        #     with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
+        #         dataset.delete_dataset()
 
         # get COCO data for testing
         img_dir = '../data/person_val2017_subset'
@@ -126,26 +128,36 @@ class LuxonisDatasetTester(unittest.TestCase):
                     'B': B_dict
                 })
 
+        self.dataset_id = LuxonisDataset.create(
+            self.team_id,
+            self.team_name,
+            self.dataset_name
+        )
+
+        print('Testing', self.dataset_id)
+
     def test_local_init(self):
 
-        with LuxonisDataset(self.team, self.name) as dataset:
+        with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
             pass
 
         curr = self.conn.luxonis_dataset_document.find(
-            { "$and": [{"team_name": self.team}, {"dataset_name": self.name}] }
+            { "$and": [{"team_id": self.team_id}, {"_id": ObjectId(self.dataset_id)}] }
         )
         res = list(curr)
         self.assertGreater(len(res), 0, "Document not created")
         self.assertEqual(len(res), 1, "Multiple documents created")
         res = res[0]
+        self.assertEqual(res['team_id'], self.team_id, "Wrong team ID")
+        self.assertEqual(res['_id'], ObjectId(self.dataset_id), "Wrong dataset ID")
         self.assertEqual(res['team_name'], 'unittest', "Wrong team name")
         self.assertEqual(res['dataset_name'], 'coco', "Wrong dataset name")
         self.assertEqual(res['current_version'], 0., "Version initialize failure")
-        self.assertEqual(res['path'], f'{Path.home()}/.cache/luxonis_ml/data/unittest/datasets/coco', "Dataset path failure")
+        self.assertEqual(res['path'], f'{Path.home()}/.cache/luxonis_ml/data/{self.team_id}/datasets/{self.dataset_id}', "Dataset path failure")
         self.assertEqual(res['bucket_type'], 'local', "Default bucket type is not local")
 
         curr = self.conn.datasets.find(
-            { "name": f"{self.team}-{self.name}" }
+            { "name": f"{self.team_id}-{self.dataset_id}" }
         )
         res2 = list(curr)
         self.assertGreater(len(res2), 0, "Underlying fo dataset not found")
@@ -153,11 +165,11 @@ class LuxonisDatasetTester(unittest.TestCase):
         res2 = res2[0]
         self.assertEqual(res['_dataset_id'], res2['_id'], "Luxonis dataset does not reference fo dataset")
 
-        with LuxonisDataset(self.team, self.name, bucket_type='aws') as dataset:
+        with LuxonisDataset(self.team_id, self.dataset_id, bucket_type='aws') as dataset:
             dataset.version = 5
 
         curr = self.conn.luxonis_dataset_document.find(
-            { "$and": [{"team_name": self.team}, {"dataset_name": self.name}] }
+            { "$and": [{"team_id": self.team_id}, {"_id": ObjectId(self.dataset_id)}] }
         )
         res = list(curr)
         self.assertGreater(len(res), 0, "Document not created")
@@ -166,13 +178,16 @@ class LuxonisDatasetTester(unittest.TestCase):
         self.assertEqual(res['current_version'], 5., "Update version field fail")
         self.assertEqual(res['bucket_type'], 'local', "Default override_bucket_type arg fail")
 
+        with LuxonisDataset(self.team_id, self.dataset_id, bucket_type='aws') as dataset:
+            dataset.version = 0 # set back to 0
+
     def test_aws_init(self):
 
-        with LuxonisDataset(self.team, self.name, bucket_type='aws', override_bucket_type=True) as dataset:
+        with LuxonisDataset(self.team_id, self.dataset_id, bucket_type='aws', override_bucket_type=True) as dataset:
             pass
 
         curr = self.conn.luxonis_dataset_document.find(
-            { "$and": [{"team_name": self.team}, {"dataset_name": self.name}] }
+            { "$and": [{"team_id": self.team_id}, {"_id": ObjectId(self.dataset_id)}] }
         )
         res = list(curr)
         self.assertGreater(len(res), 0, "Document not created")
@@ -182,7 +197,7 @@ class LuxonisDatasetTester(unittest.TestCase):
 
     def test_source(self):
 
-        with LuxonisDataset(self.team, self.name) as dataset:
+        with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
             dataset.create_source(
                 'test_source',
                 custom_components = [
@@ -192,7 +207,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             )
 
         curr = self.conn.luxonis_dataset_document.find(
-            { "$and": [{"team_name": self.team}, {"dataset_name": self.name}] }
+            { "$and": [{"team_id": self.team_id}, {"_id": ObjectId(self.dataset_id)}] }
         )
         res = list(curr)[0]
         curr = self.conn.luxonis_source_document.find(
@@ -208,7 +223,7 @@ class LuxonisDatasetTester(unittest.TestCase):
         self.assertEqual(res2['component_htypes'], [1,1], "Wrong HType")
         self.assertEqual(res2['component_itypes'], [1,4], "Wrong IType")
 
-        with LuxonisDataset(self.team, self.name) as dataset:
+        with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
             dataset.create_source(
                 'test_source',
                 custom_components = [
@@ -223,44 +238,16 @@ class LuxonisDatasetTester(unittest.TestCase):
         res2 = list(curr)[0]
         self.assertEqual(res2['component_itypes'], [1,1], "Wrong IType after changing source")
 
-    def test_delete_dataset(self):
-
-        curr = self.conn.luxonis_dataset_document.find(
-            { "$and": [{"team_name": self.team}, {"dataset_name": self.name}] }
-        )
-        res = list(curr)[0]
-        old_id = res["_id"]
-
-        with LuxonisDataset(self.team, self.name) as dataset:
-            dataset.delete_dataset()
-
-        curr = self.conn.luxonis_dataset_document.find(
-            { "$and": [{"team_name": self.team}, {"dataset_name": self.name}] }
-        )
-        res = list(curr)
-        self.assertEqual(len(res), 0, "Document not deleted")
-
-        curr = self.conn.luxonis_source_document.find(
-            { "_luxonis_dataset_id": old_id }
-        )
-        res2 = list(curr)
-        self.assertEqual(len(res2), 0, "Source document not deleted")
-
-        # TODO: test dataset version documents are deleted
-        # TODO: test dataset transaction documents are deleted
-
     def test_transactions(self):
 
-        with LuxonisDataset(self.team, self.name) as dataset:
-            # pass # needed to initialize dataset ID for the first time
+        with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
+
             dataset.set_classes(['person', 'orange', 'pear']) # needed for classification and detection
             dataset.set_mask_targets({1:'person', 2:'orange', 3: 'pear'}) # needed for segmentation
             dataset.set_skeleton({
                 'labels': self.categories[0]['keypoints'],
                 'edges': (np.array(self.categories[0]['skeleton'])-1).tolist()
             }) # optional for keypoints to define the skeleton visualization
-
-        with LuxonisDataset(self.team, self.name) as dataset:
 
             result = dataset._check_transactions()
             self.assertEqual(result, None, "Empty transactions fail")
@@ -287,7 +274,7 @@ class LuxonisDatasetTester(unittest.TestCase):
 
     def test_add(self):
 
-        with LuxonisDataset(self.team, self.name) as dataset:
+        with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
 
             dataset.create_source(
                 'test_source',
@@ -330,7 +317,7 @@ class LuxonisDatasetTester(unittest.TestCase):
 
     def test_version_1(self):
 
-        with LuxonisDataset(self.team, self.name) as dataset:
+        with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
 
             dataset.create_version(note="test version 1")
             self.assertEqual(dataset.version, 1.0, "Wrong data version incr")
@@ -356,14 +343,14 @@ class LuxonisDatasetTester(unittest.TestCase):
             self.assertEqual(num_version, 15, "Not all versioned samples have the right version for B")
 
             curr = self.conn.version_document.find(
-                { "dataset_id_str": dataset.dataset_doc.dataset_id }
+                { "dataset_id_str": dataset.dataset_doc.fo_dataset_id }
             )
             res = list(curr)
             self.assertEqual(len(res), 1, "Number of saved versions")
 
     def test_modify(self):
 
-        with LuxonisDataset(self.team, self.name) as dataset:
+        with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
 
             transaction_to_additions = []
             a = deepcopy(self.additions[-1])
@@ -475,7 +462,7 @@ class LuxonisDatasetTester(unittest.TestCase):
 
     def test_version_2(self):
 
-        with LuxonisDataset(self.team, self.name) as dataset:
+        with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
 
             dataset.create_version(note="test version 2")
             self.assertEqual(dataset.version, 1.1, "Wrong data version incr")
@@ -501,7 +488,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             self.assertEqual(num_version, 1, "Not all versioned samples have the right version for B")
 
             curr = self.conn.version_document.find(
-                { "dataset_id_str": dataset.dataset_doc.dataset_id }
+                { "dataset_id_str": dataset.dataset_doc.fo_dataset_id }
             )
             res = list(curr)
             self.assertEqual(len(res), 2, "Number of saved versions")
@@ -514,9 +501,9 @@ class LuxonisDatasetTester(unittest.TestCase):
 
     def test_delete(self):
         
-        with LuxonisDataset(self.team, self.name) as dataset:
+        with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
 
-            sample = dataset.fo_dataset["/unittest/datasets/coco/A/000000000139.jpg"]
+            sample = dataset.fo_dataset[f"/{self.team_id}/datasets/{self.dataset_id}/A/000000000139.jpg"]
             dataset.delete([sample.id])
 
             res = dataset._check_transactions(for_versioning=True) # will show the latest 3 transactions
@@ -539,7 +526,7 @@ class LuxonisDatasetTester(unittest.TestCase):
 
     def test_version_3(self):
             
-        with LuxonisDataset(self.team, self.name) as dataset:
+        with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
 
             dataset.create_version(note="deleted some samples")
             self.assertEqual(dataset.version, 2.1, "Wrong data version incr")
@@ -565,16 +552,42 @@ class LuxonisDatasetTester(unittest.TestCase):
             self.assertEqual(num_version, 0, "Not all versioned samples have the right version for B")
 
             curr = self.conn.version_document.find(
-                { "dataset_id_str": dataset.dataset_doc.dataset_id }
+                { "dataset_id_str": dataset.dataset_doc.fo_dataset_id }
             )
             res = list(curr)
             self.assertEqual(len(res), 3, "Number of saved versions")
 
-    @classmethod
-    def tearDownClass(self):
+    def test_delete_dataset(self):
 
-        with LuxonisDataset(self.team, self.name) as dataset:
+        curr = self.conn.luxonis_dataset_document.find(
+            { "$and": [{"team_id": self.team_id}, {"_id": ObjectId(self.dataset_id)}] }
+        )
+        res = list(curr)[0]
+        old_id = res["_id"]
+
+        with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
             dataset.delete_dataset()
+
+        curr = self.conn.luxonis_dataset_document.find(
+            { "$and": [{"team_id": self.team_id}, {"_id": ObjectId(self.dataset_id)}] }
+        )
+        res = list(curr)
+        self.assertEqual(len(res), 0, "Document not deleted")
+
+        curr = self.conn.luxonis_source_document.find(
+            { "_luxonis_dataset_id": old_id }
+        )
+        res2 = list(curr)
+        self.assertEqual(len(res2), 0, "Source document not deleted")
+
+        # TODO: test dataset version documents are deleted
+        # TODO: test dataset transaction documents are deleted
+
+    # @classmethod
+    # def tearDownClass(self):
+
+    #     with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
+    #         dataset.delete_dataset()
 
 
 if __name__ == "__main__":
@@ -583,7 +596,6 @@ if __name__ == "__main__":
     suite.addTest(LuxonisDatasetTester('test_local_init'))
     suite.addTest(LuxonisDatasetTester('test_aws_init'))
     suite.addTest(LuxonisDatasetTester('test_source'))
-    suite.addTest(LuxonisDatasetTester('test_delete_dataset'))
     suite.addTest(LuxonisDatasetTester('test_transactions'))
     suite.addTest(LuxonisDatasetTester('test_add'))
     suite.addTest(LuxonisDatasetTester('test_version_1'))
@@ -591,5 +603,6 @@ if __name__ == "__main__":
     suite.addTest(LuxonisDatasetTester('test_version_2'))
     suite.addTest(LuxonisDatasetTester('test_delete'))
     suite.addTest(LuxonisDatasetTester('test_version_3'))
+    suite.addTest(LuxonisDatasetTester('test_delete_dataset'))
     runner = unittest.TextTestRunner()
     runner.run(suite)
