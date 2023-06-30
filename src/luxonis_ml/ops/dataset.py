@@ -627,11 +627,12 @@ class LuxonisDataset:
                 # additions[i][component_name]['filepath'] = new_filepath
 
                 if from_bucket:
+                    old_prefix = filepath.split(f"s3://{self.bucket}/")[-1]
                     new_prefix = f'{self.bucket_path}/{component_name}/{granule}'
                     self.client.copy_object(
                         Bucket=self.bucket,
                         Key=new_prefix,
-                        CopySource={'Bucket': self.bucket, 'Key': filepath}
+                        CopySource={'Bucket': self.bucket, 'Key': old_prefix}
                     )
                 else:
                     cmd = f"cp {filepath} {local_cache}/{component_name}/{granule}"
