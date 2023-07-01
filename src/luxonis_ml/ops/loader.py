@@ -31,7 +31,7 @@ class LuxonisLoader(torch.utils.data.Dataset):
         self.stream = stream
         self.classes, self.classes_by_task = self.dataset.get_classes()
         self.nc = len(self.classes)
-        self.ns = len(self.dataset.fo_dataset.mask_targets['segmentation'].keys())
+        self.ns = len(self.dataset.fo_dataset.mask_targets.get('segmentation', {}).keys())
         if 'keypoints' in self.dataset.fo_dataset.skeletons.keys():
             self.nk = len(self.dataset.fo_dataset.skeletons['keypoints']['labels'])
         else:
