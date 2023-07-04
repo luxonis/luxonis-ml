@@ -1,9 +1,7 @@
 from pathlib import Path
 import cv2
 import numpy as np
-import glob, os, subprocess
 import torch
-from .dataset import HType, IType
 from fiftyone import ViewField as F
 
 class LuxonisLoader(torch.utils.data.Dataset):

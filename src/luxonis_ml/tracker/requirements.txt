@@ -1,0 +1,2 @@
+unique-names-generator>=1.0.2
+pytorch-lightning>=2.0.0

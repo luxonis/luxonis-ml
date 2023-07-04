@@ -4,9 +4,6 @@ import os
 from pathlib import Path
 import glob
 from unique_names_generator import get_random_name
-from PIL import Image
-import cv2
-import numpy as np
 
 from pytorch_lightning.utilities import rank_zero_only
 from pytorch_lightning.loggers.logger import Logger as plLogger

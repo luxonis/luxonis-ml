@@ -2,8 +2,10 @@ import io
 
 from setuptools import setup, find_packages
 
-with open('requirements.txt') as f:
-    required = f.readlines()
+base_requires = open('requirements.txt').readlines()
+loader_requires = open('src/luxonis_ml/loader/requirements.txt').readlines()
+tracker_requires = open('src/luxonis_ml/tracker/requirements.txt').readlines()
+all_requires = base_requires+loader_requires+tracker_requires
 
 setup(
     name='luxonis-ml',
@@ -18,7 +20,12 @@ setup(
     license='MIT',
     packages=find_packages(where="src"),
     package_dir={"": "src"},  # https://stackoverflow.com/a/67238346/5494277
-    install_requires=required,
+    install_requires=base_requires,
+    extras_require={
+        "loader": loader_requires,
+        "tracker": tracker_requires,
+        "all": all_requires
+    },
     include_package_data=True,
     classifiers=[
         'License :: MIT License',
