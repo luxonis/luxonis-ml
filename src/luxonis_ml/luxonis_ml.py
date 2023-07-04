@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from luxonis_ml.ops import *
+from luxonis_ml.data import *
 import argparse
 import os
 import json

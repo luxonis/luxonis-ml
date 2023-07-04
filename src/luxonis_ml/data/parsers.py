@@ -7,12 +7,12 @@ from pathlib import Path
 import warnings
 import random
 import shutil
-# from luxonis_ml.ops.dataset_type import DatasetType as dt
+# from luxonis_ml.data.dataset_type import DatasetType as dt
 from enum import Enum
 import threading
 from threading import Thread
 import xml.etree.ElementTree as ET
-from luxonis_ml.ops import *
+from luxonis_ml.data import *
 import csv
 
 class DatasetType(Enum):

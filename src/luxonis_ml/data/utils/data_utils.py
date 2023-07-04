@@ -1,6 +1,8 @@
 import numpy as np
 import hashlib
 import fiftyone as fo
+import os
+import subprocess
 
 def get_granule(filepath, addition, component_name):
     granule = filepath.split('/')[-1]

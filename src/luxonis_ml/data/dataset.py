@@ -1,7 +1,7 @@
 import fiftyone as fo
 import fiftyone.core.odm as foo
-import luxonis_ml.fiftyone_plugins as fop
-import luxonis_ml.ops.utils.data_utils as data_utils
+import luxonis_ml.data.fiftyone_plugins as fop
+import luxonis_ml.data.utils.data_utils as data_utils
 from fiftyone import ViewField as F
 import os, subprocess, shutil
 from pathlib import Path

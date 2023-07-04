@@ -5,7 +5,7 @@ import cv2
 from PIL import Image, ImageDraw
 from pathlib import Path
 import fiftyone.core.odm as foo
-from luxonis_ml.ops import *
+from luxonis_ml.data import *
 from copy import deepcopy
 from fiftyone import ViewField as F
 from bson.objectid import ObjectId

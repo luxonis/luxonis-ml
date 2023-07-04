@@ -1,6 +1,5 @@
 import fiftyone.core.odm as foo
-import luxonis_ml.fiftyone_plugins as fop
-from bson import ObjectId
+import luxonis_ml.data.fiftyone_plugins as fop
 from datetime import datetime
 
 class LuxonisVersion:
