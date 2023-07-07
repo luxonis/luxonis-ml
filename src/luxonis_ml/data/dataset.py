@@ -370,11 +370,15 @@ class LuxonisDataset:
                     {self.non_streaming_dir} \
                     --endpoint-url={self._get_credentials('AWS_S3_ENDPOINT_URL')}"
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+            
             while True:
                 output = process.stdout.readline()
-                if output == b'' and process.poll() is not None:
+                error = process.stderr.readline()
+                if error:
+                    raise RuntimeError(error.strip().decode())
+                elif output == b'' and process.poll() is not None:
                     break
-                if output:
+                elif output:
                     print(output.strip().decode())
 
     def get_classes(self):
@@ -664,11 +668,15 @@ class LuxonisDataset:
                     s3://{self.bucket}/{self.team_id}/datasets/{self.dataset_id} \
                     --endpoint-url={self._get_credentials('AWS_S3_ENDPOINT_URL')}"
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+            
             while True:
                 output = process.stdout.readline()
-                if output == b'' and process.poll() is not None:
+                error = process.stderr.readline()
+                if error:
+                    raise RuntimeError(error.strip().decode())
+                elif output == b'' and process.poll() is not None:
                     break
-                if output:
+                elif output:
                     print(output.strip().decode())
 
         if self.bucket_type != 'local':
