@@ -60,7 +60,7 @@ class Augmentations:
         bboxes_points[:,1::2] *= ih
         bboxes_points = check_bboxes(bboxes_points)
         bbox_classes = bboxes[:,0]
-
+        
         # albumentations expects "list" of keypoints e.g. [(x,y),(x,y),(x,y),(x,y)]
         keypoints = anno_dict.get("keypoints", torch.zeros((1,3+1)))
         keypoints_classes = keypoints[:,0]
@@ -150,7 +150,7 @@ def mark_invisible_keypoints(keypoints: torch.Tensor, image: np.array):
     return keypoints
 
 def check_bboxes(bboxes: torch.Tensor):
-    """ Check bbox annotations and correct those with widht or height 0 """
+    """ Check bbox annotations and correct those with width or height 0 """
     for i in range(bboxes.shape[0]):
         if bboxes[i, 2] == 0:
             bboxes[i, 2] = 1
