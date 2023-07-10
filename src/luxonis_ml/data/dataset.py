@@ -662,13 +662,17 @@ class LuxonisDataset:
                     additions[i][heatmap_component]['filepath'] = add_heatmaps[heatmap_component]
 
         if self.bucket_type == 'aws' and not from_bucket:
-            sync_to_s3(
-                bucket=self.bucket,
-                s3_dir=os.path.join(self.team_id, "datasets", self.dataset_id),
-                local_dir=local_cache,
-                endpoint_url=self._get_credentials('AWS_S3_ENDPOINT_URL')
-            )
-
+            print("Syncing to S3 bucket...")
+            cmd = f"aws s3 sync {local_cache} \
+                    s3://{self.bucket}/{self.team_id}/datasets/{self.dataset_id} \
+                    --endpoint-url={self._get_credentials('AWS_S3_ENDPOINT_URL')}"
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+            while True:
+                output = process.stdout.readline()
+                if output == b'' and process.poll() is not None:
+                    break
+                if output:
+                    print(output.strip().decode())
 
         if self.bucket_type != 'local':
             shutil.rmtree(local_cache)
