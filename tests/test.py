@@ -591,9 +591,8 @@ class LuxonisDatasetTester(unittest.TestCase):
 
     def test_delete(self):
         with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
-            sample = dataset.fo_dataset[
-                f"/{self.team_id}/datasets/{self.dataset_id}/A/000000000139.jpg"
-            ]
+            for sample in dataset.fo_dataset:
+                break
             dataset.delete([sample.id])
 
             res = dataset._check_transactions(
@@ -684,10 +683,10 @@ class LuxonisDatasetTester(unittest.TestCase):
         # TODO: test dataset version documents are deleted
         # TODO: test dataset transaction documents are deleted
 
-    @classmethod
-    def tearDownClass(self):
-        with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
-            dataset.delete_dataset()
+    # @classmethod
+    # def tearDownClass(self):
+    #     with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
+    #         dataset.delete_dataset()
 
 
 if __name__ == "__main__":
