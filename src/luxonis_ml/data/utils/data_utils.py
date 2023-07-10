@@ -249,3 +249,10 @@ def generate_hashname(filepath):
     file_hash_uuid = uuid.uuid5(uuid.NAMESPACE_URL, file_contents.hex())
 
     return str(file_hash_uuid) + os.path.splitext(filepath)[1]
+
+def is_modified_filepath(dataset, filepath):
+
+    if filepath.startswith(f"/{dataset.team_id}"):
+        return True
+    else:
+        return False

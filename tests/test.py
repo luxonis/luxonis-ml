@@ -42,14 +42,13 @@ class LuxonisDatasetTester(unittest.TestCase):
         subprocess.check_output(cmd, shell=True)
 
         self.conn = foo.get_db_conn()
-        # # if dataset already exists, delete it
-        # # could be problematic if .delete_dataset() breaks
-        # res = list(self.conn.luxonis_dataset_document.find(
-        #     { "$and": [{"team_id": self.team_id}, {"_id": ObjectId(self.dataset_id)}] }
-        # ))
-        # if len(res):
-        #     with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
-        #         dataset.delete_dataset()
+        # if dataset already exists, delete it
+        res = list(self.conn.luxonis_dataset_document.find(
+            { "$and": [{"team_id": self.team_id}, {"dataset_name": self.dataset_name}] }
+        ))
+        if len(res):
+            with LuxonisDataset(self.team_id, res[0]['_id']) as dataset:
+                dataset.delete_dataset()
 
         # get COCO data for testing
         img_dir = '../data/person_val2017_subset'
@@ -583,11 +582,11 @@ class LuxonisDatasetTester(unittest.TestCase):
         # TODO: test dataset version documents are deleted
         # TODO: test dataset transaction documents are deleted
 
-    # @classmethod
-    # def tearDownClass(self):
+    @classmethod
+    def tearDownClass(self):
 
-    #     with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
-    #         dataset.delete_dataset()
+        with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
+            dataset.delete_dataset()
 
 
 if __name__ == "__main__":

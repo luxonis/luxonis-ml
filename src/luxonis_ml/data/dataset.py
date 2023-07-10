@@ -20,7 +20,7 @@ from datetime import datetime
 import pymongo
 from bson.objectid import ObjectId
 from .version import LuxonisVersion
-from .utils.s3_utils import sync_from_s3, sync_to_s3
+from .utils.s3_utils import sync_from_s3, sync_to_s3, check_s3_file_existence
 
 class HType(Enum):
     """ Individual file type """
@@ -90,14 +90,24 @@ class LuxonisDataset:
         dataset_name,
     ):
         
-        dataset_doc = fop.LuxonisDatasetDocument(
-            team_id=team_id,
-            team_name=team_name,
-            dataset_name=dataset_name
-        )
-        dataset_doc = dataset_doc.save(upsert=True)
+        conn = foo.get_db_conn()
+        res = list(conn.luxonis_dataset_document.find(
+            { "$and": [{"team_id": team_id}, {"dataset_name": dataset_name}] }
+        ))
+        if len(res) >= 2:
+            raise Exception("More than 1 dataset exists under this name!")
         
-        return str(dataset_doc.id)
+        if len(res):
+            return str(res[0]['_id'])
+        else:
+            dataset_doc = fop.LuxonisDatasetDocument(
+                team_id=team_id,
+                team_name=team_name,
+                dataset_name=dataset_name
+            )
+            dataset_doc = dataset_doc.save(upsert=True)
+            
+            return str(dataset_doc.id)
 
     def __init__(
         self, 
@@ -499,7 +509,7 @@ class LuxonisDataset:
             self.version += 0.1
         self.version = round(self.version, 1)
 
-    def _add_filter(self, additions, media_exists = False):
+    def _add_filter(self, additions):
         """
         Filters out any additions to the dataset already existing
         """
@@ -527,8 +537,7 @@ class LuxonisDataset:
             for component_name in addition.keys():
                 filepath = addition[component_name]['filepath']
                 additions[i][component_name]['_old_filepath'] = filepath
-                # TODO: create new filename
-                if not media_exists:
+                if not data_utils.is_modified_filepath(self, filepath):
                     additions[i][component_name]['_new_image_name'] = data_utils.generate_hashname(filepath)
                 granule = data_utils.get_granule(filepath, addition, component_name)
                 new_filepath = f"/{self.team_id}/datasets/{self.dataset_id}/{component_name}/{granule}"
@@ -626,8 +635,26 @@ class LuxonisDataset:
 
                 filepath = component['_old_filepath']
                 granule = data_utils.get_granule(filepath, addition, component_name)
-                # new_filepath = f"/{self.team_id}/datasets/{self.dataset_id}/{component_name}/{granule}"
-                # additions[i][component_name]['filepath'] = new_filepath
+                local_path = f"{local_cache}/{component_name}/{granule}"
+
+                print(self.bucket_type)
+                if self.bucket_type == "local":
+                    if os.path.exists(local_path):
+                        continue
+                elif self.bucket_type == "aws":
+                    print('self.bucket', self.bucket)
+                    # s3_path = f"{self.team_id}/datasets/{self.dataset_id}{component['filepath']}"
+                    s3_path = component['filepath'][1:]
+                    # print('prefix', s3_path)
+                    # resp = self.client.list_objects_v2(Bucket=self.bucket, Prefix=s3_path, Delimiter='/', MaxKeys=1)
+                    # print(resp)
+                    # if 'Contents' in resp:
+                    #     print(1)
+                    #     continue
+                    # print(2)
+                    if check_s3_file_existence(self.client, self.bucket, s3_path):
+                        continue
+                    print('here')
 
                 if from_bucket:
                     old_prefix = filepath.split(f"s3://{self.bucket}/")[-1]
@@ -637,9 +664,11 @@ class LuxonisDataset:
                         Key=new_prefix,
                         CopySource={'Bucket': self.bucket, 'Key': old_prefix}
                     )
-                elif filepath != "{local_cache}/{component_name}/{granule}":
-                    cmd = f"cp {filepath} {local_cache}/{component_name}/{granule}"
+                elif not data_utils.is_modified_filepath(self, filepath):
+                    cmd = f"cp {filepath} {local_path}"
                     subprocess.check_output(cmd, shell=True)
+                else:
+                    pass # TODO: some logging here on not actually extracting data due to a path error, most likely due to memory issues
 
                 if self.compute_heatmaps and not from_bucket and \
                 (components[component_name].itype == IType.DISPARITY or \
@@ -662,17 +691,12 @@ class LuxonisDataset:
                     additions[i][heatmap_component]['filepath'] = add_heatmaps[heatmap_component]
 
         if self.bucket_type == 'aws' and not from_bucket:
-            print("Syncing to S3 bucket...")
-            cmd = f"aws s3 sync {local_cache} \
-                    s3://{self.bucket}/{self.team_id}/datasets/{self.dataset_id} \
-                    --endpoint-url={self._get_credentials('AWS_S3_ENDPOINT_URL')}"
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
-            while True:
-                output = process.stdout.readline()
-                if output == b'' and process.poll() is not None:
-                    break
-                if output:
-                    print(output.strip().decode())
+            sync_to_s3(
+                bucket=self.bucket, 
+                s3_dir=self.bucket_path, 
+                local_dir=local_cache, 
+                endpoint_url=self._get_credentials('AWS_S3_ENDPOINT_URL')
+            )
 
         if self.bucket_type != 'local':
             shutil.rmtree(local_cache)
@@ -798,7 +822,6 @@ class LuxonisDataset:
     def add(
         self,
         additions,
-        media_exists=False,
         from_bucket=False,
         add_defaults=True
     ):
@@ -829,15 +852,14 @@ class LuxonisDataset:
         if add_defaults:
             self._add_defaults(additions)
 
-        filter_result = self._add_filter(additions, media_exists)
+        filter_result = self._add_filter(additions)
         if filter_result is None:
             print('No additions or modifications')
             return
         else:
             transaction_to_additions, media_change, field_change = filter_result
 
-        if not media_exists:
-            additions = self._add_extract(additions, from_bucket)
+        additions = self._add_extract(additions, from_bucket)
 
         self._add_execute(additions, transaction_to_additions)
 
@@ -902,6 +924,11 @@ class LuxonisDataset:
         field_change = contains_update
         self._incr_version(media_change, field_change)
 
+        if not media_change and not field_change:
+            # TODO: this could just be some [INFO] or [DEBUG] information later
+            print('No changes to version!')
+            return
+        
         add_samples = set()
         deprecate_samples = set()
         for transaction in transactions:
