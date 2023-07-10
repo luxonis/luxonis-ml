@@ -6,11 +6,12 @@ from fiftyone.core.fields import (
     FloatField,
     IntField,
     DictField,
-    BooleanField
+    BooleanField,
 )
 
 from fiftyone.core.odm.document import Document
 from fiftyone.core.odm.dataset import DatasetDocument
+
 
 class LuxonisDatasetDocument(Document):
     """Backing document for LuxonisDataset."""
@@ -23,6 +24,7 @@ class LuxonisDatasetDocument(Document):
     bucket_type = StringField()
     current_version = FloatField()
 
+
 class LuxonisSourceDocument(Document):
     """Backing document for LuxonisDataset sources."""
 
@@ -32,6 +34,7 @@ class LuxonisSourceDocument(Document):
     component_names = ListField(StringField())
     component_htypes = ListField(IntField())
     component_itypes = ListField(IntField())
+
 
 class VersionDocument(Document):
     """Backing document for LuxonisDataset versions."""
@@ -43,6 +46,7 @@ class VersionDocument(Document):
     created_at = DateTimeField(required=True)
     samples = ListField(StringField())
     note = StringField()
+
 
 class TransactionDocument(Document):
     """Backing document for LuxonisDataset transactions."""

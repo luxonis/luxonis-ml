@@ -3,12 +3,15 @@ import threading, signal
 from pathlib import Path
 import fiftyone as fo
 
+
 class SessionThread(threading.Thread):
     def __init__(self):
         super(SessionThread, self).__init__()
 
     def start(self, cmd):
-        self.process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=True)
+        self.process = subprocess.Popen(
+            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=True
+        )
 
     def stop(self):
         # print(self.process)
@@ -21,13 +24,15 @@ class SessionThread(threading.Thread):
         return_code = self.process.wait()
         print(f"Process terminated with exit code {return_code}")
 
-class LuxonisSession:
 
+class LuxonisSession:
     def __init__(self):
         self.mount_path = f"{str(Path.home())}/.luxonis_mount"
         os.makedirs(self.mount_path, exist_ok=True)
 
-        credentials_cache_file = f'{str(Path.home())}/.cache/luxonis_ml/credentials.json'
+        credentials_cache_file = (
+            f"{str(Path.home())}/.cache/luxonis_ml/credentials.json"
+        )
         if os.path.exists(credentials_cache_file):
             with open(credentials_cache_file) as file:
                 self.creds = json.load(file)
@@ -44,7 +49,6 @@ class LuxonisSession:
         return f"s3fs luxonis-test-bucket {self.mount_path} -o passwd_file={str(Path.home())}/.passwd-s3fs -o curldbg -o url={self._get_credentials('AWS_S3_ENDPOINT_URL')} -o use_path_request_style"
 
     def _app_worker(self, dataset):
-
         app_session = fo.launch_app(dataset.fo_dataset)
 
         while True:
