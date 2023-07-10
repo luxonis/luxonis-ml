@@ -20,6 +20,7 @@ from datetime import datetime
 import pymongo
 from bson.objectid import ObjectId
 from .version import LuxonisVersion
+from .utils.s3_utils import sync_from_s3, sync_to_s3
 
 class HType(Enum):
     """ Individual file type """
@@ -359,23 +360,17 @@ class LuxonisDataset:
 
     def sync_from_cloud(self):
 
-        self.non_streaming_dir = f"{str(Path.home())}/.cache/luxonis_ml/data/{self.team_id}/datasets/{self.dataset_id}"
-        os.makedirs(self.non_streaming_dir, exist_ok=True)
-
         if self.bucket_type == 'local':
             print("This is a local dataset! Cannot sync")
-        elif self.bucket_type == 'aws':
-            print("Syncing from cloud...")
-            cmd = f"aws s3 sync s3://{self.bucket}/{self.team_id}/datasets/{self.dataset_id} \
-                    {self.non_streaming_dir} \
-                    --endpoint-url={self._get_credentials('AWS_S3_ENDPOINT_URL')}"
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
-            while True:
-                output = process.stdout.readline()
-                if output == b'' and process.poll() is not None:
-                    break
-                if output:
-                    print(output.strip().decode())
+        else:
+            sync_from_s3(
+                #non_streaming_dir=f"{str(Path.home())}/.cache/luxonis_ml/data/{self.team_id}/datasets/{self.dataset_id}",
+                non_streaming_dir=f"{str(Path.home())}/.cache/luxonis_ml/data",
+                bucket=self.bucket,
+                bucket_dir=os.path.join(self.team_id, "datasets", self.dataset_id),
+                endpoint_url=self._get_credentials('AWS_S3_ENDPOINT_URL')
+            )
+
 
     def get_classes(self):
 
@@ -504,7 +499,7 @@ class LuxonisDataset:
             self.version += 0.1
         self.version = round(self.version, 1)
 
-    def _add_filter(self, additions):
+    def _add_filter(self, additions, media_exists = False):
         """
         Filters out any additions to the dataset already existing
         """
@@ -532,6 +527,9 @@ class LuxonisDataset:
             for component_name in addition.keys():
                 filepath = addition[component_name]['filepath']
                 additions[i][component_name]['_old_filepath'] = filepath
+                # TODO: create new filename
+                if not media_exists:
+                    additions[i][component_name]['_new_image_name'] = data_utils.generate_hashname(filepath)
                 granule = data_utils.get_granule(filepath, addition, component_name)
                 new_filepath = f"/{self.team_id}/datasets/{self.dataset_id}/{component_name}/{granule}"
                 additions[i][component_name]['filepath'] = new_filepath
@@ -555,6 +553,7 @@ class LuxonisDataset:
                         value=new_filepath,
                         component=component_name
                     )
+                    tid = str(tid)
                     transaction_to_additions[tid] = i
                 else:
                     # check for UPDATE
@@ -565,6 +564,10 @@ class LuxonisDataset:
                     # find the most up to date sample
                     max_version = -np.inf
                     for sample in sample_view:
+                        if sample.version == -1:
+                            latest_sample = sample
+                            max_version = sample.version
+                            break
                         if sample.version > max_version:
                             latest_sample = sample
                             max_version = sample.version
@@ -634,7 +637,7 @@ class LuxonisDataset:
                         Key=new_prefix,
                         CopySource={'Bucket': self.bucket, 'Key': old_prefix}
                     )
-                else:
+                elif filepath != "{local_cache}/{component_name}/{granule}":
                     cmd = f"cp {filepath} {local_cache}/{component_name}/{granule}"
                     subprocess.check_output(cmd, shell=True)
 
@@ -659,17 +662,14 @@ class LuxonisDataset:
                     additions[i][heatmap_component]['filepath'] = add_heatmaps[heatmap_component]
 
         if self.bucket_type == 'aws' and not from_bucket:
-            print("Syncing to S3 bucket...")
-            cmd = f"aws s3 sync {local_cache} \
-                    s3://{self.bucket}/{self.team_id}/datasets/{self.dataset_id} \
-                    --endpoint-url={self._get_credentials('AWS_S3_ENDPOINT_URL')}"
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
-            while True:
-                output = process.stdout.readline()
-                if output == b'' and process.poll() is not None:
-                    break
-                if output:
-                    print(output.strip().decode())
+
+            sync_to_s3(
+                bucket=self.bucket,
+                s3_dir=os.path.join(self.team_id, "datasets", self.dataset_id),
+                local_dir=local_cache,
+                endpoint_url=self._get_credentials('AWS_S3_ENDPOINT_URL')
+            )
+
 
         if self.bucket_type != 'local':
             shutil.rmtree(local_cache)
@@ -693,7 +693,13 @@ class LuxonisDataset:
                 if additions is None or transaction_to_additions is None:
                     raise Exception("additions and transaction_to_additions required for adding data")
 
-                addition = additions[transaction_to_additions[transaction['_id']]]
+                if transaction_to_additions.get(str(transaction['_id'])) is None:
+                    # TODO: find a better way to handle those
+                    print(f"Cannot find transaction with id: {str(transaction['_id'])}")
+                    print(f"Seems like a failed transaction?")
+                    continue
+
+                addition = additions[transaction_to_additions[str(transaction['_id'])]]
                 component_name = transaction['component']
                 component = addition[component_name]
                 group = component['_group']
@@ -717,9 +723,6 @@ class LuxonisDataset:
                         continue # ignore temporary attributes
                     else:
                         sample[ann] = component[ann]
-
-                if 'split' not in component.keys():
-                    sample['split'] = 'train' # default split
 
                 if self.compute_heatmaps and f'{component_name}_heatmap' in addition.keys():
                     sample['heatmap'] = fo.Heatmap(map_path=addition[f'{component_name}_heatmap']['filepath'])
@@ -781,11 +784,20 @@ class LuxonisDataset:
         if len(samples):
             self.fo_dataset.add_samples(samples)
 
+    def _add_defaults(self, additions):
+
+        for i, addition in tqdm(enumerate(additions), total=len(additions)):
+            for component_name in addition.keys():
+                if 'split' not in addition[component_name].keys():
+                    addition[component_name]['split'] = 'train'
+
+
     def add(
         self,
         additions,
         media_exists=False,
         from_bucket=False,
+        add_defaults=True
     ):
         """
         Function to add data and automatically log transactions
@@ -800,6 +812,7 @@ class LuxonisDataset:
                 segmentation       : numpy array where pixels correspond to integer values of classes
                 keypoints          : list of classes and (x,y) keypoints
         from_bucket: True if adding images to a cloud bucket instead of locally
+        add_defaults: Add default values, such as split. Useful when calling the method the first time. Best if set to false on updates.
         """
 
         if from_bucket and self.bucket_type == 'local':
@@ -809,7 +822,11 @@ class LuxonisDataset:
 
         # TODO: add a try/except to gracefully handle any errors
 
-        filter_result = self._add_filter(additions)
+        # add defaults before 
+        if add_defaults:
+            self._add_defaults(additions)
+
+        filter_result = self._add_filter(additions, media_exists)
         if filter_result is None:
             print('No additions or modifications')
             return
@@ -852,6 +869,7 @@ class LuxonisDataset:
         tid = self._make_transaction(LDFTransactionType.END)
         self._execute_transaction(tid)
 
+
     def create_version(self, note):
 
         def get_current_sample(transaction):
@@ -890,12 +908,20 @@ class LuxonisDataset:
 
             if transaction['action'] == LDFTransactionType.ADD.value:
                 sample = get_current_sample(transaction)
+                if sample is None:
+                    # TODO: Find a better way to handle those.
+                    print(f"Sample is none for transaction ADD with tid {transaction['_id'].binary.hex()}. Skipping...")
+                    self._version_transaction(transaction['_id'])
+                    continue
                 add_samples.add(sample['id'])
 
             elif transaction['action'] == LDFTransactionType.UPDATE.value:
                 sample = get_current_sample(transaction)
                 if sample is None: # a new sample which has had both ADD and UPDATE
                     # sample = get_previous_sample(transaction)
+                    # TODO: Find a better way to handle those.
+                    print(f"Sample is none, skipping and versioning transatction")
+                    self._version_transaction(transaction['_id'])
                     continue
                 else:
                     add_samples.add(sample['id'])

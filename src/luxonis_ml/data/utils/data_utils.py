@@ -3,6 +3,7 @@ import hashlib
 import fiftyone as fo
 import os
 import subprocess
+import uuid
 
 def get_granule(filepath, addition, component_name):
     granule = filepath.split('/')[-1]
@@ -68,6 +69,17 @@ def check_media(dataset, filepath, mount_path, component_name, granule, from_buc
         return True
 
 def check_classification(val1, val2):
+    if isinstance(val1, str):
+        # prevent zip from taking letters only
+        val1 = [val1]
+
+    # TODO: Should be updated to work properly with multi-label classification
+    # This includes the bottom for loop which seems to return only the first value where dict is not identical.
+       
+    if val2 is None and val1 is not None:
+        val1 = fo.Classification(label=val1[0]).to_dict()
+        return [{'class': val1}]
+
     for val1, val2 in list(zip(val1, val2['classifications'])):
         val1 = fo.Classification(label=val1).to_dict()
         if len(val1.keys()) == len(val2.keys()):
@@ -75,11 +87,15 @@ def check_classification(val1, val2):
                 if not key.startswith('_'):
                     if val1[key] != val2[key]:
                         return [{'class': val1}]
-    else:
-        return [{'class': val1}]
+        else:
+            return [{'class': val1}]
     return []
 
 def check_boxes(dataset, val1, val2):
+
+    if val2 is None and val1 is not None:
+        return [{'boxes': val1}]
+
     if len(val1) == len(val2['detections']):
         for val1, val2 in list(zip(val1, val2['detections'])):
             if isinstance(val1[0], str) and val2['label'] != val1[0]:
@@ -131,12 +147,14 @@ def check_fields(dataset, latest_sample, addition, component_name):
         'tags',
         'tid',
         '_group',
-        '_old_filepath'
+        '_old_filepath',
+        '_new_image_name'
     ])
     ignore_fields_check = set([
         'filepath',
         '_group',
-        '_old_filepath'
+        '_old_filepath',
+        '_new_image_name'
     ])
 
     sample_dict = latest_sample.to_dict()
@@ -178,12 +196,21 @@ def check_fields(dataset, latest_sample, addition, component_name):
 def construct_class_label(dataset, classes):
     if not isinstance(classes, list): # fix for only one class
         classes = [classes]
-    return fo.Classifications(classifications=[
-        fo.Classification(
-            label=cls if isinstance(cls, str) else dataset.fo_dataset.classes['class'][int(cls)]
-        )
-        for cls in classes
-    ])
+
+    classifications = []
+    for cls in classes:
+        label = None
+        if isinstance(cls, str):
+            label = cls
+        elif isinstance(cls, dict):
+            label = cls.get("label")
+        else:
+            label = dataset.fo_dataset.classes['class'][int(cls)]
+        
+        classifications.append(fo.Classification(label=label))
+    
+
+    return fo.Classifications(classifications=classifications)
 
 def construct_boxes_label(dataset, boxes):
     if not isinstance(boxes[0], list): # fix for only one box without a nested list
@@ -211,3 +238,14 @@ def construct_keypoints_label(dataset, kps):
         )
         for kp in kps
     ])
+
+def generate_hashname(filepath):
+    
+    # Read the contents of the file
+    with open(filepath, 'rb') as file:
+        file_contents = file.read()
+
+    # Generate the UUID5 based on the file contents and the NAMESPACE_URL
+    file_hash_uuid = uuid.uuid5(uuid.NAMESPACE_URL, file_contents.hex())
+
+    return str(file_hash_uuid) + os.path.splitext(filepath)[1]
