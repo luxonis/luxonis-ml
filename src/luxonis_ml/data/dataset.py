@@ -623,6 +623,8 @@ class LuxonisDataset:
         for component_name in components:
             os.makedirs(f'{local_cache}/{component_name}', exist_ok=True)
 
+        sync = False
+
         for i, addition in tqdm(enumerate(additions), total=len(additions)):
 
             add_heatmaps = {}
@@ -637,24 +639,14 @@ class LuxonisDataset:
                 granule = data_utils.get_granule(filepath, addition, component_name)
                 local_path = f"{local_cache}/{component_name}/{granule}"
 
-                print(self.bucket_type)
                 if self.bucket_type == "local":
                     if os.path.exists(local_path):
                         continue
                 elif self.bucket_type == "aws":
-                    print('self.bucket', self.bucket)
-                    # s3_path = f"{self.team_id}/datasets/{self.dataset_id}{component['filepath']}"
                     s3_path = component['filepath'][1:]
-                    # print('prefix', s3_path)
-                    # resp = self.client.list_objects_v2(Bucket=self.bucket, Prefix=s3_path, Delimiter='/', MaxKeys=1)
-                    # print(resp)
-                    # if 'Contents' in resp:
-                    #     print(1)
-                    #     continue
-                    # print(2)
-                    if check_s3_file_existence(self.client, self.bucket, s3_path):
+                    if check_s3_file_existence(self.bucket, s3_path, self._get_credentials('AWS_S3_ENDPOINT_URL')):
                         continue
-                    print('here')
+                    sync = True
 
                 if from_bucket:
                     old_prefix = filepath.split(f"s3://{self.bucket}/")[-1]
@@ -685,7 +677,7 @@ class LuxonisDataset:
                     new_filepath = f"/{self.team_id}/datasets/{self.dataset_id}/{heatmap_component}/{granule}"
                     add_heatmaps[heatmap_component] = new_filepath
 
-            if self.compute_heatmaps and not from_bucket:
+            if self.compute_heatmaps and not from_bucket and sync:
                 for heatmap_component in add_heatmaps:
                     additions[i][heatmap_component] = {}
                     additions[i][heatmap_component]['filepath'] = add_heatmaps[heatmap_component]

@@ -87,20 +87,6 @@ def sync_to_s3(bucket, s3_dir, local_dir, endpoint_url = None):
 
 def check_s3_file_existence(bucket, s3_file, endpoint_url = None):
 
-    # try:
-    #     client.head_object(Bucket=bucket, Key=key)
-    #     return True
-    # except ClientError as e:
-    #     if e.response['Error']['Code'] == "404":
-    #         # The key does not exist.
-    #         return False
-    #     elif e.response['Error']['Code'] == 403:
-    #         # Unauthorized, including invalid bucket
-    #         return False
-    #     else:
-    #         # Something else has gone wrong.
-    #         raise e
-
     s3 = boto3.resource('s3', endpoint_url=endpoint_url)
     bucket = s3.Bucket(bucket)
 
@@ -109,5 +95,4 @@ def check_s3_file_existence(bucket, s3_file, endpoint_url = None):
         s3_object.load()
         return True
     except ClientError as e:
-        print(e)
         return False
