@@ -78,6 +78,8 @@ def check_media(dataset, filepath, mount_path, component_name, granule, from_buc
 
 
 def check_classification(val1, val2):
+    if (val1 is None and val2 is not None) or (val2 is None and val1 is not None):
+        return [{"boxes": val1}]
     if isinstance(val1, str):
         # prevent zip from taking letters only
         val1 = [val1]
@@ -102,7 +104,7 @@ def check_classification(val1, val2):
 
 
 def check_boxes(dataset, val1, val2):
-    if val2 is None and val1 is not None:
+    if (val1 is None and val2 is not None) or (val2 is None and val1 is not None):
         return [{"boxes": val1}]
 
     if len(val1) == len(val2["detections"]):
@@ -124,12 +126,16 @@ def check_boxes(dataset, val1, val2):
 
 
 def check_segmentation(val1, val2):
+    if (val1 is None and val2 is not None) or (val2 is None and val1 is not None):
+        return [{"boxes": val1}]
     if (val1.shape != val2.shape) or (np.linalg.norm(val1 - val2) > 1e-8):
         return [{"segmentation": val1}]
     return []
 
 
 def check_keypoints(dataset, val1, val2):
+    if (val1 is None and val2 is not None) or (val2 is None and val1 is not None):
+        return [{"boxes": val1}]
     if len(val1) == len(val2["keypoints"]):
         for val1, val2 in list(zip(val1, val2["keypoints"])):
             if isinstance(val1[0], str) and val2["label"] != val1[0]:
@@ -177,13 +183,9 @@ def check_fields(dataset, latest_sample, addition, component_name):
     f1 = set(addition[component_name].keys())
     f2 = set(sample_dict.keys())
     new = f1 - f1.intersection(f2) - ignore_fields_match
-    missing = f2 - f1.intersection(f2) - ignore_fields_match
     if len(new):
         for new_field in list(new):
             changes.append({new_field: addition[component_name][new_field]})
-    if len(missing):
-        for missing_field in list(missing):
-            changes.append({missing_field: None})
 
     check_fields = list(f1.intersection(f2) - ignore_fields_check)
 
@@ -203,14 +205,15 @@ def check_fields(dataset, latest_sample, addition, component_name):
                 changes += check_keypoints(dataset, val1, val2)
             else:
                 raise NotImplementedError()
-        else:
-            if not val1 == val2:
-                changes.append({field: val1})
+        elif val1 != val2:
+            changes.append({field: val1})
 
     return changes
 
 
 def construct_class_label(dataset, classes):
+    if classes is None:
+        return None
     if not isinstance(classes, list):  # fix for only one class
         classes = [classes]
 
@@ -230,6 +233,8 @@ def construct_class_label(dataset, classes):
 
 
 def construct_boxes_label(dataset, boxes):
+    if boxes is None:
+        return None
     if not isinstance(boxes[0], list):  # fix for only one box without a nested list
         boxes = [boxes]
     return fo.Detections(
@@ -246,12 +251,16 @@ def construct_boxes_label(dataset, boxes):
 
 
 def construct_segmentation_label(dataset, mask):
+    if mask is None:
+        return None
     if isinstance(mask, list):
         mask = np.array(mask)
     return fo.Segmentation(mask=mask)
 
 
 def construct_keypoints_label(dataset, kps):
+    if kps is None:
+        return None
     if not isinstance(kps[0], list):  # fix for only one kp without a nested list
         kps = [kps]
     return fo.Keypoints(
@@ -283,3 +292,9 @@ def is_modified_filepath(dataset, filepath):
         return True
     else:
         return False
+
+
+def get_group_from_sample(dataset, sample):
+    group = sample[dataset.source.name]
+    group = dataset.fo_dataset.get_group(group["id"])
+    return group

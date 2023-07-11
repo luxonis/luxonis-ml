@@ -631,13 +631,26 @@ class LuxonisDataset:
                     for change in changes:
                         field, value = list(change.items())[0]
                         field_change = True
-                        tid = self._make_transaction(
-                            LDFTransactionType.UPDATE,
-                            sample_id=latest_sample._id,
-                            field=field,
-                            value=value,
-                            component=component_name,
-                        )
+                        if field == "split":
+                            group = data_utils.get_group_from_sample(
+                                self, latest_sample
+                            )
+                            for component_name in group:
+                                tid = self._make_transaction(
+                                    LDFTransactionType.UPDATE,
+                                    sample_id=group[component_name]["id"],
+                                    field=field,
+                                    value=value,
+                                    component=component_name,
+                                )
+                        else:
+                            tid = self._make_transaction(
+                                LDFTransactionType.UPDATE,
+                                sample_id=latest_sample._id,
+                                field=field,
+                                value=value,
+                                component=component_name,
+                            )
 
         if media_change or field_change:
             self._make_transaction(LDFTransactionType.END)
@@ -1043,7 +1056,9 @@ class LuxonisDataset:
                 if sample is None:  # a new sample which has had both ADD and UPDATE
                     # sample = get_previous_sample(transaction)
                     # TODO: Find a better way to handle those.
-                    print(f"Sample is none, skipping and versioning transatction")
+                    print(
+                        f"Sample is none for {transaction['_id']}, skipping and versioning transatction"
+                    )
                     self._version_transaction(transaction["_id"])
                     continue
                 else:

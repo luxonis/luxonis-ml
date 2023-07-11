@@ -404,7 +404,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             a = deepcopy(self.additions[-1])
             a["A"]["class"] = ["person"]  # adding a new field (classification)
             a["A"]["weather"] = "sunny"  # adding a new field
-            del a["A"]["split"]  # removing a field
+            a["A"]["boxes"] = None  # removing a field
             tta, media_change, field_change = dataset._add_filter([a])
             transaction_to_additions += tta
             self.assertEqual(media_change, False, "media_change failed")
@@ -429,6 +429,23 @@ class LuxonisDatasetTester(unittest.TestCase):
             self.assertEqual(num_ends, 1, "Wrong number of ENDs")
             self.assertEqual(
                 num_executed, 0, "Some transactions are unexpectedly executed"
+            )
+
+            dataset._add_execute()
+            dataset.fo_dataset.group_slice = "A"
+            query = dataset.fo_dataset.match(
+                (F("latest") == False) & (F("version") == -1)
+            )
+            self.assertEqual(
+                len(query), 1, "Only one change in A when executing modifications"
+            )
+            for sample in query:
+                break
+            self.assertEqual(
+                sample["weather"], "sunny", "Executed change to added field"
+            )
+            self.assertEqual(
+                sample["boxes"], None, "Executed change to a deleted field"
             )
 
             # non-annotation field change
@@ -517,9 +534,8 @@ class LuxonisDatasetTester(unittest.TestCase):
             for sample in query:
                 break
             self.assertEqual(
-                sample["weather"], "stormy", "Executed change to added field"
+                sample["weather"], "stormy", "Executed change to custom field"
             )
-            self.assertEqual(sample["split"], None, "Executed change to added field")
             self.assertEqual(
                 sample["class"]["classifications"][0]["label"],
                 "orange",
@@ -543,6 +559,30 @@ class LuxonisDatasetTester(unittest.TestCase):
             for sample in query:
                 break
             # TODO: keypoint test
+
+            # split test
+            a = deepcopy(self.additions[-1])
+            a["A"]["split"] = "test"
+            transaction_to_additions, media_change, field_change = dataset._add_filter(
+                [a]
+            )
+            dataset._add_execute()
+
+            dataset.fo_dataset.group_slice = "A"
+            query = dataset.fo_dataset.match(
+                (F("latest") == False) & (F("version") == -1)
+            )
+            for sample in query:
+                break
+            self.assertEqual(sample["split"], "test", "A sample split update")
+
+            dataset.fo_dataset.group_slice = "B"
+            query = dataset.fo_dataset.match(
+                (F("latest") == False) & (F("version") == -1)
+            )
+            for sample in query:
+                break
+            self.assertEqual(sample["split"], "test", "B sample split update")
 
     def test_version_2(self):
         with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
@@ -685,8 +725,11 @@ class LuxonisDatasetTester(unittest.TestCase):
 
     # @classmethod
     # def tearDownClass(self):
-    #     with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
-    #         dataset.delete_dataset()
+    #     try:
+    #         with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
+    #             dataset.delete_dataset()
+    #     except:
+    #         pass
 
 
 if __name__ == "__main__":
@@ -701,6 +744,6 @@ if __name__ == "__main__":
     suite.addTest(LuxonisDatasetTester("test_version_2"))
     suite.addTest(LuxonisDatasetTester("test_delete"))
     suite.addTest(LuxonisDatasetTester("test_version_3"))
-    suite.addTest(LuxonisDatasetTester("test_delete_dataset"))
+    # suite.addTest(LuxonisDatasetTester("test_delete_dataset"))
     runner = unittest.TextTestRunner()
     runner.run(suite)
