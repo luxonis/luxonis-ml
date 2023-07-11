@@ -5,6 +5,7 @@ import os
 import subprocess
 import uuid
 from pathlib import Path
+from fiftyone import ViewField as F
 
 
 def get_granule(filepath, addition, component_name):
@@ -19,7 +20,10 @@ def get_granule(filepath, addition, component_name):
 
 def check_classification(val1, val2):
     if (val1 is None and val2 is not None) or (val2 is None and val1 is not None):
-        return [{"boxes": val1}]
+        return [{"class": val1}]
+    elif val1 is None and val2 is None:
+        return []
+
     if isinstance(val1, str):
         # prevent zip from taking letters only
         val1 = [val1]
@@ -46,9 +50,20 @@ def check_classification(val1, val2):
 def check_boxes(dataset, val1, val2):
     if (val1 is None and val2 is not None) or (val2 is None and val1 is not None):
         return [{"boxes": val1}]
+    elif val1 is None and val2 is None:
+        return []
 
     if len(val1) == len(val2["detections"]):
         for val1, val2 in list(zip(val1, val2["detections"])):
+            # assert bounding boxes contain the right format of either int and list or str and list
+            if not (
+                (isinstance(val1[0], int) or isinstance(val1[0], str))
+                and len(val1) == 5
+            ):
+                raise Exception(
+                    "Wrong bounding box format! It should start with int or str for the class label"
+                )
+
             if isinstance(val1[0], str) and val2["label"] != val1[0]:
                 return [{"boxes": val1}]
             if (
@@ -67,7 +82,10 @@ def check_boxes(dataset, val1, val2):
 
 def check_segmentation(val1, val2):
     if (val1 is None and val2 is not None) or (val2 is None and val1 is not None):
-        return [{"boxes": val1}]
+        return [{"segmentation": val1}]
+    elif val1 is None and val2 is None:
+        return []
+
     if (val1.shape != val2.shape) or (np.linalg.norm(val1 - val2) > 1e-8):
         return [{"segmentation": val1}]
     return []
@@ -75,7 +93,10 @@ def check_segmentation(val1, val2):
 
 def check_keypoints(dataset, val1, val2):
     if (val1 is None and val2 is not None) or (val2 is None and val1 is not None):
-        return [{"boxes": val1}]
+        return [{"keypoints": val1}]
+    elif val1 is None and val2 is None:
+        return []
+
     if len(val1) == len(val2["keypoints"]):
         for val1, val2 in list(zip(val1, val2["keypoints"])):
             if isinstance(val1[0], str) and val2["label"] != val1[0]:
@@ -238,3 +259,10 @@ def get_group_from_sample(dataset, sample):
     group = sample[dataset.source.name]
     group = dataset.fo_dataset.get_group(group["id"])
     return group
+
+
+def get_filepath_from_hash(dataset, hash):
+    instance_view = dataset.fo_dataset.match(F("instance_id") == hash)
+    for sample in instance_view:
+        break
+    return sample.filepath
