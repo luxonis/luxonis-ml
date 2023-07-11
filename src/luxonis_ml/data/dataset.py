@@ -148,8 +148,8 @@ class LuxonisDataset:
         if self.bucket_type not in self.bucket_choices:
             raise Exception(f"Bucket type {self.bucket_type} is not supported!")
 
-        credentials_cache_file = (
-            f"{str(Path.home())}/.cache/luxonis_ml/credentials.json"
+        credentials_cache_file = str(
+            Path.home() / ".cache" / "luxonis_ml" / "credentials.json"
         )
         if os.path.exists(credentials_cache_file):
             with open(credentials_cache_file) as file:
@@ -272,7 +272,15 @@ class LuxonisDataset:
 
     def _init_path(self):
         if self.bucket_type == "local":
-            self.path = f"{str(Path.home())}/.cache/luxonis_ml/data/{self.team_id}/datasets/{self.dataset_id}"
+            self.path = str(
+                Path.home()
+                / ".cache"
+                / "luxonis_ml"
+                / "data"
+                / self.team_id
+                / "datasets"
+                / self.dataset_id
+            )
             os.makedirs(self.path, exist_ok=True)
         elif self.bucket_type == "aws":
             self.path = f"s3://{self._get_credentials('AWS_BUCKET')}/{self.team_id}/datasets/{self.dataset_id}"
@@ -411,10 +419,17 @@ class LuxonisDataset:
             print("This is a local dataset! Cannot sync")
         else:
             sync_from_s3(
-                # non_streaming_dir=f"{str(Path.home())}/.cache/luxonis_ml/data/{self.team_id}/datasets/{self.dataset_id}",
-                non_streaming_dir=f"{str(Path.home())}/.cache/luxonis_ml/data",
+                non_streaming_dir=str(
+                    Path.home()
+                    / ".cache"
+                    / "luxonis_ml"
+                    / "data"
+                    / self.team_id
+                    / "datasets"
+                    / self.dataset_id
+                ),
                 bucket=self.bucket,
-                bucket_dir=os.path.join(self.team_id, "datasets", self.dataset_id),
+                bucket_dir=str(Path(self.team_id) / "datasets" / self.dataset_id),
                 endpoint_url=self._get_credentials("AWS_S3_ENDPOINT_URL"),
             )
 
@@ -582,9 +597,9 @@ class LuxonisDataset:
                 filepath = addition[component_name]["filepath"]
                 additions[i][component_name]["_old_filepath"] = filepath
                 if not data_utils.is_modified_filepath(self, filepath):
-                    additions[i][component_name][
-                        "_new_image_name"
-                    ] = data_utils.generate_hashname(filepath)
+                    hashpath, hash = data_utils.generate_hashname(filepath)
+                    additions[i][component_name]["instance_id"] = hash
+                    additions[i][component_name]["_new_image_name"] = hashpath
                 granule = data_utils.get_granule(filepath, addition, component_name)
                 new_filepath = f"/{self.team_id}/datasets/{self.dataset_id}/{component_name}/{granule}"
                 additions[i][component_name]["filepath"] = new_filepath
@@ -668,12 +683,20 @@ class LuxonisDataset:
 
         components = self.source.components
         if self.bucket_type == "local":
-            local_cache = f"{str(Path.home())}/.cache/luxonis_ml/data/{self.team_id}/datasets/{self.dataset_id}"
+            local_cache = str(
+                Path.home()
+                / ".cache"
+                / "luxonis_ml"
+                / "data"
+                / self.team_id
+                / "datasets"
+                / self.dataset_id
+            )
         elif self.bucket_type == "aws":
-            local_cache = f"{str(Path.home())}/.cache/luxonis_ml/tmp"
+            local_cache = str(Path.home() / ".cache" / "luxonis_ml" / "tmp")
         os.makedirs(local_cache, exist_ok=True)
         for component_name in components:
-            os.makedirs(f"{local_cache}/{component_name}", exist_ok=True)
+            os.makedirs(str(Path(local_cache) / component_name), exist_ok=True)
 
         sync = False
 
@@ -690,7 +713,7 @@ class LuxonisDataset:
 
                 filepath = component["_old_filepath"]
                 granule = data_utils.get_granule(filepath, addition, component_name)
-                local_path = f"{local_cache}/{component_name}/{granule}"
+                local_path = str(Path(local_cache) / component_name / granule)
 
                 if self.bucket_type == "local":
                     if os.path.exists(local_path):
@@ -728,13 +751,17 @@ class LuxonisDataset:
                     )
                 ):
                     heatmap_component = f"{component_name}_heatmap"
-                    os.makedirs(f"{local_cache}/{heatmap_component}", exist_ok=True)
+                    os.makedirs(
+                        str(Path(local_cache) / heatmap_component), exist_ok=True
+                    )
                     im = cv2.imread(filepath, cv2.IMREAD_UNCHANGED)
                     if im.dtype == np.uint16:
                         im = im / 8
                     heatmap = (im / 96 * 255).astype(np.uint8)
                     heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
-                    cv2.imwrite(f"{local_cache}/{heatmap_component}/{granule}", heatmap)
+                    cv2.imwrite(
+                        str(Path(local_cache) / heatmap_component / granule), heatmap
+                    )
                     new_filepath = f"/{self.team_id}/datasets/{self.dataset_id}/{heatmap_component}/{granule}"
                     add_heatmaps[heatmap_component] = new_filepath
 

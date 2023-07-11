@@ -4,6 +4,7 @@ import fiftyone as fo
 import os
 import subprocess
 import uuid
+from pathlib import Path
 
 
 def get_granule(filepath, addition, component_name):
@@ -14,67 +15,6 @@ def get_granule(filepath, addition, component_name):
         )
         granule = addition[component_name]["_new_image_name"]
     return granule
-
-
-def check_media(dataset, filepath, mount_path, component_name, granule, from_bucket):
-    source = dataset.source
-    if dataset.bucket_type == "local":
-        local_path = f"{dataset.path}/{mount_path}"
-        md5 = hashlib.md5()
-        with open(filepath, "rb") as file:
-            for chunk in iter(lambda: file.read(8192), b""):
-                md5.update(chunk)
-        old_checksum = md5.hexdigest()
-    elif dataset.bucket_type == "aws":
-        prefix = f"{dataset.bucket_path}/{component_name}/{granule}"
-        resp = dataset.client.list_objects(
-            Bucket=dataset.bucket, Prefix=prefix, Delimiter="/", MaxKeys=1
-        )
-        exists = "Contents" in resp
-        if not exists:
-            raise Exception("Issue with dataset! Sample file does not exist on S3!")
-        old_checksum = resp["Contents"][0]["ETag"].strip('"')
-
-    if from_bucket:
-        if dataset.bucket_type == "aws":
-            resp = dataset.client.list_objects(
-                Bucket=dataset.bucket, Prefix=filepath, Delimiter="/", MaxKeys=1
-            )
-            exists = "Contents" in resp
-            if not exists:
-                raise Exception(f"File {filepath} not found on S3!")
-            new_checksum = resp["Contents"][0]["ETag"].strip('"')
-    else:
-        md5 = hashlib.md5()
-        with open(filepath, "rb") as file:
-            for chunk in iter(lambda: file.read(8192), b""):
-                md5.update(chunk)
-        new_checksum = md5.hexdigest()
-    if new_checksum != old_checksum:
-        if dataset.bucket_type == "local":
-            new_path = f"{dataset.path}/{dataset.team}/datasets/{dataset.name}/archive/{source.name}/{component_name}/{granule}"
-            os.makedirs(new_path, exist_ok=True)
-            cmd = f"cp {local_path} {new_path}"
-            subprocess.check_output(cmd, shell=True)
-        elif dataset.bucket_type == "aws":
-            new_prefix = f"{dataset.bucket_path}/archive/{source.name}/{component_name}/{granule}"
-            dataset.client.copy_object(
-                Bucket=dataset.bucket,
-                Key=new_prefix,
-                CopySource={"Bucket": dataset.bucket, "Key": prefix},
-            )
-        # update existing datasat sample to point to this new_prefix
-        # limitation: all old versions point to the latest archive only (TODO: fix)
-        for sample in sample_view:
-            sample.filepath = mount_path.replace(
-                f"/{dataset.team}/{dataset.name}/",
-                f"/{dataset.team}/{dataset.name}/archive/",
-            )
-            sample.save()
-
-        return False
-    else:
-        return True
 
 
 def check_classification(val1, val2):
@@ -284,7 +224,7 @@ def generate_hashname(filepath):
     # Generate the UUID5 based on the file contents and the NAMESPACE_URL
     file_hash_uuid = uuid.uuid5(uuid.NAMESPACE_URL, file_contents.hex())
 
-    return str(file_hash_uuid) + os.path.splitext(filepath)[1]
+    return str(file_hash_uuid) + os.path.splitext(filepath)[1], str(file_hash_uuid)
 
 
 def is_modified_filepath(dataset, filepath):

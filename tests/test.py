@@ -22,6 +22,7 @@ the state of the LDF changes with each step.
 class LuxonisDatasetTester(unittest.TestCase):
     @classmethod
     def setUpClass(self):
+        self.keep = args.keep
         self.team_id = "d7625eef-ad99-4019-af95-ffa5ebd48e3c"
         self.team_name = "unittest"
         self.dataset_name = "coco"
@@ -56,7 +57,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             )
         )
         if len(res):
-            with LuxonisDataset(self.team_id, res[0]["_id"]) as dataset:
+            with LuxonisDataset(self.team_id, str(res[0]["_id"])) as dataset:
                 dataset.delete_dataset()
 
         # get COCO data for testing
@@ -140,7 +141,6 @@ class LuxonisDatasetTester(unittest.TestCase):
         self.dataset_id = LuxonisDataset.create(
             self.team_id, self.team_name, self.dataset_name
         )
-
         print("Testing", self.dataset_id)
 
     def test_local_init(self):
@@ -723,17 +723,31 @@ class LuxonisDatasetTester(unittest.TestCase):
         # TODO: test dataset version documents are deleted
         # TODO: test dataset transaction documents are deleted
 
-    # @classmethod
-    # def tearDownClass(self):
-    #     try:
-    #         with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
-    #             dataset.delete_dataset()
-    #     except:
-    #         pass
+    @classmethod
+    def tearDownClass(self):
+        if self.keep:
+            return
+        try:
+            with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
+                dataset.delete_dataset()
+        except:
+            pass
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "-k",
+        "--keep",
+        action="store_true",
+        help="Omits dataset deletion for further exploratory testing",
+    )
+    args = parser.parse_args()
+
     suite = unittest.TestSuite()
+    suite.keep = args.keep
     suite.addTest(LuxonisDatasetTester("test_local_init"))
     suite.addTest(LuxonisDatasetTester("test_aws_init"))
     suite.addTest(LuxonisDatasetTester("test_source"))
@@ -744,6 +758,7 @@ if __name__ == "__main__":
     suite.addTest(LuxonisDatasetTester("test_version_2"))
     suite.addTest(LuxonisDatasetTester("test_delete"))
     suite.addTest(LuxonisDatasetTester("test_version_3"))
-    # suite.addTest(LuxonisDatasetTester("test_delete_dataset"))
+    if not args.keep:
+        suite.addTest(LuxonisDatasetTester("test_delete_dataset"))
     runner = unittest.TextTestRunner()
     runner.run(suite)
