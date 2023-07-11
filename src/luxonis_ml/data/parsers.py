@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import json, yaml
 import os
 import numpy as np
@@ -9,13 +7,15 @@ from pathlib import Path
 import warnings
 import random
 import shutil
-# from luxonis_ml.ops.dataset_type import DatasetType as dt
+
+# from luxonis_ml.data.dataset_type import DatasetType as dt
 from enum import Enum
 import threading
 from threading import Thread
 import xml.etree.ElementTree as ET
-from luxonis_ml.ops import *
+from luxonis_ml.data import *
 import csv
+
 
 class DatasetType(Enum):
     LDF = "LDF"
@@ -34,11 +34,13 @@ class DatasetType(Enum):
     NUMPY = "numpy"
     UNKNOWN = "unknown"
 
+
 """
 Functions used with LuxonisDataset to convert other data formats to LDF
 """
-class LuxonisParser:
 
+
+class LuxonisParser:
     def __init__(self):
         self.percentage = 0
         self.error_message = None
@@ -51,12 +53,15 @@ class LuxonisParser:
             args[0].parsing_in_progress = True
 
             bucket_type = "aws" if args[1][2] == DatasetType.S3DIR else "local"
-            with LuxonisDataset(args[1][0], args[1][1], bucket_type=bucket_type) as dataset:
+            with LuxonisDataset(
+                args[1][0], args[1][1], bucket_type=bucket_type
+            ) as dataset:
                 print("setting component")
                 custom_components = [
-                    LDFComponent(name="image",
-                                htype=HType.IMAGE, # data component type
-                                itype=IType.BGR # image type
+                    LDFComponent(
+                        name="image",
+                        htype=HType.IMAGE,  # data component type
+                        itype=IType.BGR,  # image type
                     )
                 ]
                 # Just set source to some default name, as of right now, I think that parser users will care about its name
@@ -73,18 +78,18 @@ class LuxonisParser:
 
             args[0].parsing_in_progress = False
             args[0].percentage = 100.0
+
         return inner
 
     @parsing_wrapper
     def from_s3_directory_format(
-            self,
-            dataset,
-            image_dir,
-            splits=None,
-            dataset_size=None,
-            override_main_component=None
-        ):
-
+        self,
+        dataset,
+        image_dir,
+        splits=None,
+        dataset_size=None,
+        override_main_component=None,
+    ):
         ## define main component
         if override_main_component is not None:
             component_name = override_main_component
@@ -92,41 +97,40 @@ class LuxonisParser:
             component_name = dataset.source.main_component
 
         ## initialize additions
-        contents = dataset.client.list_objects(Bucket=dataset.bucket, Prefix=image_dir)['Contents']
+        contents = dataset.client.list_objects(Bucket=dataset.bucket, Prefix=image_dir)[
+            "Contents"
+        ]
 
         if splits is None:
             idxs = np.arange(len(contents))
             np.random.shuffle(idxs)
-            i1 = round(0.8*len(contents))
-            i2 = round(0.9*len(contents))
-            splits = {contents[idxs[n]]['Key']:'train' for n in range(0,i1)}
-            val = {contents[idxs[n]]['Key']:'val' for n in range(i1,i2)}
-            test = {contents[idxs[n]]['Key']:'test' for n in range(i2,len(contents))}
+            i1 = round(0.8 * len(contents))
+            i2 = round(0.9 * len(contents))
+            splits = {contents[idxs[n]]["Key"]: "train" for n in range(0, i1)}
+            val = {contents[idxs[n]]["Key"]: "val" for n in range(i1, i2)}
+            test = {contents[idxs[n]]["Key"]: "test" for n in range(i2, len(contents))}
             splits.update(val)
             splits.update(test)
 
         additions = []
         for metadata in contents:
-            filepath = metadata['Key']
-            additions.append({
-                component_name: {
-                    'filepath': filepath,
-                    'split': splits[filepath]
-                }
-            })
+            filepath = metadata["Key"]
+            additions.append(
+                {component_name: {"filepath": filepath, "split": splits[filepath]}}
+            )
 
         dataset.add(additions, note="S3 directory parser", from_bucket=True)
 
     @parsing_wrapper
     def from_coco_format(
-            self,
-            dataset,
-            image_dir,
-            annotation_path,
-            split,
-            dataset_size=None,
-            override_main_component=None
-        ):
+        self,
+        dataset,
+        image_dir,
+        annotation_path,
+        split,
+        dataset_size=None,
+        override_main_component=None,
+    ):
         """
         Constructs a LDF dataset from a COCO type dataset.
         Arguments:
@@ -150,56 +154,76 @@ class LuxonisParser:
         ## load data
         with open(annotation_path) as file:
             coco = json.load(file)
-        coco_images = coco['images']
-        coco_annotations = coco['annotations']
-        coco_categories = coco['categories']
-        categories = {cat['id']:cat['name'] for cat in coco_categories}
-        keypoint_definitions = {cat['id']:{'keypoints':cat['keypoints'],'skeleton':cat['skeleton']} \
-                                for cat in coco_categories if 'keypoints' in cat.keys() and 'skeleton' in cat.keys()}
+        coco_images = coco["images"]
+        coco_annotations = coco["annotations"]
+        coco_categories = coco["categories"]
+        categories = {cat["id"]: cat["name"] for cat in coco_categories}
+        keypoint_definitions = {
+            cat["id"]: {"keypoints": cat["keypoints"], "skeleton": cat["skeleton"]}
+            for cat in coco_categories
+            if "keypoints" in cat.keys() and "skeleton" in cat.keys()
+        }
 
         ## dataset construction loop
         iter = tqdm(coco_images)
         for image in iter:
-            self.percentage = round((iter.n/iter.total)*100, 2)
+            self.percentage = round((iter.n / iter.total) * 100, 2)
 
             new_ann = {component_name: {"annotations": []}}
 
-            image_name = image['file_name']
-            image_id = image['id']
+            image_name = image["file_name"]
+            image_id = image["id"]
             image_path = os.path.join(image_dir, image_name)
             if os.path.exists(image_path):
                 image = cv2.imread(image_path)
             else:
                 warnings.warn(f"skipping {image_path} as it does no exist!")
 
-            annotations = [ann for ann in coco_annotations if ann['image_id'] == image_id]
+            annotations = [
+                ann for ann in coco_annotations if ann["image_id"] == image_id
+            ]
             for annotation in annotations:
                 new_ann_instance = {}
 
-                cat_id = annotation['category_id']
+                cat_id = annotation["category_id"]
                 class_name = categories[cat_id]
-                new_ann_instance['class_name'] = class_name
+                new_ann_instance["class_name"] = class_name
 
                 class_id = dataset._add_class(new_ann_instance)
-                new_ann_instance['class'] = class_id
+                new_ann_instance["class"] = class_id
 
                 if cat_id in keypoint_definitions.keys():
-                    dataset._add_keypoint_definition(class_id, keypoint_definitions[cat_id])
+                    dataset._add_keypoint_definition(
+                        class_id, keypoint_definitions[cat_id]
+                    )
 
-                if 'segmentation' in annotation.keys():
-                    segmentation = annotation['segmentation']
-                    if isinstance(segmentation, list) and len(segmentation) > 0: # polygon format
-                        new_ann_instance['segmentation'] = {'type':'polygon', 'task':'instance', 'data':segmentation}
-                    elif isinstance(segmentation, dict) and len(segmentation['counts']) > 0:
-                        new_ann_instance['segmentation'] = {'type':'mask', 'task':'instance', 'data':segmentation}
+                if "segmentation" in annotation.keys():
+                    segmentation = annotation["segmentation"]
+                    if (
+                        isinstance(segmentation, list) and len(segmentation) > 0
+                    ):  # polygon format
+                        new_ann_instance["segmentation"] = {
+                            "type": "polygon",
+                            "task": "instance",
+                            "data": segmentation,
+                        }
+                    elif (
+                        isinstance(segmentation, dict)
+                        and len(segmentation["counts"]) > 0
+                    ):
+                        new_ann_instance["segmentation"] = {
+                            "type": "mask",
+                            "task": "instance",
+                            "data": segmentation,
+                        }
 
-                if 'bbox' in annotation.keys():
-                    new_ann_instance['bbox'] = annotation['bbox']
+                if "bbox" in annotation.keys():
+                    new_ann_instance["bbox"] = annotation["bbox"]
 
-                if 'keypoints' in annotation.keys():
-                    new_ann_instance['keypoints'] = annotation['keypoints']
+                if "keypoints" in annotation.keys():
+                    new_ann_instance["keypoints"] = annotation["keypoints"]
 
-                new_ann[component_name]['annotations'].append(new_ann_instance)
+                new_ann[component_name]["annotations"].append(new_ann_instance)
 
             ## add instance to the dataset
             dataset.add_data(
@@ -207,7 +231,7 @@ class LuxonisParser:
             )
 
             ## limit dataset size
-            if dataset_size is not None and iter.n+1 >= dataset_size:
+            if dataset_size is not None and iter.n + 1 >= dataset_size:
                 break
 
         ## Convert to webdataset
@@ -216,15 +240,14 @@ class LuxonisParser:
 
     @parsing_wrapper
     def from_voc_format(
-            self,
-            dataset,
-            image_dir,
-            xml_annotation_files_paths,
-            split,
-            dataset_size=None,
-            override_main_component=None
-        ):
-
+        self,
+        dataset,
+        image_dir,
+        xml_annotation_files_paths,
+        split,
+        dataset_size=None,
+        override_main_component=None,
+    ):
         """
         Constructs a LDF dataset from a VOC type dataset.
         Arguments:
@@ -250,7 +273,7 @@ class LuxonisParser:
         ## dataset construction loop
         iter = tqdm(xml_annotation_files_paths)
         for xml_annotation_file_path in iter:
-            self.percentage = round((iter.n/iter.total)*100, 2)
+            self.percentage = round((iter.n / iter.total) * 100, 2)
 
             new_ann = {component_name: {"annotations": []}}
 
@@ -273,18 +296,23 @@ class LuxonisParser:
                         if info.tag == "name":
                             new_ann_instance["class_name"] = info.text
                             class_id = dataset._add_class(new_ann_instance)
-                            new_ann_instance['class'] = class_id
+                            new_ann_instance["class"] = class_id
                         if info.tag == "bndbox":
                             for point in info:
-                                if point.tag=="xmin":
+                                if point.tag == "xmin":
                                     bbox_xmin = int(point.text)
-                                if point.tag=="ymin":
+                                if point.tag == "ymin":
                                     bbox_ymin = int(point.text)
-                                if point.tag=="xmax":
+                                if point.tag == "xmax":
                                     bbox_xmax = int(point.text)
-                                if point.tag=="ymax":
+                                if point.tag == "ymax":
                                     bbox_ymax = int(point.text)
-                            coco_bbox = [bbox_xmin, bbox_ymin, bbox_xmax-bbox_xmin, bbox_ymax-bbox_ymin] #x_min, y_min, width, height
+                            coco_bbox = [
+                                bbox_xmin,
+                                bbox_ymin,
+                                bbox_xmax - bbox_xmin,
+                                bbox_ymax - bbox_ymin,
+                            ]  # x_min, y_min, width, height
                             new_ann_instance["bbox"] = coco_bbox
 
                     new_ann[component_name]["annotations"].append(new_ann_instance)
@@ -295,7 +323,7 @@ class LuxonisParser:
             )
 
             ## limit dataset size
-            if dataset_size is not None and iter.n+1 >= dataset_size:
+            if dataset_size is not None and iter.n + 1 >= dataset_size:
                 break
 
         ## Convert to webdataset
@@ -304,15 +332,15 @@ class LuxonisParser:
 
     @parsing_wrapper
     def from_yolo4_format(
-            self,
-            dataset,
-            image_dir,
-            txt_annotations_file_path,
-            classes_txt_file_path,
-            split,
-            dataset_size=None,
-            override_main_component=None
-        ):
+        self,
+        dataset,
+        image_dir,
+        txt_annotations_file_path,
+        classes_txt_file_path,
+        split,
+        dataset_size=None,
+        override_main_component=None,
+    ):
         """
         Constructs a LDF dataset from a YOLO4 type dataset.
         Arguments:
@@ -336,20 +364,20 @@ class LuxonisParser:
 
         ## get class names
         if not os.path.exists(classes_txt_file_path):
-            raise RuntimeError('classes file path non-existent.')
-        with open(classes_txt_file_path, 'r', encoding='utf-8-sig') as text:
+            raise RuntimeError("classes file path non-existent.")
+        with open(classes_txt_file_path, "r", encoding="utf-8-sig") as text:
             classes = text.readlines()
             classes = [class_name.replace("\n", "") for class_name in classes]
 
         ## dataset construction loop
-        with open(txt_annotations_file_path, 'r', encoding='utf-8-sig') as text:
+        with open(txt_annotations_file_path, "r", encoding="utf-8-sig") as text:
             iter = tqdm(text.readlines())
             for line in iter:
-                self.percentage = round((iter.n/iter.total)*100, 2)
+                self.percentage = round((iter.n / iter.total) * 100, 2)
 
                 new_ann = {component_name: {"annotations": []}}
 
-                image_name = line.split(' ')[0]
+                image_name = line.split(" ")[0]
                 image_path = os.path.join(image_dir, image_name)
                 if os.path.exists(image_path):
                     image = cv2.imread(image_path)
@@ -357,26 +385,35 @@ class LuxonisParser:
                     warnings.warn(f"skipping {image_path} as it does no exist!")
                     continue
 
-                for annotation in line.split(' ')[1:]:
+                for annotation in line.split(" ")[1:]:
                     new_ann_instance = {}
 
-                    bbox_xmin, bbox_ymin, bbox_xmax, bbox_ymax, class_idx = [int(x) for x in annotation.split(',')]
+                    bbox_xmin, bbox_ymin, bbox_xmax, bbox_ymax, class_idx = [
+                        int(x) for x in annotation.split(",")
+                    ]
 
                     new_ann_instance["class_name"] = classes[class_idx]
                     class_id = dataset._add_class(new_ann_instance)
-                    new_ann_instance['class'] = class_id
+                    new_ann_instance["class"] = class_id
 
-                    coco_bbox_format = [bbox_xmin, bbox_ymin, bbox_xmax-bbox_xmin, bbox_ymax-bbox_ymin] #x_min, y_min, width, height
+                    coco_bbox_format = [
+                        bbox_xmin,
+                        bbox_ymin,
+                        bbox_xmax - bbox_xmin,
+                        bbox_ymax - bbox_ymin,
+                    ]  # x_min, y_min, width, height
                     new_ann_instance["bbox"] = coco_bbox_format
                     new_ann[component_name]["annotations"].append(new_ann_instance)
 
                 ## add to dataset
                 dataset.add_data(
-                    self.source_name, {component_name: image, "json": new_ann}, split=split
+                    self.source_name,
+                    {component_name: image, "json": new_ann},
+                    split=split,
                 )
 
                 ## limit dataset size
-                if dataset_size is not None and iter.n+1 >= dataset_size:
+                if dataset_size is not None and iter.n + 1 >= dataset_size:
                     break
 
         ## Convert to webdataset
@@ -385,14 +422,14 @@ class LuxonisParser:
 
     @parsing_wrapper
     def from_yolo5_format(
-            self,
-            dataset,
-            image_dir,
-            #txt_annotation_files_paths, # list of paths to the text annotation files where each line encodes a bounding box
-            split,
-            dataset_size=None,
-            override_main_component=None
-        ):
+        self,
+        dataset,
+        image_dir,
+        # txt_annotation_files_paths, # list of paths to the text annotation files where each line encodes a bounding box
+        split,
+        dataset_size=None,
+        override_main_component=None,
+    ):
         """
         Constructs a LDF dataset from a YOLO5 type dataset.
         Arguments:
@@ -415,21 +452,23 @@ class LuxonisParser:
             component_name = dataset.sources[self.source_name].main_component
 
         ## get class names
-        root_path = os.path.split(os.path.split(image_dir)[0])[0] #go two levels up
-        yaml_files = [fname for fname in os.listdir(root_path) if fname.endswith('.yaml')]
+        root_path = os.path.split(os.path.split(image_dir)[0])[0]  # go two levels up
+        yaml_files = [
+            fname for fname in os.listdir(root_path) if fname.endswith(".yaml")
+        ]
         if len(yaml_files) > 1:
-            raise RuntimeError('Multiple YAML files - possible ambiguity')
+            raise RuntimeError("Multiple YAML files - possible ambiguity")
         else:
             yaml_path = yaml_files[0]
-            yolo = yaml.safe_load(Path(os.path.join(root_path,yaml_path)).read_text())
-            classes = yolo['names']
-            if yolo['nc'] != len(classes):
+            yolo = yaml.safe_load(Path(os.path.join(root_path, yaml_path)).read_text())
+            classes = yolo["names"]
+            if yolo["nc"] != len(classes):
                 raise Exception(f"nc in YOLO YAML file does not match names!")
 
         ## dataset construction loop
         iter = tqdm(os.listdir(image_dir))
         for image_name in iter:
-            self.percentage = round((iter.n/iter.total)*100, 2)
+            self.percentage = round((iter.n / iter.total) * 100, 2)
 
             image_path = os.path.join(image_dir, image_name)
             if os.path.exists(image_path):
@@ -438,40 +477,50 @@ class LuxonisParser:
                 warnings.warn(f"skipping {image_path} as it does no exist!")
                 continue
 
-            ext = image_path.split('.')[-1]
-            label_path = image_path.replace('/images/', '/labels/').replace(f".{ext}", '.txt')
+            ext = image_path.split(".")[-1]
+            label_path = image_path.replace("/images/", "/labels/").replace(
+                f".{ext}", ".txt"
+            )
             if not os.path.exists(label_path):
-                warnings.warn(f"Skipping image {image_path} - label {label_path} not found!")
+                warnings.warn(
+                    f"Skipping image {image_path} - label {label_path} not found!"
+                )
                 continue
 
             # add YOLO data
-            new_ann = {component_name: {'annotations': []}}
+            new_ann = {component_name: {"annotations": []}}
 
             h, w = image.shape[0], image.shape[1]
 
             with open(label_path) as file:
                 lines = file.readlines()
                 rows = len(lines)
-                data = np.array([float(num) for line in lines for num in line.replace('\n','').split(' ')])
+                data = np.array(
+                    [
+                        float(num)
+                        for line in lines
+                        for num in line.replace("\n", "").split(" ")
+                    ]
+                )
                 data = data.reshape(rows, -1).tolist()
 
             for row in data:
                 new_ann_instance = {}
                 yolo_class_id = int(row[0])
                 class_name = classes[yolo_class_id]
-                new_ann_instance['class_name'] = class_name
+                new_ann_instance["class_name"] = class_name
                 class_id = dataset._add_class(new_ann_instance)
-                new_ann_instance['class'] = class_id
+                new_ann_instance["class"] = class_id
 
                 # bounding box
 
-                bbox_xcenter = row[1]*w
-                bbox_ycenter = row[2]*h
+                bbox_xcenter = row[1] * w
+                bbox_ycenter = row[2] * h
 
-                #bbox_xmin = annotation["coordinates"]["x"]
-                #bbox_ymin = annotation["coordinates"]["y"]
-                bbox_width = row[3]*w
-                bbox_height = row[4]*h
+                # bbox_xmin = annotation["coordinates"]["x"]
+                # bbox_ymin = annotation["coordinates"]["y"]
+                bbox_width = row[3] * w
+                bbox_height = row[4] * h
 
                 bbox_xmin = bbox_xcenter - bbox_width / 2
                 bbox_ymin = bbox_ycenter - bbox_height / 2
@@ -480,10 +529,9 @@ class LuxonisParser:
                 new_ann_instance["bbox"] = coco_bbox_format
                 new_ann[component_name]["annotations"].append(new_ann_instance)
 
-
                 #############################
-                #new_ann_instance['bbox'] = [, , , ]
-                #new_ann[component_name]['annotations'].append(new_ann_instance)
+                # new_ann_instance['bbox'] = [, , , ]
+                # new_ann[component_name]['annotations'].append(new_ann_instance)
 
             ## add to dataset
             dataset.add_data(
@@ -491,7 +539,7 @@ class LuxonisParser:
             )
 
             ## limit dataset size
-            if dataset_size is not None and iter.n+1 >= dataset_size:
+            if dataset_size is not None and iter.n + 1 >= dataset_size:
                 break
 
         ## Convert to webdataset
@@ -500,14 +548,14 @@ class LuxonisParser:
 
     @parsing_wrapper
     def from_tfodc_format(
-            self,
-            dataset,
-            image_dir,
-            csv_file_path,
-            split,
-            dataset_size=None,
-            override_main_component=None
-        ):
+        self,
+        dataset,
+        image_dir,
+        csv_file_path,
+        split,
+        dataset_size=None,
+        override_main_component=None,
+    ):
         """
         Constructs a LDF dataset from a TFObjectDetectionCSV type dataset.
         Arguments:
@@ -532,9 +580,8 @@ class LuxonisParser:
 
         ## extract annotations for each image
         annotations = {}
-        reader = csv.reader(open(csv_file_path),delimiter=',')
+        reader = csv.reader(open(csv_file_path), delimiter=",")
         for n, row in enumerate(reader):
-
             if n == 0:
                 idx_fname = row.index("filename")
                 idx_class = row.index("class")
@@ -558,7 +605,7 @@ class LuxonisParser:
         ## dataset construction loop
         iter = tqdm(annotations.keys())
         for image_name in iter:
-            self.percentage = round((iter.n/iter.total)*100, 2)
+            self.percentage = round((iter.n / iter.total) * 100, 2)
 
             image_path = os.path.join(image_dir, image_name)
             if os.path.exists(image_path):
@@ -576,9 +623,14 @@ class LuxonisParser:
 
                 new_ann_instance["class_name"] = class_name
                 class_id = dataset._add_class(new_ann_instance)
-                new_ann_instance['class'] = class_id
+                new_ann_instance["class"] = class_id
 
-                coco_bbox = [bbox_xmin, bbox_ymin, bbox_xmax-bbox_xmin, bbox_ymax-bbox_ymin] #x_min, y_min, width, height
+                coco_bbox = [
+                    bbox_xmin,
+                    bbox_ymin,
+                    bbox_xmax - bbox_xmin,
+                    bbox_ymax - bbox_ymin,
+                ]  # x_min, y_min, width, height
                 new_ann_instance["bbox"] = coco_bbox
                 new_ann[component_name]["annotations"].append(new_ann_instance)
 
@@ -588,7 +640,7 @@ class LuxonisParser:
             )
 
             ## limit dataset size
-            if dataset_size is not None and iter.n+1 >= dataset_size:
+            if dataset_size is not None and iter.n + 1 >= dataset_size:
                 break
 
         ## Convert to webdataset
@@ -597,14 +649,14 @@ class LuxonisParser:
 
     @parsing_wrapper
     def from_cml_format(
-            self,
-            dataset,
-            image_dir,
-            annotation_path,
-            split,
-            dataset_size=None,
-            override_main_component=None
-        ):
+        self,
+        dataset,
+        image_dir,
+        annotation_path,
+        split,
+        dataset_size=None,
+        override_main_component=None,
+    ):
         """
         Constructs a LDF dataset from a CreateML type dataset.
         Arguments:
@@ -634,7 +686,7 @@ class LuxonisParser:
         ## dataset construction loop
         iter = tqdm(cml_annotations)
         for annotations_instance in iter:
-            self.percentage = round((iter.n/iter.total)*100, 2)
+            self.percentage = round((iter.n / iter.total) * 100, 2)
 
             image_name = annotations_instance["image"]
             image_path = os.path.join(image_dir, image_name)
@@ -648,7 +700,6 @@ class LuxonisParser:
 
             annotations = annotations_instance["annotations"]
             for annotation in annotations:
-
                 class_name = annotation["label"]
                 bbox_xcenter = annotation["coordinates"]["x"]
                 bbox_ycenter = annotation["coordinates"]["y"]
@@ -663,7 +714,7 @@ class LuxonisParser:
 
                 new_ann_instance["class_name"] = class_name
                 class_id = dataset._add_class(new_ann_instance)
-                new_ann_instance['class'] = class_id
+                new_ann_instance["class"] = class_id
 
                 coco_bbox_format = [bbox_xmin, bbox_ymin, bbox_width, bbox_height]
                 new_ann_instance["bbox"] = coco_bbox_format
@@ -675,7 +726,7 @@ class LuxonisParser:
             )
 
             ## limit dataset size
-            if dataset_size is not None and iter.n+1 >= dataset_size:
+            if dataset_size is not None and iter.n + 1 >= dataset_size:
                 break
 
         ## Convert to webdataset
@@ -684,14 +735,14 @@ class LuxonisParser:
 
     @parsing_wrapper
     def from_numpy_format(
-            self,
-            dataset,
-            images,
-            labels,
-            split,
-            dataset_size=None,
-            override_main_component=None
-        ):
+        self,
+        dataset,
+        images,
+        labels,
+        split,
+        dataset_size=None,
+        override_main_component=None,
+    ):
         """
         Constructs a LDF dataset from data provided in numpy arrays.
         Arguments:
@@ -720,7 +771,7 @@ class LuxonisParser:
         ## dataset construction loop
         iter = tqdm(zip(images, labels))
         for image, label in iter:
-            self.percentage = round((iter.n/iter.total)*100, 2)
+            self.percentage = round((iter.n / iter.total) * 100, 2)
 
             new_ann = {component_name: {"annotations": []}}
             new_ann_instance = {}
@@ -736,13 +787,13 @@ class LuxonisParser:
         dataset.to_webdataset(split, query)
 
     def train_test_split_image_classification_directory_tree(
-            self,
-            directory_tree_path,
-            destination_path1,
-            destination_path2,
-            split_proportion,
-            folders_to_ignore=[]
-        ):
+        self,
+        directory_tree_path,
+        destination_path1,
+        destination_path2,
+        split_proportion,
+        folders_to_ignore=[],
+    ):
         """
         Split directory tree into two parts. This is useful as some classification directory tree format datasets
         (e.g. Caltech101) do not separately provide data for training, validation and testing.
@@ -757,13 +808,12 @@ class LuxonisParser:
         """
 
         for folder_name in os.listdir(directory_tree_path):
-
             if folder_name in folders_to_ignore:
                 continue
 
             image_names = os.listdir(os.path.join(directory_tree_path, folder_name))
             random.shuffle(image_names)
-            split_idx = int(len(image_names)*split_proportion)
+            split_idx = int(len(image_names) * split_proportion)
             image_names1 = image_names[:split_idx]
             image_names2 = image_names[split_idx:]
 
@@ -771,21 +821,25 @@ class LuxonisParser:
             os.mkdir(os.path.join(destination_path2, folder_name))
 
             for image_name in image_names1:
-                shutil.copyfile(src=os.path.join(directory_tree_path, folder_name, image_name),
-                                dst=os.path.join(destination_path1, folder_name, image_name))
+                shutil.copyfile(
+                    src=os.path.join(directory_tree_path, folder_name, image_name),
+                    dst=os.path.join(destination_path1, folder_name, image_name),
+                )
             for image_name in image_names2:
-                shutil.copyfile(src=os.path.join(directory_tree_path, folder_name, image_name),
-                                dst=os.path.join(destination_path2, folder_name, image_name))
+                shutil.copyfile(
+                    src=os.path.join(directory_tree_path, folder_name, image_name),
+                    dst=os.path.join(destination_path2, folder_name, image_name),
+                )
 
     @parsing_wrapper
     def from_image_classification_directory_tree_format(
-            self,
-            dataset,
-            class_folders_paths,
-            split,
-            dataset_size=None,
-            override_main_component=None
-        ):
+        self,
+        dataset,
+        class_folders_paths,
+        split,
+        dataset_size=None,
+        override_main_component=None,
+    ):
         """
         Constructs a LDF dataset from a directory tree whose subfolders define image classes.
         Arguments:
@@ -806,7 +860,7 @@ class LuxonisParser:
             component_name = dataset.sources[self.source_name].main_component
 
         if len(class_folders_paths) == 0:
-            raise RuntimeError('Directory tree is empty')
+            raise RuntimeError("Directory tree is empty")
 
         ## dataset construction loop
         iter1 = tqdm(class_folders_paths)
@@ -814,7 +868,9 @@ class LuxonisParser:
             class_folder_name = os.path.split(class_folder_path)[-1]
             iter2 = tqdm(os.listdir(class_folder_path))
             for image_name in iter2:
-                self.percentage = round((iter1.n/iter1.total)*100, 2) + round(((iter2.n/iter2.total)/iter1.total)*100, 2)
+                self.percentage = round((iter1.n / iter1.total) * 100, 2) + round(
+                    ((iter2.n / iter2.total) / iter1.total) * 100, 2
+                )
 
                 image_path = os.path.join(class_folder_path, image_name)
                 if os.path.exists(image_path):
@@ -831,11 +887,13 @@ class LuxonisParser:
 
                 ## add data to the provided LDF dataset instance
                 dataset.add_data(
-                    self.source_name, {component_name: image, "json": new_ann}, split=split
+                    self.source_name,
+                    {component_name: image, "json": new_ann},
+                    split=split,
                 )
 
                 ## limit dataset size
-                if dataset_size is not None and iter.n+1 >= dataset_size:
+                if dataset_size is not None and iter.n + 1 >= dataset_size:
                     break
 
         ## Convert to webdataset
@@ -844,15 +902,15 @@ class LuxonisParser:
 
     @parsing_wrapper
     def from_image_classification_with_text_annotations_format(
-            self,
-            dataset,
-            image_dir,
-            info_file_path,
-            split,
-            delimiter=" ",
-            dataset_size=None,
-            override_main_component=None
-        ):
+        self,
+        dataset,
+        image_dir,
+        info_file_path,
+        split,
+        delimiter=" ",
+        dataset_size=None,
+        override_main_component=None,
+    ):
         """
         Constructs a LDF dataset based on image paths and labels from text annotations.
         Arguments:
@@ -875,18 +933,20 @@ class LuxonisParser:
             component_name = dataset.sources[self.source_name].main_component
 
         if not os.path.exists(info_file_path):
-            raise RuntimeError('Info file path non-existent.')
+            raise RuntimeError("Info file path non-existent.")
 
         ## dataset construction loop
         with open(info_file_path) as f:
             lines = f.readlines()
             iter = tqdm(lines)
             for line in iter:
-                self.percentage = round((iter.n/iter.total)*100, 2)
+                self.percentage = round((iter.n / iter.total) * 100, 2)
                 try:
                     image_path, label = line.split(delimiter)
                 except:
-                    raise RuntimeError('Unable to split the info file based on the provided delimiter.')
+                    raise RuntimeError(
+                        "Unable to split the info file based on the provided delimiter."
+                    )
 
                 label = label.strip()
 
@@ -904,11 +964,13 @@ class LuxonisParser:
 
                 ## add data to the provided LDF dataset instance
                 dataset.add_data(
-                    self.source_name, {component_name: image, "json": new_ann}, split=split
+                    self.source_name,
+                    {component_name: image, "json": new_ann},
+                    split=split,
                 )
 
                 ## limit dataset size
-                if dataset_size is not None and iter.n+1 >= dataset_size:
+                if dataset_size is not None and iter.n + 1 >= dataset_size:
                     break
 
         # Convert to webdataset
@@ -938,22 +1000,28 @@ class LuxonisParser:
     def get_parsing_in_progress(self):
         return self.parsing_in_progress
 
-    def parse_to_dataset(self, dataset_type, team_name, dataset_name, *args, new_thread = False, **kwargs):
+    def parse_to_dataset(
+        self, dataset_type, team_name, dataset_name, *args, new_thread=False, **kwargs
+    ):
         # Order of args passed in parsing functions has to be (self, dataset_info) + other args
 
         dataset_info = (team_name, dataset_name, dataset_type)
         if not new_thread:
-            LuxonisParser.DATASET_TYPE_TO_FUNCTION[dataset_type](self, dataset_info, *args, **kwargs)
+            LuxonisParser.DATASET_TYPE_TO_FUNCTION[dataset_type](
+                self, dataset_info, *args, **kwargs
+            )
         else:
+
             def thread_exception_hook(args):
                 self.error_message = str(args.exc_value)
                 self.parsing_in_progress = False
+
             threading.excepthook = thread_exception_hook
 
             self.thread = threading.Thread(
                 target=Parser.DATASET_TYPE_TO_FUNCTION[dataset_type],
                 args=(self, dataset_info) + args,
                 kwargs=kwargs,
-                daemon=True
+                daemon=True,
             )
             self.thread.start()
