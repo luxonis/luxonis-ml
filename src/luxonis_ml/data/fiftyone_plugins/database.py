@@ -20,8 +20,10 @@ class LuxonisDatasetDocument(Document):
     team_name = StringField()
     dataset_name = StringField()
     fo_dataset_id = ObjectIdField(db_field="_dataset_id")
+    ldf_version = StringField()
     path = StringField()
     bucket_type = StringField()
+    bucket_storage = StringField()
     current_version = FloatField()
 
 

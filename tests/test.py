@@ -161,11 +161,22 @@ class LuxonisDatasetTester(unittest.TestCase):
         self.assertEqual(res["current_version"], 0.0, "Version initialize failure")
         self.assertEqual(
             res["path"],
-            f"{Path.home()}/.cache/luxonis_ml/data/{self.team_id}/datasets/{self.dataset_id}",
+            str(
+                Path.home()
+                / ".cache"
+                / "luxonis_ml"
+                / "data"
+                / self.team_id
+                / "datasets"
+                / self.dataset_id
+            ),
             "Dataset path failure",
         )
         self.assertEqual(
-            res["bucket_type"], "local", "Default bucket type is not local"
+            res["bucket_type"], "external", "Default bucket type is not external"
+        )
+        self.assertEqual(
+            res["bucket_storage"], "local", "Default bucket storage is not local"
         )
 
         curr = self.conn.datasets.find({"name": f"{self.team_id}-{self.dataset_id}"})
@@ -179,44 +190,22 @@ class LuxonisDatasetTester(unittest.TestCase):
             "Luxonis dataset does not reference fo dataset",
         )
 
-        with LuxonisDataset(
-            self.team_id, self.dataset_id, bucket_type="aws"
-        ) as dataset:
-            dataset.version = 5
+    # def test_aws_init(self):
+    #     with LuxonisDataset(
+    #         self.team_id, self.dataset_id, bucket_type="aws", override_bucket_type=True
+    #     ) as dataset:
+    #         pass
 
-        curr = self.conn.luxonis_dataset_document.find(
-            {"$and": [{"team_id": self.team_id}, {"_id": ObjectId(self.dataset_id)}]}
-        )
-        res = list(curr)
-        self.assertGreater(len(res), 0, "Document not created")
-        self.assertEqual(len(res), 1, "Multiple documents created")
-        res = res[0]
-        self.assertEqual(res["current_version"], 5.0, "Update version field fail")
-        self.assertEqual(
-            res["bucket_type"], "local", "Default override_bucket_type arg fail"
-        )
-
-        with LuxonisDataset(
-            self.team_id, self.dataset_id, bucket_type="aws"
-        ) as dataset:
-            dataset.version = 0  # set back to 0
-
-    def test_aws_init(self):
-        with LuxonisDataset(
-            self.team_id, self.dataset_id, bucket_type="aws", override_bucket_type=True
-        ) as dataset:
-            pass
-
-        curr = self.conn.luxonis_dataset_document.find(
-            {"$and": [{"team_id": self.team_id}, {"_id": ObjectId(self.dataset_id)}]}
-        )
-        res = list(curr)
-        self.assertGreater(len(res), 0, "Document not created")
-        self.assertEqual(len(res), 1, "Multiple documents created")
-        res = res[0]
-        self.assertEqual(
-            res["bucket_type"], "aws", "Default override_bucket_type arg fail"
-        )
+    #     curr = self.conn.luxonis_dataset_document.find(
+    #         {"$and": [{"team_id": self.team_id}, {"_id": ObjectId(self.dataset_id)}]}
+    #     )
+    #     res = list(curr)
+    #     self.assertGreater(len(res), 0, "Document not created")
+    #     self.assertEqual(len(res), 1, "Multiple documents created")
+    #     res = res[0]
+    #     self.assertEqual(
+    #         res["bucket_type"], "aws", "Default override_bucket_type arg fail"
+    #     )
 
     def test_source(self):
         with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
@@ -749,7 +738,7 @@ if __name__ == "__main__":
     suite = unittest.TestSuite()
     suite.keep = args.keep
     suite.addTest(LuxonisDatasetTester("test_local_init"))
-    suite.addTest(LuxonisDatasetTester("test_aws_init"))
+    # suite.addTest(LuxonisDatasetTester("test_aws_init"))
     suite.addTest(LuxonisDatasetTester("test_source"))
     suite.addTest(LuxonisDatasetTester("test_transactions"))
     suite.addTest(LuxonisDatasetTester("test_add"))

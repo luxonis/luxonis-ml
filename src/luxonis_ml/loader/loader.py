@@ -40,7 +40,7 @@ class LuxonisLoader(torch.utils.data.Dataset):
             self.nk = 0
         self.augmentations = augmentations
 
-        if not self.stream and self.dataset.bucket_type != "local":
+        if not self.stream and self.dataset.bucket_storage.value != "local":
             self.dataset.sync_from_cloud()
 
         self.dataset.fo_dataset.group_slice = self.dataset.source.main_component
@@ -52,7 +52,7 @@ class LuxonisLoader(torch.utils.data.Dataset):
         sample_id = self.ids[idx]
         path = self.paths[idx]
         sample = self.dataset.fo_dataset[sample_id]
-        if self.stream and self.dataset.bucket_type != "local":
+        if self.stream and self.dataset.bucket_storage.value != "local":
             img_path = str(Path.home() / ".luxonis_mount" / path[1:])
         else:
             img_path = str(Path.home() / ".cache" / "luxonis_ml" / "data" / path[1:])
