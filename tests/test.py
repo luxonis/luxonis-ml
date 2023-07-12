@@ -22,6 +22,7 @@ the state of the LDF changes with each step.
 class LuxonisDatasetTester(unittest.TestCase):
     @classmethod
     def setUpClass(self):
+        self.keep = args.keep
         self.team_id = "d7625eef-ad99-4019-af95-ffa5ebd48e3c"
         self.team_name = "unittest"
         self.dataset_name = "coco"
@@ -56,7 +57,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             )
         )
         if len(res):
-            with LuxonisDataset(self.team_id, res[0]["_id"]) as dataset:
+            with LuxonisDataset(self.team_id, str(res[0]["_id"])) as dataset:
                 dataset.delete_dataset()
 
         # get COCO data for testing
@@ -140,7 +141,6 @@ class LuxonisDatasetTester(unittest.TestCase):
         self.dataset_id = LuxonisDataset.create(
             self.team_id, self.team_name, self.dataset_name
         )
-
         print("Testing", self.dataset_id)
 
     def test_local_init(self):
@@ -161,11 +161,22 @@ class LuxonisDatasetTester(unittest.TestCase):
         self.assertEqual(res["current_version"], 0.0, "Version initialize failure")
         self.assertEqual(
             res["path"],
-            f"{Path.home()}/.cache/luxonis_ml/data/{self.team_id}/datasets/{self.dataset_id}",
+            str(
+                Path.home()
+                / ".cache"
+                / "luxonis_ml"
+                / "data"
+                / self.team_id
+                / "datasets"
+                / self.dataset_id
+            ),
             "Dataset path failure",
         )
         self.assertEqual(
-            res["bucket_type"], "local", "Default bucket type is not local"
+            res["bucket_type"], "external", "Default bucket type is not external"
+        )
+        self.assertEqual(
+            res["bucket_storage"], "local", "Default bucket storage is not local"
         )
 
         curr = self.conn.datasets.find({"name": f"{self.team_id}-{self.dataset_id}"})
@@ -179,44 +190,22 @@ class LuxonisDatasetTester(unittest.TestCase):
             "Luxonis dataset does not reference fo dataset",
         )
 
-        with LuxonisDataset(
-            self.team_id, self.dataset_id, bucket_type="aws"
-        ) as dataset:
-            dataset.version = 5
+    # def test_aws_init(self):
+    #     with LuxonisDataset(
+    #         self.team_id, self.dataset_id, bucket_type="aws", override_bucket_type=True
+    #     ) as dataset:
+    #         pass
 
-        curr = self.conn.luxonis_dataset_document.find(
-            {"$and": [{"team_id": self.team_id}, {"_id": ObjectId(self.dataset_id)}]}
-        )
-        res = list(curr)
-        self.assertGreater(len(res), 0, "Document not created")
-        self.assertEqual(len(res), 1, "Multiple documents created")
-        res = res[0]
-        self.assertEqual(res["current_version"], 5.0, "Update version field fail")
-        self.assertEqual(
-            res["bucket_type"], "local", "Default override_bucket_type arg fail"
-        )
-
-        with LuxonisDataset(
-            self.team_id, self.dataset_id, bucket_type="aws"
-        ) as dataset:
-            dataset.version = 0  # set back to 0
-
-    def test_aws_init(self):
-        with LuxonisDataset(
-            self.team_id, self.dataset_id, bucket_type="aws", override_bucket_type=True
-        ) as dataset:
-            pass
-
-        curr = self.conn.luxonis_dataset_document.find(
-            {"$and": [{"team_id": self.team_id}, {"_id": ObjectId(self.dataset_id)}]}
-        )
-        res = list(curr)
-        self.assertGreater(len(res), 0, "Document not created")
-        self.assertEqual(len(res), 1, "Multiple documents created")
-        res = res[0]
-        self.assertEqual(
-            res["bucket_type"], "aws", "Default override_bucket_type arg fail"
-        )
+    #     curr = self.conn.luxonis_dataset_document.find(
+    #         {"$and": [{"team_id": self.team_id}, {"_id": ObjectId(self.dataset_id)}]}
+    #     )
+    #     res = list(curr)
+    #     self.assertGreater(len(res), 0, "Document not created")
+    #     self.assertEqual(len(res), 1, "Multiple documents created")
+    #     res = res[0]
+    #     self.assertEqual(
+    #         res["bucket_type"], "aws", "Default override_bucket_type arg fail"
+    #     )
 
     def test_source(self):
         with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
@@ -404,7 +393,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             a = deepcopy(self.additions[-1])
             a["A"]["class"] = ["person"]  # adding a new field (classification)
             a["A"]["weather"] = "sunny"  # adding a new field
-            del a["A"]["split"]  # removing a field
+            a["A"]["boxes"] = None  # removing a field
             tta, media_change, field_change = dataset._add_filter([a])
             transaction_to_additions += tta
             self.assertEqual(media_change, False, "media_change failed")
@@ -429,6 +418,23 @@ class LuxonisDatasetTester(unittest.TestCase):
             self.assertEqual(num_ends, 1, "Wrong number of ENDs")
             self.assertEqual(
                 num_executed, 0, "Some transactions are unexpectedly executed"
+            )
+
+            dataset._add_execute()
+            dataset.fo_dataset.group_slice = "A"
+            query = dataset.fo_dataset.match(
+                (F("latest") == False) & (F("version") == -1)
+            )
+            self.assertEqual(
+                len(query), 1, "Only one change in A when executing modifications"
+            )
+            for sample in query:
+                break
+            self.assertEqual(
+                sample["weather"], "sunny", "Executed change to added field"
+            )
+            self.assertEqual(
+                sample["boxes"], None, "Executed change to a deleted field"
             )
 
             # non-annotation field change
@@ -517,9 +523,8 @@ class LuxonisDatasetTester(unittest.TestCase):
             for sample in query:
                 break
             self.assertEqual(
-                sample["weather"], "stormy", "Executed change to added field"
+                sample["weather"], "stormy", "Executed change to custom field"
             )
-            self.assertEqual(sample["split"], None, "Executed change to added field")
             self.assertEqual(
                 sample["class"]["classifications"][0]["label"],
                 "orange",
@@ -543,6 +548,30 @@ class LuxonisDatasetTester(unittest.TestCase):
             for sample in query:
                 break
             # TODO: keypoint test
+
+            # split test
+            a = deepcopy(self.additions[-1])
+            a["A"]["split"] = "test"
+            transaction_to_additions, media_change, field_change = dataset._add_filter(
+                [a]
+            )
+            dataset._add_execute()
+
+            dataset.fo_dataset.group_slice = "A"
+            query = dataset.fo_dataset.match(
+                (F("latest") == False) & (F("version") == -1)
+            )
+            for sample in query:
+                break
+            self.assertEqual(sample["split"], "test", "A sample split update")
+
+            dataset.fo_dataset.group_slice = "B"
+            query = dataset.fo_dataset.match(
+                (F("latest") == False) & (F("version") == -1)
+            )
+            for sample in query:
+                break
+            self.assertEqual(sample["split"], "test", "B sample split update")
 
     def test_version_2(self):
         with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
@@ -683,16 +712,33 @@ class LuxonisDatasetTester(unittest.TestCase):
         # TODO: test dataset version documents are deleted
         # TODO: test dataset transaction documents are deleted
 
-    # @classmethod
-    # def tearDownClass(self):
-    #     with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
-    #         dataset.delete_dataset()
+    @classmethod
+    def tearDownClass(self):
+        if self.keep:
+            return
+        try:
+            with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
+                dataset.delete_dataset()
+        except:
+            pass
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "-k",
+        "--keep",
+        action="store_true",
+        help="Omits dataset deletion for further exploratory testing",
+    )
+    args = parser.parse_args()
+
     suite = unittest.TestSuite()
+    suite.keep = args.keep
     suite.addTest(LuxonisDatasetTester("test_local_init"))
-    suite.addTest(LuxonisDatasetTester("test_aws_init"))
+    # suite.addTest(LuxonisDatasetTester("test_aws_init"))
     suite.addTest(LuxonisDatasetTester("test_source"))
     suite.addTest(LuxonisDatasetTester("test_transactions"))
     suite.addTest(LuxonisDatasetTester("test_add"))
@@ -701,6 +747,7 @@ if __name__ == "__main__":
     suite.addTest(LuxonisDatasetTester("test_version_2"))
     suite.addTest(LuxonisDatasetTester("test_delete"))
     suite.addTest(LuxonisDatasetTester("test_version_3"))
-    suite.addTest(LuxonisDatasetTester("test_delete_dataset"))
+    if not args.keep:
+        suite.addTest(LuxonisDatasetTester("test_delete_dataset"))
     runner = unittest.TextTestRunner()
     runner.run(suite)

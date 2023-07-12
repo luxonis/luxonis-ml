@@ -22,6 +22,8 @@ from bson.objectid import ObjectId
 from .version import LuxonisVersion
 from .utils.s3_utils import sync_from_s3, sync_to_s3, check_s3_file_existence
 
+LDF_VERSION = "0.1.0"
+
 
 class HType(Enum):
     """Individual file type"""
@@ -46,6 +48,22 @@ class LDFTransactionType(Enum):
     ADD = "ADD"
     UPDATE = "UPDATE"
     DELETE = "DELETE"
+
+
+class BucketType(Enum):
+    """Whether storage is internal or external"""
+
+    INTERNAL = "internal"
+    EXTERNAL = "external"
+
+
+class BucketStorage(Enum):
+    """Underlying object storage for a bucket"""
+
+    LOCAL = "local"
+    S3 = "s3"
+    GCS = "gcs"
+    AZURE_BLOB = "azure"
 
 
 class LDFComponent:
@@ -113,7 +131,10 @@ class LuxonisDataset:
             return str(res[0]["_id"])
         else:
             dataset_doc = fop.LuxonisDatasetDocument(
-                team_id=team_id, team_name=team_name, dataset_name=dataset_name
+                team_id=team_id,
+                team_name=team_name,
+                dataset_name=dataset_name,
+                ldf_version=LDF_VERSION,
             )
             dataset_doc = dataset_doc.save(upsert=True)
 
@@ -125,16 +146,9 @@ class LuxonisDataset:
         dataset_id,
         team_name=None,
         dataset_name=None,
-        bucket_type="local",
-        override_bucket_type=False,
+        bucket_type=BucketType.EXTERNAL,
+        bucket_storage=BucketStorage.LOCAL,
     ):
-        """
-        team name: team under which you can find all datasets
-        dataset name: name of the dataset
-        bucket_type: underlying storage for images, which can be local or an AWS bucket
-        override_bucket_type: option to change underlying storage from saved setting in DB
-        """
-
         self.conn = foo.get_db_conn()
 
         self.team_id = team_id
@@ -143,13 +157,14 @@ class LuxonisDataset:
         self.dataset_name = dataset_name
         self.full_name = f"{self.team_id}-{self.dataset_id}"
         self.bucket_type = bucket_type
-        self.bucket_choices = ["local", "aws"]
-        self.override_bucket_type = override_bucket_type
-        if self.bucket_type not in self.bucket_choices:
-            raise Exception(f"Bucket type {self.bucket_type} is not supported!")
+        self.bucket_storage = bucket_storage
+        if not isinstance(self.bucket_type, BucketType):
+            raise Exception(f"Must use a valid BucketType!")
+        if not isinstance(self.bucket_storage, BucketStorage):
+            raise Exception(f"Must use a valid BucketStorage!")
 
-        credentials_cache_file = (
-            f"{str(Path.home())}/.cache/luxonis_ml/credentials.json"
+        credentials_cache_file = str(
+            Path.home() / ".cache" / "luxonis_ml" / "credentials.json"
         )
         if os.path.exists(credentials_cache_file):
             with open(credentials_cache_file) as file:
@@ -167,7 +182,6 @@ class LuxonisDataset:
             self.fo_dataset = fo.load_dataset(self.full_name)
         else:
             self.fo_dataset = fo.Dataset(self.full_name)
-            self.conn.luxonis_dataset_document.update_one
         self.fo_dataset.persistent = True
 
         res = list(
@@ -187,12 +201,7 @@ class LuxonisDataset:
                 team_id=self.team_id, id=ObjectId(self.dataset_id)
             )
 
-            tmp_bucket_type = self.bucket_type
-
             self._doc_to_class()
-
-            if self.override_bucket_type:
-                self.bucket_type = tmp_bucket_type
 
             self._init_path()
 
@@ -212,7 +221,12 @@ class LuxonisDataset:
             hasattr(self.dataset_doc, "bucket_type")
             and self.dataset_doc.bucket_type is not None
         ):
-            self.bucket_type = self.dataset_doc.bucket_type
+            self.bucket_type = BucketType(self.dataset_doc.bucket_type)
+        if (
+            hasattr(self.dataset_doc, "bucket_storage")
+            and self.dataset_doc.bucket_storage is not None
+        ):
+            self.bucket_storage = BucketStorage(self.dataset_doc.bucket_storage)
         if (
             hasattr(self.dataset_doc, "current_version")
             and self.dataset_doc.current_version is not None
@@ -245,7 +259,8 @@ class LuxonisDataset:
     def _class_to_doc(self):
         self.dataset_doc.fo_dataset_id = self.fo_dataset._doc.id
         self.dataset_doc.path = self.path
-        self.dataset_doc.bucket_type = self.bucket_type
+        self.dataset_doc.bucket_type = self.bucket_type.value
+        self.dataset_doc.bucket_storage = self.bucket_storage.value
         self.dataset_doc.current_version = self.version
 
     def _get_credentials(self, key):
@@ -271,17 +286,25 @@ class LuxonisDataset:
         # self._create_directory(self.bucket_path)
 
     def _init_path(self):
-        if self.bucket_type == "local":
-            self.path = f"{str(Path.home())}/.cache/luxonis_ml/data/{self.team_id}/datasets/{self.dataset_id}"
+        if self.bucket_storage.value == "local":
+            self.path = str(
+                Path.home()
+                / ".cache"
+                / "luxonis_ml"
+                / "data"
+                / self.team_id
+                / "datasets"
+                / self.dataset_id
+            )
             os.makedirs(self.path, exist_ok=True)
-        elif self.bucket_type == "aws":
+        elif self.bucket_storage.value == "s3":
             self.path = f"s3://{self._get_credentials('AWS_BUCKET')}/{self.team_id}/datasets/{self.dataset_id}"
             self._init_boto3_client()
 
     def _create_directory(self, path, clear_contents=False):
-        if self.bucket_type == "local":
+        if self.bucket_storage.value == "local":
             os.makedirs(path, exist_ok=True)
-        elif self.bucket_type == "aws":
+        elif self.bucket_storage.value == "s3":
             resp = self.client.list_objects(
                 Bucket=self.bucket,
                 Prefix=f"{self.bucket_path}/{path}/",
@@ -407,14 +430,21 @@ class LuxonisDataset:
         self.fo_dataset.save()
 
     def sync_from_cloud(self):
-        if self.bucket_type == "local":
+        if self.bucket_storage.value == "local":
             print("This is a local dataset! Cannot sync")
         else:
             sync_from_s3(
-                # non_streaming_dir=f"{str(Path.home())}/.cache/luxonis_ml/data/{self.team_id}/datasets/{self.dataset_id}",
-                non_streaming_dir=f"{str(Path.home())}/.cache/luxonis_ml/data",
+                non_streaming_dir=str(
+                    Path.home()
+                    / ".cache"
+                    / "luxonis_ml"
+                    / "data"
+                    / self.team_id
+                    / "datasets"
+                    / self.dataset_id
+                ),
                 bucket=self.bucket,
-                bucket_dir=os.path.join(self.team_id, "datasets", self.dataset_id),
+                bucket_dir=str(Path(self.team_id) / "datasets" / self.dataset_id),
                 endpoint_url=self._get_credentials("AWS_S3_ENDPOINT_URL"),
             )
 
@@ -582,9 +612,9 @@ class LuxonisDataset:
                 filepath = addition[component_name]["filepath"]
                 additions[i][component_name]["_old_filepath"] = filepath
                 if not data_utils.is_modified_filepath(self, filepath):
-                    additions[i][component_name][
-                        "_new_image_name"
-                    ] = data_utils.generate_hashname(filepath)
+                    hashpath, hash = data_utils.generate_hashname(filepath)
+                    additions[i][component_name]["instance_id"] = hash
+                    additions[i][component_name]["_new_image_name"] = hashpath
                 granule = data_utils.get_granule(filepath, addition, component_name)
                 new_filepath = f"/{self.team_id}/datasets/{self.dataset_id}/{component_name}/{granule}"
                 additions[i][component_name]["filepath"] = new_filepath
@@ -631,13 +661,26 @@ class LuxonisDataset:
                     for change in changes:
                         field, value = list(change.items())[0]
                         field_change = True
-                        tid = self._make_transaction(
-                            LDFTransactionType.UPDATE,
-                            sample_id=latest_sample._id,
-                            field=field,
-                            value=value,
-                            component=component_name,
-                        )
+                        if field == "split":
+                            group = data_utils.get_group_from_sample(
+                                self, latest_sample
+                            )
+                            for component_name in group:
+                                tid = self._make_transaction(
+                                    LDFTransactionType.UPDATE,
+                                    sample_id=group[component_name]["id"],
+                                    field=field,
+                                    value=value,
+                                    component=component_name,
+                                )
+                        else:
+                            tid = self._make_transaction(
+                                LDFTransactionType.UPDATE,
+                                sample_id=latest_sample._id,
+                                field=field,
+                                value=value,
+                                component=component_name,
+                            )
 
         if media_change or field_change:
             self._make_transaction(LDFTransactionType.END)
@@ -654,13 +697,21 @@ class LuxonisDataset:
         print("Extracting dataset media...")
 
         components = self.source.components
-        if self.bucket_type == "local":
-            local_cache = f"{str(Path.home())}/.cache/luxonis_ml/data/{self.team_id}/datasets/{self.dataset_id}"
-        elif self.bucket_type == "aws":
-            local_cache = f"{str(Path.home())}/.cache/luxonis_ml/tmp"
+        if self.bucket_storage.value == "local":
+            local_cache = str(
+                Path.home()
+                / ".cache"
+                / "luxonis_ml"
+                / "data"
+                / self.team_id
+                / "datasets"
+                / self.dataset_id
+            )
+        elif self.bucket_storage.value == "s3":
+            local_cache = str(Path.home() / ".cache" / "luxonis_ml" / "tmp")
         os.makedirs(local_cache, exist_ok=True)
         for component_name in components:
-            os.makedirs(f"{local_cache}/{component_name}", exist_ok=True)
+            os.makedirs(str(Path(local_cache) / component_name), exist_ok=True)
 
         sync = False
 
@@ -677,12 +728,12 @@ class LuxonisDataset:
 
                 filepath = component["_old_filepath"]
                 granule = data_utils.get_granule(filepath, addition, component_name)
-                local_path = f"{local_cache}/{component_name}/{granule}"
+                local_path = str(Path(local_cache) / component_name / granule)
 
-                if self.bucket_type == "local":
+                if self.bucket_storage.value == "local":
                     if os.path.exists(local_path):
                         continue
-                elif self.bucket_type == "aws":
+                elif self.bucket_storage.value == "s3":
                     s3_path = component["filepath"][1:]
                     if check_s3_file_existence(
                         self.bucket,
@@ -715,13 +766,17 @@ class LuxonisDataset:
                     )
                 ):
                     heatmap_component = f"{component_name}_heatmap"
-                    os.makedirs(f"{local_cache}/{heatmap_component}", exist_ok=True)
+                    os.makedirs(
+                        str(Path(local_cache) / heatmap_component), exist_ok=True
+                    )
                     im = cv2.imread(filepath, cv2.IMREAD_UNCHANGED)
                     if im.dtype == np.uint16:
                         im = im / 8
                     heatmap = (im / 96 * 255).astype(np.uint8)
                     heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
-                    cv2.imwrite(f"{local_cache}/{heatmap_component}/{granule}", heatmap)
+                    cv2.imwrite(
+                        str(Path(local_cache) / heatmap_component / granule), heatmap
+                    )
                     new_filepath = f"/{self.team_id}/datasets/{self.dataset_id}/{heatmap_component}/{granule}"
                     add_heatmaps[heatmap_component] = new_filepath
 
@@ -732,7 +787,7 @@ class LuxonisDataset:
                         heatmap_component
                     ]
 
-        if self.bucket_type == "aws" and not from_bucket:
+        if self.bucket_storage.value == "s3" and not from_bucket:
             sync_to_s3(
                 bucket=self.bucket,
                 s3_dir=self.bucket_path,
@@ -740,7 +795,7 @@ class LuxonisDataset:
                 endpoint_url=self._get_credentials("AWS_S3_ENDPOINT_URL"),
             )
 
-        if self.bucket_type != "local":
+        if self.bucket_storage.value != "local":
             shutil.rmtree(local_cache)
 
         return additions
@@ -920,7 +975,7 @@ class LuxonisDataset:
         add_defaults: Add default values, such as split. Useful when calling the method the first time. Best if set to false on updates.
         """
 
-        if from_bucket and self.bucket_type == "local":
+        if from_bucket and self.bucket_storage.value == "local":
             raise Exception("from_bucket must be False for local dataset!")
 
         self._check_transactions()  # will clear transactions any interrupted transactions
@@ -1043,7 +1098,9 @@ class LuxonisDataset:
                 if sample is None:  # a new sample which has had both ADD and UPDATE
                     # sample = get_previous_sample(transaction)
                     # TODO: Find a better way to handle those.
-                    print(f"Sample is none, skipping and versioning transatction")
+                    print(
+                        f"Sample is none for {transaction['_id']}, skipping and versioning transatction"
+                    )
                     self._version_transaction(transaction["_id"])
                     continue
                 else:

@@ -4,6 +4,8 @@ import fiftyone as fo
 import os
 import subprocess
 import uuid
+from pathlib import Path
+from fiftyone import ViewField as F
 
 
 def get_granule(filepath, addition, component_name):
@@ -16,68 +18,12 @@ def get_granule(filepath, addition, component_name):
     return granule
 
 
-def check_media(dataset, filepath, mount_path, component_name, granule, from_bucket):
-    source = dataset.source
-    if dataset.bucket_type == "local":
-        local_path = f"{dataset.path}/{mount_path}"
-        md5 = hashlib.md5()
-        with open(filepath, "rb") as file:
-            for chunk in iter(lambda: file.read(8192), b""):
-                md5.update(chunk)
-        old_checksum = md5.hexdigest()
-    elif dataset.bucket_type == "aws":
-        prefix = f"{dataset.bucket_path}/{component_name}/{granule}"
-        resp = dataset.client.list_objects(
-            Bucket=dataset.bucket, Prefix=prefix, Delimiter="/", MaxKeys=1
-        )
-        exists = "Contents" in resp
-        if not exists:
-            raise Exception("Issue with dataset! Sample file does not exist on S3!")
-        old_checksum = resp["Contents"][0]["ETag"].strip('"')
-
-    if from_bucket:
-        if dataset.bucket_type == "aws":
-            resp = dataset.client.list_objects(
-                Bucket=dataset.bucket, Prefix=filepath, Delimiter="/", MaxKeys=1
-            )
-            exists = "Contents" in resp
-            if not exists:
-                raise Exception(f"File {filepath} not found on S3!")
-            new_checksum = resp["Contents"][0]["ETag"].strip('"')
-    else:
-        md5 = hashlib.md5()
-        with open(filepath, "rb") as file:
-            for chunk in iter(lambda: file.read(8192), b""):
-                md5.update(chunk)
-        new_checksum = md5.hexdigest()
-    if new_checksum != old_checksum:
-        if dataset.bucket_type == "local":
-            new_path = f"{dataset.path}/{dataset.team}/datasets/{dataset.name}/archive/{source.name}/{component_name}/{granule}"
-            os.makedirs(new_path, exist_ok=True)
-            cmd = f"cp {local_path} {new_path}"
-            subprocess.check_output(cmd, shell=True)
-        elif dataset.bucket_type == "aws":
-            new_prefix = f"{dataset.bucket_path}/archive/{source.name}/{component_name}/{granule}"
-            dataset.client.copy_object(
-                Bucket=dataset.bucket,
-                Key=new_prefix,
-                CopySource={"Bucket": dataset.bucket, "Key": prefix},
-            )
-        # update existing datasat sample to point to this new_prefix
-        # limitation: all old versions point to the latest archive only (TODO: fix)
-        for sample in sample_view:
-            sample.filepath = mount_path.replace(
-                f"/{dataset.team}/{dataset.name}/",
-                f"/{dataset.team}/{dataset.name}/archive/",
-            )
-            sample.save()
-
-        return False
-    else:
-        return True
-
-
 def check_classification(val1, val2):
+    if (val1 is None and val2 is not None) or (val2 is None and val1 is not None):
+        return [{"class": val1}]
+    elif val1 is None and val2 is None:
+        return []
+
     if isinstance(val1, str):
         # prevent zip from taking letters only
         val1 = [val1]
@@ -102,11 +48,22 @@ def check_classification(val1, val2):
 
 
 def check_boxes(dataset, val1, val2):
-    if val2 is None and val1 is not None:
+    if (val1 is None and val2 is not None) or (val2 is None and val1 is not None):
         return [{"boxes": val1}]
+    elif val1 is None and val2 is None:
+        return []
 
     if len(val1) == len(val2["detections"]):
         for val1, val2 in list(zip(val1, val2["detections"])):
+            # assert bounding boxes contain the right format of either int and list or str and list
+            if not (
+                (isinstance(val1[0], int) or isinstance(val1[0], str))
+                and len(val1) == 5
+            ):
+                raise Exception(
+                    "Wrong bounding box format! It should start with int or str for the class label"
+                )
+
             if isinstance(val1[0], str) and val2["label"] != val1[0]:
                 return [{"boxes": val1}]
             if (
@@ -124,12 +81,22 @@ def check_boxes(dataset, val1, val2):
 
 
 def check_segmentation(val1, val2):
+    if (val1 is None and val2 is not None) or (val2 is None and val1 is not None):
+        return [{"segmentation": val1}]
+    elif val1 is None and val2 is None:
+        return []
+
     if (val1.shape != val2.shape) or (np.linalg.norm(val1 - val2) > 1e-8):
         return [{"segmentation": val1}]
     return []
 
 
 def check_keypoints(dataset, val1, val2):
+    if (val1 is None and val2 is not None) or (val2 is None and val1 is not None):
+        return [{"keypoints": val1}]
+    elif val1 is None and val2 is None:
+        return []
+
     if len(val1) == len(val2["keypoints"]):
         for val1, val2 in list(zip(val1, val2["keypoints"])):
             if isinstance(val1[0], str) and val2["label"] != val1[0]:
@@ -177,13 +144,9 @@ def check_fields(dataset, latest_sample, addition, component_name):
     f1 = set(addition[component_name].keys())
     f2 = set(sample_dict.keys())
     new = f1 - f1.intersection(f2) - ignore_fields_match
-    missing = f2 - f1.intersection(f2) - ignore_fields_match
     if len(new):
         for new_field in list(new):
             changes.append({new_field: addition[component_name][new_field]})
-    if len(missing):
-        for missing_field in list(missing):
-            changes.append({missing_field: None})
 
     check_fields = list(f1.intersection(f2) - ignore_fields_check)
 
@@ -203,14 +166,15 @@ def check_fields(dataset, latest_sample, addition, component_name):
                 changes += check_keypoints(dataset, val1, val2)
             else:
                 raise NotImplementedError()
-        else:
-            if not val1 == val2:
-                changes.append({field: val1})
+        elif val1 != val2:
+            changes.append({field: val1})
 
     return changes
 
 
 def construct_class_label(dataset, classes):
+    if classes is None:
+        return None
     if not isinstance(classes, list):  # fix for only one class
         classes = [classes]
 
@@ -230,6 +194,8 @@ def construct_class_label(dataset, classes):
 
 
 def construct_boxes_label(dataset, boxes):
+    if boxes is None:
+        return None
     if not isinstance(boxes[0], list):  # fix for only one box without a nested list
         boxes = [boxes]
     return fo.Detections(
@@ -246,12 +212,16 @@ def construct_boxes_label(dataset, boxes):
 
 
 def construct_segmentation_label(dataset, mask):
+    if mask is None:
+        return None
     if isinstance(mask, list):
         mask = np.array(mask)
     return fo.Segmentation(mask=mask)
 
 
 def construct_keypoints_label(dataset, kps):
+    if kps is None:
+        return None
     if not isinstance(kps[0], list):  # fix for only one kp without a nested list
         kps = [kps]
     return fo.Keypoints(
@@ -275,7 +245,7 @@ def generate_hashname(filepath):
     # Generate the UUID5 based on the file contents and the NAMESPACE_URL
     file_hash_uuid = uuid.uuid5(uuid.NAMESPACE_URL, file_contents.hex())
 
-    return str(file_hash_uuid) + os.path.splitext(filepath)[1]
+    return str(file_hash_uuid) + os.path.splitext(filepath)[1], str(file_hash_uuid)
 
 
 def is_modified_filepath(dataset, filepath):
@@ -283,3 +253,16 @@ def is_modified_filepath(dataset, filepath):
         return True
     else:
         return False
+
+
+def get_group_from_sample(dataset, sample):
+    group = sample[dataset.source.name]
+    group = dataset.fo_dataset.get_group(group["id"])
+    return group
+
+
+def get_filepath_from_hash(dataset, hash):
+    instance_view = dataset.fo_dataset.match(F("instance_id") == hash)
+    for sample in instance_view:
+        break
+    return sample.filepath
