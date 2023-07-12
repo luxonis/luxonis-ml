@@ -2,6 +2,7 @@ import fiftyone as fo
 import fiftyone.core.odm as foo
 import luxonis_ml.data.fiftyone_plugins as fop
 import luxonis_ml.data.utils.data_utils as data_utils
+from luxonis_ml.data.utils.exceptions import *
 from fiftyone import ViewField as F
 import os, subprocess, shutil
 from pathlib import Path
@@ -146,7 +147,7 @@ class LuxonisDataset:
         dataset_id,
         team_name=None,
         dataset_name=None,
-        bucket_type=BucketType.EXTERNAL,
+        bucket_type=BucketType.INTERNAL,
         bucket_storage=BucketStorage.LOCAL,
     ):
         self.conn = foo.get_db_conn()
@@ -228,10 +229,10 @@ class LuxonisDataset:
         ):
             self.bucket_storage = BucketStorage(self.dataset_doc.bucket_storage)
         if (
-            hasattr(self.dataset_doc, "current_version")
-            and self.dataset_doc.current_version is not None
+            hasattr(self.dataset_doc, "dataset_version")
+            and self.dataset_doc.dataset_version is not None
         ):
-            self.version = self.dataset_doc.current_version
+            self.version = float(self.dataset_doc.dataset_version)
 
         doc = list(self._get_source())
         if len(doc):
@@ -261,7 +262,7 @@ class LuxonisDataset:
         self.dataset_doc.path = self.path
         self.dataset_doc.bucket_type = self.bucket_type.value
         self.dataset_doc.bucket_storage = self.bucket_storage.value
-        self.dataset_doc.current_version = self.version
+        self.dataset_doc.dataset_version = str(self.version)
 
     def _get_credentials(self, key):
         if key in self.creds.keys():
@@ -605,89 +606,103 @@ class LuxonisDataset:
         transaction_to_additions = {}
         media_change = False
         field_change = False
+        filepath = None
 
-        for i, addition in tqdm(enumerate(additions), total=len(additions)):
-            # change the filepath for all components
-            for component_name in addition.keys():
-                filepath = addition[component_name]["filepath"]
-                additions[i][component_name]["_old_filepath"] = filepath
-                if not data_utils.is_modified_filepath(self, filepath):
-                    hashpath, hash = data_utils.generate_hashname(filepath)
-                    additions[i][component_name]["instance_id"] = hash
-                    additions[i][component_name]["_new_image_name"] = hashpath
-                granule = data_utils.get_granule(filepath, addition, component_name)
-                new_filepath = f"/{self.team_id}/datasets/{self.dataset_id}/{component_name}/{granule}"
-                additions[i][component_name]["filepath"] = new_filepath
+        try:
+            for i, addition in tqdm(enumerate(additions), total=len(additions)):
+                # change the filepath for all components
+                for component_name in addition.keys():
+                    try:
+                        filepath = addition[component_name]["filepath"]
+                    except:
+                        raise AdditionsStructureException(
+                            "Additions must be List[dict] with {'<component_name>': {'filepath':...}}. The <component_name> and filepath are required"
+                        )
+                    additions[i][component_name]["_old_filepath"] = filepath
+                    if not data_utils.is_modified_filepath(self, filepath):
+                        hashpath, hash = data_utils.generate_hashname(filepath)
+                        additions[i][component_name]["instance_id"] = hash
+                        additions[i][component_name]["_new_image_name"] = hashpath
+                    granule = data_utils.get_granule(filepath, addition, component_name)
+                    new_filepath = f"/{self.team_id}/datasets/{self.dataset_id}/{component_name}/{granule}"
+                    additions[i][component_name]["filepath"] = new_filepath
 
-            group = fo.Group(name=source.name)
+                group = fo.Group(name=source.name)
 
-            # check for ADD or UPDATE cases in the dataset
-            for component_name in addition.keys():
-                filepath = addition[component_name]["filepath"]
-                granule = data_utils.get_granule(filepath, addition, component_name)
-                new_filepath = f"/{self.team_id}/datasets/{self.dataset_id}/{component_name}/{granule}"
-                candidate = f"{component_name}/{granule}"
-                if candidate not in filepaths[component_name]:
-                    # ADD case
-                    media_change = True
-                    additions[i][component_name]["_group"] = group
-                    tid = self._make_transaction(
-                        LDFTransactionType.ADD,
-                        sample_id=None,
-                        field="filepath",
-                        value=new_filepath,
-                        component=component_name,
-                    )
-                    tid = str(tid)
-                    transaction_to_additions[tid] = i
-                else:
-                    # check for UPDATE
-                    self.fo_dataset.group_slice = component_name
-                    sample_view = self.fo_dataset.match(F("filepath") == new_filepath)
-                    # find the most up to date sample
-                    max_version = -np.inf
-                    for sample in sample_view:
-                        if sample.version == -1:
-                            latest_sample = sample
-                            max_version = sample.version
-                            break
-                        if sample.version > max_version:
-                            latest_sample = sample
-                            max_version = sample.version
+                # check for ADD or UPDATE cases in the dataset
+                for component_name in addition.keys():
+                    filepath = addition[component_name]["filepath"]
+                    granule = data_utils.get_granule(filepath, addition, component_name)
+                    new_filepath = f"/{self.team_id}/datasets/{self.dataset_id}/{component_name}/{granule}"
+                    candidate = f"{component_name}/{granule}"
+                    if candidate not in filepaths[component_name]:
+                        # ADD case
+                        media_change = True
+                        additions[i][component_name]["_group"] = group
+                        tid = self._make_transaction(
+                            LDFTransactionType.ADD,
+                            sample_id=None,
+                            field="filepath",
+                            value=new_filepath,
+                            component=component_name,
+                        )
+                        tid = str(tid)
+                        transaction_to_additions[tid] = i
+                    else:
+                        # check for UPDATE
+                        self.fo_dataset.group_slice = component_name
+                        sample_view = self.fo_dataset.match(
+                            F("filepath") == new_filepath
+                        )
+                        # find the most up to date sample
+                        max_version = -np.inf
+                        for sample in sample_view:
+                            if sample.version == -1:
+                                latest_sample = sample
+                                max_version = sample.version
+                                break
+                            if sample.version > max_version:
+                                latest_sample = sample
+                                max_version = sample.version
 
-                    changes = data_utils.check_fields(
-                        self, latest_sample, addition, component_name
-                    )
-                    for change in changes:
-                        field, value = list(change.items())[0]
-                        field_change = True
-                        if field == "split":
-                            group = data_utils.get_group_from_sample(
-                                self, latest_sample
-                            )
-                            for component_name in group:
+                        changes = data_utils.check_fields(
+                            self, latest_sample, addition, component_name
+                        )
+                        for change in changes:
+                            field, value = list(change.items())[0]
+                            field_change = True
+                            if field == "split":
+                                group = data_utils.get_group_from_sample(
+                                    self, latest_sample
+                                )
+                                for component_name in group:
+                                    tid = self._make_transaction(
+                                        LDFTransactionType.UPDATE,
+                                        sample_id=group[component_name]["id"],
+                                        field=field,
+                                        value=value,
+                                        component=component_name,
+                                    )
+                            else:
                                 tid = self._make_transaction(
                                     LDFTransactionType.UPDATE,
-                                    sample_id=group[component_name]["id"],
+                                    sample_id=latest_sample._id,
                                     field=field,
                                     value=value,
                                     component=component_name,
                                 )
-                        else:
-                            tid = self._make_transaction(
-                                LDFTransactionType.UPDATE,
-                                sample_id=latest_sample._id,
-                                field=field,
-                                value=value,
-                                component=component_name,
-                            )
 
-        if media_change or field_change:
-            self._make_transaction(LDFTransactionType.END)
+            if media_change or field_change:
+                self._make_transaction(LDFTransactionType.END)
 
-            return transaction_to_additions, media_change, field_change
-        else:
-            return None
+                return transaction_to_additions, media_change, field_change
+            else:
+                return None
+
+        except Exception as e:
+            print("Encountered error! Cleaning up...")
+            # TODO: use transactions_to_additions to delete all transactions saved in mongo thus far
+            raise DataTransactionException(filepath, type(e).__name__, str(e))
 
     def _add_extract(self, additions, from_bucket):
         """
@@ -1085,22 +1100,18 @@ class LuxonisDataset:
             if transaction["action"] == LDFTransactionType.ADD.value:
                 sample = get_current_sample(transaction)
                 if sample is None:
-                    # TODO: Find a better way to handle those.
-                    print(
-                        f"Sample is none for transaction ADD with tid {transaction['_id'].binary.hex()}. Skipping..."
+                    # This case should ideally not happen unless there is a problem with rollback
+                    # TODO: another possibility would be to delete the transaction and throw a warning instead
+                    raise Exception(
+                        f"Sample is none for transaction ADD with tid {transaction['_id'].binary.hex()}"
                     )
-                    self._version_transaction(transaction["_id"])
-                    continue
                 add_samples.add(sample["id"])
 
             elif transaction["action"] == LDFTransactionType.UPDATE.value:
                 sample = get_current_sample(transaction)
-                if sample is None:  # a new sample which has had both ADD and UPDATE
-                    # sample = get_previous_sample(transaction)
-                    # TODO: Find a better way to handle those.
-                    print(
-                        f"Sample is none for {transaction['_id']}, skipping and versioning transatction"
-                    )
+                if sample is None:
+                    # This is fine to ignore, as it means a new sample which has multiple ADD and/or UPDATE
+                    # The updates are already executed and we are just finding the latest
                     self._version_transaction(transaction["_id"])
                     continue
                 else:

@@ -263,6 +263,9 @@ def get_group_from_sample(dataset, sample):
 
 def get_filepath_from_hash(dataset, hash):
     instance_view = dataset.fo_dataset.match(F("instance_id") == hash)
-    for sample in instance_view:
-        break
-    return sample.filepath
+    if len(instance_view):
+        for sample in instance_view:
+            break
+        return sample.filepath
+    else:
+        return None

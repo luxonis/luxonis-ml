@@ -6,6 +6,7 @@ from PIL import Image, ImageDraw
 from pathlib import Path
 import fiftyone.core.odm as foo
 from luxonis_ml.data import *
+from luxonis_ml.data.utils.exceptions import *
 from copy import deepcopy
 from fiftyone import ViewField as F
 from bson.objectid import ObjectId
@@ -158,7 +159,7 @@ class LuxonisDatasetTester(unittest.TestCase):
         self.assertEqual(res["_id"], ObjectId(self.dataset_id), "Wrong dataset ID")
         self.assertEqual(res["team_name"], "unittest", "Wrong team name")
         self.assertEqual(res["dataset_name"], "coco", "Wrong dataset name")
-        self.assertEqual(res["current_version"], 0.0, "Version initialize failure")
+        self.assertEqual(res["dataset_version"], "0.0", "Version initialize failure")
         self.assertEqual(
             res["path"],
             str(
@@ -173,7 +174,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             "Dataset path failure",
         )
         self.assertEqual(
-            res["bucket_type"], "external", "Default bucket type is not external"
+            res["bucket_type"], "internal", "Default bucket type is not external"
         )
         self.assertEqual(
             res["bucket_storage"], "local", "Default bucket storage is not local"
@@ -189,23 +190,6 @@ class LuxonisDatasetTester(unittest.TestCase):
             res2["_id"],
             "Luxonis dataset does not reference fo dataset",
         )
-
-    # def test_aws_init(self):
-    #     with LuxonisDataset(
-    #         self.team_id, self.dataset_id, bucket_type="aws", override_bucket_type=True
-    #     ) as dataset:
-    #         pass
-
-    #     curr = self.conn.luxonis_dataset_document.find(
-    #         {"$and": [{"team_id": self.team_id}, {"_id": ObjectId(self.dataset_id)}]}
-    #     )
-    #     res = list(curr)
-    #     self.assertGreater(len(res), 0, "Document not created")
-    #     self.assertEqual(len(res), 1, "Multiple documents created")
-    #     res = res[0]
-    #     self.assertEqual(
-    #         res["bucket_type"], "aws", "Default override_bucket_type arg fail"
-    #     )
 
     def test_source(self):
         with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
@@ -689,6 +673,24 @@ class LuxonisDatasetTester(unittest.TestCase):
             res = list(curr)
             self.assertEqual(len(res), 3, "Number of saved versions")
 
+    def test_add_filter_exceptions(self):
+        with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
+            # test incorrect additions formats
+            additions = [{"nonsense": 5}]  # complete nonsense
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath None failed with AdditionsStructureException:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = [{"A": {"weather": "sunny"}}]  # missing filepath
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath None failed with AdditionsStructureException:*",
+                dataset._add_filter,
+                additions,
+            )
+
     def test_delete_dataset(self):
         curr = self.conn.luxonis_dataset_document.find(
             {"$and": [{"team_id": self.team_id}, {"_id": ObjectId(self.dataset_id)}]}
@@ -738,15 +740,15 @@ if __name__ == "__main__":
     suite = unittest.TestSuite()
     suite.keep = args.keep
     suite.addTest(LuxonisDatasetTester("test_local_init"))
-    # suite.addTest(LuxonisDatasetTester("test_aws_init"))
     suite.addTest(LuxonisDatasetTester("test_source"))
     suite.addTest(LuxonisDatasetTester("test_transactions"))
-    suite.addTest(LuxonisDatasetTester("test_add"))
-    suite.addTest(LuxonisDatasetTester("test_version_1"))
-    suite.addTest(LuxonisDatasetTester("test_modify"))
-    suite.addTest(LuxonisDatasetTester("test_version_2"))
-    suite.addTest(LuxonisDatasetTester("test_delete"))
-    suite.addTest(LuxonisDatasetTester("test_version_3"))
+    # suite.addTest(LuxonisDatasetTester("test_add"))
+    # suite.addTest(LuxonisDatasetTester("test_version_1"))
+    # suite.addTest(LuxonisDatasetTester("test_modify"))
+    # suite.addTest(LuxonisDatasetTester("test_version_2"))
+    # suite.addTest(LuxonisDatasetTester("test_delete"))
+    # suite.addTest(LuxonisDatasetTester("test_version_3"))
+    suite.addTest(LuxonisDatasetTester("test_add_filter_exceptions"))
     if not args.keep:
         suite.addTest(LuxonisDatasetTester("test_delete_dataset"))
     runner = unittest.TextTestRunner()

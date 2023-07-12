@@ -24,7 +24,7 @@ class LuxonisDatasetDocument(Document):
     path = StringField()
     bucket_type = StringField()
     bucket_storage = StringField()
-    current_version = FloatField()
+    dataset_version = StringField()
 
 
 class LuxonisSourceDocument(Document):
