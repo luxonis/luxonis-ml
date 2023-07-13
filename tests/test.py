@@ -679,14 +679,57 @@ class LuxonisDatasetTester(unittest.TestCase):
             additions = [{"nonsense": 5}]  # complete nonsense
             self.assertRaisesRegex(
                 DataTransactionException,
-                "Creating a transaction for filepath None failed with AdditionsStructureException:*",
+                "Creating a transaction for filepath .* failed with AdditionsStructureError:*",
                 dataset._add_filter,
                 additions,
             )
             additions = [{"A": {"weather": "sunny"}}]  # missing filepath
             self.assertRaisesRegex(
                 DataTransactionException,
-                "Creating a transaction for filepath None failed with AdditionsStructureException:*",
+                "Creating a transaction for filepath .* failed with AdditionsStructureError:*",
+                dataset._add_filter,
+                additions,
+            )
+
+            # test file does not exist
+            additions = [{"A": {"filepath": "/some/made/up/path"}}]
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with AdditionNotFoundError:*",
+                dataset._add_filter,
+                additions,
+            )
+
+            # test previous transactions cleanup
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["weather"] = "sunny"
+            additions[0]["A"]["newest_field"] = "something"
+            additions[0]["A"]["class"] = "person"
+            additions[1]["A"]["filepath"] = "/some/made/up/path"  # intentional error
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with AdditionNotFoundError:*",
+                dataset._add_filter,
+                additions,
+            )
+            transactions = dataset._check_transactions()
+            # if cleanup is successful, checking transactions should return on END transaction
+            self.assertEqual(
+                type(transactions), list, "DataTransactionException cleanup"
+            )
+            self.assertEqual(len(transactions), 1, "DataTransactionException cleanup")
+            self.assertEqual(
+                transactions[0]["action"], "END", "DataTransactionException cleanup"
+            )
+
+            # test annotation format errors
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["boxes"][0] = additions[0]["A"]["boxes"][0][
+                1:
+            ]  # remove class from bounding box
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with BoundingBoxFormatError:*",
                 dataset._add_filter,
                 additions,
             )

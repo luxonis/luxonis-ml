@@ -5,6 +5,7 @@ import os
 import uuid
 from pathlib import Path
 from fiftyone import ViewField as F
+from luxonis_ml.data.utils.exceptions import *
 
 
 def get_granule(filepath, addition, component_name):
@@ -59,7 +60,7 @@ def check_boxes(dataset, val1, val2):
                 (isinstance(val1[0], int) or isinstance(val1[0], str))
                 and len(val1) == 5
             ):
-                raise Exception(
+                raise BoundingBoxFormatError(
                     "Wrong bounding box format! It should start with int or str for the class label"
                 )
 
@@ -164,7 +165,7 @@ def check_fields(dataset, latest_sample, addition, component_name):
             elif field == "keypoints":
                 changes += check_keypoints(dataset, val1, val2)
             else:
-                raise NotImplementedError()
+                raise NotImplementedError("The CV task {field} is not implement yet")
         elif val1 != val2:
             changes.append({field: val1})
 

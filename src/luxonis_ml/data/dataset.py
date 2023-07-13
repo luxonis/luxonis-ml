@@ -606,6 +606,7 @@ class LuxonisDataset:
 
         print("Checking for additions or modifications...")
 
+        transactions = []
         transaction_to_additions = {}
         media_change = False
         field_change = False
@@ -618,12 +619,15 @@ class LuxonisDataset:
                     try:
                         filepath = addition[component_name]["filepath"]
                     except:
-                        raise AdditionsStructureException(
+                        raise AdditionsStructureError(
                             "Additions must be List[dict] with {'<component_name>': {'filepath':...}}. The <component_name> and filepath are required"
                         )
                     additions[i][component_name]["_old_filepath"] = filepath
                     if not data_utils.is_modified_filepath(self, filepath):
-                        hashpath, hash = data_utils.generate_hashname(filepath)
+                        try:
+                            hashpath, hash = data_utils.generate_hashname(filepath)
+                        except:
+                            raise AdditionNotFoundError(f"{filepath} does not exist")
                         additions[i][component_name]["instance_id"] = hash
                         additions[i][component_name]["_new_image_name"] = hashpath
                     granule = data_utils.get_granule(filepath, addition, component_name)
@@ -650,6 +654,7 @@ class LuxonisDataset:
                             component=component_name,
                         )
                         tid = str(tid)
+                        transactions.append(tid)
                         transaction_to_additions[tid] = i
                     else:
                         # check for UPDATE
@@ -686,6 +691,7 @@ class LuxonisDataset:
                                         value=value,
                                         component=component_name,
                                     )
+                                    transactions.append(str(tid))
                             else:
                                 tid = self._make_transaction(
                                     LDFTransactionType.UPDATE,
@@ -694,6 +700,7 @@ class LuxonisDataset:
                                     value=value,
                                     component=component_name,
                                 )
+                                transactions.append(str(tid))
 
             if media_change or field_change:
                 self._make_transaction(LDFTransactionType.END)
@@ -704,7 +711,8 @@ class LuxonisDataset:
 
         except Exception as e:
             print("Encountered error! Cleaning up...")
-            # TODO: use transactions_to_additions to delete all transactions saved in mongo thus far
+            for tid in transactions:
+                self.conn.transaction_document.delete_many({"_id": ObjectId(tid)})
             raise DataTransactionException(filepath, type(e).__name__, str(e))
 
     def _add_extract(self, additions, from_bucket):

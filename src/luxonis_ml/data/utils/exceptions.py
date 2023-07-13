@@ -10,8 +10,21 @@ class DataTransactionException(Exception):
         super().__init__(message)
 
 
-class AdditionsStructureException(Exception):
+class AdditionsStructureError(Exception):
 
     """Excpetion if incorrect format of additions"""
+
+    pass
+
+
+class AdditionNotFoundError(Exception):
+
+    """Excpetion for not finding filepath"""
+
+    pass
+
+
+class BoundingBoxFormatError(Exception):
+    """Exception for wrong bounding box format being passed in additions"""
 
     pass
