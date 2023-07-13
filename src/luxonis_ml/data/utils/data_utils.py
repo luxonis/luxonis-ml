@@ -18,23 +18,26 @@ def get_granule(filepath, addition, component_name):
     return granule
 
 
-def assert_classification_format(val):
+def assert_classification_format(dataset, val):
     if val is not None:
         if isinstance(val, str):
-            pass
+            if val not in dataset.fo_dataset.classes.get("class", []):
+                raise ClassNotFoundError(f"Class {val} is not found in dataset")
         elif isinstance(val, list):
             for v in val:
                 if not isinstance(v, str):
                     raise ClassificationFormatError(
                         "All elements in list must be string"
                     )
+                elif v not in dataset.fo_dataset.classes.get("class", []):
+                    raise ClassNotFoundError(f"Class {v} is not found in dataset")
         else:
             raise ClassificationFormatError(
                 "Classification annotation ('class') must be a string or list os strings"
             )
 
 
-def assert_boxes_format(val):
+def assert_boxes_format(dataset, val):
     if val is not None:
         if not isinstance(val, list) or not isinstance(val[0], list):
             raise BoundingBoxFormatError("Bounding boxes need to be a nested list!")
@@ -44,6 +47,11 @@ def assert_boxes_format(val):
                 raise BoundingBoxFormatError(
                     "Wrong bounding box format! It should start with int or str for the class label and contain four points"
                 )
+
+            if not isinstance(v[0], str):
+                raise BoundingBoxFormatError("Classes must be strings")
+            if v[0] not in dataset.fo_dataset.classes.get("boxes", []):
+                raise ClassNotFoundError(f"Class {v[0]} is not found in dataset")
 
             x, y, w, h = v[1:]
             if not (
@@ -64,8 +72,49 @@ def assert_boxes_format(val):
                 raise BoundingBoxFormatError("Bbox goes outside of image")
 
 
-def check_classification(val1, val2):
-    assert_classification_format(val1)
+def assert_segmentation_format(dataset, val):
+    if val is not None:
+        if not isinstance(val, np.ndarray):
+            raise SegmentationFormatError(
+                "Segmentation annotation must be a numpy array"
+            )
+
+        if len(val.shape) != 2:
+            raise SegmentationFormatError("Array must be 2D")
+
+        # checks for negative numbers or non-integers
+        int_val = val.astype(np.uint16)
+        if np.abs(np.sum(int_val - val)) > 0:
+            raise SegmentationFormatError("Array values change after uint16 converson")
+
+
+def assert_keypoints_format(dataset, val):
+    if val is not None:
+        if (
+            not isinstance(val, list)
+            or len(val[0]) != 2
+            or not isinstance(val[0][1], list)
+        ):
+            raise KeypointFormatError(
+                "Keypoints need to be a list with the first element being the class and second being a list of points"
+            )
+
+        for kp in val:
+            if not isinstance(kp[0], str):
+                raise KeypointFormatError("Class must be a string")
+            if kp[0] not in dataset.fo_dataset.classes.get("keypoints", []):
+                raise ClassNotFoundError(f"Class {kp[0]} is not found in dataset")
+            for point in kp[1]:
+                if len(point) != 2:
+                    raise KeypointFormatError("Keypoints should be length 2 (x,y)")
+                if not np.isnan(point[0]):
+                    x, y = point
+                    if (x < 0 or x > 1) or (y < 0 or y > 1):
+                        raise KeypointFormatError("Keypoints should be in 0-1 range")
+
+
+def check_classification(dataset, val1, val2):
+    assert_classification_format(dataset, val1)
 
     if (val1 is None and val2 is not None) or (val2 is None and val1 is not None):
         return [{"class": val1}]
@@ -85,7 +134,7 @@ def check_classification(val1, val2):
 
 
 def check_boxes(dataset, val1, val2):
-    assert_boxes_format(val1)
+    assert_boxes_format(dataset, val1)
 
     if (val1 is None and val2 is not None) or (val2 is None and val1 is not None):
         return [{"boxes": val1}]
@@ -110,7 +159,9 @@ def check_boxes(dataset, val1, val2):
     return []
 
 
-def check_segmentation(val1, val2):
+def check_segmentation(dataset, val1, val2):
+    assert_segmentation_format(dataset, val1)
+
     if (val1 is None and val2 is not None) or (val2 is None and val1 is not None):
         return [{"segmentation": val1}]
     elif val1 is None and val2 is None:
@@ -122,6 +173,8 @@ def check_segmentation(val1, val2):
 
 
 def check_keypoints(dataset, val1, val2):
+    assert_keypoints_format(dataset, val1)
+
     if (val1 is None and val2 is not None) or (val2 is None and val1 is not None):
         return [{"keypoints": val1}]
     elif val1 is None and val2 is None:
@@ -186,12 +239,12 @@ def check_fields(dataset, latest_sample, addition, component_name):
 
         if field in dataset.tasks:
             if field == "class":
-                changes += check_classification(val1, val2)
+                changes += check_classification(dataset, val1, val2)
             elif field == "boxes":
                 changes += check_boxes(dataset, val1, val2)
             elif field == "segmentation":
                 val2 = latest_sample.segmentation.mask
-                changes += check_segmentation(val1, val2)
+                changes += check_segmentation(dataset, val1, val2)
             elif field == "keypoints":
                 changes += check_keypoints(dataset, val1, val2)
             else:

@@ -34,3 +34,21 @@ class BoundingBoxFormatError(Exception):
     """Exception for wrong bounding box format being passed in additions"""
 
     pass
+
+
+class SegmentationFormatError(Exception):
+    """Exception for wrong segmentation mask format being passed in additions"""
+
+    pass
+
+
+class KeypointFormatError(Exception):
+    """Exception for wrong segmentation mask format being passed in additions"""
+
+    pass
+
+
+class ClassNotFoundError(Exception):
+    """Exception for classes not found in dataset"""
+
+    pass

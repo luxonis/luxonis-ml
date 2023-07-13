@@ -649,13 +649,20 @@ class LuxonisDataset:
 
                         if "class" in additions[i][component_name].keys():
                             data_utils.assert_classification_format(
-                                additions[i][component_name]["class"]
+                                self, additions[i][component_name]["class"]
                             )
                         if "boxes" in additions[i][component_name].keys():
                             data_utils.assert_boxes_format(
-                                additions[i][component_name]["boxes"]
+                                self, additions[i][component_name]["boxes"]
                             )
-                        # TODO: complete for segmentation and keypoints
+                        if "segmentation" in additions[i][component_name].keys():
+                            data_utils.assert_segmentation_format(
+                                self, additions[i][component_name]["segmentation"]
+                            )
+                        if "keypoints" in additions[i][component_name].keys():
+                            data_utils.assert_keypoints_format(
+                                self, additions[i][component_name]["keypoints"]
+                            )
 
                         tid = self._make_transaction(
                             LDFTransactionType.ADD,

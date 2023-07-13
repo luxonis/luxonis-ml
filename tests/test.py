@@ -443,11 +443,6 @@ class LuxonisDatasetTester(unittest.TestCase):
             transaction_to_additions += tta
             self.assertEqual(field_change, True, "Boxes update (change class str)")
             a = deepcopy(self.additions[-1])
-            a["A"]["boxes"][0][0] = 1  # test class change with int
-            tta, media_change, field_change = dataset._add_filter([a])
-            transaction_to_additions += tta
-            self.assertEqual(field_change, True, "Boxes update (change class int)")
-            a = deepcopy(self.additions[-1])
             a["A"]["boxes"][0][1] += 0.1  # test coordinate change
             tta, media_change, field_change = dataset._add_filter([a])
             transaction_to_additions += tta
@@ -464,11 +459,6 @@ class LuxonisDatasetTester(unittest.TestCase):
             tta, media_change, field_change = dataset._add_filter([a])
             transaction_to_additions += tta
             self.assertEqual(field_change, True, "Keypoints update (change class str)")
-            a = deepcopy(self.additions[-1])
-            a["A"]["keypoints"][0][0] = 1  # test class change with int
-            tta, media_change, field_change = dataset._add_filter([a])
-            transaction_to_additions += tta
-            self.assertEqual(field_change, True, "Keypoints update (change class int)")
             a = deepcopy(self.additions[-1])
             a["A"]["keypoints"][0][1][0] = (
                 a["A"]["keypoints"][0][1][0][0] + 0.1,
@@ -742,6 +732,15 @@ class LuxonisDatasetTester(unittest.TestCase):
                 dataset._add_filter,
                 additions,
             )
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["class"] = "cat"  # class not in dataset
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with ClassNotFoundError:*",
+                dataset._add_filter,
+                additions,
+            )
+
             # test boxes format errors
             additions = deepcopy(self.additions[-3:-1])
             additions[0]["A"]["boxes"][0] = additions[0]["A"]["boxes"][0][
@@ -801,9 +800,107 @@ class LuxonisDatasetTester(unittest.TestCase):
                 dataset._add_filter,
                 additions,
             )
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["boxes"] = [
+                [0, 0.5, 0.9, 0.1, 0.2]
+            ]  # class is not string
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with BoundingBoxFormatError:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["boxes"][0][0] = "cat"  # invalid class
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with ClassNotFoundError:*",
+                dataset._add_filter,
+                additions,
+            )
 
-            # test class not found for class, boxes, keypoints
-            # TODO
+            # test segmentation format errors
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["segmentation"] = 5
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with SegmentationFormatError:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["segmentation"] = np.zeros(10)  # wrong shape
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with SegmentationFormatError:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["segmentation"][1, :] = -1  # negative numbers
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with SegmentationFormatError:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = deepcopy(self.additions[-3:-1])
+            # additions[0]["A"]["segmentation"] = additions[0]["A"]["segmentation"].astype(np.float32)
+            additions[0]["A"]["segmentation"][1, :] = 0.5  # non-int numbers
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with SegmentationFormatError:*",
+                dataset._add_filter,
+                additions,
+            )
+
+            # test keypoint format errors
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["keypoints"] = [[0.2, 0.3]]
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with KeypointFormatError:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["keypoints"] = [
+                ["person", [[0.2, 0.3], [0.2, 0.3, 0.3]]]
+            ]  # length 3 point
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with KeypointFormatError:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["keypoints"] = [
+                ["person", [[0.2, -0.3]]]
+            ]  # negative number
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with KeypointFormatError:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["keypoints"] = [[0, [[0.2, 0.3]]]]  # class is not string
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with KeypointFormatError:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["keypoints"] = [
+                ["cat", [[0.2, 0.3]]]
+            ]  # class not in dataset
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with ClassNotFoundError:*",
+                dataset._add_filter,
+                additions,
+            )
 
             # test the ADD case instead of UPDATE
             additions = [{"A": {"filepath": "../data/nothing.jpg", "class": 5}}]
@@ -817,6 +914,20 @@ class LuxonisDatasetTester(unittest.TestCase):
             self.assertRaisesRegex(
                 DataTransactionException,
                 "Creating a transaction for filepath .* failed with BoundingBoxFormatError:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = [{"A": {"filepath": "../data/nothing.jpg", "segmentation": 5}}]
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with SegmentationFormatError:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = [{"A": {"filepath": "../data/nothing.jpg", "keypoints": 5}}]
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with KeypointFormatError:*",
                 dataset._add_filter,
                 additions,
             )
