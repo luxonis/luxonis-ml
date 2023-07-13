@@ -1,4 +1,5 @@
 import unittest
+from unittest import mock
 import subprocess, shutil, os, glob, json, time
 import numpy as np
 import cv2
@@ -28,22 +29,22 @@ class LuxonisDatasetTester(unittest.TestCase):
         self.team_name = "unittest"
         self.dataset_name = "coco"
 
-        # self.coco_images_path = "../data/person_val2017_subset"
-        # self.coco_annotation_path = "../data/person_keypoints_val2017.json"
-        # if os.path.exists(self.coco_images_path):
-        #     shutil.rmtree(self.coco_images_path)
-        # if os.path.exists(self.coco_annotation_path):
-        #     os.remove(self.coco_annotation_path)
+        self.coco_images_path = "../data/person_val2017_subset"
+        self.coco_annotation_path = "../data/person_keypoints_val2017.json"
+        if os.path.exists(self.coco_images_path):
+            shutil.rmtree(self.coco_images_path)
+        if os.path.exists(self.coco_annotation_path):
+            os.remove(self.coco_annotation_path)
 
-        # print("Downloading data from GDrive...")
-        # cmd = (
-        #     "gdown 1XlvFK7aRmt8op6-hHkWVKIJQeDtOwoRT -O ../data/COCO_people_subset.zip"
-        # )
-        # subprocess.check_output(cmd, shell=True)
+        print("Downloading data from GDrive...")
+        cmd = (
+            "gdown 1XlvFK7aRmt8op6-hHkWVKIJQeDtOwoRT -O ../data/COCO_people_subset.zip"
+        )
+        subprocess.check_output(cmd, shell=True)
 
-        # print("Extracting data...")
-        # cmd = "unzip ../data/COCO_people_subset.zip -d ../data/"
-        # subprocess.check_output(cmd, shell=True)
+        print("Extracting data...")
+        cmd = "unzip ../data/COCO_people_subset.zip -d ../data/"
+        subprocess.check_output(cmd, shell=True)
 
         self.conn = foo.get_db_conn()
         # if dataset already exists, delete it
@@ -932,6 +933,49 @@ class LuxonisDatasetTester(unittest.TestCase):
                 additions,
             )
 
+    def test_add_execute_exception(self):
+        with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
+            additions = [deepcopy(self.additions[-2])]
+            additions[0]["A"]["change_1"] = 1
+            additions[0]["A"]["change_2"] = 2
+            additions[0]["A"]["change_3"] = 3
+            additions[0]["A"]["change_4"] = 4
+            additions[0]["A"]["change_5"] = 5
+            additions[0]["A"]["class"] = "person"
+            dataset._add_filter(additions)
+
+            # To cause an error, artifically change the transaction value of "class" to be a non-existant class
+            curr = self.conn.transaction_document.find({"executed": False})
+            res = list(curr)
+            fields = [t["field"] for t in res if "field" in t]
+            idx = fields.index("class")
+            tid = res[idx]["_id"]
+            self.conn.transaction_document.update_one(
+                {"_id": tid},
+                {
+                    "$set": {"value": {"value": 10}}
+                },  # will throw an error being an int higher than num classes
+            )
+            curr = self.conn.transaction_document.find({"executed": False})
+            res = list(curr)
+            fields = [(t["field"], t["value"]) for t in res if "field" in t]
+
+            dataset.fo_dataset.group_slice = "A"
+            original_length = len(dataset.fo_dataset)
+            self.assertRaisesRegex(
+                DataExecutionException, "Executing transaction*", dataset._add_execute
+            )
+            dataset.fo_dataset.group_slice = "A"
+            self.assertEqual(
+                len(dataset.fo_dataset),
+                original_length,
+                "Copied sample deletion in _add_execute rollback",
+            )
+            num_transactions = len(dataset._check_transactions())
+            self.assertEqual(
+                num_transactions, 7, "Un-execute transactions in _add_execute rollback"
+            )
+
     def test_delete_dataset(self):
         curr = self.conn.luxonis_dataset_document.find(
             {"$and": [{"team_id": self.team_id}, {"_id": ObjectId(self.dataset_id)}]}
@@ -990,6 +1034,7 @@ if __name__ == "__main__":
     suite.addTest(LuxonisDatasetTester("test_delete"))
     suite.addTest(LuxonisDatasetTester("test_version_3"))
     suite.addTest(LuxonisDatasetTester("test_add_filter_exceptions"))
+    suite.addTest(LuxonisDatasetTester("test_add_execute_exception"))
     if not args.keep:
         suite.addTest(LuxonisDatasetTester("test_delete_dataset"))
     runner = unittest.TextTestRunner()

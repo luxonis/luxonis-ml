@@ -33,7 +33,7 @@ def assert_classification_format(dataset, val):
                     raise ClassNotFoundError(f"Class {v} is not found in dataset")
         else:
             raise ClassificationFormatError(
-                "Classification annotation ('class') must be a string or list os strings"
+                "Classification annotation  must be a string or list of strings"
             )
 
 

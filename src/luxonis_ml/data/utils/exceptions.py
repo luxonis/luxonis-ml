@@ -1,5 +1,4 @@
 class DataTransactionException(Exception):
-
     """
     Exception for the _add_filer function, which provides
     a specific reason along with a more general message
@@ -10,15 +9,27 @@ class DataTransactionException(Exception):
         super().__init__(message)
 
 
-class AdditionsStructureError(Exception):
+class DataExecutionException(Exception):
+    """
+    Exception for the _add_execute function, which provides
+    a specific reason along with a more general message
+    """
 
+    def __init__(self, transaction, exception_type, reason):
+        if transaction is None:
+            message = f"Executing transaction {transaction} failed with {exception_type}: {reason}"
+        else:
+            message = f"Executing transaction {transaction['_id']} [{transaction['action']}] failed with {exception_type}: {reason}"
+        super().__init__(message)
+
+
+class AdditionsStructureError(Exception):
     """Excpetion if incorrect format of additions"""
 
     pass
 
 
 class AdditionNotFoundError(Exception):
-
     """Excpetion for not finding filepath"""
 
     pass
@@ -50,5 +61,11 @@ class KeypointFormatError(Exception):
 
 class ClassNotFoundError(Exception):
     """Exception for classes not found in dataset"""
+
+    pass
+
+
+class TransactionNotFoundError(Exception):
+    """Exception not finding a transaction in data execution"""
 
     pass
