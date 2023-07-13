@@ -28,22 +28,22 @@ class LuxonisDatasetTester(unittest.TestCase):
         self.team_name = "unittest"
         self.dataset_name = "coco"
 
-        self.coco_images_path = "../data/person_val2017_subset"
-        self.coco_annotation_path = "../data/person_keypoints_val2017.json"
-        if os.path.exists(self.coco_images_path):
-            shutil.rmtree(self.coco_images_path)
-        if os.path.exists(self.coco_annotation_path):
-            os.remove(self.coco_annotation_path)
+        # self.coco_images_path = "../data/person_val2017_subset"
+        # self.coco_annotation_path = "../data/person_keypoints_val2017.json"
+        # if os.path.exists(self.coco_images_path):
+        #     shutil.rmtree(self.coco_images_path)
+        # if os.path.exists(self.coco_annotation_path):
+        #     os.remove(self.coco_annotation_path)
 
-        print("Downloading data from GDrive...")
-        cmd = (
-            "gdown 1XlvFK7aRmt8op6-hHkWVKIJQeDtOwoRT -O ../data/COCO_people_subset.zip"
-        )
-        subprocess.check_output(cmd, shell=True)
+        # print("Downloading data from GDrive...")
+        # cmd = (
+        #     "gdown 1XlvFK7aRmt8op6-hHkWVKIJQeDtOwoRT -O ../data/COCO_people_subset.zip"
+        # )
+        # subprocess.check_output(cmd, shell=True)
 
-        print("Extracting data...")
-        cmd = "unzip ../data/COCO_people_subset.zip -d ../data/"
-        subprocess.check_output(cmd, shell=True)
+        # print("Extracting data...")
+        # cmd = "unzip ../data/COCO_people_subset.zip -d ../data/"
+        # subprocess.check_output(cmd, shell=True)
 
         self.conn = foo.get_db_conn()
         # if dataset already exists, delete it
@@ -742,12 +742,12 @@ if __name__ == "__main__":
     suite.addTest(LuxonisDatasetTester("test_local_init"))
     suite.addTest(LuxonisDatasetTester("test_source"))
     suite.addTest(LuxonisDatasetTester("test_transactions"))
-    # suite.addTest(LuxonisDatasetTester("test_add"))
-    # suite.addTest(LuxonisDatasetTester("test_version_1"))
-    # suite.addTest(LuxonisDatasetTester("test_modify"))
-    # suite.addTest(LuxonisDatasetTester("test_version_2"))
-    # suite.addTest(LuxonisDatasetTester("test_delete"))
-    # suite.addTest(LuxonisDatasetTester("test_version_3"))
+    suite.addTest(LuxonisDatasetTester("test_add"))
+    suite.addTest(LuxonisDatasetTester("test_version_1"))
+    suite.addTest(LuxonisDatasetTester("test_modify"))
+    suite.addTest(LuxonisDatasetTester("test_version_2"))
+    suite.addTest(LuxonisDatasetTester("test_delete"))
+    suite.addTest(LuxonisDatasetTester("test_version_3"))
     suite.addTest(LuxonisDatasetTester("test_add_filter_exceptions"))
     if not args.keep:
         suite.addTest(LuxonisDatasetTester("test_delete_dataset"))

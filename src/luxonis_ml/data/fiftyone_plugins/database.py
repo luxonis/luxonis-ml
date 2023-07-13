@@ -7,6 +7,7 @@ from fiftyone.core.fields import (
     IntField,
     DictField,
     BooleanField,
+    ArrayField,
 )
 
 from fiftyone.core.odm.document import Document
@@ -60,5 +61,6 @@ class TransactionDocument(Document):
     sample_id = ObjectIdField()
     field = StringField()
     value = DictField()
+    mask = ArrayField()
     component = StringField()
     version = FloatField()

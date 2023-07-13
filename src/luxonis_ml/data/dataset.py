@@ -6,14 +6,11 @@ from luxonis_ml.data.utils.exceptions import *
 from fiftyone import ViewField as F
 import os, subprocess, shutil
 from pathlib import Path
-import glob
 import warnings
 import cv2
 from PIL import Image
-import pickle
 import json
 import boto3
-import glob
 from tqdm import tqdm
 from enum import Enum
 import numpy as np
@@ -516,6 +513,11 @@ class LuxonisDataset:
     def _make_transaction(
         self, action, sample_id=None, field=None, value=None, component=None
     ):
+        if field == "segmentation":
+            mask = value
+            value = {"segmentation": "mask"}
+        else:
+            mask = None
         transaction_doc = fop.TransactionDocument(
             dataset_id=self.dataset_doc.id,
             created_at=datetime.utcnow(),
@@ -524,6 +526,7 @@ class LuxonisDataset:
             sample_id=sample_id,
             field=field,
             value={"value": value},
+            mask=mask,
             component=component,
             version=-1,  # encodes no version yet assigned
         )
@@ -914,7 +917,7 @@ class LuxonisDataset:
                             sample[
                                 transaction["field"]
                             ] = data_utils.construct_segmentation_label(
-                                self, transaction["value"]["value"]
+                                self, transaction["mask"]
                             )
                         elif transaction["field"] == "keypoints":
                             sample[
@@ -946,7 +949,7 @@ class LuxonisDataset:
                             sample[
                                 transaction["field"]
                             ] = data_utils.construct_segmentation_label(
-                                self, transaction["value"]["value"]
+                                self, transaction["mask"]
                             )
                         elif transaction["field"] == "keypoints":
                             sample[

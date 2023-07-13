@@ -1,8 +1,7 @@
 import numpy as np
-import hashlib
 import fiftyone as fo
+import fiftyone.core.utils as fou
 import os
-import subprocess
 import uuid
 from pathlib import Path
 from fiftyone import ViewField as F
@@ -216,6 +215,9 @@ def construct_segmentation_label(dataset, mask):
         return None
     if isinstance(mask, list):
         mask = np.array(mask)
+    elif isinstance(mask, bytes):
+        mask = fou.deserialize_numpy_array(mask)
+    mask = mask.astype(np.uint16)  # decrease size of binary
     return fo.Segmentation(mask=mask)
 
 
