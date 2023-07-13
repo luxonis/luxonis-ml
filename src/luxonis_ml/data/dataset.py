@@ -646,6 +646,17 @@ class LuxonisDataset:
                         # ADD case
                         media_change = True
                         additions[i][component_name]["_group"] = group
+
+                        if "class" in additions[i][component_name].keys():
+                            data_utils.assert_classification_format(
+                                additions[i][component_name]["class"]
+                            )
+                        if "boxes" in additions[i][component_name].keys():
+                            data_utils.assert_boxes_format(
+                                additions[i][component_name]["boxes"]
+                            )
+                        # TODO: complete for segmentation and keypoints
+
                         tid = self._make_transaction(
                             LDFTransactionType.ADD,
                             sample_id=None,

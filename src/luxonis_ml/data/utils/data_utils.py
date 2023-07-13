@@ -18,36 +18,75 @@ def get_granule(filepath, addition, component_name):
     return granule
 
 
+def assert_classification_format(val):
+    if val is not None:
+        if isinstance(val, str):
+            pass
+        elif isinstance(val, list):
+            for v in val:
+                if not isinstance(v, str):
+                    raise ClassificationFormatError(
+                        "All elements in list must be string"
+                    )
+        else:
+            raise ClassificationFormatError(
+                "Classification annotation ('class') must be a string or list os strings"
+            )
+
+
+def assert_boxes_format(val):
+    if val is not None:
+        if not isinstance(val, list) or not isinstance(val[0], list):
+            raise BoundingBoxFormatError("Bounding boxes need to be a nested list!")
+
+        for v in val:
+            if not ((isinstance(v[0], int) or isinstance(v[0], str)) and len(v) == 5):
+                raise BoundingBoxFormatError(
+                    "Wrong bounding box format! It should start with int or str for the class label and contain four points"
+                )
+
+            x, y, w, h = v[1:]
+            if not (
+                isinstance(x, float)
+                and isinstance(y, float)
+                and isinstance(w, float)
+                and isinstance(h, float)
+            ):
+                raise BoundingBoxFormatError("Bbox x,y,w,h must be floats")
+            if (
+                (x < 0 or x > 1)
+                or (y < 0 or y > 1)
+                or (w < 0 or w > 1)
+                or (h < 0 or h > 1)
+            ):
+                raise BoundingBoxFormatError("Bbox x,y,w,h must be between 0 and 1")
+            if (x + w) > 1 or (y + h) > 1:
+                raise BoundingBoxFormatError("Bbox goes outside of image")
+
+
 def check_classification(val1, val2):
+    assert_classification_format(val1)
+
     if (val1 is None and val2 is not None) or (val2 is None and val1 is not None):
         return [{"class": val1}]
     elif val1 is None and val2 is None:
         return []
 
     if isinstance(val1, str):
-        # prevent zip from taking letters only
         val1 = [val1]
 
-    # TODO: Should be updated to work properly with multi-label classification
-    # This includes the bottom for loop which seems to return only the first value where dict is not identical.
-
-    if val2 is None and val1 is not None:
-        val1 = fo.Classification(label=val1[0]).to_dict()
+    # Only checks the classes themselves for now
+    set1 = set(val1)
+    set2 = set([v["label"] for v in val2["classifications"]])
+    if set1 != set2:  # will handle arbitraty order for multi-class classification
         return [{"class": val1}]
 
-    for val1, val2 in list(zip(val1, val2["classifications"])):
-        val1 = fo.Classification(label=val1).to_dict()
-        if len(val1.keys()) == len(val2.keys()):
-            for key in val1:
-                if not key.startswith("_"):
-                    if val1[key] != val2[key]:
-                        return [{"class": val1}]
-        else:
-            return [{"class": val1}]
     return []
 
 
 def check_boxes(dataset, val1, val2):
+    assert_boxes_format(val1)
+
     if (val1 is None and val2 is not None) or (val2 is None and val1 is not None):
         return [{"boxes": val1}]
     elif val1 is None and val2 is None:
@@ -55,15 +94,6 @@ def check_boxes(dataset, val1, val2):
 
     if len(val1) == len(val2["detections"]):
         for val1, val2 in list(zip(val1, val2["detections"])):
-            # assert bounding boxes contain the right format of either int and list or str and list
-            if not (
-                (isinstance(val1[0], int) or isinstance(val1[0], str))
-                and len(val1) == 5
-            ):
-                raise BoundingBoxFormatError(
-                    "Wrong bounding box format! It should start with int or str for the class label"
-                )
-
             if isinstance(val1[0], str) and val2["label"] != val1[0]:
                 return [{"boxes": val1}]
             if (

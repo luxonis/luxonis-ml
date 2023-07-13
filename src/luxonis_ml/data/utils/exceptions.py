@@ -24,6 +24,12 @@ class AdditionNotFoundError(Exception):
     pass
 
 
+class ClassificationFormatError(Exception):
+    """Exception for wrong classification format being passed in additions"""
+
+    pass
+
+
 class BoundingBoxFormatError(Exception):
     """Exception for wrong bounding box format being passed in additions"""
 

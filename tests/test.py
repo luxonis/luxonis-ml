@@ -139,6 +139,9 @@ class LuxonisDatasetTester(unittest.TestCase):
                 B_dict = data
                 self.additions.append({"A": A_dict, "B": B_dict})
 
+        # mock image to test ADD case exceptions
+        cv2.imwrite("../data/nothing.jpg", np.zeros((300, 300)).astype(np.uint8))
+
         self.dataset_id = LuxonisDataset.create(
             self.team_id, self.team_name, self.dataset_name
         )
@@ -722,11 +725,95 @@ class LuxonisDatasetTester(unittest.TestCase):
                 transactions[0]["action"], "END", "DataTransactionException cleanup"
             )
 
-            # test annotation format errors
+            # test class format errors
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["class"] = 0.5  # wrong class type
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with ClassificationFormatError:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["class"] = ["person", 0.5]  # wrong class type within list
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with ClassificationFormatError:*",
+                dataset._add_filter,
+                additions,
+            )
+            # test boxes format errors
             additions = deepcopy(self.additions[-3:-1])
             additions[0]["A"]["boxes"][0] = additions[0]["A"]["boxes"][0][
                 1:
             ]  # remove class from bounding box
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with BoundingBoxFormatError:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["boxes"][0] = additions[0]["A"]["boxes"][0][
+                :-1
+            ]  # remove a point from bounding box
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with BoundingBoxFormatError:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["boxes"] = [0, 1, 2, 3]  # bad format
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with BoundingBoxFormatError:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["boxes"] = [
+                ["person", 0.5, 1, 0.1, 0.2]
+            ]  # int in x,y,w,h
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with BoundingBoxFormatError:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["boxes"] = [
+                ["person", -0.1, 0.9, 0.1, 0.2]
+            ]  # value in x,y,w,h < 0
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with BoundingBoxFormatError:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["boxes"] = [
+                ["person", 0.5, 0.9, 0.1, 0.2]
+            ]  # value in x+w > 1
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with BoundingBoxFormatError:*",
+                dataset._add_filter,
+                additions,
+            )
+
+            # test class not found for class, boxes, keypoints
+            # TODO
+
+            # test the ADD case instead of UPDATE
+            additions = [{"A": {"filepath": "../data/nothing.jpg", "class": 5}}]
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with ClassificationFormatError:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = [{"A": {"filepath": "../data/nothing.jpg", "boxes": 5}}]
             self.assertRaisesRegex(
                 DataTransactionException,
                 "Creating a transaction for filepath .* failed with BoundingBoxFormatError:*",
