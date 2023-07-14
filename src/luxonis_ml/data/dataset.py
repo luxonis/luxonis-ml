@@ -6,11 +6,10 @@ from luxonis_ml.data.utils.exceptions import *
 from fiftyone import ViewField as F
 import os, subprocess, shutil
 from pathlib import Path
-import warnings
 import cv2
-from PIL import Image
 import json
 import boto3
+import logging, time
 from tqdm import tqdm
 from enum import Enum
 import numpy as np
@@ -175,6 +174,13 @@ class LuxonisDataset:
         self.tasks = ["class", "boxes", "segmentation", "keypoints"]
         self.compute_heatmaps = True  # TODO: could make this configurable
 
+        self.log_level = os.environ.get("LUXONISML_LEVEL", "INFO").upper()
+        logging.basicConfig(
+            level=self.log_level, format="%(asctime)s [%(levelname)s] %(message)s"
+        )
+        self.logger = logging.getLogger(__name__)
+        self.last_time = None
+
     def __enter__(self):
         if self.full_name in fo.list_datasets():
             self.fo_dataset = fo.load_dataset(self.full_name)
@@ -324,6 +330,19 @@ class LuxonisDataset:
         version_view = self.fo_dataset[samples]
         self.fo_dataset.save_view(f"version_{self.version}", version_view)
 
+    def _log_time(self, note=None, final=False):
+        """Helper to log the time taken within a function to INFO"""
+
+        if self.logger.isEnabledFor(logging.DEBUG):
+            if self.last_time is None:
+                self.last_time = time.time()
+            else:
+                new_time = time.time()
+                self.logger.debug(f"{note} took {(new_time-self.last_time)*1000} ms")
+                self.last_time = new_time
+                if final:
+                    self.last_time = None
+
     def create_source(
         self,
         name=None,
@@ -367,7 +386,7 @@ class LuxonisDataset:
             self.dataset_doc.save(safe=True, upsert=True)
         res = self._get_source()
         if len(list(res)):  # exists
-            warnings.warn(f"Updating from a previously saved source!")
+            self.logger.warning(f"Updating from a previously saved source!")
             self.conn.luxonis_source_document.delete_many(
                 {"_luxonis_dataset_id": self.dataset_doc.id}
             )
@@ -429,7 +448,7 @@ class LuxonisDataset:
 
     def sync_from_cloud(self):
         if self.bucket_storage.value == "local":
-            print("This is a local dataset! Cannot sync")
+            self.logger.warning("This is a local dataset! Cannot sync")
         else:
             sync_from_s3(
                 non_streaming_dir=str(
@@ -469,7 +488,7 @@ class LuxonisDataset:
         try:
             count_dict = self.fo_dataset.count_values("class.classifications.label")
         except:
-            warnings.warn(
+            self.logger.warning(
                 "No 'class' label present in the dataset. Returning empty dictionary."
             )
             count_dict = {}
@@ -593,6 +612,8 @@ class LuxonisDataset:
         Filters out any additions to the dataset already existing
         """
 
+        self._log_time()
+
         source = self.source
         components = self.source.components
 
@@ -609,7 +630,7 @@ class LuxonisDataset:
                 )
             )
 
-        print("Checking for additions or modifications...")
+        self.logger.info("Checking for additions or modifications...")
 
         transactions = []
         transaction_to_additions = {}
@@ -617,8 +638,16 @@ class LuxonisDataset:
         field_change = False
         filepath = None
 
+        self._log_time("Filter setup", final=True)
+
         try:
-            for i, addition in tqdm(enumerate(additions), total=len(additions)):
+            items = enumerate(additions)
+            if not self.logger.isEnabledFor(logging.DEBUG) and self.logger.isEnabledFor(
+                logging.INFO
+            ):
+                items = tqdm(items, total=len(additions))
+            for i, addition in items:
+                self._log_time()
                 # change the filepath for all components
                 for component_name in addition.keys():
                     try:
@@ -643,6 +672,8 @@ class LuxonisDataset:
 
                 group = fo.Group(name=source.name)
 
+                self._log_time("Filter addition setup")
+
                 # check for ADD or UPDATE cases in the dataset
                 for component_name in addition.keys():
                     filepath = addition[component_name]["filepath"]
@@ -653,6 +684,8 @@ class LuxonisDataset:
                         # ADD case
                         media_change = True
                         additions[i][component_name]["_group"] = group
+
+                        self._log_time("Filter ADD find case")
 
                         if "class" in additions[i][component_name].keys():
                             data_utils.assert_classification_format(
@@ -671,6 +704,8 @@ class LuxonisDataset:
                                 self, additions[i][component_name]["keypoints"]
                             )
 
+                        self._log_time("Filter ADD check annotation format")
+
                         tid = self._make_transaction(
                             LDFTransactionType.ADD,
                             sample_id=None,
@@ -681,6 +716,8 @@ class LuxonisDataset:
                         tid = str(tid)
                         transactions.append(tid)
                         transaction_to_additions[tid] = i
+
+                        self._log_time("Filter ADD make transaction", final=True)
                     else:
                         # check for UPDATE
                         self.fo_dataset.group_slice = component_name
@@ -698,9 +735,14 @@ class LuxonisDataset:
                                 latest_sample = sample
                                 max_version = sample.version
 
+                        self._log_time("Filter UPDATE find case")
+
                         changes = data_utils.check_fields(
                             self, latest_sample, addition, component_name
                         )
+
+                        self._log_time("Filter UPDATE check fields")
+
                         for change in changes:
                             field, value = list(change.items())[0]
                             field_change = True
@@ -727,6 +769,8 @@ class LuxonisDataset:
                                 )
                                 transactions.append(str(tid))
 
+                        self._log_time("Filter UPDATE make transaction", final=True)
+
             if media_change or field_change:
                 self._make_transaction(LDFTransactionType.END)
 
@@ -744,7 +788,8 @@ class LuxonisDataset:
         Filters out any additions to the dataset already existing
         """
 
-        print("Extracting dataset media...")
+        self.logger.info("Extracting dataset media...")
+        self._log_time()
 
         components = self.source.components
         if self.bucket_storage.value == "local":
@@ -765,7 +810,17 @@ class LuxonisDataset:
 
         sync = False
 
-        for i, addition in tqdm(enumerate(additions), total=len(additions)):
+        items = enumerate(additions)
+        if not self.logger.isEnabledFor(logging.DEBUG) and self.logger.isEnabledFor(
+            logging.INFO
+        ):
+            items = tqdm(items, total=len(additions))
+
+        self._log_time("Extract setup", final=True)
+
+        for i, addition in items:
+            self._log_time()
+
             add_heatmaps = {}
             for component_name in addition.keys():
                 if component_name not in components.keys():
@@ -782,7 +837,11 @@ class LuxonisDataset:
 
                 if self.bucket_storage.value == "local":
                     if os.path.exists(local_path):
+                        self._log_time(
+                            "Extract addition local check existence", final=True
+                        )
                         continue
+                    self._log_time("Extract addition local check existence")
                 elif self.bucket_storage.value == "s3":
                     s3_path = component["filepath"][1:]
                     if check_s3_file_existence(
@@ -790,7 +849,11 @@ class LuxonisDataset:
                         s3_path,
                         self._get_credentials("AWS_S3_ENDPOINT_URL"),
                     ):
+                        self._log_time(
+                            "Extract addition s3 check existence", final=True
+                        )
                         continue
+                    self._log_time("Extract addition s3 check existence")
                     sync = True
 
                 if from_bucket:
@@ -801,11 +864,17 @@ class LuxonisDataset:
                         Key=new_prefix,
                         CopySource={"Bucket": self.bucket, "Key": old_prefix},
                     )
+                    self._log_time("Extract addition from_bucket", final=True)
                 elif not data_utils.is_modified_filepath(self, filepath):
                     cmd = f"cp {filepath} {local_path}"
                     subprocess.check_output(cmd, shell=True)
+                    self._log_time(
+                        "Extract addition local cp", final=(not self.compute_heatmaps)
+                    )
                 else:
-                    pass  # TODO: some logging here on not actually extracting data due to a path error, most likely due to memory issues
+                    self.logger.warning(
+                        f"Skipping extraction for {filepath} as path is likely corrupted due to memory assignment"
+                    )
 
                 if (
                     self.compute_heatmaps
@@ -830,12 +899,16 @@ class LuxonisDataset:
                     new_filepath = f"/{self.team_id}/datasets/{self.dataset_id}/{heatmap_component}/{granule}"
                     add_heatmaps[heatmap_component] = new_filepath
 
+                    self._log_time("Extract addition heatmap computation", final=True)
+
             if self.compute_heatmaps and not from_bucket and sync:
                 for heatmap_component in add_heatmaps:
                     additions[i][heatmap_component] = {}
                     additions[i][heatmap_component]["filepath"] = add_heatmaps[
                         heatmap_component
                     ]
+
+        self._log_time()
 
         if self.bucket_storage.value == "s3" and not from_bucket:
             sync_to_s3(
@@ -848,9 +921,14 @@ class LuxonisDataset:
         if self.bucket_storage.value != "local":
             shutil.rmtree(local_cache)
 
+        self._log_time("Extract S3 sync", final=True)
+
         return additions
 
     def _add_execute(self, additions=None, transaction_to_additions=None):
+        self.logger.info("Executing changes to dataset...")
+        # self._log_time()
+
         source = self.source
         samples = []
         copied_samples = []
@@ -862,7 +940,13 @@ class LuxonisDataset:
             if transactions is None:
                 raise Exception("There are no changes to the dataset to execute!")
 
-            for transaction in transactions:
+            items = transactions
+            if not self.logger.isEnabledFor(logging.DEBUG) and self.logger.isEnabledFor(
+                logging.INFO
+            ):
+                items = tqdm(transactions, total=len(transactions))
+
+            for transaction in items:
                 if transaction["action"] == LDFTransactionType.ADD.value:
                     if additions is None or transaction_to_additions is None:
                         raise Exception(
@@ -1015,10 +1099,11 @@ class LuxonisDataset:
             raise DataExecutionException(transaction, type(e).__name__, str(e))
 
         if len(samples):
+            self.logger.info("Adding samples to Fiftyone")
             self.fo_dataset.add_samples(samples)
 
     def _add_defaults(self, additions):
-        for i, addition in tqdm(enumerate(additions), total=len(additions)):
+        for i, addition in enumerate(additions):
             for component_name in addition.keys():
                 if "split" not in addition[component_name].keys():
                     addition[component_name]["split"] = "train"
@@ -1054,7 +1139,7 @@ class LuxonisDataset:
 
             filter_result = self._add_filter(additions)
             if filter_result is None:
-                print("No additions or modifications")
+                self.logger.info("No additions or modifications")
                 return
             else:
                 transaction_to_additions, media_change, field_change = filter_result
@@ -1066,8 +1151,9 @@ class LuxonisDataset:
 
         except BaseException as e:
             # This will not handle cases where a network connection is interrupted, as cleanup requires a network connection
-            print("-------- ERROR --------")
-            print("Cleaning up... please to not interrupt the program!")
+            self.logger.error(
+                "-------- Cleaning up... please to not interrupt the program! --------"
+            )
             if post_filter:
                 # Additionally delete all transactions that were saved by _add_filter but not executed
                 # All other cleanup is handled in _add_filter and _add_execute
@@ -1152,7 +1238,7 @@ class LuxonisDataset:
 
         if not media_change and not field_change:
             # TODO: this could just be some [INFO] or [DEBUG] information later
-            print("No changes to version!")
+            self.logger.info("No changes to version!")
             return
 
         add_samples = set()
