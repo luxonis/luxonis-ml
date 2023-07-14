@@ -5,6 +5,8 @@ import argparse
 import os
 import json
 from pathlib import Path
+import numpy as np
+from tabulate import tabulate
 
 
 def _config():
@@ -44,8 +46,41 @@ def _config():
 
 
 def _dataset_sync(args):
-    with LuxonisDataset(args.team, args.dataset_name) as dataset:
+    with LuxonisDataset(args.team_id, args.dataset_id) as dataset:
         dataset.sync_from_cloud()
+
+
+def _debug_performance(args):
+    with open(args.log) as file:
+        lines = file.readlines()
+
+    items, times = [], []
+    for line in lines:
+        if line.endswith("ms\n"):
+            time = line.split(" ")[-2]
+            item = line.split(time)[0].split("[DEBUG] ")[1]
+            items.append(item)
+            times.append(float(time))
+
+    items = np.array(items)
+    times = np.array(times)
+    data_dict = {}
+    for uitem in np.unique(items):
+        data_dict[uitem] = times[items == uitem]
+
+    data = []
+    for key in data_dict:
+        data.append(
+            [
+                key,
+                np.sum(data_dict[key]),
+                np.mean(data_dict[key]),
+                np.std(data_dict[key], ddof=1),
+            ]
+        )
+    headers = ["Item", "Total Time (ms)", "Mean Time (ms)", "Std Time (ms)"]
+    table = tabulate(data, headers, tablefmt="grid")
+    print(table)
 
 
 def main():
@@ -58,22 +93,33 @@ def main():
     parser_dataset = subparsers.add_parser(
         "dataset", help="Dataset programs to work with LDF"
     )
+    parser_debug = subparsers.add_parser("debug", help="Debug functions")
 
     dataset_subparsers = parser_dataset.add_subparsers(dest="dataset")
+    debug_subparsers = parser_debug.add_subparsers(dest="debug")
 
     parser_dataset_sync = dataset_subparsers.add_parser(
         "sync", help="Sync dataset media from cloud"
     )
     parser_dataset_sync.add_argument(
-        "-t", "--team", type=str, help="Team name", default=None
+        "-t", "--team_id", type=str, help="Team ID", default=None
     )
     parser_dataset_sync.add_argument(
-        "-n", "--dataset_name", type=str, help="Name of dataset", default=None
+        "-d", "--dataset_id", type=str, help="Dataset ID", default=None
+    )
+
+    parser_debug_performance = debug_subparsers.add_parser(
+        "performance", help="Compute performance statistics from a log file"
+    )
+    parser_debug_performance.add_argument(
+        "-l", "--log", type=str, help="Path to log file", default=None
     )
 
     args = parser.parse_args()
 
     if args.main == "config":
         _config()
-    elif args.dataset == "sync":
+    elif hasattr(args, "dataset") and args.dataset == "sync":
         _dataset_sync(args)
+    elif hasattr(args, "debug") and args.debug == "performance":
+        _debug_performance(args)

@@ -174,11 +174,15 @@ class LuxonisDataset:
         self.tasks = ["class", "boxes", "segmentation", "keypoints"]
         self.compute_heatmaps = True  # TODO: could make this configurable
 
+        log_format = "%(asctime)s [%(levelname)s] %(message)s"
         self.log_level = os.environ.get("LUXONISML_LEVEL", "INFO").upper()
-        logging.basicConfig(
-            level=self.log_level, format="%(asctime)s [%(levelname)s] %(message)s"
-        )
+        logging.basicConfig(level=self.log_level, format=log_format)
         self.logger = logging.getLogger(__name__)
+        file_handler = logging.FileHandler("ldf_debug.log")
+        file_handler.setLevel(logging.DEBUG)
+        formatter = logging.Formatter(log_format)
+        file_handler.setFormatter(formatter)
+        self.logger.addHandler(file_handler)
         self.last_time = None
 
     def __enter__(self):
@@ -1205,88 +1209,127 @@ class LuxonisDataset:
             sample = self.fo_dataset[transaction["sample_id"]]
             return sample
 
+        self.logger.info("Creating new version...")
+        self._log_time()
+
         # TODO: exception handling
 
-        transactions = self._check_transactions(for_versioning=True)
-        if transactions is None:
-            raise Exception("There are no changes to the dataset to version!")
+        try:
+            transactions = self._check_transactions(for_versioning=True)
+            if transactions is None:
+                raise Exception("There are no changes to the dataset to version!")
 
-        contains_add = (
-            True
-            if np.sum(
-                [t["action"] == LDFTransactionType.ADD.value for t in transactions]
+            contains_add = (
+                True
+                if np.sum(
+                    [t["action"] == LDFTransactionType.ADD.value for t in transactions]
+                )
+                else False
             )
-            else False
-        )
-        contains_update = (
-            True
-            if np.sum(
-                [t["action"] == LDFTransactionType.UPDATE.value for t in transactions]
+            contains_update = (
+                True
+                if np.sum(
+                    [
+                        t["action"] == LDFTransactionType.UPDATE.value
+                        for t in transactions
+                    ]
+                )
+                else False
             )
-            else False
-        )
-        contains_delete = (
-            True
-            if np.sum(
-                [t["action"] == LDFTransactionType.DELETE.value for t in transactions]
+            contains_delete = (
+                True
+                if np.sum(
+                    [
+                        t["action"] == LDFTransactionType.DELETE.value
+                        for t in transactions
+                    ]
+                )
+                else False
             )
-            else False
-        )
-        media_change = contains_add or contains_delete
-        field_change = contains_update
-        self._incr_version(media_change, field_change)
+            media_change = contains_add or contains_delete
+            field_change = contains_update
+            self._incr_version(media_change, field_change)
 
-        if not media_change and not field_change:
-            # TODO: this could just be some [INFO] or [DEBUG] information later
-            self.logger.info("No changes to version!")
-            return
+            if not media_change and not field_change:
+                self.logger.info("No changes to version!")
+                return
 
-        add_samples = set()
-        deprecate_samples = set()
-        for transaction in transactions:
-            if transaction["action"] != LDFTransactionType.END.value:
-                self.fo_dataset.group_slice = transaction["component"]
+            add_samples = set()
+            deprecate_samples = set()
 
-            if transaction["action"] == LDFTransactionType.ADD.value:
-                sample = get_current_sample(transaction)
-                if sample is None:
-                    # This case should ideally not happen unless there is a problem with rollback
-                    # TODO: another possibility would be to delete the transaction and throw a warning instead
-                    raise Exception(
-                        f"Sample is none for transaction ADD with tid {transaction['_id'].binary.hex()}"
-                    )
-                add_samples.add(sample["id"])
+            items = transactions
+            if not self.logger.isEnabledFor(logging.DEBUG) and self.logger.isEnabledFor(
+                logging.INFO
+            ):
+                items = tqdm(items, total=len(transactions))
 
-            elif transaction["action"] == LDFTransactionType.UPDATE.value:
-                sample = get_current_sample(transaction)
-                if sample is None:
-                    # This is fine to ignore, as it means a new sample which has multiple ADD and/or UPDATE
-                    # The updates are already executed and we are just finding the latest
-                    self._version_transaction(transaction["_id"])
-                    continue
-                else:
+            self._log_time("Version setup", final=True)
+
+            for transaction in transactions:
+                self._log_time()
+
+                if transaction["action"] != LDFTransactionType.END.value:
+                    self.fo_dataset.group_slice = transaction["component"]
+
+                if transaction["action"] == LDFTransactionType.ADD.value:
+                    sample = get_current_sample(transaction)
+                    if sample is None:
+                        # This case should ideally not happen unless there is a problem with rollback
+                        # TODO: another possibility would be to delete the transaction and throw a warning instead
+                        raise Exception(
+                            f"Sample is none for transaction ADD with tid {transaction['_id'].binary.hex()}"
+                        )
                     add_samples.add(sample["id"])
-                    prev_sample = get_previous_sample(transaction)
-                    deprecate_samples.add(prev_sample["id"])
 
-            self._version_transaction(transaction["_id"])
+                    self._log_time("Version ADD")
 
-        for sample_id in add_samples:
-            sample = self.fo_dataset[sample_id]
-            sample["latest"] = True
-            sample["version"] = self.version
-            sample.save()
-        for sample_id in deprecate_samples:
-            sample = self.fo_dataset[sample_id]
-            sample["latest"] = False
-            sample.save()
+                elif transaction["action"] == LDFTransactionType.UPDATE.value:
+                    sample = get_current_sample(transaction)
+                    if sample is None:
+                        # This is fine to ignore, as it means a new sample which has multiple ADD and/or UPDATE
+                        # The updates are already executed and we are just finding the latest
+                        self._version_transaction(transaction["_id"])
+                        continue
+                    else:
+                        add_samples.add(sample["id"])
+                        prev_sample = get_previous_sample(transaction)
+                        deprecate_samples.add(prev_sample["id"])
 
-        version_samples = []
-        for component_name in self.source.components:
-            self.fo_dataset.group_slice = component_name
-            latest_view = self.fo_dataset.match(F("latest") == True)
-            version_samples += [sample.id for sample in latest_view]
-        self._save_version(version_samples, note)
+                    self._log_time("Version UPDATE")
+
+                self._version_transaction(transaction["_id"])
+
+                self._log_time("Version transaction", final=True)
+
+            self._log_time()
+
+            for sample_id in add_samples:
+                sample = self.fo_dataset[sample_id]
+                sample["latest"] = True
+                sample["version"] = self.version
+                sample.save()
+            self._log_time("Version add_samples")
+            for sample_id in deprecate_samples:
+                sample = self.fo_dataset[sample_id]
+                sample["latest"] = False
+                sample.save()
+            self._log_time("Version deprecate_samples")
+
+            version_samples = []
+            for component_name in self.source.components:
+                self.fo_dataset.group_slice = component_name
+                latest_view = self.fo_dataset.match(F("latest") == True)
+                version_samples += [sample.id for sample in latest_view]
+            self._log_time("Version gather version samples")
+            self._save_version(version_samples, note)
+            self._log_time("Version save version")
+
+        except BaseException as e:
+            # TODO:
+            # - decrement version if incremented
+            # - undo any sample.save()
+            # undo any _save_version? Or move this outside try/except
+            raise e
 
     def create_view(self, name, expr, version=None):
         if version is None:
