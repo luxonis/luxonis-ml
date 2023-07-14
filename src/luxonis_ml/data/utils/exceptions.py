@@ -23,49 +23,49 @@ class DataExecutionException(Exception):
         super().__init__(message)
 
 
-class AdditionsStructureError(Exception):
+class AdditionsStructureException(Exception):
     """Excpetion if incorrect format of additions"""
 
     pass
 
 
-class AdditionNotFoundError(Exception):
+class AdditionNotFoundException(Exception):
     """Excpetion for not finding filepath"""
 
     pass
 
 
-class ClassificationFormatError(Exception):
+class ClassificationFormatException(Exception):
     """Exception for wrong classification format being passed in additions"""
 
     pass
 
 
-class BoundingBoxFormatError(Exception):
+class BoundingBoxFormatException(Exception):
     """Exception for wrong bounding box format being passed in additions"""
 
     pass
 
 
-class SegmentationFormatError(Exception):
+class SegmentationFormatException(Exception):
     """Exception for wrong segmentation mask format being passed in additions"""
 
     pass
 
 
-class KeypointFormatError(Exception):
+class KeypointFormatException(Exception):
     """Exception for wrong segmentation mask format being passed in additions"""
 
     pass
 
 
-class ClassNotFoundError(Exception):
+class ClassUnknownException(Exception):
     """Exception for classes not found in dataset"""
 
     pass
 
 
-class TransactionNotFoundError(Exception):
+class TransactionNotFoundException(Exception):
     """Exception not finding a transaction in data execution"""
 
     pass

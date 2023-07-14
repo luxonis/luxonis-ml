@@ -624,7 +624,7 @@ class LuxonisDataset:
                     try:
                         filepath = addition[component_name]["filepath"]
                     except:
-                        raise AdditionsStructureError(
+                        raise AdditionsStructureException(
                             "Additions must be List[dict] with {'<component_name>': {'filepath':...}}. The <component_name> and filepath are required"
                         )
                     additions[i][component_name]["_old_filepath"] = filepath
@@ -632,7 +632,9 @@ class LuxonisDataset:
                         try:
                             hashpath, hash = data_utils.generate_hashname(filepath)
                         except:
-                            raise AdditionNotFoundError(f"{filepath} does not exist")
+                            raise AdditionNotFoundException(
+                                f"{filepath} does not exist"
+                            )
                         additions[i][component_name]["instance_id"] = hash
                         additions[i][component_name]["_new_image_name"] = hashpath
                     granule = data_utils.get_granule(filepath, addition, component_name)
@@ -868,7 +870,7 @@ class LuxonisDataset:
                         )
 
                     if transaction_to_additions.get(str(transaction["_id"])) is None:
-                        raise TransactionNotFoundError(
+                        raise TransactionNotFoundException(
                             f"{str(transaction['_id'])} not found matching an addition"
                         )
 

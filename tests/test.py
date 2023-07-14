@@ -673,14 +673,14 @@ class LuxonisDatasetTester(unittest.TestCase):
             additions = [{"nonsense": 5}]  # complete nonsense
             self.assertRaisesRegex(
                 DataTransactionException,
-                "Creating a transaction for filepath .* failed with AdditionsStructureError:*",
+                "Creating a transaction for filepath .* failed with AdditionsStructureException:*",
                 dataset._add_filter,
                 additions,
             )
             additions = [{"A": {"weather": "sunny"}}]  # missing filepath
             self.assertRaisesRegex(
                 DataTransactionException,
-                "Creating a transaction for filepath .* failed with AdditionsStructureError:*",
+                "Creating a transaction for filepath .* failed with AdditionsStructureException:*",
                 dataset._add_filter,
                 additions,
             )
@@ -689,7 +689,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             additions = [{"A": {"filepath": "/some/made/up/path"}}]
             self.assertRaisesRegex(
                 DataTransactionException,
-                "Creating a transaction for filepath .* failed with AdditionNotFoundError:*",
+                "Creating a transaction for filepath .* failed with AdditionNotFoundException:*",
                 dataset._add_filter,
                 additions,
             )
@@ -702,7 +702,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             additions[1]["A"]["filepath"] = "/some/made/up/path"  # intentional error
             self.assertRaisesRegex(
                 DataTransactionException,
-                "Creating a transaction for filepath .* failed with AdditionNotFoundError:*",
+                "Creating a transaction for filepath .* failed with AdditionNotFoundException:*",
                 dataset._add_filter,
                 additions,
             )
@@ -721,7 +721,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             additions[0]["A"]["class"] = 0.5  # wrong class type
             self.assertRaisesRegex(
                 DataTransactionException,
-                "Creating a transaction for filepath .* failed with ClassificationFormatError:*",
+                "Creating a transaction for filepath .* failed with ClassificationFormatException:*",
                 dataset._add_filter,
                 additions,
             )
@@ -729,7 +729,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             additions[0]["A"]["class"] = ["person", 0.5]  # wrong class type within list
             self.assertRaisesRegex(
                 DataTransactionException,
-                "Creating a transaction for filepath .* failed with ClassificationFormatError:*",
+                "Creating a transaction for filepath .* failed with ClassificationFormatException:*",
                 dataset._add_filter,
                 additions,
             )
@@ -737,7 +737,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             additions[0]["A"]["class"] = "cat"  # class not in dataset
             self.assertRaisesRegex(
                 DataTransactionException,
-                "Creating a transaction for filepath .* failed with ClassNotFoundError:*",
+                "Creating a transaction for filepath .* failed with ClassUnknownException:*",
                 dataset._add_filter,
                 additions,
             )
@@ -749,7 +749,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             ]  # remove class from bounding box
             self.assertRaisesRegex(
                 DataTransactionException,
-                "Creating a transaction for filepath .* failed with BoundingBoxFormatError:*",
+                "Creating a transaction for filepath .* failed with BoundingBoxFormatException:*",
                 dataset._add_filter,
                 additions,
             )
@@ -759,7 +759,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             ]  # remove a point from bounding box
             self.assertRaisesRegex(
                 DataTransactionException,
-                "Creating a transaction for filepath .* failed with BoundingBoxFormatError:*",
+                "Creating a transaction for filepath .* failed with BoundingBoxFormatException:*",
                 dataset._add_filter,
                 additions,
             )
@@ -767,7 +767,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             additions[0]["A"]["boxes"] = [0, 1, 2, 3]  # bad format
             self.assertRaisesRegex(
                 DataTransactionException,
-                "Creating a transaction for filepath .* failed with BoundingBoxFormatError:*",
+                "Creating a transaction for filepath .* failed with BoundingBoxFormatException:*",
                 dataset._add_filter,
                 additions,
             )
@@ -777,7 +777,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             ]  # int in x,y,w,h
             self.assertRaisesRegex(
                 DataTransactionException,
-                "Creating a transaction for filepath .* failed with BoundingBoxFormatError:*",
+                "Creating a transaction for filepath .* failed with BoundingBoxFormatException:*",
                 dataset._add_filter,
                 additions,
             )
@@ -787,7 +787,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             ]  # value in x,y,w,h < 0
             self.assertRaisesRegex(
                 DataTransactionException,
-                "Creating a transaction for filepath .* failed with BoundingBoxFormatError:*",
+                "Creating a transaction for filepath .* failed with BoundingBoxFormatException:*",
                 dataset._add_filter,
                 additions,
             )
@@ -797,7 +797,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             ]  # value in x+w > 1
             self.assertRaisesRegex(
                 DataTransactionException,
-                "Creating a transaction for filepath .* failed with BoundingBoxFormatError:*",
+                "Creating a transaction for filepath .* failed with BoundingBoxFormatException:*",
                 dataset._add_filter,
                 additions,
             )
@@ -807,7 +807,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             ]  # class is not string
             self.assertRaisesRegex(
                 DataTransactionException,
-                "Creating a transaction for filepath .* failed with BoundingBoxFormatError:*",
+                "Creating a transaction for filepath .* failed with BoundingBoxFormatException:*",
                 dataset._add_filter,
                 additions,
             )
@@ -815,7 +815,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             additions[0]["A"]["boxes"][0][0] = "cat"  # invalid class
             self.assertRaisesRegex(
                 DataTransactionException,
-                "Creating a transaction for filepath .* failed with ClassNotFoundError:*",
+                "Creating a transaction for filepath .* failed with ClassUnknownException:*",
                 dataset._add_filter,
                 additions,
             )
@@ -825,7 +825,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             additions[0]["A"]["segmentation"] = 5
             self.assertRaisesRegex(
                 DataTransactionException,
-                "Creating a transaction for filepath .* failed with SegmentationFormatError:*",
+                "Creating a transaction for filepath .* failed with SegmentationFormatException:*",
                 dataset._add_filter,
                 additions,
             )
@@ -833,7 +833,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             additions[0]["A"]["segmentation"] = np.zeros(10)  # wrong shape
             self.assertRaisesRegex(
                 DataTransactionException,
-                "Creating a transaction for filepath .* failed with SegmentationFormatError:*",
+                "Creating a transaction for filepath .* failed with SegmentationFormatException:*",
                 dataset._add_filter,
                 additions,
             )
@@ -841,7 +841,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             additions[0]["A"]["segmentation"][1, :] = -1  # negative numbers
             self.assertRaisesRegex(
                 DataTransactionException,
-                "Creating a transaction for filepath .* failed with SegmentationFormatError:*",
+                "Creating a transaction for filepath .* failed with SegmentationFormatException:*",
                 dataset._add_filter,
                 additions,
             )
@@ -850,7 +850,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             additions[0]["A"]["segmentation"][1, :] = 0.5  # non-int numbers
             self.assertRaisesRegex(
                 DataTransactionException,
-                "Creating a transaction for filepath .* failed with SegmentationFormatError:*",
+                "Creating a transaction for filepath .* failed with SegmentationFormatException:*",
                 dataset._add_filter,
                 additions,
             )
@@ -860,7 +860,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             additions[0]["A"]["keypoints"] = [[0.2, 0.3]]
             self.assertRaisesRegex(
                 DataTransactionException,
-                "Creating a transaction for filepath .* failed with KeypointFormatError:*",
+                "Creating a transaction for filepath .* failed with KeypointFormatException:*",
                 dataset._add_filter,
                 additions,
             )
@@ -870,7 +870,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             ]  # length 3 point
             self.assertRaisesRegex(
                 DataTransactionException,
-                "Creating a transaction for filepath .* failed with KeypointFormatError:*",
+                "Creating a transaction for filepath .* failed with KeypointFormatException:*",
                 dataset._add_filter,
                 additions,
             )
@@ -880,7 +880,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             ]  # negative number
             self.assertRaisesRegex(
                 DataTransactionException,
-                "Creating a transaction for filepath .* failed with KeypointFormatError:*",
+                "Creating a transaction for filepath .* failed with KeypointFormatException:*",
                 dataset._add_filter,
                 additions,
             )
@@ -888,7 +888,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             additions[0]["A"]["keypoints"] = [[0, [[0.2, 0.3]]]]  # class is not string
             self.assertRaisesRegex(
                 DataTransactionException,
-                "Creating a transaction for filepath .* failed with KeypointFormatError:*",
+                "Creating a transaction for filepath .* failed with KeypointFormatException:*",
                 dataset._add_filter,
                 additions,
             )
@@ -898,7 +898,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             ]  # class not in dataset
             self.assertRaisesRegex(
                 DataTransactionException,
-                "Creating a transaction for filepath .* failed with ClassNotFoundError:*",
+                "Creating a transaction for filepath .* failed with ClassUnknownException:*",
                 dataset._add_filter,
                 additions,
             )
@@ -907,28 +907,28 @@ class LuxonisDatasetTester(unittest.TestCase):
             additions = [{"A": {"filepath": "../data/nothing.jpg", "class": 5}}]
             self.assertRaisesRegex(
                 DataTransactionException,
-                "Creating a transaction for filepath .* failed with ClassificationFormatError:*",
+                "Creating a transaction for filepath .* failed with ClassificationFormatException:*",
                 dataset._add_filter,
                 additions,
             )
             additions = [{"A": {"filepath": "../data/nothing.jpg", "boxes": 5}}]
             self.assertRaisesRegex(
                 DataTransactionException,
-                "Creating a transaction for filepath .* failed with BoundingBoxFormatError:*",
+                "Creating a transaction for filepath .* failed with BoundingBoxFormatException:*",
                 dataset._add_filter,
                 additions,
             )
             additions = [{"A": {"filepath": "../data/nothing.jpg", "segmentation": 5}}]
             self.assertRaisesRegex(
                 DataTransactionException,
-                "Creating a transaction for filepath .* failed with SegmentationFormatError:*",
+                "Creating a transaction for filepath .* failed with SegmentationFormatException:*",
                 dataset._add_filter,
                 additions,
             )
             additions = [{"A": {"filepath": "../data/nothing.jpg", "keypoints": 5}}]
             self.assertRaisesRegex(
                 DataTransactionException,
-                "Creating a transaction for filepath .* failed with KeypointFormatError:*",
+                "Creating a transaction for filepath .* failed with KeypointFormatException:*",
                 dataset._add_filter,
                 additions,
             )
