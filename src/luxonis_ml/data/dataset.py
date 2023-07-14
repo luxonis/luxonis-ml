@@ -2,17 +2,15 @@ import fiftyone as fo
 import fiftyone.core.odm as foo
 import luxonis_ml.data.fiftyone_plugins as fop
 import luxonis_ml.data.utils.data_utils as data_utils
+from luxonis_ml.data.utils.exceptions import *
 from fiftyone import ViewField as F
 import os, subprocess, shutil
 from pathlib import Path
-import glob
 import warnings
 import cv2
 from PIL import Image
-import pickle
 import json
 import boto3
-import glob
 from tqdm import tqdm
 from enum import Enum
 import numpy as np
@@ -146,7 +144,7 @@ class LuxonisDataset:
         dataset_id,
         team_name=None,
         dataset_name=None,
-        bucket_type=BucketType.EXTERNAL,
+        bucket_type=BucketType.INTERNAL,
         bucket_storage=BucketStorage.LOCAL,
     ):
         self.conn = foo.get_db_conn()
@@ -228,10 +226,10 @@ class LuxonisDataset:
         ):
             self.bucket_storage = BucketStorage(self.dataset_doc.bucket_storage)
         if (
-            hasattr(self.dataset_doc, "current_version")
-            and self.dataset_doc.current_version is not None
+            hasattr(self.dataset_doc, "dataset_version")
+            and self.dataset_doc.dataset_version is not None
         ):
-            self.version = self.dataset_doc.current_version
+            self.version = float(self.dataset_doc.dataset_version)
 
         doc = list(self._get_source())
         if len(doc):
@@ -261,7 +259,7 @@ class LuxonisDataset:
         self.dataset_doc.path = self.path
         self.dataset_doc.bucket_type = self.bucket_type.value
         self.dataset_doc.bucket_storage = self.bucket_storage.value
-        self.dataset_doc.current_version = self.version
+        self.dataset_doc.dataset_version = str(self.version)
 
     def _get_credentials(self, key):
         if key in self.creds.keys():
@@ -515,6 +513,11 @@ class LuxonisDataset:
     def _make_transaction(
         self, action, sample_id=None, field=None, value=None, component=None
     ):
+        if field == "segmentation":
+            mask = value
+            value = {"segmentation": "mask"}
+        else:
+            mask = None
         transaction_doc = fop.TransactionDocument(
             dataset_id=self.dataset_doc.id,
             created_at=datetime.utcnow(),
@@ -523,6 +526,7 @@ class LuxonisDataset:
             sample_id=sample_id,
             field=field,
             value={"value": value},
+            mask=mask,
             component=component,
             version=-1,  # encodes no version yet assigned
         )
@@ -567,6 +571,11 @@ class LuxonisDataset:
             {"_id": tid}, {"$set": {"executed": True}}
         )
 
+    def _unexecute_transaction(self, tid):
+        self.conn.transaction_document.update_one(
+            {"_id": tid}, {"$set": {"executed": False}}
+        )
+
     def _version_transaction(self, tid):
         self.conn.transaction_document.update_one(
             {"_id": tid}, {"$set": {"version": self.version}}
@@ -602,92 +611,133 @@ class LuxonisDataset:
 
         print("Checking for additions or modifications...")
 
+        transactions = []
         transaction_to_additions = {}
         media_change = False
         field_change = False
+        filepath = None
 
-        for i, addition in tqdm(enumerate(additions), total=len(additions)):
-            # change the filepath for all components
-            for component_name in addition.keys():
-                filepath = addition[component_name]["filepath"]
-                additions[i][component_name]["_old_filepath"] = filepath
-                if not data_utils.is_modified_filepath(self, filepath):
-                    hashpath, hash = data_utils.generate_hashname(filepath)
-                    additions[i][component_name]["instance_id"] = hash
-                    additions[i][component_name]["_new_image_name"] = hashpath
-                granule = data_utils.get_granule(filepath, addition, component_name)
-                new_filepath = f"/{self.team_id}/datasets/{self.dataset_id}/{component_name}/{granule}"
-                additions[i][component_name]["filepath"] = new_filepath
-
-            group = fo.Group(name=source.name)
-
-            # check for ADD or UPDATE cases in the dataset
-            for component_name in addition.keys():
-                filepath = addition[component_name]["filepath"]
-                granule = data_utils.get_granule(filepath, addition, component_name)
-                new_filepath = f"/{self.team_id}/datasets/{self.dataset_id}/{component_name}/{granule}"
-                candidate = f"{component_name}/{granule}"
-                if candidate not in filepaths[component_name]:
-                    # ADD case
-                    media_change = True
-                    additions[i][component_name]["_group"] = group
-                    tid = self._make_transaction(
-                        LDFTransactionType.ADD,
-                        sample_id=None,
-                        field="filepath",
-                        value=new_filepath,
-                        component=component_name,
-                    )
-                    tid = str(tid)
-                    transaction_to_additions[tid] = i
-                else:
-                    # check for UPDATE
-                    self.fo_dataset.group_slice = component_name
-                    sample_view = self.fo_dataset.match(F("filepath") == new_filepath)
-                    # find the most up to date sample
-                    max_version = -np.inf
-                    for sample in sample_view:
-                        if sample.version == -1:
-                            latest_sample = sample
-                            max_version = sample.version
-                            break
-                        if sample.version > max_version:
-                            latest_sample = sample
-                            max_version = sample.version
-
-                    changes = data_utils.check_fields(
-                        self, latest_sample, addition, component_name
-                    )
-                    for change in changes:
-                        field, value = list(change.items())[0]
-                        field_change = True
-                        if field == "split":
-                            group = data_utils.get_group_from_sample(
-                                self, latest_sample
+        try:
+            for i, addition in tqdm(enumerate(additions), total=len(additions)):
+                # change the filepath for all components
+                for component_name in addition.keys():
+                    try:
+                        filepath = addition[component_name]["filepath"]
+                    except:
+                        raise AdditionsStructureException(
+                            "Additions must be List[dict] with {'<component_name>': {'filepath':...}}. The <component_name> and filepath are required"
+                        )
+                    additions[i][component_name]["_old_filepath"] = filepath
+                    if not data_utils.is_modified_filepath(self, filepath):
+                        try:
+                            hashpath, hash = data_utils.generate_hashname(filepath)
+                        except:
+                            raise AdditionNotFoundException(
+                                f"{filepath} does not exist"
                             )
-                            for component_name in group:
+                        additions[i][component_name]["instance_id"] = hash
+                        additions[i][component_name]["_new_image_name"] = hashpath
+                    granule = data_utils.get_granule(filepath, addition, component_name)
+                    new_filepath = f"/{self.team_id}/datasets/{self.dataset_id}/{component_name}/{granule}"
+                    additions[i][component_name]["filepath"] = new_filepath
+
+                group = fo.Group(name=source.name)
+
+                # check for ADD or UPDATE cases in the dataset
+                for component_name in addition.keys():
+                    filepath = addition[component_name]["filepath"]
+                    granule = data_utils.get_granule(filepath, addition, component_name)
+                    new_filepath = f"/{self.team_id}/datasets/{self.dataset_id}/{component_name}/{granule}"
+                    candidate = f"{component_name}/{granule}"
+                    if candidate not in filepaths[component_name]:
+                        # ADD case
+                        media_change = True
+                        additions[i][component_name]["_group"] = group
+
+                        if "class" in additions[i][component_name].keys():
+                            data_utils.assert_classification_format(
+                                self, additions[i][component_name]["class"]
+                            )
+                        if "boxes" in additions[i][component_name].keys():
+                            data_utils.assert_boxes_format(
+                                self, additions[i][component_name]["boxes"]
+                            )
+                        if "segmentation" in additions[i][component_name].keys():
+                            data_utils.assert_segmentation_format(
+                                self, additions[i][component_name]["segmentation"]
+                            )
+                        if "keypoints" in additions[i][component_name].keys():
+                            data_utils.assert_keypoints_format(
+                                self, additions[i][component_name]["keypoints"]
+                            )
+
+                        tid = self._make_transaction(
+                            LDFTransactionType.ADD,
+                            sample_id=None,
+                            field="filepath",
+                            value=new_filepath,
+                            component=component_name,
+                        )
+                        tid = str(tid)
+                        transactions.append(tid)
+                        transaction_to_additions[tid] = i
+                    else:
+                        # check for UPDATE
+                        self.fo_dataset.group_slice = component_name
+                        sample_view = self.fo_dataset.match(
+                            F("filepath") == new_filepath
+                        )
+                        # find the most up to date sample
+                        max_version = -np.inf
+                        for sample in sample_view:
+                            if sample.version == -1:
+                                latest_sample = sample
+                                max_version = sample.version
+                                break
+                            if sample.version > max_version:
+                                latest_sample = sample
+                                max_version = sample.version
+
+                        changes = data_utils.check_fields(
+                            self, latest_sample, addition, component_name
+                        )
+                        for change in changes:
+                            field, value = list(change.items())[0]
+                            field_change = True
+                            if field == "split":
+                                group = data_utils.get_group_from_sample(
+                                    self, latest_sample
+                                )
+                                for component_name in group:
+                                    tid = self._make_transaction(
+                                        LDFTransactionType.UPDATE,
+                                        sample_id=group[component_name]["id"],
+                                        field=field,
+                                        value=value,
+                                        component=component_name,
+                                    )
+                                    transactions.append(str(tid))
+                            else:
                                 tid = self._make_transaction(
                                     LDFTransactionType.UPDATE,
-                                    sample_id=group[component_name]["id"],
+                                    sample_id=latest_sample._id,
                                     field=field,
                                     value=value,
                                     component=component_name,
                                 )
-                        else:
-                            tid = self._make_transaction(
-                                LDFTransactionType.UPDATE,
-                                sample_id=latest_sample._id,
-                                field=field,
-                                value=value,
-                                component=component_name,
-                            )
+                                transactions.append(str(tid))
 
-        if media_change or field_change:
-            self._make_transaction(LDFTransactionType.END)
+            if media_change or field_change:
+                self._make_transaction(LDFTransactionType.END)
 
-            return transaction_to_additions, media_change, field_change
-        else:
-            return None
+                return transaction_to_additions, media_change, field_change
+            else:
+                return None
+
+        except BaseException as e:
+            for tid in transactions:
+                self.conn.transaction_document.delete_many({"_id": ObjectId(tid)})
+            raise DataTransactionException(filepath, type(e).__name__, str(e))
 
     def _add_extract(self, additions, from_bucket):
         """
@@ -803,151 +853,166 @@ class LuxonisDataset:
     def _add_execute(self, additions=None, transaction_to_additions=None):
         source = self.source
         samples = []
+        copied_samples = []
 
+        transaction = None
         transactions = self._check_transactions()
 
-        if transactions is None:
-            raise Exception("There are no changes to the dataset to execute!")
+        try:
+            if transactions is None:
+                raise Exception("There are no changes to the dataset to execute!")
 
-        for transaction in transactions:
-            if transaction["action"] == LDFTransactionType.ADD.value:
-                if additions is None or transaction_to_additions is None:
-                    raise Exception(
-                        "additions and transaction_to_additions required for adding data"
+            for transaction in transactions:
+                if transaction["action"] == LDFTransactionType.ADD.value:
+                    if additions is None or transaction_to_additions is None:
+                        raise Exception(
+                            "additions and transaction_to_additions required for adding data"
+                        )
+
+                    if transaction_to_additions.get(str(transaction["_id"])) is None:
+                        raise TransactionNotFoundException(
+                            f"{str(transaction['_id'])} not found matching an addition"
+                        )
+
+                    addition = additions[
+                        transaction_to_additions[str(transaction["_id"])]
+                    ]
+                    component_name = transaction["component"]
+                    component = addition[component_name]
+                    group = component["_group"]
+                    sample = fo.Sample(
+                        filepath=component["filepath"],
+                        version=self.version,
+                        latest=True,
                     )
+                    sample[source.name] = group.element(component_name)
 
-                if transaction_to_additions.get(str(transaction["_id"])) is None:
-                    # TODO: find a better way to handle those
-                    print(f"Cannot find transaction with id: {str(transaction['_id'])}")
-                    print(f"Seems like a failed transaction?")
-                    continue
+                    for ann in component.keys():
+                        if ann == "class" and component["class"] is not None:
+                            sample["class"] = data_utils.construct_class_label(
+                                self, component["class"]
+                            )
+                        elif ann == "boxes" and component["boxes"] is not None:
+                            sample["boxes"] = data_utils.construct_boxes_label(
+                                self, component["boxes"]
+                            )
+                        elif (
+                            ann == "segmentation"
+                            and component["segmentation"] is not None
+                        ):
+                            sample[
+                                "segmentation"
+                            ] = data_utils.construct_segmentation_label(
+                                self, component["segmentation"]
+                            )
+                        elif ann == "keypoints" and component["keypoints"] is not None:
+                            sample["keypoints"] = data_utils.construct_keypoints_label(
+                                self, component["keypoints"]
+                            )
+                        elif ann.startswith("_"):
+                            continue  # ignore temporary attributes
+                        else:
+                            sample[ann] = component[ann]
 
-                addition = additions[transaction_to_additions[str(transaction["_id"])]]
-                component_name = transaction["component"]
-                component = addition[component_name]
-                group = component["_group"]
-                sample = fo.Sample(
-                    filepath=component["filepath"], version=self.version, latest=True
-                )
-                sample[source.name] = group.element(component_name)
-
-                for ann in component.keys():
-                    if ann == "class" and component["class"] is not None:
-                        sample["class"] = data_utils.construct_class_label(
-                            self, component["class"]
-                        )
-                    elif ann == "boxes" and component["boxes"] is not None:
-                        sample["boxes"] = data_utils.construct_boxes_label(
-                            self, component["boxes"]
-                        )
-                    elif (
-                        ann == "segmentation" and component["segmentation"] is not None
+                    if (
+                        self.compute_heatmaps
+                        and f"{component_name}_heatmap" in addition.keys()
                     ):
-                        sample[
-                            "segmentation"
-                        ] = data_utils.construct_segmentation_label(
-                            self, component["segmentation"]
+                        sample["heatmap"] = fo.Heatmap(
+                            map_path=addition[f"{component_name}_heatmap"]["filepath"]
                         )
-                    elif ann == "keypoints" and component["keypoints"] is not None:
-                        sample["keypoints"] = data_utils.construct_keypoints_label(
-                            self, component["keypoints"]
-                        )
-                    elif ann.startswith("_"):
-                        continue  # ignore temporary attributes
-                    else:
-                        sample[ann] = component[ann]
-
-                if (
-                    self.compute_heatmaps
-                    and f"{component_name}_heatmap" in addition.keys()
-                ):
-                    sample["heatmap"] = fo.Heatmap(
-                        map_path=addition[f"{component_name}_heatmap"]["filepath"]
-                    )
-
-                sample["tid"] = transaction["_id"].binary.hex()
-                sample["latest"] = False
-                sample["version"] = -1.0
-                samples.append(sample)
-
-            elif transaction["action"] == LDFTransactionType.UPDATE.value:
-                self.fo_dataset.group_slice = transaction["component"]
-                old_sample = self.fo_dataset[transaction["sample_id"]]
-
-                # check if there is already a working example with filepath and version as -1
-                sample = self.fo_dataset.match(
-                    (F("filepath") == old_sample.filepath) & (F("version") == -1)
-                )
-                if len(sample):
-                    # update the existing sample
-                    for sample in sample:
-                        break
-                    if transaction["field"] in self.tasks:
-                        if transaction["field"] == "class":
-                            sample[
-                                transaction["field"]
-                            ] = data_utils.construct_class_label(
-                                self, transaction["value"]["value"]
-                            )
-                        elif transaction["field"] == "boxes":
-                            sample[
-                                transaction["field"]
-                            ] = data_utils.construct_boxes_label(
-                                self, transaction["value"]["value"]
-                            )
-                        elif transaction["field"] == "segmentation":
-                            sample[
-                                transaction["field"]
-                            ] = data_utils.construct_segmentation_label(
-                                self, transaction["value"]["value"]
-                            )
-                        elif transaction["field"] == "keypoints":
-                            sample[
-                                transaction["field"]
-                            ] = data_utils.construct_keypoints_label(
-                                self, transaction["value"]["value"]
-                            )
-                    else:
-                        sample[transaction["field"]] = transaction["value"]["value"]
-                    sample.save()
-                else:
-                    # create a new sample which is a copy of an old sample
-                    sample_dict = old_sample.to_dict()
-                    sample = fo.Sample.from_dict(sample_dict)
-                    if transaction["field"] in self.tasks:
-                        if transaction["field"] == "class":
-                            sample[
-                                transaction["field"]
-                            ] = data_utils.construct_class_label(
-                                self, transaction["value"]["value"]
-                            )
-                        elif transaction["field"] == "boxes":
-                            sample[
-                                transaction["field"]
-                            ] = data_utils.construct_boxes_label(
-                                self, transaction["value"]["value"]
-                            )
-                        elif transaction["field"] == "segmentation":
-                            sample[
-                                transaction["field"]
-                            ] = data_utils.construct_segmentation_label(
-                                self, transaction["value"]["value"]
-                            )
-                        elif transaction["field"] == "keypoints":
-                            sample[
-                                transaction["field"]
-                            ] = data_utils.construct_keypoints_label(
-                                self, transaction["value"]["value"]
-                            )
-                    else:
-                        sample[transaction["field"]] = transaction["value"]["value"]
 
                     sample["tid"] = transaction["_id"].binary.hex()
                     sample["latest"] = False
                     sample["version"] = -1.0
-                    self.fo_dataset.add_sample(sample)
+                    samples.append(sample)
 
-            self._execute_transaction(transaction["_id"])
+                elif transaction["action"] == LDFTransactionType.UPDATE.value:
+                    self.fo_dataset.group_slice = transaction["component"]
+                    old_sample = self.fo_dataset[transaction["sample_id"]]
+
+                    # check if there is already a working example with filepath and version as -1
+                    sample = self.fo_dataset.match(
+                        (F("filepath") == old_sample.filepath) & (F("version") == -1)
+                    )
+                    if len(sample):
+                        # update the existing sample
+                        for sample in sample:
+                            break
+                        if transaction["field"] in self.tasks:
+                            if transaction["field"] == "class":
+                                sample[
+                                    transaction["field"]
+                                ] = data_utils.construct_class_label(
+                                    self, transaction["value"]["value"]
+                                )
+                            elif transaction["field"] == "boxes":
+                                sample[
+                                    transaction["field"]
+                                ] = data_utils.construct_boxes_label(
+                                    self, transaction["value"]["value"]
+                                )
+                            elif transaction["field"] == "segmentation":
+                                sample[
+                                    transaction["field"]
+                                ] = data_utils.construct_segmentation_label(
+                                    self, transaction["mask"]
+                                )
+                            elif transaction["field"] == "keypoints":
+                                sample[
+                                    transaction["field"]
+                                ] = data_utils.construct_keypoints_label(
+                                    self, transaction["value"]["value"]
+                                )
+                        else:
+                            sample[transaction["field"]] = transaction["value"]["value"]
+                        sample.save()
+                    else:
+                        # create a new sample which is a copy of an old sample
+                        sample_dict = old_sample.to_dict()
+                        sample = fo.Sample.from_dict(sample_dict)
+                        if transaction["field"] in self.tasks:
+                            if transaction["field"] == "class":
+                                sample[
+                                    transaction["field"]
+                                ] = data_utils.construct_class_label(
+                                    self, transaction["value"]["value"]
+                                )
+                            elif transaction["field"] == "boxes":
+                                sample[
+                                    transaction["field"]
+                                ] = data_utils.construct_boxes_label(
+                                    self, transaction["value"]["value"]
+                                )
+                            elif transaction["field"] == "segmentation":
+                                sample[
+                                    transaction["field"]
+                                ] = data_utils.construct_segmentation_label(
+                                    self, transaction["mask"]
+                                )
+                            elif transaction["field"] == "keypoints":
+                                sample[
+                                    transaction["field"]
+                                ] = data_utils.construct_keypoints_label(
+                                    self, transaction["value"]["value"]
+                                )
+                        else:
+                            sample[transaction["field"]] = transaction["value"]["value"]
+
+                        sample["tid"] = transaction["_id"].binary.hex()
+                        sample["latest"] = False
+                        sample["version"] = -1.0
+                        self.fo_dataset.add_sample(sample)
+                        copied_samples.append(sample.id)
+
+                self._execute_transaction(transaction["_id"])
+
+        except BaseException as e:
+            for sid in copied_samples:  # delete any copied samples
+                del self.fo_dataset[sid]
+            for t in transactions:  # set execution to False for all transactions
+                self._unexecute_transaction(t["_id"])
+            raise DataExecutionException(transaction, type(e).__name__, str(e))
 
         if len(samples):
             self.fo_dataset.add_samples(samples)
@@ -978,24 +1043,38 @@ class LuxonisDataset:
         if from_bucket and self.bucket_storage.value == "local":
             raise Exception("from_bucket must be False for local dataset!")
 
-        self._check_transactions()  # will clear transactions any interrupted transactions
+        self._check_transactions()  # will ensure any interrupted transactions are clear
 
-        # TODO: add a try/except to gracefully handle any errors
+        post_filter = False
 
-        # add defaults before
-        if add_defaults:
-            self._add_defaults(additions)
+        try:
+            # add defaults before
+            if add_defaults:
+                self._add_defaults(additions)
 
-        filter_result = self._add_filter(additions)
-        if filter_result is None:
-            print("No additions or modifications")
-            return
-        else:
-            transaction_to_additions, media_change, field_change = filter_result
+            filter_result = self._add_filter(additions)
+            if filter_result is None:
+                print("No additions or modifications")
+                return
+            else:
+                transaction_to_additions, media_change, field_change = filter_result
+                post_filter = True
 
-        additions = self._add_extract(additions, from_bucket)
+            additions = self._add_extract(additions, from_bucket)
 
-        self._add_execute(additions, transaction_to_additions)
+            self._add_execute(additions, transaction_to_additions)
+
+        except BaseException as e:
+            # This will not handle cases where a network connection is interrupted, as cleanup requires a network connection
+            print("-------- ERROR --------")
+            print("Cleaning up... please to not interrupt the program!")
+            if post_filter:
+                # Additionally delete all transactions that were saved by _add_filter but not executed
+                # All other cleanup is handled in _add_filter and _add_execute
+                self.conn.transaction_document.delete_many(
+                    {"_dataset_id": self.dataset_doc.id, "executed": False}
+                )
+            raise e
 
     def delete(self, deletions):
         """
@@ -1085,22 +1164,18 @@ class LuxonisDataset:
             if transaction["action"] == LDFTransactionType.ADD.value:
                 sample = get_current_sample(transaction)
                 if sample is None:
-                    # TODO: Find a better way to handle those.
-                    print(
-                        f"Sample is none for transaction ADD with tid {transaction['_id'].binary.hex()}. Skipping..."
+                    # This case should ideally not happen unless there is a problem with rollback
+                    # TODO: another possibility would be to delete the transaction and throw a warning instead
+                    raise Exception(
+                        f"Sample is none for transaction ADD with tid {transaction['_id'].binary.hex()}"
                     )
-                    self._version_transaction(transaction["_id"])
-                    continue
                 add_samples.add(sample["id"])
 
             elif transaction["action"] == LDFTransactionType.UPDATE.value:
                 sample = get_current_sample(transaction)
-                if sample is None:  # a new sample which has had both ADD and UPDATE
-                    # sample = get_previous_sample(transaction)
-                    # TODO: Find a better way to handle those.
-                    print(
-                        f"Sample is none for {transaction['_id']}, skipping and versioning transatction"
-                    )
+                if sample is None:
+                    # This is fine to ignore, as it means a new sample which has multiple ADD and/or UPDATE
+                    # The updates are already executed and we are just finding the latest
                     self._version_transaction(transaction["_id"])
                     continue
                 else:

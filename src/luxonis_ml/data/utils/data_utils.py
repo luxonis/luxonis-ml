@@ -1,11 +1,11 @@
 import numpy as np
-import hashlib
 import fiftyone as fo
+import fiftyone.core.utils as fou
 import os
-import subprocess
 import uuid
 from pathlib import Path
 from fiftyone import ViewField as F
+from luxonis_ml.data.utils.exceptions import *
 
 
 def get_granule(filepath, addition, component_name):
@@ -18,36 +18,128 @@ def get_granule(filepath, addition, component_name):
     return granule
 
 
-def check_classification(val1, val2):
+def assert_classification_format(dataset, val):
+    if val is not None:
+        if isinstance(val, str):
+            if val not in dataset.fo_dataset.classes.get("class", []):
+                raise ClassUnknownException(f"Class {val} is not found in dataset")
+        elif isinstance(val, list):
+            for v in val:
+                if not isinstance(v, str):
+                    raise ClassificationFormatException(
+                        "All elements in list must be string"
+                    )
+                elif v not in dataset.fo_dataset.classes.get("class", []):
+                    raise ClassUnknownException(f"Class {v} is not found in dataset")
+        else:
+            raise ClassificationFormatException(
+                "Classification annotation  must be a string or list of strings"
+            )
+
+
+def assert_boxes_format(dataset, val):
+    if val is not None:
+        if not isinstance(val, list) or not isinstance(val[0], list):
+            raise BoundingBoxFormatException("Bounding boxes need to be a nested list!")
+
+        for v in val:
+            if not ((isinstance(v[0], int) or isinstance(v[0], str)) and len(v) == 5):
+                raise BoundingBoxFormatException(
+                    "Wrong bounding box format! It should start with int or str for the class label and contain four points"
+                )
+
+            if not isinstance(v[0], str):
+                raise BoundingBoxFormatException("Classes must be strings")
+            if v[0] not in dataset.fo_dataset.classes.get("boxes", []):
+                raise ClassUnknownException(f"Class {v[0]} is not found in dataset")
+
+            x, y, w, h = v[1:]
+            if not (
+                isinstance(x, float)
+                and isinstance(y, float)
+                and isinstance(w, float)
+                and isinstance(h, float)
+            ):
+                raise BoundingBoxFormatException("Bbox x,y,w,h must be floats")
+            if (
+                (x < 0 or x > 1)
+                or (y < 0 or y > 1)
+                or (w < 0 or w > 1)
+                or (h < 0 or h > 1)
+            ):
+                raise BoundingBoxFormatException("Bbox x,y,w,h must be between 0 and 1")
+            if (x + w) > 1 or (y + h) > 1:
+                raise BoundingBoxFormatException("Bbox goes outside of image")
+
+
+def assert_segmentation_format(dataset, val):
+    if val is not None:
+        if not isinstance(val, np.ndarray):
+            raise SegmentationFormatException(
+                "Segmentation annotation must be a numpy array"
+            )
+
+        if len(val.shape) != 2:
+            raise SegmentationFormatException("Array must be 2D")
+
+        # checks for negative numbers or non-integers
+        int_val = val.astype(np.uint16)
+        if np.abs(np.sum(int_val - val)) > 0:
+            raise SegmentationFormatException(
+                "Array values change after uint16 converson"
+            )
+
+
+def assert_keypoints_format(dataset, val):
+    if val is not None:
+        if (
+            not isinstance(val, list)
+            or len(val[0]) != 2
+            or not isinstance(val[0][1], list)
+        ):
+            raise KeypointFormatException(
+                "Keypoints need to be a list with the first element being the class and second being a list of points"
+            )
+
+        for kp in val:
+            if not isinstance(kp[0], str):
+                raise KeypointFormatException("Class must be a string")
+            if kp[0] not in dataset.fo_dataset.classes.get("keypoints", []):
+                raise ClassUnknownException(f"Class {kp[0]} is not found in dataset")
+            for point in kp[1]:
+                if len(point) != 2:
+                    raise KeypointFormatException("Keypoints should be length 2 (x,y)")
+                if not np.isnan(point[0]):
+                    x, y = point
+                    if (x < 0 or x > 1) or (y < 0 or y > 1):
+                        raise KeypointFormatException(
+                            "Keypoints should be in 0-1 range"
+                        )
+
+
+def check_classification(dataset, val1, val2):
+    assert_classification_format(dataset, val1)
+
     if (val1 is None and val2 is not None) or (val2 is None and val1 is not None):
         return [{"class": val1}]
     elif val1 is None and val2 is None:
         return []
 
     if isinstance(val1, str):
-        # prevent zip from taking letters only
         val1 = [val1]
 
-    # TODO: Should be updated to work properly with multi-label classification
-    # This includes the bottom for loop which seems to return only the first value where dict is not identical.
-
-    if val2 is None and val1 is not None:
-        val1 = fo.Classification(label=val1[0]).to_dict()
+    # Only checks the classes themselves for now
+    set1 = set(val1)
+    set2 = set([v["label"] for v in val2["classifications"]])
+    if set1 != set2:  # will handle arbitraty order for multi-class classification
         return [{"class": val1}]
 
-    for val1, val2 in list(zip(val1, val2["classifications"])):
-        val1 = fo.Classification(label=val1).to_dict()
-        if len(val1.keys()) == len(val2.keys()):
-            for key in val1:
-                if not key.startswith("_"):
-                    if val1[key] != val2[key]:
-                        return [{"class": val1}]
-        else:
-            return [{"class": val1}]
     return []
 
 
 def check_boxes(dataset, val1, val2):
+    assert_boxes_format(dataset, val1)
+
     if (val1 is None and val2 is not None) or (val2 is None and val1 is not None):
         return [{"boxes": val1}]
     elif val1 is None and val2 is None:
@@ -55,15 +147,6 @@ def check_boxes(dataset, val1, val2):
 
     if len(val1) == len(val2["detections"]):
         for val1, val2 in list(zip(val1, val2["detections"])):
-            # assert bounding boxes contain the right format of either int and list or str and list
-            if not (
-                (isinstance(val1[0], int) or isinstance(val1[0], str))
-                and len(val1) == 5
-            ):
-                raise Exception(
-                    "Wrong bounding box format! It should start with int or str for the class label"
-                )
-
             if isinstance(val1[0], str) and val2["label"] != val1[0]:
                 return [{"boxes": val1}]
             if (
@@ -80,7 +163,9 @@ def check_boxes(dataset, val1, val2):
     return []
 
 
-def check_segmentation(val1, val2):
+def check_segmentation(dataset, val1, val2):
+    assert_segmentation_format(dataset, val1)
+
     if (val1 is None and val2 is not None) or (val2 is None and val1 is not None):
         return [{"segmentation": val1}]
     elif val1 is None and val2 is None:
@@ -92,6 +177,8 @@ def check_segmentation(val1, val2):
 
 
 def check_keypoints(dataset, val1, val2):
+    assert_keypoints_format(dataset, val1)
+
     if (val1 is None and val2 is not None) or (val2 is None and val1 is not None):
         return [{"keypoints": val1}]
     elif val1 is None and val2 is None:
@@ -156,16 +243,16 @@ def check_fields(dataset, latest_sample, addition, component_name):
 
         if field in dataset.tasks:
             if field == "class":
-                changes += check_classification(val1, val2)
+                changes += check_classification(dataset, val1, val2)
             elif field == "boxes":
                 changes += check_boxes(dataset, val1, val2)
             elif field == "segmentation":
                 val2 = latest_sample.segmentation.mask
-                changes += check_segmentation(val1, val2)
+                changes += check_segmentation(dataset, val1, val2)
             elif field == "keypoints":
                 changes += check_keypoints(dataset, val1, val2)
             else:
-                raise NotImplementedError()
+                raise NotImplementedError("The CV task {field} is not implement yet")
         elif val1 != val2:
             changes.append({field: val1})
 
@@ -216,6 +303,9 @@ def construct_segmentation_label(dataset, mask):
         return None
     if isinstance(mask, list):
         mask = np.array(mask)
+    elif isinstance(mask, bytes):
+        mask = fou.deserialize_numpy_array(mask)
+    mask = mask.astype(np.uint16)  # decrease size of binary
     return fo.Segmentation(mask=mask)
 
 
@@ -263,6 +353,9 @@ def get_group_from_sample(dataset, sample):
 
 def get_filepath_from_hash(dataset, hash):
     instance_view = dataset.fo_dataset.match(F("instance_id") == hash)
-    for sample in instance_view:
-        break
-    return sample.filepath
+    if len(instance_view):
+        for sample in instance_view:
+            break
+        return sample.filepath
+    else:
+        return None

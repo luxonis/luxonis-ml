@@ -1,4 +1,5 @@
 import unittest
+from unittest import mock
 import subprocess, shutil, os, glob, json, time
 import numpy as np
 import cv2
@@ -6,6 +7,7 @@ from PIL import Image, ImageDraw
 from pathlib import Path
 import fiftyone.core.odm as foo
 from luxonis_ml.data import *
+from luxonis_ml.data.utils.exceptions import *
 from copy import deepcopy
 from fiftyone import ViewField as F
 from bson.objectid import ObjectId
@@ -138,6 +140,9 @@ class LuxonisDatasetTester(unittest.TestCase):
                 B_dict = data
                 self.additions.append({"A": A_dict, "B": B_dict})
 
+        # mock image to test ADD case exceptions
+        cv2.imwrite("../data/nothing.jpg", np.zeros((300, 300)).astype(np.uint8))
+
         self.dataset_id = LuxonisDataset.create(
             self.team_id, self.team_name, self.dataset_name
         )
@@ -158,7 +163,7 @@ class LuxonisDatasetTester(unittest.TestCase):
         self.assertEqual(res["_id"], ObjectId(self.dataset_id), "Wrong dataset ID")
         self.assertEqual(res["team_name"], "unittest", "Wrong team name")
         self.assertEqual(res["dataset_name"], "coco", "Wrong dataset name")
-        self.assertEqual(res["current_version"], 0.0, "Version initialize failure")
+        self.assertEqual(res["dataset_version"], "0.0", "Version initialize failure")
         self.assertEqual(
             res["path"],
             str(
@@ -173,7 +178,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             "Dataset path failure",
         )
         self.assertEqual(
-            res["bucket_type"], "external", "Default bucket type is not external"
+            res["bucket_type"], "internal", "Default bucket type is not external"
         )
         self.assertEqual(
             res["bucket_storage"], "local", "Default bucket storage is not local"
@@ -189,23 +194,6 @@ class LuxonisDatasetTester(unittest.TestCase):
             res2["_id"],
             "Luxonis dataset does not reference fo dataset",
         )
-
-    # def test_aws_init(self):
-    #     with LuxonisDataset(
-    #         self.team_id, self.dataset_id, bucket_type="aws", override_bucket_type=True
-    #     ) as dataset:
-    #         pass
-
-    #     curr = self.conn.luxonis_dataset_document.find(
-    #         {"$and": [{"team_id": self.team_id}, {"_id": ObjectId(self.dataset_id)}]}
-    #     )
-    #     res = list(curr)
-    #     self.assertGreater(len(res), 0, "Document not created")
-    #     self.assertEqual(len(res), 1, "Multiple documents created")
-    #     res = res[0]
-    #     self.assertEqual(
-    #         res["bucket_type"], "aws", "Default override_bucket_type arg fail"
-    #     )
 
     def test_source(self):
         with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
@@ -456,11 +444,6 @@ class LuxonisDatasetTester(unittest.TestCase):
             transaction_to_additions += tta
             self.assertEqual(field_change, True, "Boxes update (change class str)")
             a = deepcopy(self.additions[-1])
-            a["A"]["boxes"][0][0] = 1  # test class change with int
-            tta, media_change, field_change = dataset._add_filter([a])
-            transaction_to_additions += tta
-            self.assertEqual(field_change, True, "Boxes update (change class int)")
-            a = deepcopy(self.additions[-1])
             a["A"]["boxes"][0][1] += 0.1  # test coordinate change
             tta, media_change, field_change = dataset._add_filter([a])
             transaction_to_additions += tta
@@ -477,11 +460,6 @@ class LuxonisDatasetTester(unittest.TestCase):
             tta, media_change, field_change = dataset._add_filter([a])
             transaction_to_additions += tta
             self.assertEqual(field_change, True, "Keypoints update (change class str)")
-            a = deepcopy(self.additions[-1])
-            a["A"]["keypoints"][0][0] = 1  # test class change with int
-            tta, media_change, field_change = dataset._add_filter([a])
-            transaction_to_additions += tta
-            self.assertEqual(field_change, True, "Keypoints update (change class int)")
             a = deepcopy(self.additions[-1])
             a["A"]["keypoints"][0][1][0] = (
                 a["A"]["keypoints"][0][1][0][0] + 0.1,
@@ -689,6 +667,315 @@ class LuxonisDatasetTester(unittest.TestCase):
             res = list(curr)
             self.assertEqual(len(res), 3, "Number of saved versions")
 
+    def test_add_filter_exceptions(self):
+        with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
+            # test incorrect additions formats
+            additions = [{"nonsense": 5}]  # complete nonsense
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with AdditionsStructureException:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = [{"A": {"weather": "sunny"}}]  # missing filepath
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with AdditionsStructureException:*",
+                dataset._add_filter,
+                additions,
+            )
+
+            # test file does not exist
+            additions = [{"A": {"filepath": "/some/made/up/path"}}]
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with AdditionNotFoundException:*",
+                dataset._add_filter,
+                additions,
+            )
+
+            # test previous transactions cleanup
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["weather"] = "sunny"
+            additions[0]["A"]["newest_field"] = "something"
+            additions[0]["A"]["class"] = "person"
+            additions[1]["A"]["filepath"] = "/some/made/up/path"  # intentional error
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with AdditionNotFoundException:*",
+                dataset._add_filter,
+                additions,
+            )
+            transactions = dataset._check_transactions()
+            # if cleanup is successful, checking transactions should return on END transaction
+            self.assertEqual(
+                type(transactions), list, "DataTransactionException cleanup"
+            )
+            self.assertEqual(len(transactions), 1, "DataTransactionException cleanup")
+            self.assertEqual(
+                transactions[0]["action"], "END", "DataTransactionException cleanup"
+            )
+
+            # test class format errors
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["class"] = 0.5  # wrong class type
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with ClassificationFormatException:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["class"] = ["person", 0.5]  # wrong class type within list
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with ClassificationFormatException:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["class"] = "cat"  # class not in dataset
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with ClassUnknownException:*",
+                dataset._add_filter,
+                additions,
+            )
+
+            # test boxes format errors
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["boxes"][0] = additions[0]["A"]["boxes"][0][
+                1:
+            ]  # remove class from bounding box
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with BoundingBoxFormatException:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["boxes"][0] = additions[0]["A"]["boxes"][0][
+                :-1
+            ]  # remove a point from bounding box
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with BoundingBoxFormatException:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["boxes"] = [0, 1, 2, 3]  # bad format
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with BoundingBoxFormatException:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["boxes"] = [
+                ["person", 0.5, 1, 0.1, 0.2]
+            ]  # int in x,y,w,h
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with BoundingBoxFormatException:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["boxes"] = [
+                ["person", -0.1, 0.9, 0.1, 0.2]
+            ]  # value in x,y,w,h < 0
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with BoundingBoxFormatException:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["boxes"] = [
+                ["person", 0.5, 0.9, 0.1, 0.2]
+            ]  # value in x+w > 1
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with BoundingBoxFormatException:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["boxes"] = [
+                [0, 0.5, 0.9, 0.1, 0.2]
+            ]  # class is not string
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with BoundingBoxFormatException:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["boxes"][0][0] = "cat"  # invalid class
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with ClassUnknownException:*",
+                dataset._add_filter,
+                additions,
+            )
+
+            # test segmentation format errors
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["segmentation"] = 5
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with SegmentationFormatException:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["segmentation"] = np.zeros(10)  # wrong shape
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with SegmentationFormatException:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["segmentation"][1, :] = -1  # negative numbers
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with SegmentationFormatException:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = deepcopy(self.additions[-3:-1])
+            # additions[0]["A"]["segmentation"] = additions[0]["A"]["segmentation"].astype(np.float32)
+            additions[0]["A"]["segmentation"][1, :] = 0.5  # non-int numbers
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with SegmentationFormatException:*",
+                dataset._add_filter,
+                additions,
+            )
+
+            # test keypoint format errors
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["keypoints"] = [[0.2, 0.3]]
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with KeypointFormatException:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["keypoints"] = [
+                ["person", [[0.2, 0.3], [0.2, 0.3, 0.3]]]
+            ]  # length 3 point
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with KeypointFormatException:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["keypoints"] = [
+                ["person", [[0.2, -0.3]]]
+            ]  # negative number
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with KeypointFormatException:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["keypoints"] = [[0, [[0.2, 0.3]]]]  # class is not string
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with KeypointFormatException:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = deepcopy(self.additions[-3:-1])
+            additions[0]["A"]["keypoints"] = [
+                ["cat", [[0.2, 0.3]]]
+            ]  # class not in dataset
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with ClassUnknownException:*",
+                dataset._add_filter,
+                additions,
+            )
+
+            # test the ADD case instead of UPDATE
+            additions = [{"A": {"filepath": "../data/nothing.jpg", "class": 5}}]
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with ClassificationFormatException:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = [{"A": {"filepath": "../data/nothing.jpg", "boxes": 5}}]
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with BoundingBoxFormatException:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = [{"A": {"filepath": "../data/nothing.jpg", "segmentation": 5}}]
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with SegmentationFormatException:*",
+                dataset._add_filter,
+                additions,
+            )
+            additions = [{"A": {"filepath": "../data/nothing.jpg", "keypoints": 5}}]
+            self.assertRaisesRegex(
+                DataTransactionException,
+                "Creating a transaction for filepath .* failed with KeypointFormatException:*",
+                dataset._add_filter,
+                additions,
+            )
+
+    def test_add_execute_exception(self):
+        with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
+            additions = [deepcopy(self.additions[-2])]
+            additions[0]["A"]["change_1"] = 1
+            additions[0]["A"]["change_2"] = 2
+            additions[0]["A"]["change_3"] = 3
+            additions[0]["A"]["change_4"] = 4
+            additions[0]["A"]["change_5"] = 5
+            additions[0]["A"]["class"] = "person"
+            dataset._add_filter(additions)
+
+            # To cause an error, artifically change the transaction value of "class" to be a non-existant class
+            curr = self.conn.transaction_document.find({"executed": False})
+            res = list(curr)
+            fields = [t["field"] for t in res if "field" in t]
+            idx = fields.index("class")
+            tid = res[idx]["_id"]
+            self.conn.transaction_document.update_one(
+                {"_id": tid},
+                {
+                    "$set": {"value": {"value": 10}}
+                },  # will throw an error being an int higher than num classes
+            )
+            curr = self.conn.transaction_document.find({"executed": False})
+            res = list(curr)
+            fields = [(t["field"], t["value"]) for t in res if "field" in t]
+
+            dataset.fo_dataset.group_slice = "A"
+            original_length = len(dataset.fo_dataset)
+            self.assertRaisesRegex(
+                DataExecutionException, "Executing transaction*", dataset._add_execute
+            )
+            dataset.fo_dataset.group_slice = "A"
+            self.assertEqual(
+                len(dataset.fo_dataset),
+                original_length,
+                "Copied sample deletion in _add_execute rollback",
+            )
+            num_transactions = len(dataset._check_transactions())
+            self.assertEqual(
+                num_transactions, 7, "Un-execute transactions in _add_execute rollback"
+            )
+
     def test_delete_dataset(self):
         curr = self.conn.luxonis_dataset_document.find(
             {"$and": [{"team_id": self.team_id}, {"_id": ObjectId(self.dataset_id)}]}
@@ -738,7 +1025,6 @@ if __name__ == "__main__":
     suite = unittest.TestSuite()
     suite.keep = args.keep
     suite.addTest(LuxonisDatasetTester("test_local_init"))
-    # suite.addTest(LuxonisDatasetTester("test_aws_init"))
     suite.addTest(LuxonisDatasetTester("test_source"))
     suite.addTest(LuxonisDatasetTester("test_transactions"))
     suite.addTest(LuxonisDatasetTester("test_add"))
@@ -747,6 +1033,8 @@ if __name__ == "__main__":
     suite.addTest(LuxonisDatasetTester("test_version_2"))
     suite.addTest(LuxonisDatasetTester("test_delete"))
     suite.addTest(LuxonisDatasetTester("test_version_3"))
+    suite.addTest(LuxonisDatasetTester("test_add_filter_exceptions"))
+    suite.addTest(LuxonisDatasetTester("test_add_execute_exception"))
     if not args.keep:
         suite.addTest(LuxonisDatasetTester("test_delete_dataset"))
     runner = unittest.TextTestRunner()

@@ -7,6 +7,7 @@ from fiftyone.core.fields import (
     IntField,
     DictField,
     BooleanField,
+    ArrayField,
 )
 
 from fiftyone.core.odm.document import Document
@@ -24,7 +25,7 @@ class LuxonisDatasetDocument(Document):
     path = StringField()
     bucket_type = StringField()
     bucket_storage = StringField()
-    current_version = FloatField()
+    dataset_version = StringField()
 
 
 class LuxonisSourceDocument(Document):
@@ -60,5 +61,6 @@ class TransactionDocument(Document):
     sample_id = ObjectIdField()
     field = StringField()
     value = DictField()
+    mask = ArrayField()
     component = StringField()
     version = FloatField()
