@@ -104,6 +104,8 @@ def main(num):
         dataset.add(additions)
         dataset.create_version(note="performance test")
 
+    print(f"Results for {dataset_id}")
+
 
 if __name__ == "__main__":
     import argparse

@@ -135,7 +135,15 @@ class LuxonisDataset:
             )
             dataset_doc = dataset_doc.save(upsert=True)
 
-            return str(dataset_doc.id)
+            dataset_id = str(dataset_doc.id)
+            # full_name = f"{team_id}-{dataset_id}"
+
+            # if full_name not in fo.list_datasets():
+            #     print('HERERERER')
+            #     fo_dataset = fo.Dataset(full_name)
+            # fo_dataset.persistent = True
+
+            return dataset_id
 
     def __init__(
         self,
@@ -212,6 +220,8 @@ class LuxonisDataset:
             self._doc_to_class()
 
             self._init_path()
+
+            self.dataset_doc.save(upsert=True)
 
         else:
             raise Exception("Dataset not found!")
@@ -346,6 +356,13 @@ class LuxonisDataset:
                 self.last_time = new_time
                 if final:
                     self.last_time = None
+
+    def _get_sample_collection(self):
+        res = list(self.conn.datasets.find({"_id": ObjectId(self.fo_dataset._doc.id)}))
+        if len(res):
+            return res[0]["sample_collection_name"]
+        else:
+            return None
 
     def create_source(
         self,
@@ -1303,12 +1320,15 @@ class LuxonisDataset:
 
             self._log_time()
 
-            for sample_id in add_samples:
-                sample = self.fo_dataset[sample_id]
-                sample["latest"] = True
-                sample["version"] = self.version
-                sample.save()
+            add_samples = [ObjectId(sample_id) for sample_id in add_samples]
+            sample_collection = self._get_sample_collection()
+            self.conn[sample_collection].update_many(
+                {"_id": {"$in": add_samples}},
+                {"$set": {"latest": True, "version": self.version}},
+            )
+
             self._log_time("Version add_samples")
+            # TODO: update to use mongo similar to above
             for sample_id in deprecate_samples:
                 sample = self.fo_dataset[sample_id]
                 sample["latest"] = False
