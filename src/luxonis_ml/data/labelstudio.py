@@ -5,6 +5,7 @@ from label_studio_sdk import Client, Project
 from typing import List, Union
 from pycocotools import mask as maskUtils
 import numpy as np
+import os
 import xml.etree.ElementTree as ET
 
 
@@ -164,7 +165,7 @@ class LabelStudioConnector:
 
         self.dataset.add(additions, media_exists=True)
 
-    def create_project(self, project_name: str):
+    def get_xml_config(self) -> str:
         root = ET.Element("View")
 
         image = ET.SubElement(root, "Image")
@@ -217,6 +218,13 @@ class LabelStudioConnector:
 
         with open("tmp.xml") as file:
             label_config_str = file.read()
+
+        os.remove("tmp.xml")
+
+        return label_config_str
+
+    def create_project(self, project_name: str):
+        label_config_str = self.get_xml_config()
 
         project = Project(
             self.dataset._get_credentials("LABELSTUDIO_URL"),
