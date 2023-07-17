@@ -136,12 +136,6 @@ class LuxonisDataset:
             dataset_doc = dataset_doc.save(upsert=True)
 
             dataset_id = str(dataset_doc.id)
-            # full_name = f"{team_id}-{dataset_id}"
-
-            # if full_name not in fo.list_datasets():
-            #     print('HERERERER')
-            #     fo_dataset = fo.Dataset(full_name)
-            # fo_dataset.persistent = True
 
             return dataset_id
 
@@ -889,9 +883,7 @@ class LuxonisDataset:
                 elif not data_utils.is_modified_filepath(self, filepath):
                     cmd = f"cp {filepath} {local_path}"
                     subprocess.check_output(cmd, shell=True)
-                    self._log_time(
-                        "Extract addition local cp", final=(not self.compute_heatmaps)
-                    )
+                    self._log_time("Extract addition local cp", final=True)
                 else:
                     self.logger.warning(
                         f"Skipping extraction for {filepath} as path is likely corrupted due to memory assignment"
@@ -905,6 +897,8 @@ class LuxonisDataset:
                         or components[component_name].itype == IType.DEPTH
                     )
                 ):
+                    self._log_time()
+
                     heatmap_component = f"{component_name}_heatmap"
                     os.makedirs(
                         str(Path(local_cache) / heatmap_component), exist_ok=True
@@ -948,7 +942,6 @@ class LuxonisDataset:
 
     def _add_execute(self, additions=None, transaction_to_additions=None):
         self.logger.info("Executing changes to dataset...")
-        # self._log_time()
 
         source = self.source
         samples = []
@@ -1214,24 +1207,29 @@ class LuxonisDataset:
         self._execute_transaction(tid)
 
     def create_version(self, note):
-        def get_current_sample(transaction):
-            sample = self.fo_dataset.match(F("tid") == transaction["_id"].binary.hex())
-            if not len(sample):
+        def get_current_sample(sample_collection, transaction):
+            result = list(
+                self.conn[sample_collection].find(
+                    {
+                        "tid": transaction["_id"].binary.hex(),
+                        "filepath": {"$regex": f"/{transaction['component']}/[^/]*$"},
+                    }
+                )
+            )
+            if len(result):
+                return result[0]["_id"]
+            else:
                 return None
-            for sample in sample:
-                break
-            return sample
-
-        def get_previous_sample(transaction):
-            sample = self.fo_dataset[transaction["sample_id"]]
-            return sample
 
         self.logger.info("Creating new version...")
         self._log_time()
-
-        # TODO: exception handling
+        version_changed = False
 
         try:
+            try:
+                sample_collection = self._get_sample_collection()
+            except:
+                raise Exception("Cannot find sample collection name")
             transactions = self._check_transactions(for_versioning=True)
             if transactions is None:
                 raise Exception("There are no changes to the dataset to version!")
@@ -1265,11 +1263,13 @@ class LuxonisDataset:
             )
             media_change = contains_add or contains_delete
             field_change = contains_update
-            self._incr_version(media_change, field_change)
 
             if not media_change and not field_change:
                 self.logger.info("No changes to version!")
                 return
+
+            self._incr_version(media_change, field_change)
+            version_changed = True
 
             add_samples = set()
             deprecate_samples = set()
@@ -1289,28 +1289,27 @@ class LuxonisDataset:
                     self.fo_dataset.group_slice = transaction["component"]
 
                 if transaction["action"] == LDFTransactionType.ADD.value:
-                    sample = get_current_sample(transaction)
-                    if sample is None:
+                    sample_id = get_current_sample(sample_collection, transaction)
+                    if sample_id is None:
                         # This case should ideally not happen unless there is a problem with rollback
-                        # TODO: another possibility would be to delete the transaction and throw a warning instead
+                        # Another possibility would be to delete the transaction and throw a warning instead
                         raise Exception(
                             f"Sample is none for transaction ADD with tid {transaction['_id'].binary.hex()}"
                         )
-                    add_samples.add(sample["id"])
+                    add_samples.add(sample_id)
 
                     self._log_time("Version ADD")
 
                 elif transaction["action"] == LDFTransactionType.UPDATE.value:
-                    sample = get_current_sample(transaction)
-                    if sample is None:
+                    sample_id = get_current_sample(sample_collection, transaction)
+                    if sample_id is None:
                         # This is fine to ignore, as it means a new sample which has multiple ADD and/or UPDATE
                         # The updates are already executed and we are just finding the latest
                         self._version_transaction(transaction["_id"])
                         continue
                     else:
-                        add_samples.add(sample["id"])
-                        prev_sample = get_previous_sample(transaction)
-                        deprecate_samples.add(prev_sample["id"])
+                        add_samples.add(sample_id)
+                        deprecate_samples.add(transaction["sample_id"])
 
                     self._log_time("Version UPDATE")
 
@@ -1321,25 +1320,23 @@ class LuxonisDataset:
             self._log_time()
 
             add_samples = [ObjectId(sample_id) for sample_id in add_samples]
-            sample_collection = self._get_sample_collection()
             self.conn[sample_collection].update_many(
                 {"_id": {"$in": add_samples}},
                 {"$set": {"latest": True, "version": self.version}},
             )
 
             self._log_time("Version add_samples")
-            # TODO: update to use mongo similar to above
-            for sample_id in deprecate_samples:
-                sample = self.fo_dataset[sample_id]
-                sample["latest"] = False
-                sample.save()
+
+            deprecate_samples = [ObjectId(sample_id) for sample_id in deprecate_samples]
+            self.conn[sample_collection].update_many(
+                {"_id": {"$in": deprecate_samples}},
+                {"$set": {"latest": False}},
+            )
+
             self._log_time("Version deprecate_samples")
 
-            version_samples = []
-            for component_name in self.source.components:
-                self.fo_dataset.group_slice = component_name
-                latest_view = self.fo_dataset.match(F("latest") == True)
-                version_samples += [sample.id for sample in latest_view]
+            result = self.conn[sample_collection].find({"latest": True})
+            version_samples = [res["_id"].binary.hex() for res in result]
             self._log_time("Version gather version samples")
             self._save_version(version_samples, note)
             self._log_time("Version save version")
