@@ -976,6 +976,60 @@ class LuxonisDatasetTester(unittest.TestCase):
                 num_transactions, 7, "Un-execute transactions in _add_execute rollback"
             )
 
+            # cleanup for this function: delete the corrupted transactions
+            self.conn.transaction_document.delete_many(
+                {"_dataset_id": dataset.dataset_doc.id, "executed": False}
+            )
+
+    def test_version_exception(self):
+        with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
+            additions = deepcopy(self.additions)
+            for i, addition in enumerate(additions):
+                for component_name in addition:
+                    additions[i][component_name]["version_test"] = True
+            transactions_to_additions, _, _ = dataset._add_filter(additions)
+            dataset._add_execute(additions, transactions_to_additions)
+
+            transactions = dataset._check_transactions(for_versioning=True)
+            num_transactions = len(transactions)
+            original_version = dataset.version
+            sample_collection = dataset._get_sample_collection()
+            original_num_latest_false = len(
+                list(self.conn[sample_collection].find({"latest": False}))
+            )
+            original_num_latest_true = len(
+                list(self.conn[sample_collection].find({"latest": True}))
+            )
+
+            self.assertRaisesRegex(
+                DataVersionException,
+                "Versioning transaction*",
+                dataset.create_version,
+                "version exception",
+                True,
+            )
+
+            transactions = dataset._check_transactions(for_versioning=True)
+            new_num_latest_false = len(
+                list(self.conn[sample_collection].find({"latest": False}))
+            )
+            new_num_latest_true = len(
+                list(self.conn[sample_collection].find({"latest": True}))
+            )
+
+            self.assertEqual(
+                len(transactions), num_transactions, "Transactions not unversioned"
+            )
+            self.assertEqual(
+                dataset.version, original_version, "Version not decremented"
+            )
+            self.assertEqual(
+                new_num_latest_false, original_num_latest_false, "latest=False changed"
+            )
+            self.assertEqual(
+                new_num_latest_true, original_num_latest_true, "latest=True changed"
+            )
+
     def test_delete_dataset(self):
         curr = self.conn.luxonis_dataset_document.find(
             {"$and": [{"team_id": self.team_id}, {"_id": ObjectId(self.dataset_id)}]}
@@ -1035,6 +1089,7 @@ if __name__ == "__main__":
     suite.addTest(LuxonisDatasetTester("test_version_3"))
     suite.addTest(LuxonisDatasetTester("test_add_filter_exceptions"))
     suite.addTest(LuxonisDatasetTester("test_add_execute_exception"))
+    suite.addTest(LuxonisDatasetTester("test_version_exception"))
     if not args.keep:
         suite.addTest(LuxonisDatasetTester("test_delete_dataset"))
     runner = unittest.TextTestRunner()

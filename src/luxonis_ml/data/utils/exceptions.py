@@ -23,6 +23,20 @@ class DataExecutionException(Exception):
         super().__init__(message)
 
 
+class DataVersionException(Exception):
+    """
+    Exception for the create_version function, which provides
+    a specific reason along with a more general message
+    """
+
+    def __init__(self, transaction, exception_type, reason):
+        if transaction is None:
+            message = f"Versioning transaction {transaction} failed with {exception_type}: {reason}"
+        else:
+            message = f"Versioning transaction {transaction['_id']} [{transaction['action']}] failed with {exception_type}: {reason}"
+        super().__init__(message)
+
+
 class AdditionsStructureException(Exception):
     """Excpetion if incorrect format of additions"""
 

@@ -615,11 +615,23 @@ class LuxonisDataset:
             {"_id": tid}, {"$set": {"version": self.version}}
         )
 
+    def _unversion_transaction(self, tid):
+        self.conn.transaction_document.update_one(
+            {"_id": tid}, {"$set": {"version": -1}}
+        )
+
     def _incr_version(self, media_change, field_change):
         if media_change:  # major change
             self.version += 1
         if field_change:  # minor change
             self.version += 0.1
+        self.version = round(self.version, 1)
+
+    def _decr_version(self, media_change, field_change):
+        if media_change:  # major change
+            self.version -= 1
+        if field_change:  # minor change
+            self.version -= 0.1
         self.version = round(self.version, 1)
 
     def _add_filter(self, additions):
@@ -1206,7 +1218,7 @@ class LuxonisDataset:
         tid = self._make_transaction(LDFTransactionType.END)
         self._execute_transaction(tid)
 
-    def create_version(self, note):
+    def create_version(self, note, testing=False):
         def get_current_sample(sample_collection, transaction):
             result = list(
                 self.conn[sample_collection].find(
@@ -1223,7 +1235,9 @@ class LuxonisDataset:
 
         self.logger.info("Creating new version...")
         self._log_time()
-        version_changed = False
+        transaction = None
+        version_changed, samples_added, samples_deprecated = False, False, False
+        versioned_transactions = []
 
         try:
             try:
@@ -1287,6 +1301,8 @@ class LuxonisDataset:
 
                 if transaction["action"] != LDFTransactionType.END.value:
                     self.fo_dataset.group_slice = transaction["component"]
+                    self._version_transaction(transaction["_id"])
+                    versioned_transactions.append(transaction["_id"])
 
                 if transaction["action"] == LDFTransactionType.ADD.value:
                     sample_id = get_current_sample(sample_collection, transaction)
@@ -1306,6 +1322,7 @@ class LuxonisDataset:
                         # This is fine to ignore, as it means a new sample which has multiple ADD and/or UPDATE
                         # The updates are already executed and we are just finding the latest
                         self._version_transaction(transaction["_id"])
+                        versioned_transactions.append(transaction["_id"])
                         continue
                     else:
                         add_samples.add(sample_id)
@@ -1314,6 +1331,7 @@ class LuxonisDataset:
                     self._log_time("Version UPDATE")
 
                 self._version_transaction(transaction["_id"])
+                versioned_transactions.append(transaction["_id"])
 
                 self._log_time("Version transaction", final=True)
 
@@ -1324,6 +1342,7 @@ class LuxonisDataset:
                 {"_id": {"$in": add_samples}},
                 {"$set": {"latest": True, "version": self.version}},
             )
+            samples_added = True
 
             self._log_time("Version add_samples")
 
@@ -1332,6 +1351,7 @@ class LuxonisDataset:
                 {"_id": {"$in": deprecate_samples}},
                 {"$set": {"latest": False}},
             )
+            samples_deprecated = True
 
             self._log_time("Version deprecate_samples")
 
@@ -1341,12 +1361,31 @@ class LuxonisDataset:
             self._save_version(version_samples, note)
             self._log_time("Version save version")
 
+            if testing:
+                raise Exception("Test exception")
+
         except BaseException as e:
-            # TODO:
-            # - decrement version if incremented
-            # - undo any sample.save()
-            # undo any _save_version? Or move this outside try/except
-            raise e
+            version_view = f"version_{self.version}"
+            if self.fo_dataset.has_saved_view(version_view):
+                self.fo_dataset.delete_saved_view(version_view)
+            if version_changed:
+                self._decr_version(media_change, field_change)
+            for t in versioned_transactions:
+                self._unversion_transaction(t)
+            if samples_added:
+                self.conn[sample_collection].update_many(
+                    {"_id": {"$in": add_samples}},
+                    {
+                        "$set": {"latest": False, "version": self.version}
+                    },  # self.version is now decremented
+                )
+            if samples_deprecated:
+                self.conn[sample_collection].update_many(
+                    {"_id": {"$in": deprecate_samples}},
+                    {"$set": {"latest": True}},
+                )
+
+            raise DataVersionException(transaction, type(e).__name__, str(e))
 
     def create_view(self, name, expr, version=None):
         if version is None:
