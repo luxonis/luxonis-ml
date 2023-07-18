@@ -197,6 +197,8 @@ def mark_invisible_keypoints(keypoints: torch.Tensor, image: np.array):
     for kp in keypoints:
         if not (0 <= kp[0] < w and 0 <= kp[1] < h):
             kp[2] = 0
+        if kp[2] == 0: # per COCO format invisible points have x=y=0
+            kp[0] = kp[1] = 0
     return keypoints
 
 
