@@ -311,11 +311,11 @@ class LuxonisTrackerPL(plLogger):
         log_dirs = glob.glob(f"{self.save_directory}/*")
         log_dirs = [path for path in log_dirs if os.path.isdir(path)]
         # find run names based on the naming convention and sort them by last modified time
-        runs = [
-            l.replace(f"{self.save_directory}/", "")
-            for l in log_dirs
-            if l.split("-")[0].isnumeric()
-        ]
+        runs = []
+        for l in log_dirs:
+            l = l.replace(f'{self.save_directory}/', "")
+            if l.split("-")[0].isnumeric():
+                runs.append(l)
         runs.sort(
             key=lambda x: os.path.getmtime(os.path.join(self.save_directory, x)),
             reverse=True,
