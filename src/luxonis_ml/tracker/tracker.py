@@ -277,14 +277,16 @@ class LuxonisTrackerPL(plLogger):
 
             if self.project_id is not None:
                 self.project_name = None
-            self._experiment["mlflow"].set_experiment(
+            experiment = self._experiment["mlflow"].set_experiment(
                 experiment_name=self.project_name, experiment_id=self.project_id
             )
+            self.project_id = experiment.experiment_id
 
             # if self.run_id == None then create new run, else use alredy created one
-            self._experiment["mlflow"].start_run(
+            run = self._experiment["mlflow"].start_run(
                 run_id=self.run_id, run_name=self.run_name, nested=self.is_sweep
             )
+            self.run_id = run.info.run_id
 
         return self._experiment
 
