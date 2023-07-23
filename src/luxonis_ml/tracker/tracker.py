@@ -355,7 +355,8 @@ class LuxonisTrackerPL(plLogger):
             for key, value in metrics.items():
                 self.experiment["tensorboard"].add_scalar(key, value, step)
         if self.is_wandb:
-            self.experiment["wandb"].log(metrics, step=step)
+            # if step is added here it doesn't work correctly with wandb
+            self.experiment["wandb"].log(metrics)
         if self.is_mlflow:
             self.experiment["mlflow"].log_metrics(metrics, step)
 
