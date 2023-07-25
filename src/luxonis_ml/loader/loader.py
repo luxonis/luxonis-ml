@@ -1,18 +1,30 @@
-from pathlib import Path
 import cv2
 import numpy as np
 import torch
+import random
+import warnings
+from pathlib import Path
 from fiftyone import ViewField as F
+from enum import Enum
+
+
+class LabelType(str, Enum):
+    CLASSIFICATION = "class"
+    SEGMENTATION = "segmentation"
+    BOUNDINGBOX = "boxes"
+    KEYPOINT = "keypoints"
 
 
 class LuxonisLoader(torch.utils.data.Dataset):
     def __init__(self, dataset, view="train", stream=False, augmentations=None):
-        """
-        LuxonisDataset dataset: LuxonisDataset to use
-        str view: either a saved view from a query or the name of a split
-        bool stream: if False, data is downloaded locally before training else data is streamed from the cloud
-        """
+        """LuxonisLoader used for loading LuxonisDataset
 
+        Args:
+            dataset (LuxonisDataset): LuxonisDataset to use
+            view (str, optional): View of the dataset. Defaults to "train".
+            stream (bool, optional): Flag for data streaming. Defaults to False.
+            augmentations (Augmentations, optional): Augmentation class that performs augmentations. Defaults to None.
+        """
         self.dataset = dataset
         if view in ["train", "val", "test"]:
             version_view = self.dataset.fo_dataset.load_saved_view(
@@ -32,10 +44,10 @@ class LuxonisLoader(torch.utils.data.Dataset):
         self.classes, self.classes_by_task = self.dataset.get_classes()
         self.nc = len(self.classes)
         self.ns = len(
-            self.dataset.fo_dataset.mask_targets.get("segmentation", {}).keys()
+            self.dataset.fo_dataset.mask_targets.get(LabelType.SEGMENTATION, {}).keys()
         )
-        if "keypoints" in self.dataset.fo_dataset.skeletons.keys():
-            self.nk = len(self.dataset.fo_dataset.skeletons["keypoints"]["labels"])
+        if LabelType.KEYPOINT in self.dataset.fo_dataset.skeletons.keys():
+            self.nk = len(self.dataset.fo_dataset.skeletons[LabelType.KEYPOINT]["labels"])
         else:
             self.nk = 0
         self.augmentations = augmentations
@@ -49,6 +61,39 @@ class LuxonisLoader(torch.utils.data.Dataset):
         return len(self.ids)
 
     def __getitem__(self, idx):
+        img, annotations = self.load_image_with_annotations(idx)
+
+        if self.augmentations is not None:
+            aug_input_data = [(img, annotations)]
+            if self.augmentations.is_batched:
+                other_indices = [i for i in range(len(self)) if i != idx]
+                if self.augmentations.batch_size > len(self):
+                    warnings.warn(f"Augmentations batch_size ({self.augmentations.batch_size}) is larger than dataset size ({len(self)}), samples will include repetitions.")
+                    random_fun = random.choices
+                else:
+                    random_fun = random.sample
+                picked_indices = random_fun(other_indices, k=self.augmentations.batch_size-1)
+                aug_input_data.extend([self.load_image_with_annotations(i) for i in picked_indices])
+
+            img, annotations = self.augmentations(aug_input_data)
+
+        img = np.transpose(img, (2, 0, 1)) # HWC to CHW
+        img = torch.tensor(img)
+        for key in annotations:
+            annotations[key] = torch.tensor(annotations[key])
+
+        return img, annotations
+
+    def load_image_with_annotations(self, idx: int):
+        """Loads image and its annotations based on index
+
+        Args:
+            idx (int): Index of the image
+
+        Returns:
+            Tuple[np.ndarray, dict]: Image as np.ndarray in RGB format and dict with all present annotations
+        """
+
         sample_id = self.ids[idx]
         path = self.paths[idx]
         sample = self.dataset.fo_dataset[sample_id]
@@ -56,24 +101,33 @@ class LuxonisLoader(torch.utils.data.Dataset):
             img_path = f"{str(Path.home())}/.luxonis_mount/{path}"
         else:
             img_path = f"{str(Path.home())}/.cache/luxonis_ml/data/{path}"
-        img = np.transpose(cv2.imread(img_path), (2, 0, 1))
-        _, ih, iw = img.shape
 
-        classify = np.zeros(self.nc)
-        bboxes = np.zeros((0, 5))
-        seg = np.zeros((self.ns, ih, iw))
-        keypoints = np.zeros((0, self.nk * 3 + 1))
-        present_annotations = set()
+        img = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)
 
-        anno_dict = {}
-        if "class" in sample and sample["class"] is not None:
-            classes = sample["class"]["classifications"]
+        ih, iw, _ = img.shape
+        annotations = {}
+
+        if LabelType.CLASSIFICATION in sample and sample[LabelType.CLASSIFICATION] is not None:
+            classes = sample[LabelType.CLASSIFICATION]["classifications"]
+            classify = np.zeros(self.nc)
             for cls in classes:
                 cls = self.classes.index(cls.label)
                 classify[cls] = classify[cls] + 1
-            present_annotations.add("class")
-        if "boxes" in sample and sample["boxes"] is not None:
+            classify[classify > 0] = 1
+            annotations[LabelType.CLASSIFICATION] = classify
+
+        if LabelType.SEGMENTATION in sample and sample[LabelType.SEGMENTATION] is not None:
+            mask = sample.segmentation.mask
+            seg = np.zeros((self.ns, ih, iw))
+            for key in np.unique(mask):
+                if key != 0:
+                    seg[int(key) - 1, ...] = mask == key
+            seg[seg > 0] = 1
+            annotations[LabelType.SEGMENTATION] = seg
+
+        if LabelType.BOUNDINGBOX in sample and sample[LabelType.BOUNDINGBOX] is not None:
             detections = sample.boxes.detections
+            boxes = np.zeros((0, 5))
             for det in detections:
                 box = np.array(
                     [
@@ -84,15 +138,11 @@ class LuxonisLoader(torch.utils.data.Dataset):
                         det.bounding_box[3],
                     ]
                 ).reshape(1, 5)
-                bboxes = np.append(bboxes, box, axis=0)
-            present_annotations.add("bbox")
-        if "segmentation" in sample and sample["segmentation"] is not None:
-            mask = sample.segmentation.mask
-            for key in np.unique(mask):
-                if key != 0:
-                    seg[int(key) - 1, ...] = mask == key
-            present_annotations.add("segmentation")
-        if "keypoints" in sample and sample["keypoints"] is not None:
+                boxes = np.append(boxes, box, axis=0)
+            annotations[LabelType.BOUNDINGBOX] = boxes
+    
+        if LabelType.KEYPOINT in sample and sample[LabelType.KEYPOINT] is not None:
+            keypoints = np.zeros((0, self.nk * 3 + 1))
             for kps in sample.keypoints.keypoints:
                 cls = self.classes.index(kps.label)
                 pnts = np.array(kps.points).reshape((-1, 2)).astype(np.float32)
@@ -108,28 +158,10 @@ class LuxonisLoader(torch.utils.data.Dataset):
                 points[0, : nk + 1] = kps
                 keypoints = np.append(keypoints, points, axis=0)
 
-            present_annotations.add("keypoints")
+            annotations[LabelType.KEYPOINT] = keypoints
 
-        classify[classify > 0] = 1
-        seg[seg > 0] = 1
 
-        anno_dict = {}
-        if "class" in present_annotations:
-            anno_dict["class"] = classify
-        if "bbox" in present_annotations:
-            anno_dict["bbox"] = bboxes
-        if "segmentation" in present_annotations:
-            anno_dict["segmentation"] = seg
-        if "keypoints" in present_annotations:
-            anno_dict["keypoints"] = keypoints
-
-        img = torch.tensor(img)
-        for key in anno_dict:
-            anno_dict[key] = torch.tensor(anno_dict[key])
-        if self.augmentations is not None:
-            img, anno_dict = self.augmentations((img, anno_dict))
-
-        return img, anno_dict
+        return img, annotations
 
     @staticmethod
     def collate_fn(batch):
@@ -140,32 +172,32 @@ class LuxonisLoader(torch.utils.data.Dataset):
         present_annotations = anno_dicts[0].keys()
         out_annotations = {anno: None for anno in present_annotations}
 
-        if "class" in present_annotations:
-            class_annos = [anno["class"] for anno in anno_dicts]
-            out_annotations["class"] = torch.stack(class_annos, 0)
+        if LabelType.CLASSIFICATION in present_annotations:
+            class_annos = [anno[LabelType.CLASSIFICATION] for anno in anno_dicts]
+            out_annotations[LabelType.CLASSIFICATION] = torch.stack(class_annos, 0)
 
-        if "bbox" in present_annotations:
-            bbox_annos = [anno["bbox"] for anno in anno_dicts]
+        if LabelType.SEGMENTATION in present_annotations:
+            seg_annos = [anno[LabelType.SEGMENTATION] for anno in anno_dicts]
+            out_annotations[LabelType.SEGMENTATION] = torch.stack(seg_annos, 0)
+
+        if LabelType.BOUNDINGBOX in present_annotations:
+            bbox_annos = [anno[LabelType.BOUNDINGBOX] for anno in anno_dicts]
             label_box = []
             for i, box in enumerate(bbox_annos):
                 l_box = torch.zeros((box.shape[0], 6))
                 l_box[:, 0] = i  # add target image index for build_targets()
                 l_box[:, 1:] = box
                 label_box.append(l_box)
-            out_annotations["bbox"] = torch.cat(label_box, 0)
+            out_annotations[LabelType.BOUNDINGBOX] = torch.cat(label_box, 0)
 
-        if "segmentation" in present_annotations:
-            seg_annos = [anno["segmentation"] for anno in anno_dicts]
-            out_annotations["segmentation"] = torch.stack(seg_annos, 0)
-
-        if "keypoints" in present_annotations:
-            keypoint_annos = [anno["keypoints"] for anno in anno_dicts]
+        if LabelType.KEYPOINT in present_annotations:
+            keypoint_annos = [anno[LabelType.KEYPOINT] for anno in anno_dicts]
             label_keypoints = []
             for i, points in enumerate(keypoint_annos):
                 l_kps = torch.zeros((points.shape[0], points.shape[1] + 1))
                 l_kps[:, 0] = i  # add target image index for build_targets()
                 l_kps[:, 1:] = points
                 label_keypoints.append(l_kps)
-            out_annotations["keypoints"] = torch.cat(label_keypoints, 0)
+            out_annotations[LabelType.KEYPOINT] = torch.cat(label_keypoints, 0)
 
         return imgs, out_annotations
