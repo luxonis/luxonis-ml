@@ -67,12 +67,12 @@ class LuxonisLoader(torch.utils.data.Dataset):
             aug_input_data = [(img, annotations)]
             if self.augmentations.is_batched:
                 other_indices = [i for i in range(len(self)) if i != idx]
-                if self.augmentations.batch_size > len(self):
-                    warnings.warn(f"Augmentations batch_size ({self.augmentations.batch_size}) is larger than dataset size ({len(self)}), samples will include repetitions.")
+                if self.augmentations.aug_batch_size > len(self):
+                    warnings.warn(f"Augmentations batch_size ({self.augmentations.aug_batch_size}) is larger than dataset size ({len(self)}), samples will include repetitions.")
                     random_fun = random.choices
                 else:
                     random_fun = random.sample
-                picked_indices = random_fun(other_indices, k=self.augmentations.batch_size-1)
+                picked_indices = random_fun(other_indices, k=self.augmentations.aug_batch_size-1)
                 aug_input_data.extend([self.load_image_with_annotations(i) for i in picked_indices])
 
             img, annotations = self.augmentations(aug_input_data)

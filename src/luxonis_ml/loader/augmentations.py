@@ -16,7 +16,7 @@ class Augmentations:
         self.train_rgb = train_rgb
         
         self.is_batched = False
-        self.batch_size = 1
+        self.aug_batch_size = 1
 
     def _parse_cfg(
         self, image_size: list, augmentations: dict, keep_aspect_ratio: Optional[bool] = True
@@ -49,31 +49,27 @@ class Augmentations:
             )
         else:
             resize = A.Resize(image_size[0], image_size[1])
-        # default transforms always triggers
-        default_transform = A.Compose([resize],
-            bbox_params=A.BboxParams(format="coco", label_fields=["bboxes_classes"]),
-            keypoint_params=A.KeypointParams(
-                format="xy", 
-                label_fields=["keypoints_visibility", "keypoints_classes"],
-                remove_invisible=False
-            )
-        )
 
-        single_image_augs = []
-        multi_image_augs = []
+        pixel_augs = []
+        spatial_augs = []
+        batched_augs = []
         if augmentations:
             for aug in augmentations:
-                if aug["name"] in ["Mosaic4"]:
+                curr_aug = eval(aug["name"])(**aug.get("params", {}))
+                if isinstance(curr_aug, A.ImageOnlyTransform):
+                    pixel_augs.append(curr_aug)
+                elif isinstance(curr_aug, A.DualTransform):
+                    spatial_augs.append(curr_aug)
+                elif isinstance(curr_aug, A.BatchBasedTransform):
                     self.is_batched = True
-                    self.batch_size = 4
-                    multi_image_augs.append(eval(aug["name"])(**aug.get("params", {})))
-                else:
-                    single_image_augs.append(eval(aug["name"])(**aug.get("params", {})))
+                    self.aug_batch_size = max(self.aug_batch_size, curr_aug.n_tiles)
+                    batched_augs.append(curr_aug)
+        spatial_augs.append(resize) # always perform resize last
 
         batch_transform = A.BatchCompose(
             [
-                A.ForEach(single_image_augs),
-                *multi_image_augs,
+                A.ForEach(pixel_augs),
+                *batched_augs,
             ],
             bbox_params=A.BboxParams(format="coco", label_fields=["bboxes_classes_batch"]),
             keypoint_params=A.KeypointParams(
@@ -82,7 +78,18 @@ class Augmentations:
                 remove_invisible=False
             ),
         )
-        return batch_transform, default_transform
+
+        spatial_transform = A.Compose(
+            spatial_augs,
+            bbox_params=A.BboxParams(format="coco", label_fields=["bboxes_classes"]),
+            keypoint_params=A.KeypointParams(
+                format="xy", 
+                label_fields=["keypoints_visibility", "keypoints_classes"],
+                remove_invisible=False
+            )
+        )
+
+        return batch_transform, spatial_transform
 
 
     def __call__(self, data: List[Tuple[np.ndarray, dict]]):
@@ -132,7 +139,7 @@ class Augmentations:
         for key in transformed:
             transformed[key] = np.array(transformed[key][0])
 
-        transformed = self.default_transform(
+        transformed = self.spatial_transform(
             image=transformed["image_batch"],
             mask=transformed["mask_batch"],
             bboxes=transformed["bboxes_batch"],
@@ -215,15 +222,18 @@ class Augmentations:
 
         transformed_mask = transformed_data["mask"]
         keys = np.unique(transformed_mask[transformed_mask!=0])
-        if len(keys)==0:
-            out_mask = np.zeros((1,*transformed_mask.shape))
-        else:
+        if len(keys):
             out_mask = np.zeros((len(keys), *transformed_mask.shape))
             for idx, key in enumerate(keys):
                 out_mask[idx] = transformed_mask == key
+        else: # if mask is just background
+            out_mask = np.zeros((1,*transformed_mask.shape))
 
-        transformed_bboxes_classes = np.expand_dims(transformed_data["bboxes_classes"], axis=-1)
-        out_bboxes = np.concatenate((transformed_bboxes_classes, transformed_data["bboxes"]), axis=1)
+        if len(transformed_data["bboxes"]):
+            transformed_bboxes_classes = np.expand_dims(transformed_data["bboxes_classes"], axis=-1)
+            out_bboxes = np.concatenate((transformed_bboxes_classes, transformed_data["bboxes"]), axis=1)
+        else: # if no bboxes after transform
+            out_bboxes = np.zeros((0,5))
         out_bboxes[:, 1::2] /= iw
         out_bboxes[:, 2::2] /= ih
 
@@ -273,7 +283,7 @@ class TrainAugmentations(Augmentations):
     ):
         """Class for train augmentations"""
         super().__init__(train_rgb=train_rgb)
-        self.batch_transform, self.default_transform = self._parse_cfg(
+        self.batch_transform, self.spatial_transform = self._parse_cfg(
             image_size=image_size,
             augmentations=augmentations,
             keep_aspect_ratio=keep_aspect_ratio,
@@ -290,7 +300,7 @@ class ValAugmentations(Augmentations):
     ):
         """Class for val augmentations, only performs Normalize augmentation if present"""
         super().__init__(train_rgb=train_rgb)
-        self.batch_transform, self.default_transform = self._parse_cfg(
+        self.batch_transform, self.spatial_transform = self._parse_cfg(
             image_size=image_size,
             augmentations=[a for a in augmentations if a["name"] == "Normalize"],
             keep_aspect_ratio=keep_aspect_ratio,
