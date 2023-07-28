@@ -1296,7 +1296,7 @@ class LuxonisDataset:
 
             self._log_time("Version setup", final=True)
 
-            for transaction in transactions:
+            for transaction in items:
                 self._log_time()
 
                 if transaction["action"] != LDFTransactionType.END.value:
@@ -1365,6 +1365,10 @@ class LuxonisDataset:
                 raise Exception("Test exception")
 
         except BaseException as e:
+            self.logger.error(
+                "-------- Cleaning up... please to not interrupt the program! --------"
+            )
+
             version_view = f"version_{self.version}"
             if self.fo_dataset.has_saved_view(version_view):
                 self.fo_dataset.delete_saved_view(version_view)
