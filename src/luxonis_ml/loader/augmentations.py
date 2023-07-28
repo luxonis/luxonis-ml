@@ -81,7 +81,7 @@ class Augmentations:
 
         spatial_transform = A.Compose(
             spatial_augs,
-            bbox_params=A.BboxParams(format="coco", label_fields=["bboxes_classes"]),
+            bbox_params=A.BboxParams(format="coco", label_fields=["bboxes_classes", "bboxes_visibility"]),
             keypoint_params=A.KeypointParams(
                 format="xy", 
                 label_fields=["keypoints_visibility", "keypoints_classes"],
@@ -144,12 +144,15 @@ class Augmentations:
             mask=transformed["mask_batch"],
             bboxes=transformed["bboxes_batch"],
             bboxes_classes=transformed["bboxes_classes_batch"],
+            bboxes_visibility=[i for i in range(transformed["bboxes_batch"].shape[0])],
             keypoints=transformed["keypoints_batch"],
             keypoints_visibility=transformed["keypoints_visibility_batch"],
             keypoints_classes=transformed["keypoints_classes_batch"]
         )
 
-        out_image, out_mask, out_bboxes, out_keypoints = self.post_transform_process(transformed, n_kpts_per_instance)
+        out_image, out_mask, out_bboxes, out_keypoints = self.post_transform_process(transformed, n_kpts_per_instance, 
+            filter_kpts_by_bbox=LabelType.BOUNDINGBOX in present_annotations
+        )
 
         out_annotations = {}
         for key in present_annotations:
@@ -205,12 +208,13 @@ class Augmentations:
         return classes, mask, bboxes_points, bboxes_classes, keypoints_points, \
             keypoints_visibility, keypoints_classes, n_kpts_per_instance
 
-    def post_transform_process(self, transformed_data: dict, n_kpts_per_instance: int):
+    def post_transform_process(self, transformed_data: dict, n_kpts_per_instance: int, filter_kpts_by_bbox: bool):
         """Postprocessing of albumentations output to LuxonisLoader format
 
         Args:
             transformed_data (dict): Output data from albumentations
             n_kpts_per_instance (int): Number of keypoints per instance
+            filter_kpts_by_bbox (bool): If True removes keypoint instances if its bounding box was removed.
 
         Returns:
             Tuple: Postprocessed annotations
@@ -252,6 +256,8 @@ class Augmentations:
         keypoints_classes = keypoints_classes[0::n_kpts_per_instance]
         keypoints_classes = np.expand_dims(keypoints_classes, axis=-1)
         out_keypoints = np.concatenate((keypoints_classes, out_keypoints), axis=1)
+        if filter_kpts_by_bbox:
+            out_keypoints = out_keypoints[transformed_data["bboxes_visibility"]] # keep only keypoints of visible instances
 
         return out_image, out_mask, out_bboxes, out_keypoints
 
@@ -272,6 +278,7 @@ class Augmentations:
             if kp[2] == 0: # per COCO format invisible points have x=y=0
                 kp[0] = kp[1] = 0
         return keypoints
+    
 
 class TrainAugmentations(Augmentations):
     def __init__(
