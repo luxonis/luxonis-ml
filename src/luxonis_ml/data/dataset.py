@@ -466,15 +466,7 @@ class LuxonisDataset:
             self.logger.warning("This is a local dataset! Cannot sync")
         else:
             sync_from_s3(
-                non_streaming_dir=str(
-                    Path.home()
-                    / ".cache"
-                    / "luxonis_ml"
-                    / "data"
-                    / self.team_id
-                    / "datasets"
-                    / self.dataset_id
-                ),
+                non_streaming_dir=str(Path.home() / ".cache" / "luxonis_ml" / "data"),
                 bucket=self.bucket,
                 bucket_dir=str(Path(self.team_id) / "datasets" / self.dataset_id),
                 endpoint_url=self._get_credentials("AWS_S3_ENDPOINT_URL"),
