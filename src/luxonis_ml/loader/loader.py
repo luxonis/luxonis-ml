@@ -75,7 +75,7 @@ class LuxonisLoader(torch.utils.data.Dataset):
                 picked_indices = random_fun(other_indices, k=self.augmentations.aug_batch_size-1)
                 aug_input_data.extend([self.load_image_with_annotations(i) for i in picked_indices])
 
-            img, annotations = self.augmentations(aug_input_data)
+            img, annotations = self.augmentations(aug_input_data, nc=self.nc, ns=self.ns, nk=self.nk)
 
         img = np.transpose(img, (2, 0, 1)) # HWC to CHW
         img = torch.tensor(img)

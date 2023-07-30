@@ -91,15 +91,17 @@ class Augmentations:
 
         return batch_transform, spatial_transform
 
-
-    def __call__(self, data: List[Tuple[np.ndarray, dict]]):
+    def __call__(self, data: List[Tuple[np.ndarray, dict]], nc: int = 1, ns: int = 1, nk: int = 1):
         """Performs augmentations on provided data
 
         Args:
             data (List[Tuple[np.ndarray, dict]]): Data with list of input images and their annotations
+            nc (int, optional): Number of classes. Defaults to 1.
+            ns (int, optional): Number of segmentation classes. Defaults to 1.
+            nk (int, optional): Number of keypoints per instance. Defaults to 1.
 
         Returns:
-            Tuple[np.ndarray, dict]: Transformed output image and its annotations
+            _type_: _description_
         """
         image_batch = []
         mask_batch = []
@@ -113,7 +115,7 @@ class Augmentations:
         for img, annotations in data:
             present_annotations.update(annotations.keys())
             classes, mask, bboxes_points, bboxes_classes, keypoints_points, \
-            keypoints_visibility, keypoints_classes, n_kpts_per_instance = self.prepare_img_annotations(annotations, *img.shape[:-1])
+            keypoints_visibility, keypoints_classes = self.prepare_img_annotations(annotations, *img.shape[:-1])
 
             image_batch.append(img)
             mask_batch.append(mask)
@@ -150,8 +152,9 @@ class Augmentations:
             keypoints_classes=transformed["keypoints_classes_batch"]
         )
 
-        out_image, out_mask, out_bboxes, out_keypoints = self.post_transform_process(transformed, n_kpts_per_instance, 
-            filter_kpts_by_bbox=LabelType.BOUNDINGBOX in present_annotations
+        out_image, out_mask, out_bboxes, out_keypoints = self.post_transform_process(transformed, ns=ns, nk=nk, 
+            filter_kpts_by_bbox=(LabelType.BOUNDINGBOX in present_annotations) and 
+                (LabelType.KEYPOINT in present_annotations)
         )
 
         out_annotations = {}
@@ -202,18 +205,19 @@ class Augmentations:
         keypoints_visibility = keypoints_unflat[:,2]
         # albumentations expects classes to be same length as keypoints 
         # (use case: each kpt separate class - not supported in LuxonisDataset)
-        n_kpts_per_instance = int((keypoints.shape[1]-1) / 3)
-        keypoints_classes = np.repeat(keypoints[:, 0], n_kpts_per_instance)
+        nk = int((keypoints.shape[1]-1) / 3)
+        keypoints_classes = np.repeat(keypoints[:, 0], nk)
 
         return classes, mask, bboxes_points, bboxes_classes, keypoints_points, \
-            keypoints_visibility, keypoints_classes, n_kpts_per_instance
+            keypoints_visibility, keypoints_classes
 
-    def post_transform_process(self, transformed_data: dict, n_kpts_per_instance: int, filter_kpts_by_bbox: bool):
+    def post_transform_process(self, transformed_data: dict, ns: int, nk: int, filter_kpts_by_bbox: bool):
         """Postprocessing of albumentations output to LuxonisLoader format
 
         Args:
             transformed_data (dict): Output data from albumentations
-            n_kpts_per_instance (int): Number of keypoints per instance
+            ns (int): Number of segmentation classes
+            nk (int): Number of keypoints per instance
             filter_kpts_by_bbox (bool): If True removes keypoint instances if its bounding box was removed.
 
         Returns:
@@ -225,14 +229,12 @@ class Augmentations:
             out_image = cv2.cvtColor(out_image, cv2.COLOR_RGB2BGR)
 
         transformed_mask = transformed_data["mask"]
-        keys = np.unique(transformed_mask[transformed_mask!=0])
-        if len(keys):
-            out_mask = np.zeros((len(keys), *transformed_mask.shape))
-            for idx, key in enumerate(keys):
-                out_mask[idx] = transformed_mask == key
-        else: # if mask is just background
-            out_mask = np.zeros((1,*transformed_mask.shape))
-
+        out_mask = np.zeros((ns, *transformed_mask.shape))
+        for key in np.unique(transformed_mask):
+            if key != 0:
+                out_mask[int(key) - 1, ...] = transformed_mask == key
+        out_mask[out_mask > 0] = 1
+        
         if len(transformed_data["bboxes"]):
             transformed_bboxes_classes = np.expand_dims(transformed_data["bboxes_classes"], axis=-1)
             out_bboxes = np.concatenate((transformed_bboxes_classes, transformed_data["bboxes"]), axis=1)
@@ -250,10 +252,11 @@ class Augmentations:
         out_keypoints = self.mark_invisible_keypoints(out_keypoints, ih, iw)
         out_keypoints[..., 0] /= iw
         out_keypoints[..., 1] /= ih
-        out_keypoints = np.reshape(out_keypoints, (-1, n_kpts_per_instance*3))
+        if nk==0: nk=1 # done for easier postprocessing
+        out_keypoints = np.reshape(out_keypoints, (-1, nk*3))
         keypoints_classes = transformed_data["keypoints_classes"]
         # keypoints classes are repeated so take one per instance
-        keypoints_classes = keypoints_classes[0::n_kpts_per_instance]
+        keypoints_classes = keypoints_classes[0::nk]
         keypoints_classes = np.expand_dims(keypoints_classes, axis=-1)
         out_keypoints = np.concatenate((keypoints_classes, out_keypoints), axis=1)
         if filter_kpts_by_bbox:
