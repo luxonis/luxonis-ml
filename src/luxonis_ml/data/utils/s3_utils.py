@@ -4,6 +4,7 @@ from botocore.exceptions import NoCredentialsError, ClientError
 import datetime
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
+from pathlib import Path
 
 
 def get_file_hash(local_file):
@@ -15,7 +16,7 @@ def get_file_hash(local_file):
 
 def download_file(bucket, s3_file, local_dir):
     try:
-        local_file_path = os.path.join(local_dir, s3_file.key)
+        local_file_path = str(Path(local_dir) / s3_file.key)
         if (
             os.path.exists(local_file_path)
             and get_file_hash(local_file_path) == s3_file.e_tag[1:-1]
