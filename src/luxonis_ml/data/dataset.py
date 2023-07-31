@@ -956,7 +956,8 @@ class LuxonisDataset:
 
         try:
             if transactions is None:
-                raise Exception("There are no changes to the dataset to execute!")
+                self.logger.info("There are no changes to the dataset to execute!")
+                return
 
             items = transactions
             if not self.logger.isEnabledFor(logging.DEBUG) and self.logger.isEnabledFor(
@@ -1238,7 +1239,8 @@ class LuxonisDataset:
                 raise Exception("Cannot find sample collection name")
             transactions = self._check_transactions(for_versioning=True)
             if transactions is None:
-                raise Exception("There are no changes to the dataset to version!")
+                self.logger.info("There are no changes to the dataset to version!")
+                return
 
             contains_add = (
                 True
@@ -1292,7 +1294,7 @@ class LuxonisDataset:
                 self._log_time()
 
                 if transaction["action"] != LDFTransactionType.END.value:
-                    self.fo_dataset.group_slice = transaction["component"]
+                    # self.fo_dataset.group_slice = transaction["component"]
                     self._version_transaction(transaction["_id"])
                     versioned_transactions.append(transaction["_id"])
 
