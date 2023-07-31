@@ -277,14 +277,16 @@ class LuxonisTrackerPL(plLogger):
 
             if self.project_id is not None:
                 self.project_name = None
-            self._experiment["mlflow"].set_experiment(
+            experiment = self._experiment["mlflow"].set_experiment(
                 experiment_name=self.project_name, experiment_id=self.project_id
             )
+            self.project_id = experiment.experiment_id
 
             # if self.run_id == None then create new run, else use alredy created one
-            self._experiment["mlflow"].start_run(
+            run = self._experiment["mlflow"].start_run(
                 run_id=self.run_id, run_name=self.run_name, nested=self.is_sweep
             )
+            self.run_id = run.info.run_id
 
         return self._experiment
 
@@ -311,11 +313,11 @@ class LuxonisTrackerPL(plLogger):
         log_dirs = glob.glob(f"{self.save_directory}/*")
         log_dirs = [path for path in log_dirs if os.path.isdir(path)]
         # find run names based on the naming convention and sort them by last modified time
-        runs = [
-            l.replace(f"{self.save_directory}/", "")
-            for l in log_dirs
-            if l.split("-")[0].isnumeric()
-        ]
+        runs = []
+        for l in log_dirs:
+            l = l.replace(f'{self.save_directory}/', "")
+            if l.split("-")[0].isnumeric():
+                runs.append(l)
         runs.sort(
             key=lambda x: os.path.getmtime(os.path.join(self.save_directory, x)),
             reverse=True,
@@ -353,7 +355,8 @@ class LuxonisTrackerPL(plLogger):
             for key, value in metrics.items():
                 self.experiment["tensorboard"].add_scalar(key, value, step)
         if self.is_wandb:
-            self.experiment["wandb"].log(metrics, step=step)
+            # if step is added here it doesn't work correctly with wandb
+            self.experiment["wandb"].log(metrics)
         if self.is_mlflow:
             self.experiment["mlflow"].log_metrics(metrics, step)
 
