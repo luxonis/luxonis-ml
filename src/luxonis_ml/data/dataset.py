@@ -1127,7 +1127,7 @@ class LuxonisDataset:
                 if "split" not in addition[component_name].keys():
                     addition[component_name]["split"] = "train"
 
-    def add(self, additions, from_bucket=False, add_defaults=True):
+    def add(self, additions, update_only=False, from_bucket=False, add_defaults=True):
         """
         Function to add data and automatically log transactions
 
@@ -1164,7 +1164,8 @@ class LuxonisDataset:
                 transaction_to_additions, media_change, field_change = filter_result
                 post_filter = True
 
-            additions = self._add_extract(additions, from_bucket)
+            if not update_only:
+                additions = self._add_extract(additions, from_bucket)
 
             self._add_execute(additions, transaction_to_additions)
 
