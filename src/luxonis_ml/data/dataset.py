@@ -223,6 +223,7 @@ class LuxonisDataset:
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
+        self.fo_dataset.persistent = True
         self._class_to_doc()
         self.dataset_doc.save(upsert=True)
 
