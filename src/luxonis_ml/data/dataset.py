@@ -799,7 +799,7 @@ class LuxonisDataset:
                 self.conn.transaction_document.delete_many({"_id": ObjectId(tid)})
             raise DataTransactionException(filepath, type(e).__name__, str(e))
 
-    def _add_extract(self, additions, transactions_to_additions, from_bucket):
+    def _add_extract(self, additions, transaction_to_additions, from_bucket):
         """
         Filters out any additions to the dataset already existing
         """
@@ -1028,7 +1028,6 @@ class LuxonisDataset:
                             map_path=addition[f"{component_name}_heatmap"]["filepath"]
                         )
 
-                    sample["created_at"] = datetime(2021, 8, 24, 21, 18, 7)
                     samples.append(sample)
 
                 elif transaction["action"] == LDFTransactionType.UPDATE.value:
@@ -1107,7 +1106,7 @@ class LuxonisDataset:
                         sample["latest"] = False
                         sample["version"] = -1.0
                         sample["created_at"] = datetime.strptime(
-                            sample["created_at"]["$date"], "%Y-%m-%dT%H:%M:%SZ"
+                            sample["created_at"]["$date"], "%Y-%m-%dT%H:%M:%S.%fZ"
                         )
                         self.fo_dataset.add_sample(sample)
                         copied_samples.append(sample.id)
@@ -1169,7 +1168,9 @@ class LuxonisDataset:
                 post_filter = True
 
             if not update_only:
-                additions = self._add_extract(additions, from_bucket)
+                additions = self._add_extract(
+                    additions, transaction_to_additions, from_bucket
+                )
 
             self._add_execute(additions, transaction_to_additions)
 
