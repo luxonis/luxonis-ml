@@ -223,6 +223,7 @@ class LuxonisDataset:
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
+        self.fo_dataset.persistent = True
         self._class_to_doc()
         self.dataset_doc.save(upsert=True)
 
@@ -424,9 +425,6 @@ class LuxonisDataset:
 
         return source
 
-    def launch_app(self):
-        session = fo.launch_app(dataset)
-
     def set_classes(self, classes, task=None):
         if task is not None:
             if task not in self.tasks:
@@ -466,15 +464,7 @@ class LuxonisDataset:
             self.logger.warning("This is a local dataset! Cannot sync")
         else:
             sync_from_s3(
-                non_streaming_dir=str(
-                    Path.home()
-                    / ".cache"
-                    / "luxonis_ml"
-                    / "data"
-                    / self.team_id
-                    / "datasets"
-                    / self.dataset_id
-                ),
+                non_streaming_dir=str(Path.home() / ".cache" / "luxonis_ml" / "data"),
                 bucket=self.bucket,
                 bucket_dir=str(Path(self.team_id) / "datasets" / self.dataset_id),
                 endpoint_url=self._get_credentials("AWS_S3_ENDPOINT_URL"),
@@ -810,7 +800,7 @@ class LuxonisDataset:
                 self.conn.transaction_document.delete_many({"_id": ObjectId(tid)})
             raise DataTransactionException(filepath, type(e).__name__, str(e))
 
-    def _add_extract(self, additions, from_bucket):
+    def _add_extract(self, additions, transaction_to_additions, from_bucket):
         """
         Filters out any additions to the dataset already existing
         """
@@ -842,6 +832,10 @@ class LuxonisDataset:
             logging.INFO
         ):
             items = tqdm(items, total=len(additions))
+
+        # transactions = self._check_transactions()
+        # tid_to_filepath = t["tid"]:t["filepath"]
+        # TODO
 
         self._log_time("Extract setup", final=True)
 
@@ -964,7 +958,8 @@ class LuxonisDataset:
 
         try:
             if transactions is None:
-                raise Exception("There are no changes to the dataset to execute!")
+                self.logger.info("There are no changes to the dataset to execute!")
+                return
 
             items = transactions
             if not self.logger.isEnabledFor(logging.DEBUG) and self.logger.isEnabledFor(
@@ -992,8 +987,10 @@ class LuxonisDataset:
                     group = component["_group"]
                     sample = fo.Sample(
                         filepath=component["filepath"],
-                        version=self.version,
-                        latest=True,
+                        version=-1.0,
+                        latest=False,
+                        tid=transaction["_id"].binary.hex(),
+                        created_at=datetime.utcnow(),
                     )
                     sample[source.name] = group.element(component_name)
 
@@ -1032,9 +1029,6 @@ class LuxonisDataset:
                             map_path=addition[f"{component_name}_heatmap"]["filepath"]
                         )
 
-                    sample["tid"] = transaction["_id"].binary.hex()
-                    sample["latest"] = False
-                    sample["version"] = -1.0
                     samples.append(sample)
 
                 elif transaction["action"] == LDFTransactionType.UPDATE.value:
@@ -1112,6 +1106,9 @@ class LuxonisDataset:
                         sample["tid"] = transaction["_id"].binary.hex()
                         sample["latest"] = False
                         sample["version"] = -1.0
+                        sample["created_at"] = datetime.strptime(
+                            sample["created_at"]["$date"], "%Y-%m-%dT%H:%M:%S.%fZ"
+                        )
                         self.fo_dataset.add_sample(sample)
                         copied_samples.append(sample.id)
 
@@ -1134,7 +1131,7 @@ class LuxonisDataset:
                 if "split" not in addition[component_name].keys():
                     addition[component_name]["split"] = "train"
 
-    def add(self, additions, from_bucket=False, add_defaults=True):
+    def add(self, additions, update_only=False, from_bucket=False, add_defaults=True):
         """
         Function to add data and automatically log transactions
 
@@ -1171,7 +1168,10 @@ class LuxonisDataset:
                 transaction_to_additions, media_change, field_change = filter_result
                 post_filter = True
 
-            additions = self._add_extract(additions, from_bucket)
+            if not update_only:
+                additions = self._add_extract(
+                    additions, transaction_to_additions, from_bucket
+                )
 
             self._add_execute(additions, transaction_to_additions)
 
@@ -1246,7 +1246,8 @@ class LuxonisDataset:
                 raise Exception("Cannot find sample collection name")
             transactions = self._check_transactions(for_versioning=True)
             if transactions is None:
-                raise Exception("There are no changes to the dataset to version!")
+                self.logger.info("There are no changes to the dataset to version!")
+                return
 
             contains_add = (
                 True
@@ -1300,7 +1301,7 @@ class LuxonisDataset:
                 self._log_time()
 
                 if transaction["action"] != LDFTransactionType.END.value:
-                    self.fo_dataset.group_slice = transaction["component"]
+                    # self.fo_dataset.group_slice = transaction["component"]
                     self._version_transaction(transaction["_id"])
                     versioned_transactions.append(transaction["_id"])
 

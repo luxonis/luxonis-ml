@@ -424,6 +424,14 @@ class LuxonisDatasetTester(unittest.TestCase):
             self.assertEqual(
                 sample["boxes"], None, "Executed change to a deleted field"
             )
+            dt1 = sample["created_at"]
+            query = dataset.fo_dataset.match(
+                (F("latest") == True) & (F("instance_id") == sample["instance_id"])
+            )
+            for sample in query:
+                break
+            dt2 = sample["created_at"]
+            self.assertEqual(dt1, dt2, "Copied datetime field created_at not equal")
 
             # non-annotation field change
             a = deepcopy(self.additions[-1])
@@ -935,6 +943,8 @@ class LuxonisDatasetTester(unittest.TestCase):
 
     def test_add_execute_exception(self):
         with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
+            self.conn.transaction_document.delete_many({"executed": False})
+
             additions = [deepcopy(self.additions[-2])]
             additions[0]["A"]["change_1"] = 1
             additions[0]["A"]["change_2"] = 2
@@ -956,9 +966,6 @@ class LuxonisDatasetTester(unittest.TestCase):
                     "$set": {"value": {"value": 10}}
                 },  # will throw an error being an int higher than num classes
             )
-            curr = self.conn.transaction_document.find({"executed": False})
-            res = list(curr)
-            fields = [(t["field"], t["value"]) for t in res if "field" in t]
 
             dataset.fo_dataset.group_slice = "A"
             original_length = len(dataset.fo_dataset)
