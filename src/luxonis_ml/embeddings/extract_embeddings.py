@@ -1,3 +1,4 @@
+import uuid
 import cv2
 import torch
 import torch.nn as nn
@@ -236,57 +237,65 @@ def _get_sample_payloads(luxonis_dataset):
         sample_id = sample['id']
         instance_id = sample['instance_id']
         filepath = sample['filepath']
-        class_name = sample['class']
+        # class_name = sample['class']
         split = sample['split']
 
         img_path = luxonis_dataset.path + sample.filepath.split(luxonis_dataset.path.split('/')[-1])[-1]
-        all_img_paths.append(img_path)
 
         all_payloads.append({
             "sample_id": sample_id,
             "instance_id": instance_id,
-            "filepath": filepath,
-            "class": class_name,
+            "image_path": img_path,
+            # "class": class_name['classifications']['label'],
             "split": split
         })
     
-    return all_img_paths, all_payloads
+    return all_payloads
 
-def _filter_new_samples(qdrant_client, qdrant_collection_name="mnist", vector_size=2048, all_img_paths=[], all_payloads=[]):
+def _filter_new_samples(qdrant_client, qdrant_collection_name="mnist", vector_size=2048, all_payloads=[]):
     # Filter out samples that are already in the Qdrant database
     search_queries = [SearchRequest(
         vector=[0] * vector_size,  # Dummy vector
-        limit=1,
-        query_filter=models.Filter(
+        filter=models.Filter(
             must=[
                 models.FieldCondition(
                     key="sample_id",
                     match=models.MatchText(text=payload["sample_id"])
                 )
             ]
-        )
+        ),
+        limit=1
     ) for payload in all_payloads]
+
 
     search_results = qdrant_client.search_batch(
         collection_name=qdrant_collection_name,
         requests=search_queries
     )
 
-    new_img_paths = [all_img_paths[i] for i, res in enumerate(search_results) if not res]
     new_payloads = [all_payloads[i] for i, res in enumerate(search_results) if not res]
 
-    return new_img_paths, new_payloads
+    return new_payloads
 
-def _generate_new_embeddings(ort_session, output_layer_name="/Flatten_output_0", emb_batch_size=64, new_img_paths=[]):
+def _generate_new_embeddings(ort_session, output_layer_name="/Flatten_output_0", emb_batch_size=64, new_payloads=[]):
     # Generate embeddings for the new images using batching
     new_embeddings = []
 
-    for i in range(0, len(new_img_paths), emb_batch_size):
-        batch_img_paths = new_img_paths[i:i+emb_batch_size]
+    # Define a transformation for resizing and normalizing the images
+    transform = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.Resize((224, 224)),  # Resize images to (224, 224) or any desired size
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  # Normalize images
+    ])
+
+    for i in range(0, len(new_payloads), emb_batch_size):
+        batch= new_payloads[i:i+emb_batch_size]
+        batch_img_paths = [payload["image_path"] for payload in batch]
         
-        # Load and preprocess a batch of images
+        # Load, preprocess, and resize a batch of images
         batch_images = [cv2.imread(img_path) for img_path in batch_img_paths]
-        batch_tensors = [torch.from_numpy(img).permute(2, 0, 1).float() for img in batch_images]
+        batch_tensors = [transform(img) for img in batch_images]
         batch_tensor = torch.stack(batch_tensors).cuda()
 
         # Run the ONNX model on the batch
@@ -301,22 +310,22 @@ def _generate_new_embeddings(ort_session, output_layer_name="/Flatten_output_0",
 
 def _batch_upsert(qdrant_client, new_embeddings, new_payloads, qdrant_batch_size = 64, qdrant_collection_name="mnist"):
     # Perform batch upserts to Qdrant
-    collection_info = qdrant_client.get_collection(collection_name=qdrant_collection_name)
-    collection_size = collection_info.vectors_count
-    current_id = collection_size
-
     for i in range(0, len(new_embeddings), qdrant_batch_size):
         batch_embeddings = new_embeddings[i:i+qdrant_batch_size]
         batch_payloads = new_payloads[i:i+qdrant_batch_size]
 
         points = [models.PointStruct(
-            id=current_id + j,
+            id=payload["instance_id"],
             vector=embedding,
             payload=payload
         ) for j, (embedding, payload) in enumerate(zip(batch_embeddings, batch_payloads))]
 
-        qdrant_client.upsert(collection_name=qdrant_collection_name, points=points)
-        print(f"Upserted batch {i // qdrant_batch_size + 1} to Qdrant.")
+        try:
+            qdrant_client.upsert(collection_name=qdrant_collection_name, points=points)
+            print(f"Upserted batch {i // qdrant_batch_size + 1} / {len(new_embeddings) // qdrant_batch_size + 1} of size {len(points)} to Qdrant.")
+        except Exception as e:
+            print(e)
+            print(f"Failed to upsert batch {i // qdrant_batch_size + 1} to Qdrant.")
 
 def generate_embeddings(luxonis_dataset, 
                          ort_session, 
@@ -327,18 +336,17 @@ def generate_embeddings(luxonis_dataset,
                          emb_batch_size=64, 
                          qdrant_batch_size=64):
     
-    all_img_paths, all_payloads = _get_sample_payloads(luxonis_dataset)
+    all_payloads = _get_sample_payloads(luxonis_dataset)
 
-    new_img_paths, new_payloads = _filter_new_samples(qdrant_client, 
-                                                      qdrant_collection_name, 
-                                                      vector_size, 
-                                                      all_img_paths,
-                                                      all_payloads)
+    new_payloads = _filter_new_samples(qdrant_client, 
+                                        qdrant_collection_name, 
+                                        vector_size, 
+                                        all_payloads)
     
     new_embeddings = _generate_new_embeddings(ort_session,
                                                 output_layer_name,
                                                 emb_batch_size,
-                                                new_img_paths)
+                                                new_payloads)
     
     _batch_upsert(qdrant_client,
                     new_embeddings,
@@ -455,9 +463,10 @@ def main_Luxonis():
     # Load the LuxonisDataset
     with LuxonisDataset(team_id=team_id, dataset_id=dataset_id) as dataset:
         # Call the _generate_embeddings method
-        generate_embeddings(ort_session, client, "your_qdrant_collection_name", dataset, "your_exposed_layer_name")
+        generate_embeddings(dataset, ort_session, client, qdrant_collection_name="your_qdrant_collection_name", output_layer_name="your_exposed_layer_name")
 
 
 if __name__ == '__main__':
     # main_pytorch()
     main_onnx()
+    # main_Luxonis()
