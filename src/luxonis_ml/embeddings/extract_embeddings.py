@@ -1,7 +1,7 @@
-import uuid
 import cv2
 import torch
 import torch.nn as nn
+import subprocess
 
 import torch.onnx
 import onnx
@@ -148,6 +148,70 @@ def load_embeddings(save_path="./"):
     labels = torch.load(save_path + 'labels.pth')
 
     return embeddings, labels
+
+def run_command(command):
+    try:
+        output = subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT).decode('utf-8').strip()
+        return output
+    except subprocess.CalledProcessError as e:
+        error_message = e.output.decode('utf-8').strip()
+        print(f"Error executing command: {error_message}")
+        return error_message
+
+def docker_installed():
+    output = run_command("docker --version")
+    return "Docker version" in output
+
+def docker_running():
+    output = run_command("sudo docker info")
+    return "Containers:" in output  # This is a typical line in the `docker info` output
+
+def start_docker_daemon():
+    print("Starting Docker daemon...")
+    run_command("sudo systemctl start docker")
+
+def image_exists(image_name):
+    images = run_command("sudo docker images -q {}".format(image_name))
+    return bool(images)
+
+def container_exists(container_name):
+    containers = run_command("sudo docker ps -a -q -f name={}".format(container_name))
+    return bool(containers)
+
+def container_running(container_name):
+    running_containers = run_command("sudo docker ps -q -f name={}".format(container_name))
+    return bool(running_containers)
+
+def start_docker_qdrant():
+    image_name = "qdrant/qdrant"
+    container_name = "qdrant_container"
+
+    if not docker_installed():
+        print("Docker is not installed. Please install Docker to proceed.")
+        # You can provide instructions or a script to install Docker here if desired.
+        return
+
+    if not docker_running():
+        print("Docker daemon is not running. Attempting to start Docker...")
+        start_docker_daemon()
+
+        if not docker_running():
+            print("Failed to start Docker. Please start Docker manually and try again.")
+            return
+
+    if not image_exists(image_name):
+        print("Image does not exist. Pulling image...")
+        run_command("sudo docker pull {}".format(image_name))
+
+    if not container_exists(container_name):
+        print("Container does not exist. Creating container...")
+        run_command("sudo docker run -d --name {} -p 6333:6333 -v ~/.cache/qdrant_data:/app/data {}".format(container_name, image_name))
+    elif not container_running(container_name):
+        print("Container is not running. Starting container...")
+        run_command("sudo docker start {}".format(container_name))
+    else:
+        print("Container is already running.")
+
 
 def connect_to_qdrant(host="localhost", port=6333):
     client = QdrantClient(host=host, port=port)
@@ -448,6 +512,9 @@ def main_Luxonis():
     onnx_model_path = "path_to_your_onnx_model.onnx"
     ort_session = onnxruntime.InferenceSession(onnx_model_path)
     ort_session.set_providers(['CUDAExecutionProvider'])  # Run ONNX on CUDA
+
+    # Start the Qdrant Docker container
+    start_docker_qdrant()
 
     # Initialize the Qdrant client
     client = QdrantClient(host="localhost", port=6333)
