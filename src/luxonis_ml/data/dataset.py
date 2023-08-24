@@ -9,6 +9,7 @@ from pathlib import Path
 import cv2
 import json
 import boto3
+from google.cloud import storage
 import logging, time
 from tqdm import tqdm
 from enum import Enum
@@ -18,6 +19,7 @@ import pymongo
 from bson.objectid import ObjectId
 from .version import LuxonisVersion
 from .utils.s3_utils import sync_from_s3, sync_to_s3, check_s3_file_existence
+from .utils.gcs_utils import sync_from_gcs, sync_to_gcs
 
 LDF_VERSION = "0.1.0"
 
@@ -298,6 +300,12 @@ class LuxonisDataset:
         self.bucket_path = self.path.split(self.bucket + "/")[-1]
         # self._create_directory(self.bucket_path)
 
+    def _init_gcs_client(self):
+        # assumes GOOGLE_APPLICATION_CREDENTIALS is set
+        self.bucket = self.path.split("//")[1].split("/")[0]
+        self.bucket_path = self.path.split(self.bucket + "/")[-1]
+        self.client = storage.Client()
+
     def _init_path(self):
         if self.bucket_storage.value == "local":
             self.path = str(
@@ -313,6 +321,9 @@ class LuxonisDataset:
         elif self.bucket_storage.value == "s3":
             self.path = f"s3://{self._get_credentials('AWS_BUCKET')}/{self.team_id}/datasets/{self.dataset_id}"
             self._init_boto3_client()
+        elif self.bucket_storage.value == "gcs":
+            self.path = f"gs://{self._get_credentials('GCS_BUCKET')}/{self.team_id}/datasets/{self.dataset_id}"
+            self._init_gcs_client()
 
     def _create_directory(self, path, clear_contents=False):
         if self.bucket_storage.value == "local":
@@ -624,7 +635,7 @@ class LuxonisDataset:
             self.version -= 0.1
         self.version = round(self.version, 1)
 
-    def _add_filter(self, additions):
+    def _add_filter(self, additions, from_bucket):
         """
         Filters out any additions to the dataset already existing
         """
@@ -676,7 +687,9 @@ class LuxonisDataset:
                     additions[i][component_name]["_old_filepath"] = filepath
                     if not data_utils.is_modified_filepath(self, filepath):
                         try:
-                            hashpath, hash = data_utils.generate_hashname(filepath)
+                            hashpath, hash = data_utils.generate_hashname(
+                                self, filepath, from_bucket
+                            )
                         except:
                             raise AdditionNotFoundException(
                                 f"{filepath} does not exist"
@@ -819,7 +832,7 @@ class LuxonisDataset:
                 / "datasets"
                 / self.dataset_id
             )
-        elif self.bucket_storage.value == "s3":
+        else:
             local_cache = str(Path.home() / ".cache" / "luxonis_ml" / "tmp")
         os.makedirs(local_cache, exist_ok=True)
         for component_name in components:
@@ -937,6 +950,11 @@ class LuxonisDataset:
                 s3_dir=self.bucket_path,
                 local_dir=local_cache,
                 endpoint_url=self._get_credentials("AWS_S3_ENDPOINT_URL"),
+            )
+
+        elif self.bucket_storage.value == "gcs" and not from_bucket:
+            sync_to_gcs(
+                bucket=self.bucket, gcs_dir=self.bucket_path, local_dir=local_cache
             )
 
         if self.bucket_storage.value != "local":
@@ -1160,7 +1178,7 @@ class LuxonisDataset:
             if add_defaults:
                 self._add_defaults(additions)
 
-            filter_result = self._add_filter(additions)
+            filter_result = self._add_filter(additions, from_bucket)
             if filter_result is None:
                 self.logger.info("No additions or modifications")
                 return

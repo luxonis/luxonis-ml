@@ -327,10 +327,21 @@ def construct_keypoints_label(dataset, kps):
     )
 
 
-def generate_hashname(filepath):
-    # Read the contents of the file
-    with open(filepath, "rb") as file:
-        file_contents = file.read()
+def generate_hashname(dataset, filepath, from_bucket):
+    if dataset.bucket_storage.value == "local" or not from_bucket:
+        # Read the contents of the file
+        with open(filepath, "rb") as file:
+            file_contents = file.read()
+
+        # TODO: check for a corrupted image by handling cv2.imread
+
+    elif from_bucket and dataset.bucket_storage.value == "s3":
+        object_key = filepath.split(f"s3://{dataset.bucket}/")[-1]
+        response = dataset.client.get_object(Bucket=dataset.bucket, Key=object_key)
+        file_contents = response["Body"].read()
+
+    elif from_bucket and dataset.bucket_storage.value == "gcs":
+        raise NotImplementedError()
 
     # Generate the UUID5 based on the file contents and the NAMESPACE_URL
     file_hash_uuid = uuid.uuid5(uuid.NAMESPACE_URL, file_contents.hex())
