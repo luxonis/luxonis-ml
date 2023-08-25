@@ -19,7 +19,7 @@ import pymongo
 from bson.objectid import ObjectId
 from .version import LuxonisVersion
 from .utils.s3_utils import sync_from_s3, sync_to_s3, check_s3_file_existence
-from .utils.gcs_utils import sync_from_gcs, sync_to_gcs
+from .utils.gcs_utils import sync_from_gcs, sync_to_gcs, paths_from_gcs
 
 LDF_VERSION = "0.1.0"
 
@@ -674,31 +674,44 @@ class LuxonisDataset:
                 logging.INFO
             ):
                 items = tqdm(items, total=len(additions))
+
+            if from_bucket:
+                if self.bucket_storage.value == "s3":
+                    raise NotImplementedError
+                elif self.bucket_storage.value == "gcs":
+                    paths_from_gcs(self, additions)
+                elif self.bucket_storage.value == "azure":
+                    raise NotImplementedError
+
             for i, addition in items:
                 self._log_time()
                 # change the filepath for all components
-                for component_name in addition.keys():
-                    try:
-                        filepath = addition[component_name]["filepath"]
-                    except:
-                        raise AdditionsStructureException(
-                            "Additions must be List[dict] with {'<component_name>': {'filepath':...}}. The <component_name> and filepath are required"
-                        )
-                    additions[i][component_name]["_old_filepath"] = filepath
-                    if not data_utils.is_modified_filepath(self, filepath):
+
+                if not from_bucket:
+                    for component_name in addition.keys():
                         try:
-                            hashpath, hash = data_utils.generate_hashname(
-                                self, filepath, from_bucket
-                            )
+                            filepath = addition[component_name]["filepath"]
                         except:
-                            raise AdditionNotFoundException(
-                                f"{filepath} does not exist"
+                            raise AdditionsStructureException(
+                                "Additions must be List[dict] with {'<component_name>': {'filepath':...}}. The <component_name> and filepath are required"
                             )
-                        additions[i][component_name]["instance_id"] = hash
-                        additions[i][component_name]["_new_image_name"] = hashpath
-                    granule = data_utils.get_granule(filepath, addition, component_name)
-                    new_filepath = f"/{self.team_id}/datasets/{self.dataset_id}/{component_name}/{granule}"
-                    additions[i][component_name]["filepath"] = new_filepath
+                        additions[i][component_name]["_old_filepath"] = filepath
+                        if not data_utils.is_modified_filepath(self, filepath):
+                            try:
+                                hashpath, hash = data_utils.generate_hashname(
+                                    self, filepath
+                                )
+                            except:
+                                raise AdditionNotFoundException(
+                                    f"{filepath} does not exist"
+                                )
+                            additions[i][component_name]["instance_id"] = hash
+                            additions[i][component_name]["_new_image_name"] = hashpath
+                        granule = data_utils.get_granule(
+                            filepath, addition, component_name
+                        )
+                        new_filepath = f"/{self.team_id}/datasets/{self.dataset_id}/{component_name}/{granule}"
+                        additions[i][component_name]["filepath"] = new_filepath
 
                 group = fo.Group(name=source.name)
 
