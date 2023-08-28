@@ -56,6 +56,8 @@ import torch
 from torch.utils.data import Dataset
 import torchvision.transforms as transforms
 
+from luxonis_ml.embeddings.qdrant_utils import *
+
 
 # **********************************************************************************************************************
 # ******************************************Near-duplicate search*******************************************************
@@ -119,7 +121,9 @@ def kde_peaks(data, bandwidth="scott", plot=False):
 
 def find_similar_qdrant(
         reference_embeddings,
-        k=100, 
+        qdrant_client,
+        k=100,         
+        collection_name="webscraped_real_all",
         dataset="flash",
         n=1000,
         method='first', 
@@ -132,10 +136,15 @@ def find_similar_qdrant(
 
     Parameters
     ----------
-    reference_embeddings : np.array
+    reference_embeddings : np.array / list
         The embeddings to compare against.
+        Or a list of of embedding instance_ids that reside in Qdrant.
+    qdrant_client : QdrantClient
+        The Qdrant client instance to use for searches.
     k : int
         The number of similar embeddings to return.
+    collection_name : str
+        The name of the Qdrant collection. Default is 'webscraped_real_all'.
     dataset : str
         The dataset to use. Default is 'flash'.
     n : int
@@ -161,9 +170,19 @@ def find_similar_qdrant(
         The paths of the most similar embeddings.
 
     """
-    
+    # Get the reference embeddings
+    # check if reference_embeddings is a list of instance_ids
+    if isinstance(reference_embeddings, str):
+        reference_embeddings = [reference_embeddings]
+    if isinstance(reference_embeddings[0], str):
+        reference_embeddings = get_embeddings_from_ids(qdrant_client, reference_embeddings, collection_name=collection_name)
+
+    # Select the reference embedding
     if method == 'first':
-        pass
+        if isinstance(reference_embeddings, list):
+            reference_embeddings = np.array(reference_embeddings)
+        if len(reference_embeddings.shape) > 1:
+            reference_embeddings = reference_embeddings[0]
     elif method == 'average':
         # Calculate the average of the reference embeddings
         avg_embedding = np.mean(reference_embeddings, axis=0)
@@ -171,7 +190,7 @@ def find_similar_qdrant(
     else:
         raise ValueError(f'Unknown method: {method}')
     
-    ix, vals, res = search_qdrant(reference_embeddings, collection_name="webscraped_real_all", data_name=dataset, limit=n)
+    ix, vals, res = search_qdrant(qdrant_client, reference_embeddings, collection_name=collection_name, data_name=dataset, limit=n)
     ix, similarities, res = np.array(ix), np.array(vals), np.array(res)
     
     # Select the best k embeddings
@@ -223,6 +242,7 @@ def find_similar_qdrant(
             k = len(np.where(similarities > minima)[0])
             if minima > 0.97 and k < 2:
                 k = len(np.where(similarities > 0.97)[0])
+            print(k, minima)
 
         # select the best k embeddings
         best_embeddings_ix = np.argsort(similarities)[-k:]
@@ -294,6 +314,53 @@ def find_representative_greedy(distance_matrix, desired_size=1000, seed=0):
 # desired_size = int(len(embeddings)*0.1)
 # selected_image_indices = find_representative_greedy(1-similarity_matrix, desired_size)
 
+def find_representative_greedy_qdrant(qdrant_client, desired_size=1000, qdrant_collection_name="mnist", seed=0):
+    """
+    Find the most representative embeddings using a greedy algorithm with Qdrant.
+    NOTE: Due to many Qdrant requests, this function is very slow. Use get_all_embeddings() and find_representative_greedy() instead.
+
+    Parameters
+    ----------
+    qdrant_client : QdrantClient
+        The Qdrant client instance to use for searches.
+    desired_size : int
+        The desired size of the representative set. Default is 1000.
+    qdrant_collection_name : str
+        The name of the Qdrant collection. Default is "mnist".
+    seed : int
+        The ID of the seed embedding. Default is 0.
+
+    Returns
+    -------
+    list
+        The IDs of the representative embeddings.
+    """
+    all_ids = get_all_ids(qdrant_client, qdrant_collection_name)
+    selected_embeddings = set()
+    selected_embeddings.add(all_ids[seed])
+
+    while len(selected_embeddings) < desired_size:
+        max_similarity = -1
+        best_embedding = None
+
+        for embedding_id in all_ids:
+            if embedding_id not in selected_embeddings:
+                # Get similarities of the current embedding with the already selected embeddings
+                _, scores = get_similarities(qdrant_client, embedding_id, list(selected_embeddings), qdrant_collection_name)
+                
+                # Calculate the minimum similarity to all previously selected embeddings
+                min_similarity = max(scores) if scores else -1
+                
+                if 1-min_similarity > max_similarity:
+                    max_similarity = min_similarity
+                    best_embedding = embedding_id
+
+        if best_embedding is not None:
+            selected_embeddings.add(best_embedding)
+
+    return list(selected_embeddings)
+
+
 def find_representative_kmedoids(similarity_matrix, desired_size=1000, max_iter=100, seed=42):
     """
     Find the most representative images using k-medoids.
@@ -327,6 +394,8 @@ def find_representative_kmedoids(similarity_matrix, desired_size=1000, max_iter=
 
 
 # # Example usage:
+# # to get all embeddings from qdrant:
+# ids, embeddings = get_all_embeddings(qdrant_client, collection_name="mnist")
 # # Assuming you have 'embeddings' as a numpy array of shape (num_images, embedding_dim)
 # similarity_matrix = calculate_similarity_matrix(embeddings)
 # desired_size = int(len(embeddings)*0.1)
@@ -348,7 +417,7 @@ def isolation_forest_OOD(X,  contamination='auto', n_jobs=-1, verbose=1, random_
     contamination : float
         The contamination parameter for Isolation Forests. Default is 'auto'.
     n_jobs : int
-        The number of jobs to use. Default is -1.
+        The number of jobs to use. Default is -1, which means all available CPUs.
     verbose : int
         The verbosity level. Default is 1.
     random_state : int
@@ -434,12 +503,15 @@ def find_mismatches_centroids(X, y):
     np.array
         The new predicted labels.
     """
+    unique_labels = np.unique(y)
+    # Create a mapping from string labels to integer indices
+    label_to_index = {label: index for index, label in enumerate(unique_labels)}
 
     # calculate centroids of each class
     centroids = []
-    for i in np.unique(y):
+    for label in unique_labels:
         # Get the indices of the samples in the train set that belong to the specified class
-        indices = np.where(y == i)[0]
+        indices = np.where(y == label)[0]
 
         # Get the embeddings of the samples in the specified class
         embeddings_class = X[indices]
@@ -463,14 +535,14 @@ def find_mismatches_centroids(X, y):
         closest_distance = dist_matrix[i, closest_centroid]
 
         # find the distance to their own centroid
-        own_centroid = dist_matrix[i, y[i]]
+        own_centroid = dist_matrix[i, label_to_index[y[i]]]
 
         # if the distance to the closest centroid is 1.5 times larger than the distance to their own centroid, then it is a mismatch
         if closest_distance * 1.5 < own_centroid:
             mismatches.append(i)
-            predicted_labels.append(closest_centroid)
-        else:
-            predicted_labels.append(y[i])
+            predicted_labels.append(unique_labels[closest_centroid])
+        # else:
+        #     predicted_labels.append(y[i])
 
     mismatches = np.array(mismatches)
     predicted_labels = np.array(predicted_labels)

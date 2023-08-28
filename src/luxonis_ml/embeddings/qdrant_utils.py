@@ -223,3 +223,152 @@ def search_embeddings_by_imagepath(client, embedding, image_path_part, collectio
         limit= top
     )
     return hits
+
+def get_similarities(qdrant_client, reference_id, other_ids, qdrant_collection_name="mnist"):
+    """
+    Get similarities of a reference embedding with a list of other embeddings using Qdrant.
+
+    Parameters
+    ----------
+    qdrant_client : QdrantClient
+        The Qdrant client instance to use for searches.
+    reference_id : int
+        The instance_id of the reference embedding.
+    other_ids : list[int]
+        The list of instance_ids of other embeddings to compare with the reference.
+    qdrant_collection_name : str
+        The name of the Qdrant collection. Default is "mnist".
+
+    Returns
+    -------
+    list
+        The list of embeddings similar to the reference embedding, filtered by other_ids.
+    """
+    # Retrieve the embedding vector for the reference_id
+    reference_embedding = get_embeddings_from_ids(qdrant_client, [reference_id], qdrant_collection_name)[0]
+
+    # Search for similar embeddings using the reference embedding
+    hits = qdrant_client.search(
+        collection_name=qdrant_collection_name,
+        query_vector=reference_embedding,
+        query_filter=models.Filter(
+            should=[
+                models.FieldCondition(
+                    key="instance_id",
+                    match=models.MatchText(text=str(id))
+                ) for id in other_ids
+            ] 
+        )
+    )
+
+    ids = [hit.id for hit in hits]
+    scores = [hit.score for hit in hits]
+
+    return ids, scores
+
+def get_full_similarity_matrix(client, collection_name="mnist", batch_size=100):
+    # NOTE: This method is not recommended for large collections.
+    #       It is better to use the get_all_embeddings() method and compute the similarity matrix yourself.
+    # Get all embeddings
+    ids, embeddings = get_all_embeddings(client, collection_name)
+    print("Retrieved {} embeddings".format(len(embeddings)))
+
+    # Create a list of search requests
+    search_queries = [SearchRequest(
+        vector=emb,
+        with_payload=False,
+        with_vector=False,
+        limit=len(embeddings)
+        ) for emb in embeddings]
+    print("Created {} search queries".format(len(search_queries)))
+    
+    # Search for the nearest neighbors
+    batch_search_results = []
+    for patch in range(0, len(search_queries), batch_size):
+        batch_search_results_i = client.search_batch(
+            collection_name=collection_name,
+            requests=search_queries[patch:patch+batch_size]
+        )
+        batch_search_results.extend(batch_search_results_i)
+        print("Completed search for batch {}-{}".format(patch, patch+batch_size))
+    
+    # Create a dictionary for O(1) lookup of ids
+    id_to_index = {id: index for index, id in enumerate(ids)}
+
+    # Get the similarity matrix
+    sim_matrix = [[0 for _ in range(len(embeddings))] for _ in range(len(embeddings))]
+    for i, res in enumerate(batch_search_results):
+        for hit in res:
+            j = id_to_index[hit.id]
+            sim_matrix[i][j] = hit.score
+    
+    print("Created similarity matrix")
+    return ids, sim_matrix
+
+def get_payloads_from_ids(client, ids, collection_name="mnist"):
+    # Retrieve the payloads for the given ids
+    hits = client.retrieve(collection_name=collection_name, 
+                            ids=ids, 
+                            with_payload=True, 
+                            with_vectors=False)
+    
+    # Convert the payloads to a list and order them by the original instance_id
+    id_to_index = {id: index for index, id in enumerate(ids)}
+    payloads = [None for _ in range(len(ids))]
+    for hit in hits:
+        i = id_to_index[hit.id]
+        payloads[i] = hit.payload
+
+    return payloads
+
+def get_embeddings_from_ids(client, ids, collection_name="mnist"):
+    # Retrieve the embeddings for the given ids
+    hits = client.retrieve(collection_name=collection_name, 
+                            ids=ids, 
+                            with_payload=False, 
+                            with_vectors=True)
+    # embeddings = [hit.vector for hit in hits]
+    id_to_index = {id: index for index, id in enumerate(ids)}
+    embeddings = [None for _ in range(len(ids))]
+    for hit in hits:
+        i = id_to_index[hit.id]
+        embeddings[i] = hit.vector
+    return embeddings
+
+def get_all_ids(client, collection_name="mnist"):
+    # Get the number of points in the collection
+    collection_info = client.get_collection(collection_name=collection_name)
+    collection_size = collection_info.vectors_count
+
+    # Use qdrant scroll method
+    hits, _offset = client.scroll(collection_name=collection_name, 
+                                  limit=collection_size)
+    ids = [hit.id for hit in hits]
+    return ids
+
+def get_all_instance_and_sample_ids(client, collection_name="mnist"):
+    # Get the number of points in the collection
+    collection_info = client.get_collection(collection_name=collection_name)
+    collection_size = collection_info.vectors_count
+
+    # Use qdrant scroll method
+    hits, _offset = client.scroll(collection_name=collection_name, 
+                                  limit=collection_size)
+    
+    instance_ids = [hit.payload['instance_id'] for hit in hits]
+    sample_ids = [hit.payload['sample_id'] for hit in hits]
+    return instance_ids, sample_ids
+
+def get_all_embeddings(client, collection_name="mnist"):
+    # Get the number of points in the collection
+    collection_info = client.get_collection(collection_name=collection_name)
+    collection_size = collection_info.vectors_count
+
+    # Use qdrant scroll method
+    hits, _offset = client.scroll(collection_name=collection_name, 
+                                  limit=collection_size,
+                                  with_vectors=True)
+    
+    ids = [hit.id for hit in hits]
+    embeddings = [hit.vector for hit in hits]
+    return ids, embeddings

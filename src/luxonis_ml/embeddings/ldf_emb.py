@@ -197,4 +197,5 @@ def generate_embeddings(luxonis_dataset,
     sample_id_to_embedding = {payload["sample_id"]: embedding for payload, embedding in zip(new_payloads, new_embeddings)}
     print("Embeddings generation and insertion completed!")
 
+    # returns only the new embeddings
     return sample_id_to_embedding
