@@ -1,7 +1,6 @@
 import os
 import boto3
 from botocore.exceptions import NoCredentialsError, ClientError
-import datetime
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 from pathlib import Path

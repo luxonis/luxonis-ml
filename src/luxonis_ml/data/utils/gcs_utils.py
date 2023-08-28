@@ -14,6 +14,23 @@ def upload_file(bucket, local_file, gcs_file):
     blob.upload_from_filename(local_file)
 
 
+def copy_file(bucket, addition):
+    for component_name in addition.keys():
+        src_prefix = addition[component_name]["_old_filepath"]
+        dst_prefix = addition[component_name]["filepath"]
+
+        if src_prefix.startswith("gs://"):
+            src_prefix = src_prefix.split(f"gs://{bucket.name}/")[1]
+
+        if dst_prefix.startswith("/"):
+            dst_prefix = dst_prefix[1:]
+
+        print(1, src_prefix, dst_prefix)
+        blob = bucket.blob(src_prefix)
+        print(2, blob.name)
+        new_blob = bucket.copy_blob(blob, bucket, dst_prefix)
+
+
 def get_uuid(bucket, gcp_path):
     file_contents = bucket.blob(gcp_path).download_as_bytes()
     file_hash_uuid = uuid.uuid5(uuid.NAMESPACE_URL, file_contents.hex())
@@ -63,8 +80,21 @@ def paths_from_gcs(dataset, additions):
 
     try:
         with ThreadPoolExecutor() as executor:
-            for i, addition in enumerate(additions):
+            for i in range(len(additions)):
                 executor.submit(update_paths, bucket, dataset, i, additions)
 
     except Exception as e:
         print("GCS path update failed. Reason:", e)
+
+
+def copy_to_gcs(dataset, additions):
+    """Copy from one GCS bucket to another"""
+    print("Copying to another bucket...")
+    bucket = storage.Client().bucket(dataset.bucket)
+
+    try:
+        with ThreadPoolExecutor() as executor:
+            for addition in additions:
+                executor.submit(copy_file, bucket, addition)
+    except Exception as e:
+        print("GCS copy failed. Reason:", e)

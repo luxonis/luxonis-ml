@@ -18,8 +18,8 @@ from datetime import datetime
 import pymongo
 from bson.objectid import ObjectId
 from .version import LuxonisVersion
-from .utils.s3_utils import sync_from_s3, sync_to_s3, check_s3_file_existence
-from .utils.gcs_utils import sync_from_gcs, sync_to_gcs, paths_from_gcs
+from .utils.s3_utils import *
+from .utils.gcs_utils import *
 
 LDF_VERSION = "0.1.0"
 
@@ -225,7 +225,10 @@ class LuxonisDataset:
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        self.fo_dataset.persistent = True
+        try:
+            self.fo_dataset.persistent = True
+        except Exception as e:
+            self.logger.warning(f"Dataset persistence on exit failed for reason {e}")
         self._class_to_doc()
         self.dataset_doc.save(upsert=True)
 
@@ -824,6 +827,8 @@ class LuxonisDataset:
         except BaseException as e:
             for tid in transactions:
                 self.conn.transaction_document.delete_many({"_id": ObjectId(tid)})
+            if data_utils.is_modified_filepath(self, filepath):
+                filepath = additions[i][component_name]["_old_filepath"]
             raise DataTransactionException(filepath, type(e).__name__, str(e))
 
     def _add_extract(self, additions, transaction_to_additions, from_bucket):
@@ -903,50 +908,52 @@ class LuxonisDataset:
                     self._log_time("Extract addition s3 check existence")
                     sync = True
 
-                if from_bucket:
-                    old_prefix = filepath.split(f"s3://{self.bucket}/")[-1]
-                    new_prefix = f"{self.bucket_path}/{component_name}/{granule}"
-                    self.client.copy_object(
-                        Bucket=self.bucket,
-                        Key=new_prefix,
-                        CopySource={"Bucket": self.bucket, "Key": old_prefix},
-                    )
-                    self._log_time("Extract addition from_bucket", final=True)
-                elif not data_utils.is_modified_filepath(self, filepath):
-                    cmd = f"cp {filepath} {local_path}"
-                    subprocess.check_output(cmd, shell=True)
-                    self._log_time("Extract addition local cp", final=True)
-                else:
-                    self.logger.warning(
-                        f"Skipping extraction for {filepath} as path is likely corrupted due to memory assignment"
-                    )
+                # if from_bucket:
+                # old_prefix = filepath.split(f"s3://{self.bucket}/")[-1]
+                # new_prefix = f"{self.bucket_path}/{component_name}/{granule}"
+                # self.client.copy_object(
+                #     Bucket=self.bucket,
+                #     Key=new_prefix,
+                #     CopySource={"Bucket": self.bucket, "Key": old_prefix},
+                # )
+                # if self.bucket_storage.value == "gcs":
+                #     copy_to_gcs(self, additions)
+                # self._log_time("Extract addition from_bucket", final=True)
+                if not from_bucket:
+                    if not data_utils.is_modified_filepath(self, filepath):
+                        cmd = f"cp {filepath} {local_path}"
+                        subprocess.check_output(cmd, shell=True)
+                        self._log_time("Extract addition local cp", final=True)
+                    else:
+                        self.logger.warning(
+                            f"Skipping extraction for {filepath} as path is likely corrupted due to memory assignment"
+                        )
 
-                if (
-                    self.compute_heatmaps
-                    and not from_bucket
-                    and (
+                    if self.compute_heatmaps and (
                         components[component_name].itype == IType.DISPARITY
                         or components[component_name].itype == IType.DEPTH
-                    )
-                ):
-                    self._log_time()
+                    ):
+                        self._log_time()
 
-                    heatmap_component = f"{component_name}_heatmap"
-                    os.makedirs(
-                        str(Path(local_cache) / heatmap_component), exist_ok=True
-                    )
-                    im = cv2.imread(filepath, cv2.IMREAD_UNCHANGED)
-                    if im.dtype == np.uint16:
-                        im = im / 8
-                    heatmap = (im / 96 * 255).astype(np.uint8)
-                    heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
-                    cv2.imwrite(
-                        str(Path(local_cache) / heatmap_component / granule), heatmap
-                    )
-                    new_filepath = f"/{self.team_id}/datasets/{self.dataset_id}/{heatmap_component}/{granule}"
-                    add_heatmaps[heatmap_component] = new_filepath
+                        heatmap_component = f"{component_name}_heatmap"
+                        os.makedirs(
+                            str(Path(local_cache) / heatmap_component), exist_ok=True
+                        )
+                        im = cv2.imread(filepath, cv2.IMREAD_UNCHANGED)
+                        if im.dtype == np.uint16:
+                            im = im / 8
+                        heatmap = (im / 96 * 255).astype(np.uint8)
+                        heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
+                        cv2.imwrite(
+                            str(Path(local_cache) / heatmap_component / granule),
+                            heatmap,
+                        )
+                        new_filepath = f"/{self.team_id}/datasets/{self.dataset_id}/{heatmap_component}/{granule}"
+                        add_heatmaps[heatmap_component] = new_filepath
 
-                    self._log_time("Extract addition heatmap computation", final=True)
+                        self._log_time(
+                            "Extract addition heatmap computation", final=True
+                        )
 
             if self.compute_heatmaps and not from_bucket and sync:
                 for heatmap_component in add_heatmaps:
@@ -957,13 +964,22 @@ class LuxonisDataset:
 
         self._log_time()
 
-        if self.bucket_storage.value == "s3" and not from_bucket:
-            sync_to_s3(
-                bucket=self.bucket,
-                s3_dir=self.bucket_path,
-                local_dir=local_cache,
-                endpoint_url=self._get_credentials("AWS_S3_ENDPOINT_URL"),
-            )
+        if self.bucket_storage.value != "local":
+            if from_bucket:
+                if self.bucket_storage.value == "gcs":
+                    copy_to_gcs(self, additions)
+                else:
+                    raise NotImplementedError
+            else:
+                if self.bucket_storage.value == "s3" and not from_bucket:
+                    sync_to_s3(
+                        bucket=self.bucket,
+                        s3_dir=self.bucket_path,
+                        local_dir=local_cache,
+                        endpoint_url=self._get_credentials("AWS_S3_ENDPOINT_URL"),
+                    )
+                else:
+                    raise NotImplementedError
 
         elif self.bucket_storage.value == "gcs" and not from_bucket:
             sync_to_gcs(
