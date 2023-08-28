@@ -392,7 +392,9 @@ class LuxonisTrackerPL(plLogger):
             self._experiment["wandb"].log({caption: wandb_image})
 
         if self.is_mlflow:
-            self._experiment["mlflow"].log_image(img, f"{caption}_{step}.png")
+            # split images into separate directories based on step
+            base_path, img_caption = caption.rsplit("/", 1)
+            self._experiment["mlflow"].log_image(img, f"{base_path}/{step}/{img_caption}.png")
 
     @rank_zero_only
     def save(self):
