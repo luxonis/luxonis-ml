@@ -6,6 +6,7 @@ import warnings
 from pathlib import Path
 from fiftyone import ViewField as F
 from enum import Enum
+from typing import Optional
 
 
 class LabelType(str, Enum):
@@ -16,15 +17,16 @@ class LabelType(str, Enum):
 
 
 class LuxonisLoader(torch.utils.data.Dataset):
-    def __init__(self, dataset, view="train", stream=False, augmentations=None):
+    def __init__(self, dataset: "luxonis_ml.data.LuxonisDataset", view: str = "train", stream: bool = False, augmentations: Optional["luxonis_ml.loader.Augmentations"]=None):
         """LuxonisLoader used for loading LuxonisDataset
 
         Args:
-            dataset (LuxonisDataset): LuxonisDataset to use
+            dataset (luxonis_ml.data.LuxonisDataset): LuxonisDataset to use
             view (str, optional): View of the dataset. Defaults to "train".
             stream (bool, optional): Flag for data streaming. Defaults to False.
-            augmentations (Augmentations, optional): Augmentation class that performs augmentations. Defaults to None.
+            augmentations (Optional[luxonis_ml.loader.Augmentations], optional): Augmentation class that performs augmentations. Defaults to None.
         """
+
         self.dataset = dataset
         if view in ["train", "val", "test"]:
             version_view = self.dataset.fo_dataset.load_saved_view(
@@ -60,7 +62,7 @@ class LuxonisLoader(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.ids)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int):
         img, annotations = self.load_image_with_annotations(idx)
 
         if self.augmentations is not None:
@@ -85,8 +87,8 @@ class LuxonisLoader(torch.utils.data.Dataset):
         return img, annotations
 
     def load_image_with_annotations(self, idx: int):
-        """Loads image and its annotations based on index
-
+        """Loads image and its annotations based on index.
+        
         Args:
             idx (int): Index of the image
 
@@ -164,7 +166,24 @@ class LuxonisLoader(torch.utils.data.Dataset):
         return img, annotations
 
     @staticmethod
-    def collate_fn(batch):
+    def collate_fn(batch: list):
+        """Default collate function used for training
+
+        Args:
+            batch (list): List of images and their annotations
+
+        Returns:
+            Tuple[torch.FloatTensor, Dict]:
+                imgs: Tensor of images (torch.float32) of shape [N, 3, H, W]
+                out_annotations: Dictionary with annotations
+                    {
+                        LabelType.CLASSIFICATION: Tensor of shape [N, classes] with value 1 for present class
+                        LabelType.SEGMENTATION: Tensor of shape [N, classes, H, W] with value 1 for pixels that are part of the class
+                        LabelType.BOUNDINGBOX: Tensor of shape [instances, 6] with [image_id, class, x_min_norm, y_min_norm, w_norm, h_norm]
+                        LabelType.KEYPOINT: Tensor of shape [instances, n_keypoints*3] with [image_id, x1_norm, y1_norm, vis1, x2_norm, y2_norm, vis2, ...]
+                    }
+        """
+        
         zipped = zip(*batch)
         img, anno_dicts = zipped
         imgs = torch.stack(img, 0)
