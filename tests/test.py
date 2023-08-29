@@ -608,7 +608,7 @@ class LuxonisDatasetTester(unittest.TestCase):
         with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
             for sample in dataset.fo_dataset:
                 break
-            dataset.delete([sample.id])
+            dataset.delete(["fe163bd9-6381-5533-9d41-c1735edf96d5"])
 
             res = (
                 dataset._check_transactions_to_version()

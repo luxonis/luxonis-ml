@@ -373,6 +373,44 @@ class LuxonisDataset:
         else:
             return None
 
+    def _update_from_instance_ids(
+        self, instance_ids, attribute, value, main_only=False
+    ):
+        try:
+            sample_collection = self._get_sample_collection()
+        except:
+            raise Exception("Cannot find sample collection name")
+
+        if not main_only:
+            samples = self.conn[sample_collection].find(
+                {"instance_id": {"$in": instance_ids}}
+            )
+            instance_ids = set()
+            for sample in samples:
+                gid = sample[self.source.name]["_id"]
+                group_instance_ids = list(
+                    self.conn[sample_collection].find(
+                        {f"{self.source.name}._id": gid}, {"instance_id": 1}
+                    )
+                )
+                for iid in group_instance_ids:
+                    instance_ids.add(iid["instance_id"])
+            instance_ids = list(instance_ids)
+
+        sample_ids = list(
+            self.conn[sample_collection].find(
+                {"instance_id": {"$in": instance_ids}}, {"_id": 1}
+            )
+        )
+        sample_ids = [sid["_id"] for sid in sample_ids]
+
+        self.conn[sample_collection].update_many(
+            {"_id": {"$in": sample_ids}},
+            {"$set": {attribute: value}},
+        )
+
+        return sample_ids
+
     def create_source(
         self,
         name=None,
@@ -1253,35 +1291,31 @@ class LuxonisDataset:
                 )
             raise e
 
-    def delete(self, deletions):
+    def delete(self, instance_ids):
         """
         Function to delete data by sample ID
 
-        deletions: a list of sample IDs as strings
+        deletions: a list of instance IDs as strings
         """
 
         # TODO: add a try/except to gracefully handle any errors
 
         self._check_transactions_to_execute()  # will clear transactions any interrupted transactions
 
-        for delete_id in deletions:
-            # assume we want to delete all components in a group
-            sample = self.fo_dataset[delete_id]
-            gid = sample[self.source.name]["id"]
-            group = self.fo_dataset.get_group(gid)
-            for component_name in group:
-                sample = self.fo_dataset[group[component_name]["id"]]
-                tid = self._make_transaction(
-                    LDFTransactionType.DELETE,
-                    sample_id=sample.id,
-                    component=component_name,
-                )
-                sample.latest = False
-                sample.save()
-                self._execute_transaction(tid)
+        sample_ids = self._update_from_instance_ids(instance_ids, "latest", False)
+
+        for sid in sample_ids:
+            tid = self._make_transaction(
+                LDFTransactionType.DELETE,
+                sample_id=sid,
+            )
+            self._execute_transaction(tid)
 
         tid = self._make_transaction(LDFTransactionType.END)
         self._execute_transaction(tid)
+
+    def annotate(self, instance_ids):
+        self._update_from_instance_ids(instance_ids, "annotated", True)
 
     def create_version(self, note, testing=False):
         def get_current_sample(sample_collection, transaction):
