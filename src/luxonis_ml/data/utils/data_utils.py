@@ -327,7 +327,7 @@ def construct_keypoints_label(dataset, kps):
     )
 
 
-def generate_hashname(dataset, filepath):
+def generate_hashname(filepath):
     # Read the contents of the file
     with open(filepath, "rb") as file:
         file_contents = file.read()
