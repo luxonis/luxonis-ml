@@ -1,10 +1,30 @@
 """
-Mistakes detection (prediction of wrong labels)
+Mismatch Detection in Labelled Data
 
-Methods:
-    - centroids
-    - knn
-    - dbscan (underperforming -> not implemented)
+This module provides functionalities to detect mismatches or potential mislabelling 
+in a dataset based on various strategies. This is crucial in supervised machine 
+learning tasks where the quality of labels significantly affects model performance.
+
+Methods implemented:
+    - Centroids: This method identifies mismatches by comparing the distance of data points 
+                 to the centroid of their own class against the distances to centroids of 
+                 other classes.
+    - KNN (k-Nearest Neighbors): This approach leverages the idea that if the majority of data 
+                                 is correctly labelled, then mislabelled data will be corrected 
+                                 by its nearest neighbors.
+    - [Note: DBSCAN was considered but not implemented due to underperformance.]
+
+Usage:
+    To use this module, import the desired methods and provide the embeddings and labels:
+    ```python
+    from mismatch_detection import find_mismatches_centroids, find_mismatches_knn
+
+    # Detect mismatches using centroids
+    mismatches, new_labels = find_mismatches_centroids(X_train, y_train)
+    
+    # Detect mismatches using KNN
+    mismatches, new_labels = find_mismatches_knn(X_train, y_train)
+    ```
 """
 
 import numpy as np

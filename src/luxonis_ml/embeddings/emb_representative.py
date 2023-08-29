@@ -1,13 +1,44 @@
 """
-Find representative images
+Find Representative Images from Embeddings
 
-Available methods:
-    - greedy search
-    - k-medoids
+This module offers techniques to identify representative images or embeddings within a dataset.
+This aids in achieving a condensed yet expressive view of your data.
 
-Useful for:
-    - dataset reduction
-    - validation set creation
+Methods:
+- Greedy Search: Aims to find a diverse subset of images by maximizing the minimum similarity to any image outside the set.
+  
+- K-Medoids: An adaptation of the k-means clustering algorithm, it partitions data into k clusters, each associated with a medoid.
+
+Main Applications:
+- Dataset Reduction: Helps in representing large datasets with a minimal subset while retaining the essence.
+  
+- Validation Set Creation: Identifies diverse samples for a robust validation set.
+
+Dependencies:
+- numpy
+- scikit-learn
+- kmedoids
+- luxonis_ml
+
+Example Usage:
+1. Greedy Search:
+    ```python
+    # Assuming you have 'embeddings' as a numpy array of shape (num_images, embedding_dim)
+    similarity_matrix = calculate_similarity_matrix(embeddings)
+    desired_size = int(len(embeddings) * 0.1)
+    selected_image_indices = find_representative_greedy(1-similarity_matrix, desired_size)
+    ```
+
+2. K-Medoids:
+    ```python
+    # to get all embeddings from qdrant:
+    ids, embeddings = get_all_embeddings(qdrant_client, collection_name="mnist")
+    # Assuming you have 'embeddings' as a numpy array of shape (num_images, embedding_dim)
+    similarity_matrix = calculate_similarity_matrix(embeddings)
+    desired_size = int(len(embeddings) * 0.1)
+    selected_image_indices = find_representative_kmedoids(similarity_matrix, desired_size)
+    ```
+
 """
 
 from sklearn.metrics.pairwise import cosine_similarity
@@ -59,12 +90,6 @@ def find_representative_greedy(distance_matrix, desired_size=1000, seed=0):
             selected_images.add(best_image)
 
     return list(selected_images)
-
-# # Example usage:
-# # 'embeddings' is a numpy array of shape (num_images, embedding_dim)
-# similarity_matrix = calculate_similarity_matrix(embeddings)
-# desired_size = int(len(embeddings)*0.1)
-# selected_image_indices = find_representative_greedy(1-similarity_matrix, desired_size)
 
 def find_representative_greedy_qdrant(qdrant_client, desired_size=1000, qdrant_collection_name="mnist", seed=0):
     """
@@ -143,12 +168,3 @@ def find_representative_kmedoids(similarity_matrix, desired_size=1000, max_iter=
 
     selected_images = set(medoid_indices)
     return list(selected_images)
-
-
-# # Example usage:
-# # to get all embeddings from qdrant:
-# ids, embeddings = get_all_embeddings(qdrant_client, collection_name="mnist")
-# # Assuming you have 'embeddings' as a numpy array of shape (num_images, embedding_dim)
-# similarity_matrix = calculate_similarity_matrix(embeddings)
-# desired_size = int(len(embeddings)*0.1)
-# selected_image_indices = find_representative_kmedoids(similarity_matrix, desired_size)

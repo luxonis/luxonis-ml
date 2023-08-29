@@ -1,25 +1,36 @@
 """
-Out-of-distribution detection
+Out-of-Distribution Detection for Embeddings
 
-- OOD detection algorithms:
-    - Isolation Forests
-    - Leverage (and linear regression)
+This module provides two primary methods for detecting out-of-distribution (OOD) samples 
+in embeddings. OOD samples can be crucial to identify as they represent anomalies or novel 
+patterns that don't conform to the expected distribution of the dataset.
 
-- Useful for:
-    - anomaly detection / dataset reduction
-    - finding useful samples (using additional images outside of the dataset)
+Methods available:
+- Isolation Forests: A tree-based model that partitions the space in such a manner that 
+  anomalies are isolated from the rest.
+  
+- Leverage with Linear Regression: Leverages (or hat values) represent the distance between 
+  the predicted values and the true values. Higher leverages indicate potential OOD points.
+
+Typical use cases include:
+- Anomaly Detection: Identifying rare patterns or outliers.
+  
+- Dataset Reduction: By removing or studying OOD samples, we can have a more homogeneous dataset.
+  
+- Expanding Datasets: Recognizing valuable data points that are distinct from the current distribution can be helpful 
+  when we're looking to diversify the dataset, especially in iterative learning scenarios.
+
+Dependencies:
+- numpy
+- scikit-learn
+
 """
 
 import numpy as np
-
 from sklearn.ensemble import IsolationForest
 from sklearn.linear_model import LinearRegression
-import scipy.spatial.distance as distance
 
-from luxonis_ml.embeddings.qdrant_utils import *
-
-
-def isolation_forest_OOD(X,  contamination='auto', n_jobs=-1, verbose=1, random_state=42):
+def isolation_forest_OOD(X, contamination='auto', n_jobs=-1, verbose=1, random_state=42):
     """
     Out-of-distribution detection using Isolation Forests.
 
@@ -75,13 +86,6 @@ def leverage_OOD(X):
         The indices of the embeddings that are out-of-distribution.
 
     """
-    # # Fit a linear regression model to the embeddings
-    # regression_model = LinearRegression()
-    # regression_model.fit(X, y)
-
-    # # Predict targets for all embeddings
-    # predicted_targets = regression_model.predict(X)
-
     # Calculate the hat matrix (projection matrix) to get the leverage for each point
     hat_matrix = np.matmul(np.matmul(X, np.linalg.inv(np.matmul(X.T, X))), X.T)
     leverage = np.diagonal(hat_matrix)
