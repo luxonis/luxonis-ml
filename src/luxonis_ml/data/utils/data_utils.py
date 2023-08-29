@@ -327,17 +327,7 @@ def construct_keypoints_label(dataset, kps):
     )
 
 
-def generate_hashname(dataset, filepath, from_bucket):
-    # if dataset.bucket_storage.value == "local" or not from_bucket:
-
-    # elif from_bucket and dataset.bucket_storage.value == "s3":
-    #     object_key = filepath.split(f"s3://{dataset.bucket}/")[-1]
-    #     response = dataset.client.get_object(Bucket=dataset.bucket, Key=object_key)
-    #     file_contents = response["Body"].read()
-
-    # elif from_bucket and dataset.bucket_storage.value == "gcs":
-    #     raise NotImplementedError()
-
+def generate_hashname(dataset, filepath):
     # Read the contents of the file
     with open(filepath, "rb") as file:
         file_contents = file.read()

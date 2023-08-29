@@ -572,11 +572,8 @@ class LuxonisDataset:
 
         return transaction_doc.id
 
-    def _check_transactions(self, for_versioning=False):
-        if for_versioning:
-            attribute, value = "version", -1
-        else:
-            attribute, value = "executed", False
+    def _check_transactions_to_execute(self):
+        attribute, value = "executed", False
 
         transactions = list(
             self.conn.transaction_document.find(
@@ -603,6 +600,14 @@ class LuxonisDataset:
                 return transactions[i + 1 :]
         else:
             return None
+
+    def _check_transactions_to_version(self):
+        transactions = list(
+            self.conn.transaction_document.find(
+                {"_dataset_id": self.dataset_doc.id, "version": -1}
+            ).sort("created_at", pymongo.ASCENDING)
+        )
+        return transactions
 
     def _execute_transaction(self, tid):
         self.conn.transaction_document.update_one(
@@ -638,7 +643,7 @@ class LuxonisDataset:
             self.version -= 0.1
         self.version = round(self.version, 1)
 
-    def _add_filter(self, additions, from_bucket):
+    def _add_filter(self, additions, from_bucket=False):
         """
         Filters out any additions to the dataset already existing
         """
@@ -827,8 +832,11 @@ class LuxonisDataset:
         except BaseException as e:
             for tid in transactions:
                 self.conn.transaction_document.delete_many({"_id": ObjectId(tid)})
-            if data_utils.is_modified_filepath(self, filepath):
-                filepath = additions[i][component_name]["_old_filepath"]
+            try:
+                if data_utils.is_modified_filepath(self, filepath):
+                    filepath = additions[i][component_name]["_old_filepath"]
+            except:
+                pass
             raise DataTransactionException(filepath, type(e).__name__, str(e))
 
     def _add_extract(self, additions, transaction_to_additions, from_bucket):
@@ -993,7 +1001,9 @@ class LuxonisDataset:
 
         return additions
 
-    def _add_execute(self, additions=None, transaction_to_additions=None):
+    def _add_execute(
+        self, additions=None, transaction_to_additions=None, annotated=True
+    ):
         self.logger.info("Executing changes to dataset...")
 
         source = self.source
@@ -1001,7 +1011,7 @@ class LuxonisDataset:
         copied_samples = []
 
         transaction = None
-        transactions = self._check_transactions()
+        transactions = self._check_transactions_to_execute()
 
         try:
             if transactions is None:
@@ -1036,6 +1046,7 @@ class LuxonisDataset:
                         filepath=component["filepath"],
                         version=-1.0,
                         latest=False,
+                        annotated=annotated,
                         tid=transaction["_id"].binary.hex(),
                         created_at=datetime.utcnow(),
                     )
@@ -1178,7 +1189,14 @@ class LuxonisDataset:
                 if "split" not in addition[component_name].keys():
                     addition[component_name]["split"] = "train"
 
-    def add(self, additions, update_only=False, from_bucket=False, add_defaults=True):
+    def add(
+        self,
+        additions,
+        update_only=False,
+        from_bucket=False,
+        add_defaults=True,
+        annotated=True,
+    ):
         """
         Function to add data and automatically log transactions
 
@@ -1198,7 +1216,7 @@ class LuxonisDataset:
         if from_bucket and self.bucket_storage.value == "local":
             raise Exception("from_bucket must be False for local dataset!")
 
-        self._check_transactions()  # will ensure any interrupted transactions are clear
+        self._check_transactions_to_execute()  # will ensure any interrupted transactions are clear
 
         post_filter = False
 
@@ -1220,7 +1238,7 @@ class LuxonisDataset:
                     additions, transaction_to_additions, from_bucket
                 )
 
-            self._add_execute(additions, transaction_to_additions)
+            self._add_execute(additions, transaction_to_additions, annotated)
 
         except BaseException as e:
             # This will not handle cases where a network connection is interrupted, as cleanup requires a network connection
@@ -1244,7 +1262,7 @@ class LuxonisDataset:
 
         # TODO: add a try/except to gracefully handle any errors
 
-        self._check_transactions()  # will clear transactions any interrupted transactions
+        self._check_transactions_to_execute()  # will clear transactions any interrupted transactions
 
         for delete_id in deletions:
             # assume we want to delete all components in a group
@@ -1276,9 +1294,9 @@ class LuxonisDataset:
                 )
             )
             if len(result):
-                return result[0]["_id"]
+                return result[0]["_id"], result[0]["annotated"]
             else:
-                return None
+                return None, None
 
         self.logger.info("Creating new version...")
         self._log_time()
@@ -1291,7 +1309,7 @@ class LuxonisDataset:
                 sample_collection = self._get_sample_collection()
             except:
                 raise Exception("Cannot find sample collection name")
-            transactions = self._check_transactions(for_versioning=True)
+            transactions = self._check_transactions_to_version()
             if transactions is None:
                 self.logger.info("There are no changes to the dataset to version!")
                 return
@@ -1347,25 +1365,33 @@ class LuxonisDataset:
             for transaction in items:
                 self._log_time()
 
-                if transaction["action"] != LDFTransactionType.END.value:
-                    # self.fo_dataset.group_slice = transaction["component"]
+                if transaction["action"] in [
+                    LDFTransactionType.END.value,
+                    LDFTransactionType.DELETE.value,
+                ]:
                     self._version_transaction(transaction["_id"])
                     versioned_transactions.append(transaction["_id"])
+                    continue
 
                 if transaction["action"] == LDFTransactionType.ADD.value:
-                    sample_id = get_current_sample(sample_collection, transaction)
+                    sample_id, annotated = get_current_sample(
+                        sample_collection, transaction
+                    )
                     if sample_id is None:
                         # This case should ideally not happen unless there is a problem with rollback
                         # Another possibility would be to delete the transaction and throw a warning instead
                         raise Exception(
                             f"Sample is none for transaction ADD with tid {transaction['_id'].binary.hex()}"
                         )
-                    add_samples.add(sample_id)
+                    if annotated:
+                        add_samples.add(sample_id)
 
                     self._log_time("Version ADD")
 
                 elif transaction["action"] == LDFTransactionType.UPDATE.value:
-                    sample_id = get_current_sample(sample_collection, transaction)
+                    sample_id, annotated = get_current_sample(
+                        sample_collection, transaction
+                    )
                     if sample_id is None:
                         # This is fine to ignore, as it means a new sample which has multiple ADD and/or UPDATE
                         # The updates are already executed and we are just finding the latest
@@ -1373,15 +1399,20 @@ class LuxonisDataset:
                         versioned_transactions.append(transaction["_id"])
                         continue
                     else:
-                        add_samples.add(sample_id)
-                        deprecate_samples.add(transaction["sample_id"])
+                        if annotated:
+                            add_samples.add(sample_id)
+                            deprecate_samples.add(transaction["sample_id"])
 
                     self._log_time("Version UPDATE")
 
-                self._version_transaction(transaction["_id"])
-                versioned_transactions.append(transaction["_id"])
+                if annotated:
+                    self._version_transaction(transaction["_id"])
+                    versioned_transactions.append(transaction["_id"])
 
                 self._log_time("Version transaction", final=True)
+
+            if not len(add_samples) and not len(deprecate_samples):
+                self.logger.info("No annotated samples to version!")
 
             self._log_time()
 

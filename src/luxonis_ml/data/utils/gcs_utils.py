@@ -25,10 +25,8 @@ def copy_file(bucket, addition):
         if dst_prefix.startswith("/"):
             dst_prefix = dst_prefix[1:]
 
-        print(1, src_prefix, dst_prefix)
         blob = bucket.blob(src_prefix)
-        print(2, blob.name)
-        new_blob = bucket.copy_blob(blob, bucket, dst_prefix)
+        bucket.copy_blob(blob, bucket, dst_prefix)
 
 
 def get_uuid(bucket, gcp_path):
