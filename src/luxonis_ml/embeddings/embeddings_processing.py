@@ -43,19 +43,6 @@ from sklearn.neighbors import KNeighborsClassifier
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
-# from sklearn.preprocessing import LabelEncoder
-# from car_loader import CarLoaderColor
-
-import os
-import json
-import shutil
-
-import cv2
-import torch
-# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-from torch.utils.data import Dataset
-import torchvision.transforms as transforms
-
 from luxonis_ml.embeddings.qdrant_utils import *
 
 
