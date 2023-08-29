@@ -7,30 +7,32 @@ from .loader import LabelType
 
 
 class Augmentations:
-    def __init__(self, train_rgb: Optional[bool] = True):
+    def __init__(self, train_rgb: bool = True):
         """Base class for augmentations that are used in LuxonisLoader
 
         Args:
-            train_rgb (Optional[bool], optional): Flag if should use RGB or BGR images. Defaults to True.
+            train_rgb (bool, optional): Flag if should use RGB or BGR images. Defaults to True.
         """
+
         self.train_rgb = train_rgb
         
         self.is_batched = False
         self.aug_batch_size = 1
 
     def _parse_cfg(
-        self, image_size: list, augmentations: dict, keep_aspect_ratio: Optional[bool] = True
+        self, image_size: list, augmentations: list, keep_aspect_ratio: bool = True
     ):
         """Parses provided config and returns Albumentations BatchedCompose object and Compose object for default transforms
 
         Args:
             image_size (list): Desired image size [H,W]
-            augmentations (dict): Dict of augmentations to use and their params
-            keep_aspect_ratio (Optional[bool], optional): Flat if should use resize that keeps aspect ratio of original image. Defaults to True.
+            augmentations (list): List of augmentations to use and their params
+            keep_aspect_ratio (bool, optional): Flat if should use resize that keeps aspect ratio of original image. Defaults to True.
 
         Returns:
-            Tuple[A.BatchedCompose, A.Compose]: Objects for batched and default transforms
+            Tuple[A.BatchedCompose, A.Compose]: Objects for batched and spatial transforms
         """
+
         image_size = image_size
 
         # Always perform Resize
@@ -101,8 +103,9 @@ class Augmentations:
             nk (int, optional): Number of keypoints per instance. Defaults to 1.
 
         Returns:
-            _type_: _description_
+            Tuple[np.ndarray, dict]: Output image and its annotations
         """
+
         image_batch = []
         mask_batch = []
         bboxes_batch = []
@@ -223,7 +226,8 @@ class Augmentations:
         Returns:
             Tuple: Postprocessed annotations
         """
-        out_image = transformed_data["image"]
+
+        out_image = transformed_data["image"].astype(np.float32)
         ih, iw, _ = out_image.shape
         if not self.train_rgb:
             out_image = cv2.cvtColor(out_image, cv2.COLOR_RGB2BGR)
@@ -287,12 +291,20 @@ class TrainAugmentations(Augmentations):
     def __init__(
         self,
         image_size: list,
-        augmentations: dict,
+        augmentations: list,
         train_rgb: bool = True,
         keep_aspect_ratio: bool = True,
     ):
-        """Class for train augmentations"""
+        """Class for train augmentations
+
+        Args:
+            image_size (list): Desired image size
+            augmentations (dict): List of dictionaries like {name: str, params: dict} for augmentation init
+            train_rgb (bool, optional): Weather use RGB images. Defaults to True.
+            keep_aspect_ratio (bool, optional): Weather to perform resize that original aspect ratio of the image. Defaults to True.
+        """
         super().__init__(train_rgb=train_rgb)
+
         self.batch_transform, self.spatial_transform = self._parse_cfg(
             image_size=image_size,
             augmentations=augmentations,
@@ -304,12 +316,20 @@ class ValAugmentations(Augmentations):
     def __init__(
         self,
         image_size: list,
-        augmentations: dict,
+        augmentations: list,
         train_rgb: bool = True,
         keep_aspect_ratio: bool = True,
     ):
-        """Class for val augmentations, only performs Normalize augmentation if present"""
+        """Class for validation augmentations which performs only normalization (if present) and resize
+
+        Args:
+            image_size (list): Desired image size
+            augmentations (dict): List of dictionaries like {name: str, params: dict} for augmentation init
+            train_rgb (bool, optional): Weather use RGB images. Defaults to True.
+            keep_aspect_ratio (bool, optional): Weather to perform resize that original aspect ratio of the image. Defaults to True.
+        """
         super().__init__(train_rgb=train_rgb)
+
         self.batch_transform, self.spatial_transform = self._parse_cfg(
             image_size=image_size,
             augmentations=[a for a in augmentations if a["name"] == "Normalize"],
