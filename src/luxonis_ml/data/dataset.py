@@ -744,9 +744,7 @@ class LuxonisDataset:
                         additions[i][component_name]["_old_filepath"] = filepath
                         if not data_utils.is_modified_filepath(self, filepath):
                             try:
-                                hashpath, hash = data_utils.generate_hashname(
-                                    self, filepath
-                                )
+                                hashpath, hash = data_utils.generate_hashname(filepath)
                             except:
                                 raise AdditionNotFoundException(
                                     f"{filepath} does not exist"
