@@ -1,10 +1,6 @@
-import os
 import cv2
 import numpy as np
 import torch
-import torch.nn as nn
-import subprocess
-from copy import deepcopy
 
 import torch.onnx
 import onnx
@@ -12,18 +8,10 @@ import onnxruntime
 
 import torchvision
 import torchvision.transforms as transforms
-from torchvision.transforms import Grayscale, Lambda
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, SearchRequest
 from qdrant_client.http import models
-
-from luxonis_ml.data.dataset import HType, IType, LDFComponent, LuxonisDataset, BucketStorage
-
-from luxonis_ml.embeddings.data_utils import *
-from luxonis_ml.embeddings.model_utils import *
-from luxonis_ml.embeddings.embedding_utils import *
-from luxonis_ml.embeddings.qdrant_utils import *
 
 
 def _get_sample_payloads_coco(luxonis_dataset):
