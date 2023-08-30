@@ -1,68 +1,81 @@
-import subprocess
+import docker
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, SearchRequest
 from qdrant_client.http import models
 
-def run_command(command):
+def docker_installed(client_docker):
     try:
-        output = subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT).decode('utf-8').strip()
-        return output
-    except subprocess.CalledProcessError as e:
-        error_message = e.output.decode('utf-8').strip()
-        print(f"Error executing command: {error_message}")
-        return error_message
+        client_docker.version()
+        return True
+    except:
+        return False
 
-def docker_installed():
-    output = run_command("docker --version")
-    return "Docker version" in output
-
-def docker_running():
-    output = run_command("sudo docker info")
-    return "Containers:" in output  # This is a typical line in the `docker info` output
+def docker_running(client_docker):
+    try:
+        client_docker.ping()
+        return True
+    except:
+        return False
 
 def start_docker_daemon():
-    print("Starting Docker daemon...")
-    run_command("sudo systemctl start docker")
+    # Using the SDK, we can't directly start the Docker daemon.
+    # The daemon must be started externally.
+    print("Please ensure the Docker daemon is running.")
+    return
 
-def image_exists(image_name):
-    images = run_command("sudo docker images -q {}".format(image_name))
-    return bool(images)
+def image_exists(client_docker,image_name):
+    try:
+        client_docker.images.get(image_name)
+        return True
+    except docker.errors.ImageNotFound:
+        return False
 
-def container_exists(container_name):
-    containers = run_command("sudo docker ps -a -q -f name={}".format(container_name))
-    return bool(containers)
+def container_exists(client_docker, container_name):
+    try:
+        client_docker.containers.get(container_name)
+        return True
+    except docker.errors.NotFound:
+        return False
 
-def container_running(container_name):
-    running_containers = run_command("sudo docker ps -q -f name={}".format(container_name))
-    return bool(running_containers)
+def container_running(client_docker, container_name):
+    container = client_docker.containers.get(container_name)
+    return container.status == 'running'
 
 def start_docker_qdrant():
     image_name = "qdrant/qdrant"
     container_name = "qdrant_container"
 
-    if not docker_installed():
+    # Note: Make sure the user has the appropriate permissions to run Docker commands
+    #      without sudo. Otherwise, the client_docker.images.pull() command will fail.
+    #      See https://docs.docker.com/engine/install/linux-postinstall/ for more details.
+
+    client_docker = docker.from_env()
+
+    if not docker_installed(client_docker):
         print("Docker is not installed. Please install Docker to proceed.")
-        # You can provide instructions or a script to install Docker here if desired.
         return
 
-    if not docker_running():
-        print("Docker daemon is not running. Attempting to start Docker...")
-        start_docker_daemon()
+    if not docker_running(client_docker):
+        print("Docker daemon is not running. Please start Docker manually and try again.")
+        return
 
-        if not docker_running():
-            print("Failed to start Docker. Please start Docker manually and try again.")
-            return
-
-    if not image_exists(image_name):
+    if not image_exists(client_docker, image_name):
         print("Image does not exist. Pulling image...")
-        run_command("sudo docker pull {}".format(image_name))
+        client_docker.images.pull(image_name)
 
-    if not container_exists(container_name):
+    if not container_exists(client_docker, container_name):
         print("Container does not exist. Creating container...")
-        run_command("sudo docker run -d --name {} -p 6333:6333 -v ~/.cache/qdrant_data:/app/data {}".format(container_name, image_name))
-    elif not container_running(container_name):
+        client_docker.containers.run(
+            image_name, 
+            detach=True, 
+            name=container_name, 
+            ports={'6333/tcp': 6333}, 
+            volumes={'~/.cache/qdrant_data': {'bind': '/app/data', 'mode': 'rw'}}
+        )
+    elif not container_running(client_docker, container_name):
         print("Container is not running. Starting container...")
-        run_command("sudo docker start {}".format(container_name))
+        container = client_docker.containers.get(container_name)
+        container.start()
     else:
         print("Container is already running.")
 
