@@ -8,7 +8,7 @@ tqdm>=4.64.1
 lakefs_client>=0.90.0
 webdataset>=0.2.31
 b2>=3.6.0
-opencv-python>=4.7.0.68
+opencv-python==4.7.0.68
 PyYAML>=6.0
 pandasql>=0.7.3
 pycocotools>=2.0.6
