@@ -3,15 +3,28 @@ import uuid
 from google.cloud import storage
 from concurrent.futures import ThreadPoolExecutor
 import luxonis_ml.data.utils.data_utils as data_utils
-
-
-def sync_from_gcs():
-    raise NotImplementedError
+from pathlib import Path
 
 
 def upload_file(bucket, local_file, gcs_file):
     blob = bucket.blob(gcs_file)
     blob.upload_from_filename(local_file)
+
+
+def download_file(gcs_blob, local_dir):
+    try:
+        local_file_path = str(Path(local_dir) / gcs_blob.name)
+        if (
+            os.path.exists(local_file_path)
+            # TODO: check hash here
+            # and get_file_hash(local_file_path) == s3_file.e_tag[1:-1]
+        ):
+            print(f"File {local_file_path} already exists")
+        else:
+            gcs_blob.download_to_filename(local_file_path)
+            print(f"Downloaded {gcs_blob.name} to {local_file_path}")
+    except Exception as e:
+        print(f"Failed to download {gcs_blob.name}. Reason: {e}")
 
 
 def copy_file(bucket, addition):
@@ -71,6 +84,27 @@ def sync_to_gcs(bucket, gcs_dir, local_dir):
 
     except Exception as e:
         print("Unable to upload files. Reason:", e)
+
+
+def sync_from_gcs(non_streaming_dir, bucket, bucket_dir):
+    os.makedirs(non_streaming_dir, exist_ok=True)
+
+    print("Syncing from cloud...")
+    bucket = storage.Client().bucket(bucket)
+    try:
+        with ThreadPoolExecutor(
+            min(os.cpu_count(), int(os.getenv("MAX_S3_CONCURRENCY", 4)))
+        ) as executor:
+            for gcs_blob in bucket.list_blobs(prefix=bucket_dir):
+                if not os.path.exists(
+                    os.path.dirname(non_streaming_dir + "/" + gcs_blob.name)
+                ):
+                    os.makedirs(
+                        os.path.dirname(non_streaming_dir + "/" + gcs_blob.name)
+                    )
+                executor.submit(download_file, gcs_blob, non_streaming_dir)
+    except Exception as e:
+        print("Unable to download files. Reason:", e)
 
 
 def paths_from_gcs(dataset, additions):

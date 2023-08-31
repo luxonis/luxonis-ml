@@ -514,13 +514,21 @@ class LuxonisDataset:
     def sync_from_cloud(self):
         if self.bucket_storage.value == "local":
             self.logger.warning("This is a local dataset! Cannot sync")
-        else:
+        elif self.bucket_storage.value == "s3":
             sync_from_s3(
                 non_streaming_dir=str(Path.home() / ".cache" / "luxonis_ml" / "data"),
                 bucket=self.bucket,
                 bucket_dir=str(Path(self.team_id) / "datasets" / self.dataset_id),
                 endpoint_url=self._get_credentials("AWS_S3_ENDPOINT_URL"),
             )
+        elif self.bucket_storage.value == "gcs":
+            sync_from_gcs(
+                non_streaming_dir=str(Path.home() / ".cache" / "luxonis_ml" / "data"),
+                bucket=self.bucket,
+                bucket_dir=str(Path(self.team_id) / "datasets" / self.dataset_id),
+            )
+        else:
+            raise NotImplementedError
 
     def get_classes(self):
         classes = set()
@@ -1023,7 +1031,11 @@ class LuxonisDataset:
                         endpoint_url=self._get_credentials("AWS_S3_ENDPOINT_URL"),
                     )
                 else:
-                    raise NotImplementedError
+                    sync_to_gcs(
+                        bucket=self.bucket,
+                        gcs_dir=self.bucket_path,
+                        local_dir=local_cache,
+                    )
 
         elif self.bucket_storage.value == "gcs" and not from_bucket:
             sync_to_gcs(
