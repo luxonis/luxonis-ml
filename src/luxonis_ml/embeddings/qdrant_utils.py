@@ -1,69 +1,100 @@
+"""
+Qdrant Docker Management and Embedding Operations
+
+This script provides a set of utility functions to manage Qdrant using Docker and perform various operations related to embeddings.
+
+Features:
+- Docker management: Check if Docker is installed, running, and if specific images or containers exist.
+- Qdrant management: Start a Qdrant container, connect to Qdrant, and create a collection.
+- Embedding operations: Insert, batch insert, search, and retrieve embeddings from a Qdrant collection.
+
+Dependencies:
+- docker: For Docker-related operations.
+- numpy: For numerical operations on embeddings.
+- qdrant_client: For interacting with Qdrant.
+
+Usage:
+1. Ensure Docker is installed and running.
+2. Start the Qdrant Docker container using `start_docker_qdrant()`.
+3. Connect to Qdrant using `connect_to_qdrant()`.
+4. Perform various embedding operations like inserting, searching, and retrieving.
+
+Note:
+- The default collection name is set to "mnist".
+- Ensure the user has the appropriate permissions to run Docker commands without sudo.
+  See https://docs.docker.com/engine/install/linux-postinstall/ for more details.
+"""
+
 import docker
+import numpy as np
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, SearchRequest
 from qdrant_client.http import models
 
-def docker_installed(client_docker):
+DEFAULT_COLLECTION_NAME = "mnist"
+
+def is_docker_installed(client_docker):
+    """Check if Docker is installed."""
     try:
         client_docker.version()
         return True
-    except:
+    except docker.errors.DockerException:
         return False
 
-def docker_running(client_docker):
+def is_docker_running(client_docker):
+    """Check if Docker daemon is running."""
     try:
         client_docker.ping()
         return True
-    except:
+    except docker.errors.DockerException:
         return False
 
-def start_docker_daemon():
-    # Using the SDK, we can't directly start the Docker daemon.
-    # The daemon must be started externally.
-    print("Please ensure the Docker daemon is running.")
-    return
-
-def image_exists(client_docker,image_name):
+def does_image_exist(client_docker, image_name):
+    """Check if a Docker image exists."""
     try:
         client_docker.images.get(image_name)
         return True
     except docker.errors.ImageNotFound:
         return False
 
-def container_exists(client_docker, container_name):
+def does_container_exist(client_docker, container_name):
+    """Check if a Docker container exists."""
     try:
         client_docker.containers.get(container_name)
         return True
     except docker.errors.NotFound:
         return False
+def is_container_running(client_docker, container_name):
+    """Check if a Docker container is running."""
+    try:
+        container = client_docker.containers.get(container_name)
+        return container.status == 'running'
+    except docker.errors.NotFound:
+        return False
 
-def container_running(client_docker, container_name):
-    container = client_docker.containers.get(container_name)
-    return container.status == 'running'
+def start_docker_qdrant(image_name = "qdrant/qdrant", container_name = "qdrant_container"):
+    """
+    Start the Qdrant Docker container.
 
-def start_docker_qdrant():
-    image_name = "qdrant/qdrant"
-    container_name = "qdrant_container"
-
-    # Note: Make sure the user has the appropriate permissions to run Docker commands
-    #      without sudo. Otherwise, the client_docker.images.pull() command will fail.
-    #      See https://docs.docker.com/engine/install/linux-postinstall/ for more details.
-
+    NOTE: Make sure the user has the appropriate permissions to run Docker commands
+         without sudo. Otherwise, the client_docker.images.pull() command will fail.
+         See https://docs.docker.com/engine/install/linux-postinstall/ for more details.
+    """
     client_docker = docker.from_env()
 
-    if not docker_installed(client_docker):
+    if not is_docker_installed(client_docker):
         print("Docker is not installed. Please install Docker to proceed.")
         return
 
-    if not docker_running(client_docker):
+    if not is_docker_running(client_docker):
         print("Docker daemon is not running. Please start Docker manually and try again.")
         return
 
-    if not image_exists(client_docker, image_name):
+    if not does_image_exist(client_docker, image_name):
         print("Image does not exist. Pulling image...")
         client_docker.images.pull(image_name)
 
-    if not container_exists(client_docker, container_name):
+    if not does_container_exist(client_docker, container_name):
         print("Container does not exist. Creating container...")
         client_docker.containers.run(
             image_name, 
@@ -72,32 +103,29 @@ def start_docker_qdrant():
             ports={'6333/tcp': 6333}, 
             volumes={'~/.cache/qdrant_data': {'bind': '/app/data', 'mode': 'rw'}}
         )
-    elif not container_running(client_docker, container_name):
+    elif not is_container_running(client_docker, container_name):
         print("Container is not running. Starting container...")
         container = client_docker.containers.get(container_name)
         container.start()
     else:
         print("Container is already running.")
 
-
-
 def connect_to_qdrant(host="localhost", port=6333):
-    client = QdrantClient(host=host, port=port)
-    return client
+    """Connect to Qdrant."""
+    return QdrantClient(host=host, port=port)
 
-def create_collection(client, collection_name="mnist", vector_size=512, distance=Distance.COSINE):
-    # Check if the collection already exists
+def create_collection(client, collection_name=DEFAULT_COLLECTION_NAME, vector_size=512, distance=Distance.COSINE):
+    """Create a collection in Qdrant."""
     try:
         client.get_collection(collection_name=collection_name)
         print("Collection already exists")
-    except:
-        # Create a collection with the given name and vector configuration
+    except models.QdrantError:
         client.recreate_collection(collection_name=collection_name,
-                                    vectors_config=VectorParams(size=vector_size, 
-                                                                distance=distance))
+                                   vectors_config=VectorParams(size=vector_size, distance=distance))
+        print("Created new collection")
 
-def insert_embeddings(client, embeddings, labels, collection_name="mnist"):
-    # Insert the embeddings into the collection    
+def insert_embeddings(client, embeddings, labels, collection_name=DEFAULT_COLLECTION_NAME):
+    """Insert embeddings and their labels into a Qdrant collection."""
     client.upsert(collection_name=collection_name, 
                     points= [PointStruct(
                             id=i,
@@ -105,7 +133,8 @@ def insert_embeddings(client, embeddings, labels, collection_name="mnist"):
                             payload={"label": labels[i].item()}
                         ) for i in range(len(embeddings))])
 
-def insert_embeddings_nooverwrite(client, embeddings, labels, collection_name="mnist"):
+def insert_embeddings_nooverwrite(client, embeddings, labels, collection_name=DEFAULT_COLLECTION_NAME):
+    """Insert embeddings and labels into a Qdrant collection only if they don't already exist (independent of the id)."""
     # Create a list of search requests
     search_queries = [SearchRequest(
         vector=embeddings[i].tolist(),
@@ -140,7 +169,8 @@ def insert_embeddings_nooverwrite(client, embeddings, labels, collection_name="m
     
     print("Inserted {} new embeddings".format(len(new_embeddings)))
 
-def batch_insert_embeddings(client, embeddings, labels, img_paths, batch_size = 50, collection_name="mnist"):
+def batch_insert_embeddings(client, embeddings, labels, img_paths, batch_size = 50, collection_name=DEFAULT_COLLECTION_NAME):
+    """Batch insert embeddings, labels, and image paths into a Qdrant collection."""
     total_len = len(embeddings)
 
     for i in range(0, total_len, batch_size):
@@ -161,7 +191,8 @@ def batch_insert_embeddings(client, embeddings, labels, img_paths, batch_size = 
         # Upsert the batch of points to the Qdrant collection
         client.upsert(collection_name=collection_name, points=batch)
 
-def batch_insert_embeddings_nooverwrite(client, embeddings, labels, batch_size=50, collection_name="mnist"):
+def batch_insert_embeddings_nooverwrite(client, embeddings, labels, batch_size=50, collection_name=DEFAULT_COLLECTION_NAME):
+    """Batch insert embeddings and labels into a Qdrant collection, avoiding overwriting existing embeddings."""
     total_len = len(embeddings)
 
     for i in range(0, total_len, batch_size):
@@ -214,14 +245,16 @@ def batch_insert_embeddings_nooverwrite(client, embeddings, labels, batch_size=5
         print(f"Inserted {len(new_embeddings)} new embeddings for batch {start}-{end}")
 
 
-def search_embeddings(client, embedding, collection_name="mnist", top=5):
+def search_embeddings(client, embedding:np.ndarray, collection_name=DEFAULT_COLLECTION_NAME, top=5):
+    """Search for the top similar embeddings in a Qdrant collection."""
     # Search for the nearest neighbors
     search_results = client.search(collection_name=collection_name, 
                                     query_vector=embedding.tolist(), 
                                     limit=top)
     return search_results
 
-def search_embeddings_by_imagepath(client, embedding, image_path_part, collection_name="mnist", top=5):
+def search_embeddings_by_imagepath(client, embedding, image_path_part, collection_name=DEFAULT_COLLECTION_NAME, top=5):
+    """Search for top similar embeddings in a Qdrant collection based on a partial image path."""
     hits = client.search(
         collection_name=collection_name,
         query_vector=embedding.tolist(),
@@ -237,9 +270,10 @@ def search_embeddings_by_imagepath(client, embedding, image_path_part, collectio
     )
     return hits
 
-def get_similarities(qdrant_client, reference_id, other_ids, qdrant_collection_name="mnist"):
+def get_similarities(qdrant_client, reference_id, other_ids, qdrant_collection_name=DEFAULT_COLLECTION_NAME):
     """
-    Get similarities of a reference embedding with a list of other embeddings using Qdrant.
+    Get a list of similarity scores between the reference embedding and other embeddings.
+    NOTE: The initial order of the other_ids list is NOT preserved.
 
     Parameters
     ----------
@@ -250,12 +284,14 @@ def get_similarities(qdrant_client, reference_id, other_ids, qdrant_collection_n
     other_ids : list[int]
         The list of instance_ids of other embeddings to compare with the reference.
     qdrant_collection_name : str
-        The name of the Qdrant collection. Default is "mnist".
+        The name of the Qdrant collection. Default is DEFAULT_COLLECTION_NAME.
 
     Returns
     -------
-    list
-        The list of embeddings similar to the reference embedding, filtered by other_ids.
+    list[int]
+        The list of instance_ids of the other embeddings.
+    list[float]
+        The list of similarity scores.
     """
     # Retrieve the embedding vector for the reference_id
     reference_embedding = get_embeddings_from_ids(qdrant_client, [reference_id], qdrant_collection_name)[0]
@@ -279,9 +315,13 @@ def get_similarities(qdrant_client, reference_id, other_ids, qdrant_collection_n
 
     return ids, scores
 
-def get_full_similarity_matrix(client, collection_name="mnist", batch_size=100):
-    # NOTE: This method is not recommended for large collections.
-    #       It is better to use the get_all_embeddings() method and compute the similarity matrix yourself.
+def get_full_similarity_matrix(client, collection_name=DEFAULT_COLLECTION_NAME, batch_size=100):
+    """
+    Compute a full similarity matrix for all embeddings in a Qdrant collection.
+
+    NOTE: This method is not recommended for large collections.
+          It is better to use the get_all_embeddings() method and compute the similarity matrix yourself.
+    """
     # Get all embeddings
     ids, embeddings = get_all_embeddings(client, collection_name)
     print("Retrieved {} embeddings".format(len(embeddings)))
@@ -318,7 +358,9 @@ def get_full_similarity_matrix(client, collection_name="mnist", batch_size=100):
     print("Created similarity matrix")
     return ids, sim_matrix
 
-def get_payloads_from_ids(client, ids, collection_name="mnist"):
+def get_payloads_from_ids(client, ids, collection_name=DEFAULT_COLLECTION_NAME):
+    """Retrieve payloads associated with a list of IDs from a Qdrant collection.
+    (The order of the payloads IS preserved.)"""
     # Retrieve the payloads for the given ids
     hits = client.retrieve(collection_name=collection_name, 
                             ids=ids, 
@@ -334,7 +376,9 @@ def get_payloads_from_ids(client, ids, collection_name="mnist"):
 
     return payloads
 
-def get_embeddings_from_ids(client, ids, collection_name="mnist"):
+def get_embeddings_from_ids(client, ids, collection_name=DEFAULT_COLLECTION_NAME):
+    """Retrieve embeddings associated with a list of IDs from a Qdrant collection.
+    (The order of the embeddings IS preserved.)"""
     # Retrieve the embeddings for the given ids
     hits = client.retrieve(collection_name=collection_name, 
                             ids=ids, 
@@ -348,7 +392,8 @@ def get_embeddings_from_ids(client, ids, collection_name="mnist"):
         embeddings[i] = hit.vector
     return embeddings
 
-def get_all_ids(client, collection_name="mnist"):
+def get_all_ids(client, collection_name=DEFAULT_COLLECTION_NAME):
+    """Retrieve all IDs from a Qdrant collection."""
     # Get the number of points in the collection
     collection_info = client.get_collection(collection_name=collection_name)
     collection_size = collection_info.vectors_count
@@ -359,7 +404,8 @@ def get_all_ids(client, collection_name="mnist"):
     ids = [hit.id for hit in hits]
     return ids
 
-def get_all_instance_and_sample_ids(client, collection_name="mnist"):
+def get_all_instance_and_sample_ids(client, collection_name=DEFAULT_COLLECTION_NAME):
+    """Retrieve all instance and sample IDs from a Qdrant collection."""
     # Get the number of points in the collection
     collection_info = client.get_collection(collection_name=collection_name)
     collection_size = collection_info.vectors_count
@@ -372,7 +418,8 @@ def get_all_instance_and_sample_ids(client, collection_name="mnist"):
     sample_ids = [hit.payload['sample_id'] for hit in hits]
     return instance_ids, sample_ids
 
-def get_all_embeddings(client, collection_name="mnist"):
+def get_all_embeddings(client, collection_name=DEFAULT_COLLECTION_NAME):
+    """Retrieve all embeddings and their IDs from a Qdrant collection."""
     # Get the number of points in the collection
     collection_info = client.get_collection(collection_name=collection_name)
     collection_size = collection_info.vectors_count
