@@ -254,11 +254,11 @@ class LuxonisDatasetTester(unittest.TestCase):
                 }
             )  # optional for keypoints to define the skeleton visualization
 
-            result = dataset._check_transactions()
+            result = dataset._check_transactions_to_execute()
             self.assertEqual(result, None, "Empty transactions fail")
 
             dataset._make_transaction(LDFTransactionType.ADD)
-            result = dataset._check_transactions()
+            result = dataset._check_transactions_to_execute()
             self.assertEqual(result, None, "Missing END transaction fail")
             time.sleep(0.5)
             curr = self.conn.transaction_document.find(
@@ -271,7 +271,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             dataset._make_transaction(LDFTransactionType.DELETE)
             dataset._make_transaction(LDFTransactionType.END)
             time.sleep(0.5)
-            result = dataset._check_transactions()
+            result = dataset._check_transactions_to_execute()
             self.assertEqual(len(result), 3, "With END transaction fail")
 
             # cleanup
@@ -387,7 +387,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             self.assertEqual(media_change, False, "media_change failed")
             self.assertEqual(field_change, True, "field_change failed")
 
-            res = dataset._check_transactions()
+            res = dataset._check_transactions_to_execute()
             self.assertEqual(len(res), 4, "Correct number of new transactions")
             num_adds = np.sum([True if t["action"] == "ADD" else False for t in res])
             num_updates = np.sum(
@@ -608,10 +608,10 @@ class LuxonisDatasetTester(unittest.TestCase):
         with LuxonisDataset(self.team_id, self.dataset_id) as dataset:
             for sample in dataset.fo_dataset:
                 break
-            dataset.delete([sample.id])
+            dataset.delete([sample.instance_id])
 
-            res = dataset._check_transactions(
-                for_versioning=True
+            res = (
+                dataset._check_transactions_to_version()
             )  # will show the latest 3 transactions
             self.assertEqual(len(res), 3, "Wrong number of transactions for delete")
             num_executed = np.sum(
@@ -714,7 +714,7 @@ class LuxonisDatasetTester(unittest.TestCase):
                 dataset._add_filter,
                 additions,
             )
-            transactions = dataset._check_transactions()
+            transactions = dataset._check_transactions_to_execute()
             # if cleanup is successful, checking transactions should return on END transaction
             self.assertEqual(
                 type(transactions), list, "DataTransactionException cleanup"
@@ -978,7 +978,7 @@ class LuxonisDatasetTester(unittest.TestCase):
                 original_length,
                 "Copied sample deletion in _add_execute rollback",
             )
-            num_transactions = len(dataset._check_transactions())
+            num_transactions = len(dataset._check_transactions_to_execute())
             self.assertEqual(
                 num_transactions, 7, "Un-execute transactions in _add_execute rollback"
             )
@@ -997,7 +997,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             transactions_to_additions, _, _ = dataset._add_filter(additions)
             dataset._add_execute(additions, transactions_to_additions)
 
-            transactions = dataset._check_transactions(for_versioning=True)
+            transactions = dataset._check_transactions_to_version()
             num_transactions = len(transactions)
             original_version = dataset.version
             sample_collection = dataset._get_sample_collection()
@@ -1016,7 +1016,7 @@ class LuxonisDatasetTester(unittest.TestCase):
                 True,
             )
 
-            transactions = dataset._check_transactions(for_versioning=True)
+            transactions = dataset._check_transactions_to_version()
             new_num_latest_false = len(
                 list(self.conn[sample_collection].find({"latest": False}))
             )

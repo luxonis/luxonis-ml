@@ -8,7 +8,8 @@ tqdm>=4.64.1
 lakefs_client>=0.90.0
 webdataset>=0.2.31
 b2>=3.6.0
-opencv-python>=4.7.0.68
+opencv-python==4.7.0.68
+opencv-python-headless==4.7.0.68
 PyYAML>=6.0
 pandasql>=0.7.3
 pycocotools>=2.0.6
@@ -17,3 +18,4 @@ sqlalchemy==1.4.46
 idx2numpy==1.2.3
 fiftyone==0.21.0
 label-studio-sdk>=0.0.28
+google-cloud-storage>=2.10.0

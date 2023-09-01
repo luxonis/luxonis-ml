@@ -332,6 +332,8 @@ def generate_hashname(filepath):
     with open(filepath, "rb") as file:
         file_contents = file.read()
 
+    # TODO: check for a corrupted image by handling cv2.imread
+
     # Generate the UUID5 based on the file contents and the NAMESPACE_URL
     file_hash_uuid = uuid.uuid5(uuid.NAMESPACE_URL, file_contents.hex())
 

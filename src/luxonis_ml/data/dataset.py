@@ -9,6 +9,7 @@ from pathlib import Path
 import cv2
 import json
 import boto3
+from google.cloud import storage
 import logging, time
 from tqdm import tqdm
 from enum import Enum
@@ -17,7 +18,8 @@ from datetime import datetime
 import pymongo
 from bson.objectid import ObjectId
 from .version import LuxonisVersion
-from .utils.s3_utils import sync_from_s3, sync_to_s3, check_s3_file_existence
+from .utils.s3_utils import *
+from .utils.gcs_utils import *
 
 LDF_VERSION = "0.1.0"
 
@@ -223,7 +225,10 @@ class LuxonisDataset:
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        self.fo_dataset.persistent = True
+        try:
+            self.fo_dataset.persistent = True
+        except Exception as e:
+            self.logger.warning(f"Dataset persistence on exit failed for reason {e}")
         self._class_to_doc()
         self.dataset_doc.save(upsert=True)
 
@@ -298,6 +303,12 @@ class LuxonisDataset:
         self.bucket_path = self.path.split(self.bucket + "/")[-1]
         # self._create_directory(self.bucket_path)
 
+    def _init_gcs_client(self):
+        # assumes GOOGLE_APPLICATION_CREDENTIALS is set
+        self.bucket = self.path.split("//")[1].split("/")[0]
+        self.bucket_path = self.path.split(self.bucket + "/")[-1]
+        self.client = storage.Client()
+
     def _init_path(self):
         if self.bucket_storage.value == "local":
             self.path = str(
@@ -313,6 +324,9 @@ class LuxonisDataset:
         elif self.bucket_storage.value == "s3":
             self.path = f"s3://{self._get_credentials('AWS_BUCKET')}/{self.team_id}/datasets/{self.dataset_id}"
             self._init_boto3_client()
+        elif self.bucket_storage.value == "gcs":
+            self.path = f"gs://{self._get_credentials('GCS_BUCKET')}/{self.team_id}/datasets/{self.dataset_id}"
+            self._init_gcs_client()
 
     def _create_directory(self, path, clear_contents=False):
         if self.bucket_storage.value == "local":
@@ -358,6 +372,44 @@ class LuxonisDataset:
             return res[0]["sample_collection_name"]
         else:
             return None
+
+    def _update_from_instance_ids(
+        self, instance_ids, attribute, value, main_only=False
+    ):
+        try:
+            sample_collection = self._get_sample_collection()
+        except:
+            raise Exception("Cannot find sample collection name")
+
+        if not main_only:
+            samples = self.conn[sample_collection].find(
+                {"instance_id": {"$in": instance_ids}}
+            )
+            instance_ids = set()
+            for sample in samples:
+                gid = sample[self.source.name]["_id"]
+                group_instance_ids = list(
+                    self.conn[sample_collection].find(
+                        {f"{self.source.name}._id": gid}, {"instance_id": 1}
+                    )
+                )
+                for iid in group_instance_ids:
+                    instance_ids.add(iid["instance_id"])
+            instance_ids = list(instance_ids)
+
+        sample_ids = list(
+            self.conn[sample_collection].find(
+                {"instance_id": {"$in": instance_ids}}, {"_id": 1}
+            )
+        )
+        sample_ids = [sid["_id"] for sid in sample_ids]
+
+        self.conn[sample_collection].update_many(
+            {"_id": {"$in": sample_ids}},
+            {"$set": {attribute: value}},
+        )
+
+        return sample_ids
 
     def create_source(
         self,
@@ -462,13 +514,21 @@ class LuxonisDataset:
     def sync_from_cloud(self):
         if self.bucket_storage.value == "local":
             self.logger.warning("This is a local dataset! Cannot sync")
-        else:
+        elif self.bucket_storage.value == "s3":
             sync_from_s3(
                 non_streaming_dir=str(Path.home() / ".cache" / "luxonis_ml" / "data"),
                 bucket=self.bucket,
                 bucket_dir=str(Path(self.team_id) / "datasets" / self.dataset_id),
                 endpoint_url=self._get_credentials("AWS_S3_ENDPOINT_URL"),
             )
+        elif self.bucket_storage.value == "gcs":
+            sync_from_gcs(
+                non_streaming_dir=str(Path.home() / ".cache" / "luxonis_ml" / "data"),
+                bucket=self.bucket,
+                bucket_dir=str(Path(self.team_id) / "datasets" / self.dataset_id),
+            )
+        else:
+            raise NotImplementedError
 
     def get_classes(self):
         classes = set()
@@ -558,11 +618,8 @@ class LuxonisDataset:
 
         return transaction_doc.id
 
-    def _check_transactions(self, for_versioning=False):
-        if for_versioning:
-            attribute, value = "version", -1
-        else:
-            attribute, value = "executed", False
+    def _check_transactions_to_execute(self):
+        attribute, value = "executed", False
 
         transactions = list(
             self.conn.transaction_document.find(
@@ -589,6 +646,14 @@ class LuxonisDataset:
                 return transactions[i + 1 :]
         else:
             return None
+
+    def _check_transactions_to_version(self):
+        transactions = list(
+            self.conn.transaction_document.find(
+                {"_dataset_id": self.dataset_doc.id, "version": -1}
+            ).sort("created_at", pymongo.ASCENDING)
+        )
+        return transactions
 
     def _execute_transaction(self, tid):
         self.conn.transaction_document.update_one(
@@ -624,7 +689,7 @@ class LuxonisDataset:
             self.version -= 0.1
         self.version = round(self.version, 1)
 
-    def _add_filter(self, additions):
+    def _add_filter(self, additions, from_bucket=False):
         """
         Filters out any additions to the dataset already existing
         """
@@ -663,29 +728,42 @@ class LuxonisDataset:
                 logging.INFO
             ):
                 items = tqdm(items, total=len(additions))
+
+            if from_bucket:
+                if self.bucket_storage.value == "s3":
+                    raise NotImplementedError
+                elif self.bucket_storage.value == "gcs":
+                    paths_from_gcs(self, additions)
+                elif self.bucket_storage.value == "azure":
+                    raise NotImplementedError
+
             for i, addition in items:
                 self._log_time()
                 # change the filepath for all components
-                for component_name in addition.keys():
-                    try:
-                        filepath = addition[component_name]["filepath"]
-                    except:
-                        raise AdditionsStructureException(
-                            "Additions must be List[dict] with {'<component_name>': {'filepath':...}}. The <component_name> and filepath are required"
-                        )
-                    additions[i][component_name]["_old_filepath"] = filepath
-                    if not data_utils.is_modified_filepath(self, filepath):
+
+                if not from_bucket:
+                    for component_name in addition.keys():
                         try:
-                            hashpath, hash = data_utils.generate_hashname(filepath)
+                            filepath = addition[component_name]["filepath"]
                         except:
-                            raise AdditionNotFoundException(
-                                f"{filepath} does not exist"
+                            raise AdditionsStructureException(
+                                "Additions must be List[dict] with {'<component_name>': {'filepath':...}}. The <component_name> and filepath are required"
                             )
-                        additions[i][component_name]["instance_id"] = hash
-                        additions[i][component_name]["_new_image_name"] = hashpath
-                    granule = data_utils.get_granule(filepath, addition, component_name)
-                    new_filepath = f"/{self.team_id}/datasets/{self.dataset_id}/{component_name}/{granule}"
-                    additions[i][component_name]["filepath"] = new_filepath
+                        additions[i][component_name]["_old_filepath"] = filepath
+                        if not data_utils.is_modified_filepath(self, filepath):
+                            try:
+                                hashpath, hash = data_utils.generate_hashname(filepath)
+                            except:
+                                raise AdditionNotFoundException(
+                                    f"{filepath} does not exist"
+                                )
+                            additions[i][component_name]["instance_id"] = hash
+                            additions[i][component_name]["_new_image_name"] = hashpath
+                        granule = data_utils.get_granule(
+                            filepath, addition, component_name
+                        )
+                        new_filepath = f"/{self.team_id}/datasets/{self.dataset_id}/{component_name}/{granule}"
+                        additions[i][component_name]["filepath"] = new_filepath
 
                 group = fo.Group(name=source.name)
 
@@ -798,6 +876,11 @@ class LuxonisDataset:
         except BaseException as e:
             for tid in transactions:
                 self.conn.transaction_document.delete_many({"_id": ObjectId(tid)})
+            try:
+                if data_utils.is_modified_filepath(self, filepath):
+                    filepath = additions[i][component_name]["_old_filepath"]
+            except:
+                pass
             raise DataTransactionException(filepath, type(e).__name__, str(e))
 
     def _add_extract(self, additions, transaction_to_additions, from_bucket):
@@ -819,7 +902,7 @@ class LuxonisDataset:
                 / "datasets"
                 / self.dataset_id
             )
-        elif self.bucket_storage.value == "s3":
+        else:
             local_cache = str(Path.home() / ".cache" / "luxonis_ml" / "tmp")
         os.makedirs(local_cache, exist_ok=True)
         for component_name in components:
@@ -877,50 +960,52 @@ class LuxonisDataset:
                     self._log_time("Extract addition s3 check existence")
                     sync = True
 
-                if from_bucket:
-                    old_prefix = filepath.split(f"s3://{self.bucket}/")[-1]
-                    new_prefix = f"{self.bucket_path}/{component_name}/{granule}"
-                    self.client.copy_object(
-                        Bucket=self.bucket,
-                        Key=new_prefix,
-                        CopySource={"Bucket": self.bucket, "Key": old_prefix},
-                    )
-                    self._log_time("Extract addition from_bucket", final=True)
-                elif not data_utils.is_modified_filepath(self, filepath):
-                    cmd = f"cp {filepath} {local_path}"
-                    subprocess.check_output(cmd, shell=True)
-                    self._log_time("Extract addition local cp", final=True)
-                else:
-                    self.logger.warning(
-                        f"Skipping extraction for {filepath} as path is likely corrupted due to memory assignment"
-                    )
+                # if from_bucket:
+                # old_prefix = filepath.split(f"s3://{self.bucket}/")[-1]
+                # new_prefix = f"{self.bucket_path}/{component_name}/{granule}"
+                # self.client.copy_object(
+                #     Bucket=self.bucket,
+                #     Key=new_prefix,
+                #     CopySource={"Bucket": self.bucket, "Key": old_prefix},
+                # )
+                # if self.bucket_storage.value == "gcs":
+                #     copy_to_gcs(self, additions)
+                # self._log_time("Extract addition from_bucket", final=True)
+                if not from_bucket:
+                    if not data_utils.is_modified_filepath(self, filepath):
+                        cmd = f"cp {filepath} {local_path}"
+                        subprocess.check_output(cmd, shell=True)
+                        self._log_time("Extract addition local cp", final=True)
+                    else:
+                        self.logger.warning(
+                            f"Skipping extraction for {filepath} as path is likely corrupted due to memory assignment"
+                        )
 
-                if (
-                    self.compute_heatmaps
-                    and not from_bucket
-                    and (
+                    if self.compute_heatmaps and (
                         components[component_name].itype == IType.DISPARITY
                         or components[component_name].itype == IType.DEPTH
-                    )
-                ):
-                    self._log_time()
+                    ):
+                        self._log_time()
 
-                    heatmap_component = f"{component_name}_heatmap"
-                    os.makedirs(
-                        str(Path(local_cache) / heatmap_component), exist_ok=True
-                    )
-                    im = cv2.imread(filepath, cv2.IMREAD_UNCHANGED)
-                    if im.dtype == np.uint16:
-                        im = im / 8
-                    heatmap = (im / 96 * 255).astype(np.uint8)
-                    heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
-                    cv2.imwrite(
-                        str(Path(local_cache) / heatmap_component / granule), heatmap
-                    )
-                    new_filepath = f"/{self.team_id}/datasets/{self.dataset_id}/{heatmap_component}/{granule}"
-                    add_heatmaps[heatmap_component] = new_filepath
+                        heatmap_component = f"{component_name}_heatmap"
+                        os.makedirs(
+                            str(Path(local_cache) / heatmap_component), exist_ok=True
+                        )
+                        im = cv2.imread(filepath, cv2.IMREAD_UNCHANGED)
+                        if im.dtype == np.uint16:
+                            im = im / 8
+                        heatmap = (im / 96 * 255).astype(np.uint8)
+                        heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
+                        cv2.imwrite(
+                            str(Path(local_cache) / heatmap_component / granule),
+                            heatmap,
+                        )
+                        new_filepath = f"/{self.team_id}/datasets/{self.dataset_id}/{heatmap_component}/{granule}"
+                        add_heatmaps[heatmap_component] = new_filepath
 
-                    self._log_time("Extract addition heatmap computation", final=True)
+                        self._log_time(
+                            "Extract addition heatmap computation", final=True
+                        )
 
             if self.compute_heatmaps and not from_bucket and sync:
                 for heatmap_component in add_heatmaps:
@@ -931,12 +1016,30 @@ class LuxonisDataset:
 
         self._log_time()
 
-        if self.bucket_storage.value == "s3" and not from_bucket:
-            sync_to_s3(
-                bucket=self.bucket,
-                s3_dir=self.bucket_path,
-                local_dir=local_cache,
-                endpoint_url=self._get_credentials("AWS_S3_ENDPOINT_URL"),
+        if self.bucket_storage.value != "local":
+            if from_bucket:
+                if self.bucket_storage.value == "gcs":
+                    copy_to_gcs(self, additions)
+                else:
+                    raise NotImplementedError
+            else:
+                if self.bucket_storage.value == "s3" and not from_bucket:
+                    sync_to_s3(
+                        bucket=self.bucket,
+                        s3_dir=self.bucket_path,
+                        local_dir=local_cache,
+                        endpoint_url=self._get_credentials("AWS_S3_ENDPOINT_URL"),
+                    )
+                else:
+                    sync_to_gcs(
+                        bucket=self.bucket,
+                        gcs_dir=self.bucket_path,
+                        local_dir=local_cache,
+                    )
+
+        elif self.bucket_storage.value == "gcs" and not from_bucket:
+            sync_to_gcs(
+                bucket=self.bucket, gcs_dir=self.bucket_path, local_dir=local_cache
             )
 
         if self.bucket_storage.value != "local":
@@ -946,7 +1049,9 @@ class LuxonisDataset:
 
         return additions
 
-    def _add_execute(self, additions=None, transaction_to_additions=None):
+    def _add_execute(
+        self, additions=None, transaction_to_additions=None, annotated=True
+    ):
         self.logger.info("Executing changes to dataset...")
 
         source = self.source
@@ -954,7 +1059,7 @@ class LuxonisDataset:
         copied_samples = []
 
         transaction = None
-        transactions = self._check_transactions()
+        transactions = self._check_transactions_to_execute()
 
         try:
             if transactions is None:
@@ -989,6 +1094,7 @@ class LuxonisDataset:
                         filepath=component["filepath"],
                         version=-1.0,
                         latest=False,
+                        annotated=annotated,
                         tid=transaction["_id"].binary.hex(),
                         created_at=datetime.utcnow(),
                     )
@@ -1131,7 +1237,14 @@ class LuxonisDataset:
                 if "split" not in addition[component_name].keys():
                     addition[component_name]["split"] = "train"
 
-    def add(self, additions, update_only=False, from_bucket=False, add_defaults=True):
+    def add(
+        self,
+        additions,
+        update_only=False,
+        from_bucket=False,
+        add_defaults=True,
+        annotated=True,
+    ):
         """
         Function to add data and automatically log transactions
 
@@ -1151,7 +1264,7 @@ class LuxonisDataset:
         if from_bucket and self.bucket_storage.value == "local":
             raise Exception("from_bucket must be False for local dataset!")
 
-        self._check_transactions()  # will ensure any interrupted transactions are clear
+        self._check_transactions_to_execute()  # will ensure any interrupted transactions are clear
 
         post_filter = False
 
@@ -1160,7 +1273,7 @@ class LuxonisDataset:
             if add_defaults:
                 self._add_defaults(additions)
 
-            filter_result = self._add_filter(additions)
+            filter_result = self._add_filter(additions, from_bucket)
             if filter_result is None:
                 self.logger.info("No additions or modifications")
                 return
@@ -1173,7 +1286,7 @@ class LuxonisDataset:
                     additions, transaction_to_additions, from_bucket
                 )
 
-            self._add_execute(additions, transaction_to_additions)
+            self._add_execute(additions, transaction_to_additions, annotated)
 
         except BaseException as e:
             # This will not handle cases where a network connection is interrupted, as cleanup requires a network connection
@@ -1188,35 +1301,31 @@ class LuxonisDataset:
                 )
             raise e
 
-    def delete(self, deletions):
+    def delete(self, instance_ids):
         """
         Function to delete data by sample ID
 
-        deletions: a list of sample IDs as strings
+        deletions: a list of instance IDs as strings
         """
 
         # TODO: add a try/except to gracefully handle any errors
 
-        self._check_transactions()  # will clear transactions any interrupted transactions
+        self._check_transactions_to_execute()  # will clear transactions any interrupted transactions
 
-        for delete_id in deletions:
-            # assume we want to delete all components in a group
-            sample = self.fo_dataset[delete_id]
-            gid = sample[self.source.name]["id"]
-            group = self.fo_dataset.get_group(gid)
-            for component_name in group:
-                sample = self.fo_dataset[group[component_name]["id"]]
-                tid = self._make_transaction(
-                    LDFTransactionType.DELETE,
-                    sample_id=sample.id,
-                    component=component_name,
-                )
-                sample.latest = False
-                sample.save()
-                self._execute_transaction(tid)
+        sample_ids = self._update_from_instance_ids(instance_ids, "latest", False)
+
+        for sid in sample_ids:
+            tid = self._make_transaction(
+                LDFTransactionType.DELETE,
+                sample_id=sid,
+            )
+            self._execute_transaction(tid)
 
         tid = self._make_transaction(LDFTransactionType.END)
         self._execute_transaction(tid)
+
+    def annotate(self, instance_ids):
+        self._update_from_instance_ids(instance_ids, "annotated", True)
 
     def create_version(self, note, testing=False):
         def get_current_sample(sample_collection, transaction):
@@ -1229,9 +1338,9 @@ class LuxonisDataset:
                 )
             )
             if len(result):
-                return result[0]["_id"]
+                return result[0]["_id"], result[0]["annotated"]
             else:
-                return None
+                return None, None
 
         self.logger.info("Creating new version...")
         self._log_time()
@@ -1244,7 +1353,7 @@ class LuxonisDataset:
                 sample_collection = self._get_sample_collection()
             except:
                 raise Exception("Cannot find sample collection name")
-            transactions = self._check_transactions(for_versioning=True)
+            transactions = self._check_transactions_to_version()
             if transactions is None:
                 self.logger.info("There are no changes to the dataset to version!")
                 return
@@ -1300,25 +1409,33 @@ class LuxonisDataset:
             for transaction in items:
                 self._log_time()
 
-                if transaction["action"] != LDFTransactionType.END.value:
-                    # self.fo_dataset.group_slice = transaction["component"]
+                if transaction["action"] in [
+                    LDFTransactionType.END.value,
+                    LDFTransactionType.DELETE.value,
+                ]:
                     self._version_transaction(transaction["_id"])
                     versioned_transactions.append(transaction["_id"])
+                    continue
 
                 if transaction["action"] == LDFTransactionType.ADD.value:
-                    sample_id = get_current_sample(sample_collection, transaction)
+                    sample_id, annotated = get_current_sample(
+                        sample_collection, transaction
+                    )
                     if sample_id is None:
                         # This case should ideally not happen unless there is a problem with rollback
                         # Another possibility would be to delete the transaction and throw a warning instead
                         raise Exception(
                             f"Sample is none for transaction ADD with tid {transaction['_id'].binary.hex()}"
                         )
-                    add_samples.add(sample_id)
+                    if annotated:
+                        add_samples.add(sample_id)
 
                     self._log_time("Version ADD")
 
                 elif transaction["action"] == LDFTransactionType.UPDATE.value:
-                    sample_id = get_current_sample(sample_collection, transaction)
+                    sample_id, annotated = get_current_sample(
+                        sample_collection, transaction
+                    )
                     if sample_id is None:
                         # This is fine to ignore, as it means a new sample which has multiple ADD and/or UPDATE
                         # The updates are already executed and we are just finding the latest
@@ -1326,15 +1443,20 @@ class LuxonisDataset:
                         versioned_transactions.append(transaction["_id"])
                         continue
                     else:
-                        add_samples.add(sample_id)
-                        deprecate_samples.add(transaction["sample_id"])
+                        if annotated:
+                            add_samples.add(sample_id)
+                            deprecate_samples.add(transaction["sample_id"])
 
                     self._log_time("Version UPDATE")
 
-                self._version_transaction(transaction["_id"])
-                versioned_transactions.append(transaction["_id"])
+                if annotated:
+                    self._version_transaction(transaction["_id"])
+                    versioned_transactions.append(transaction["_id"])
 
                 self._log_time("Version transaction", final=True)
+
+            if not len(add_samples) and not len(deprecate_samples):
+                self.logger.info("No annotated samples to version!")
 
             self._log_time()
 
