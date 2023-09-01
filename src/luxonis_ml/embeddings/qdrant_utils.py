@@ -9,6 +9,7 @@ Features:
 - Embedding operations: Insert, batch insert, search, and retrieve embeddings from a Qdrant collection.
 
 Dependencies:
+- os: For file operations.
 - docker: For Docker-related operations.
 - numpy: For numerical operations on embeddings.
 - qdrant_client: For interacting with Qdrant.
@@ -25,6 +26,7 @@ Note:
   See https://docs.docker.com/engine/install/linux-postinstall/ for more details.
 """
 
+import os
 import docker
 import numpy as np
 from qdrant_client import QdrantClient
@@ -38,7 +40,7 @@ def is_docker_installed(client_docker):
     try:
         client_docker.version()
         return True
-    except docker.errors.DockerException:
+    except docker.errors.APIError:
         return False
 
 def is_docker_running(client_docker):
@@ -46,7 +48,7 @@ def is_docker_running(client_docker):
     try:
         client_docker.ping()
         return True
-    except docker.errors.DockerException:
+    except docker.errors.APIError:
         return False
 
 def does_image_exist(client_docker, image_name):
@@ -96,12 +98,19 @@ def start_docker_qdrant(image_name = "qdrant/qdrant", container_name = "qdrant_c
 
     if not does_container_exist(client_docker, container_name):
         print("Container does not exist. Creating container...")
+        # Expand the user's home directory
+        volume_path = os.path.expanduser("~/.cache/"+container_name+"/data")
+
+        # Create the directory if it doesn't exist
+        if not os.path.exists(volume_path):
+            os.makedirs(volume_path)
+            
         client_docker.containers.run(
             image_name, 
             detach=True, 
             name=container_name, 
             ports={'6333/tcp': 6333}, 
-            volumes={'~/.cache/qdrant_data': {'bind': '/app/data', 'mode': 'rw'}}
+            volumes={volume_path: {'bind': '/app/data', 'mode': 'rw'}}
         )
     elif not is_container_running(client_docker, container_name):
         print("Container is not running. Starting container...")
@@ -119,7 +128,7 @@ def create_collection(client, collection_name=DEFAULT_COLLECTION_NAME, vector_si
     try:
         client.get_collection(collection_name=collection_name)
         print("Collection already exists")
-    except models.QdrantError:
+    except Exception as e:
         client.recreate_collection(collection_name=collection_name,
                                    vectors_config=VectorParams(size=vector_size, distance=distance))
         print("Created new collection")
