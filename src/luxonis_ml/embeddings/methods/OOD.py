@@ -30,7 +30,7 @@ import numpy as np
 from sklearn.ensemble import IsolationForest
 from sklearn.linear_model import LinearRegression
 
-def isolation_forest_OOD(X, contamination='auto', n_jobs=-1, verbose=1, random_state=42):
+def isolation_forest_OOD(X, contamination='auto', n_jobs=-1, verbose=1, random_state=None):
     """
     Out-of-distribution detection using Isolation Forests.
 
@@ -45,7 +45,7 @@ def isolation_forest_OOD(X, contamination='auto', n_jobs=-1, verbose=1, random_s
     verbose : int
         The verbosity level. Default is 1.
     random_state : int
-        The random state to use. Default is 42.
+        The random state to use. Default is None.
     
     Returns
     -------
@@ -71,7 +71,7 @@ def isolation_forest_OOD(X, contamination='auto', n_jobs=-1, verbose=1, random_s
     return outlier_indices_forest
 
 
-def leverage_OOD(X):
+def leverage_OOD(X, std_threshold=3):
     """
     Out-of-distribution detection using leverage and linear regression.
 
@@ -79,6 +79,8 @@ def leverage_OOD(X):
     ----------
     X : np.array
         The embeddings to use.
+    std_threshold : int
+        The number of standard deviations to use for the leverage threshold. Default is 3.
     
     Returns
     -------
@@ -92,7 +94,7 @@ def leverage_OOD(X):
 
     # Calculate the leverage threshold using 3 standard deviations
     mean, std = np.mean(leverage), np.std(leverage)
-    upper_threshold, lower_threshold = mean + 3 * std, mean - 3 * std
+    upper_threshold, lower_threshold = mean + std_threshold * std, mean - std_threshold * std
     outlier_indices_lev_3std = np.where((leverage > upper_threshold) | (leverage < lower_threshold))[0]
 
     return outlier_indices_lev_3std

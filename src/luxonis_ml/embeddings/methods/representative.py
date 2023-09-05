@@ -41,10 +41,11 @@ Example Usage:
 
 """
 
+import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 from kmedoids import KMedoids
 
-from luxonis_ml.embeddings.qdrant_utils import *
+from luxonis_ml.embeddings.utils.qdrant import QdrantAPI
 
 
 def calculate_similarity_matrix(embeddings):
@@ -91,28 +92,32 @@ def find_representative_greedy(distance_matrix, desired_size=1000, seed=0):
 
     return list(selected_images)
 
-def find_representative_greedy_qdrant(qdrant_client, desired_size=1000, qdrant_collection_name="mnist", seed=0):
+def find_representative_greedy_qdrant(qdrant_api, desired_size=1000, seed=None):
     """
     Find the most representative embeddings using a greedy algorithm with Qdrant.
     NOTE: Due to many Qdrant requests, this function is very slow. Use get_all_embeddings() and find_representative_greedy() instead.
 
     Parameters
     ----------
-    qdrant_client : QdrantClient
+    qdrant_api : QdrantAPI
         The Qdrant client instance to use for searches.
     desired_size : int
         The desired size of the representative set. Default is 1000.
-    qdrant_collection_name : str
-        The name of the Qdrant collection. Default is "mnist".
     seed : int
-        The ID of the seed embedding. Default is 0.
+        The ID of the seed embedding. Default is None, which means a random seed is chosen.
 
     Returns
     -------
     list
         The IDs of the representative embeddings.
     """
-    all_ids = get_all_ids(qdrant_client, qdrant_collection_name)
+    all_ids = qdrant_api.get_all_ids()
+    
+    if seed is None:
+        seed = np.random.choice(all_ids)
+    elif seed > len(all_ids):
+        raise ValueError(f"Seed must be in the range [0, {len(all_ids)-1}].")
+    
     selected_embeddings = set()
     selected_embeddings.add(all_ids[seed])
 
@@ -123,7 +128,7 @@ def find_representative_greedy_qdrant(qdrant_client, desired_size=1000, qdrant_c
         for embedding_id in all_ids:
             if embedding_id not in selected_embeddings:
                 # Get similarities of the current embedding with the already selected embeddings
-                _, scores = get_similarities(qdrant_client, embedding_id, list(selected_embeddings), qdrant_collection_name)
+                _, scores = qdrant_api.get_similarities(embedding_id, list(selected_embeddings))
                 
                 # Calculate the minimum similarity to all previously selected embeddings
                 min_similarity = max(scores) if scores else -1
@@ -138,7 +143,7 @@ def find_representative_greedy_qdrant(qdrant_client, desired_size=1000, qdrant_c
     return list(selected_embeddings)
 
 
-def find_representative_kmedoids(similarity_matrix, desired_size=1000, max_iter=100, seed=42):
+def find_representative_kmedoids(similarity_matrix, desired_size=1000, max_iter=100, seed=None):
     """
     Find the most representative images using k-medoids.
     K-medoids clustering of embeddings
@@ -152,7 +157,7 @@ def find_representative_kmedoids(similarity_matrix, desired_size=1000, max_iter=
     max_iter : int
         The maximum number of iterations to use. Default is 100.
     seed : int
-        The random seed to use. Default is 42.
+        The random seed to use. Default is None.
 
     Returns
     -------

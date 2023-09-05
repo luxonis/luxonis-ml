@@ -67,7 +67,7 @@ def extract_embeddings(model: torch.nn.Module,
 
 def extract_embeddings_onnx(ort_session: ort.InferenceSession, 
                             data_loader: torch.utils.data.DataLoader, 
-                            output_layer_name: str = "/Flatten_output_0") -> Tuple[torch.Tensor, torch.Tensor]:
+                            output_layer_name: str) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Extract embeddings from the given ONNX model.
     """

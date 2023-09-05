@@ -26,15 +26,15 @@ Usage Examples:
 ---------------
 Initialize a Qdrant client and retrieve all embeddings from a specific collection:
 ```python
-from qdrant_client import QdrantClient
-qdrant_client = QdrantClient(host="localhost", port=6333)
-id_X, X = get_all_embeddings(qdrant_client, "webscraped_real_all")
+from luxonis_ml.embeddings.utils.qdrant import QdrantAPI
+qdrant_api = QdrantAPI(host="localhost", port=6333, collection_name="webscraped_real_all")
+id_X, X = qdrant_api.get_all_embeddings()
 i = 111
 ```
 
 1. Search for similar embeddings in Qdrant for a specific embedding:
 ```python
-ids, similarites, image_paths = search_qdrant(qdrant_client, X[i], "webscraped_real_all", "real", 1000)
+ids, similarites, image_paths = search_qdrant(qdrant_api, X[i], "real", 1000)
 vals = np.array(similarites)
 k = len(np.where(vals > 0.961)[0])  # manually selected threshold
 imgk = image_paths[:k]
@@ -42,19 +42,19 @@ imgk = image_paths[:k]
 
 2. Find similar embeddings by providing an instance ID:
 ```python
-ix, paths = find_similar_qdrant(id_X[i], qdrant_client, 5, "webscraped_real_all", "real", 100, "first")
+ix, paths = find_similar_qdrant(id_X[i], qdrant_api, "real", 5, 100, "first")
 ```
 
 3. Find similar embeddings using the KDE Peaks method:
 ```python
-ix, paths = find_similar_qdrant(X[i], qdrant_client, 5, "webscraped_real_all", "real", 100, "first", "kde_peaks", "silverman", plot=False)
+ix, paths = find_similar_qdrant(X[i], qdrant_api, "real", 5, 100, "first", "kde_peaks", "silverman", plot=False)
 ```
 
 4. Calculate the average of multiple embeddings and then find similar embeddings:
 ```python
 dark_ix = np.array([10,123,333,405])
 emb_dark = X[dark_ix]
-remove_dark_ix, paths = find_similar_qdrant(emb_dark, qdrant_client, 25, "webscraped_real_all", "real", 5000, "average", "kde_basic", "scott", plot=True)
+remove_dark_ix, paths = find_similar_qdrant(emb_dark, qdrant_api, "real", 25, 5000, "average", "kde_basic", "scott", plot=True)
 ```
 """
 
@@ -69,29 +69,11 @@ import scipy.spatial.distance as distance
 from KDEpy import FFTKDE
 
 # Qdrant
-from qdrant_client import QdrantClient
-from qdrant_client.http import models
+from luxonis_ml.embeddings.utils.qdrant import QdrantAPI
 
-from luxonis_ml.embeddings.qdrant_utils import *
-
-
-# client = QdrantClient(host="localhost", port=6333)
-
-def search_qdrant(qdrant_client, query_vector, collection_name="webscraped_real_all", data_name="flash", limit=5000):
+def search_qdrant(qdrant_api, query_vector, data_name, limit=5000):
     """Search embeddings in Qdrant."""
-    hits = qdrant_client.search(
-        collection_name=collection_name,
-        query_vector=query_vector.tolist(),
-        query_filter=models.Filter(
-            must=[
-                models.FieldCondition(
-                    key="image_path",
-                    match=models.MatchText(text=data_name)
-                )
-            ] 
-        ),
-        limit= limit
-    )
+    hits = qdrant_api.search_embeddings_by_imagepath(query_vector, data_name, top=limit)
 
     ix = [h.id for h in hits]
     vals = [h.score for h in hits]
@@ -139,10 +121,9 @@ def kde_peaks(data, bandwidth="scott", plot=False):
 
 def find_similar_qdrant(
         reference_embeddings,
-        qdrant_client,
+        qdrant_api,
+        dataset,
         k=100,
-        collection_name="webscraped_real_all",
-        dataset="flash",
         n=1000,
         method='first',
         k_method=None,
@@ -157,15 +138,14 @@ def find_similar_qdrant(
     reference_embeddings : np.array / list
         The embeddings to compare against.
         Or a list of of embedding instance_ids that reside in Qdrant.
-    qdrant_client : QdrantClient
-        The Qdrant client instance to use for searches.
-    k : int
-        The number of similar embeddings to return.
-    collection_name : str
-        The name of the Qdrant collection. Default is 'webscraped_real_all'.
+    qdrant_api : QdrantAPI
+        The Qdrant client API instance to use for searches.
     dataset : str
-        The dataset to use. Default is 'flash'.
-        (It actually filters on the image_path field, so it can be any string.)
+        The dataset to use.
+        (It actually filters on the image_path field, so it can be any string. 
+        It can be helpful if you have different datasets in subfolders for the same collection, like 'real/img1.jpg' and 'synth/img1.jpg'.)
+    k : int
+        The number of embeddings to return. Default is 100.
     n : int
         The number of embeddings to compare against. Default is 1000.
         (This is the number of embeddings that are returned by the Qdrant search. 
@@ -199,7 +179,7 @@ def find_similar_qdrant(
     if isinstance(reference_embeddings, str):
         reference_embeddings = [reference_embeddings]
     if isinstance(reference_embeddings[0], str):
-        reference_embeddings = get_embeddings_from_ids(qdrant_client, reference_embeddings, collection_name=collection_name)
+        reference_embeddings = qdrant_api.get_embeddings_from_ids(reference_embeddings)
 
     # Select the reference embedding
     if method == 'first':
@@ -214,7 +194,8 @@ def find_similar_qdrant(
     else:
         raise ValueError(f'Unknown method: {method}')
     
-    ix, vals, res = search_qdrant(qdrant_client, reference_embeddings, collection_name=collection_name, data_name=dataset, limit=n)
+    # Search for similar embeddings in Qdrant
+    ix, vals, res = search_qdrant(qdrant_api, reference_embeddings, data_name=dataset, limit=n)
     ix, similarities, res = np.array(ix), np.array(vals), np.array(res)
     
     # Select the best k embeddings

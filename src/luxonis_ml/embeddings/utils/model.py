@@ -95,7 +95,7 @@ def load_model_onnx(model_path: str = "resnet50.onnx") -> onnx.ModelProto:
     """
     return onnx.load(model_path)
 
-def extend_output_onnx(onnx_model: onnx.ModelProto, intermediate_tensor_name: str = "/Flatten_output_0") -> onnx.ModelProto:
+def extend_output_onnx(onnx_model: onnx.ModelProto, intermediate_tensor_name: str) -> onnx.ModelProto:
     """
     Set an intermediate output layer as output of the provided ONNX model.
     (You need to know the name of the intermediate layer, which you can find by inspecting the ONNX model with Netron.app)

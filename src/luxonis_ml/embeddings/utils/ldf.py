@@ -20,12 +20,6 @@ Main Functions:
 - _batch_upsert: Performs batch upserts of embeddings to Qdrant.
 - generate_embeddings: Main function that generates embeddings for a given dataset and inserts them into Qdrant.
 
-Constants:
-- DEFAULT_COLLECTION_NAME: Default name for the Qdrant collection.
-- DEFAULT_OUTPUT_LAYER_NAME: Default name for the output layer in the ONNX model.
-- DEFAULT_EMB_BATCH_SIZE: Default batch size for generating embeddings.
-- DEFAULT_QDRANT_BATCH_SIZE: Default batch size for inserting into Qdrant.
-
 Note:
 Ensure that the Qdrant server is running and accessible before using these utilities.
 """
@@ -42,12 +36,10 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, SearchRequest
 from qdrant_client.http import models
 
-DEFAULT_COLLECTION_NAME = "mnist"
-DEFAULT_OUTPUT_LAYER_NAME = "/Flatten_output_0"
-DEFAULT_EMB_BATCH_SIZE = 64
-DEFAULT_QDRANT_BATCH_SIZE = 64
+from luxonis_ml.data.dataset import LuxonisDataset
+from luxonis_ml.embeddings.utils.qdrant import QdrantAPI
 
-def _get_sample_payloads_coco(luxonis_dataset):
+def _get_sample_payloads_coco(luxonis_dataset: LuxonisDataset):
     """
     Extract payloads from the LuxonisDataset for the COCO dataset format.
     (Actually any dataset format that has the following keys: id, instance_id, filepath, path, class, split. 
@@ -80,7 +72,7 @@ def _get_sample_payloads_coco(luxonis_dataset):
     
     return all_payloads
 
-def _get_sample_payloads(luxonis_dataset):
+def _get_sample_payloads(luxonis_dataset: LuxonisDataset):
     """
     Extract payloads from the LuxonisDataset.
 
@@ -110,12 +102,12 @@ def _get_sample_payloads(luxonis_dataset):
     
     return all_payloads
 
-def _filter_new_samples(qdrant_client, qdrant_collection_name="mnist", vector_size=2048, all_payloads=[]):
+def _filter_new_samples(qdrant_client, collection_name, vector_size=2048, all_payloads=[]):
     """
     Filter out samples that are already in the Qdrant database based on their sample ID.
     Args:
         qdrant_client: Qdrant client instance.
-        qdrant_collection_name: Name of the Qdrant collection.
+        collection_name: Name of the Qdrant collection.
         vector_size: Size of the vector embeddings.
         all_payloads: List of all payloads.
     Returns:
@@ -137,7 +129,7 @@ def _filter_new_samples(qdrant_client, qdrant_collection_name="mnist", vector_si
 
 
     search_results = qdrant_client.search_batch(
-        collection_name=qdrant_collection_name,
+        collection_name=collection_name,
         requests=search_queries
     )
 
@@ -145,12 +137,12 @@ def _filter_new_samples(qdrant_client, qdrant_collection_name="mnist", vector_si
 
     return new_payloads
 
-def _filter_new_samples_by_id(qdrant_client, qdrant_collection_name="mnist", all_payloads=[]):
+def _filter_new_samples_by_id(qdrant_client, collection_name, all_payloads=[]):
     """
     Filter out samples that are already in the Qdrant database based on their instance ID.
     Args:
         qdrant_client: Qdrant client instance.
-        qdrant_collection_name: Name of the Qdrant collection.
+        collection_name: Name of the Qdrant collection.
         all_payloads: List of all payloads.
     Returns:
         List of new payloads that are not in the Qdrant database.
@@ -162,7 +154,7 @@ def _filter_new_samples_by_id(qdrant_client, qdrant_collection_name="mnist", all
 
     ids = [payload["instance_id"] for payload in all_payloads]
     search_results = qdrant_client.retrieve(
-        collection_name=qdrant_collection_name,
+        collection_name=collection_name,
         ids=ids,
         with_payload=False,
         with_vectors=False
@@ -217,15 +209,15 @@ def _generate_new_embeddings(ort_session, output_layer_name="/Flatten_output_0",
     
     return new_embeddings
 
-def _batch_upsert(qdrant_client, new_embeddings, new_payloads, qdrant_batch_size = 64, qdrant_collection_name="mnist"):
+def _batch_upsert(qdrant_client, collection_name, new_embeddings, new_payloads, qdrant_batch_size = 64):
     """
     Perform batch upserts of embeddings to Qdrant.
     Args:
         qdrant_client: Qdrant client instance.
+        collection_name: Name of the Qdrant collection.
         new_embeddings: List of new embeddings.
         new_payloads: List of new payloads.
         qdrant_batch_size: Batch size for inserting into Qdrant.
-        qdrant_collection_name: Name of the Qdrant collection.
     """
     # Perform batch upserts to Qdrant
     for i in range(0, len(new_embeddings), qdrant_batch_size):
@@ -239,7 +231,7 @@ def _batch_upsert(qdrant_client, new_embeddings, new_payloads, qdrant_batch_size
         ) for j, (embedding, payload) in enumerate(zip(batch_embeddings, batch_payloads))]
 
         try:
-            qdrant_client.upsert(collection_name=qdrant_collection_name, points=points)
+            qdrant_client.upsert(collection_name=collection_name, points=points)
             print(f"Upserted batch {i // qdrant_batch_size + 1} / {len(new_embeddings) // qdrant_batch_size + 1} of size {len(points)} to Qdrant.")
         except Exception as e:
             print(e)
@@ -247,18 +239,16 @@ def _batch_upsert(qdrant_client, new_embeddings, new_payloads, qdrant_batch_size
 
 def generate_embeddings(luxonis_dataset, 
                          ort_session, 
-                         qdrant_client, 
-                         qdrant_collection_name=DEFAULT_COLLECTION_NAME, 
-                         output_layer_name=DEFAULT_OUTPUT_LAYER_NAME,
-                         emb_batch_size=DEFAULT_EMB_BATCH_SIZE, 
-                         qdrant_batch_size=DEFAULT_QDRANT_BATCH_SIZE):
+                         qdrant_api,
+                         output_layer_name,
+                         emb_batch_size=64,
+                         qdrant_batch_size=64):
     """
     Generate embeddings for a given dataset and insert them into Qdrant.
     Args:
         luxonis_dataset: The dataset object.
         ort_session: ONNX runtime session.
-        qdrant_client: Qdrant client instance.
-        qdrant_collection_name: Name of the Qdrant collection.
+        qdrant_api: Qdrant client API instance.
         output_layer_name: Name of the output layer in the ONNX model.
         emb_batch_size: Batch size for generating embeddings.
         qdrant_batch_size: Batch size for inserting into Qdrant.
@@ -269,8 +259,10 @@ def generate_embeddings(luxonis_dataset,
     all_payloads = _get_sample_payloads_coco(luxonis_dataset)
     # all_payloads = _get_sample_payloads(luxonis_dataset)
 
+    qdrant_client, collection_name = qdrant_api.client, qdrant_api.collection_name
+
     new_payloads = _filter_new_samples_by_id(qdrant_client, 
-                                        qdrant_collection_name, 
+                                        collection_name, 
                                         all_payloads)
     
     new_embeddings = _generate_new_embeddings(ort_session,
@@ -279,10 +271,10 @@ def generate_embeddings(luxonis_dataset,
                                                 new_payloads)
     
     _batch_upsert(qdrant_client,
+                  collection_name,
                     new_embeddings,
                     new_payloads,
-                    qdrant_batch_size,
-                    qdrant_collection_name)
+                    qdrant_batch_size)
     
     # make a sample_id : embedding dictionary
     sample_id_to_embedding = {payload["sample_id"]: embedding for payload, embedding in zip(new_payloads, new_embeddings)}

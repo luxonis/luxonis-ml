@@ -32,9 +32,6 @@ import numpy as np
 import scipy.spatial.distance as distance
 from sklearn.neighbors import KNeighborsClassifier
 
-from luxonis_ml.embeddings.qdrant_utils import *
-
-
 def find_mismatches_centroids(X, y):
     """
     Find mismatches in the dataset. 
@@ -72,10 +69,10 @@ def find_mismatches_centroids(X, y):
         centroids.append(centroid)
 
     # append the centroids to the embeddings
-    Centroids = np.array(centroids)
+    centroids = np.array(centroids)
 
     # make the distance matrix
-    dist_matrix = distance.cdist(X, Centroids, metric='cosine')
+    dist_matrix = distance.cdist(X, centroids, metric='cosine')
 
     # find mismatches if the distance to other centroids is 1.5 times larger than the distance to their own centroid
     mismatches = []
