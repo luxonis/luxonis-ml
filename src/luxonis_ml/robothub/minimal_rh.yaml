@@ -1,0 +1,6 @@
+tactic: all
+apps: all
+robots: all
+target_dataset:
+  team_id: luxonis_id
+  dataset_id: 64f82cf822b7394fc91a4fc9

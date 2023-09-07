@@ -1,0 +1,14 @@
+tactic: limit
+num_of_imgs: 30
+apps: all
+robots:
+  - a44bbb6d-c582-43bf-9514-033abd05a5eb
+  - 8cae84e6-9fe6-4756-b2bf-e6a4d5ee4865
+tags: 
+  - periodic
+  - still
+  - pred_close
+target_dataset:
+  team_id: luxonis_id
+  dataset_id: 64f82cf822b7394fc91a4fc9
+  bucket_type: local

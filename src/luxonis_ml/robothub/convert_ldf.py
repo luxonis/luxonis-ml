@@ -25,6 +25,8 @@ def convert_to_additions(detections, train_test_val=None):
     labels = []
 
     for i, detection in enumerate(detections):
+        id_ = detection["id"] # This is the detection ID
+        tags = detection["tags"]
         image_path = detection["framePath"]
         # Assuming the class label is in the 'name' key of the 'data' dictionary
         label = detection["data"]["name"]
@@ -39,7 +41,9 @@ def convert_to_additions(detections, train_test_val=None):
             'image': {
                 'filepath': image_path,
                 'split': split,
-                'class': label
+                'class': label,
+                'robothub_id': id_,
+                'robothub_tags': tags
             }
         })
         labels.append(label)

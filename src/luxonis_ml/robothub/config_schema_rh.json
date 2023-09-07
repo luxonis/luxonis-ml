@@ -1,0 +1,133 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema",
+    "title": "RobotHub download config schema",
+    "description": "Schema for automatic downloading of images from RobotHub",
+    "type": "object",
+    "properties": {
+        "tactic": {
+            "type": "string",
+            "enum": ["all", "smart", "random", "limit"],
+            "description": "Tactic for image selection"
+        },
+        "num_of_imgs": {
+            "type": "number",
+            "minimum": 1,
+            "description": "Number of images to select if tactic is 'limit'"
+        },
+        "from_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Date from which to select images, inclusive"
+        },
+        "to_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Date until which to select images"
+        },
+        "apps": {
+            "oneOf": [
+                {
+                    "type": "string",
+                    "enum": ["all"],
+                    "description": "All applications"
+                },
+                {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Application IDs to filter by"
+                }
+            ]
+        },
+        "robots": {
+            "oneOf": [
+                {
+                    "type": "string",
+                    "enum": ["all"],
+                    "description": "All robots"
+                },
+                {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Robot IDs to filter by"
+                }
+            ]
+        },
+        "tags": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Tags to filter by"
+        },
+        "target_dataset": {
+            "type": "object",
+            "description": "Target LDF dataset to download images to",
+            "additionalProperties": false,
+            "properties": {
+                "team_id": {"type": "string"},
+                "dataset_id": {"type": "string"},
+                "bucket_type": {
+                    "type": "string",
+                    "enum": ["local", "aws"],
+                    "default": "local"
+                },
+                "override_bucket_type": {
+                    "type": "boolean",
+                    "default": false
+                },
+                "train_view": {
+                    "type": "string",
+                    "default": "train"
+                },
+                "val_view": {
+                    "type": "string",
+                    "default": "val"
+                },
+                "test_view": {
+                    "type": "string",
+                    "default": "test"
+                }
+            },
+            "required": ["team_id", "dataset_id"]
+        },
+        "out_tags": {
+            "type": "string",
+            "enum": ["copy", "new", "both", "none"],
+            "default": "copy",
+            "description": "Whether to copy existing tags, create new tags, or both"
+        },
+        "out_tags_new": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "New tags for the output"
+        },
+        "include_preds": {
+            "type": "boolean",
+            "default": true,
+            "description": "Whether to include model predictions"
+        },
+        "confirm": {
+            "type": "string",
+            "enum": ["automatic", "semi-manual", "manual"],
+            "default": "automatic",
+            "description": "Confirmation level - whether to automatically add images to the dataset, or to require manual confirmation"
+        },
+        "include_unannotated": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "enum": ["correct", "false", "null"]
+            },
+            "minItems": 1,
+            "uniqueItems": true,
+            "description": "Whether to include unannotated images, and if so, which ones"
+        }        
+    },
+    "if": {
+        "properties": {
+            "tactic": {"const": "limit"}
+        }
+    },
+    "then": {
+        "required": ["num_of_imgs"]
+    },
+    "required": ["tactic", "apps", "robots", "target_dataset"]
+}

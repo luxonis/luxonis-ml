@@ -1,0 +1,30 @@
+tactic: limit
+num_of_imgs: 30
+from_date: 2023-09-01
+to_date: 2023-09-02
+apps:
+  - 73bb8814-4f30-4e25-a728-06de298b017f
+robots:
+  - a44bbb6d-c582-43bf-9514-033abd05a5eb
+  - 8cae84e6-9fe6-4756-b2bf-e6a4d5ee4865
+tags: 
+  - periodic
+  - still
+  - pred_close
+target_dataset:
+  team_id: luxonis_id
+  dataset_id: 64f82cf822b7394fc91a4fc9
+  bucket_type: local
+  override_bucket_type: false
+  train_view: train
+  val_view: val
+  test_view: test
+out_tags: both
+out_tags_new: 
+  - new_tag
+include_preds: true
+confirm: automatic
+include_unannotated:
+  - 'correct'
+  - 'false'
+  - 'null'
