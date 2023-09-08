@@ -13,8 +13,8 @@ tags:
   - pred_close
 target_dataset:
   team_id: luxonis_id
-  dataset_id: 64f82cf822b7394fc91a4fc9
-  bucket_type: local
+  team_name: luxonis_team
+  dataset_name: robothub_dataset
   override_bucket_type: false
   train_view: train
   val_view: val

@@ -10,5 +10,5 @@ tags:
   - pred_close
 target_dataset:
   team_id: luxonis_id
-  dataset_id: 64f82cf822b7394fc91a4fc9
+  dataset_id: 64f984264246adca74a6b37d
   bucket_type: local

@@ -5,7 +5,7 @@ import os
 import json
 import asyncio
 
-# from config_rh import RHConfig
+from luxonis_ml.robothub.config_rh import RHConfig
 
 class RH_Downloader:
     
@@ -63,6 +63,7 @@ class RH_Downloader:
         params.append('hasFrames=true')
 
         full_url = base_url + '?' + '&'.join(params)
+        print("Fetching detections from: ", full_url)
         return full_url
 
     def save_detection_info(self, items):
@@ -108,6 +109,8 @@ class RH_Downloader:
         # Save the filtered detections to a JSON file
         with open(self.dest_dir + '/detections.json', 'w') as f:
             json.dump(detection_infos, f)
+        
+        print(f"Saved {len(detection_infos)} detections to {self.dest_dir}/detections.json")
         
     def filter_detections(self, items):
         # filter detections by app_id
@@ -156,7 +159,6 @@ class RH_Downloader:
         if response.status_code != 200:
             print("Error: ", response.status_code)
             print("Error occured while fetching detections.")
-            print(full_url)
             print(response.text)
             return
         
