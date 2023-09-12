@@ -8,7 +8,9 @@ from .data_utils import generate_hashname
 from typing import Optional
 
 
-def download_file(bucket, s3_file: str, local_dir: str) -> None:
+def download_file(
+    bucket: "boto3.resources.factory.s3.Bucket", s3_file: str, local_dir: str
+) -> None:
     """Helper function to download a file from S3"""
 
     try:
@@ -55,7 +57,9 @@ def sync_from_s3(
         print("Unable to download files. Reason:", e)
 
 
-def upload_file(bucket, local_file: str, s3_file: str) -> None:
+def upload_file(
+    bucket: "boto3.resources.factory.s3.Bucket", local_file: str, s3_file: str
+) -> None:
     """Helper function to upload a file to S3"""
 
     try:

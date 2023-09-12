@@ -7,5 +7,4 @@ from .dataset import (
     BucketType,
     BucketStorage,
 )
-from .version import LuxonisVersion
 from .parsers import LuxonisParser, DatasetType

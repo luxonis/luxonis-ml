@@ -22,7 +22,9 @@ def get_granule(filepath: str, addition: Dict, component_name: str) -> str:
     return granule
 
 
-def assert_classification_format(dataset, val: Union[List, str, None]) -> None:
+def assert_classification_format(
+    dataset: "luxonis_ml.data.LuxonisDataset", val: Union[List, str, None]
+) -> None:
     """Asserts that the format for the "class" field in additions is correct"""
 
     if val is not None:
@@ -43,7 +45,9 @@ def assert_classification_format(dataset, val: Union[List, str, None]) -> None:
             )
 
 
-def assert_boxes_format(dataset, val: Optional[List]) -> None:
+def assert_boxes_format(
+    dataset: "luxonis_ml.data.LuxonisDataset", val: Optional[List]
+) -> None:
     """Asserts that the format for the "boxes" field in additions is correct"""
 
     if val is not None:
@@ -80,7 +84,9 @@ def assert_boxes_format(dataset, val: Optional[List]) -> None:
                 raise BoundingBoxFormatException("Bbox goes outside of image")
 
 
-def assert_segmentation_format(dataset, val: Optional[np.ndarray]) -> None:
+def assert_segmentation_format(
+    dataset: "luxonis_ml.data.LuxonisDataset", val: Optional[np.ndarray]
+) -> None:
     """Asserts that the format for the "segmentation" field in additions is correct"""
 
     if val is not None:
@@ -100,7 +106,9 @@ def assert_segmentation_format(dataset, val: Optional[np.ndarray]) -> None:
             )
 
 
-def assert_keypoints_format(dataset, val: Optional[List]) -> None:
+def assert_keypoints_format(
+    dataset: "luxonis_ml.data.LuxonisDataset", val: Optional[List]
+) -> None:
     """Asserts that the format for the "keypoints" field in additions is correct"""
 
     if val is not None:
@@ -130,7 +138,9 @@ def assert_keypoints_format(dataset, val: Optional[List]) -> None:
 
 
 def check_classification(
-    dataset, val1: Union[List, str, None], val2: Optional[Classifications]
+    dataset: "luxonis_ml.data.LuxonisDataset",
+    val1: Union[List, str, None],
+    val2: Optional[Classifications],
 ) -> List[Dict]:
     """Returns possible changes between two "class" annotations"""
 
@@ -154,7 +164,9 @@ def check_classification(
 
 
 def check_boxes(
-    dataset, val1: Optional[List], val2: Optional[Detections]
+    dataset: "luxonis_ml.data.LuxonisDataset",
+    val1: Optional[List],
+    val2: Optional[Detections],
 ) -> List[Dict]:
     """Returns possible changes between two "boxes" annotations"""
 
@@ -184,7 +196,9 @@ def check_boxes(
 
 
 def check_segmentation(
-    dataset, val1: Optional[np.ndarray], val2: Optional[Segmentation]
+    dataset: "luxonis_ml.data.LuxonisDataset",
+    val1: Optional[np.ndarray],
+    val2: Optional[Segmentation],
 ) -> List[Dict]:
     """Returns possible changes between two "segmentation" annotations"""
 
@@ -201,7 +215,9 @@ def check_segmentation(
 
 
 def check_keypoints(
-    dataset, val1: Optional[List], val2: Optional[Keypoints]
+    dataset: "luxonis_ml.data.LuxonisDataset",
+    val1: Optional[List],
+    val2: Optional[Keypoints],
 ) -> List[Dict]:
     """Returns possible changes between two "keypoints" annotations"""
 
@@ -236,7 +252,10 @@ def check_keypoints(
 
 
 def check_fields(
-    dataset, latest_sample: fo.Sample, addition: Dict, component_name: str
+    dataset: "luxonis_ml.data.LuxonisDataset",
+    latest_sample: fo.Sample,
+    addition: Dict,
+    component_name: str,
 ) -> List[Dict]:
     """Returns possible changes between arbitrary other fields"""
 
@@ -292,7 +311,7 @@ def check_fields(
 
 
 def construct_class_label(
-    dataset, classes: Union[List, str, None]
+    dataset: "luxonis_ml.data.LuxonisDataset", classes: Union[List, str, None]
 ) -> Optional[Classifications]:
     """Contructs the fiftyone object for "class" annotation"""
 
@@ -316,7 +335,9 @@ def construct_class_label(
     return fo.Classifications(classifications=classifications)
 
 
-def construct_boxes_label(dataset, boxes: Optional[List]) -> Optional[Detections]:
+def construct_boxes_label(
+    dataset: "luxonis_ml.data.LuxonisDataset", boxes: Optional[List]
+) -> Optional[Detections]:
     """Contructs the fiftyone object for "boxes" annotation"""
 
     if boxes is None:
@@ -337,7 +358,7 @@ def construct_boxes_label(dataset, boxes: Optional[List]) -> Optional[Detections
 
 
 def construct_segmentation_label(
-    dataset, mask: Optional[np.ndarray]
+    dataset: "luxonis_ml.data.LuxonisDataset", mask: Optional[np.ndarray]
 ) -> Optional[Segmentation]:
     """Contructs the fiftyone object for "segmentation" annotation"""
 
@@ -351,7 +372,9 @@ def construct_segmentation_label(
     return fo.Segmentation(mask=mask)
 
 
-def construct_keypoints_label(dataset, kps: Optional[List]) -> Optional[Keypoints]:
+def construct_keypoints_label(
+    dataset: "luxonis_ml.data.LuxonisDataset", kps: Optional[List]
+) -> Optional[Keypoints]:
     """Contructs the fiftyone object for "keypoints" annotation"""
 
     if kps is None:
@@ -386,7 +409,9 @@ def generate_hashname(filepath: str) -> str:
     return str(file_hash_uuid) + os.path.splitext(filepath)[1], str(file_hash_uuid)
 
 
-def is_modified_filepath(dataset, filepath: str) -> bool:
+def is_modified_filepath(
+    dataset: "luxonis_ml.data.LuxonisDataset", filepath: str
+) -> bool:
     """Returns True if the filepath for an addition is already in the modified format"""
 
     if filepath.startswith(f"/{dataset.team_id}"):
@@ -395,7 +420,9 @@ def is_modified_filepath(dataset, filepath: str) -> bool:
         return False
 
 
-def get_group_from_sample(dataset, sample: fo.Sample) -> fo.Group:
+def get_group_from_sample(
+    dataset: "luxonis_ml.data.LuxonisDataset", sample: fo.Sample
+) -> fo.Group:
     """Find the fiftyone group belonging to a fiftyone sample"""
 
     group = sample[dataset.source.name]
@@ -403,7 +430,9 @@ def get_group_from_sample(dataset, sample: fo.Sample) -> fo.Group:
     return group
 
 
-def get_filepath_from_hash(dataset, hash: str) -> Optional[str]:
+def get_filepath_from_hash(
+    dataset: "luxonis_ml.data.LuxonisDataset", hash: str
+) -> Optional[str]:
     """Find the filepath from an instance ID"""
 
     instance_view = dataset.fo_dataset.match(F("instance_id") == hash)

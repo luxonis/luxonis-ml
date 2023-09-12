@@ -18,7 +18,6 @@ from datetime import datetime
 import pymongo
 from bson.objectid import ObjectId
 from typing import List, Dict, Tuple, Optional
-from .version import LuxonisVersion
 from .utils.s3_utils import *
 from .utils.gcs_utils import *
 
@@ -1644,3 +1643,6 @@ class LuxonisDataset:
         self.fo_dataset.save_view(name, view)
 
         return view
+
+    def export_to_json(self, version):
+        pass
