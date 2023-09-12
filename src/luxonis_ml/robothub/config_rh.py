@@ -90,3 +90,21 @@ class RHConfig:
                     if sub_key not in config[key]:
                         config[key][sub_key] = sub_default_value
         return config
+    
+    # make object serializable
+    def to_dict(self):
+        """Serializes the RHConfig object into a dictionary."""
+        return {
+            'config': self.config,
+            'schema': self.schema,
+            'config_path': self.config_path,
+            'schema_path': self.schema_path
+        }
+    
+    @classmethod
+    def from_dict(cls, serialized_data):
+        """Deserializes the dictionary into a new RHConfig object."""
+        rh_config = cls(serialized_data['config_path'], serialized_data['schema_path'])
+        rh_config.config = serialized_data['config']
+        rh_config.schema = serialized_data['schema']
+        return rh_config
