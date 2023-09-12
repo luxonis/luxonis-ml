@@ -4,48 +4,15 @@ import xml.etree.ElementTree as ET
 from typing import List
 
 
-def rle_to_mask(rle: List[int], height: int, width: int) -> np.array:
-    """
-    Converts rle to image mask
-    Args:
-        rle: your long rle
-        height: original_height
-        width: original_width
-
-    Returns: np.array
-    """
-
-    rle_input = InputStream(bytes2bit(rle))
-
-    num = rle_input.read(32)
-    word_size = rle_input.read(5) + 1
-    rle_sizes = [rle_input.read(4) + 1 for _ in range(4)]
-    # print('RLE params:', num, 'values,', word_size, 'word_size,', rle_sizes, 'rle_sizes')
-
-    i = 0
-    out = np.zeros(num, dtype=np.uint8)
-    while i < num:
-        x = rle_input.read(1)
-        j = i + 1 + rle_input.read(rle_sizes[rle_input.read(2)])
-        if x:
-            val = rle_input.read(word_size)
-            out[i:j] = val
-            i = j
-        else:
-            while i < j:
-                val = rle_input.read(word_size)
-                out[i] = val
-                i += 1
-
-    image = np.reshape(out, [height, width, 4])[:, :, 3]
-    return image
-
-
 def generate_random_color():
+    """Generates random RGB color"""
+
     return [np.random.randint(0, 255) for _ in range(3)]
 
 
 def get_xml_config(dataset) -> str:
+    """Returns the labelstudio XML for a LuxonisDataset"""
+
     root = ET.Element("View")
 
     image = ET.SubElement(root, "Image")

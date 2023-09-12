@@ -4,21 +4,18 @@ from botocore.exceptions import NoCredentialsError, ClientError
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 from pathlib import Path
+from .data_utils import generate_hashname
+from typing import Optional
 
 
-def get_file_hash(local_file):
-    local_file_hash = None
-    with open(local_file, "rb") as f:
-        local_file_hash = hashlib.md5(f.read()).hexdigest()
-    return local_file_hash
+def download_file(bucket, s3_file: str, local_dir: str) -> None:
+    """Helper function to download a file from S3"""
 
-
-def download_file(bucket, s3_file, local_dir):
     try:
         local_file_path = str(Path(local_dir) / s3_file.key)
         if (
             os.path.exists(local_file_path)
-            and get_file_hash(local_file_path) == s3_file.e_tag[1:-1]
+            and generate_hashname(local_file_path) == s3_file.e_tag[1:-1]
         ):
             print(f"File {local_file_path} already exists and is up to date.")
         else:
@@ -28,7 +25,14 @@ def download_file(bucket, s3_file, local_dir):
         print(f"Failed to download {s3_file.key}. Reason: {e}")
 
 
-def sync_from_s3(non_streaming_dir, bucket, bucket_dir, endpoint_url=None):
+def sync_from_s3(
+    non_streaming_dir: str,
+    bucket: str,
+    bucket_dir: str,
+    endpoint_url: Optional[str] = None,
+) -> None:
+    """Syncs a S3 directory of files to a local path"""
+
     os.makedirs(non_streaming_dir, exist_ok=True)
 
     print("Syncing from cloud...")
@@ -51,7 +55,9 @@ def sync_from_s3(non_streaming_dir, bucket, bucket_dir, endpoint_url=None):
         print("Unable to download files. Reason:", e)
 
 
-def upload_file(bucket, local_file, s3_file):
+def upload_file(bucket, local_file: str, s3_file: str) -> None:
+    """Helper function to upload a file to S3"""
+
     try:
         # Check if S3 object already exists
         try:
@@ -63,7 +69,7 @@ def upload_file(bucket, local_file, s3_file):
             else:  # Something else has gone wrong.
                 raise RuntimeError(f"Error while validating the object on S3.")
 
-        local_file_hash = get_file_hash(local_file)
+        local_file_hash = generate_hashname(local_file)
 
         if s3_object is None or s3_object.e_tag[1:-1] != local_file_hash:
             bucket.upload_file(local_file, s3_file)
@@ -74,7 +80,11 @@ def upload_file(bucket, local_file, s3_file):
         print(f"Failed to upload {local_file}. Reason: {e}")
 
 
-def sync_to_s3(bucket, s3_dir, local_dir, endpoint_url=None):
+def sync_to_s3(
+    bucket: str, s3_dir: str, local_dir: str, endpoint_url: Optional[str] = None
+) -> None:
+    """Syncs a local directory of files to S3"""
+
     print("Syncing to cloud...")
     s3 = boto3.resource("s3", endpoint_url=endpoint_url)
     bucket = s3.Bucket(bucket)
@@ -97,7 +107,11 @@ def sync_to_s3(bucket, s3_dir, local_dir, endpoint_url=None):
         print("Unable to upload files. Reason:", e)
 
 
-def check_s3_file_existence(bucket, s3_file, endpoint_url=None):
+def check_s3_file_existence(
+    bucket: str, s3_file: str, endpoint_url: Optional[str] = None
+) -> None:
+    """Helper function to check the existence of a file on S3"""
+
     s3 = boto3.resource("s3", endpoint_url=endpoint_url)
     bucket = s3.Bucket(bucket)
 

@@ -375,8 +375,15 @@ class LuxonisDataset:
     def _save_version(self, samples: List[fo.Sample], note: str) -> None:
         """Creates the fiftyone view equivalent to dataset version"""
 
-        version = LuxonisVersion(self, samples=samples, note=note)
-        samples = version.get_samples()
+        version_doc = fop.VersionDocument(
+            number=self.version,
+            dataset_id=self.fo_dataset._doc.id,
+            dataset_id_str=str(self.fo_dataset._doc.id),
+            created_at=datetime.utcnow(),
+            samples=samples,
+            note=note,
+        )
+        version_doc.save()
 
         version_view = self.fo_dataset[samples]
         self.fo_dataset.save_view(f"version_{self.version}", version_view)
