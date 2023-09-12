@@ -10,6 +10,25 @@ from luxonis_ml.data.utils.exceptions import *
 from typing import Dict, List, Union, Optional
 
 
+def get_ignore_fields_match(dataset: "luxonis_ml.data.LuxonisDataset") -> List:
+    return [
+        dataset.source.name,
+        "version",
+        "metadata",
+        "latest",
+        "annotated",
+        "tags",
+        "tid",
+        "_group",
+        "_old_filepath",
+        "_new_image_name",
+    ]
+
+
+def get_ignore_fields_check() -> List:
+    return ["filepath", "_group", "_old_filepath", "_new_image_name"]
+
+
 def get_granule(filepath: str, addition: Dict, component_name: str) -> str:
     """Returns the updated filename of an image and changes the name in the addition"""
 
@@ -261,22 +280,8 @@ def check_fields(
 
     changes = []
 
-    ignore_fields_match = set(
-        [
-            dataset.source.name,
-            "version",
-            "metadata",
-            "latest",
-            "tags",
-            "tid",
-            "_group",
-            "_old_filepath",
-            "_new_image_name",
-        ]
-    )
-    ignore_fields_check = set(
-        ["filepath", "_group", "_old_filepath", "_new_image_name"]
-    )
+    ignore_fields_match = set(get_ignore_fields_match(dataset))
+    ignore_fields_check = set(get_ignore_fields_check())
 
     sample_dict = latest_sample.to_dict()
     f1 = set(addition[component_name].keys())

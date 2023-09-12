@@ -1,6 +1,7 @@
 import fiftyone as fo
 import fiftyone.core.odm as foo
 import luxonis_ml.data.fiftyone_plugins as fop
+import fiftyone.core.utils as fou
 import luxonis_ml.data.utils.data_utils as data_utils
 from luxonis_ml.data.utils.exceptions import *
 from fiftyone import ViewField as F
@@ -164,6 +165,7 @@ class LuxonisDataset:
         dataset_name: str,
         team_id: str = os.getenv("LUXONISML_TEAM_ID", "offline"),
         team_name: str = os.getenv("LUXONISML_TEAM_NAME", "offline"),
+        dataset_id: Optional[str] = None,
         bucket_type: BucketType = BucketType.INTERNAL,
         bucket_storage: BucketStorage = BucketStorage.LOCAL,
     ) -> None:
@@ -176,6 +178,8 @@ class LuxonisDataset:
             Optional unique team identifier for the cloud
         team_name:
             Optional team name for the cloud
+        dataset_id:
+            Optional dataset ID unique identifier
         bucket_type:
             Whether to use external cloud buckets
         bucket_storage:
@@ -188,9 +192,10 @@ class LuxonisDataset:
             "LUXONISML_BASE_PATH", str(Path.home() / "luxonis_ml")
         )
 
+        self.dataset_name = dataset_name
         self.team_id = team_id
         self.team_name = team_name
-        self.dataset_name = dataset_name
+        self.dataset_id = dataset_id
         self.bucket_type = bucket_type
         self.bucket_storage = bucket_storage
         if not isinstance(self.bucket_type, BucketType):
@@ -221,16 +226,28 @@ class LuxonisDataset:
         self.last_time = None
 
     def __enter__(self):
-        res = list(
-            self.conn.luxonis_dataset_document.find(
-                {
-                    "$and": [
-                        {"team_id": self.team_id},
-                        {"dataset_name": self.dataset_name},
-                    ]
-                }
+        if self.dataset_id:
+            res = list(
+                self.conn.luxonis_dataset_document.find(
+                    {
+                        "$and": [
+                            {"team_id": self.team_id},
+                            {"_id": ObjectId(self.dataset_id)},
+                        ]
+                    }
+                )
             )
-        )
+        else:
+            res = list(
+                self.conn.luxonis_dataset_document.find(
+                    {
+                        "$and": [
+                            {"team_id": self.team_id},
+                            {"dataset_name": self.dataset_name},
+                        ]
+                    }
+                )
+            )
 
         if len(res):
             assert len(res) == 1
@@ -1644,5 +1661,77 @@ class LuxonisDataset:
 
         return view
 
-    def export_to_json(self, version):
-        pass
+    def export_to_json(
+        self, view_name: Optional[str] = None, version: Optional[str] = None
+    ) -> None:
+        """
+        Exports a certain view to JSON annotations to remove mongo dependency
+
+        view_name:
+            Name of a specific view to export. This takes priority over version
+        version:
+            Specfic version to export
+        """
+
+        if not len(self.fo_dataset.list_saved_views()):
+            raise Exception(
+                "There must be an existing view or version to create an export!"
+            )
+
+        if view_name:
+            view = self.fo_dataset.load_saved_view(view_name)
+        elif version:
+            view = self.fo_dataset.load_saved_view(f"version_{version}")
+        else:
+            view = self.fo_dataset.load_saved_view(f"version_{self.version}")
+
+        ignore_fields = data_utils.get_ignore_fields_match(self)
+
+        json_dir = str(
+            Path(self.base_path)
+            / "data"
+            / self.team_id
+            / "datasets"
+            / self.dataset_id
+            / "json"
+        )
+        os.makedirs(json_dir, exist_ok=True)
+
+        for sample in tqdm(view):
+            json_dict = {}
+            for key in sample._get_field_names():
+                if key == "class":
+                    json_dict["class"] = [
+                        cls["label"] for cls in sample["class"]["classifications"]
+                    ]
+                elif key == "boxes":
+                    json_dict["boxes"] = [
+                        [det["label"]] + det["bounding_box"]
+                        for det in sample["boxes"]["detections"]
+                    ]
+                elif key == "segmentation":
+                    json_dict["segmentation"] = fou.serialize_numpy_array(
+                        sample["segmentation"]["mask"]
+                    ).hex()
+                elif key == "keypoints":
+                    json_dict["keypoints"] = [
+                        [kp["label"], kp["points"]]
+                        for kp in sample["keypoints"]["keypoints"]
+                    ]
+                elif key == "created_at":
+                    json_dict["created_at"] = str(sample["created_at"])
+                elif key == self.source.name:
+                    json_dict["group_id"] = str(sample[self.source.name]["id"])
+                    json_dict["component"] = sample[self.source.name]["name"]
+                elif key not in ignore_fields:
+                    json_dict[key] = sample[key]
+            json_dict["filepath"] = str(
+                Path(self.base_path) / "data" / sample["filepath"][1:]
+            )
+
+            filename = (
+                os.path.splitext(os.path.basename(json_dict["filepath"]))[0] + ".json"
+            )
+            json_path = str(Path(json_dir) / filename)
+            with open(json_path, "w") as file:
+                json.dump(json_dict, file, indent=4)
