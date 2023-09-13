@@ -1,3 +1,4 @@
+import json
 import pymongo
 import yaml
 import os
@@ -25,3 +26,14 @@ for config_file in config_files:
     # insert into MongoDB
     collection.insert_one({"config_name": config_file.split(".")[0], "data": config_data})
 
+
+
+# Load schemas to MongoDB
+schema_file = "./configs/config_schema_rh.json"
+
+# Load JSON files and store in MongoDB
+with open(schema_file, 'r') as file:
+    schema_data = json.load(file)
+
+# insert into MongoDB
+collection.insert_one({"config_name": "config_schema_rh", "data": schema_data})

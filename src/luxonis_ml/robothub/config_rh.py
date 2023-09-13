@@ -4,54 +4,45 @@ import jsonschema
 
 class RHConfig:
 
-    def __init__(self, config_path, schema_path, config=None):
-        self.config_path = config_path
-        self.schema_path = schema_path
+    def __init__(self, config, schema):
+        if isinstance(config, str) and config.endswith(".yaml"):
+            config = RHConfig.read_config_yaml(config)
+        if isinstance(schema, str) and schema.endswith(".json"):
+            schema = RHConfig.read_schema_json(schema)
+        
+        self.config = config
+        self.schema = schema
+        self.rh_config_validate(self.config, self.schema)
+        self.config = self.set_defaults_from_schema(self.config, self.schema)
 
-        if config is None:
-            # get config and schema from files
-            self.config, self.schema = self.get_config_and_schema(config_path, schema_path)
-            self.rh_config_validate(self.config, self.schema)
-            self.config = self.set_defaults_from_schema(self.config, self.schema)
-        else:
-            # get config from input
-            self.config = config
-            self.schema = self.read_schema_json(schema_path)
-            self.rh_config_validate(self.config, self.schema)
-            self.config = self.set_defaults_from_schema(self.config, self.schema)
-    
     def get_config(self):
         return self.config
     
     def get_schema(self):
         return self.schema
     
-    def get_config_path(self):
-        return self.config_path
-    
-    def get_schema_path(self):
-        return self.schema_path
-    
     def pretty_print_config(self):
         print(json.dumps(self.config, indent=4))
     
-
-    def read_schema_json(self, schema_path):
+    @staticmethod
+    def read_schema_json(schema_path):
         with open(schema_path, 'r') as file:
             schema = json.load(file)
         return schema
 
-    def read_config_yaml(self, file_path):
+    @staticmethod
+    def read_config_yaml(file_path):
         with open(file_path, 'r') as file:
             config = yaml.safe_load(file)
         return config
 
-    def get_config_and_schema(self, config_path, schema_path):
+    @staticmethod
+    def get_config_and_schema(config_path, schema_path):
         # Read the schema
-        schema = self.read_schema_json(schema_path)
+        schema = RHConfig.read_schema_json(schema_path)
 
         # Read the config
-        config = self.read_config_yaml(config_path)
+        config = RHConfig.read_config_yaml(config_path)
 
         return config, schema
 
@@ -104,15 +95,10 @@ class RHConfig:
         """Serializes the RHConfig object into a dictionary."""
         return {
             'config': self.config,
-            'schema': self.schema,
-            'config_path': self.config_path,
-            'schema_path': self.schema_path,
+            'schema': self.schema
         }
     
     @classmethod
     def from_dict(cls, serialized_data):
         """Deserializes the dictionary into a new RHConfig object."""
-        print("SERIALIZED DATA:  ",serialized_data)
-        rh_config = cls(serialized_data['config_path'], serialized_data['schema_path'], serialized_data['config'])
-        rh_config.schema = serialized_data['schema']
-        return rh_config
+        return cls(serialized_data['config'], serialized_data['schema'])

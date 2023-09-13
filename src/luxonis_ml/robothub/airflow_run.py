@@ -17,12 +17,12 @@ default_args = {
     'depends_on_past': False,
     'email_on_failure': False,
     'email_on_retry': False,
-    'retries': 0,
+    'retries': 1,
     'retry_delay': timedelta(minutes=5),
 }
 params = {
-    'config_path': 'simple_rh', # './configs/simple_rh.yaml',
-    'schema_path': './configs/config_schema_rh.json',
+    'config_name': 'simple_rh', # './configs/simple_rh.yaml',
+    'schema_name': 'config_schema_rh', # './configs/config_schema_rh.json',
     'env_path': './.env',
     'dest_dir': './tmp/images',
 }
@@ -33,27 +33,33 @@ dag = DAG(
     default_args=default_args,
     params=params,
     description='A DAG to process RobotHub data',
-    schedule_interval=timedelta(minutes=50),  # This can be adjusted based on your needs
+    schedule_interval=timedelta(days=1),
     start_date=datetime(2023, 9, 11),
     catchup=False
 )
 
 def fetch_config_from_mongo(**kwargs):
     ti = kwargs['ti']
-    config_path = kwargs['params']['config_path']
-    schema_path = kwargs['params']['schema_path']
+    config_name = kwargs['params']['config_name']
+    schema_name = kwargs['params']['schema_name']
 
     # Use the connection ID you set up in the Airflow UI
     hook = MongoHook(conn_id="mongo_rh")
     config_collection = hook.get_collection("configs", mongo_db="robothub")
 
     # Fetch the configuration
-    config_entry = config_collection.find_one(filter={"config_name": config_path})
+    config_entry = config_collection.find_one(filter={"config_name": config_name})
     if config_entry is None:
-        raise ValueError(f"Config {config_path} not found in MongoDB!")
+        raise ValueError(f"Config {config_name} not found in MongoDB!")
     config_data = config_entry["data"]
 
-    rh_config = RHConfig("", schema_path, config_data)
+    # Fetch the schema
+    schema_entry = config_collection.find_one(filter={"config_name": schema_name})
+    if schema_entry is None:
+        raise ValueError(f"Schema {schema_name} not found in MongoDB!")
+    schema_data = schema_entry["data"]
+
+    rh_config = RHConfig(config_data, schema_data)
     ti.xcom_push(key='rh_config', value=rh_config.to_dict())
 
 fetch_mongo_config_task = PythonOperator(
