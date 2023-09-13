@@ -27,8 +27,8 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Script to process RobotHub data.")
-    parser.add_argument("--config_path", type=str, default='./simple_rh.yaml', help="Path to the config YAML file.")
-    parser.add_argument("--schema_path", type=str, default='./config_schema_rh.json', help="Path to the schema JSON file.")
+    parser.add_argument("--config_path", type=str, default='./configs/simple_rh.yaml', help="Path to the config YAML file.")
+    parser.add_argument("--schema_path", type=str, default='./configs/config_schema_rh.json', help="Path to the schema JSON file.")
     parser.add_argument("--env_path", type=str, default='./.env', help="Path to the .env file containing the token.")
     parser.add_argument("--dest_dir", type=str, default='./tmp/images', help="Destination directory for downloaded images.")
     args = parser.parse_args()

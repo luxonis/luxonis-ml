@@ -4,13 +4,21 @@ import jsonschema
 
 class RHConfig:
 
-    def __init__(self, config_path, schema_path):
+    def __init__(self, config_path, schema_path, config=None):
         self.config_path = config_path
         self.schema_path = schema_path
 
-        self.config, self.schema = self.get_config_and_schema(config_path, schema_path)
-        self.rh_config_validate(self.config, self.schema)
-        self.config = self.set_defaults_from_schema(self.config, self.schema)
+        if config is None:
+            # get config and schema from files
+            self.config, self.schema = self.get_config_and_schema(config_path, schema_path)
+            self.rh_config_validate(self.config, self.schema)
+            self.config = self.set_defaults_from_schema(self.config, self.schema)
+        else:
+            # get config from input
+            self.config = config
+            self.schema = self.read_schema_json(schema_path)
+            self.rh_config_validate(self.config, self.schema)
+            self.config = self.set_defaults_from_schema(self.config, self.schema)
     
     def get_config(self):
         return self.config
@@ -98,13 +106,13 @@ class RHConfig:
             'config': self.config,
             'schema': self.schema,
             'config_path': self.config_path,
-            'schema_path': self.schema_path
+            'schema_path': self.schema_path,
         }
     
     @classmethod
     def from_dict(cls, serialized_data):
         """Deserializes the dictionary into a new RHConfig object."""
-        rh_config = cls(serialized_data['config_path'], serialized_data['schema_path'])
-        rh_config.config = serialized_data['config']
+        print("SERIALIZED DATA:  ",serialized_data)
+        rh_config = cls(serialized_data['config_path'], serialized_data['schema_path'], serialized_data['config'])
         rh_config.schema = serialized_data['schema']
         return rh_config
