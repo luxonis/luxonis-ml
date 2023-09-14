@@ -122,8 +122,8 @@ class LuxonisDataset:
     @staticmethod
     def create(
         dataset_name: str,
-        team_id: str = os.getenv("LUXONISML_TEAM_ID", "offline"),
-        team_name: str = os.getenv("LUXONISML_TEAM_NAME", "offline"),
+        team_id: Optional[str] = None,
+        team_name: Optional[str] = None,
     ) -> str:
         """
         Creates new LDF or returns dataset ID for existing LDF
@@ -135,6 +135,11 @@ class LuxonisDataset:
         team_name:
             Optional team name for the cloud
         """
+
+        if team_id is None:
+            team_id = os.getenv("LUXONISML_TEAM_ID", "offline")
+        if team_name is None:
+            team_name = os.getenv("LUXONISML_TEAM_ID", "offline")
 
         conn = foo.get_db_conn()
         res = list(
@@ -164,8 +169,8 @@ class LuxonisDataset:
         self,
         dataset_name: Optional[str] = None,
         dataset_id: Optional[str] = None,
-        team_id: str = os.getenv("LUXONISML_TEAM_ID", "offline"),
-        team_name: str = os.getenv("LUXONISML_TEAM_NAME", "offline"),
+        team_id: Optional[str] = None,
+        team_name: Optional[str] = None,
         bucket_type: BucketType = BucketType.INTERNAL,
         bucket_storage: BucketStorage = BucketStorage.LOCAL,
     ) -> None:
@@ -190,6 +195,11 @@ class LuxonisDataset:
             raise Exception(
                 "Must provide either dataset_name or dataset_id when initializing LuxonisDataset"
             )
+
+        if team_id is None:
+            team_id = os.getenv("LUXONISML_TEAM_ID", "offline")
+        if team_name is None:
+            team_name = os.getenv("LUXONISML_TEAM_ID", "offline")
 
         self.conn = foo.get_db_conn()
 
@@ -267,7 +277,7 @@ class LuxonisDataset:
 
             self._init_path()
 
-            self.dataset_doc.save(upsert=True)
+            # self.dataset_doc.save(upsert=True)
 
         else:
             raise Exception("Dataset not found!")
@@ -277,6 +287,9 @@ class LuxonisDataset:
         else:
             self.fo_dataset = fo.Dataset(self.full_name)
         self.fo_dataset.persistent = True
+
+        if hasattr(self, "source") and hasattr(self.source, "main_component"):
+            self.fo_dataset.group_slice = self.source.main_component
 
         return self
 
@@ -1398,9 +1411,7 @@ class LuxonisDataset:
                 post_filter = True
 
             if not update_only:
-                additions = self._add_extract(
-                    additions, transaction_to_additions, from_bucket
-                )
+                additions = self._add_extract(additions, from_bucket)
 
             self._add_execute(additions, transaction_to_additions, annotated)
 
@@ -1656,6 +1667,9 @@ class LuxonisDataset:
             Optionally apply the ViewExpression under a specific version
         """
 
+        if name.startswith("version"):
+            raise Exception("Cannot create a view starting with 'version'")
+
         if version is None:
             version = self.version
 
@@ -1685,12 +1699,13 @@ class LuxonisDataset:
             )
 
         if view_name:
-            view = self.fo_dataset.load_saved_view(view_name)
+            export_name = view_name
         elif version:
-            view = self.fo_dataset.load_saved_view(f"version_{version}")
+            export_name = f"version_{version}"
         else:
-            view = self.fo_dataset.load_saved_view(f"version_{self.version}")
+            export_name = f"version_{self.version}"
 
+        view = self.fo_dataset.load_saved_view(export_name)
         ignore_fields = data_utils.get_ignore_fields_match(self)
 
         json_dir = str(
@@ -1700,7 +1715,10 @@ class LuxonisDataset:
             / "datasets"
             / self.dataset_id
             / "json"
+            / export_name
         )
+        if os.path.exists(json_dir):
+            shutil.rmtree(json_dir)
         for component_name in self.source.components:
             os.makedirs(os.path.join(json_dir, component_name), exist_ok=True)
 

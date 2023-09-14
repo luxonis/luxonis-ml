@@ -10,7 +10,6 @@ import fiftyone.core.utils as fou
 from fiftyone import ViewField as F
 from enum import Enum
 from typing import Optional, Tuple, Dict
-import luxonis_ml.loader.utils.load_utils as load_utils
 
 
 class LabelType(str, Enum):
@@ -88,8 +87,12 @@ class LuxonisLoader(torch.utils.data.Dataset):
     def _setup_json(self) -> None:
         """Further class setup for json mode"""
 
-        if self.view not in ["train", "val", "test"]:
-            raise Exception("View must be train, val, or test for JSON mode")
+        if self.view in ["train", "val", "test"]:
+            export_name = f"version_{self.dataset.version}"
+            split = self.view
+        else:
+            export_name = self.view
+            split = None
 
         # TODO: option to load other data than main_component
         json_dir = str(
@@ -99,18 +102,23 @@ class LuxonisLoader(torch.utils.data.Dataset):
             / "datasets"
             / self.dataset.dataset_id
             / "json"
+            / export_name
             / self.dataset.source.main_component
         )
+        if not os.path.exists(json_dir):
+            raise Exception(
+                f"No JSON export found for view or version {export_name} at path {json_dir}. Ensure you have exported this view or version to JSON."
+            )
         self.samples = []
         for json_file in os.listdir(json_dir):
             with open(os.path.join(json_dir, json_file)) as file:
                 sample = json.load(file)
-                if sample["split"] == self.view:
+                if split and sample["split"] == split:
                     self.samples.append(sample)
 
     def __len__(self) -> int:
         """Returns length of the pytorch dataset"""
-        return len(self.samples)
+        return len(self.ids) if self.mode == "fiftyone" else len(self.samples)
 
     def __getitem__(self, idx: int) -> Tuple[torch.tensor, Dict]:
         """Function to load a sample"""
