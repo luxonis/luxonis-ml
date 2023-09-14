@@ -162,10 +162,10 @@ class LuxonisDataset:
 
     def __init__(
         self,
-        dataset_name: str,
+        dataset_name: Optional[str] = None,
+        dataset_id: Optional[str] = None,
         team_id: str = os.getenv("LUXONISML_TEAM_ID", "offline"),
         team_name: str = os.getenv("LUXONISML_TEAM_NAME", "offline"),
-        dataset_id: Optional[str] = None,
         bucket_type: BucketType = BucketType.INTERNAL,
         bucket_storage: BucketStorage = BucketStorage.LOCAL,
     ) -> None:
@@ -186,6 +186,11 @@ class LuxonisDataset:
             Underlying bucket storage from local (no cloud), S3, or GCS
         """
 
+        if dataset_name is None and dataset_id is None:
+            raise Exception(
+                "Must provide either dataset_name or dataset_id when initializing LuxonisDataset"
+            )
+
         self.conn = foo.get_db_conn()
 
         self.base_path = os.getenv(
@@ -193,9 +198,9 @@ class LuxonisDataset:
         )
 
         self.dataset_name = dataset_name
+        self.dataset_id = dataset_id
         self.team_id = team_id
         self.team_name = team_name
-        self.dataset_id = dataset_id
         self.bucket_type = bucket_type
         self.bucket_storage = bucket_storage
         if not isinstance(self.bucket_type, BucketType):
@@ -251,6 +256,7 @@ class LuxonisDataset:
 
         if len(res):
             assert len(res) == 1
+            self.dataset_name = res[0]["dataset_name"]
             self.dataset_doc = fop.LuxonisDatasetDocument.objects.get(
                 team_id=self.team_id, dataset_name=self.dataset_name
             )
@@ -1695,7 +1701,8 @@ class LuxonisDataset:
             / self.dataset_id
             / "json"
         )
-        os.makedirs(json_dir, exist_ok=True)
+        for component_name in self.source.components:
+            os.makedirs(os.path.join(json_dir, component_name), exist_ok=True)
 
         for sample in tqdm(view):
             json_dict = {}
@@ -1732,6 +1739,6 @@ class LuxonisDataset:
             filename = (
                 os.path.splitext(os.path.basename(json_dict["filepath"]))[0] + ".json"
             )
-            json_path = str(Path(json_dir) / filename)
+            json_path = str(Path(json_dir) / json_dict["component"] / filename)
             with open(json_path, "w") as file:
                 json.dump(json_dict, file, indent=4)
