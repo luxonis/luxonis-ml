@@ -1,17 +1,23 @@
 import os
 import uuid
 from google.cloud import storage
+from google.cloud.storage import Bucket, Blob
 from concurrent.futures import ThreadPoolExecutor
 import luxonis_ml.data.utils.data_utils as data_utils
 from pathlib import Path
+from typing import Dict, List
 
 
-def upload_file(bucket, local_file, gcs_file):
+def upload_file(bucket: Bucket, local_file: str, gcs_file: str) -> None:
+    """Helper function to upload a file to GCS"""
+
     blob = bucket.blob(gcs_file)
     blob.upload_from_filename(local_file)
 
 
-def download_file(gcs_blob, local_dir):
+def download_file(gcs_blob: Blob, local_dir: str) -> None:
+    """Helper function to download a file from GCS"""
+
     try:
         local_file_path = str(Path(local_dir) / gcs_blob.name)
         if (
@@ -27,7 +33,9 @@ def download_file(gcs_blob, local_dir):
         print(f"Failed to download {gcs_blob.name}. Reason: {e}")
 
 
-def copy_file(bucket, addition):
+def copy_file(bucket: Bucket, addition: Dict) -> None:
+    """Helper function to copy a GCS file to another GCS location"""
+
     for component_name in addition.keys():
         src_prefix = addition[component_name]["_old_filepath"]
         dst_prefix = addition[component_name]["filepath"]
@@ -42,13 +50,17 @@ def copy_file(bucket, addition):
         bucket.copy_blob(blob, bucket, dst_prefix)
 
 
-def get_uuid(bucket, gcp_path):
+def get_uuid(bucket: Bucket, gcp_path: str) -> uuid.UUID:
+    """Helper function get the file UUID from a file stored on GCS"""
+
     file_contents = bucket.blob(gcp_path).download_as_bytes()
     file_hash_uuid = uuid.uuid5(uuid.NAMESPACE_URL, file_contents.hex())
     return file_hash_uuid
 
 
-def update_paths(bucket, dataset, i, additions):
+def update_paths(bucket: Bucket, dataset, i: int, additions: List[Dict]) -> None:
+    """Helper function to update the filenames for files stored on GCS"""
+
     addition = additions[i]
     for component_name in addition.keys():
         filepath = addition[component_name]["filepath"]
@@ -66,7 +78,9 @@ def update_paths(bucket, dataset, i, additions):
             additions[i][component_name]["filepath"] = new_filepath
 
 
-def sync_to_gcs(bucket, gcs_dir, local_dir):
+def sync_to_gcs(bucket: str, gcs_dir: str, local_dir: str) -> None:
+    """Syncs a local directory of files to GCS"""
+
     print("Syncing to cloud...")
     bucket = storage.Client().bucket(bucket)
 
@@ -86,7 +100,9 @@ def sync_to_gcs(bucket, gcs_dir, local_dir):
         print("Unable to upload files. Reason:", e)
 
 
-def sync_from_gcs(non_streaming_dir, bucket, bucket_dir):
+def sync_from_gcs(non_streaming_dir: str, bucket: str, bucket_dir: str) -> None:
+    """Syncs a GCS directory of files to a local path"""
+
     os.makedirs(non_streaming_dir, exist_ok=True)
 
     print("Syncing from cloud...")
@@ -107,7 +123,9 @@ def sync_from_gcs(non_streaming_dir, bucket, bucket_dir):
         print("Unable to download files. Reason:", e)
 
 
-def paths_from_gcs(dataset, additions):
+def paths_from_gcs(dataset, additions: List[Dict]) -> None:
+    """Updates paths for files stored on GCS"""
+
     bucket = storage.Client().bucket(dataset.bucket)
 
     try:
@@ -119,8 +137,9 @@ def paths_from_gcs(dataset, additions):
         print("GCS path update failed. Reason:", e)
 
 
-def copy_to_gcs(dataset, additions):
+def copy_to_gcs(dataset, additions: List[Dict]) -> None:
     """Copy from one GCS bucket to another"""
+
     print("Copying to another bucket...")
     bucket = storage.Client().bucket(dataset.bucket)
 

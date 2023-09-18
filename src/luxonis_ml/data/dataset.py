@@ -1,6 +1,7 @@
 import fiftyone as fo
 import fiftyone.core.odm as foo
 import luxonis_ml.data.fiftyone_plugins as fop
+import fiftyone.core.utils as fou
 import luxonis_ml.data.utils.data_utils as data_utils
 from luxonis_ml.data.utils.exceptions import *
 from fiftyone import ViewField as F
@@ -17,7 +18,7 @@ import numpy as np
 from datetime import datetime
 import pymongo
 from bson.objectid import ObjectId
-from .version import LuxonisVersion
+from typing import List, Dict, Tuple, Optional
 from .utils.s3_utils import *
 from .utils.gcs_utils import *
 
@@ -66,10 +67,13 @@ class BucketStorage(Enum):
 
 
 class LDFComponent:
+    """Abstract class for a piece of media within a source.
+    Most commonly, this abstracts an image sensor."""
+
     htypes = [HType.IMAGE, HType.JSON]
     itypes = [IType.BGR, IType.MONO, IType.DISPARITY, IType.DEPTH]
 
-    def __init__(self, name, htype, itype=None):
+    def __init__(self, name: str, htype: HType, itype: Optional[IType] = None) -> None:
         if htype not in self.htypes:
             raise Exception(f"{htype} is not a valid HType!")
         self.name = name
@@ -84,9 +88,17 @@ class LDFComponent:
 
 
 class LDFSource:
+    """Abstracts the structure of a dataset and which components/media are included"""
+
     types = ["real_oak", "synthetic_oak", "custom"]
 
-    def __init__(self, name, components, main_component=None, source_type=None):
+    def __init__(
+        self,
+        name: str,
+        components: List[LDFComponent],
+        main_component: Optional[str] = None,
+        source_type: Optional[str] = None,
+    ) -> None:
         self.name = name
         self.components = {component.name: component for component in components}
         if main_component is not None:
@@ -105,18 +117,30 @@ class LDFSource:
 
 
 class LuxonisDataset:
-    """
-    Uses the LDF (Luxonis Dataset Format)
-
-    The goal is to standardize an arbitrary number of devices and sensor configurations, synthetic OAKs, and other sources
-    """
+    """Luxonis Dataset Format (LDF). Used to define datasets in the Luxonis MLOps ecosystem"""
 
     @staticmethod
     def create(
-        team_id,
-        team_name,
-        dataset_name,
-    ):
+        dataset_name: str,
+        team_id: Optional[str] = None,
+        team_name: Optional[str] = None,
+    ) -> str:
+        """
+        Creates new LDF or returns dataset ID for existing LDF
+
+        dataset_name:
+            Name of the dataset
+        team_id:
+            Optional unique team identifier for the cloud
+        team_name:
+            Optional team name for the cloud
+        """
+
+        if team_id is None:
+            team_id = os.getenv("LUXONISML_TEAM_ID", "offline")
+        if team_name is None:
+            team_name = os.getenv("LUXONISML_TEAM_ID", "offline")
+
         conn = foo.get_db_conn()
         res = list(
             conn.luxonis_dataset_document.find(
@@ -143,20 +167,50 @@ class LuxonisDataset:
 
     def __init__(
         self,
-        team_id,
-        dataset_id,
-        team_name=None,
-        dataset_name=None,
-        bucket_type=BucketType.INTERNAL,
-        bucket_storage=BucketStorage.LOCAL,
-    ):
+        dataset_name: Optional[str] = None,
+        dataset_id: Optional[str] = None,
+        team_id: Optional[str] = None,
+        team_name: Optional[str] = None,
+        bucket_type: BucketType = BucketType.INTERNAL,
+        bucket_storage: BucketStorage = BucketStorage.LOCAL,
+    ) -> None:
+        """
+        Initializes LDF
+
+        dataset_name:
+            Name of the dataset
+        team_id:
+            Optional unique team identifier for the cloud
+        team_name:
+            Optional team name for the cloud
+        dataset_id:
+            Optional dataset ID unique identifier
+        bucket_type:
+            Whether to use external cloud buckets
+        bucket_storage:
+            Underlying bucket storage from local (no cloud), S3, or GCS
+        """
+
+        if dataset_name is None and dataset_id is None:
+            raise Exception(
+                "Must provide either dataset_name or dataset_id when initializing LuxonisDataset"
+            )
+
+        if team_id is None:
+            team_id = os.getenv("LUXONISML_TEAM_ID", "offline")
+        if team_name is None:
+            team_name = os.getenv("LUXONISML_TEAM_ID", "offline")
+
         self.conn = foo.get_db_conn()
 
-        self.team_id = team_id
-        self.dataset_id = dataset_id
-        self.team_name = team_name
+        self.base_path = os.getenv(
+            "LUXONISML_BASE_PATH", str(Path.home() / "luxonis_ml")
+        )
+
         self.dataset_name = dataset_name
-        self.full_name = f"{self.team_id}-{self.dataset_id}"
+        self.dataset_id = dataset_id
+        self.team_id = team_id
+        self.team_name = team_name
         self.bucket_type = bucket_type
         self.bucket_storage = bucket_storage
         if not isinstance(self.bucket_type, BucketType):
@@ -164,16 +218,13 @@ class LuxonisDataset:
         if not isinstance(self.bucket_storage, BucketStorage):
             raise Exception(f"Must use a valid BucketStorage!")
 
-        credentials_cache_file = str(
-            Path.home() / ".cache" / "luxonis_ml" / "credentials.json"
-        )
+        credentials_cache_file = str(Path(self.base_path) / "credentials.json")
         if os.path.exists(credentials_cache_file):
             with open(credentials_cache_file) as file:
                 self.creds = json.load(file)
         else:
             self.creds = {}
 
-        self._init_path()
         self.version = 0.0
         self.tasks = ["class", "boxes", "segmentation", "keypoints"]
         self.compute_heatmaps = True  # TODO: could make this configurable
@@ -190,37 +241,55 @@ class LuxonisDataset:
         self.last_time = None
 
     def __enter__(self):
+        if self.dataset_id:
+            res = list(
+                self.conn.luxonis_dataset_document.find(
+                    {
+                        "$and": [
+                            {"team_id": self.team_id},
+                            {"_id": ObjectId(self.dataset_id)},
+                        ]
+                    }
+                )
+            )
+        else:
+            res = list(
+                self.conn.luxonis_dataset_document.find(
+                    {
+                        "$and": [
+                            {"team_id": self.team_id},
+                            {"dataset_name": self.dataset_name},
+                        ]
+                    }
+                )
+            )
+
+        if len(res):
+            assert len(res) == 1
+            self.dataset_name = res[0]["dataset_name"]
+            self.dataset_doc = fop.LuxonisDatasetDocument.objects.get(
+                team_id=self.team_id, dataset_name=self.dataset_name
+            )
+            self.dataset_id = str(self.dataset_doc.id)
+            self.full_name = self.full_name = f"{self.team_id}-{self.dataset_id}"
+
+            self._doc_to_class()
+
+            self._init_path()
+
+            # self.dataset_doc.save(upsert=True)
+
+        else:
+            raise Exception("Dataset not found!")
+
         if self.full_name in fo.list_datasets():
             self.fo_dataset = fo.load_dataset(self.full_name)
         else:
             self.fo_dataset = fo.Dataset(self.full_name)
         self.fo_dataset.persistent = True
 
-        res = list(
-            self.conn.luxonis_dataset_document.find(
-                {
-                    "$and": [
-                        {"team_id": self.team_id},
-                        {"_id": ObjectId(self.dataset_id)},
-                    ]
-                }
-            )
-        )
-
-        if len(res):
-            assert len(res) == 1
-            self.dataset_doc = fop.LuxonisDatasetDocument.objects.get(
-                team_id=self.team_id, id=ObjectId(self.dataset_id)
-            )
-
-            self._doc_to_class()
-
-            self._init_path()
-
-            self.dataset_doc.save(upsert=True)
-
-        else:
-            raise Exception("Dataset not found!")
+        if hasattr(self, "source") and hasattr(self.source, "main_component"):
+            self.fo_dataset.group_slice = self.source.main_component
 
         return self
 
@@ -232,7 +301,9 @@ class LuxonisDataset:
         self._class_to_doc()
         self.dataset_doc.save(upsert=True)
 
-    def _doc_to_class(self):
+    def _doc_to_class(self) -> None:
+        """Converts mongo document to class attributes"""
+
         if hasattr(self.dataset_doc, "path") and self.dataset_doc.path is not None:
             self.path = self.dataset_doc.path
         if (
@@ -274,25 +345,33 @@ class LuxonisDataset:
         else:
             self.source = None
 
-    def _class_to_doc(self):
+    def _class_to_doc(self) -> None:
+        """Converts class attributes to mongo document"""
+
         self.dataset_doc.fo_dataset_id = self.fo_dataset._doc.id
         self.dataset_doc.path = self.path
         self.dataset_doc.bucket_type = self.bucket_type.value
         self.dataset_doc.bucket_storage = self.bucket_storage.value
         self.dataset_doc.dataset_version = str(self.version)
 
-    def _get_credentials(self, key):
+    def _get_credentials(self, key: str) -> str:
+        """Gets secret credentials from credentials file or ENV variables"""
+
         if key in self.creds.keys():
             return self.creds[key]
         else:
-            return os.environ[key]
+            return os.getenv(key, None)
 
-    def _get_source(self):
+    def _get_source(self) -> pymongo.cursor.Cursor:
+        """Queries to find source document tied to dataset"""
+
         return self.conn.luxonis_source_document.find(
             {"$and": [{"_luxonis_dataset_id": self.dataset_doc.id}]}
         ).limit(1)
 
-    def _init_boto3_client(self):
+    def _init_boto3_client(self) -> None:
+        """Initializes connection to S3 bucket"""
+
         self.client = boto3.client(
             "s3",
             endpoint_url=self._get_credentials("AWS_S3_ENDPOINT_URL"),
@@ -301,20 +380,20 @@ class LuxonisDataset:
         )
         self.bucket = self.path.split("//")[1].split("/")[0]
         self.bucket_path = self.path.split(self.bucket + "/")[-1]
-        # self._create_directory(self.bucket_path)
 
-    def _init_gcs_client(self):
-        # assumes GOOGLE_APPLICATION_CREDENTIALS is set
+    def _init_gcs_client(self) -> None:
+        """Initializes connection to GCS bucket"""
+
         self.bucket = self.path.split("//")[1].split("/")[0]
         self.bucket_path = self.path.split(self.bucket + "/")[-1]
         self.client = storage.Client()
 
-    def _init_path(self):
+    def _init_path(self) -> None:
+        """Configures local path or bucket directory"""
+
         if self.bucket_storage.value == "local":
             self.path = str(
-                Path.home()
-                / ".cache"
-                / "luxonis_ml"
+                Path(self.base_path)
                 / "data"
                 / self.team_id
                 / "datasets"
@@ -328,32 +407,23 @@ class LuxonisDataset:
             self.path = f"gs://{self._get_credentials('GCS_BUCKET')}/{self.team_id}/datasets/{self.dataset_id}"
             self._init_gcs_client()
 
-    def _create_directory(self, path, clear_contents=False):
-        if self.bucket_storage.value == "local":
-            os.makedirs(path, exist_ok=True)
-        elif self.bucket_storage.value == "s3":
-            resp = self.client.list_objects(
-                Bucket=self.bucket,
-                Prefix=f"{self.bucket_path}/{path}/",
-                Delimiter="/",
-                MaxKeys=1,
-            )
-            if "Contents" not in resp:
-                self.client.put_object(
-                    Bucket=self.bucket, Key=f"{self.bucket_path}/{path}/"
-                )
-            elif clear_contents:
-                for content in resp["Contents"]:
-                    self.client.delete_object(Bucket=self.bucket, Key=content["Key"])
+    def _save_version(self, samples: List[fo.Sample], note: str) -> None:
+        """Creates the fiftyone view equivalent to dataset version"""
 
-    def _save_version(self, samples, note):
-        version = LuxonisVersion(self, samples=samples, note=note)
-        samples = version.get_samples()
+        version_doc = fop.VersionDocument(
+            number=self.version,
+            dataset_id=self.fo_dataset._doc.id,
+            dataset_id_str=str(self.fo_dataset._doc.id),
+            created_at=datetime.utcnow(),
+            samples=samples,
+            note=note,
+        )
+        version_doc.save()
 
         version_view = self.fo_dataset[samples]
         self.fo_dataset.save_view(f"version_{self.version}", version_view)
 
-    def _log_time(self, note=None, final=False):
+    def _log_time(self, note: Optional[str] = None, final: bool = False) -> None:
         """Helper to log the time taken within a function to INFO"""
 
         if self.logger.isEnabledFor(logging.DEBUG):
@@ -366,7 +436,9 @@ class LuxonisDataset:
                 if final:
                     self.last_time = None
 
-    def _get_sample_collection(self):
+    def _get_sample_collection(self) -> Optional[str]:
+        """Gets the name of the mongo collection storing samples"""
+
         res = list(self.conn.datasets.find({"_id": ObjectId(self.fo_dataset._doc.id)}))
         if len(res):
             return res[0]["sample_collection_name"]
@@ -374,8 +446,14 @@ class LuxonisDataset:
             return None
 
     def _update_from_instance_ids(
-        self, instance_ids, attribute, value, main_only=False
-    ):
+        self,
+        instance_ids: List[str],
+        attribute: str,
+        value: str,
+        main_only: bool = False,
+    ) -> List[ObjectId]:
+        """Updates an attribute of a group of samples given their instance IDs"""
+
         try:
             sample_collection = self._get_sample_collection()
         except:
@@ -413,20 +491,19 @@ class LuxonisDataset:
 
     def create_source(
         self,
-        name=None,
-        oak_d_default=False,
-        # calibration=None,
-        # calibration_mapping=None,
-        custom_components=None,
-    ):
+        name: Optional[str] = None,
+        oak_d_default: bool = False,
+        custom_components: Optional[List[LDFComponent]] = None,
+    ) -> LDFSource:
         """
-        name (str): optional rename for standard sources, required for custom sources
-        calibration (dict): DepthAI calibration file for real device (TODO: or Unity devices)
-        calibration_mapping (dict): for calibration files from non-standard products,
-            maps camera ID to a LDFComponent for the sensor and ID pairs to disparities
-        custom_components (list): list of LDFComponents for a custom source
+        Creates the underlying source of the dataset, defining
 
-        TODO: more features with calibration
+        name:
+            Name of the source
+        oak_d_default:
+            Use the default source structure for OAK-D
+        custom_components:
+            A list of LDFComponents for a custom source
         """
 
         if oak_d_default:
@@ -477,7 +554,16 @@ class LuxonisDataset:
 
         return source
 
-    def set_classes(self, classes, task=None):
+    def set_classes(self, classes: List[str], task: Optional[str] = None) -> None:
+        """
+        Sets the names of classes for the dataset. This can be across all CV tasks or certain tasks
+
+        classes:
+            List of class names to set
+        task:
+            Optionally specify the task where these classes apply. This can be from the options in self.tasks
+        """
+
         if task is not None:
             if task not in self.tasks:
                 raise Exception(f"Task {task} is not a supported task")
@@ -486,18 +572,38 @@ class LuxonisDataset:
             for task in self.tasks:
                 self.fo_dataset.classes[task] = classes
 
-    def set_mask_targets(self, mask_targets):
+    def set_mask_targets(self, mask_targets: Dict) -> None:
+        """
+        For segmentation, this sets how the integers in a segmentaiton mask map to classes.
+
+        mask_targets:
+            Dictionary mapping from integer keys to class names. For example,
+            {
+                1: "apple",
+                2: "orange",
+                3: "banana"
+            }
+        """
+
         if 0 in mask_targets.keys():
             raise Exception("Cannot set 0! This is assumed to be the background class")
         self.fo_dataset.mask_targets = {"segmentation": mask_targets}
 
-    def set_skeleton(self, skeleton):
+    def set_skeleton(self, skeleton: Dict) -> None:
         """
-        class_name (str): name of class to add fo skeleton for
-        skeleton (dict):
-            labels (list): list of strings for what each keypoint represents
-            egdes (list): list of length length-2 lists of keypoint indices denoting
-                          how keypoints are connected
+        Sets a skeleton definition for datasets using keypoits
+
+        skeleton:
+            Dictionary with keys
+            labels:
+                List of strings for the name of each keypoint
+            edges:
+                List of length 2 lists of keypoint indices denoting how keypoints are connected
+            The following is an example
+            {
+                "labels": ["nose", "left ear", "right ear],
+                "edges": [[0,1],[0,2]]
+            }
 
         NOTE: this only supports one class, which seems to be a fiftyone limitation
         """
@@ -511,26 +617,30 @@ class LuxonisDataset:
         )
         self.fo_dataset.save()
 
-    def sync_from_cloud(self):
+    def sync_from_cloud(self) -> None:
+        """Downloads media from cloud bucket"""
+
         if self.bucket_storage.value == "local":
             self.logger.warning("This is a local dataset! Cannot sync")
         elif self.bucket_storage.value == "s3":
             sync_from_s3(
-                non_streaming_dir=str(Path.home() / ".cache" / "luxonis_ml" / "data"),
+                non_streaming_dir=str(Path(self.base_path) / "data"),
                 bucket=self.bucket,
                 bucket_dir=str(Path(self.team_id) / "datasets" / self.dataset_id),
                 endpoint_url=self._get_credentials("AWS_S3_ENDPOINT_URL"),
             )
         elif self.bucket_storage.value == "gcs":
             sync_from_gcs(
-                non_streaming_dir=str(Path.home() / ".cache" / "luxonis_ml" / "data"),
+                non_streaming_dir=str(Path(self.base_path) / "data"),
                 bucket=self.bucket,
                 bucket_dir=str(Path(self.team_id) / "datasets" / self.dataset_id),
             )
         else:
             raise NotImplementedError
 
-    def get_classes(self):
+    def get_classes(self) -> Tuple[List[str], Dict]:
+        """Gets overall classes in the dataset and classes according to CV task"""
+
         classes = set()
         classes_by_task = {}
         for task in self.fo_dataset.classes:
@@ -548,8 +658,9 @@ class LuxonisDataset:
 
         return classes, classes_by_task
 
-    def get_classes_count(self):
+    def get_classes_count(self) -> Dict:
         """Returns dictionary with number of occurances for each class. If no class label is present returns empty dict."""
+
         try:
             count_dict = self.fo_dataset.count_values("class.classifications.label")
         except:
@@ -559,10 +670,8 @@ class LuxonisDataset:
             count_dict = {}
         return count_dict
 
-    def delete_dataset(self):
-        """
-        Deletes the entire dataset, aside from the images
-        """
+    def delete_dataset(self) -> None:
+        """Deletes the entire dataset in mongo, aside from the images"""
 
         res = list(
             self.conn.luxonis_dataset_document.find(
@@ -595,8 +704,15 @@ class LuxonisDataset:
         fo.delete_dataset(self.full_name)
 
     def _make_transaction(
-        self, action, sample_id=None, field=None, value=None, component=None
-    ):
+        self,
+        action: LDFTransactionType,
+        sample_id: Optional[ObjectId] = None,
+        field: Optional[str] = None,
+        value: Optional[str] = None,
+        component: Optional[str] = None,
+    ) -> ObjectId:
+        """Creates a transaction mongo document for a modification to the dataset"""
+
         if field == "segmentation":
             mask = value
             value = {"segmentation": "mask"}
@@ -618,7 +734,9 @@ class LuxonisDataset:
 
         return transaction_doc.id
 
-    def _check_transactions_to_execute(self):
+    def _check_transactions_to_execute(self) -> Optional[List]:
+        """Returns a list of transactions to execute if transactions need to be executed."""
+
         attribute, value = "executed", False
 
         transactions = list(
@@ -647,7 +765,9 @@ class LuxonisDataset:
         else:
             return None
 
-    def _check_transactions_to_version(self):
+    def _check_transactions_to_version(self) -> List:
+        """Returns a list of transactions to version if transactions need to be versioned."""
+
         transactions = list(
             self.conn.transaction_document.find(
                 {"_dataset_id": self.dataset_doc.id, "version": -1}
@@ -655,44 +775,56 @@ class LuxonisDataset:
         )
         return transactions
 
-    def _execute_transaction(self, tid):
+    def _execute_transaction(self, tid: ObjectId) -> None:
+        """Mark a transaction as executed"""
+
         self.conn.transaction_document.update_one(
             {"_id": tid}, {"$set": {"executed": True}}
         )
 
-    def _unexecute_transaction(self, tid):
+    def _unexecute_transaction(self, tid: ObjectId) -> None:
+        """Mark a transaction as not executed"""
+
         self.conn.transaction_document.update_one(
             {"_id": tid}, {"$set": {"executed": False}}
         )
 
-    def _version_transaction(self, tid):
+    def _version_transaction(self, tid: ObjectId) -> None:
+        """Mark a transaction as versioned"""
+
         self.conn.transaction_document.update_one(
             {"_id": tid}, {"$set": {"version": self.version}}
         )
 
-    def _unversion_transaction(self, tid):
+    def _unversion_transaction(self, tid: ObjectId) -> None:
+        """Mark a transaction as not versioned"""
+
         self.conn.transaction_document.update_one(
             {"_id": tid}, {"$set": {"version": -1}}
         )
 
-    def _incr_version(self, media_change, field_change):
+    def _incr_version(self, media_change: bool, field_change: bool) -> None:
+        """Increments the dataset version based on media changes or annotation changes"""
+
         if media_change:  # major change
             self.version += 1
         if field_change:  # minor change
             self.version += 0.1
         self.version = round(self.version, 1)
 
-    def _decr_version(self, media_change, field_change):
+    def _decr_version(self, media_change: bool, field_change: bool) -> None:
+        """Decrements the dataset version based on media changes or annotation changes"""
+
         if media_change:  # major change
             self.version -= 1
         if field_change:  # minor change
             self.version -= 0.1
         self.version = round(self.version, 1)
 
-    def _add_filter(self, additions, from_bucket=False):
-        """
-        Filters out any additions to the dataset already existing
-        """
+    def _add_filter(
+        self, additions: List[Dict], from_bucket: bool = False
+    ) -> Optional[Tuple[Dict, bool, bool]]:
+        """Filters out any already existing additions to the dataset and makes transactions for changes to execute"""
 
         self._log_time()
 
@@ -883,10 +1015,10 @@ class LuxonisDataset:
                 pass
             raise DataTransactionException(filepath, type(e).__name__, str(e))
 
-    def _add_extract(self, additions, transaction_to_additions, from_bucket):
-        """
-        Filters out any additions to the dataset already existing
-        """
+    def _add_extract(
+        self, additions: List[Dict], from_bucket: bool = False
+    ) -> List[Dict]:
+        """Adds media to organized local or bucket storage"""
 
         self.logger.info("Extracting dataset media...")
         self._log_time()
@@ -894,16 +1026,14 @@ class LuxonisDataset:
         components = self.source.components
         if self.bucket_storage.value == "local":
             local_cache = str(
-                Path.home()
-                / ".cache"
-                / "luxonis_ml"
+                Path(self.base_path)
                 / "data"
                 / self.team_id
                 / "datasets"
                 / self.dataset_id
             )
         else:
-            local_cache = str(Path.home() / ".cache" / "luxonis_ml" / "tmp")
+            local_cache = str(Path(self.base_path) / "tmp")
         os.makedirs(local_cache, exist_ok=True)
         for component_name in components:
             os.makedirs(str(Path(local_cache) / component_name), exist_ok=True)
@@ -915,10 +1045,6 @@ class LuxonisDataset:
             logging.INFO
         ):
             items = tqdm(items, total=len(additions))
-
-        # transactions = self._check_transactions()
-        # tid_to_filepath = t["tid"]:t["filepath"]
-        # TODO
 
         self._log_time("Extract setup", final=True)
 
@@ -960,17 +1086,6 @@ class LuxonisDataset:
                     self._log_time("Extract addition s3 check existence")
                     sync = True
 
-                # if from_bucket:
-                # old_prefix = filepath.split(f"s3://{self.bucket}/")[-1]
-                # new_prefix = f"{self.bucket_path}/{component_name}/{granule}"
-                # self.client.copy_object(
-                #     Bucket=self.bucket,
-                #     Key=new_prefix,
-                #     CopySource={"Bucket": self.bucket, "Key": old_prefix},
-                # )
-                # if self.bucket_storage.value == "gcs":
-                #     copy_to_gcs(self, additions)
-                # self._log_time("Extract addition from_bucket", final=True)
                 if not from_bucket:
                     if not data_utils.is_modified_filepath(self, filepath):
                         cmd = f"cp {filepath} {local_path}"
@@ -1050,8 +1165,13 @@ class LuxonisDataset:
         return additions
 
     def _add_execute(
-        self, additions=None, transaction_to_additions=None, annotated=True
-    ):
+        self,
+        additions: Optional[List[Dict]] = None,
+        transaction_to_additions: Optional[Dict] = None,
+        annotated: bool = True,
+    ) -> None:
+        """Executes changes to annotations and other dataset fields in mongo"""
+
         self.logger.info("Executing changes to dataset...")
 
         source = self.source
@@ -1231,7 +1351,9 @@ class LuxonisDataset:
             self.logger.info("Adding samples to Fiftyone")
             self.fo_dataset.add_samples(samples)
 
-    def _add_defaults(self, additions):
+    def _add_defaults(self, additions: List[Dict]) -> None:
+        """Adds any default attributes to the additions which may be missing"""
+
         for i, addition in enumerate(additions):
             for component_name in addition.keys():
                 if "split" not in addition[component_name].keys():
@@ -1239,26 +1361,33 @@ class LuxonisDataset:
 
     def add(
         self,
-        additions,
-        update_only=False,
-        from_bucket=False,
-        add_defaults=True,
-        annotated=True,
-    ):
+        additions: List[Dict],
+        update_only: bool = False,
+        from_bucket: bool = False,
+        add_defaults: bool = True,
+        annotated: bool = True,
+    ) -> None:
         """
-        Function to add data and automatically log transactions
+        Function to add data to LDF
 
-        additions: a list of dictionaries describing each Voxel51 sample
+        additions:
+            A list of dictionaries describing each Voxel51 sample.
             Each dict contains keys of components
             The value of each component can contain the following keys:
-                filepath (media) : path to image, video, point cloud, or voxel
+                filepath (media)   : path to image, video, point cloud, or voxel
                 -----
                 class              : name of class for an entire image (Image Classification)
                 boxes              : list of Nx5 numpy arrays [class, xmin, ymin, width, height] (Object Detection)
                 segmentation       : numpy array where pixels correspond to integer values of classes
                 keypoints          : list of classes and (x,y) keypoints
-        from_bucket: True if adding images to a cloud bucket instead of locally
-        add_defaults: Add default values, such as split. Useful when calling the method the first time. Best if set to false on updates.
+        update_only:
+            Skip the media extraction step since if there are no new images
+        from_bucket:
+            True if adding images to a cloud bucket instead of locally
+        add_defaults:
+            Add default values, such as split. Useful when calling the method the first time. Best if set to false on updates.
+        annotated:
+            Whether annotations are included with the additions
         """
 
         if from_bucket and self.bucket_storage.value == "local":
@@ -1282,9 +1411,7 @@ class LuxonisDataset:
                 post_filter = True
 
             if not update_only:
-                additions = self._add_extract(
-                    additions, transaction_to_additions, from_bucket
-                )
+                additions = self._add_extract(additions, from_bucket)
 
             self._add_execute(additions, transaction_to_additions, annotated)
 
@@ -1301,11 +1428,12 @@ class LuxonisDataset:
                 )
             raise e
 
-    def delete(self, instance_ids):
+    def delete(self, instance_ids: List[str]) -> None:
         """
-        Function to delete data by sample ID
+        Function to delete data by instance ID
 
-        deletions: a list of instance IDs as strings
+        instance_ids:
+            A list of instance IDs as strings
         """
 
         # TODO: add a try/except to gracefully handle any errors
@@ -1324,10 +1452,22 @@ class LuxonisDataset:
         tid = self._make_transaction(LDFTransactionType.END)
         self._execute_transaction(tid)
 
-    def annotate(self, instance_ids):
+    def annotate(self, instance_ids: List[str]) -> None:
+        """Marks a set of images as annotated"""
+
         self._update_from_instance_ids(instance_ids, "annotated", True)
 
-    def create_version(self, note, testing=False):
+    def create_version(
+        self,
+        note: str,
+    ) -> None:
+        """
+        Creates a saved version of the dataset for training reproducibility
+
+        note:
+            A message associated with the version to help remember it
+        """
+
         def get_current_sample(sample_collection, transaction):
             result = list(
                 self.conn[sample_collection].find(
@@ -1484,9 +1624,6 @@ class LuxonisDataset:
             self._save_version(version_samples, note)
             self._log_time("Version save version")
 
-            if testing:
-                raise Exception("Test exception")
-
         except BaseException as e:
             self.logger.error(
                 "-------- Cleaning up... please to not interrupt the program! --------"
@@ -1502,9 +1639,7 @@ class LuxonisDataset:
             if samples_added:
                 self.conn[sample_collection].update_many(
                     {"_id": {"$in": add_samples}},
-                    {
-                        "$set": {"latest": False, "version": self.version}
-                    },  # self.version is now decremented
+                    {"$set": {"latest": False, "version": self.version}},
                 )
             if samples_deprecated:
                 self.conn[sample_collection].update_many(
@@ -1514,7 +1649,27 @@ class LuxonisDataset:
 
             raise DataVersionException(transaction, type(e).__name__, str(e))
 
-    def create_view(self, name, expr, version=None):
+    def create_view(
+        self,
+        name: str,
+        expr: fo.core.expressions.ViewExpression,
+        version: Optional[str] = None,
+    ) -> fo.core.view.DatasetView:
+        """
+        Creates a view of a dataset from any fiftyone query (ViewExpression)
+
+        name:
+            Name of the view
+        expr:
+            ViewExpression defining the dataset query
+            example expr: (F("sunny") ==  True) && (F("scene") == "outdoors")
+        version:
+            Optionally apply the ViewExpression under a specific version
+        """
+
+        if name.startswith("version"):
+            raise Exception("Cannot create a view starting with 'version'")
+
         if version is None:
             version = self.version
 
@@ -1525,3 +1680,83 @@ class LuxonisDataset:
         self.fo_dataset.save_view(name, view)
 
         return view
+
+    def export_to_json(
+        self, view_name: Optional[str] = None, version: Optional[str] = None
+    ) -> None:
+        """
+        Exports a certain view to JSON annotations to remove mongo dependency
+
+        view_name:
+            Name of a specific view to export. This takes priority over version
+        version:
+            Specfic version to export
+        """
+
+        if not len(self.fo_dataset.list_saved_views()):
+            raise Exception(
+                "There must be an existing view or version to create an export!"
+            )
+
+        if view_name:
+            export_name = view_name
+        elif version:
+            export_name = f"version_{version}"
+        else:
+            export_name = f"version_{self.version}"
+
+        view = self.fo_dataset.load_saved_view(export_name)
+        ignore_fields = data_utils.get_ignore_fields_match(self)
+
+        json_dir = str(
+            Path(self.base_path)
+            / "data"
+            / self.team_id
+            / "datasets"
+            / self.dataset_id
+            / "json"
+            / export_name
+        )
+        if os.path.exists(json_dir):
+            shutil.rmtree(json_dir)
+        for component_name in self.source.components:
+            os.makedirs(os.path.join(json_dir, component_name), exist_ok=True)
+
+        for sample in tqdm(view):
+            json_dict = {}
+            for key in sample._get_field_names():
+                if key == "class":
+                    json_dict["class"] = [
+                        cls["label"] for cls in sample["class"]["classifications"]
+                    ]
+                elif key == "boxes":
+                    json_dict["boxes"] = [
+                        [det["label"]] + det["bounding_box"]
+                        for det in sample["boxes"]["detections"]
+                    ]
+                elif key == "segmentation":
+                    json_dict["segmentation"] = fou.serialize_numpy_array(
+                        sample["segmentation"]["mask"]
+                    ).hex()
+                elif key == "keypoints":
+                    json_dict["keypoints"] = [
+                        [kp["label"], kp["points"]]
+                        for kp in sample["keypoints"]["keypoints"]
+                    ]
+                elif key == "created_at":
+                    json_dict["created_at"] = str(sample["created_at"])
+                elif key == self.source.name:
+                    json_dict["group_id"] = str(sample[self.source.name]["id"])
+                    json_dict["component"] = sample[self.source.name]["name"]
+                elif key not in ignore_fields:
+                    json_dict[key] = sample[key]
+            json_dict["filepath"] = str(
+                Path(self.base_path) / "data" / sample["filepath"][1:]
+            )
+
+            filename = (
+                os.path.splitext(os.path.basename(json_dict["filepath"]))[0] + ".json"
+            )
+            json_path = str(Path(json_dir) / json_dict["component"] / filename)
+            with open(json_path, "w") as file:
+                json.dump(json_dict, file, indent=4)
