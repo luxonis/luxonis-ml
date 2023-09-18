@@ -1,3 +1,4 @@
+import asyncio
 import os
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
@@ -18,13 +19,14 @@ default_args = {
     'email_on_failure': False,
     'email_on_retry': False,
     'retries': 1,
-    'retry_delay': timedelta(minutes=5),
+    'retry_delay': timedelta(minutes=2),
 }
 params = {
-    'config_name': 'simple_rh', # './configs/simple_rh.yaml',
+    'config_name': 'minimal_rh', # './configs/simple_rh.yaml',
     'schema_name': 'config_schema_rh', # './configs/config_schema_rh.json',
     'env_path': './.env',
     'dest_dir': './tmp/images',
+    "max_img_limit" : 200 
 }
 
 # Instantiate the DAG
@@ -82,22 +84,60 @@ load_env_vars_task = PythonOperator(
     dag=dag,
 )
 
-# Task to download images
-def download_images(**kwargs):
+
+def get_detections(**kwargs):
     ti = kwargs['ti']
     serialized_data = ti.xcom_pull(task_ids='mongo_fetch', key='rh_config')
     rh_config = RHConfig.from_dict(serialized_data)
     dest_dir = kwargs['params']['dest_dir']
     rh_token = ti.xcom_pull(task_ids='load_env_vars')
-    rh_downloader = RH_Downloader(rh_token, rh_config, dest_dir)
-    rh_downloader.run_async_download()
 
-download_images_task = PythonOperator(
-    task_id='download_images',
-    python_callable=download_images,
+    rh_downloader = RH_Downloader(rh_token, rh_config, dest_dir)
+    
+    url = rh_downloader.build_url()
+    detections = rh_downloader.get_detections(url)
+    filtered_detections = rh_downloader.filter_detections(detections)
+    rh_downloader.save_detections_info(filtered_detections)
+    
+    return filtered_detections
+
+get_detections_task = PythonOperator(
+    task_id='get_detections',
+    python_callable=get_detections,
     provide_context=True,
     dag=dag,
 )
+
+def download_images(batch_num, **kwargs):
+    ti = kwargs['ti']
+    max_img_limit = kwargs['params']['max_img_limit']
+    serialized_data = ti.xcom_pull(task_ids='mongo_fetch', key='rh_config')
+    rh_config = RHConfig.from_dict(serialized_data)
+    dest_dir = kwargs['params']['dest_dir']
+    rh_token = ti.xcom_pull(task_ids='load_env_vars')
+
+    rh_downloader = RH_Downloader(rh_token, rh_config, dest_dir)
+
+    filtered_detections = ti.xcom_pull(task_ids='get_detections')
+    start = batch_num * max_img_limit
+    end = (batch_num + 1) * max_img_limit
+    if start >= len(filtered_detections) or start < 0 or end < 0 or end > len(filtered_detections):
+        return
+    subset_detections = filtered_detections[start:end]
+
+    asyncio.run(rh_downloader.download_images(subset_detections))
+
+download_tasks = []
+for i in range(10):
+    task = PythonOperator(
+        task_id=f'download_images_{i}',
+        python_callable=download_images,
+        op_args=[i],
+        provide_context=True,
+        dag=dag,
+    )
+    download_tasks.append(task)
+    get_detections_task >> task
 
 # Task to convert images to LDF
 def convert_to_ldf(**kwargs):
@@ -116,7 +156,7 @@ convert_to_ldf_task = PythonOperator(
 )
 
 # Set the task dependencies
-fetch_mongo_config_task >> load_env_vars_task >> download_images_task >> convert_to_ldf_task 
+fetch_mongo_config_task >> load_env_vars_task >> get_detections_task >> download_tasks >> convert_to_ldf_task
 
 if __name__ == "__main__":
     dag.cli()

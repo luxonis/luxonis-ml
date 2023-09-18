@@ -46,7 +46,12 @@ class LDF_Converter:
             image_path = detection["framePath"]
             # Assuming the class label is in the 'name' key of the 'data' dictionary
             if self.cfg.get("include_preds", True):
-                label = detection["data"]["name"]
+                if "name" in detection["data"]:
+                    label = detection["data"]["name"]
+                elif "detections" in detection["data"] and len(detection["data"]["detections"]) > 0 and "label" in detection["data"]["detections"][0]:
+                    label = detection["data"]["detections"][0]["label"]
+                else:
+                    label = None
             else:
                 label = None
             
@@ -65,7 +70,8 @@ class LDF_Converter:
                     'robothub_tags': tags
                 }
             })
-            labels.append(label)
+            if label is not None:
+                labels.append(label)
         
         return additions, labels
     
@@ -170,6 +176,7 @@ class LDF_Converter:
             self.fill_luxonis_dataset(additions, labels)
         else:
             dataset_id = self.create_luxonis_dataset(additions, labels)
+            print(f"Created new dataset! \nDataset ID: {dataset_id}")
 
         # with LuxonisDataset(
         #     team_id=team_id,

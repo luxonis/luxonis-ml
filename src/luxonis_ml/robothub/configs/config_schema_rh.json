@@ -1,5 +1,5 @@
 {
-    "$schema": "http://json-schema.org/draft-07/schema",
+    "schema": "http://json-schema.org/draft-07/schema",
     "title": "RobotHub download config schema",
     "description": "Schema for automatic downloading of images from RobotHub",
     "type": "object",

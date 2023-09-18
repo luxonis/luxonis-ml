@@ -66,45 +66,55 @@ class RH_Downloader:
         print("Fetching detections from: ", full_url)
         return full_url
 
-    def save_detection_info(self, items):
+    def save_detections_info(self, items):
         detection_infos = []
+        print("Saving detections info...", len(items))
         # Filter and reformat the detections
         for detection in items:
-            device_id = detection['title'].split(' ')[4].strip('.')
-            frame_name = detection['frames'][0]['path']
-            id_ = detection['id']
-            image_time = detection['createdAt'].replace(":", "-").split(".")[0]
-            frame_path = f'{image_time}_{id_}_{frame_name}.png'
+            try:
+                device_id = detection['title'].split(' ')[4].strip('.')
+                frame_name = detection['frames'][0]['path']
+                id_ = detection['id']
+                image_time = detection['createdAt'].replace(":", "-").split(".")[0]
+                frame_path = f'{image_time}_{id_}_{frame_name}.png'
 
-            frame_full_path = os.path.abspath(os.path.join(self.dest_dir, frame_path))
+                frame_full_path = os.path.abspath(os.path.join(self.dest_dir, frame_path))
 
-            # Create a new dictionary with the required fields
-            detection_info = {
-                "id": detection["id"],
-                "createdAt": detection["createdAt"],
-                "teamId": detection["teamId"],
-                "robotId": detection["robotId"],
-                "deviceId": device_id,
-                "appId": detection["appId"],
-                "tags": detection["tags"],
-                "frame": frame_name,
-                "framePath": frame_full_path,
-                "data": detection["data"],
-                "classification": detection["classification"]
-            }
+                # Create a new dictionary with the required fields
+                detection_info = {
+                    "id": detection["id"],
+                    "createdAt": detection["createdAt"],
+                    "teamId": detection["teamId"],
+                    "robotId": detection["robotId"],
+                    "deviceId": device_id,
+                    "appId": detection["appId"],
+                    "tags": detection["tags"],
+                    "frame": frame_name,
+                    "framePath": frame_full_path,
+                    "data": detection["data"],
+                    "classification": detection["classification"]
+                }
 
-            # Modify tags based on out_tags
-            out_tags = self.cfg.get("out_tags", "copy")
-            if out_tags == "copy":
-                pass
-            elif out_tags == "new":
-                detection_info["tags"] = self.cfg.get("out_tags_new", [])
-            elif out_tags == "both":
-                detection_info["tags"].extend(self.cfg.get("out_tags_new", []))
-            elif out_tags == "none":
-                detection_info["tags"] = []
-
-            detection_infos.append(detection_info)
+                # Modify tags based on out_tags
+                out_tags = self.cfg.get("out_tags", "copy")
+                if out_tags == "copy":
+                    pass
+                elif out_tags == "new":
+                    detection_info["tags"] = self.cfg.get("out_tags_new", [])
+                elif out_tags == "both":
+                    detection_info["tags"].extend(self.cfg.get("out_tags_new", []))
+                elif out_tags == "none":
+                    detection_info["tags"] = []
+                
+                detection_infos.append(detection_info)
+                
+            except:
+                print("Error occured while processing detection: ", detection)
+                continue
+        
+        # check if the folder exists
+        if not os.path.exists(self.dest_dir):
+            os.makedirs(self.dest_dir) # exist_ok=True)
         
         # Save the filtered detections to a JSON file
         with open(self.dest_dir + '/detections.json', 'w') as f:
@@ -150,11 +160,13 @@ class RH_Downloader:
             async with aiofiles.open(filename, "wb") as f:
                 await f.write(await response.read())
 
-    async def get_detections(self, full_url):
+    def get_detections(self, full_url):        
+        t = 100 if "take=all" in full_url else 10
+
         response = requests.get(
             full_url,
             headers={'Authorization': f'Bearer {self.rh_token}'},
-            timeout=10
+            timeout=t
         )
         if response.status_code != 200:
             print("Error: ", response.status_code)
@@ -163,8 +175,9 @@ class RH_Downloader:
             return
         
         items = response.json()['items']
-        items = self.filter_detections(items)
-        
+        return items
+    
+    async def download_images(self, items):
         # check if the folder exists
         if not os.path.exists(self.dest_dir):
             os.makedirs(self.dest_dir) # exist_ok=True)
@@ -174,9 +187,10 @@ class RH_Downloader:
             await asyncio.gather(
                 *[self.download_frames(image, session) for image in items]
             )
-        
-        self.save_detection_info(items)
-
+    
     def run_async_download(self):
-        full_url = self.build_url()
-        asyncio.run(self.get_detections(full_url))
+        url = self.build_url()
+        detections = self.get_detections(url)
+        filtered_detections = self.filter_detections(detections)
+        asyncio.run(self.download_images(filtered_detections))
+        self.save_detections_info(filtered_detections)
