@@ -4,8 +4,8 @@ from dotenv import load_dotenv
 from datetime import datetime, timedelta
 
 from airflow import DAG
-from airflow.operators.python import PythonOperator
-from airflow.operators.bash import BashOperator
+from airflow.decorators import dag, task
+from airflow.operators.python import get_current_context
 from airflow.providers.mongo.hooks.mongo import MongoHook
 
 from luxonis_ml.robothub.config_rh import RHConfig
@@ -22,15 +22,15 @@ default_args = {
     'retry_delay': timedelta(minutes=2),
 }
 params = {
-    'config_name': 'minimal_rh', # './configs/simple_rh.yaml',
-    'schema_name': 'config_schema_rh', # './configs/config_schema_rh.json',
+    'config_name': 'minimal_rh',
+    'schema_name': 'config_schema_rh',
     'env_path': './.env',
     'dest_dir': './tmp/images',
     "max_img_limit" : 200 
 }
 
 # Instantiate the DAG
-dag = DAG(
+@dag(
     'robothub_dag',
     default_args=default_args,
     params=params,
@@ -39,125 +39,114 @@ dag = DAG(
     start_date=datetime(2023, 9, 11),
     catchup=False
 )
+def robothub_dag():
 
-def fetch_config_from_mongo(**kwargs):
-    ti = kwargs['ti']
-    config_name = kwargs['params']['config_name']
-    schema_name = kwargs['params']['schema_name']
+    @task
+    def fetch_config_from_mongo():
+        context = get_current_context()
+        config_name = context['params']['config_name']
+        schema_name = context['params']['schema_name']
 
-    # Use the connection ID you set up in the Airflow UI
-    hook = MongoHook(conn_id="mongo_rh")
-    config_collection = hook.get_collection("configs", mongo_db="robothub")
+        # Use the connection ID you set up in the Airflow UI
+        hook = MongoHook(conn_id="mongo_rh")
+        config_collection = hook.get_collection("configs", mongo_db="robothub")
 
-    # Fetch the configuration
-    config_entry = config_collection.find_one(filter={"config_name": config_name})
-    if config_entry is None:
-        raise ValueError(f"Config {config_name} not found in MongoDB!")
-    config_data = config_entry["data"]
+        # Fetch the configuration
+        config_entry = config_collection.find_one(filter={"config_name": config_name})
+        if config_entry is None:
+            raise ValueError(f"Config {config_name} not found in MongoDB!")
+        config_data = config_entry["data"]
 
-    # Fetch the schema
-    schema_entry = config_collection.find_one(filter={"config_name": schema_name})
-    if schema_entry is None:
-        raise ValueError(f"Schema {schema_name} not found in MongoDB!")
-    schema_data = schema_entry["data"]
+        # Fetch the schema
+        schema_entry = config_collection.find_one(filter={"config_name": schema_name})
+        if schema_entry is None:
+            raise ValueError(f"Schema {schema_name} not found in MongoDB!")
+        schema_data = schema_entry["data"]
 
-    rh_config = RHConfig(config_data, schema_data)
-    ti.xcom_push(key='rh_config', value=rh_config.to_dict())
-
-fetch_mongo_config_task = PythonOperator(
-    task_id='mongo_fetch',
-    python_callable=fetch_config_from_mongo,
-    provide_context=True,
-    dag=dag,
-)
-
-# Task to load environment variables
-def load_env_vars(**kwargs):
-    env_path = kwargs['params']['env_path']
-    load_dotenv(env_path)
-    rh_token = os.getenv('TOKEN')
-    return rh_token
-
-load_env_vars_task = PythonOperator(
-    task_id='load_env_vars',
-    python_callable=load_env_vars,
-    dag=dag,
-)
-
-
-def get_detections(**kwargs):
-    ti = kwargs['ti']
-    serialized_data = ti.xcom_pull(task_ids='mongo_fetch', key='rh_config')
-    rh_config = RHConfig.from_dict(serialized_data)
-    dest_dir = kwargs['params']['dest_dir']
-    rh_token = ti.xcom_pull(task_ids='load_env_vars')
-
-    rh_downloader = RH_Downloader(rh_token, rh_config, dest_dir)
+        rh_config = RHConfig(config_data, schema_data)
+        return rh_config.to_dict()
     
-    url = rh_downloader.build_url()
-    detections = rh_downloader.get_detections(url)
-    filtered_detections = rh_downloader.filter_detections(detections)
-    rh_downloader.save_detections_info(filtered_detections)
+    # Task to load environment variables
+    @task
+    def load_env_vars():
+        context = get_current_context()
+        env_path = context['params']['env_path']
+        load_dotenv(env_path)
+        rh_token = os.getenv('TOKEN')
+        return rh_token
     
-    return filtered_detections
+    @task
+    def get_detections(serialized_data, rh_token):
+        rh_config = RHConfig.from_dict(serialized_data)
+        context = get_current_context()
+        dest_dir = context['params']['dest_dir']
 
-get_detections_task = PythonOperator(
-    task_id='get_detections',
-    python_callable=get_detections,
-    provide_context=True,
-    dag=dag,
-)
+        rh_downloader = RH_Downloader(rh_token, rh_config, dest_dir)
+        
+        url = rh_downloader.build_url()
+        detections = rh_downloader.get_detections(url)
+        filtered_detections = rh_downloader.filter_detections(detections)
+        rh_downloader.save_detections_info(filtered_detections)
+        
+        return filtered_detections
+    
+    @task
+    def get_num_batches(filtered_detections):
+        context = get_current_context()
+        max_img_limit = context['params']['max_img_limit']
+        num_batches = (len(filtered_detections) + max_img_limit - 1) // max_img_limit
+        return list(range(num_batches))
 
-def download_images(batch_num, **kwargs):
-    ti = kwargs['ti']
-    max_img_limit = kwargs['params']['max_img_limit']
-    serialized_data = ti.xcom_pull(task_ids='mongo_fetch', key='rh_config')
-    rh_config = RHConfig.from_dict(serialized_data)
-    dest_dir = kwargs['params']['dest_dir']
-    rh_token = ti.xcom_pull(task_ids='load_env_vars')
+    # Task to download images
+    @task
+    def download_images(batch_num, filtered_detections, serialized_data, rh_token):
+        rh_config = RHConfig.from_dict(serialized_data)
+        context = get_current_context()
+        dest_dir = context['params']['dest_dir']
 
-    rh_downloader = RH_Downloader(rh_token, rh_config, dest_dir)
+        rh_downloader = RH_Downloader(rh_token, rh_config, dest_dir)
 
-    filtered_detections = ti.xcom_pull(task_ids='get_detections')
-    start = batch_num * max_img_limit
-    end = (batch_num + 1) * max_img_limit
-    if start >= len(filtered_detections) or start < 0 or end < 0 or end > len(filtered_detections):
-        return
-    subset_detections = filtered_detections[start:end]
+        max_img_limit = context['params']['max_img_limit']
+        start = batch_num * max_img_limit
+        end = (batch_num + 1) * max_img_limit
+        if start >= len(filtered_detections) or start < 0 or end < 0:
+            return
+        subset_detections = filtered_detections[start:end]
 
-    asyncio.run(rh_downloader.download_images(subset_detections))
+        asyncio.run(rh_downloader.download_images(subset_detections))
 
-download_tasks = []
-for i in range(10):
-    task = PythonOperator(
-        task_id=f'download_images_{i}',
-        python_callable=download_images,
-        op_args=[i],
-        provide_context=True,
-        dag=dag,
-    )
-    download_tasks.append(task)
-    get_detections_task >> task
+    # Task to convert images to LDF
+    @task
+    def convert_to_ldf(serialized_data):
+        rh_config = RHConfig.from_dict(serialized_data)
+        context = get_current_context()
+        dest_dir = context['params']['dest_dir']
+        ldf_converter = LDF_Converter(rh_config, dest_dir)
+        ldf_converter.detections_to_ldf()
+    
+    # Tasks
+    fetched_config = fetch_config_from_mongo()
+    env_vars = load_env_vars()
+    detections_result = get_detections(fetched_config, env_vars)
+    num_batches_list = get_num_batches(detections_result)
 
-# Task to convert images to LDF
-def convert_to_ldf(**kwargs):
-    ti = kwargs['ti']
-    serialized_data = ti.xcom_pull(task_ids='mongo_fetch', key='rh_config')
-    rh_config = RHConfig.from_dict(serialized_data)
-    dest_dir = kwargs['params']['dest_dir']
-    ldf_converter = LDF_Converter(rh_config, dest_dir)
-    ldf_converter.detections_to_ldf()
+    download_tasks = download_images.partial(
+        filtered_detections=detections_result,
+        serialized_data=fetched_config,
+        rh_token=env_vars
+    ).expand(batch_num=num_batches_list)
 
-convert_to_ldf_task = PythonOperator(
-    task_id='convert_to_ldf',
-    python_callable=convert_to_ldf,
-    provide_context=True,
-    dag=dag,
-)
+    converted_ldf = convert_to_ldf(fetched_config)
 
-# Set the task dependencies
-fetch_mongo_config_task >> load_env_vars_task >> get_detections_task >> download_tasks >> convert_to_ldf_task
+    # Dependencies
+    fetched_config >> env_vars >> detections_result >> num_batches_list >> download_tasks >> converted_ldf
+
+
+# Assign the DAG to a variable to indicate it should be discovered by Airflow
+dynamic_robothub_dag = robothub_dag()
 
 if __name__ == "__main__":
-    dag.cli()
+    from airflow.utils.state import State
+    dynamic_robothub_dag.clear(dag_run_state=State.NONE)
+    dynamic_robothub_dag.run()
 
