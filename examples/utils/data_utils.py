@@ -34,26 +34,30 @@ import torch
 import torchvision
 import torchvision.transforms as transforms
 
+
 def mnist_transformations():
     """
     Returns composed transformations for the MNIST dataset.
     Transforms the images from 1 channel grayscale to 3 channels RGB and resizes them.
     """
-    return transforms.Compose([
-        transforms.Grayscale(num_output_channels=3),
-        transforms.Lambda(lambda x: x.convert("RGB")),
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ])
+    return transforms.Compose(
+        [
+            transforms.Grayscale(num_output_channels=3),
+            transforms.Lambda(lambda x: x.convert("RGB")),
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ]
+    )
 
-def load_mnist_data(save_path='./mnist', num_samples=640, batch_size=64):
+
+def load_mnist_data(save_path="./mnist", num_samples=640, batch_size=64):
     """
     Loads the MNIST dataset with the specified preprocessing.
 
     Parameters:
     - save_path (str): Directory to save/load the MNIST data.
-    - num_samples (int): Number of samples to load from the dataset. 
+    - num_samples (int): Number of samples to load from the dataset.
                          Set as -1 to load the entire dataset.
     - batch_size (int): Batch size for the DataLoader.
 
@@ -63,7 +67,9 @@ def load_mnist_data(save_path='./mnist', num_samples=640, batch_size=64):
     transform = mnist_transformations()
 
     # Load the MNIST dataset
-    dataset = torchvision.datasets.MNIST(root=save_path, train=True, transform=transform, download=True)
+    dataset = torchvision.datasets.MNIST(
+        root=save_path, train=True, transform=transform, download=True
+    )
 
     # If num_samples is set to -1, use the entire dataset
     num_samples = min(num_samples, len(dataset)) if num_samples != -1 else len(dataset)
@@ -72,6 +78,8 @@ def load_mnist_data(save_path='./mnist', num_samples=640, batch_size=64):
     subset = torch.utils.data.Subset(dataset, torch.arange(num_samples))
 
     # Create a data loader to load the dataset in batches
-    data_loader = torch.utils.data.DataLoader(subset, batch_size=batch_size, shuffle=True, num_workers=4)
+    data_loader = torch.utils.data.DataLoader(
+        subset, batch_size=batch_size, shuffle=True, num_workers=4
+    )
 
     return data_loader

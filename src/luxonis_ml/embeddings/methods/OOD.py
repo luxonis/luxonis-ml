@@ -30,7 +30,10 @@ import numpy as np
 from sklearn.ensemble import IsolationForest
 from sklearn.linear_model import LinearRegression
 
-def isolation_forest_OOD(X, contamination='auto', n_jobs=-1, verbose=1, random_state=None):
+
+def isolation_forest_OOD(
+    X, contamination="auto", n_jobs=-1, verbose=1, random_state=None
+):
     """
     Out-of-distribution detection using Isolation Forests.
 
@@ -46,7 +49,7 @@ def isolation_forest_OOD(X, contamination='auto', n_jobs=-1, verbose=1, random_s
         The verbosity level. Default is 1.
     random_state : int
         The random state to use. Default is None.
-    
+
     Returns
     -------
     np.array
@@ -54,10 +57,12 @@ def isolation_forest_OOD(X, contamination='auto', n_jobs=-1, verbose=1, random_s
 
     """
     # Initialize the Isolation Forest model
-    isolation_forest = IsolationForest(contamination=contamination, 
-                                       n_jobs=n_jobs, 
-                                       verbose=verbose, 
-                                       random_state=random_state)
+    isolation_forest = IsolationForest(
+        contamination=contamination,
+        n_jobs=n_jobs,
+        verbose=verbose,
+        random_state=random_state,
+    )
 
     # Fit the model on all embeddings
     isolation_forest.fit(X)
@@ -81,7 +86,7 @@ def leverage_OOD(X, std_threshold=3):
         The embeddings to use.
     std_threshold : int
         The number of standard deviations to use for the leverage threshold. Default is 3.
-    
+
     Returns
     -------
     np.array
@@ -94,8 +99,12 @@ def leverage_OOD(X, std_threshold=3):
 
     # Calculate the leverage threshold using 3 standard deviations
     mean, std = np.mean(leverage), np.std(leverage)
-    upper_threshold, lower_threshold = mean + std_threshold * std, mean - std_threshold * std
-    outlier_indices_lev_3std = np.where((leverage > upper_threshold) | (leverage < lower_threshold))[0]
+    upper_threshold, lower_threshold = (
+        mean + std_threshold * std,
+        mean - std_threshold * std,
+    )
+    outlier_indices_lev_3std = np.where(
+        (leverage > upper_threshold) | (leverage < lower_threshold)
+    )[0]
 
     return outlier_indices_lev_3std
-
