@@ -9,6 +9,7 @@ import random
 import shutil
 
 # from luxonis_ml.data.dataset_type import DatasetType as dt
+from luxonis_ml.data.dataset import BucketStorage
 from enum import Enum
 import threading
 from threading import Thread
@@ -52,9 +53,9 @@ class LuxonisParser:
         def inner(*args, **kwargs):
             args[0].parsing_in_progress = True
 
-            bucket_type = "aws" if args[1][2] == DatasetType.S3DIR else "local"
+            bucket_storage = BucketStorage.S3 if args[1][1] == DatasetType.S3DIR else BucketStorage.LOCAL
             with LuxonisDataset(
-                args[1][0], args[1][1], bucket_type=bucket_type
+                args[1][0], bucket_storage=bucket_storage
             ) as dataset:
                 print("setting component")
                 custom_components = [
@@ -135,7 +136,8 @@ class LuxonisParser:
         Constructs a LDF dataset from a COCO type dataset.
         Arguments:
             dataset: [LuxonisDataset] LDF dataset instance
-            source_name: [string] name of the LDFSource to add to
+                     The parsing_wrapper decorator will replace this with an actual dataset object, 
+                        so through this argument we pass  dataset_info = (dataset_name:str, dataset_type:DatasetType)
             image_dir: [string] path to root directory containing images
             annotation_path: [string] path to json annotations file
             split: [string] 'train', 'val', or 'test'
@@ -149,7 +151,7 @@ class LuxonisParser:
         if override_main_component is not None:
             component_name = override_main_component
         else:
-            component_name = dataset.sources[self.source_name].main_component
+            component_name = dataset.source.main_component
 
         ## load data
         with open(annotation_path) as file:
@@ -158,85 +160,104 @@ class LuxonisParser:
         coco_annotations = coco["annotations"]
         coco_categories = coco["categories"]
         categories = {cat["id"]: cat["name"] for cat in coco_categories}
+        
         keypoint_definitions = {
             cat["id"]: {"keypoints": cat["keypoints"], "skeleton": cat["skeleton"]}
             for cat in coco_categories
             if "keypoints" in cat.keys() and "skeleton" in cat.keys()
         }
 
+        additions = []
         ## dataset construction loop
         iter = tqdm(coco_images)
         for image in iter:
             self.percentage = round((iter.n / iter.total) * 100, 2)
-
-            new_ann = {component_name: {"annotations": []}}
-
+            
             image_name = image["file_name"]
             image_id = image["id"]
+            image_width = image["width"]
+            image_height = image["height"]
+
             image_path = os.path.join(image_dir, image_name)
             if os.path.exists(image_path):
                 image = cv2.imread(image_path)
             else:
                 warnings.warn(f"skipping {image_path} as it does no exist!")
-
+                continue
+            
             annotations = [
                 ann for ann in coco_annotations if ann["image_id"] == image_id
             ]
             for annotation in annotations:
-                new_ann_instance = {}
+                addition_instance = {
+                    component_name: {
+                        "filepath": image_path, 
+                        "split": split
+                    }
+                }
 
                 cat_id = annotation["category_id"]
                 class_name = categories[cat_id]
-                new_ann_instance["class_name"] = class_name
-
-                class_id = dataset._add_class(new_ann_instance)
-                new_ann_instance["class"] = class_id
-
-                if cat_id in keypoint_definitions.keys():
-                    dataset._add_keypoint_definition(
-                        class_id, keypoint_definitions[cat_id]
-                    )
+                addition_instance[component_name]["class"] = class_name                    
 
                 if "segmentation" in annotation.keys():
                     segmentation = annotation["segmentation"]
-                    if (
-                        isinstance(segmentation, list) and len(segmentation) > 0
-                    ):  # polygon format
-                        new_ann_instance["segmentation"] = {
-                            "type": "polygon",
-                            "task": "instance",
-                            "data": segmentation,
-                        }
-                    elif (
-                        isinstance(segmentation, dict)
-                        and len(segmentation["counts"]) > 0
-                    ):
-                        new_ann_instance["segmentation"] = {
-                            "type": "mask",
-                            "task": "instance",
-                            "data": segmentation,
-                        }
+
+                    # If segmentation is in polygon format
+                    if isinstance(segmentation, list) and len(segmentation) > 0:
+                        mask = np.zeros((image_height, image_width), dtype=np.uint8)
+                        for polygon in segmentation:
+                            polygon = np.array(polygon).reshape((-1, 2))
+                            cv2.fillPoly(mask, [polygon.astype(int)], 1)
+                        addition_instance[component_name]["segmentation"] = mask
+                    
+                    # If segmentation is in mask format (RLE)
+                    # Note: This requires additional decoding. Placeholder for now.
+                    elif isinstance(segmentation, dict) and "counts" in segmentation:
+                        # Decode the RLE to get the numpy array mask
+                        # mask = decode_RLE(segmentation)
+                        # addition_instance[component_name]["segmentation"] = mask
+                        pass
 
                 if "bbox" in annotation.keys():
-                    new_ann_instance["bbox"] = annotation["bbox"]
+                    # Convert COCO's [xmin, ymin, width, height] to normalized format
+                    xmin, ymin, width, height = annotation["bbox"]
+                    
+                    # Normalize the coordinates
+                    norm_xmin = xmin / image_width
+                    norm_ymin = ymin / image_height
+                    norm_width = width / image_width
+                    norm_height = height / image_height
+                    
+                    # Clip the bounding box dimensions to ensure they don't exceed the image boundaries
+                    norm_width = min(norm_width, 1 - norm_xmin)
+                    norm_height = min(norm_height, 1 - norm_ymin)
+                    
+                    normalized_bbox = [
+                        class_name,
+                        norm_xmin,
+                        norm_ymin,
+                        norm_width,
+                        norm_height
+                    ]
+                    addition_instance[component_name]["boxes"] = [normalized_bbox]
 
                 if "keypoints" in annotation.keys():
-                    new_ann_instance["keypoints"] = annotation["keypoints"]
+                    keypoints = annotation["keypoints"]
+                    formatted_keypoints = [[class_name, keypoints]]
+                    addition_instance[component_name]["keypoints"] = formatted_keypoints
 
-                new_ann[component_name]["annotations"].append(new_ann_instance)
-
-            ## add instance to the dataset
-            dataset.add_data(
-                self.source_name, {component_name: image, "json": new_ann}, split=split
-            )
-
+                additions.append(addition_instance)
+            
             ## limit dataset size
             if dataset_size is not None and iter.n + 1 >= dataset_size:
                 break
+        
+        # set the dataset's classes
+        dataset.set_classes(list(categories.values()))
 
-        ## Convert to webdataset
-        query = f"SELECT basename FROM df WHERE split='{split}';"
-        dataset.to_webdataset(split, query)
+        # Using the dataset's add method
+        dataset.add(additions)
 
     @parsing_wrapper
     def from_voc_format(
@@ -252,6 +273,8 @@ class LuxonisParser:
         Constructs a LDF dataset from a VOC type dataset.
         Arguments:
             dataset: [LuxonisDataset] LDF dataset instance
+                     The parsing_wrapper decorator will replace this with an actual dataset object, 
+                        so through this argument we pass  dataset_info = (dataset_name:str, dataset_type:DatasetType)
             source_name: [string] name of the LDFSource to add to
             image_dir: [string] path to root directory containing images
             xml_annotation_files_paths: [list of strings] path to xml annotation files
@@ -268,7 +291,7 @@ class LuxonisParser:
         if override_main_component is not None:
             component_name = override_main_component
         else:
-            component_name = dataset.sources[self.source_name].main_component
+            component_name = dataset.source.main_component
 
         ## dataset construction loop
         iter = tqdm(xml_annotation_files_paths)
@@ -326,10 +349,6 @@ class LuxonisParser:
             if dataset_size is not None and iter.n + 1 >= dataset_size:
                 break
 
-        ## Convert to webdataset
-        query = f"SELECT basename FROM df WHERE split='{split}';"
-        dataset.to_webdataset(split, query)
-
     @parsing_wrapper
     def from_yolo4_format(
         self,
@@ -345,6 +364,8 @@ class LuxonisParser:
         Constructs a LDF dataset from a YOLO4 type dataset.
         Arguments:
             dataset: [LuxonisDataset] LDF dataset instance
+                     The parsing_wrapper decorator will replace this with an actual dataset object, 
+                        so through this argument we pass  dataset_info = (dataset_name:str, dataset_type:DatasetType)
             source_name: [string] name of the LDFSource to add to
             image_dir: [string] path to the directory where images are stored
             split: [string] 'train', 'val', or 'test'
@@ -360,7 +381,7 @@ class LuxonisParser:
         if override_main_component is not None:
             component_name = override_main_component
         else:
-            component_name = dataset.sources[self.source_name].main_component
+            component_name = dataset.source.main_component
 
         ## get class names
         if not os.path.exists(classes_txt_file_path):
@@ -416,10 +437,6 @@ class LuxonisParser:
                 if dataset_size is not None and iter.n + 1 >= dataset_size:
                     break
 
-        ## Convert to webdataset
-        query = f"SELECT basename FROM df WHERE split='{split}';"
-        dataset.to_webdataset(split, query)
-
     @parsing_wrapper
     def from_yolo5_format(
         self,
@@ -434,6 +451,8 @@ class LuxonisParser:
         Constructs a LDF dataset from a YOLO5 type dataset.
         Arguments:
             dataset: [LuxonisDataset] LDF dataset instance
+                     The parsing_wrapper decorator will replace this with an actual dataset object, 
+                        so through this argument we pass  dataset_info = (dataset_name:str, dataset_type:DatasetType)
             source_name: [string] name of the LDFSource to add to
             image_dir: [string] path to the directory where images are stored
             split: [string] 'train', 'val', or 'test'
@@ -449,7 +468,7 @@ class LuxonisParser:
         if override_main_component is not None:
             component_name = override_main_component
         else:
-            component_name = dataset.sources[self.source_name].main_component
+            component_name = dataset.source.main_component
 
         ## get class names
         root_path = os.path.split(os.path.split(image_dir)[0])[0]  # go two levels up
@@ -542,10 +561,6 @@ class LuxonisParser:
             if dataset_size is not None and iter.n + 1 >= dataset_size:
                 break
 
-        ## Convert to webdataset
-        query = f"SELECT basename FROM df WHERE split='{split}';"
-        dataset.to_webdataset(split, query)
-
     @parsing_wrapper
     def from_tfodc_format(
         self,
@@ -560,6 +575,8 @@ class LuxonisParser:
         Constructs a LDF dataset from a TFObjectDetectionCSV type dataset.
         Arguments:
             dataset: [LuxonisDataset] LDF dataset instance
+                     The parsing_wrapper decorator will replace this with an actual dataset object, 
+                        so through this argument we pass  dataset_info = (dataset_name:str, dataset_type:DatasetType)
             source_name: [string] name of the LDFSource to add to
             image_folder_path: [string] path to the directory where images are stored
             csv_file_path: [string] path to csv file where annotations are stored
@@ -576,7 +593,7 @@ class LuxonisParser:
         if override_main_component is not None:
             component_name = override_main_component
         else:
-            component_name = dataset.sources[self.source_name].main_component
+            component_name = dataset.source.main_component
 
         ## extract annotations for each image
         annotations = {}
@@ -643,10 +660,6 @@ class LuxonisParser:
             if dataset_size is not None and iter.n + 1 >= dataset_size:
                 break
 
-        ## Convert to webdataset
-        query = f"SELECT basename FROM df WHERE split='{split}';"
-        dataset.to_webdataset(split, query)
-
     @parsing_wrapper
     def from_cml_format(
         self,
@@ -661,6 +674,8 @@ class LuxonisParser:
         Constructs a LDF dataset from a CreateML type dataset.
         Arguments:
             dataset: [LuxonisDataset] LDF dataset instance
+                     The parsing_wrapper decorator will replace this with an actual dataset object, 
+                        so through this argument we pass  dataset_info = (dataset_name:str, dataset_type:DatasetType)
             source_name: [string] name of the LDFSource to add to
             image_dir: [string] path to the directory where images are stored
             annotation_path: [string] path to json file where annotations are stored
@@ -677,7 +692,7 @@ class LuxonisParser:
         if override_main_component is not None:
             component_name = override_main_component
         else:
-            component_name = dataset.sources[self.source_name].main_component
+            component_name = dataset.source.main_component
 
         ## read annotations file
         with open(annotation_path) as file:
@@ -729,10 +744,6 @@ class LuxonisParser:
             if dataset_size is not None and iter.n + 1 >= dataset_size:
                 break
 
-        ## Convert to webdataset
-        query = f"SELECT basename FROM df WHERE split='{split}';"
-        dataset.to_webdataset(split, query)
-
     @parsing_wrapper
     def from_numpy_format(
         self,
@@ -747,6 +758,8 @@ class LuxonisParser:
         Constructs a LDF dataset from data provided in numpy arrays.
         Arguments:
             dataset: [LuxonisDataset] LDF dataset instance
+                     The parsing_wrapper decorator will replace this with an actual dataset object, 
+                        so through this argument we pass  dataset_info = (dataset_name:str, dataset_type:DatasetType)
             source_name: [string] name of the LDFSource to add to
             images: [numpy.array] numpy.array of RGB images of shape (N, image_height, image_width) or (N, image_height, image_width, color)
             labels: [numpy.array] classification labels in numpy.array of shape (N,)
@@ -761,7 +774,7 @@ class LuxonisParser:
         if override_main_component is not None:
             component_name = override_main_component
         else:
-            component_name = dataset.sources[self.source_name].main_component
+            component_name = dataset.source.main_component
 
         ## dataset size limit
         if dataset_size is not None:
@@ -781,10 +794,6 @@ class LuxonisParser:
             dataset.add_data(
                 self.source_name, {component_name: image, "json": new_ann}, split=split
             )
-
-        ## Convert to webdataset
-        query = f"SELECT basename FROM df WHERE split='{split}';"
-        dataset.to_webdataset(split, query)
 
     def train_test_split_image_classification_directory_tree(
         self,
@@ -844,6 +853,8 @@ class LuxonisParser:
         Constructs a LDF dataset from a directory tree whose subfolders define image classes.
         Arguments:
             dataset: [LuxonisDataset] LDF dataset instance
+                     The parsing_wrapper decorator will replace this with an actual dataset object, 
+                        so through this argument we pass  dataset_info = (dataset_name:str, dataset_type:DatasetType)
             source_name: [string] name of the LDFSource to add to
             class_folders_paths: [list of strings] paths to folders containing images of specific class
             split: [string] 'train', 'val', or 'test'
@@ -857,7 +868,7 @@ class LuxonisParser:
         if override_main_component is not None:
             component_name = override_main_component
         else:
-            component_name = dataset.sources[self.source_name].main_component
+            component_name = dataset.source.main_component
 
         if len(class_folders_paths) == 0:
             raise RuntimeError("Directory tree is empty")
@@ -896,10 +907,6 @@ class LuxonisParser:
                 if dataset_size is not None and iter.n + 1 >= dataset_size:
                     break
 
-        ## Convert to webdataset
-        query = f"SELECT basename FROM df WHERE split='{split}';"
-        dataset.to_webdataset(split, query)
-
     @parsing_wrapper
     def from_image_classification_with_text_annotations_format(
         self,
@@ -915,6 +922,8 @@ class LuxonisParser:
         Constructs a LDF dataset based on image paths and labels from text annotations.
         Arguments:
             dataset: [LuxonisDataset] LDF dataset instance
+                     The parsing_wrapper decorator will replace this with an actual dataset object, 
+                        so through this argument we pass  dataset_info = (dataset_name:str, dataset_type:DatasetType)
             source_name: [string] name of the LDFSource to add to
             image_dir: [string] path to the directory where images are stored
             info_file_path: [string] path to the text annotations file where each line encodes a name and the associated class of an image
@@ -930,7 +939,7 @@ class LuxonisParser:
         if override_main_component is not None:
             component_name = override_main_component
         else:
-            component_name = dataset.sources[self.source_name].main_component
+            component_name = dataset.source.main_component
 
         if not os.path.exists(info_file_path):
             raise RuntimeError("Info file path non-existent.")
@@ -973,10 +982,6 @@ class LuxonisParser:
                 if dataset_size is not None and iter.n + 1 >= dataset_size:
                     break
 
-        # Convert to webdataset
-        query = f"SELECT basename FROM df WHERE split='{split}';"
-        dataset.to_webdataset(split, query)
-
     # Defining this below all the functions
     DATASET_TYPE_TO_FUNCTION = {
         DatasetType.S3DIR: from_s3_directory_format,
@@ -1001,11 +1006,11 @@ class LuxonisParser:
         return self.parsing_in_progress
 
     def parse_to_dataset(
-        self, dataset_type, team_name, dataset_name, *args, new_thread=False, **kwargs
+        self, dataset_type, dataset_name, *args, new_thread=False, **kwargs
     ):
         # Order of args passed in parsing functions has to be (self, dataset_info) + other args
 
-        dataset_info = (team_name, dataset_name, dataset_type)
+        dataset_info = (dataset_name, dataset_type)
         if not new_thread:
             LuxonisParser.DATASET_TYPE_TO_FUNCTION[dataset_type](
                 self, dataset_info, *args, **kwargs
@@ -1019,7 +1024,7 @@ class LuxonisParser:
             threading.excepthook = thread_exception_hook
 
             self.thread = threading.Thread(
-                target=Parser.DATASET_TYPE_TO_FUNCTION[dataset_type],
+                target=LuxonisParser.DATASET_TYPE_TO_FUNCTION[dataset_type],
                 args=(self, dataset_info) + args,
                 kwargs=kwargs,
                 daemon=True,

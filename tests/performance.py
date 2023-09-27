@@ -88,10 +88,10 @@ def main(num):
         additions.append(addition)
 
     dataset_id = LuxonisDataset.create(
-        team_id=TEAM_ID, team_name=TEAM_NAME, dataset_name=DATASET_NAME
+        dataset_name=DATASET_NAME
     )
 
-    with LuxonisDataset(TEAM_ID, dataset_id) as dataset:
+    with LuxonisDataset(DATASET_NAME) as dataset:
         dataset.create_source(
             "image",
             custom_components=[
