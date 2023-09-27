@@ -52,13 +52,12 @@ class Augmentations:
             for aug in augmentations:
                 # use our implementaiton
                 if aug["name"] == "Mosaic4":
-                    aug["name"] == "DeterministicMosaic4"
+                    aug["name"] = "DeterministicMosaic4"
                     params = aug.get("params", {})
                     params["replace"] = False
                     warnings.warn(
                         "Our Mosaic4 implementation doesn't support replace, setting it to False"
                     )
-
                 curr_aug = eval(aug["name"])(**aug.get("params", {}))
                 if isinstance(curr_aug, A.ImageOnlyTransform):
                     pixel_augs.append(curr_aug)
