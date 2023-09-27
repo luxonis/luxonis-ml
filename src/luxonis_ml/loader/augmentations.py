@@ -1,5 +1,6 @@
 import numpy as np
 import cv2
+import warnings
 import albumentations as A
 from albumentations import *
 from typing import Any, Dict, List, Tuple
@@ -49,6 +50,15 @@ class Augmentations:
         batched_augs = []
         if augmentations:
             for aug in augmentations:
+                # use our implementaiton
+                if aug["name"] == "Mosaic4":
+                    aug["name"] == "DeterministicMosaic4"
+                    params = aug.get("params", {})
+                    params["replace"] = False
+                    warnings.warn(
+                        "Our Mosaic4 implementation doesn't support replace, setting it to False"
+                    )
+
                 curr_aug = eval(aug["name"])(**aug.get("params", {}))
                 if isinstance(curr_aug, A.ImageOnlyTransform):
                     pixel_augs.append(curr_aug)
@@ -66,7 +76,8 @@ class Augmentations:
                 *batched_augs,
             ],
             bbox_params=A.BboxParams(
-                format="coco", label_fields=["bboxes_classes_batch"]
+                format="coco",
+                label_fields=["bboxes_classes_batch", "bboxes_visibility_batch"],
             ),
             keypoint_params=A.KeypointParams(
                 format="xy",
@@ -111,12 +122,14 @@ class Augmentations:
         image_batch = []
         mask_batch = []
         bboxes_batch = []
+        bboxes_visibility_batch = []
         bboxes_classes_batch = []
         keypoints_batch = []
         keypoints_visibility_batch = []
         keypoints_classes_batch = []
 
         present_annotations = set()
+        bbox_counter = 0
         for img, annotations in data:
             present_annotations.update(annotations.keys())
             (
@@ -131,8 +144,14 @@ class Augmentations:
 
             image_batch.append(img)
             mask_batch.append(mask)
+
             bboxes_batch.append(bboxes_points)
+            bboxes_visibility_batch.append(
+                [i + bbox_counter for i in range(bboxes_points.shape[0])]
+            )
             bboxes_classes_batch.append(bboxes_classes)
+            bbox_counter += bboxes_points.shape[0]
+
             keypoints_batch.append(keypoints_points)
             keypoints_visibility_batch.append(keypoints_visibility)
             keypoints_classes_batch.append(keypoints_classes)
@@ -143,6 +162,7 @@ class Augmentations:
             image_batch=image_batch,
             mask_batch=mask_batch,
             bboxes_batch=bboxes_batch,
+            bboxes_visibility_batch=bboxes_visibility_batch,
             bboxes_classes_batch=bboxes_classes_batch,
             keypoints_batch=keypoints_batch,
             keypoints_visibility_batch=keypoints_visibility_batch,
@@ -157,8 +177,8 @@ class Augmentations:
             image=transformed["image_batch"],
             mask=transformed["mask_batch"],
             bboxes=transformed["bboxes_batch"],
+            bboxes_visibility=transformed["bboxes_visibility_batch"],
             bboxes_classes=transformed["bboxes_classes_batch"],
-            bboxes_visibility=[i for i in range(transformed["bboxes_batch"].shape[0])],
             keypoints=transformed["keypoints_batch"],
             keypoints_visibility=transformed["keypoints_visibility_batch"],
             keypoints_classes=transformed["keypoints_classes_batch"],
@@ -557,3 +577,10 @@ class LetterboxResize(DualTransform):
         return value < min_limit or value > max_limit
 
 
+class DeterministicMosaic4(Mosaic4):
+    """Mosaic4 adaptaion that always uses batch images in same order"""
+
+    def get_params_dependent_on_targets(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        target_params = super().get_params_dependent_on_targets(params)
+        target_params["indices"] = list(range(self.n_tiles))
+        return target_params
