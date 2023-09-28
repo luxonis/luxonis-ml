@@ -529,12 +529,14 @@ class LetterboxResize(DualTransform):
         x_min, y_min, x_max, y_max = denormalize_bbox(
             bbox, self.height - pad_top - pad_bottom, self.width - pad_left - pad_right
         )[:4]
-        bbox = [x_min + pad_left, y_min + pad_top, x_max + pad_left, y_max + pad_top]
+        bbox = np.array(
+            [x_min + pad_left, y_min + pad_top, x_max + pad_left, y_max + pad_top]
+        )
         # clip bbox to image, ignoring padding
-        for i in range(4):
-            pad = pad_left if i % 2 == 0 else pad_top
-            img_size = params["cols"] if i % 2 == 0 else params["rows"]
-            bbox[i] = self._clip(bbox[i], pad, img_size + pad)
+        bbox = bbox.clip(
+            min=[pad_left, pad_top] * 2,
+            max=[params["cols"] + pad_left, params["rows"] + pad_top] * 2,
+        ).tolist()
         return normalize_bbox(bbox, self.height, self.width)
 
     def apply_to_keypoint(
@@ -566,10 +568,6 @@ class LetterboxResize(DualTransform):
 
     def get_transform_init_args_names(self) -> Tuple[str, ...]:
         return ("height", "width", "interpolation", "border_value", "mask_value")
-
-    def _clip(self, value: float, min_limit: float, max_limit: float) -> float:
-        """Clip value to range"""
-        return max(min(value, max_limit), min_limit)
 
     def _out_of_bounds(self, value: float, min_limit: float, max_limit: float) -> bool:
         """Check if value is out of set range"""
