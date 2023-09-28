@@ -35,10 +35,10 @@ class LuxonisTracker:
             run_id (Optional[str], optional): Run id used for continuing MLFlow run. Defaults to None.
             hyperparameter_config (Optional[dict], optional): Dict of hyperparameters to log. Defaults to None.
             save_directory (str, optional): Path to save directory. Defaults to "runs".
-            is_tensorboard (bool, optional): Weather use TensorBoard logging. Defaults to False.
-            is_wandb (bool, optional): Weather use WandB logging. Defaults to False.
-            is_mlflow (bool, optional): Weather use MLFlow logging. Defaults to False.
-            is_sweep (bool, optional): Weather current run is part of a sweep. Defaults to False.
+            is_tensorboard (bool, optional): Wheter use TensorBoard logging. Defaults to False.
+            is_wandb (bool, optional): Wheter use WandB logging. Defaults to False.
+            is_mlflow (bool, optional): Wheter use MLFlow logging. Defaults to False.
+            is_sweep (bool, optional): Wheter current run is part of a sweep. Defaults to False.
             wandb_entity (Optional[str], optional): WandB entity to use. Defaults to None.
             mlflow_tracking_uri (Optional[str], optional): MLFlow tracking uri to use. Defaults to None.
 
@@ -195,10 +195,10 @@ class LuxonisTrackerPL(plLogger):
             run_name (Optional[str], optional): Name of the run, if None then auto-generate random name. Defaults to None.
             run_id (Optional[str], optional): Run id used for continuing MLFlow run. Defaults to None.
             save_directory (str, optional): Path to save directory. Defaults to "runs".
-            is_tensorboard (bool, optional): Weather use TensorBoard logging. Defaults to False.
-            is_wandb (bool, optional): Weather use WandB logging. Defaults to False.
-            is_mlflow (bool, optional): Weather use MLFlow logging. Defaults to False.
-            is_sweep (bool, optional): Weather current run is part of a sweep. Defaults to False.
+            is_tensorboard (bool, optional): Wheter use TensorBoard logging. Defaults to False.
+            is_wandb (bool, optional): Wheter use WandB logging. Defaults to False.
+            is_mlflow (bool, optional): Wheter use MLFlow logging. Defaults to False.
+            is_sweep (bool, optional): Wheter current run is part of a sweep. Defaults to False.
             wandb_entity (Optional[str], optional): WandB entity to use. Defaults to None.
             mlflow_tracking_uri (Optional[str], optional): MLFlow tracking uri to use. Defaults to None.
             rank (int, optional): Rank of the instance, used when running on multiple threads. Defaults to 0.

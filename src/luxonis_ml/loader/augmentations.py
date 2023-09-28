@@ -12,7 +12,7 @@ class Augmentations:
         """Base class for augmentations that are used in LuxonisLoader
 
         Args:
-            train_rgb (bool, optional): Weather should use RGB or BGR images. Defaults to True.
+            train_rgb (bool, optional): Whether should use RGB or BGR images. Defaults to True.
         """
 
         self.train_rgb = train_rgb
@@ -31,7 +31,7 @@ class Augmentations:
         Args:
             image_size (List[int]): Desired image size [H,W]
             augmentations (List[Dict[str, Any]]): List of augmentations to use and their params
-            keep_aspect_ratio (bool, optional): Weather should use resize that keeps aspect ratio of original image. Defaults to True.
+            keep_aspect_ratio (bool, optional): Whether should use resize that keeps aspect ratio of original image. Defaults to True.
 
         Returns:
             Tuple[A.BatchCompose, A.Compose]: Objects for batched and spatial transforms
@@ -355,8 +355,8 @@ class TrainAugmentations(Augmentations):
         Args:
             image_size (List[int]): Desired image size
             augmentations (List[Dict[str, Any]]): List of dictionaries like {name: str, params: dict} for augmentation init
-            train_rgb (bool, optional): Weather use RGB images. Defaults to True.
-            keep_aspect_ratio (bool, optional): Weather to perform resize that original aspect ratio of the image. Defaults to True.
+            train_rgb (bool, optional): Whether use RGB images. Defaults to True.
+            keep_aspect_ratio (bool, optional): Whether to perform resize that original aspect ratio of the image. Defaults to True.
         """
         super().__init__(train_rgb=train_rgb)
 
@@ -380,8 +380,8 @@ class ValAugmentations(Augmentations):
         Args:
             image_size (List[int]): Desired image size
             augmentations (List[Dict[str, Any]]): List of dictionaries like {name: str, params: dict} for augmentation init
-            train_rgb (bool, optional): Weather use RGB images. Defaults to True.
-            keep_aspect_ratio (bool, optional): Weather to perform resize that original aspect ratio of the image. Defaults to True.
+            train_rgb (bool, optional): Whether use RGB images. Defaults to True.
+            keep_aspect_ratio (bool, optional): Whether to perform resize that original aspect ratio of the image. Defaults to True.
         """
         super().__init__(train_rgb=train_rgb)
 
@@ -411,7 +411,7 @@ class LetterboxResize(DualTransform):
         always_apply: bool = False,
         p: float = 1.0,
     ):
-        """Augmentation to apply letterbox resizing to images. Alse transforms
+        """Augmentation to apply letterbox resizing to images. Also transforms
         masks, bboxes and keypoints to correct shape.
 
         Args:
