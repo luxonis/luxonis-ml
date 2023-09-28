@@ -32,9 +32,10 @@ import numpy as np
 import scipy.spatial.distance as distance
 from sklearn.neighbors import KNeighborsClassifier
 
+
 def find_mismatches_centroids(X, y):
     """
-    Find mismatches in the dataset. 
+    Find mismatches in the dataset.
     A mismatch is defined as a sample that is closer to another centroid than to its own centroid.
 
     Parameters
@@ -72,14 +73,14 @@ def find_mismatches_centroids(X, y):
     centroids = np.array(centroids)
 
     # make the distance matrix
-    dist_matrix = distance.cdist(X, centroids, metric='cosine')
+    dist_matrix = distance.cdist(X, centroids, metric="cosine")
 
     # find mismatches if the distance to other centroids is 1.5 times larger than the distance to their own centroid
     mismatches = []
     predicted_labels = []
     for i in range(len(X)):
         # find the distance to the closest centroid
-        closest_centroid = np.argmin(dist_matrix[i,:])
+        closest_centroid = np.argmin(dist_matrix[i, :])
         closest_distance = dist_matrix[i, closest_centroid]
 
         # find the distance to their own centroid
@@ -101,7 +102,7 @@ def find_mismatches_centroids(X, y):
 
 def find_mismatches_knn(X, y, n_neighbors=5):
     """
-    Find mismatches in the dataset. 
+    Find mismatches in the dataset.
     Single Algorithm Filter (see Figure 1 in Brodley, Carla E., and Mark A. Friedl. "Identifying mislabeled training data.").
     Idea: if the vast majority of the data is correctly labeled and you do knn prediction, the minority of mislabeled data will be engulfed (corrected) by the correct neighbors.
 
@@ -121,7 +122,7 @@ def find_mismatches_knn(X, y, n_neighbors=5):
     np.array
         The new predicted labels.
     """
-    
+
     # Step 1: Fit KNN on the train set with corrupted labels
     knn = KNeighborsClassifier(n_neighbors=n_neighbors)
     knn.fit(X, y)

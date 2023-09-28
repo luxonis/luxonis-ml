@@ -109,3 +109,6 @@ files_needed.txt
 
 # directory storing data used for examples and test cases
 data/*
+
+# vscode settings
+.vscode

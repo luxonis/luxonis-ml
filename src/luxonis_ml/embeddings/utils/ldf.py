@@ -39,10 +39,11 @@ from qdrant_client.http import models
 from luxonis_ml.data.dataset import LuxonisDataset
 from luxonis_ml.embeddings.utils.qdrant import QdrantAPI
 
+
 def _get_sample_payloads_coco(luxonis_dataset: LuxonisDataset):
     """
     Extract payloads from the LuxonisDataset for the COCO dataset format.
-    (Actually any dataset format that has the following keys: id, instance_id, filepath, path, class, split. 
+    (Actually any dataset format that has the following keys: id, instance_id, filepath, path, class, split.
     And the class key has the following format: {"classifications": [{"label": "class_name"}]} )
 
     Args:
@@ -54,23 +55,29 @@ def _get_sample_payloads_coco(luxonis_dataset: LuxonisDataset):
     all_payloads = []
 
     for sample in luxonis_dataset.fo_dataset:
-        sample_id = sample['id']
-        instance_id = sample['instance_id']
+        sample_id = sample["id"]
+        instance_id = sample["instance_id"]
         # filepath = sample['filepath']
-        class_name = sample['class']
-        split = sample['split']
+        class_name = sample["class"]
+        split = sample["split"]
 
-        img_path = luxonis_dataset.path + sample.filepath.split(luxonis_dataset.path.split('/')[-1])[-1]
+        img_path = (
+            luxonis_dataset.path
+            + sample.filepath.split(luxonis_dataset.path.split("/")[-1])[-1]
+        )
 
-        all_payloads.append({
-            "sample_id": sample_id,
-            "instance_id": instance_id,
-            "image_path": img_path,
-            "class": class_name['classifications'][0]['label'],
-            "split": split
-        })
-    
+        all_payloads.append(
+            {
+                "sample_id": sample_id,
+                "instance_id": instance_id,
+                "image_path": img_path,
+                "class": class_name["classifications"][0]["label"],
+                "split": split,
+            }
+        )
+
     return all_payloads
+
 
 def _get_sample_payloads(luxonis_dataset: LuxonisDataset):
     """
@@ -85,24 +92,31 @@ def _get_sample_payloads(luxonis_dataset: LuxonisDataset):
     all_payloads = []
 
     for sample in luxonis_dataset.fo_dataset:
-        
-        instance_id = sample['instance_id']
-        img_path = luxonis_dataset.path + sample.filepath.split(luxonis_dataset.path.split('/')[-1])[-1]
-        sample_id = sample['id']
+        instance_id = sample["instance_id"]
+        img_path = (
+            luxonis_dataset.path
+            + sample.filepath.split(luxonis_dataset.path.split("/")[-1])[-1]
+        )
+        sample_id = sample["id"]
         # class_name = sample['class']['classifications'][0]['label']
         # split = sample['split']
 
-        all_payloads.append({
-            "instance_id": instance_id,
-            "image_path": img_path,
-            "sample_id": sample_id,
-            # "class": class_name,
-            # "split": split
-        })
-    
+        all_payloads.append(
+            {
+                "instance_id": instance_id,
+                "image_path": img_path,
+                "sample_id": sample_id,
+                # "class": class_name,
+                # "split": split
+            }
+        )
+
     return all_payloads
 
-def _filter_new_samples(qdrant_client, collection_name, vector_size=2048, all_payloads=[]):
+
+def _filter_new_samples(
+    qdrant_client, collection_name, vector_size=2048, all_payloads=[]
+):
     """
     Filter out samples that are already in the Qdrant database based on their sample ID.
     Args:
@@ -114,28 +128,30 @@ def _filter_new_samples(qdrant_client, collection_name, vector_size=2048, all_pa
         List of new payloads that are not in the Qdrant database.
     """
     # Filter out samples that are already in the Qdrant database
-    search_queries = [SearchRequest(
-        vector=[0] * vector_size,  # Dummy vector
-        filter=models.Filter(
-            must=[
-                models.FieldCondition(
-                    key="sample_id",
-                    match=models.MatchText(text=payload["sample_id"])
-                )
-            ]
-        ),
-        limit=1
-    ) for payload in all_payloads]
-
+    search_queries = [
+        SearchRequest(
+            vector=[0] * vector_size,  # Dummy vector
+            filter=models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="sample_id",
+                        match=models.MatchText(text=payload["sample_id"]),
+                    )
+                ]
+            ),
+            limit=1,
+        )
+        for payload in all_payloads
+    ]
 
     search_results = qdrant_client.search_batch(
-        collection_name=collection_name,
-        requests=search_queries
+        collection_name=collection_name, requests=search_queries
     )
 
     new_payloads = [all_payloads[i] for i, res in enumerate(search_results) if not res]
 
     return new_payloads
+
 
 def _filter_new_samples_by_id(qdrant_client, collection_name, all_payloads=[]):
     """
@@ -154,19 +170,27 @@ def _filter_new_samples_by_id(qdrant_client, collection_name, all_payloads=[]):
 
     ids = [payload["instance_id"] for payload in all_payloads]
     search_results = qdrant_client.retrieve(
-        collection_name=collection_name,
-        ids=ids,
-        with_payload=False,
-        with_vectors=False
+        collection_name=collection_name, ids=ids, with_payload=False, with_vectors=False
     )
 
     retrieved_ids = [res.id for res in search_results]
 
-    new_payloads = [payload for payload in all_payloads if payload["instance_id"] not in retrieved_ids]
+    new_payloads = [
+        payload
+        for payload in all_payloads
+        if payload["instance_id"] not in retrieved_ids
+    ]
 
     return new_payloads
 
-def _generate_new_embeddings(ort_session, output_layer_name="/Flatten_output_0", emb_batch_size=64, new_payloads=[], transform=None):
+
+def _generate_new_embeddings(
+    ort_session,
+    output_layer_name="/Flatten_output_0",
+    emb_batch_size=64,
+    new_payloads=[],
+    transform=None,
+):
     """
     Generate embeddings for new images using a given ONNX runtime session.
     Args:
@@ -183,17 +207,23 @@ def _generate_new_embeddings(ort_session, output_layer_name="/Flatten_output_0",
 
     if transform is None:
         # Define a transformation for resizing and normalizing the images
-        transform = transforms.Compose([
-            transforms.ToPILImage(),
-            transforms.Resize((224, 224)),  # Resize images to (224, 224) or any desired size
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  # Normalize images
-        ])
+        transform = transforms.Compose(
+            [
+                transforms.ToPILImage(),
+                transforms.Resize(
+                    (224, 224)
+                ),  # Resize images to (224, 224) or any desired size
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+                ),  # Normalize images
+            ]
+        )
 
     for i in range(0, len(new_payloads), emb_batch_size):
-        batch= new_payloads[i:i+emb_batch_size]
+        batch = new_payloads[i : i + emb_batch_size]
         batch_img_paths = [payload["image_path"] for payload in batch]
-        
+
         # Load, preprocess, and resize a batch of images
         batch_images = [cv2.imread(img_path) for img_path in batch_img_paths]
         batch_tensors = [transform(img) for img in batch_images]
@@ -202,14 +232,17 @@ def _generate_new_embeddings(ort_session, output_layer_name="/Flatten_output_0",
         # Run the ONNX model on the batch
         ort_inputs = {ort_session.get_inputs()[0].name: batch_tensor.cpu().numpy()}
         ort_outputs = ort_session.run([output_layer_name], ort_inputs)
-        
+
         # Append the embeddings from the batch to the new_embeddings list
         batch_embeddings = ort_outputs[0].squeeze()
         new_embeddings.extend(batch_embeddings.tolist())
-    
+
     return new_embeddings
 
-def _batch_upsert(qdrant_client, collection_name, new_embeddings, new_payloads, qdrant_batch_size = 64):
+
+def _batch_upsert(
+    qdrant_client, collection_name, new_embeddings, new_payloads, qdrant_batch_size=64
+):
     """
     Perform batch upserts of embeddings to Qdrant.
     Args:
@@ -221,28 +254,36 @@ def _batch_upsert(qdrant_client, collection_name, new_embeddings, new_payloads, 
     """
     # Perform batch upserts to Qdrant
     for i in range(0, len(new_embeddings), qdrant_batch_size):
-        batch_embeddings = new_embeddings[i:i+qdrant_batch_size]
-        batch_payloads = new_payloads[i:i+qdrant_batch_size]
+        batch_embeddings = new_embeddings[i : i + qdrant_batch_size]
+        batch_payloads = new_payloads[i : i + qdrant_batch_size]
 
-        points = [models.PointStruct(
-            id=payload["instance_id"],
-            vector=embedding,
-            payload=payload
-        ) for j, (embedding, payload) in enumerate(zip(batch_embeddings, batch_payloads))]
+        points = [
+            models.PointStruct(
+                id=payload["instance_id"], vector=embedding, payload=payload
+            )
+            for j, (embedding, payload) in enumerate(
+                zip(batch_embeddings, batch_payloads)
+            )
+        ]
 
         try:
             qdrant_client.upsert(collection_name=collection_name, points=points)
-            print(f"Upserted batch {i // qdrant_batch_size + 1} / {len(new_embeddings) // qdrant_batch_size + 1} of size {len(points)} to Qdrant.")
+            print(
+                f"Upserted batch {i // qdrant_batch_size + 1} / {len(new_embeddings) // qdrant_batch_size + 1} of size {len(points)} to Qdrant."
+            )
         except Exception as e:
             print(e)
             print(f"Failed to upsert batch {i // qdrant_batch_size + 1} to Qdrant.")
 
-def generate_embeddings(luxonis_dataset, 
-                         ort_session, 
-                         qdrant_api,
-                         output_layer_name,
-                         emb_batch_size=64,
-                         qdrant_batch_size=64):
+
+def generate_embeddings(
+    luxonis_dataset,
+    ort_session,
+    qdrant_api,
+    output_layer_name,
+    emb_batch_size=64,
+    qdrant_batch_size=64,
+):
     """
     Generate embeddings for a given dataset and insert them into Qdrant.
     Args:
@@ -261,23 +302,23 @@ def generate_embeddings(luxonis_dataset,
 
     qdrant_client, collection_name = qdrant_api.client, qdrant_api.collection_name
 
-    new_payloads = _filter_new_samples_by_id(qdrant_client, 
-                                        collection_name, 
-                                        all_payloads)
-    
-    new_embeddings = _generate_new_embeddings(ort_session,
-                                                output_layer_name,
-                                                emb_batch_size,
-                                                new_payloads)
-    
-    _batch_upsert(qdrant_client,
-                  collection_name,
-                    new_embeddings,
-                    new_payloads,
-                    qdrant_batch_size)
-    
+    new_payloads = _filter_new_samples_by_id(
+        qdrant_client, collection_name, all_payloads
+    )
+
+    new_embeddings = _generate_new_embeddings(
+        ort_session, output_layer_name, emb_batch_size, new_payloads
+    )
+
+    _batch_upsert(
+        qdrant_client, collection_name, new_embeddings, new_payloads, qdrant_batch_size
+    )
+
     # make a sample_id : embedding dictionary
-    sample_id_to_embedding = {payload["sample_id"]: embedding for payload, embedding in zip(new_payloads, new_embeddings)}
+    sample_id_to_embedding = {
+        payload["sample_id"]: embedding
+        for payload, embedding in zip(new_payloads, new_embeddings)
+    }
     print("Embeddings generation and insertion completed!")
 
     # returns only the new embeddings

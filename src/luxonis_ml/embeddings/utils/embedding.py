@@ -49,8 +49,10 @@ import torchvision
 import onnxruntime as ort
 from typing import Tuple, Union
 
-def extract_embeddings(model: torch.nn.Module, 
-                       data_loader: torch.utils.data.DataLoader) -> Tuple[torch.Tensor, torch.Tensor]:
+
+def extract_embeddings(
+    model: torch.nn.Module, data_loader: torch.utils.data.DataLoader
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Extract embeddings from the given PyTorch model.
     """
@@ -65,9 +67,12 @@ def extract_embeddings(model: torch.nn.Module,
 
     return torch.stack(embeddings), torch.tensor(labels)
 
-def extract_embeddings_onnx(ort_session: ort.InferenceSession, 
-                            data_loader: torch.utils.data.DataLoader, 
-                            output_layer_name: str) -> Tuple[torch.Tensor, torch.Tensor]:
+
+def extract_embeddings_onnx(
+    ort_session: ort.InferenceSession,
+    data_loader: torch.utils.data.DataLoader,
+    output_layer_name: str,
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Extract embeddings from the given ONNX model.
     """
@@ -83,18 +88,22 @@ def extract_embeddings_onnx(ort_session: ort.InferenceSession,
 
     return torch.stack(embeddings), torch.tensor(labels)
 
-def save_embeddings(embeddings: torch.Tensor, labels: torch.Tensor, save_path: str = "./"):
+
+def save_embeddings(
+    embeddings: torch.Tensor, labels: torch.Tensor, save_path: str = "./"
+):
     """
     Save embeddings and labels tensors to the specified path.
     """
-    torch.save(embeddings, save_path + 'embeddings.pth')
-    torch.save(labels, save_path + 'labels.pth')
+    torch.save(embeddings, save_path + "embeddings.pth")
+    torch.save(labels, save_path + "labels.pth")
+
 
 def load_embeddings(save_path: str = "./") -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Load embeddings and labels tensors from the specified path.
     """
-    embeddings = torch.load(save_path + 'embeddings.pth')
-    labels = torch.load(save_path + 'labels.pth')
+    embeddings = torch.load(save_path + "embeddings.pth")
+    labels = torch.load(save_path + "labels.pth")
 
     return embeddings, labels

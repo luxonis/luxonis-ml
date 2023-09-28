@@ -35,10 +35,10 @@ class LuxonisTracker:
             run_id (Optional[str], optional): Run id used for continuing MLFlow run. Defaults to None.
             hyperparameter_config (Optional[dict], optional): Dict of hyperparameters to log. Defaults to None.
             save_directory (str, optional): Path to save directory. Defaults to "runs".
-            is_tensorboard (bool, optional): Weather use TensorBoard logging. Defaults to False.
-            is_wandb (bool, optional): Weather use WandB logging. Defaults to False.
-            is_mlflow (bool, optional): Weather use MLFlow logging. Defaults to False.
-            is_sweep (bool, optional): Weather current run is part of a sweep. Defaults to False.
+            is_tensorboard (bool, optional): Wheter use TensorBoard logging. Defaults to False.
+            is_wandb (bool, optional): Wheter use WandB logging. Defaults to False.
+            is_mlflow (bool, optional): Wheter use MLFlow logging. Defaults to False.
+            is_sweep (bool, optional): Wheter current run is part of a sweep. Defaults to False.
             wandb_entity (Optional[str], optional): WandB entity to use. Defaults to None.
             mlflow_tracking_uri (Optional[str], optional): MLFlow tracking uri to use. Defaults to None.
 
@@ -195,10 +195,10 @@ class LuxonisTrackerPL(plLogger):
             run_name (Optional[str], optional): Name of the run, if None then auto-generate random name. Defaults to None.
             run_id (Optional[str], optional): Run id used for continuing MLFlow run. Defaults to None.
             save_directory (str, optional): Path to save directory. Defaults to "runs".
-            is_tensorboard (bool, optional): Weather use TensorBoard logging. Defaults to False.
-            is_wandb (bool, optional): Weather use WandB logging. Defaults to False.
-            is_mlflow (bool, optional): Weather use MLFlow logging. Defaults to False.
-            is_sweep (bool, optional): Weather current run is part of a sweep. Defaults to False.
+            is_tensorboard (bool, optional): Wheter use TensorBoard logging. Defaults to False.
+            is_wandb (bool, optional): Wheter use WandB logging. Defaults to False.
+            is_mlflow (bool, optional): Wheter use MLFlow logging. Defaults to False.
+            is_sweep (bool, optional): Wheter current run is part of a sweep. Defaults to False.
             wandb_entity (Optional[str], optional): WandB entity to use. Defaults to None.
             mlflow_tracking_uri (Optional[str], optional): MLFlow tracking uri to use. Defaults to None.
             rank (int, optional): Rank of the instance, used when running on multiple threads. Defaults to 0.
@@ -343,7 +343,7 @@ class LuxonisTrackerPL(plLogger):
         # find run names based on the naming convention and sort them by last modified time
         runs = []
         for l in log_dirs:
-            l = l.replace(f'{self.save_directory}/', "")
+            l = l.replace(f"{self.save_directory}/", "")
             if l.split("-")[0].isnumeric():
                 runs.append(l)
         runs.sort(
@@ -400,7 +400,9 @@ class LuxonisTrackerPL(plLogger):
             self.log_image(caption, img, step)
 
     @rank_zero_only
-    def log_image(self, caption: str, img: Union["torch.Tensor", "np.ndarray"], step: int):
+    def log_image(
+        self, caption: str, img: Union["torch.Tensor", "np.ndarray"], step: int
+    ):
         """Log one image with a caption
 
         Args:
@@ -422,7 +424,9 @@ class LuxonisTrackerPL(plLogger):
         if self.is_mlflow:
             # split images into separate directories based on step
             base_path, img_caption = caption.rsplit("/", 1)
-            self._experiment["mlflow"].log_image(img, f"{base_path}/{step}/{img_caption}.png")
+            self._experiment["mlflow"].log_image(
+                img, f"{base_path}/{step}/{img_caption}.png"
+            )
 
     @rank_zero_only
     def save(self):
