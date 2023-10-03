@@ -354,7 +354,8 @@ class LuxonisParser:
         self,
         dataset,
         image_dir,
-        txt_annotations_file_path,
+        annotations_dir,
+        img_select_file_path,
         classes_txt_file_path,
         split,
         dataset_size=None,
@@ -366,8 +367,10 @@ class LuxonisParser:
             dataset: [LuxonisDataset] LDF dataset instance
                      The parsing_wrapper decorator will replace this with an actual dataset object, 
                         so through this argument we pass  dataset_info = (dataset_name:str, dataset_type:DatasetType)
-            source_name: [string] name of the LDFSource to add to
-            image_dir: [string] path to the directory where images are stored
+            image_dir: [string] path to the directory where images are stored (img1.jpg, img2.jpg, ...)
+            annotations_dir: [string] path to the directory where annotations are stored (img1.txt, img2.txt, ...)
+            img_select_file_path: [string] path to the file where we specify which images to include in our dataset path/train.txt: [img1.jpg, img4.jpg, ...]
+            classes_txt_file_path: [string] path to the file where we specify the class names
             split: [string] 'train', 'val', or 'test'
             dataset_size: [int] number of data instances to include in our dataset (if None include all)
             override_main_component: [LDFComponent] provide another LDFComponent if not using the main component from the LDFSource
@@ -389,53 +392,75 @@ class LuxonisParser:
         with open(classes_txt_file_path, "r", encoding="utf-8-sig") as text:
             classes = text.readlines()
             classes = [class_name.replace("\n", "") for class_name in classes]
-
+        
+        additions = []
         ## dataset construction loop
-        with open(txt_annotations_file_path, "r", encoding="utf-8-sig") as text:
+        with open(img_select_file_path, "r", encoding="utf-8-sig") as text:
             iter = tqdm(text.readlines())
             for line in iter:
                 self.percentage = round((iter.n / iter.total) * 100, 2)
 
-                new_ann = {component_name: {"annotations": []}}
-
-                image_name = line.split(" ")[0]
-                image_path = os.path.join(image_dir, image_name)
+                image_name = line.strip()
+                image_path = os.path.join(image_dir, image_name).strip()
                 if os.path.exists(image_path):
                     image = cv2.imread(image_path)
                 else:
                     warnings.warn(f"skipping {image_path} as it does no exist!")
                     continue
 
-                for annotation in line.split(" ")[1:]:
-                    new_ann_instance = {}
+                ann_name = image_name.replace(".jpg", ".txt")
+                annotation_path = os.path.join(annotations_dir, ann_name)
+                if not os.path.exists(annotation_path):
+                    warnings.warn(
+                        f"Skipping image {image_path} - annotation {annotation_path} not found!"
+                    )
+                    continue
 
-                    bbox_xmin, bbox_ymin, bbox_xmax, bbox_ymax, class_idx = [
-                        int(x) for x in annotation.split(",")
-                    ]
+                addition_instance = {
+                    component_name: {
+                        "filepath": image_path,
+                        "split": split,
+                    }
+                }
 
-                    new_ann_instance["class_name"] = classes[class_idx]
-                    class_id = dataset._add_class(new_ann_instance)
-                    new_ann_instance["class"] = class_id
+                with open(annotation_path, "r", encoding="utf-8-sig") as text:
+                    annotations = text.readlines()
 
-                    coco_bbox_format = [
-                        bbox_xmin,
-                        bbox_ymin,
-                        bbox_xmax - bbox_xmin,
-                        bbox_ymax - bbox_ymin,
-                    ]  # x_min, y_min, width, height
-                    new_ann_instance["bbox"] = coco_bbox_format
-                    new_ann[component_name]["annotations"].append(new_ann_instance)
+                    class_names = []
+                    boxes = []
+                    for annotation in annotations:
 
-                ## add to dataset
-                dataset.add_data(
-                    self.source_name,
-                    {component_name: image, "json": new_ann},
-                    split=split,
-                )
+                        class_idx, bbox_xcenter, bbox_ycenter, bbox_width, bbox_height = [
+                            float(x) for x in annotation.split(" ")
+                        ]
+
+                        class_name = classes[int(class_idx)]
+
+                        bbox = [
+                            class_name,
+                            bbox_xcenter - bbox_width / 2,
+                            bbox_ycenter - bbox_height / 2,
+                            bbox_width,
+                            bbox_height
+                        ]
+
+                        class_names.append(class_name)
+                        boxes.append(bbox)
+
+                    addition_instance[component_name]["class"] = class_names
+                    addition_instance[component_name]["boxes"] = boxes
+
+                additions.append(addition_instance)
 
                 ## limit dataset size
                 if dataset_size is not None and iter.n + 1 >= dataset_size:
                     break
+        
+        # Set the dataset's classes
+        dataset.set_classes(classes)
+
+        # Using the dataset's add method
+        dataset.add(additions)
 
     @parsing_wrapper
     def from_yolo5_format(
