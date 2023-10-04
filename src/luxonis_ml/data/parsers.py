@@ -495,7 +495,8 @@ class LuxonisParser:
             classes = yolo["names"]
             if yolo["nc"] != len(classes):
                 raise Exception(f"nc in YOLO YAML file does not match names!")
-
+        
+        additions = []
         ## dataset construction loop
         iter = tqdm(os.listdir(image_dir))
         for image_name in iter:
@@ -519,12 +520,22 @@ class LuxonisParser:
                 continue
 
             # add YOLO data
-            new_ann = {component_name: {"annotations": []}}
-
-            h, w = image.shape[0], image.shape[1]
+            addition_instance = {
+                component_name: {
+                    "filepath": image_path, 
+                    "split": split
+                }
+            }
+            boxes = []
+            class_names = []
 
             with open(label_path) as file:
                 lines = file.readlines()
+
+                if not lines:
+                    warnings.warn(f"Skipping image {image_path} - empty annotation {label_path}!")
+                    continue
+
                 rows = len(lines)
                 data = np.array(
                     [
@@ -536,42 +547,37 @@ class LuxonisParser:
                 data = data.reshape(rows, -1).tolist()
 
             for row in data:
-                new_ann_instance = {}
                 yolo_class_id = int(row[0])
                 class_name = classes[yolo_class_id]
-                new_ann_instance["class_name"] = class_name
-                class_id = dataset._add_class(new_ann_instance)
-                new_ann_instance["class"] = class_id
 
                 # bounding box
+                bbox_xcenter = row[1]
+                bbox_ycenter = row[2]
 
-                bbox_xcenter = row[1] * w
-                bbox_ycenter = row[2] * h
-
-                # bbox_xmin = annotation["coordinates"]["x"]
-                # bbox_ymin = annotation["coordinates"]["y"]
-                bbox_width = row[3] * w
-                bbox_height = row[4] * h
+                bbox_width = row[3]
+                bbox_height = row[4]
 
                 bbox_xmin = bbox_xcenter - bbox_width / 2
                 bbox_ymin = bbox_ycenter - bbox_height / 2
 
-                coco_bbox_format = [bbox_xmin, bbox_ymin, bbox_width, bbox_height]
-                new_ann_instance["bbox"] = coco_bbox_format
-                new_ann[component_name]["annotations"].append(new_ann_instance)
-
-                #############################
-                # new_ann_instance['bbox'] = [, , , ]
-                # new_ann[component_name]['annotations'].append(new_ann_instance)
-
-            ## add to dataset
-            dataset.add_data(
-                self.source_name, {component_name: image, "json": new_ann}, split=split
-            )
+                bbox = [class_name, bbox_xmin, bbox_ymin, bbox_width, bbox_height]
+                boxes.append(bbox)
+                class_names.append(class_name)
 
             ## limit dataset size
             if dataset_size is not None and iter.n + 1 >= dataset_size:
                 break
+
+            addition_instance[component_name]["class"] = class_names
+            addition_instance[component_name]["boxes"] = boxes
+
+            additions.append(addition_instance)
+
+        # set the dataset's classes
+        dataset.set_classes(classes)
+
+        # Using the dataset's add method
+        dataset.add(additions)
 
     @parsing_wrapper
     def from_tfodc_format(
