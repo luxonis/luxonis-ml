@@ -354,8 +354,7 @@ class LuxonisParser:
         self,
         dataset,
         image_dir,
-        annotations_dir,
-        img_select_file_path,
+        txt_annotations_file_path,
         classes_txt_file_path,
         split,
         dataset_size=None,
@@ -365,12 +364,8 @@ class LuxonisParser:
         Constructs a LDF dataset from a YOLO4 type dataset.
         Arguments:
             dataset: [LuxonisDataset] LDF dataset instance
-                     The parsing_wrapper decorator will replace this with an actual dataset object, 
-                        so through this argument we pass  dataset_info = (dataset_name:str, dataset_type:DatasetType)
-            image_dir: [string] path to the directory where images are stored (img1.jpg, img2.jpg, ...)
-            annotations_dir: [string] path to the directory where annotations are stored (img1.txt, img2.txt, ...)
-            img_select_file_path: [string] path to the file where we specify which images to include in our dataset path/train.txt: [img1.jpg, img4.jpg, ...]
-            classes_txt_file_path: [string] path to the file where we specify the class names
+            source_name: [string] name of the LDFSource to add to
+            image_dir: [string] path to the directory where images are stored
             split: [string] 'train', 'val', or 'test'
             dataset_size: [int] number of data instances to include in our dataset (if None include all)
             override_main_component: [LDFComponent] provide another LDFComponent if not using the main component from the LDFSource
@@ -395,60 +390,52 @@ class LuxonisParser:
         
         additions = []
         ## dataset construction loop
-        with open(img_select_file_path, "r", encoding="utf-8-sig") as text:
+        with open(txt_annotations_file_path, "r", encoding="utf-8-sig") as text:
             iter = tqdm(text.readlines())
             for line in iter:
                 self.percentage = round((iter.n / iter.total) * 100, 2)
 
-                image_name = line.strip()
-                image_path = os.path.join(image_dir, image_name).strip()
+                img_width, img_height = 0, 0
+                image_name = line.split(" ")[0]
+                image_path = os.path.join(image_dir, image_name)
                 if os.path.exists(image_path):
                     image = cv2.imread(image_path)
+                    img_height, img_width = image.shape[:2] # get image dimensions for normalization
                 else:
                     warnings.warn(f"skipping {image_path} as it does no exist!")
                     continue
 
-                ann_name = image_name.replace(".jpg", ".txt")
-                annotation_path = os.path.join(annotations_dir, ann_name)
-                if not os.path.exists(annotation_path):
-                    warnings.warn(
-                        f"Skipping image {image_path} - annotation {annotation_path} not found!"
-                    )
-                    continue
-
                 addition_instance = {
                     component_name: {
-                        "filepath": image_path,
-                        "split": split,
+                        "filepath": image_path, 
+                        "split": split
                     }
                 }
 
-                with open(annotation_path, "r", encoding="utf-8-sig") as text:
-                    annotations = text.readlines()
+                class_names = []
+                boxes = []
 
-                    class_names = []
-                    boxes = []
-                    for annotation in annotations:
+                for annotation in line.split(" ")[1:]:
 
-                        class_idx, bbox_xcenter, bbox_ycenter, bbox_width, bbox_height = [
-                            float(x) for x in annotation.split(" ")
-                        ]
+                    bbox_xmin, bbox_ymin, bbox_xmax, bbox_ymax, class_idx = [
+                        int(x) for x in annotation.split(",")
+                    ]
 
-                        class_name = classes[int(class_idx)]
+                    class_name = classes[class_idx]
 
-                        bbox = [
-                            class_name,
-                            bbox_xcenter - bbox_width / 2,
-                            bbox_ycenter - bbox_height / 2,
-                            bbox_width,
-                            bbox_height
-                        ]
+                    coco_bbox_norm = [
+                        class_name,
+                        bbox_xmin / img_width,
+                        bbox_ymin / img_height,
+                        (bbox_xmax - bbox_xmin) / img_width,
+                        (bbox_ymax - bbox_ymin) / img_height,
+                    ] # x_min, y_min, width, height normalized to [0, 1]
 
-                        class_names.append(class_name)
-                        boxes.append(bbox)
-
-                    addition_instance[component_name]["class"] = class_names
-                    addition_instance[component_name]["boxes"] = boxes
+                    class_names.append(class_name)
+                    boxes.append(coco_bbox_norm)
+                
+                addition_instance[component_name]["class"] = class_names
+                addition_instance[component_name]["boxes"] = boxes
 
                 additions.append(addition_instance)
 
@@ -456,7 +443,7 @@ class LuxonisParser:
                 if dataset_size is not None and iter.n + 1 >= dataset_size:
                     break
         
-        # Set the dataset's classes
+        # set the dataset's classes
         dataset.set_classes(classes)
 
         # Using the dataset's add method
