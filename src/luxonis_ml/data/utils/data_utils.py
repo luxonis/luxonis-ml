@@ -230,7 +230,7 @@ def construct_class_label(dataset, classes):
 
 
 def construct_boxes_label(dataset, boxes):
-    if not isinstance(boxes[0], list):  # fix for only one box without a nested list
+    if boxes and not isinstance(boxes[0], list):  # fix for only one box without a nested list
         boxes = [boxes]
     return fo.Detections(
         detections=[
