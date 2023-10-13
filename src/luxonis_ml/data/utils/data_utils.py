@@ -347,6 +347,8 @@ def construct_boxes_label(
 
     if boxes is None:
         return None
+    if len(boxes) == 0:
+        return fo.Detections(detections=[])
     if not isinstance(boxes[0], list):  # fix for only one box without a nested list
         boxes = [boxes]
     return fo.Detections(
