@@ -220,9 +220,11 @@ class LuxonisParser:
                     # If segmentation is in mask format (RLE)
                     # Note: This requires additional decoding. Placeholder for now.
                     elif isinstance(segmentation, dict) and "counts" in segmentation:
+                        from pycocotools import mask as cocomask
                         # Decode the RLE to get the numpy array mask
-                        # mask = decode_RLE(segmentation)
-                        # addition_instance[component_name]["segmentation"] = mask
+                        rle = cocomask.frPyObjects(segmentation, image_height, image_width)
+                        mask = cocomask.decode(rle)
+                        addition_instance[component_name]["segmentation"] = mask
                         pass
 
                 if "bbox" in annotation.keys():
