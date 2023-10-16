@@ -21,6 +21,7 @@ import csv
 class DatasetType(Enum):
     LDF = "LDF"
     S3DIR = "S3DIR"
+    GCS = "GCS"
     COCO = "COCO"
     CDT = "ClassificationDirectoryTree"
     CTA = "ClassificationWithTextAnnotations"
@@ -53,7 +54,12 @@ class LuxonisParser:
         def inner(*args, **kwargs):
             args[0].parsing_in_progress = True
 
-            bucket_storage = BucketStorage.S3 if args[1][1] == DatasetType.S3DIR else BucketStorage.LOCAL
+            bucket_storage = BucketStorage.LOCAL
+            if args[1][1] == DatasetType.S3DIR:
+                bucket_storage = BucketStorage.S3
+            elif args[1][1] == DatasetType.GCS:
+                bucket_storage = BucketStorage.GCS
+            
             with LuxonisDataset(
                 args[1][0], bucket_storage=bucket_storage
             ) as dataset:
