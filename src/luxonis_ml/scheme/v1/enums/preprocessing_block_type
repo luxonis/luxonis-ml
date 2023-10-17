@@ -1,7 +1,0 @@
-class PreprocessingBlockType(Enum): # required only for RVC4
-
-    """ block used in preprocessing """
-
-    MEAN = "mean"
-    SCALE = "scale"
-    REVERSE_CHANNELS = "reverse_channels" #bgr<->rgb
