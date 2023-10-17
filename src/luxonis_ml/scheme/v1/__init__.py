@@ -1,1 +1,1 @@
-from .config_handler import ConfigHandler
+from .archive_generator import ArchiveGenerator
