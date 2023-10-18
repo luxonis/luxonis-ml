@@ -1,35 +1,39 @@
 from config import Config
+from io import BytesIO
 import tarfile
 import os
 import json
 
 class ArchiveGenerator:
-    """ class for constructing the archive tar file containing executables, metadata, and all information required for decoding """
+    """ class for constructing the archive .tar file containing executables, metadata, and all information required for decoding """
  
     def __init__(
         self,
         archive_name,
         archive_path,
         cfg_dict,
-        onnx_model_path,
-        platform_model_path,
+        executables_paths, # model executable
+        compress = False,
         ):
         
         """
-        - archive_name: desired .tar file name
-        - archive_path: where we want .tar file to be saved
+        - archive_name: [str] desired name for .tar file
+        - archive_path: [str] path to where we want the .tar file to be saved
         - cfg_dict: configuration dict
-        - onnx_model_path: path to the onnx model
-        - platform_model_path: path to the platform model (e.g. .dlc model for rvc4 platform)
-            (for now, we are constructiong platform model outside; TODO: construct it within the class)
+        - executables_paths: [list of strings] paths to executables aka. models (e.g. .dlc model for rvc4 platform)
+        - compress: [bool] if True, .tar file is compressed with .gz compression
         """
         
         self.archive_name = archive_name if archive_name.endswith(".tar") else f"{archive_name}.tar"
-        self.archive_path = archive_path
-        self.onnx_model_path = onnx_model_path
-        self.platform_model_path = platform_model_path
+        self.mode = "w" #"wb"
+        
+        if compress:
+            self.archive_name += ".gz"
+            self.mode = "w:gz"
 
-        self.cfg_dict = cfg_dict
+        self.archive_path = archive_path
+        self.executables_paths = executables_paths
+
         self.cfg = Config( # pydantic config check
             metadata = cfg_dict["metadata"],
             inputs = cfg_dict["inputs"],
@@ -39,19 +43,31 @@ class ArchiveGenerator:
         
     def make_archive(self):
         
-        # create config json
-        json_path = self.make_json()
+        # create config JSON in-memory file-like object
+        json_data, json_buffer = self.make_json()
 
-        # create archive
-        with tarfile.open(os.path.join(self.archive_path, self.archive_name), "w") as tar: #"w:gz") as tar:
-            tar.add(self.onnx_model_path, arcname=os.path.basename(self.onnx_model_path))
-            tar.add(self.platform_model_path, arcname=os.path.basename(self.platform_model_path))
-            tar.add(json_path, arcname=os.path.basename(json_path))
+        # construct .tar archive
+        with tarfile.open(os.path.join(self.archive_path, self.archive_name), self.mode) as tar:
 
-        # delete config json? TODO
+            # add executables
+            for executable_path in self.executables_paths:
+                tar.add(executable_path, arcname=os.path.basename(executable_path))
+
+            # add config JSON
+            tarinfo = tarfile.TarInfo(name=f"{self.archive_name}.json")
+            tarinfo.size = len(json_data)
+            json_buffer.seek(0)  # reset the buffer to the beginning
+            tar.addfile(tarinfo, json_buffer)
+
 
     def make_json(self):
-        json_path = os.path.join(self.archive_path, f"{self.archive_name}.json")
-        with open(json_path, "w") as outfile: 
-            json.dump(json.loads(self.cfg.model_dump_json()), outfile)
-        return json_path
+        
+        # read-in config data as dict
+        data = json.loads(self.cfg.model_dump_json())
+        # create an in-memory file-like object
+        json_buffer = BytesIO()
+        # encode the dictionary as bytes and write it to the in-memory file
+        json_data = json.dumps(data, indent=4).encode('utf-8')
+        json_buffer.write(json_data)
+
+        return json_data, json_buffer
