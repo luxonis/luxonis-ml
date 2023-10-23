@@ -5,6 +5,5 @@ from ..enums import *
 class Output(CustomBaseModel):
     name: str
     dtype: DataType
-    subtask: Optional[Any] = None # TODO
-    subtype: Optional[Any] = None # TODO
     head_ids: List[str] # list because a single output can go into multiple heads
+    role: str = None # optional parameter that indicaties the role of this output for the head(s)
