@@ -10,28 +10,27 @@ class ArchiveGenerator:
     def __init__(
         self,
         archive_name,
-        archive_path,
+        save_path,
         cfg_dict,
-        executables_paths, # model executable
+        executables_paths,
         compress = False,
         ):
         
         """
         - archive_name: [str] desired name for .tar file
-        - archive_path: [str] path to where we want the .tar file to be saved
+        - save_path: [str] path to where we want the .tar file to be saved
         - cfg_dict: configuration dict
         - executables_paths: [list of strings] paths to executables aka. models (e.g. .dlc model for rvc4 platform)
         - compress: [bool] if True, .tar file is compressed with .gz compression
         """
         
         self.archive_name = archive_name if archive_name.endswith(".tar") else f"{archive_name}.tar"
-        self.mode = "w" #"wb"
-        
+        self.mode = "w"
         if compress:
             self.archive_name += ".gz"
             self.mode = "w:gz"
 
-        self.archive_path = archive_path
+        self.save_path = save_path
         self.executables_paths = executables_paths
 
         self.cfg = Config( # pydantic config check
@@ -47,7 +46,7 @@ class ArchiveGenerator:
         json_data, json_buffer = self.make_json()
 
         # construct .tar archive
-        with tarfile.open(os.path.join(self.archive_path, self.archive_name), self.mode) as tar:
+        with tarfile.open(os.path.join(self.save_path, self.archive_name), self.mode) as tar:
 
             # add executables
             for executable_path in self.executables_paths:
@@ -64,8 +63,10 @@ class ArchiveGenerator:
         
         # read-in config data as dict
         data = json.loads(self.cfg.model_dump_json())
+
         # create an in-memory file-like object
         json_buffer = BytesIO()
+        
         # encode the dictionary as bytes and write it to the in-memory file
         json_data = json.dumps(data, indent=4).encode('utf-8')
         json_buffer.write(json_data)
