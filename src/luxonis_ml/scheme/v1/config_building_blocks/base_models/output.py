@@ -1,8 +1,8 @@
-from pydantic import BaseModel
+from .custom_base_model import CustomBaseModel
 from typing import Optional, Dict, Any, List, Tuple, Literal, Union, Annotated
 from ..enums import *
 
-class Output(BaseModel):
+class Output(CustomBaseModel):
     name: str
     dtype: DataType
     subtask: Optional[Any] = None # TODO

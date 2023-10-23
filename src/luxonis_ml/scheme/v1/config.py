@@ -1,8 +1,7 @@
-from pydantic import BaseModel
-from typing import Optional, Dict, Any, List, Tuple, Literal, Union, Annotated
+from typing import List
 from config_building_blocks import *
 
-class Config(BaseModel):
+class Config(CustomBaseModel):
     metadata: Metadata
     inputs: List[Input]
     outputs: List[Output]

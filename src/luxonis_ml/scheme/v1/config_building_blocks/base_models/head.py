@@ -1,12 +1,12 @@
-from pydantic import BaseModel
+from .custom_base_model import CustomBaseModel
 from typing import Optional, Dict, Any, List, Tuple, Literal, Union, Annotated
 from ..enums import *
 
-class PostprocessingBlock(BaseModel):
+class PostprocessingBlock(CustomBaseModel):
     type: PostprocessingBlockType
     param: Dict[str, Any] = {}
     
-class Head(BaseModel):
+class Head(CustomBaseModel):
     head_id: str
     family: Optional[Any] = None 
     subfamily: Optional[Any] = None

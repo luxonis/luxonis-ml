@@ -1,8 +1,8 @@
-from pydantic import BaseModel
+from .custom_base_model import CustomBaseModel
 from ..enums import *
 
-class Metadata(BaseModel):
+class Metadata(CustomBaseModel):
     name: str
     backbone: str
     platform: Platform
-    version: int
+    version: float
