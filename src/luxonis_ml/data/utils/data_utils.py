@@ -61,7 +61,9 @@ def check_annotation(data: Dict) -> None:
         type_string = data["type"].value
 
     value = data["value"]
-    if type_string == "label":
+    if type_string == "classification":
+        _check_classification(value)
+    elif type_string == "label":
         _check_label(value)
     elif type_string == "box":
         _check_box(value)
@@ -69,11 +71,17 @@ def check_annotation(data: Dict) -> None:
         _check_polyline_or_keypoints(value)
 
 
+def _check_classification(value: Any) -> None:
+    if not isinstance(value, bool):
+        raise Exception(f"Classification {value} must be a bool (True/False)")
+
+
 def _check_label(value: Any) -> None:
     if (
         not isinstance(value, str)
         and not isinstance(value, int)
         and not isinstance(value, float)
+        and not isinstance(value, bool)
     ):
         raise Exception(f"Label {value} must be a string, int, or float")
 

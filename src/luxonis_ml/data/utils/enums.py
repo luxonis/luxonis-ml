@@ -9,10 +9,13 @@ class LabelType(Enum):
         a BOX has a POLYLINE instance segmentation,
         etc.)"""
 
-    LABEL = "label"  # can be used for classification, labels, multi-classification, or multi-label # TODO: think about details of these
+    CLASSIFICATION = (
+        "classification"  # used for single, multi-class, or multi-label classification
+    )
     BOX = "box"  # bounding box
     POLYLINE = "polyline"  # polyline to represent segmentation mask instances
     KEYPOINTS = "keypoints"  # keypoint skeleton instances
+    LABEL = "label"  # an arbitrary label of string, bool, or number
 
 
 class MediaType(Enum):
