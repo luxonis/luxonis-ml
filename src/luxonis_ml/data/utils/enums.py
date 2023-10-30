@@ -1,16 +1,16 @@
 from enum import Enum
 
 
-class ModelTasks(Enum):
+class LabelType(Enum):
+    # TODO: compare to how this is one in models
     """Supported computer vision label types.
     Annotation types can be nested
     (e.g. a BOX has 2 LABELS,
         a BOX has a POLYLINE instance segmentation,
         etc.)"""
 
-    CLASSIFICATION = "classification"  # label for image classification
+    LABEL = "label"  # can be used for classification, labels, multi-classification, or multi-label # TODO: think about details of these
     BOX = "box"  # bounding box
-    LABEL = "label"  # key value pair of an arbitrary label name and it's value
     POLYLINE = "polyline"  # polyline to represent segmentation mask instances
     KEYPOINTS = "keypoints"  # keypoint skeleton instances
 

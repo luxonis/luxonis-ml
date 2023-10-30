@@ -299,51 +299,6 @@ class LuxonisDataset:
     #         for task in self.tasks:
     #             self.fo_dataset.classes[task] = classes
 
-    # def set_mask_targets(self, mask_targets: Dict) -> None:
-    #     """
-    #     For segmentation, this sets how the integers in a segmentaiton mask map to classes.
-
-    #     mask_targets:
-    #         Dictionary mapping from integer keys to class names. For example,
-    #         {
-    #             1: "apple",
-    #             2: "orange",
-    #             3: "banana"
-    #         }
-    #     """
-
-    #     if 0 in mask_targets.keys():
-    #         raise Exception("Cannot set 0! This is assumed to be the background class")
-    #     self.fo_dataset.mask_targets = {"segmentation": mask_targets}
-
-    # def set_skeleton(self, skeleton: Dict) -> None:
-    #     """
-    #     Sets a skeleton definition for datasets using keypoits
-
-    #     skeleton:
-    #         Dictionary with keys
-    #         labels:
-    #             List of strings for the name of each keypoint
-    #         edges:
-    #             List of length 2 lists of keypoint indices denoting how keypoints are connected
-    #         The following is an example
-    #         {
-    #             "labels": ["nose", "left ear", "right ear],
-    #             "edges": [[0,1],[0,2]]
-    #         }
-
-    #     NOTE: this only supports one class, which seems to be a fiftyone limitation
-    #     """
-
-    #     self.fo_dataset.skeletons.update(
-    #         {
-    #             "keypoints": fo.KeypointSkeleton(
-    #                 labels=skeleton["labels"], edges=skeleton["edges"]
-    #             )
-    #         }
-    #     )
-    #     self.fo_dataset.save()
-
     def sync_from_cloud(self) -> None:
         """Downloads media from cloud bucket"""
 
