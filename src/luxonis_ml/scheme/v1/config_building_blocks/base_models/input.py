@@ -1,23 +1,12 @@
 from pydantic import Field
 from .custom_base_model import CustomBaseModel
 from typing import Optional, Dict, Any, List, Tuple, Literal, Union, Annotated
-from typing_extensions import TypedDict
 from ..enums import *
 from abc import ABC
 
-class MeanParamsDict(TypedDict):
-    mean_b: float
-    mean_g: float
-    mean_r: float
-
-class ScaleParamsDict(TypedDict):
-    scale_b: float
-    scale_g: float
-    scale_r: float
-
 class PreprocessingBlock(CustomBaseModel):
-    mean: MeanParamsDict = None
-    scale: ScaleParamsDict = None
+    mean: Annotated[List[float], Field(min_length=3, max_length=3)] = None # [mean_B, mean_G, mean_R]
+    scale: Annotated[List[float], Field(min_length=3, max_length=3)] = None # [scale_B, scale_G, scale_R]
     reverse_channels: bool = False
     interleaved_to_planar: bool = False
 
