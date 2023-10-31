@@ -1,8 +1,7 @@
 from enum import Enum
 
 
-class LabelType(Enum):
-    # TODO: compare to how this is one in models
+class DataLabelType(Enum):
     """Supported computer vision label types.
     Annotation types can be nested
     (e.g. a BOX has 2 LABELS,

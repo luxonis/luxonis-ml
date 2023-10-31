@@ -8,7 +8,6 @@ import typing
 from typing import Dict, List, Union, Optional, Any
 from .constants import ANNOTATIONS_SCHEMA as schema
 from .constants import ANNOTATION_TYPES as atypes
-from .enums import LabelType
 
 
 def generate_hashname(filepath: str) -> str:
@@ -55,10 +54,10 @@ def check_annotation(data: Dict) -> None:
 
     if isinstance(data["type"], str):
         if data["type"] not in atypes:
-            raise Exception(f"{data['type']} for key '{key}' is not a valid LabelType")
+            raise Exception(
+                f"{data['type']} for key '{key}' is not a valid DataLabelType"
+            )
         type_string = data["type"]
-    else:
-        type_string = data["type"].value
 
     value = data["value"]
     if type_string == "classification":

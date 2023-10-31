@@ -2,6 +2,7 @@ import luxonis_ml.data.utils.data_utils as data_utils
 
 # from luxonis_ml.data.utils.exceptions import *
 from luxonis_ml.data.utils.parquet import ParquetFileManager
+from luxonis_ml.enums import LabelType
 import os, shutil
 from pathlib import Path
 import cv2
@@ -11,6 +12,7 @@ from google.cloud import storage
 import logging, time
 from tqdm import tqdm
 import numpy as np
+import pandas as pd
 from datetime import datetime
 from typing import List, Dict, Tuple, Optional, Generator
 
@@ -18,7 +20,7 @@ from typing import List, Dict, Tuple, Optional, Generator
 # TODO: from luxonis_ml.logger import LuxonisLogger
 from .utils.s3_utils import *
 from .utils.gcs_utils import *
-from .utils.constants import LDF_VERSION
+from .utils.constants import LDF_VERSION, LABEL_TYPES
 from .utils.enums import *
 
 
@@ -166,6 +168,7 @@ class LuxonisDataset:
             self.datasets[self.dataset_name] = {
                 "source": self._source_to_document(self.source),
                 "ldf_version": LDF_VERSION,
+                "classes": {},
             }
             self._write_datasets()
 
@@ -260,6 +263,13 @@ class LuxonisDataset:
             self.path = f"gs://{self._get_credentials('GCS_BUCKET')}/{self.team_id}/datasets/{self.dataset_name}"
             self._init_gcs_client()
 
+    def _load_df_offline(self) -> pd.DataFrame:
+        dfs = []
+        for file in os.listdir(self.path):
+            if os.path.splitext(file)[1] == ".parquet":
+                dfs.append(pd.read_parquet(os.path.join(self.path, file)))
+        return pd.concat(dfs)
+
     # TODO: move to another file
     # def _log_time(self, note: Optional[str] = None, final: bool = False) -> None:
     #     """Helper to log the time taken within a function to INFO"""
@@ -279,27 +289,30 @@ class LuxonisDataset:
         Updates underlying source of the dataset with a new LuxonisSource
         """
 
-        self.datasets["dataset_name"]["source"] = self._source_to_document(source)
+        self.datasets[self.dataset_name]["source"] = self._source_to_document(source)
         self._write_datasets()
         self.source = source
 
-    # def set_classes(self, classes: List[str], task: Optional[str] = None) -> None:
-    #     """
-    #     Sets the names of classes for the dataset. This can be across all CV tasks or certain tasks
+    def set_classes(self, classes: List[str], task: Optional[str] = None) -> None:
+        """
+        Sets the names of classes for the dataset. This can be across all CV tasks or certain tasks
 
-    #     classes:
-    #         List of class names to set
-    #     task:
-    #         Optionally specify the task where these classes apply. This can be from the options in self.tasks
-    #     """
+        classes:
+            List of class names to set
+        task:
+            Optionally specify the LabelType where these classes apply
+        """
 
-    #     if task is not None:
-    #         if task not in self.tasks:
-    #             raise Exception(f"Task {task} is not a supported task")
-    #         self.fo_dataset.classes[task] = classes
-    #     else:
-    #         for task in self.tasks:
-    #             self.fo_dataset.classes[task] = classes
+        if task is not None:
+            if task not in LABEL_TYPES:
+                raise Exception(f"Task {task} is not a supported task")
+            self.datasets[self.dataset_name]["classes"][task] = classes
+        else:
+            for task in LABEL_TYPES:
+                self.datasets[self.dataset_name]["classes"][task] = classes
+        self._write_datasets()
+
+    # TODO: method to auto-set classes per-task using pandas
 
     def sync_from_cloud(self) -> None:
         """Downloads media from cloud bucket"""
@@ -322,25 +335,27 @@ class LuxonisDataset:
         else:
             raise NotImplementedError
 
-    # def get_classes(self) -> Tuple[List[str], Dict]:
-    #     """Gets overall classes in the dataset and classes according to CV task"""
+    def get_classes(self) -> Tuple[List[str], Dict]:
+        """Gets overall classes in the dataset and classes according to CV task"""
 
-    #     classes = set()
-    #     classes_by_task = {}
-    #     for task in self.fo_dataset.classes:
-    #         if len(self.fo_dataset.classes[task]):
-    #             classes_by_task[task] = self.fo_dataset.classes[task]
-    #             for cls in self.fo_dataset.classes[task]:
-    #                 classes.add(cls)
-    #     mask_classes = set()
-    #     if "segmentation" in self.fo_dataset.mask_targets.keys():
-    #         for key in self.fo_dataset.mask_targets["segmentation"]:
-    #             mask_classes.add(self.fo_dataset.mask_targets["segmentation"][key])
-    #     classes_by_task["segmentation"] = list(mask_classes)
-    #     classes = list(classes.union(mask_classes))
-    #     classes.sort()
+        classes = set()
+        classes_by_task = {}
+        for task in self.datasets[self.dataset_name]["classes"]:
+            task_classes = self.datasets[self.dataset_name]["classes"][task]
+            if len(task_classes):
+                classes_by_task[task] = task_classes
+                for cls in task_classes:
+                    classes.add(cls)
+        # mask_classes = set()
+        # if "segmentation" in self.fo_dataset.mask_targets.keys():
+        #     for key in self.fo_dataset.mask_targets["segmentation"]:
+        #         mask_classes.add(self.fo_dataset.mask_targets["segmentation"][key])
+        # classes_by_task["segmentation"] = list(mask_classes)
+        # classes = list(classes.union(mask_classes))
+        classes = list(classes)
+        classes.sort()
 
-    #     return classes, classes_by_task
+        return classes, classes_by_task
 
     # def get_classes_count(self) -> Dict:
     #     """Returns dictionary with number of occurances for each class. If no class label is present returns empty dict."""
@@ -355,23 +370,95 @@ class LuxonisDataset:
     #     return count_dict
 
     def delete_dataset(self) -> None:
-        """Deletes the entire dataset (locally)"""
+        """Deletes all local files belonging to the dataset"""
 
         del self.datasets[self.dataset_name]
         self._write_datasets()
         shutil.rmtree(self.path)
 
     def add(self, generator: Generator) -> None:
-        """Write annotations to parquet files"""
+        """
+        Write annotations to parquet files.
+
+        generator: A python generator that yields dictionaries of data
+            with the key described by the ANNOTATIONS_SCHEMA but also listed below
+            - file [str] : path to file on local disk or object storage
+            - class [str]: string specifying the class name or label name
+            - type [str] : the type of label or annotation
+            - value [Union[str, list, int, float, bool]]: the actual annotation value
+                For here are the expected structures for `value`.
+                The function will check to ensure `value` matches this for each annotation type
+
+                value (classification) [bool] : Marks whether the class is present or not
+                    (e.g. True/False)
+                value (box) [List[float]] : the normalized (0-1) x, y, w, and h of a bounding box
+                    (e.g. [0.5, 0.4, 0.1, 0.2])
+                value (polyline) [List[List[float]]] : an ordered list of [x, y] polyline points
+                    (e.g. [[0.2, 0.3], [0.4, 0.5], ...])
+                value (keypoints) [List[List[float]]] : an ordered list of keypoints for a keypoint skeleton instance
+                    (e.g. [[0.2, 0.3], [0.4, 0.5], ...])
+        """
 
         self.pfm = ParquetFileManager(self.path)
         for data in generator():
             data_utils.check_annotation(data)
             # TODO: ability to get instance_id also from bucket
-            data["instance_id"] = data_utils.generate_hashname(data["file"])
+            data["instance_id"] = data_utils.generate_hashname(data["file"])[1]
             data["file"] = os.path.basename(data["file"])
+            # data["value_type"] = str(type(data["value"]))
+            if isinstance(data["value"], list):
+                data["value"] = json.dumps(data["value"])  # convert lists to string
+            else:
+                data["value"] = str(data["value"])
+
             self.pfm.write(data)
+
+            # TODO: duplicate image data
 
         self.pfm.close()
 
-    # TODO: method to generate splits.json for offline mode
+    def make_splits(
+        self, ratios: List[float] = [0.8, 0.1, 0.1], definitions: Optional[Dict] = None
+    ) -> None:
+        """
+        Saves a splits.json file that specified the train/val/test split.
+        For use in OFFLINE mode only.
+
+        ratios [List[float]] : length 3 list of train/val/test ratios in that order used for a random split.
+            If no definitions are provided, this is used to generate a random split.
+        definitions [Optional[Dict]] : dictionary specifying split keys to lists of filepath values.
+            Note that this assumes unique filenames
+            (e.g. {"train": ["/path/to/cat.jpg", "/path/to/dog.jpg"], "val": [...], "test": [...]})
+
+        WARNING: this will overwrite any previously saved splits.
+        """
+
+        splits = {}
+
+        if definitions is None:  # random split
+            splits["type"] = "instance_id"
+            df = self._load_df_offline()
+            ids = list(set(df["instance_id"]))
+            np.random.shuffle(ids)
+            N = len(ids)
+            b1 = round(N * ratios[0])
+            b2 = round(N * ratios[0]) + round(N * ratios[1])
+            splits["train"] = ids[:b1]
+            splits["val"] = ids[b1:b2]
+            splits["test"] = ids[b2:]
+        else:  # provided split
+            # TODO: need to create an "index" that matches instance_ids to files
+            splits["type"] = "file"
+            if set(definitions.keys()) != set("train", "val", "test"):
+                raise Exception("Must specify train, val, and test and those keys only")
+            for split in "train", "val", "test":
+                files = definitions[split]
+                if not isinstance(files, list):
+                    raise Exception("Must provide splits as a list of str")
+                files = [
+                    os.path.basename(file) for file in files
+                ]  # TODO: instead of this, query instance_id associated with file
+                splits[split] = files
+
+        with open(os.path.join(self.path, "splits.json"), "w") as file:
+            json.dump(splits, file, indent=4)

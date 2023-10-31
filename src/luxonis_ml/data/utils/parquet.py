@@ -10,10 +10,20 @@ class ParquetFileManager:
     def __init__(
         self,
         directory: str,
-        file_size_mb: int = 256,
+        file_size_mb: int = 20,  # TODO: increase this after testing
         row_check: int = 100000,
-        # num_rows: Optional[int] = None
+        # index_column: str = "instance_id"
     ) -> None:
+        """
+        Class to manage the insert of data into parquet files.
+        TODO...
+
+        rework:
+        - only test file size on .close(). If any files are too large. If so, have some splitting algorithm
+        - track "min" and "max" instance_id for each parquet file
+        - self.data should be further partitioned into which rows are written to which files based on these mins and maxes
+        """
+
         self.dir = directory
         self.files = os.listdir(self.dir)
         self.file_size = file_size_mb
@@ -34,7 +44,6 @@ class ParquetFileManager:
 
         path = self._generate_filename(self.num)[1]
         current_size = os.path.getsize(path) / (1024 * 1024)
-        print(current_size)
         if current_size < self.file_size:
             return path
         else:
@@ -94,14 +103,14 @@ class ParquetFileManager:
             self.data[key].append(add_data[key])
             self.row_count += 1
 
-            if self.row_count % self.row_check == 0:
-                df = pd.DataFrame(self.data)
-                estimated_size = self._estimate_file_size(df)
-                if estimated_size > self.file_size:
-                    self.close()
-                    self.num += 1
-                    self.current_file = self._generate_filename(self.num)[1]
-                    self._read()
+        if self.row_count % self.row_check == 0:
+            df = pd.DataFrame(self.data)
+            estimated_size = self._estimate_file_size(df)
+            if estimated_size > self.file_size:
+                self.close()
+                self.num += 1
+                self.current_file = self._generate_filename(self.num)[1]
+                self._read()
 
     def close(self) -> None:
         """Ensure all data is written to parquet"""
