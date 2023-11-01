@@ -66,8 +66,10 @@ def check_annotation(data: Dict) -> None:
         _check_label(value)
     elif type_string == "box":
         _check_box(value)
-    else:
-        _check_polyline_or_keypoints(value)
+    elif type_string == "polyline":
+        _check_polyline(value)
+    elif type_string == "keypoints":
+        _check_keypoints(value)
 
 
 def _check_classification(value: Any) -> None:
@@ -95,9 +97,9 @@ def _check_box(value: Any) -> None:
             raise Exception(f"Box point {pnt} must be an int or float")
 
 
-def _check_polyline_or_keypoints(value: Any) -> None:
+def _check_polyline(value: Any) -> None:
     if not isinstance(value, list):
-        raise Exception(f"Polyline or keypoints must be a list")
+        raise Exception(f"Polyline must be a list")
     for coord in value:
         if not isinstance(coord, list):
             raise Exception(f"Coordinate {coord} must be a list")
@@ -105,6 +107,17 @@ def _check_polyline_or_keypoints(value: Any) -> None:
             raise Exception(f"Coordinate {coord} must be length 2")
         for pnt in coord:
             if not isinstance(pnt, int) and not isinstance(pnt, float):
-                raise Exception(
-                    f"Polyline or keypoints point {pnt} must be an int or float"
-                )
+                raise Exception(f"Polyline point {pnt} must be an int or float")
+
+
+def _check_keypoints(value: Any) -> None:
+    if not isinstance(value, list):
+        raise Exception(f"Keypoints must be a list")
+    for coord in value:
+        if not isinstance(coord, list):
+            raise Exception(f"Coordinate {coord} must be a list")
+        if len(coord) != 3:
+            raise Exception(f"Coordinate {coord} must be length 3")
+        for pnt in coord:
+            if not isinstance(pnt, int) and not isinstance(pnt, float):
+                raise Exception(f"Keypoints point {pnt} must be an int or float")

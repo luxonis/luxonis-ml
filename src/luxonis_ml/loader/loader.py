@@ -33,13 +33,11 @@ class LuxonisLoader(torch.utils.data.Dataset):
         self.classes, self.classes_by_task = self.dataset.get_classes()
         self.nc = len(self.classes)
         self.ns = len(self.classes_by_task[LabelType.SEGMENTATION])
-        # if LabelType.KEYPOINT in self.dataset.fo_dataset.skeletons.keys():
-        #     self.nk = len(
-        #         self.dataset.fo_dataset.skeletons[LabelType.KEYPOINT]["labels"]
-        #     )
-        # else:
-        #     self.nk = 0
-        self.nk = 0  # TODO: find some solution for this
+        self.nk = {
+            cls: len(skeleton["labels"])
+            for cls, skeleton in self.dataset.get_skeletons().items()
+        }
+        self.max_nk = max(list(self.nk.values()))
         self.augmentations = augmentations
 
         if not self.stream and self.dataset.bucket_storage.value != "local":
@@ -88,7 +86,7 @@ class LuxonisLoader(torch.utils.data.Dataset):
                 )
 
             img, annotations = self.augmentations(
-                aug_input_data, nc=self.nc, ns=self.ns, nk=self.nk
+                aug_input_data, nc=self.nc, ns=self.ns, nk=self.max_nk
             )
 
         img = np.transpose(img, (2, 0, 1))  # HWC to CHW
@@ -125,9 +123,9 @@ class LuxonisLoader(torch.utils.data.Dataset):
 
         if len(classification_rows):
             classes = [
-                row["class"]
+                row[1]["class"]
                 for row in classification_rows.iterrows()
-                if bool(row["value"])
+                if bool(row[1]["value"])
             ]
             classify = np.zeros(self.nc)
             for cls in classes:
@@ -164,25 +162,20 @@ class LuxonisLoader(torch.utils.data.Dataset):
             annotations[LabelType.SEGMENTATION] = seg
 
         if len(keypoints_rows):
-            keypoints = np.zeros((0, self.nk * 3 + 1))
+            # TODO: test with multi-class keypoint instances where nk's are not equal
+            keypoints = np.zeros((0, self.max_nk * 3 + 1))
             for row in keypoints_rows.iterrows():
                 row = row[1]
                 cls = self.classes.index(row["class"])
-                pnts = (
+                kps = (
                     np.array(json.loads(row["value"]))
-                    .reshape((-1, 2))
+                    .reshape((-1, 3))
                     .astype(np.float32)
                 )
-                kps = np.zeros((len(pnts), 3))
-                # TODO: include the visibility key in the keypoint annotation itself
-                nan_key = np.isnan(pnts[:, 0])
-                kps[~nan_key, 2] = 2
-                kps[:, :2] = pnts
-                kps[nan_key, :2] = 0  # use 0 instead of NaN
                 kps = kps.flatten()
                 nk = len(kps)
                 kps = np.concatenate([[cls], kps])
-                points = np.zeros((1, self.nk * 3 + 1))
+                points = np.zeros((1, self.max_nk * 3 + 1))
                 points[0, : nk + 1] = kps
                 keypoints = np.append(keypoints, points, axis=0)
             annotations[LabelType.KEYPOINT] = keypoints

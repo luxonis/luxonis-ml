@@ -130,6 +130,8 @@ class LuxonisDataset:
         if not isinstance(self.bucket_storage, BucketStorage):
             raise Exception(f"Must use a valid BucketStorage!")
 
+        self.online = self.team_id != "offline"
+
         credentials_cache_file = str(Path(self.base_path) / "credentials.json")
         if os.path.exists(credentials_cache_file):
             with open(credentials_cache_file) as file:
@@ -158,10 +160,20 @@ class LuxonisDataset:
                 "source": self._source_to_document(self.source),
                 "ldf_version": LDF_VERSION,
                 "classes": {},
+                "skeletons": {},
             }
             self._write_datasets()
 
         self._init_path()
+
+    def __len__(self) -> int:
+        """Returns the number of instances in the dataset"""
+
+        df = self._load_df_offline()
+        if df is not None:
+            return len(set(df["instance_id"]))
+        else:
+            return 0
 
     def _write_datasets(self) -> None:
         with open(self.datasets_cache_file, "w") as file:
@@ -292,7 +304,7 @@ class LuxonisDataset:
         file_index_path = os.path.join(self.metadata_path, "file_index.parquet")
         df = pd.DataFrame(new_index)
         if index is not None:
-            df = pd.concat(index, df)
+            df = pd.concat([index, df])
         table = pa.Table.from_pandas(df)
         pq.write_table(table, file_index_path)
 
@@ -325,6 +337,24 @@ class LuxonisDataset:
         self._write_datasets()
 
     # TODO: method to auto-set classes per-task using pandas
+
+    def set_skeletons(self, skeletons: Dict[str, Dict]) -> None:
+        """
+        Sets the semantic structure of keypoint skeletons for the classes that use keypoints
+
+        skeletons: A dict mapping class name to keypoint "labels" and "edges" between keypoints.
+            The length of the "labels" determines the official number of keypoints.
+            The inclusion of "edges" is optional.
+            e.g. {
+                "person": {
+                    "labels": ["right hand", "right shoulder", ...]
+                    "edges" [[0,1],[4,5],...]
+                }
+            }
+        """
+
+        self.datasets[self.dataset_name]["skeletons"] = skeletons
+        self._write_datasets()
 
     def sync_from_cloud(self) -> None:
         """Downloads media from cloud bucket"""
@@ -363,6 +393,11 @@ class LuxonisDataset:
 
         return classes, classes_by_task
 
+    def get_skeletons(self) -> Dict[str, Dict]:
+        """Returns the dictionary defining the semantic skeleton for each class using keypoints"""
+
+        return self.datasets[self.dataset_name]["skeletons"]
+
     def delete_dataset(self) -> None:
         """Deletes all local files belonging to the dataset"""
 
@@ -389,8 +424,8 @@ class LuxonisDataset:
                     (e.g. [0.5, 0.4, 0.1, 0.2])
                 value (polyline) [List[List[float]]] : an ordered list of [x, y] polyline points
                     (e.g. [[0.2, 0.3], [0.4, 0.5], ...])
-                value (keypoints) [List[List[float]]] : an ordered list of keypoints for a keypoint skeleton instance
-                    (e.g. [[0.2, 0.3], [0.4, 0.5], ...])
+                value (keypoints) [List[List[float]]] : an ordered list of [x, y, visibility] keypoints for a keypoint skeleton instance
+                    (e.g. [[0.2, 0.3, 2], [0.4, 0.5, 2], ...])
         """
 
         self.pfm = ParquetFileManager(self.annotations_path)
@@ -429,6 +464,7 @@ class LuxonisDataset:
                 data["value"] = json.dumps(data["value"])  # convert lists to string
             else:
                 data["value"] = str(data["value"])
+            data["created_at"] = datetime.utcnow()
 
             self.pfm.write(data)
 
@@ -482,3 +518,20 @@ class LuxonisDataset:
 
         with open(os.path.join(self.path, "splits.json"), "w") as file:
             json.dump(splits, file, indent=4)
+
+    @staticmethod
+    def exists(dataset_name: str) -> bool:
+        """Returns whether the dataset under a given name exists"""
+
+        base_path = os.getenv("LUXONISML_BASE_PATH", str(Path.home() / "luxonis_ml"))
+        datasets_cache_file = str(Path(base_path) / "datasets.json")
+        if os.path.exists(datasets_cache_file):
+            with open(datasets_cache_file) as file:
+                datasets = json.load(file)
+        else:
+            datasets = {}
+
+        if dataset_name in datasets:
+            return True
+        else:
+            return False
