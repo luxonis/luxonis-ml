@@ -26,7 +26,7 @@ from .utils.enums import *
 
 
 class LuxonisComponent:
-    """Abstract class for a piece of media within a source.
+    """Abstraction for a piece of media within a source.
     Most commonly, this abstracts an image sensor."""
 
     def __init__(
@@ -85,8 +85,7 @@ class LuxonisDataset:
         team_id: Optional[str] = None,
         team_name: Optional[str] = None,
         bucket_type: BucketType = BucketType.INTERNAL,
-        bucket_storage: BucketStorage = BucketStorage.LOCAL
-        # TODO: Some param for offline mode? Or should this be bucket_storage?
+        bucket_storage: BucketStorage = BucketStorage.LOCAL,
     ) -> None:
         """
         Initializes LDF
@@ -146,34 +145,37 @@ class LuxonisDataset:
         else:
             self.datasets = {}
 
-        # offline support only
-        if self.dataset_name is None:
-            raise NotImplementedError(
-                "Cloud datasets initialized with dataset ID are not implemented"
-            )
-        if self.dataset_name in self.datasets:
-            self.dataset_doc = self.datasets[self.dataset_name]
-
+        if self.online:
+            raise NotImplementedError()
         else:
-            self.source = LuxonisSource("default")
-            self.datasets[self.dataset_name] = {
-                "source": self._source_to_document(self.source),
-                "ldf_version": LDF_VERSION,
-                "classes": {},
-                "skeletons": {},
-            }
-            self._write_datasets()
+            if self.dataset_name is None:
+                raise Exception("Must provide a dataset_name for offline mode")
+            if self.dataset_name in self.datasets:
+                self.dataset_doc = self.datasets[self.dataset_name]
+
+            else:
+                self.source = LuxonisSource("default")
+                self.datasets[self.dataset_name] = {
+                    "source": self._source_to_document(self.source),
+                    "ldf_version": LDF_VERSION,
+                    "classes": {},
+                    "skeletons": {},
+                }
+                self._write_datasets()
 
         self._init_path()
 
     def __len__(self) -> int:
         """Returns the number of instances in the dataset"""
 
-        df = self._load_df_offline()
-        if df is not None:
-            return len(set(df["instance_id"]))
+        if self.online:
+            raise NotImplementedError
         else:
-            return 0
+            df = self._load_df_offline()
+            if df is not None:
+                return len(set(df["instance_id"]))
+            else:
+                return 0
 
     def _write_datasets(self) -> None:
         with open(self.datasets_cache_file, "w") as file:
@@ -313,9 +315,14 @@ class LuxonisDataset:
         Updates underlying source of the dataset with a new LuxonisSource
         """
 
-        self.datasets[self.dataset_name]["source"] = self._source_to_document(source)
-        self._write_datasets()
-        self.source = source
+        if self.online:
+            raise NotImplementedError()
+        else:
+            self.datasets[self.dataset_name]["source"] = self._source_to_document(
+                source
+            )
+            self._write_datasets()
+            self.source = source
 
     def set_classes(self, classes: List[str], task: Optional[str] = None) -> None:
         """
@@ -327,14 +334,17 @@ class LuxonisDataset:
             Optionally specify the LabelType where these classes apply
         """
 
-        if task is not None:
-            if task not in LABEL_TYPES:
-                raise Exception(f"Task {task} is not a supported task")
-            self.datasets[self.dataset_name]["classes"][task] = classes
+        if self.online:
+            raise NotImplementedError()
         else:
-            for task in LABEL_TYPES:
+            if task is not None:
+                if task not in LABEL_TYPES:
+                    raise Exception(f"Task {task} is not a supported task")
                 self.datasets[self.dataset_name]["classes"][task] = classes
-        self._write_datasets()
+            else:
+                for task in LABEL_TYPES:
+                    self.datasets[self.dataset_name]["classes"][task] = classes
+            self._write_datasets()
 
     # TODO: method to auto-set classes per-task using pandas
 
@@ -353,8 +363,11 @@ class LuxonisDataset:
             }
         """
 
-        self.datasets[self.dataset_name]["skeletons"] = skeletons
-        self._write_datasets()
+        if self.online:
+            raise NotImplementedError()
+        else:
+            self.datasets[self.dataset_name]["skeletons"] = skeletons
+            self._write_datasets()
 
     def sync_from_cloud(self) -> None:
         """Downloads media from cloud bucket"""
@@ -380,30 +393,39 @@ class LuxonisDataset:
     def get_classes(self) -> Tuple[List[str], Dict]:
         """Gets overall classes in the dataset and classes according to CV task"""
 
-        classes = set()
-        classes_by_task = {}
-        for task in self.datasets[self.dataset_name]["classes"]:
-            task_classes = self.datasets[self.dataset_name]["classes"][task]
-            if len(task_classes):
-                classes_by_task[task] = task_classes
-                for cls in task_classes:
-                    classes.add(cls)
-        classes = list(classes)
-        classes.sort()
+        if self.online:
+            raise NotImplementedError()
+        else:
+            classes = set()
+            classes_by_task = {}
+            for task in self.datasets[self.dataset_name]["classes"]:
+                task_classes = self.datasets[self.dataset_name]["classes"][task]
+                if len(task_classes):
+                    classes_by_task[task] = task_classes
+                    for cls in task_classes:
+                        classes.add(cls)
+            classes = list(classes)
+            classes.sort()
 
-        return classes, classes_by_task
+            return classes, classes_by_task
 
     def get_skeletons(self) -> Dict[str, Dict]:
         """Returns the dictionary defining the semantic skeleton for each class using keypoints"""
 
-        return self.datasets[self.dataset_name]["skeletons"]
+        if self.online:
+            raise NotImplementedError()
+        else:
+            return self.datasets[self.dataset_name]["skeletons"]
 
     def delete_dataset(self) -> None:
         """Deletes all local files belonging to the dataset"""
 
-        del self.datasets[self.dataset_name]
-        self._write_datasets()
-        shutil.rmtree(self.path)
+        if self.online:
+            raise NotImplementedError()
+        else:
+            del self.datasets[self.dataset_name]
+            self._write_datasets()
+            shutil.rmtree(self.path)
 
     def add(self, generator: Generator) -> None:
         """
@@ -428,51 +450,54 @@ class LuxonisDataset:
                     (e.g. [[0.2, 0.3, 2], [0.4, 0.5, 2], ...])
         """
 
-        self.pfm = ParquetFileManager(self.annotations_path)
+        if self.online:
+            raise NotImplementedError()
+        else:
+            self.pfm = ParquetFileManager(self.annotations_path)
 
-        index = self._get_file_index()
-        new_index = {"instance_id": [], "file": []}
+            index = self._get_file_index()
+            new_index = {"instance_id": [], "file": []}
 
-        for data in generator():
-            # Add media
-            filepath = data["file"]
-            file = os.path.basename(filepath)
-            new_file, instance_id = data_utils.generate_hashname(filepath)
-            matched_id = self._try_instance_id(file, index)
-            if matched_id is not None:
-                if matched_id != instance_id:
-                    # TODO: not sure if this should be an exception or how we should really handle it
-                    raise Exception(
-                        f"{filepath} uses a duplicate filename corresponding to different media! Please rename this file."
-                    )
-                    # TODO: we may also want to check for duplicate instance_ids to get a one-to-one relationship
-            else:
-                new_index["instance_id"].append(instance_id)
-                new_index["file"].append(file)
-            cmd = f"cp {filepath} {os.path.join(self.media_path, new_file)}"
-            subprocess.check_output(cmd, shell=True)
+            for data in generator():
+                # Add media
+                filepath = data["file"]
+                file = os.path.basename(filepath)
+                new_file, instance_id = data_utils.generate_hashname(filepath)
+                matched_id = self._try_instance_id(file, index)
+                if matched_id is not None:
+                    if matched_id != instance_id:
+                        # TODO: not sure if this should be an exception or how we should really handle it
+                        raise Exception(
+                            f"{filepath} uses a duplicate filename corresponding to different media! Please rename this file."
+                        )
+                        # TODO: we may also want to check for duplicate instance_ids to get a one-to-one relationship
+                else:
+                    new_index["instance_id"].append(instance_id)
+                    new_index["file"].append(file)
+                cmd = f"cp {filepath} {os.path.join(self.media_path, new_file)}"
+                subprocess.check_output(cmd, shell=True)
 
-            # Add annotation
-            data_utils.check_annotation(data)
-            # TODO: ability to get instance_id also from bucket
-            data["instance_id"] = instance_id
-            data[
-                "file"
-            ] = file  # TODO: determine if we actually need to store this on the annotation level
-            data["value_type"] = type(data["value"]).__name__
-            if isinstance(data["value"], list):
-                data["value"] = json.dumps(data["value"])  # convert lists to string
-            else:
-                data["value"] = str(data["value"])
-            data["created_at"] = datetime.utcnow()
+                # Add annotation
+                data_utils.check_annotation(data)
+                # TODO: ability to get instance_id also from bucket
+                data["instance_id"] = instance_id
+                data[
+                    "file"
+                ] = file  # TODO: determine if we actually need to store this on the annotation level
+                data["value_type"] = type(data["value"]).__name__
+                if isinstance(data["value"], list):
+                    data["value"] = json.dumps(data["value"])  # convert lists to string
+                else:
+                    data["value"] = str(data["value"])
+                data["created_at"] = datetime.utcnow()
 
-            self.pfm.write(data)
+                self.pfm.write(data)
 
-        # TODO: copy everything at the end with multithread instead of within for loop
-        # similar logic can be used for buckets
+            # TODO: copy everything at the end with multithread instead of within for loop
+            # similar logic can be used for buckets
 
-        self.pfm.close()
-        self._write_index(index, new_index)
+            self.pfm.close()
+            self._write_index(index, new_index)
 
     def make_splits(
         self, ratios: List[float] = [0.8, 0.1, 0.1], definitions: Optional[Dict] = None
@@ -490,38 +515,43 @@ class LuxonisDataset:
         WARNING: this will overwrite any previously saved splits.
         """
 
-        splits = {}
+        if self.online:
+            raise NotImplementedError()
+        else:
+            splits = {}
 
-        if definitions is None:  # random split
-            df = self._load_df_offline()
-            ids = list(set(df["instance_id"]))
-            np.random.shuffle(ids)
-            N = len(ids)
-            b1 = round(N * ratios[0])
-            b2 = round(N * ratios[0]) + round(N * ratios[1])
-            splits["train"] = ids[:b1]
-            splits["val"] = ids[b1:b2]
-            splits["test"] = ids[b2:]
-        else:  # provided split
-            index = self._get_file_index()
-            if index is None:
-                raise Exception("File index not found")
-            if set(definitions.keys()) != set("train", "val", "test"):
-                raise Exception("Must specify train, val, and test and those keys only")
-            for split in "train", "val", "test":
-                files = definitions[split]
-                if not isinstance(files, list):
-                    raise Exception("Must provide splits as a list of str")
-                files = [os.path.basename(file) for file in files]
-                ids = [self._try_instance_id(file, index) for file in files]
-                splits[split] = ids
+            if definitions is None:  # random split
+                df = self._load_df_offline()
+                ids = list(set(df["instance_id"]))
+                np.random.shuffle(ids)
+                N = len(ids)
+                b1 = round(N * ratios[0])
+                b2 = round(N * ratios[0]) + round(N * ratios[1])
+                splits["train"] = ids[:b1]
+                splits["val"] = ids[b1:b2]
+                splits["test"] = ids[b2:]
+            else:  # provided split
+                index = self._get_file_index()
+                if index is None:
+                    raise Exception("File index not found")
+                if set(definitions.keys()) != set("train", "val", "test"):
+                    raise Exception(
+                        "Must specify train, val, and test and those keys only"
+                    )
+                for split in "train", "val", "test":
+                    files = definitions[split]
+                    if not isinstance(files, list):
+                        raise Exception("Must provide splits as a list of str")
+                    files = [os.path.basename(file) for file in files]
+                    ids = [self._try_instance_id(file, index) for file in files]
+                    splits[split] = ids
 
-        with open(os.path.join(self.path, "splits.json"), "w") as file:
-            json.dump(splits, file, indent=4)
+            with open(os.path.join(self.path, "splits.json"), "w") as file:
+                json.dump(splits, file, indent=4)
 
     @staticmethod
     def exists(dataset_name: str) -> bool:
-        """Returns whether the dataset under a given name exists"""
+        """Returns whether the dataset under a given name exists. For offline mode only"""
 
         base_path = os.getenv("LUXONISML_BASE_PATH", str(Path.home() / "luxonis_ml"))
         datasets_cache_file = str(Path(base_path) / "datasets.json")

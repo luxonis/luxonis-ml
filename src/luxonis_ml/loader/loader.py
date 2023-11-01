@@ -37,8 +37,14 @@ class LuxonisLoader(torch.utils.data.Dataset):
             cls: len(skeleton["labels"])
             for cls, skeleton in self.dataset.get_skeletons().items()
         }
-        self.max_nk = max(list(self.nk.values()))
+        if len(list(self.nk.values())):
+            self.max_nk = max(list(self.nk.values()))
+        else:
+            self.max_nk = 0
         self.augmentations = augmentations
+
+        if self.dataset.online:
+            raise NotImplementedError
 
         if not self.stream and self.dataset.bucket_storage.value != "local":
             self.dataset.sync_from_cloud()
