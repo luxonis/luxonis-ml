@@ -4,34 +4,46 @@ import os
 from pathlib import Path
 import glob
 from unique_names_generator import get_random_name
+from typing import Optional, Union
 
 from pytorch_lightning.utilities import rank_zero_only
 from pytorch_lightning.loggers.logger import Logger as plLogger
 
 
 class LuxonisTracker:
-    """
-    Wrapper for various logging software. Support for
-        - TensorBoard
-        - WandB
-        - MLFlow
-    """
-
     def __init__(
         self,
-        project_name=None,
-        project_id=None,
-        run_name=None,
-        run_id=None,
-        hyperparameter_config=None,
-        save_directory="runs",
-        is_tensorboard=False,
-        is_wandb=False,
-        is_mlflow=False,
-        is_sweep=False,
-        wandb_entity=None,
-        mlflow_tracking_uri=None,
+        project_name: Optional[str] = None,
+        project_id: Optional[str] = None,
+        run_name: Optional[str] = None,
+        run_id: Optional[str] = None,
+        hyperparameter_config: Optional[dict] = None,
+        save_directory: str = "runs",
+        is_tensorboard: bool = False,
+        is_wandb: bool = False,
+        is_mlflow: bool = False,
+        is_sweep: bool = False,
+        wandb_entity: Optional[str] = None,
+        mlflow_tracking_uri: Optional[str] = None,
     ):
+        """LuxonisTracker that wraps various logging software. Supported loggers: TensorBoard, WandB and MLFlow
+
+        Args:
+            project_name (Optional[str], optional): Name of the project used for WandB and MLFlow. Defaults to None.
+            project_id (Optional[str], optional): Project id used for WandB and MLFlow. Defaults to None.
+            run_name (Optional[str], optional): Name of the run, if None then auto-generate random name. Defaults to None.
+            run_id (Optional[str], optional): Run id used for continuing MLFlow run. Defaults to None.
+            hyperparameter_config (Optional[dict], optional): Dict of hyperparameters to log. Defaults to None.
+            save_directory (str, optional): Path to save directory. Defaults to "runs".
+            is_tensorboard (bool, optional): Wheter use TensorBoard logging. Defaults to False.
+            is_wandb (bool, optional): Wheter use WandB logging. Defaults to False.
+            is_mlflow (bool, optional): Wheter use MLFlow logging. Defaults to False.
+            is_sweep (bool, optional): Wheter current run is part of a sweep. Defaults to False.
+            wandb_entity (Optional[str], optional): WandB entity to use. Defaults to None.
+            mlflow_tracking_uri (Optional[str], optional): MLFlow tracking uri to use. Defaults to None.
+
+        """
+
         self.project_name = project_name
         self.project_id = project_id
         self.save_directory = save_directory
@@ -116,6 +128,7 @@ class LuxonisTracker:
             self.mlflow.log_params(self.config)
 
     def _get_next_run_number(self):
+        """Returns number id for next run"""
         # find all directories that should be runs
         log_dirs = glob.glob(f"{self.save_directory}/*")
         log_dirs = [path.split("/")[-1] for path in log_dirs if os.path.isdir(path)]
@@ -129,17 +142,13 @@ class LuxonisTracker:
             return max(nums) + 1
 
     def _get_run_name(self):
+        """Generates new run name"""
         name_without_number = get_random_name(separator="-", style="lowercase")
         number = self._get_next_run_number()
         return f"{number}-{name_without_number}"
 
     def log_metric(self, name, value, step):
-        """
-        name: name of the metric to log
-        value: value of the metric
-        step: epoch number
-        """
-
+        """Logs metric value with provided name and step"""
         if self.is_tensorboard:
             self.tensorboard_logger.add_scalar(name, value, step)
 
@@ -150,10 +159,7 @@ class LuxonisTracker:
             self.mlflow.log_metric(name, value, step)
 
     def log_image(self, name, img, step):
-        """
-        img: Image in RGB order, uint8, HWC
-        """
-
+        """Logs image with provided name and step"""
         if self.is_tensorboard:
             self.tensorboard_logger.add_image(name, img, dataformats="HWC")
 
@@ -168,19 +174,35 @@ class LuxonisTracker:
 class LuxonisTrackerPL(plLogger):
     def __init__(
         self,
-        project_name=None,
-        project_id=None,
-        run_name=None,
-        run_id=None,
-        save_directory="runs",
-        is_tensorboard=False,
-        is_wandb=False,
-        is_mlflow=False,
-        is_sweep=False,
-        wandb_entity=None,
-        mlflow_tracking_uri=None,
-        rank=0,
+        project_name: Optional[str] = None,
+        project_id: Optional[str] = None,
+        run_name: Optional[str] = None,
+        run_id: Optional[str] = None,
+        save_directory: str = "runs",
+        is_tensorboard: bool = False,
+        is_wandb: bool = False,
+        is_mlflow: bool = False,
+        is_sweep: bool = False,
+        wandb_entity: Optional[str] = None,
+        mlflow_tracking_uri: Optional[str] = None,
+        rank: int = 0,
     ):
+        """Implementation of PytorchLightning Logger that wraps various logging software. Supported loggers: TensorBoard, WandB and MLFlow
+
+        Args:
+            project_name (Optional[str], optional): Name of the project used for WandB and MLFlow. Defaults to None.
+            project_id (Optional[str], optional): Project id used for WandB and MLFlow. Defaults to None.
+            run_name (Optional[str], optional): Name of the run, if None then auto-generate random name. Defaults to None.
+            run_id (Optional[str], optional): Run id used for continuing MLFlow run. Defaults to None.
+            save_directory (str, optional): Path to save directory. Defaults to "runs".
+            is_tensorboard (bool, optional): Wheter use TensorBoard logging. Defaults to False.
+            is_wandb (bool, optional): Wheter use WandB logging. Defaults to False.
+            is_mlflow (bool, optional): Wheter use MLFlow logging. Defaults to False.
+            is_sweep (bool, optional): Wheter current run is part of a sweep. Defaults to False.
+            wandb_entity (Optional[str], optional): WandB entity to use. Defaults to None.
+            mlflow_tracking_uri (Optional[str], optional): MLFlow tracking uri to use. Defaults to None.
+            rank (int, optional): Rank of the instance, used when running on multiple threads. Defaults to 0.
+        """
         plLogger.__init__(self)
 
         self.project_name = project_name
@@ -227,15 +249,18 @@ class LuxonisTrackerPL(plLogger):
 
     @property
     def name(self):
+        """Returns run name"""
         return self.run_name
 
     @property
     def version(self):
+        """Returns tracker's version"""
         return 1
 
     @property
     @rank_zero_only
     def experiment(self):
+        """Creates new experiments or returns active ones if already created"""
         if self._experiment is not None:
             return self._experiment
 
@@ -277,18 +302,21 @@ class LuxonisTrackerPL(plLogger):
 
             if self.project_id is not None:
                 self.project_name = None
-            self._experiment["mlflow"].set_experiment(
+            experiment = self._experiment["mlflow"].set_experiment(
                 experiment_name=self.project_name, experiment_id=self.project_id
             )
+            self.project_id = experiment.experiment_id
 
             # if self.run_id == None then create new run, else use alredy created one
-            self._experiment["mlflow"].start_run(
+            run = self._experiment["mlflow"].start_run(
                 run_id=self.run_id, run_name=self.run_name, nested=self.is_sweep
             )
+            self.run_id = run.info.run_id
 
         return self._experiment
 
     def _get_next_run_number(self):
+        """Returns number id for next run"""
         # find all directories that should be runs
         log_dirs = glob.glob(f"{self.save_directory}/*")
         log_dirs = [path.split("/")[-1] for path in log_dirs if os.path.isdir(path)]
@@ -302,20 +330,22 @@ class LuxonisTrackerPL(plLogger):
             return max(nums) + 1
 
     def _get_run_name(self):
+        """Generates new run name"""
         name_without_number = get_random_name(separator="-", style="lowercase")
         number = self._get_next_run_number()
         return f"{number}-{name_without_number}"
 
     def _get_latest_run_name(self):
+        """Returns most recently created run name"""
         # find all directories that should be runs
         log_dirs = glob.glob(f"{self.save_directory}/*")
         log_dirs = [path for path in log_dirs if os.path.isdir(path)]
         # find run names based on the naming convention and sort them by last modified time
-        runs = [
-            l.replace(f"{self.save_directory}/", "")
-            for l in log_dirs
-            if l.split("-")[0].isnumeric()
-        ]
+        runs = []
+        for l in log_dirs:
+            l = l.replace(f"{self.save_directory}/", "")
+            if l.split("-")[0].isnumeric():
+                runs.append(l)
         runs.sort(
             key=lambda x: os.path.getmtime(os.path.join(self.save_directory, x)),
             reverse=True,
@@ -323,7 +353,7 @@ class LuxonisTrackerPL(plLogger):
         return runs[0]
 
     @rank_zero_only
-    def log_hyperparams(self, params):
+    def log_hyperparams(self, params: dict):
         """Log hypeparameter dictionary
 
         Args:
@@ -342,7 +372,7 @@ class LuxonisTrackerPL(plLogger):
             self.experiment["mlflow"].log_params(params)
 
     @rank_zero_only
-    def log_metrics(self, metrics, step):
+    def log_metrics(self, metrics: dict, step: int):
         """Log metric dictionary
 
         Args:
@@ -353,12 +383,13 @@ class LuxonisTrackerPL(plLogger):
             for key, value in metrics.items():
                 self.experiment["tensorboard"].add_scalar(key, value, step)
         if self.is_wandb:
-            self.experiment["wandb"].log(metrics, step=step)
+            # if step is added here it doesn't work correctly with wandb
+            self.experiment["wandb"].log(metrics)
         if self.is_mlflow:
             self.experiment["mlflow"].log_metrics(metrics, step)
 
     @rank_zero_only
-    def log_images(self, imgs, step):
+    def log_images(self, imgs: dict, step: int):
         """Log imgs dictionary
 
         Args:
@@ -369,7 +400,9 @@ class LuxonisTrackerPL(plLogger):
             self.log_image(caption, img, step)
 
     @rank_zero_only
-    def log_image(self, caption, img, step):
+    def log_image(
+        self, caption: str, img: Union["torch.Tensor", "np.ndarray"], step: int
+    ):
         """Log one image with a caption
 
         Args:
@@ -389,7 +422,11 @@ class LuxonisTrackerPL(plLogger):
             self._experiment["wandb"].log({caption: wandb_image})
 
         if self.is_mlflow:
-            self._experiment["mlflow"].log_image(img, f"{caption}_{step}.png")
+            # split images into separate directories based on step
+            base_path, img_caption = caption.rsplit("/", 1)
+            self._experiment["mlflow"].log_image(
+                img, f"{base_path}/{step}/{img_caption}.png"
+            )
 
     @rank_zero_only
     def save(self):

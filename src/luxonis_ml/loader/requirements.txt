@@ -1,1 +1,2 @@
 torch>=1.12.1
+albumentations @ git+https://github.com/i-aki-y/albumentations.git@c137e2b # albumentations fork with batched transform support
