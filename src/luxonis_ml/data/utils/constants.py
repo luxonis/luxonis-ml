@@ -15,14 +15,3 @@ ANNOTATIONS_SCHEMA = {
 
 ANNOTATION_TYPES = [val.value for val in list(DataLabelType.__members__.values())]
 LABEL_TYPES = [val.value for val in list(LabelType.__members__.values())]
-
-# PARQUET_ANNOTATIONS_SCHEMA = {
-#     "id": str,
-#     "instance_id": str,
-#     "file": str,
-#     "class": str,
-#     "type": Union[str, DataLabelType],
-#     "value": Union[str, list, int, float],
-#     # "children": List[str],
-#     # "parent": List[str],
-# }

@@ -66,7 +66,11 @@ class ParquetFileManager:
                 return self._generate_filename(self.num)[1]
 
     def _find_num(self) -> int:
-        nums = [int(filename.split(".parquet")[0]) for filename in self.files]
+        nums = [
+            int(os.path.splitext(file)[0])
+            for file in self.files
+            if os.path.splitext(file)[1] == ".parquet"
+        ]
         return max(nums)
 
     def _generate_filename(self, num: int) -> Tuple[str, str]:

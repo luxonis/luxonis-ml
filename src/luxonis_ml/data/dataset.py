@@ -3,16 +3,17 @@ import luxonis_ml.data.utils.data_utils as data_utils
 # from luxonis_ml.data.utils.exceptions import *
 from luxonis_ml.data.utils.parquet import ParquetFileManager
 from luxonis_ml.enums import LabelType
-import os, shutil
+import os, shutil, subprocess
 from pathlib import Path
 import cv2
 import json
 import boto3
 from google.cloud import storage
-import logging, time
 from tqdm import tqdm
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 from datetime import datetime
 from typing import List, Dict, Tuple, Optional, Generator
 
@@ -143,18 +144,6 @@ class LuxonisDataset:
         else:
             self.datasets = {}
 
-        # TODO: make a logging class in a different file
-        # log_format = "%(asctime)s [%(levelname)s] %(message)s"
-        # self.log_level = os.environ.get("LUXONISML_LEVEL", "INFO").upper()
-        # logging.basicConfig(level=self.log_level, format=log_format)
-        # self.logger = logging.getLogger(__name__)
-        # file_handler = logging.FileHandler("ldf_debug.log")
-        # file_handler.setLevel(logging.DEBUG)
-        # formatter = logging.Formatter(log_format)
-        # file_handler.setFormatter(formatter)
-        # self.logger.addHandler(file_handler)
-        # self.last_time = None
-
         # offline support only
         if self.dataset_name is None:
             raise NotImplementedError(
@@ -256,6 +245,12 @@ class LuxonisDataset:
                 / self.dataset_name
             )
             os.makedirs(self.path, exist_ok=True)
+            self.media_path = os.path.join(self.path, "media")
+            self.annotations_path = os.path.join(self.path, "annotations")
+            self.metadata_path = os.path.join(self.path, "metadata")
+            os.makedirs(self.media_path, exist_ok=True)
+            os.makedirs(self.annotations_path, exist_ok=True)
+            os.makedirs(self.metadata_path, exist_ok=True)
         elif self.bucket_storage.value == "s3":
             self.path = f"s3://{self._get_credentials('AWS_BUCKET')}/{self.team_id}/datasets/{self.dataset_name}"
             self._init_boto3_client()
@@ -263,26 +258,43 @@ class LuxonisDataset:
             self.path = f"gs://{self._get_credentials('GCS_BUCKET')}/{self.team_id}/datasets/{self.dataset_name}"
             self._init_gcs_client()
 
-    def _load_df_offline(self) -> pd.DataFrame:
+    def _load_df_offline(self) -> Optional[pd.DataFrame]:
         dfs = []
-        for file in os.listdir(self.path):
+        for file in os.listdir(self.annotations_path):
             if os.path.splitext(file)[1] == ".parquet":
-                dfs.append(pd.read_parquet(os.path.join(self.path, file)))
-        return pd.concat(dfs)
+                dfs.append(pd.read_parquet(os.path.join(self.annotations_path, file)))
+        if len(dfs):
+            return pd.concat(dfs)
+        else:
+            return None
 
-    # TODO: move to another file
-    # def _log_time(self, note: Optional[str] = None, final: bool = False) -> None:
-    #     """Helper to log the time taken within a function to INFO"""
+    def _try_instance_id(
+        self, file: str, index: Optional[pd.DataFrame]
+    ) -> Optional[str]:
+        if index is None:
+            return None
 
-    #     if self.logger.isEnabledFor(logging.DEBUG):
-    #         if self.last_time is None:
-    #             self.last_time = time.time()
-    #         else:
-    #             new_time = time.time()
-    #             self.logger.debug(f"{note} took {(new_time-self.last_time)*1000} ms")
-    #             self.last_time = new_time
-    #             if final:
-    #                 self.last_time = None
+        if file in index["file"]:
+            test = index[index["file"] == file]
+            print(test)
+            return test
+        else:
+            return None
+
+    def _get_file_index(self) -> Optional[pd.DataFrame]:
+        index = None
+        file_index_path = os.path.join(self.metadata_path, "file_index.parquet")
+        if os.path.exists(file_index_path):
+            index = pd.read_parquet(file_index_path)
+        return index
+
+    def _write_index(self, index: Optional[pd.DataFrame], new_index: Dict) -> None:
+        file_index_path = os.path.join(self.metadata_path, "file_index.parquet")
+        df = pd.DataFrame(new_index)
+        if index is not None:
+            df = pd.concat(index, df)
+        table = pa.Table.from_pandas(df)
+        pq.write_table(table, file_index_path)
 
     def update_source(self, source: LuxonisSource) -> None:
         """
@@ -346,28 +358,10 @@ class LuxonisDataset:
                 classes_by_task[task] = task_classes
                 for cls in task_classes:
                     classes.add(cls)
-        # mask_classes = set()
-        # if "segmentation" in self.fo_dataset.mask_targets.keys():
-        #     for key in self.fo_dataset.mask_targets["segmentation"]:
-        #         mask_classes.add(self.fo_dataset.mask_targets["segmentation"][key])
-        # classes_by_task["segmentation"] = list(mask_classes)
-        # classes = list(classes.union(mask_classes))
         classes = list(classes)
         classes.sort()
 
         return classes, classes_by_task
-
-    # def get_classes_count(self) -> Dict:
-    #     """Returns dictionary with number of occurances for each class. If no class label is present returns empty dict."""
-
-    #     try:
-    #         count_dict = self.fo_dataset.count_values("class.classifications.label")
-    #     except:
-    #         self.logger.warning(
-    #             "No 'class' label present in the dataset. Returning empty dictionary."
-    #         )
-    #         count_dict = {}
-    #     return count_dict
 
     def delete_dataset(self) -> None:
         """Deletes all local files belonging to the dataset"""
@@ -399,13 +393,38 @@ class LuxonisDataset:
                     (e.g. [[0.2, 0.3], [0.4, 0.5], ...])
         """
 
-        self.pfm = ParquetFileManager(self.path)
+        self.pfm = ParquetFileManager(self.annotations_path)
+
+        index = self._get_file_index()
+        new_index = {"instance_id": [], "file": []}
+
         for data in generator():
+            # Add media
+            filepath = data["file"]
+            file = os.path.basename(filepath)
+            new_file, instance_id = data_utils.generate_hashname(filepath)
+            matched_id = self._try_instance_id(file, index)
+            if matched_id is not None:
+                if matched_id != instance_id:
+                    # TODO: not sure if this should be an exception or how we should really handle it
+                    raise Exception(
+                        f"{filepath} uses a duplicate filename corresponding to different media! Please rename this file."
+                    )
+                    # TODO: we may also want to check for duplicate instance_ids to get a one-to-one relationship
+            else:
+                new_index["instance_id"].append(instance_id)
+                new_index["file"].append(file)
+            cmd = f"cp {filepath} {os.path.join(self.media_path, new_file)}"
+            subprocess.check_output(cmd, shell=True)
+
+            # Add annotation
             data_utils.check_annotation(data)
             # TODO: ability to get instance_id also from bucket
-            data["instance_id"] = data_utils.generate_hashname(data["file"])[1]
-            data["file"] = os.path.basename(data["file"])
-            # data["value_type"] = str(type(data["value"]))
+            data["instance_id"] = instance_id
+            data[
+                "file"
+            ] = file  # TODO: determine if we actually need to store this on the annotation level
+            data["value_type"] = type(data["value"]).__name__
             if isinstance(data["value"], list):
                 data["value"] = json.dumps(data["value"])  # convert lists to string
             else:
@@ -413,9 +432,11 @@ class LuxonisDataset:
 
             self.pfm.write(data)
 
-            # TODO: duplicate image data
+        # TODO: copy everything at the end with multithread instead of within for loop
+        # similar logic can be used for buckets
 
         self.pfm.close()
+        self._write_index(index, new_index)
 
     def make_splits(
         self, ratios: List[float] = [0.8, 0.1, 0.1], definitions: Optional[Dict] = None
@@ -436,7 +457,6 @@ class LuxonisDataset:
         splits = {}
 
         if definitions is None:  # random split
-            splits["type"] = "instance_id"
             df = self._load_df_offline()
             ids = list(set(df["instance_id"]))
             np.random.shuffle(ids)
@@ -447,18 +467,18 @@ class LuxonisDataset:
             splits["val"] = ids[b1:b2]
             splits["test"] = ids[b2:]
         else:  # provided split
-            # TODO: need to create an "index" that matches instance_ids to files
-            splits["type"] = "file"
+            index = self._get_file_index()
+            if index is None:
+                raise Exception("File index not found")
             if set(definitions.keys()) != set("train", "val", "test"):
                 raise Exception("Must specify train, val, and test and those keys only")
             for split in "train", "val", "test":
                 files = definitions[split]
                 if not isinstance(files, list):
                     raise Exception("Must provide splits as a list of str")
-                files = [
-                    os.path.basename(file) for file in files
-                ]  # TODO: instead of this, query instance_id associated with file
-                splits[split] = files
+                files = [os.path.basename(file) for file in files]
+                ids = [self._try_instance_id(file, index) for file in files]
+                splits[split] = ids
 
         with open(os.path.join(self.path, "splits.json"), "w") as file:
             json.dump(splits, file, indent=4)
