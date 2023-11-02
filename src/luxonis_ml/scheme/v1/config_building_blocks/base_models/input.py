@@ -5,8 +5,8 @@ from ..enums import *
 from abc import ABC
 
 class PreprocessingBlock(CustomBaseModel):
-    mean: Annotated[List[float], Field(min_length=3, max_length=3)] = None # [mean_B, mean_G, mean_R]
-    scale: Annotated[List[float], Field(min_length=3, max_length=3)] = None # [scale_B, scale_G, scale_R]
+    mean: List[float] = None # e.g. [mean_B, mean_G, mean_R]
+    scale: List[float] = None # e.g. [scale_B, scale_G, scale_R]
     reverse_channels: bool = False
     interleaved_to_planar: bool = False
 
