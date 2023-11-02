@@ -6,7 +6,11 @@ import json
 from typing import List
 
 class ArchiveGenerator:
-    """ class for constructing the archive .tar file containing executables, metadata, and all information required for decoding """
+    
+    """ 
+    Generator of abstracted NN archive (.tar) files containing executables (aka models),
+    metadata, and all info required for output decoding.
+    """
  
     def __init__(
         self,
@@ -18,10 +22,10 @@ class ArchiveGenerator:
         ):
         
         """
-        - archive_name: desired name for .tar file
-        - save_path: path to where we want the .tar file to be saved
-        - cfg_dict: configuration dict
-        - executables_paths: paths to executables aka. models (e.g. .dlc model for rvc4 platform)
+        - archive_name: desired archive file name
+        - save_path: path to where we want to save the archive file
+        - cfg_dict: archive configuration dict
+        - executables_paths: paths to relevant executables
         - compress: if True, .tar file is compressed with .gz compression
         """
         
@@ -42,9 +46,13 @@ class ArchiveGenerator:
         )
         
     def make_archive(self):
+
+        """
+        Run NN archive (.tar) file generation.
+        """
         
-        # create config JSON in-memory file-like object
-        json_data, json_buffer = self.make_json()
+        # create an in-memory file-like config object
+        json_data, json_buffer = self._make_json()
 
         # construct .tar archive
         with tarfile.open(os.path.join(self.save_path, self.archive_name), self.mode) as tar:
@@ -60,7 +68,11 @@ class ArchiveGenerator:
             tar.addfile(tarinfo, json_buffer)
 
 
-    def make_json(self):
+    def _make_json(self):
+
+        """
+        Create an in-memory config data file-like object.
+        """
         
         # read-in config data as dict
         data = json.loads(self.cfg.model_dump_json())
