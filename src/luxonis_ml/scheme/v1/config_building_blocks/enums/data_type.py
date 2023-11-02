@@ -7,3 +7,4 @@ class DataType(Enum):
     INT8 = "int8"
     UINT8 = "uint8"
     FLOAT32 = "float32"
+    FLOAT16 = "float16"
