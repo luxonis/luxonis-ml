@@ -14,5 +14,5 @@ class Input(CustomBaseModel):
     name: str
     dtype: DataType
     input_type: InputType
-    shape: Annotated[List[int], Field(min_length=2, max_length=4)] # [H,W] or [H,W,C] or [BS,H,W,C]
+    shape: Annotated[List[int], Field(min_length=1, max_length=5)] # ..., [H,W] or [H,W,C] or [BS,H,W,C], ...
     preprocessing: PreprocessingBlock
