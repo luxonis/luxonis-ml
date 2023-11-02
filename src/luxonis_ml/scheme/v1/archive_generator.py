@@ -3,25 +3,26 @@ from io import BytesIO
 import tarfile
 import os
 import json
+from typing import List
 
 class ArchiveGenerator:
     """ class for constructing the archive .tar file containing executables, metadata, and all information required for decoding """
  
     def __init__(
         self,
-        archive_name,
-        save_path,
-        cfg_dict,
-        executables_paths,
-        compress = False,
+        archive_name: str,
+        save_path: str,
+        cfg_dict: dict,
+        executables_paths: List[str],
+        compress: bool = False,
         ):
         
         """
-        - archive_name: [str] desired name for .tar file
-        - save_path: [str] path to where we want the .tar file to be saved
+        - archive_name: desired name for .tar file
+        - save_path: path to where we want the .tar file to be saved
         - cfg_dict: configuration dict
-        - executables_paths: [list of strings] paths to executables aka. models (e.g. .dlc model for rvc4 platform)
-        - compress: [bool] if True, .tar file is compressed with .gz compression
+        - executables_paths: paths to executables aka. models (e.g. .dlc model for rvc4 platform)
+        - compress: if True, .tar file is compressed with .gz compression
         """
         
         self.archive_name = archive_name if archive_name.endswith(".tar") else f"{archive_name}.tar"
