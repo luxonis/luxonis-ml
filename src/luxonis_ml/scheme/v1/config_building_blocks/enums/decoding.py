@@ -4,20 +4,42 @@ class DecodingFamily(Enum):
 
     """ members of a family should have similar decoding """
 
+    # classification
+    MULTICLASS_CLASSIFICATION= "multiclass_classification"
+
+    # object detection
     YOLO = "yolo"
-    SSD_MB = "ssd-mobilenet" # seems like outputs of all ssd-mobilenet networks are of shape (1,3000,classes_n) and (1,3000,4)
+    SSD_PARSED = "ssd-mobilenet" # seems like outputs of all ssd-mobilenet networks are of shape (1,3000,classes_n) and (1,3000,4)
     
-    SOFTMAX= "softmax"
+    # keypoints
+    KEYPOINTS_HEATMAP = ""
+    KEYPOINTS_REGRESSION = ""
+    KEYPOINTS_ANCHORS = ""
     
-    RAW = "raw" # TODO: add additional families
+    # segmentation
+    # TODO
+
+    # misc
+    RAW = "raw"
 
 class DecodingSubFamily(Enum):
 
     """ members of a subfamily should have exactly the same decoding """
 
-    # postprocessing for YOLOs follows the same principle - running NMS on model output
-    # however, outputs are structured a bit differently:
-    YOLOv5_7 = "yolov5/yolov7" # both (1, 3, 80, 80, 85), (1, 3, 40, 40, 85), (1, 3, 20, 20, 85) shape outputs, as the (1, 25200, 85) concatenate
-    YOLOv6 = "yolov6" # (1, 80, 80, 85), (1, 40, 40, 85), (1, 20, 20, 85) shape outputs
+    # classification
+    SOFTMAX = "softmax_activation"
+    SIGMOID = "sigmoid_activation"
+
+    # object detection
+    # postprocessing for YOLOs follows the same principle - running NMS on model output - but the outputs are structured a bit differently:
+    YOLOv5_7 = "yolov5/yolov7"
+    YOLOv6 = "yolov6"
     
-    RAW = "raw" # TODO: add additional sub-families
+    # keypoints
+    # TODO
+
+    # segmentation
+    # TODO
+
+    # misc
+    RAW = "raw"
