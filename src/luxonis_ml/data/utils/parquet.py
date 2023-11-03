@@ -16,12 +16,6 @@ class ParquetFileManager:
     ) -> None:
         """
         Class to manage the insert of data into parquet files.
-        TODO...
-
-        rework:
-        - only test file size on .close(). If any files are too large. If so, have some splitting algorithm
-        - track "min" and "max" instance_id for each parquet file
-        - self.data should be further partitioned into which rows are written to which files based on these mins and maxes
         """
 
         self.dir = directory
@@ -47,23 +41,8 @@ class ParquetFileManager:
         if current_size < self.file_size:
             return path
         else:
-            for file in self.files:
-                path = os.path.join(self.dir, file) / (1024 * 1024)
-                sizes = []
-                # times = []
-                if os.path.isfile(path):
-                    size = os.path.getsize(path)
-                    if size < self.file_size:
-                        sizes.append(size)
-                        # times.append(os.path.getmtime(path))
-            if len(sizes):
-                idx = np.argmin(sizes)
-                filename = self.files[idx]
-                path = os.path.join(self.dir, filename)
-                return path
-            else:
-                self.num += 1
-                return self._generate_filename(self.num)[1]
+            self.num += 1
+            return self._generate_filename(self.num)[1]
 
     def _find_num(self) -> int:
         nums = [

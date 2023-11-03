@@ -22,7 +22,7 @@ class MediaType(Enum):
 
     IMAGE = "image"
     VIDEO = "video"
-    POINTCLOUD = "point cloud"
+    POINTCLOUD = "pointcloud"
 
 
 class ImageType(Enum):
@@ -31,7 +31,6 @@ class ImageType(Enum):
     COLOR = "color"
     MONO = "mono"
     DISPARITY = "disparity"
-    DEPTH = "depth"
 
 
 class LDFTransactionType(Enum):

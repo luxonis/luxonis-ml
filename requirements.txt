@@ -4,7 +4,8 @@ tqdm>=4.64.1
 opencv-python==4.7.0.68
 opencv-python-headless==4.7.0.68
 PyYAML>=6.0
-fiftyone==0.21.0
 label-studio-sdk>=0.0.28
 boto3>=1.17.39
 google-cloud-storage>=2.10.0
+pandas>=2.1.0
+pyarrow>=13.0.0
