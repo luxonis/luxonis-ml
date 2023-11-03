@@ -4,10 +4,18 @@ from typing import Optional, Dict, Any, List, Tuple, Literal, Union, Annotated
 from ..enums import *
 from abc import ABC
 
-class HeadMetadata(BaseModel, ABC):
-
+class HeadMetadataClassification(BaseModel):
     """
-    Parent class for decoding head metadata. Considered together with its children classes, the following arguments are accepted:
+    Metadata for classification head. The following arguments are accepted:
+        - classes: Array of object class names recognized by the model;
+        - n_classes: Number of object classes recognized by the model;
+    """
+    classes: List[str]
+    n_classes: int
+
+class HeadMetadataObjectDetection(BaseModel):
+    """
+    Metadata for object detection head. The following arguments are accepted:
         - classes: Array of object class names recognized by the model;
         - n_classes: Number of object classes recognized by the model;
         - stride: Step size at which the filter (or kernel) moves across the input data during convolution;
@@ -15,36 +23,48 @@ class HeadMetadata(BaseModel, ABC):
         - iou_threshold (aka. NMS threshold): Limits intersection of boxes (boxes with intersection-over-union (IoU) greater than this threshold are suppressed, and only the one with the highest confidence score is kept);
         - conf_threshold: Confidence score threshold above which a detected object is considered valid;
         - max_det: maximum detections per image
+        - n_keypoints: TODO: in case model provides keypoints in conjunction with bounding boxes
+        - n_prototypes: TODO: in case of instance mask object detection
+        - prototype_output_name: name of the output that comes into head (TODO: add support of more outputs go into one head)
+        - subtype: decoding subtype used to differentiate object decoding of members of the same decoding_family
+
     """
-
-    decoding_subfamily: DecodingSubFamily = None
-
-class HeadMetadataClassification(HeadMetadata):
-    labels: List[str]
-    n_labels: int
-
-class HeadMetadataObjectDetection(HeadMetadata):
-    labels: List[str]
-    n_labels: int
+    classes: List[str]
+    n_classes: int
     stride: int
     anchors: List[List[int]] = None # optional as some models (e.g. late versions of YOLO) use anchors as an integral part of their architecture.
     iou_threshold: float
     conf_threshold: float
     max_det: int
+    n_keypoints: int = 0
+    n_prototypes: int = 0 #
+    prototype_output_name: str
+    subtype: ObjectDetectionSubtype = None
 
-class HeadMetadataSegmentation(HeadMetadata):
-    pass # TODO
+class HeadMetadataSegmentation(BaseModel):
+    """
+    Metadata for segmentation head. The following arguments are accepted:
+        - classes: Array of object class names recognized by the model;
+        - n_classes: Number of object classes recognized by the model;
+        - is_softmax: TODO
+    """
+    classes: List[str]
+    n_classes: int
+    is_softmax: bool
 
-class HeadMetadataKeypointDetection(HeadMetadata):
-    n_keypoints = int = None
+class HeadMetadataKeypointDetection(BaseModel):
+    """
+    Metadata for keypoint detection head
+    """
+    def __init__(self):
+        raise NotImplementedError
 
 class Head(CustomBaseModel):
     head_id: str
-    task_type: TaskType
     decoding_family: DecodingFamily = None # optional because this is mostly relevant for object detection
     metadata: Union[
         HeadMetadataObjectDetection,
-        HeadMetadataKeypointDetection,
+        HeadMetadataSegmentation,
         HeadMetadataClassification,
-        #HeadMetadataSegmentation, # TODO
+        #HeadMetadataKeypointDetection, # TODO
         ]
