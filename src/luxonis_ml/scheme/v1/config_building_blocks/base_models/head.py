@@ -23,9 +23,9 @@ class HeadMetadataObjectDetection(BaseModel):
         - iou_threshold (aka. NMS threshold): Limits intersection of boxes (boxes with intersection-over-union (IoU) greater than this threshold are suppressed, and only the one with the highest confidence score is kept);
         - conf_threshold: Confidence score threshold above which a detected object is considered valid;
         - max_det: maximum detections per image
-        - n_keypoints: TODO: in case model provides keypoints in conjunction with bounding boxes
-        - n_prototypes: TODO: in case of instance mask object detection
-        - prototype_output_name: name of the output that comes into head (TODO: add support of more outputs go into one head)
+        - n_keypoints: number of keypoints per bbox if provided;
+        - n_prototypes: number of prototypes per bbox if provided;
+        - prototype_output_name: output node containing prototype information
         - subtype: decoding subtype used to differentiate object decoding of members of the same decoding_family
 
     """
@@ -38,7 +38,7 @@ class HeadMetadataObjectDetection(BaseModel):
     max_det: int
     n_keypoints: int = 0
     n_prototypes: int = 0 #
-    prototype_output_name: str
+    prototype_output_name: str = None
     subtype: ObjectDetectionSubtype = None
 
 class HeadMetadataSegmentation(BaseModel):
@@ -46,7 +46,7 @@ class HeadMetadataSegmentation(BaseModel):
     Metadata for segmentation head. The following arguments are accepted:
         - classes: Array of object class names recognized by the model;
         - n_classes: Number of object classes recognized by the model;
-        - is_softmax: TODO
+        - is_softmax: True, if output is already softmaxed
     """
     classes: List[str]
     n_classes: int
