@@ -1,2 +1,2 @@
-from .tracker import LuxonisTracker, LuxonisTrackerPL
+from .tracker import LuxonisTracker
 from .mlflow_plugins import LuxonisRequestHeaderProvider
