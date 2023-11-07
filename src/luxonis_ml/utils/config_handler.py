@@ -13,7 +13,7 @@ from typing import (
 )
 from pydantic import BaseModel, TypeAdapter
 
-from luxonis_ml.utils.filesystem import LuxonisFileSystem
+from .filesystem import LuxonisFileSystem
 
 
 class ConfigHandler:
