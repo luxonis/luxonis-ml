@@ -43,7 +43,7 @@ class HeadMetadataObjectDetection(BaseModel):
     
 class HeadMetadataSegmentation(BaseModel):
     """
-    Metadata for segmentation head. The following arguments are accepted:
+    Metadata for segmentation head. acThe following arguments are cepted:
         - classes: Array of object class names recognized by the model;
         - n_classes: Number of object classes recognized by the model;
         - is_softmax: True, if output is already softmaxed
@@ -54,12 +54,15 @@ class HeadMetadataSegmentation(BaseModel):
 
 class HeadMetadataKeypointDetection(BaseModel):
     """
-    Metadata for keypoint detection head
+    Metadata for keypoint detection head.
     """
     def __init__(self):
         raise NotImplementedError
 
 class Head(CustomBaseModel):
+    """
+    Model head class.
+    """
     head_id: str
     decoding_family: Optional[DecodingFamily] = None # optional because this is mostly relevant for object detection
     metadata: Union[

@@ -5,12 +5,22 @@ from ..enums import *
 from abc import ABC
 
 class PreprocessingBlock(CustomBaseModel):
-    mean: Optional[List[float]] = None # e.g. [mean_B, mean_G, mean_R]
-    scale: Optional[List[float]] = None # e.g. [scale_B, scale_G, scale_R]
+    """
+    Preprocessing operations required by the model. The following arguments are accepted:
+        - mean: mean normalization values in BGR order,
+        - scale: standardization values in BGR order,
+        - reverse_channels: If True, image color channels are reversed (e.g. RGB to BGR and vice versa),
+        - interleaved_to_planar: If True, change input from interleaved to planar format,
+    """
+    mean: Optional[List[float]] = None
+    scale: Optional[List[float]] = None
     reverse_channels: Optional[bool] = False
     interleaved_to_planar: Optional[bool] = False
 
 class Input(CustomBaseModel):
+    """
+    Model input class.
+    """
     name: str
     dtype: DataType
     input_type: InputType
