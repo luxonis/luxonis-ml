@@ -32,15 +32,15 @@ class HeadMetadataObjectDetection(BaseModel):
     classes: List[str]
     n_classes: int
     stride: int
-    anchors: List[List[int]] = None # optional as some models (e.g. late versions of YOLO) use anchors as an integral part of their architecture.
     iou_threshold: float
     conf_threshold: float
     max_det: int
+    subtype: ObjectDetectionSubtype
     n_keypoints: int = 0
     n_prototypes: int = 0 #
     prototype_output_name: str = None
-    subtype: ObjectDetectionSubtype = None
-
+    anchors: List[List[int]] = None # optional as some models (e.g. late versions of YOLO) use anchors as an integral part of their architecture.
+    
 class HeadMetadataSegmentation(BaseModel):
     """
     Metadata for segmentation head. The following arguments are accepted:
