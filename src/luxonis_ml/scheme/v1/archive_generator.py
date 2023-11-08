@@ -18,7 +18,6 @@ class ArchiveGenerator:
         save_path: str,
         cfg_dict: dict,
         executables_paths: List[str],
-        compress: bool = False,
         ):
         
         """
@@ -26,14 +25,10 @@ class ArchiveGenerator:
         - save_path: path to where we want to save the archive file
         - cfg_dict: archive configuration dict
         - executables_paths: paths to relevant executables
-        - compress: if True, .tar file is compressed with .gz compression
         """
         
-        self.archive_name = archive_name if archive_name.endswith(".tar") else f"{archive_name}.tar"
-        self.mode = "w"
-        if compress:
-            self.archive_name += ".gz"
-            self.mode = "w:gz"
+        self.archive_name = archive_name if archive_name.endswith(".tar.gz") else f"{archive_name}.tar.gz"
+        self.mode = "w:gz"
 
         self.save_path = save_path
         self.executables_paths = executables_paths
