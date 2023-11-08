@@ -1,16 +1,46 @@
 import cv2
 from PIL import Image, ImageDraw
 import numpy as np
-import torch
 import random
 import warnings
 import os, glob
 import json
+import fiftyone.core.utils as fou
+from enum import Enum
+from abc import ABC, abstractmethod
 from typing import Optional, Tuple, Dict
-from luxonis_ml.enums import LabelType
+from pathlib import Path
+from fiftyone import ViewField as F
 
 
-class LuxonisLoader(torch.utils.data.Dataset):
+class LabelType(str, Enum):
+    CLASSIFICATION = "class"
+    SEGMENTATION = "segmentation"
+    BOUNDINGBOX = "boxes"
+    KEYPOINT = "keypoints"
+
+
+Labels = Dict[LabelType, np.ndarray]
+LDF = Tuple[np.ndarray, Labels]
+
+
+class BaseLoader(ABC):
+    """Base abstract loader class that is enforces LDF output label structure."""
+
+    @abstractmethod
+    def __getitem__(self, idx: int) -> LDF:
+        """Loads sample from dataset
+
+        Args:
+            idx (int): Sample index
+
+        Returns:
+            LDF: Sample's data in LDF format
+        """
+        pass
+
+
+class LuxonisLoader(BaseLoader):
     def __init__(
         self,
         dataset: "luxonis_ml.data.LuxonisDataset",
@@ -68,9 +98,7 @@ class LuxonisLoader(torch.utils.data.Dataset):
         """Returns length of the pytorch dataset"""
         return len(self.instances)
 
-    def __getitem__(self, idx: int) -> Tuple[torch.tensor, Dict]:
-        """Function to load a sample"""
-
+    def __getitem__(self, idx: int) -> LDF:
         img, annotations = self._load_image_with_annotations(idx)
 
         if self.augmentations is not None:
@@ -79,7 +107,8 @@ class LuxonisLoader(torch.utils.data.Dataset):
                 other_indices = [i for i in range(len(self)) if i != idx]
                 if self.augmentations.aug_batch_size > len(self):
                     warnings.warn(
-                        f"Augmentations batch_size ({self.augmentations.aug_batch_size}) is larger than dataset size ({len(self)}), samples will include repetitions."
+                        f"Augmentations batch_size ({self.augmentations.aug_batch_size}) is larger than "
+                        f"dataset size ({len(self)}), samples will include repetitions."
                     )
                     random_fun = random.choices
                 else:
@@ -94,11 +123,6 @@ class LuxonisLoader(torch.utils.data.Dataset):
             img, annotations = self.augmentations(
                 aug_input_data, nc=self.nc, ns=self.ns, nk=self.max_nk
             )
-
-        img = np.transpose(img, (2, 0, 1))  # HWC to CHW
-        img = torch.tensor(img)
-        for key in annotations:
-            annotations[key] = torch.tensor(annotations[key])
 
         return img, annotations
 
@@ -187,59 +211,3 @@ class LuxonisLoader(torch.utils.data.Dataset):
             annotations[LabelType.KEYPOINT] = keypoints
 
         return img, annotations
-
-    @staticmethod
-    def collate_fn(batch: list) -> Tuple[torch.tensor, Dict]:
-        """Default collate function used for training
-
-        Args:
-            batch (list): List of images and their annotations
-
-        Returns:
-            Tuple[torch.FloatTensor, Dict]:
-                imgs: Tensor of images (torch.float32) of shape [N, 3, H, W]
-                out_annotations: Dictionary with annotations
-                    {
-                        LabelType.CLASSIFICATION: Tensor of shape [N, classes] with value 1 for present class
-                        LabelType.SEGMENTATION: Tensor of shape [N, classes, H, W] with value 1 for pixels that are part of the class
-                        LabelType.BOUNDINGBOX: Tensor of shape [instances, 6] with [image_id, class, x_min_norm, y_min_norm, w_norm, h_norm]
-                        LabelType.KEYPOINT: Tensor of shape [instances, n_keypoints*3] with [image_id, x1_norm, y1_norm, vis1, x2_norm, y2_norm, vis2, ...]
-                    }
-        """
-
-        zipped = zip(*batch)
-        img, anno_dicts = zipped
-        imgs = torch.stack(img, 0)
-
-        present_annotations = anno_dicts[0].keys()
-        out_annotations = {anno: None for anno in present_annotations}
-
-        if LabelType.CLASSIFICATION in present_annotations:
-            class_annos = [anno[LabelType.CLASSIFICATION] for anno in anno_dicts]
-            out_annotations[LabelType.CLASSIFICATION] = torch.stack(class_annos, 0)
-
-        if LabelType.SEGMENTATION in present_annotations:
-            seg_annos = [anno[LabelType.SEGMENTATION] for anno in anno_dicts]
-            out_annotations[LabelType.SEGMENTATION] = torch.stack(seg_annos, 0)
-
-        if LabelType.BOUNDINGBOX in present_annotations:
-            bbox_annos = [anno[LabelType.BOUNDINGBOX] for anno in anno_dicts]
-            label_box = []
-            for i, box in enumerate(bbox_annos):
-                l_box = torch.zeros((box.shape[0], 6))
-                l_box[:, 0] = i  # add target image index for build_targets()
-                l_box[:, 1:] = box
-                label_box.append(l_box)
-            out_annotations[LabelType.BOUNDINGBOX] = torch.cat(label_box, 0)
-
-        if LabelType.KEYPOINT in present_annotations:
-            keypoint_annos = [anno[LabelType.KEYPOINT] for anno in anno_dicts]
-            label_keypoints = []
-            for i, points in enumerate(keypoint_annos):
-                l_kps = torch.zeros((points.shape[0], points.shape[1] + 1))
-                l_kps[:, 0] = i  # add target image index for build_targets()
-                l_kps[:, 1:] = points
-                label_keypoints.append(l_kps)
-            out_annotations[LabelType.KEYPOINT] = torch.cat(label_keypoints, 0)
-
-        return imgs, out_annotations
