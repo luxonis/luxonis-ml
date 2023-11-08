@@ -1,9 +1,11 @@
 import os
+import uuid
 import mlflow
 from typing import Optional, Any, List, Dict, Union
 from types import ModuleType
 import fsspec
 from io import BytesIO
+from concurrent.futures import ThreadPoolExecutor
 
 
 class LuxonisFileSystem:
@@ -26,7 +28,7 @@ class LuxonisFileSystem:
 
         if "://" in path:
             self.protocol, self.path = path.split("://")
-            supported_protocols = ["s3", "file", "mlflow"]
+            supported_protocols = ["s3", "gcs", "file", "mlflow"]
             if self.protocol not in supported_protocols:
                 raise KeyError(
                     f"Protocol `{self.protocol}` not supported. Choose from {supported_protocols}."
@@ -79,15 +81,18 @@ class LuxonisFileSystem:
         if self.protocol == "s3":
             # NOTE: In theory boto3 should look in environment variables automatically but it doesn't seem to work
             return fsspec.filesystem(
-                "s3",
+                self.protocol,
                 key=os.getenv("AWS_ACCESS_KEY_ID"),
                 secret=os.getenv("AWS_SECRET_ACCESS_KEY"),
                 endpoint_url=os.getenv("AWS_S3_ENDPOINT_URL"),
             )
+        elif self.protocol == "gcs":
+            # NOTE: This should automatically read from GOOGLE_APPLICATION_CREDENTIALS
+            return fsspec.filesystem(self.protocol)
         elif self.protocol == "file":
             return fsspec.filesystem(self.protocol)
         else:
-            raise NotImplemented
+            raise NotImplementedError
 
     def put_file(
         self,
@@ -133,7 +138,16 @@ class LuxonisFileSystem:
         if self.is_mlflow:
             raise NotImplementedError
         elif self.is_fsspec:
-            pass
+            if isinstance(local_paths, str) and os.path.isdir(local_paths):
+                self.fs.put(
+                    local_paths, os.path.join(self.path, remote_dir), recursive=True
+                )
+            else:
+                with ThreadPoolExecutor() as executor:
+                    for local_path in local_paths:
+                        basename = os.path.basename(local_path)
+                        remote_path = os.path.join(remote_dir, basename)
+                        executor.submit(self.put_file, local_path, remote_path)
 
     def get_file(
         self,
@@ -152,7 +166,9 @@ class LuxonisFileSystem:
         if self.is_mlflow:
             raise NotImplementedError
         elif self.is_fsspec:
-            pass
+            self.fs.download(
+                os.path.join(self.path, remote_path), local_path, recursive=False
+            )
 
     def get_dir(
         self,
@@ -170,10 +186,17 @@ class LuxonisFileSystem:
         if self.is_mlflow:
             raise NotImplementedError
         elif self.is_fsspec:
-            pass
+            self.fs.download(
+                os.path.join(self.path, remote_dir), local_dir, recursive=True
+            )
 
-    def read_to_byte_buffer(self) -> BytesIO:
-        """Reads a file and returns Byte buffer"""
+    def read_to_byte_buffer(self, remote_path: Optional[str] = None) -> BytesIO:
+        """Reads a file and returns Byte buffer
+
+        Args:
+            remote_path (Optional[str]): If provided, the relative path to the remote file
+        """
+
         if self.is_mlflow:
             if self.is_mlflow_active_run:
                 raise ValueError(
@@ -191,21 +214,57 @@ class LuxonisFileSystem:
             os.remove(download_path)  # remove local file
 
         elif self.is_fsspec:
-            with self.fs.open(self.path, "rb") as f:
+            if remote_path:
+                download_path = os.path.join(self.path, remote_path)
+            else:
+                download_path = self.path
+            with self.fs.open(download_path, "rb") as f:
                 buffer = BytesIO(f.read())
 
         return buffer
 
-    def get_file_uuids(self, paths: List[str]) -> Dict[str, str]:
+    def get_file_uuid(self, path: str, local: bool = False) -> str:
+        """Reads a file and returns Byte buffer
+
+        Args:
+            path (str): If remote, relative path to the remote file. Else the local path
+            local (bool): Specifies a local path as opposed to a remote path
+        """
+
+        if local:
+            with open(path, "rb") as f:
+                file_contents = f.read()
+        else:
+            if self.is_mlflow:
+                raise NotImplementedError
+
+            elif self.is_fsspec:
+                download_path = os.path.join(self.path, path)
+                with self.fs.open(download_path, "rb") as f:
+                    file_contents = f.read()
+
+        file_hash_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, file_contents.hex()))
+
+        return file_hash_uuid
+
+    def get_file_uuids(self, paths: List[str], local: bool = False) -> Dict[str, str]:
         """Computes the UUID for files stored in the filesystem.
 
         Args:
-            paths (List[str]): A list of paths on the underlying filesystem
+            paths (List[str]): A list of relative remote paths if remote else local paths
+            local (bool): Specifies local paths as opposed to remote paths
         Returns: A dictionary mapping the paths to their UUIDs
         """
 
+        result = {}
+
         if self.is_fsspec:
-            pass
+            with ThreadPoolExecutor() as executor:
+                for path in paths:
+                    future = executor.submit(self.get_file_uuid, path, local)
+                    result[path] = future.result()
+
+        return result
 
     def _split_mlflow_path(self, path: str) -> List[Optional[str]]:
         """Splits mlflow path into 3 parts"""
