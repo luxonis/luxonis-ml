@@ -1,9 +1,4 @@
-import luxonis_ml.data.utils.data_utils as data_utils
-
-# from luxonis_ml.data.utils.exceptions import *
-from luxonis_ml.data.utils.parquet import ParquetFileManager
-from luxonis_ml.enums import LabelType
-import os, shutil, subprocess
+import os, shutil, subprocess, time
 from pathlib import Path
 import cv2
 import json
@@ -17,10 +12,10 @@ import pyarrow.parquet as pq
 from datetime import datetime
 from typing import List, Dict, Tuple, Optional, Generator
 
-# TODO: from luxonis_ml.filesystem import LuxonisFilesystem
-# TODO: from luxonis_ml.logger import LuxonisLogger
-from .utils.s3_utils import *
-from .utils.gcs_utils import *
+import luxonis_ml.data.utils.data_utils as data_utils
+from luxonis_ml.utils import LuxonisFileSystem
+from luxonis_ml.data.utils.parquet import ParquetFileManager
+from luxonis_ml.enums import LabelType
 from .utils.constants import LDF_VERSION, LABEL_TYPES
 from .utils.enums import *
 
@@ -109,14 +104,22 @@ class LuxonisDataset:
                 "Must provide either dataset_name or dataset_id when initializing LuxonisDataset"
             )
 
-        if team_id is None:
-            team_id = os.getenv("LUXONISML_TEAM_ID", "offline")
-        if team_name is None:
-            team_name = os.getenv("LUXONISML_TEAM_ID", "offline")
-
         self.base_path = os.getenv(
             "LUXONISML_BASE_PATH", str(Path.home() / "luxonis_ml")
         )
+        credentials_cache_file = str(Path(self.base_path) / "credentials.json")
+        if os.path.exists(credentials_cache_file):
+            with open(credentials_cache_file) as file:
+                self.config = json.load(file)
+        else:
+            self.config = {}
+
+        if team_id is None:
+            team_id = self._get_config("LUXONISML_TEAM_ID", "offline")
+        if team_name is None:
+            team_name = self._get_config("LUXONISML_TEAM_ID", "offline")
+
+        self.bucket = self._get_config("LUXONISML_BUCKET", None)
 
         self.dataset_name = dataset_name
         self.dataset_id = dataset_id
@@ -129,14 +132,10 @@ class LuxonisDataset:
         if not isinstance(self.bucket_storage, BucketStorage):
             raise Exception(f"Must use a valid BucketStorage!")
 
-        self.online = self.team_id != "offline"
+        if self.bucket_storage.value != "local" and self.bucket is None:
+            raise Exception("Must set LUXONISML_BUCKET environment variable!")
 
-        credentials_cache_file = str(Path(self.base_path) / "credentials.json")
-        if os.path.exists(credentials_cache_file):
-            with open(credentials_cache_file) as file:
-                self.creds = json.load(file)
-        else:
-            self.creds = {}
+        self.online = self.team_id != "offline"
 
         self.datasets_cache_file = str(Path(self.base_path) / "datasets.json")
         if os.path.exists(self.datasets_cache_file):
@@ -164,6 +163,13 @@ class LuxonisDataset:
                 self._write_datasets()
 
         self._init_path()
+
+        if self.bucket_storage.value == "local":
+            self.fs = LuxonisFileSystem(f"file://{self.path}")
+        elif self.bucket_storage.value == "azure":
+            raise NotImplementedError
+        else:
+            self.fs = LuxonisFileSystem(self.path)
 
     def __len__(self) -> int:
         """Returns the number of instances in the dataset"""
@@ -220,32 +226,13 @@ class LuxonisDataset:
             ],
         )
 
-    def _get_credentials(self, key: str) -> str:
+    def _get_config(self, key: str, default: Optional[str] = None) -> str:
         """Gets secret credentials from credentials file or ENV variables"""
 
-        if key in self.creds.keys():
-            return self.creds[key]
+        if key in self.config.keys():
+            return self.config[key]
         else:
-            return os.getenv(key, None)
-
-    def _init_boto3_client(self) -> None:
-        """Initializes connection to S3 bucket"""
-
-        self.client = boto3.client(
-            "s3",
-            endpoint_url=self._get_credentials("AWS_S3_ENDPOINT_URL"),
-            aws_access_key_id=self._get_credentials("AWS_ACCESS_KEY_ID"),
-            aws_secret_access_key=self._get_credentials("AWS_SECRET_ACCESS_KEY"),
-        )
-        self.bucket = self.path.split("//")[1].split("/")[0]
-        self.bucket_path = self.path.split(self.bucket + "/")[-1]
-
-    def _init_gcs_client(self) -> None:
-        """Initializes connection to GCS bucket"""
-
-        self.bucket = self.path.split("//")[1].split("/")[0]
-        self.bucket_path = self.path.split(self.bucket + "/")[-1]
-        self.client = storage.Client()
+            return os.getenv(key, default)
 
     def _init_path(self) -> None:
         """Configures local path or bucket directory"""
@@ -266,11 +253,13 @@ class LuxonisDataset:
             os.makedirs(self.annotations_path, exist_ok=True)
             os.makedirs(self.metadata_path, exist_ok=True)
         elif self.bucket_storage.value == "s3":
-            self.path = f"s3://{self._get_credentials('AWS_BUCKET')}/{self.team_id}/datasets/{self.dataset_name}"
-            self._init_boto3_client()
+            self.path = (
+                f"s3://{self.bucket}/{self.team_id}/datasets/{self.dataset_name}"
+            )
         elif self.bucket_storage.value == "gcs":
-            self.path = f"gs://{self._get_credentials('GCS_BUCKET')}/{self.team_id}/datasets/{self.dataset_name}"
-            self._init_gcs_client()
+            self.path = (
+                f"gcs://{self.bucket}/{self.team_id}/datasets/{self.dataset_name}"
+            )
 
     def _load_df_offline(self) -> Optional[pd.DataFrame]:
         dfs = []
@@ -309,6 +298,13 @@ class LuxonisDataset:
             df = pd.concat([index, df])
         table = pa.Table.from_pandas(df)
         pq.write_table(table, file_index_path)
+
+    def _start_time(self) -> None:
+        self.t0 = time.time()
+
+    def _end_time(self) -> None:
+        self.t1 = time.time()
+        print(f"Took {self.t1 - self.t0} seconds")
 
     def update_source(self, source: LuxonisSource) -> None:
         """
@@ -374,21 +370,13 @@ class LuxonisDataset:
 
         if self.bucket_storage.value == "local":
             self.logger.warning("This is a local dataset! Cannot sync")
-        elif self.bucket_storage.value == "s3":
-            sync_from_s3(
-                non_streaming_dir=str(Path(self.base_path) / "data"),
-                bucket=self.bucket,
-                bucket_dir=str(Path(self.team_id) / "datasets" / self.dataset_id),
-                endpoint_url=self._get_credentials("AWS_S3_ENDPOINT_URL"),
-            )
-        elif self.bucket_storage.value == "gcs":
-            sync_from_gcs(
-                non_streaming_dir=str(Path(self.base_path) / "data"),
-                bucket=self.bucket,
-                bucket_dir=str(Path(self.team_id) / "datasets" / self.dataset_id),
-            )
         else:
-            raise NotImplementedError
+            local_dir = os.path.join(
+                self.base_path, "data", self.team_id, "datasets", self.dataset_name
+            )
+            if not os.path.exists(local_dir):
+                os.makedirs(local_dir, exist_ok=True)
+            self.fs.get_dir(remote_dir=self.path, local_dir=local_dir)
 
     def get_classes(self) -> Tuple[List[str], Dict]:
         """Gets overall classes in the dataset and classes according to CV task"""
@@ -427,7 +415,7 @@ class LuxonisDataset:
             self._write_datasets()
             shutil.rmtree(self.path)
 
-    def add(self, generator: Generator) -> None:
+    def add(self, generator: Generator, batch_size: int = 1000000) -> None:
         """
         Write annotations to parquet files.
 
@@ -448,7 +436,55 @@ class LuxonisDataset:
                     (e.g. [[0.2, 0.3], [0.4, 0.5], ...])
                 value (keypoints) [List[List[float]]] : an ordered list of [x, y, visibility] keypoints for a keypoint skeleton instance
                     (e.g. [[0.2, 0.3, 2], [0.4, 0.5, 2], ...])
+        batch_size: The number of annotations generated before processing.
+            This can be set to a lower value to reduce memory usage.
         """
+
+        def _add_process_batch():
+            paths = [data["file"] for data in batch_data]
+            print("Generating UUIDs...")
+            self._start_time()
+            uuid_dict = self.fs.get_file_uuids(
+                paths, local=True
+            )  # TODO: support from bucket
+            self._end_time()
+            if self.bucket_storage.value != "local":
+                print("Uploading media...")
+                # TODO: support from bucket (likely with a self.fs.copy_dir)
+                self._start_time()
+                self.fs.put_dir(local_paths=paths, remote_dir="media")
+                self._end_time()
+
+            print("Saving annotations...")
+            self._start_time()
+            for data in tqdm(batch_data):
+                filepath = data["file"]
+                file = os.path.basename(filepath)
+                instance_id = uuid_dict[filepath]
+                matched_id = self._try_instance_id(file, index)
+                if matched_id is not None:
+                    if matched_id != instance_id:
+                        # TODO: not sure if this should be an exception or how we should really handle it
+                        raise Exception(
+                            f"{filepath} uses a duplicate filename corresponding to different media! Please rename this file."
+                        )
+                        # TODO: we may also want to check for duplicate instance_ids to get a one-to-one relationship
+                    else:
+                        new_index["instance_id"].append(instance_id)
+                        new_index["file"].append(file)
+
+                data_utils.check_annotation(data)
+                data["instance_id"] = instance_id
+                data["file"] = file
+                data["value_type"] = type(data["value"]).__name__
+                if isinstance(data["value"], list):
+                    data["value"] = json.dumps(data["value"])  # convert lists to string
+                else:
+                    data["value"] = str(data["value"])
+                data["created_at"] = datetime.utcnow()
+
+                self.pfm.write(data)
+            self._end_time()
 
         if self.online:
             raise NotImplementedError()
@@ -458,43 +494,15 @@ class LuxonisDataset:
             index = self._get_file_index()
             new_index = {"instance_id": [], "file": []}
 
-            for data in generator():
-                # Add media
-                filepath = data["file"]
-                file = os.path.basename(filepath)
-                new_file, instance_id = data_utils.generate_hashname(filepath)
-                matched_id = self._try_instance_id(file, index)
-                if matched_id is not None:
-                    if matched_id != instance_id:
-                        # TODO: not sure if this should be an exception or how we should really handle it
-                        raise Exception(
-                            f"{filepath} uses a duplicate filename corresponding to different media! Please rename this file."
-                        )
-                        # TODO: we may also want to check for duplicate instance_ids to get a one-to-one relationship
-                else:
-                    new_index["instance_id"].append(instance_id)
-                    new_index["file"].append(file)
-                cmd = f"cp {filepath} {os.path.join(self.media_path, new_file)}"
-                subprocess.check_output(cmd, shell=True)
+            batch_data = []
 
-                # Add annotation
-                data_utils.check_annotation(data)
-                # TODO: ability to get instance_id also from bucket
-                data["instance_id"] = instance_id
-                data[
-                    "file"
-                ] = file  # TODO: determine if we actually need to store this on the annotation level
-                data["value_type"] = type(data["value"]).__name__
-                if isinstance(data["value"], list):
-                    data["value"] = json.dumps(data["value"])  # convert lists to string
-                else:
-                    data["value"] = str(data["value"])
-                data["created_at"] = datetime.utcnow()
+            for i, data in enumerate(generator()):
+                batch_data.append(data)
+                if (i + 1) % batch_size == 0:
+                    _add_process_batch()
+                    batch_data = []
 
-                self.pfm.write(data)
-
-            # TODO: copy everything at the end with multithread instead of within for loop
-            # similar logic can be used for buckets
+            _add_process_batch()
 
             self.pfm.close()
             self._write_index(index, new_index)

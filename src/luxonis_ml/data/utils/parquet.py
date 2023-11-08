@@ -10,9 +10,8 @@ class ParquetFileManager:
     def __init__(
         self,
         directory: str,
-        file_size_mb: int = 20,  # TODO: increase this after testing
+        file_size_mb: int = 20,
         row_check: int = 100000,
-        # index_column: str = "instance_id"
     ) -> None:
         """
         Class to manage the insert of data into parquet files.
