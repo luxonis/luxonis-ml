@@ -26,5 +26,7 @@ class ObjectDetectionSubtype(Enum):
 
     """ subtype members have exactly the same decoding """
 
-    YOLOv5_7 = "yolov5/yolov7"
+    YOLOv5 = "yolov5"
     YOLOv6 = "yolov6"
+    YOLOv7 = "yolov6"
+    YOLOv8 = "yolov6"
