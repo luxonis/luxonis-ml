@@ -5,10 +5,10 @@ from ..enums import *
 from abc import ABC
 
 class PreprocessingBlock(CustomBaseModel):
-    mean: List[float] = None # e.g. [mean_B, mean_G, mean_R]
-    scale: List[float] = None # e.g. [scale_B, scale_G, scale_R]
-    reverse_channels: bool = False
-    interleaved_to_planar: bool = False
+    mean: Optional[List[float]] = None # e.g. [mean_B, mean_G, mean_R]
+    scale: Optional[List[float]] = None # e.g. [scale_B, scale_G, scale_R]
+    reverse_channels: Optional[bool] = False
+    interleaved_to_planar: Optional[bool] = False
 
 class Input(CustomBaseModel):
     name: str

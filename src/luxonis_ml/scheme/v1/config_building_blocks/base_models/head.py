@@ -36,10 +36,10 @@ class HeadMetadataObjectDetection(BaseModel):
     conf_threshold: float
     max_det: int
     subtype: ObjectDetectionSubtype
-    n_keypoints: int = 0
-    n_prototypes: int = 0 #
-    prototype_output_name: str = None
-    anchors: List[List[int]] = None # optional as some models (e.g. late versions of YOLO) use anchors as an integral part of their architecture.
+    n_keypoints: Optional[int] = 0
+    n_prototypes: Optional[int] = 0 #
+    prototype_output_name: Optional[str] = None
+    anchors: Optional[List[List[int]]] = None # optional as some models (e.g. late versions of YOLO) use anchors as an integral part of their architecture.
     
 class HeadMetadataSegmentation(BaseModel):
     """
@@ -61,7 +61,7 @@ class HeadMetadataKeypointDetection(BaseModel):
 
 class Head(CustomBaseModel):
     head_id: str
-    decoding_family: DecodingFamily = None # optional because this is mostly relevant for object detection
+    decoding_family: Optional[DecodingFamily] = None # optional because this is mostly relevant for object detection
     metadata: Union[
         HeadMetadataObjectDetection,
         HeadMetadataSegmentation,
