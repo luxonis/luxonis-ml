@@ -125,6 +125,7 @@ class LuxonisFileSystem:
         self,
         local_paths: Union[str, List[str]],
         remote_dir: str,
+        uuid_dict: Optional[Dict[str, str]] = None,
         mlflow_instance: Optional[ModuleType] = None,
     ) -> None:
         """Copies many files from local storage to remote storage in parallel.
@@ -133,6 +134,7 @@ class LuxonisFileSystem:
             local_paths (Union[str, List[str]]): Either a string specifying a directory to walk the files or a list of files
                 which can be in different directories
             remote_dir (str): Relative path to remote directory
+            uuid_dict (Optional[Dict[str, str]]): Stores paths as keys and corresponding UUIDs as values to replace the file basename.
             mlflow_instance (Optional[ModuleType], optional): MLFlow instance if uploading to active run. Defaults to None.
         """
         if self.is_mlflow:
@@ -145,7 +147,10 @@ class LuxonisFileSystem:
             else:
                 with ThreadPoolExecutor() as executor:
                     for local_path in local_paths:
-                        basename = os.path.basename(local_path)
+                        if uuid_dict:
+                            basename = uuid_dict[local_path]
+                        else:
+                            basename = os.path.basename(local_path)
                         remote_path = os.path.join(remote_dir, basename)
                         executor.submit(self.put_file, local_path, remote_path)
 

@@ -286,13 +286,28 @@ class LuxonisDataset:
 
     def _get_file_index(self) -> Optional[pd.DataFrame]:
         index = None
-        file_index_path = os.path.join(self.metadata_path, "file_index.parquet")
+        if self.bucket_storage.value == "local":
+            file_index_path = os.path.join(self.metadata_path, "file_index.parquet")
+        else:
+            file_index_path = os.path.join(".luxonisml_tmp", "file_index.parquet")
+            try:
+                self.fs.get_file("metadata/file_index.parquet", file_index_path)
+            except Exception as e:
+                pass
         if os.path.exists(file_index_path):
             index = pd.read_parquet(file_index_path)
         return index
 
-    def _write_index(self, index: Optional[pd.DataFrame], new_index: Dict) -> None:
-        file_index_path = os.path.join(self.metadata_path, "file_index.parquet")
+    def _write_index(
+        self,
+        index: Optional[pd.DataFrame],
+        new_index: Dict,
+        override_path: Optional[str] = None,
+    ) -> None:
+        if override_path:
+            file_index_path = override_path
+        else:
+            file_index_path = os.path.join(self.metadata_path, "file_index.parquet")
         df = pd.DataFrame(new_index)
         if index is not None:
             df = pd.concat([index, df])
@@ -413,7 +428,8 @@ class LuxonisDataset:
         else:
             del self.datasets[self.dataset_name]
             self._write_datasets()
-            shutil.rmtree(self.path)
+            if self.bucket_storage.value == "local":
+                shutil.rmtree(self.path)
 
     def add(self, generator: Generator, batch_size: int = 1000000) -> None:
         """
@@ -441,7 +457,7 @@ class LuxonisDataset:
         """
 
         def _add_process_batch():
-            paths = [data["file"] for data in batch_data]
+            paths = list(set([data["file"] for data in batch_data]))
             print("Generating UUIDs...")
             self._start_time()
             uuid_dict = self.fs.get_file_uuids(
@@ -452,7 +468,9 @@ class LuxonisDataset:
                 print("Uploading media...")
                 # TODO: support from bucket (likely with a self.fs.copy_dir)
                 self._start_time()
-                self.fs.put_dir(local_paths=paths, remote_dir="media")
+                self.fs.put_dir(
+                    local_paths=paths, remote_dir="media", uuid_dict=uuid_dict
+                )
                 self._end_time()
 
             print("Saving annotations...")
@@ -489,7 +507,12 @@ class LuxonisDataset:
         if self.online:
             raise NotImplementedError()
         else:
-            self.pfm = ParquetFileManager(self.annotations_path)
+            if self.bucket_storage.value == "local":
+                self.pfm = ParquetFileManager(self.annotations_path)
+            else:
+                tmp_dir = os.path.join(".luxonis_tmp", "annotations")
+                os.makedirs(tmp_dir, exist_ok=True)
+                self.pfm = ParquetFileManager(tmp_dir)
 
             index = self._get_file_index()
             new_index = {"instance_id": [], "file": []}
@@ -505,7 +528,15 @@ class LuxonisDataset:
             _add_process_batch()
 
             self.pfm.close()
-            self._write_index(index, new_index)
+
+            if self.bucket_storage.value == "local":
+                self._write_index(index, new_index)
+            else:
+                file_index_path = os.path.join(".luxonis_tmp", "file_index.parquet")
+                self._write_index(index, new_index, override_path=file_index_path)
+                self.fs.put_dir(tmp_dir, "annotations")
+                self.fs.put_file(file_index_path, "metadata/file_index.parquet")
+                shutil.rmtree(tmp_dir)
 
     def make_splits(
         self, ratios: List[float] = [0.8, 0.1, 0.1], definitions: Optional[Dict] = None
