@@ -1,0 +1,4 @@
+pydantic>=2.4.0
+PyYAML>=6.0
+fsspec>=2023.9.2
+# s3fs # if using S3 filesystem
