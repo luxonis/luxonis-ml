@@ -8,5 +8,5 @@ from .dataset import (
     BucketStorage,
 )
 from .parsers import LuxonisParser, DatasetType
-from .loader import BaseLoader, LuxonisLoader, LabelType, LDF
+from .loader import BaseLoader, LuxonisLoader, LabelType, LuxonisLoaderOutput
 from .augmentations import Augmentations, TrainAugmentations, ValAugmentations

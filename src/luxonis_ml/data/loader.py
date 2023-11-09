@@ -20,21 +20,21 @@ class LabelType(str, Enum):
 
 
 Labels = Dict[LabelType, np.ndarray]
-LDF = Tuple[np.ndarray, Labels]
+LuxonisLoaderOutput = Tuple[np.ndarray, Labels]
 
 
 class BaseLoader(ABC):
-    """Base abstract loader class that is enforces LDF output label structure."""
+    """Base abstract loader class that is enforces LuxonisLoaderOutput output label structure."""
 
     @abstractmethod
-    def __getitem__(self, idx: int) -> LDF:
+    def __getitem__(self, idx: int) -> LuxonisLoaderOutput:
         """Loads sample from dataset
 
         Args:
             idx (int): Sample index
 
         Returns:
-            LDF: Sample's data in LDF format
+            LuxonisLoaderOutput: Sample's data in LuxonisLoaderOutput format
         """
         pass
 
@@ -140,7 +140,7 @@ class LuxonisLoader(BaseLoader):
         """Returns length of the pytorch dataset"""
         return len(self.ids) if self.mode == "fiftyone" else len(self.samples)
 
-    def __getitem__(self, idx: int) -> LDF:
+    def __getitem__(self, idx: int) -> LuxonisLoaderOutput:
         img, annotations = self._load_image_with_annotations(idx)
 
         if self.augmentations is not None:
