@@ -6,11 +6,9 @@ import warnings
 import os
 import glob
 import json
-import fiftyone.core.utils as fou
 from abc import ABC, abstractmethod
 from typing import Optional, Tuple, Dict
 from pathlib import Path
-from fiftyone import ViewField as F
 from luxonis_ml.enums import LabelType
 
 
@@ -146,7 +144,6 @@ class LuxonisLoader(BaseLoader):
         if self.dataset.bucket_storage.value == "local":
             matched = self.file_index[self.file_index["instance_id"] == instance_id]
             img_path = list(matched["original_filepath"])[0]
-            print(img_path)
         else:
             # Not implemented, but assumes we are synced locally
             # TODO: add support for remote bucket storage

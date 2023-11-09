@@ -2,8 +2,6 @@ import os, shutil, subprocess, time
 from pathlib import Path
 import cv2
 import json
-import boto3
-from google.cloud import storage
 from tqdm import tqdm
 import numpy as np
 import pandas as pd
