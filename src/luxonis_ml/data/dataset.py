@@ -277,10 +277,10 @@ class LuxonisDataset:
         if index is None:
             return None
 
-        if file in index["file"]:
-            test = index[index["file"] == file]
-            print(test)
-            return test
+        if file in list(index["file"]):
+            matched = index[index["file"] == file]
+            if len(matched):
+                return list(matched["instance_id"])[0]
         else:
             return None
 
@@ -487,9 +487,10 @@ class LuxonisDataset:
                             f"{filepath} uses a duplicate filename corresponding to different media! Please rename this file."
                         )
                         # TODO: we may also want to check for duplicate instance_ids to get a one-to-one relationship
-                    else:
-                        new_index["instance_id"].append(instance_id)
-                        new_index["file"].append(file)
+                elif instance_id not in new_index["instance_id"]:
+                    new_index["instance_id"].append(instance_id)
+                    new_index["file"].append(file)
+                    new_index["original_filepath"].append(os.path.abspath(filepath))
 
                 data_utils.check_annotation(data)
                 data["instance_id"] = instance_id
@@ -515,7 +516,7 @@ class LuxonisDataset:
                 self.pfm = ParquetFileManager(tmp_dir)
 
             index = self._get_file_index()
-            new_index = {"instance_id": [], "file": []}
+            new_index = {"instance_id": [], "file": [], "original_filepath": []}
 
             batch_data = []
 
@@ -585,7 +586,7 @@ class LuxonisDataset:
                     ids = [self._try_instance_id(file, index) for file in files]
                     splits[split] = ids
 
-            with open(os.path.join(self.path, "splits.json"), "w") as file:
+            with open(os.path.join(self.metadata_path, "splits.json"), "w") as file:
                 json.dump(splits, file, indent=4)
 
     @staticmethod
