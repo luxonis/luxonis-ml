@@ -55,8 +55,8 @@ class HeadMetadataObjectDetection(HeadMetadata):
     conf_threshold: float
     max_det: int
     subtype: ObjectDetectionSubtype
-    n_keypoints: Optional[int] = 0
-    n_prototypes: Optional[int] = 0 #
+    n_keypoints: Optional[int] = None
+    n_prototypes: Optional[int] = None
     prototype_output_name: Optional[str] = None
     anchors: Optional[List[List[int]]] = None # optional as some models (e.g. late versions of YOLO) use anchors as an integral part of their architecture.
     
