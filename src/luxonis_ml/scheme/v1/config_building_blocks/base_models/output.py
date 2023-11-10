@@ -4,8 +4,13 @@ from ..enums import *
 
 class Output(CustomBaseModel):
     """
-    Model output class.
+    Represents output stream for a model.
+
+    Attributes:
+        name (str): Name of the output layer.
+        dtype (DataType): Data type of the output data (e.g., 'float32').
+        head_ids (list): IDs of heads which accept this output stream (beware that a single output can go into multiple heads).
     """
     name: str
     dtype: DataType
-    head_ids: List[str] # list because a single output can go into multiple heads
+    head_ids: List[str]

@@ -4,9 +4,14 @@ from ..enums import *
 
 class Metadata(BaseModel):
     """
-    Model metadata class.
+    Represents metadata for a model.
+
+    Attributes:
+        name (str): Name of the model.
+        platform (Platform): Luxonis hardware platform for which the model was exported (e.g. 'rvc4').
+        config_version (int): Version of the config schema.
+
     """
     name: str
-    backbone: str
     platform: Platform
-    version: float
+    config_version: int

@@ -2,7 +2,9 @@ from enum import Enum
 
 class DataType(Enum):
 
-    """ all existing i/o data types"""
+    """ 
+    Represents all existing data types used in i/o streams of the model.
+    """
 
     INT8 = "int8"
     UINT8 = "uint8"

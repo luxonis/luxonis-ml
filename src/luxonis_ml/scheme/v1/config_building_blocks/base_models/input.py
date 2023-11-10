@@ -6,12 +6,15 @@ from abc import ABC
 
 class PreprocessingBlock(CustomBaseModel):
     """
-    Preprocessing operations required by the model. The following arguments are accepted:
-        - mean: mean normalization values in BGR order,
-        - scale: standardization values in BGR order,
-        - reverse_channels: If True, image color channels are reversed (e.g. RGB to BGR and vice versa),
-        - interleaved_to_planar: If True, change input from interleaved to planar format,
+    Represents preprocessing operations applied to the input data.
+    
+    Attributes:
+        mean (list): Mean values in BGR order.
+        scale (list): Standardization values in BGR order.
+        reverse_channels (bool): If True, color channels are reversed (e.g. BGR to RGB or vice versa).
+        interleaved_to_planar (bool): If True, format is changed from interleaved to planar.
     """
+    
     mean: Optional[List[float]] = None
     scale: Optional[List[float]] = None
     reverse_channels: Optional[bool] = False
@@ -19,10 +22,17 @@ class PreprocessingBlock(CustomBaseModel):
 
 class Input(CustomBaseModel):
     """
-    Model input class.
+    Represents input stream for a model.
+
+    Attributes:
+        name (str): Name of the input layer.
+        dtype (DataType): Data type of the input data (e.g., 'float32').
+        input_type (InputType): Type of input data (e.g., 'image').
+        shape (list): Shape of the input data as a list of integers (e.g. [H,W], [H,W,C], [BS,H,W,C], ...).
+        preprocessing (PreprocessingBlock): Preprocessing steps applied to the input data.
     """
     name: str
     dtype: DataType
     input_type: InputType
-    shape: Annotated[List[int], Field(min_length=1, max_length=5)] # ..., [H,W] or [H,W,C] or [BS,H,W,C], ...
+    shape: Annotated[List[int], Field(min_length=1, max_length=5)]
     preprocessing: PreprocessingBlock

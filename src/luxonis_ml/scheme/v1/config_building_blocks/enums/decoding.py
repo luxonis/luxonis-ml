@@ -2,7 +2,9 @@ from enum import Enum
 
 class DecodingFamily(Enum):
 
-    """ members of a family should have similar decoding """
+    """ 
+    Represents a decoding family. Members of a family should have similar decoding.
+    """
 
     # classification
     MULTICLASS_CLASSIFICATION= "multiclass_classification"
@@ -24,7 +26,9 @@ class DecodingFamily(Enum):
 
 class ObjectDetectionSubtype(Enum):
 
-    """ subtype members have exactly the same decoding """
+    """ 
+    Represents object detection subtypes. Subtype members have exactly the same decoding. 
+    """
 
     YOLOv5 = "yolov5"
     YOLOv6 = "yolov6"

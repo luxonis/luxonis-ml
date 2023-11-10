@@ -6,28 +6,30 @@ from abc import ABC
 
 class HeadMetadataClassification(BaseModel):
     """
-    Metadata for classification head. The following arguments are accepted:
-        - classes: Array of object class names recognized by the model;
-        - n_classes: Number of object classes recognized by the model;
+    Metadata for classification head.
+    
+    Attributes:
+        classes (list): Names of object classes recognized by the model.
+        n_classes (int): Number of object classes recognized by the model.
     """
     classes: List[str]
     n_classes: int
 
 class HeadMetadataObjectDetection(BaseModel):
     """
-    Metadata for object detection head. The following arguments are accepted:
-        - classes: Array of object class names recognized by the model;
-        - n_classes: Number of object classes recognized by the model;
-        - stride: Step size at which the filter (or kernel) moves across the input data during convolution;
-        - anchors (aka anchor boxes): Predefined bounding boxes of different sizes and aspect ratios;
-        - iou_threshold (aka. NMS threshold): Limits intersection of boxes (boxes with intersection-over-union (IoU) greater than this threshold are suppressed, and only the one with the highest confidence score is kept);
-        - conf_threshold: Confidence score threshold above which a detected object is considered valid;
-        - max_det: maximum detections per image
-        - n_keypoints: number of keypoints per bbox if provided;
-        - n_prototypes: number of prototypes per bbox if provided;
-        - prototype_output_name: output node containing prototype information
-        - subtype: decoding subtype used to differentiate object decoding of members of the same decoding_family
+    Metadata for object detection head.
 
+    Attributes:
+        classes (list): Names of object classes recognized by the model.
+        n_classes (int): Number of object classes recognized by the model.
+        stride (int): Step size at which the filter (or kernel) moves across the input data during convolution.
+        iou_threshold (float): Non-max supression threshold limiting boxes intersection.
+        conf_threshold (float): Confidence score threshold above which a detected object is considered valid.
+        max_det (int): Maximum detections per image.
+        n_keypoints (int): Number of keypoints per bbox if provided.
+        n_prototypes (int): Number of prototypes per bbox if provided.
+        prototype_output_name (str): Output node containing prototype information.
+        anchors (list): Predefined bounding boxes of different sizes and aspect ratios.
     """
     classes: List[str]
     n_classes: int
@@ -43,10 +45,12 @@ class HeadMetadataObjectDetection(BaseModel):
     
 class HeadMetadataSegmentation(BaseModel):
     """
-    Metadata for segmentation head. acThe following arguments are cepted:
-        - classes: Array of object class names recognized by the model;
-        - n_classes: Number of object classes recognized by the model;
-        - is_softmax: True, if output is already softmaxed
+    Metadata for segmentation head. 
+    
+    Attributes:
+        classes (list): Names of object classes recognized by the model.
+        n_classes (int): Number of object classes recognized by the model.
+        is_softmax (bool): True, if output is already softmaxed.
     """
     classes: List[str]
     n_classes: int
@@ -61,7 +65,12 @@ class HeadMetadataKeypointDetection(BaseModel):
 
 class Head(CustomBaseModel):
     """
-    Model head class.
+    Represents head of a model.
+
+    Attributes:
+        head_id (str): Unique head identifier.
+        decoding_family (DecodingFamily): Decoding family of the head.
+        metadata: (HeadMetadata object): Parameters required by head to run postprocessing.
     """
     head_id: str
     decoding_family: Optional[DecodingFamily] = None # optional because this is mostly relevant for object detection
