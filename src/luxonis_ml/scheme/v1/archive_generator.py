@@ -8,8 +8,13 @@ from typing import List
 class ArchiveGenerator:
     
     """ 
-    Generator of abstracted NN archive (.tar) files containing executables (aka models),
-    metadata, and all info required for output decoding.
+    Generator of abstracted NN archive (.tar) files containing executables (aka models), metadata, and all info required for output decoding.
+
+    Attribures
+        archive_name (str): Desired archive file name.
+        save_path (str): Path to where we want to save the archive file.
+        cfg_dict (dict): Archive configuration dict.
+        executables_paths (list): Paths to relevant model executables.
     """
  
     def __init__(
@@ -19,13 +24,6 @@ class ArchiveGenerator:
         cfg_dict: dict,
         executables_paths: List[str],
         ):
-        
-        """
-        - archive_name: desired archive file name
-        - save_path: path to where we want to save the archive file
-        - cfg_dict: archive configuration dict
-        - executables_paths: paths to relevant executables
-        """
         
         self.archive_name = archive_name if archive_name.endswith(".tar.gz") else f"{archive_name}.tar.gz"
         self.mode = "w:gz"
