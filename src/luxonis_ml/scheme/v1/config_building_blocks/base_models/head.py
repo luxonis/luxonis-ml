@@ -1,8 +1,7 @@
 from pydantic import BaseModel
 from .custom_base_model import CustomBaseModel
-from typing import Optional, Dict, Any, List, Tuple, Literal, Union, Annotated
+from typing import Optional, List, Union
 from ..enums import *
-from abc import ABC
 
 class HeadMetadataClassification(BaseModel):
     """
