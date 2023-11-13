@@ -1,6 +1,5 @@
 import os
 import uuid
-import mlflow
 from typing import Optional, Any, List, Dict, Union
 from types import ModuleType
 import fsspec
@@ -115,6 +114,8 @@ class LuxonisFileSystem:
                 else:
                     raise KeyError("No active mlflow_instance provided.")
             else:
+                import mlflow
+
                 client = mlflow.MlflowClient(tracking_uri=self.tracking_uri)
                 client.log_artifact(run_id=self.run_id, local_path=local_path)
 
@@ -210,6 +211,8 @@ class LuxonisFileSystem:
             else:
                 if self.artifact_path is None:
                     raise ValueError("No relative artifact path specified.")
+                import mlflow
+
                 client = mlflow.MlflowClient(tracking_uri=self.tracking_uri)
                 download_path = client.download_artifacts(
                     run_id=self.run_id, path=self.artifact_path, dst_path="."

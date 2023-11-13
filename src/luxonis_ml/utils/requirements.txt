@@ -3,3 +3,4 @@ PyYAML>=6.0
 fsspec>=2023.1.0
 # s3fs # if using S3 filesystem
 # gcsfs # if using GCS filesystem
+# mlflow # if using MLflow
