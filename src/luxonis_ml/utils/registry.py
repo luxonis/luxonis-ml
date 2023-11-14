@@ -96,6 +96,3 @@ class Registry:
             )
 
         self._module_dict[module_name] = module
-
-
-AUGMENTATIONS = Registry(name="augmentations")

@@ -1,11 +1,11 @@
 import io
-
 from setuptools import setup, find_packages
 
-base_requires = open("requirements.txt").readlines()
-loader_requires = open("src/luxonis_ml/loader/requirements.txt").readlines()
+utils_requires = open("src/luxonis_ml/utils/requirements.txt").readlines()
+data_requires = open("src/luxonis_ml/data/requirements.txt").readlines()
 tracker_requires = open("src/luxonis_ml/tracker/requirements.txt").readlines()
-all_requires = base_requires + loader_requires + tracker_requires
+embeddings_requires = open("src/luxonis_ml/embeddings/requirements.txt").readlines()
+all_requires = utils_requires + data_requires + tracker_requires + embeddings_requires
 
 setup(
     name="luxonis-ml",
@@ -20,10 +20,11 @@ setup(
     license="MIT",
     packages=find_packages(where="src"),
     package_dir={"": "src"},  # https://stackoverflow.com/a/67238346/5494277
-    install_requires=base_requires,
+    install_requires=utils_requires,
     extras_require={
-        "loader": loader_requires,
+        "data": data_requires,
         "tracker": tracker_requires,
+        "embedd": embeddings_requires,
         "all": all_requires,
     },
     include_package_data=True,

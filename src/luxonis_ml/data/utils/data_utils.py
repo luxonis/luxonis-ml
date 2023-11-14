@@ -69,7 +69,7 @@ def assert_boxes_format(
 ) -> None:
     """Asserts that the format for the "boxes" field in additions is correct"""
 
-    if val is not None:
+    if val is not None and val != []:
         if not isinstance(val, list) or not isinstance(val[0], list):
             raise BoundingBoxFormatException("Bounding boxes need to be a nested list!")
 
@@ -347,6 +347,8 @@ def construct_boxes_label(
 
     if boxes is None:
         return None
+    if len(boxes) == 0:
+        return fo.Detections(detections=[])
     if not isinstance(boxes[0], list):  # fix for only one box without a nested list
         boxes = [boxes]
     return fo.Detections(

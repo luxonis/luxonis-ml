@@ -5,8 +5,9 @@ import albumentations as A
 from typing import Any, Dict, List, Tuple
 
 from .loader import LabelType
-from .registry import AUGMENTATIONS
+from luxonis_ml.utils.registry import Registry
 
+AUGMENTATIONS = Registry(name="augmentations")
 
 # Registering all supported transforms
 # Pixel-level transforms
