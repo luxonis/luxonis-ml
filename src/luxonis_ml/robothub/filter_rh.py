@@ -25,25 +25,11 @@ class RH_Downloader:
         robot_ids = [robot['id'] for robot in robots]
         return robot_ids
     
-    def build_url(self):
+    def build_url(self, page_i=1):
         base_url = 'https://robothub.luxonis.com/api/detection/search'
-
-        robot_ids = self.cfg.get("robots", [])
-        if robot_ids == "all":
-            robot_ids = self.get_all_robot_ids()
-
-        # Construct the URL with all parameters
         params = []
-        tactic = self.cfg.get("tactic")
-        if tactic == "limit":
-            tactic = "all"
-        if tactic == "all":
-            params.append(f'take={tactic}')
-        # elif tactic == "limit": # robothub API num_of_imgs:number is not working
-        #     num_of_imgs = self.cfg.get("num_of_imgs")
-        #     if num_of_imgs:
-        #         params.append(f'take={num_of_imgs}')
-        # else: take 20 by default
+        params.append('take=100')
+        params.append(f'page={page_i}')
 
         from_date = self.cfg.get("from_date")
         if from_date:
@@ -52,9 +38,15 @@ class RH_Downloader:
         to_date = self.cfg.get("to_date")
         if to_date:
             params.append(f'to={to_date}')
+        
+
+        robot_ids = self.cfg.get("robots", [])
+        if robot_ids == "all":
+            robot_ids = self.get_all_robot_ids()
 
         for robot_id in robot_ids:
             params.append(f'robot={robot_id}')
+        
 
         tags = self.cfg.get("tags", [])
         for tag in tags:
@@ -65,6 +57,71 @@ class RH_Downloader:
         full_url = base_url + '?' + '&'.join(params)
         print("Fetching detections from: ", full_url)
         return full_url
+    
+    # def get_detections(self, full_url):        
+    #     t = 100 if "take=all" in full_url else 10
+
+    #     response = requests.get(
+    #         full_url,
+    #         headers={'Authorization': f'Bearer {self.rh_token}'},
+    #         timeout=t
+    #     )
+    #     if response.status_code != 200:
+    #         print("Error: ", response.status_code)
+    #         print("Error occured while fetching detections.")
+    #         print(response.text)
+    #         return
+        
+    #     items = response.json()['items']
+    #     return items
+    
+    def get_all_detections(self):
+        items = []
+        page_i = 1
+        while True:
+            full_url = self.build_url(page_i)
+            response = requests.get(
+                full_url,
+                headers={'Authorization': f'Bearer {self.rh_token}'},
+                timeout=10
+            )
+            if response.status_code != 200:
+                print("Error: ", response.status_code)
+                print("Error occured while fetching detections.")
+                print(response.text)
+                return
+            
+            new_items = response.json()['items']
+            items += new_items
+            page_i += 1
+
+            if len(items) >= response.json()['pagination']['total'] or len(new_items) == 0:
+                break
+            elif self.cfg.get("tactic") == "limit" and len(items) >= self.cfg.get("num_of_imgs"):
+                break
+        
+        return items
+    
+    def filter_detections(self, items):
+        # filter detections by app_id
+        app_ids = self.cfg.get("apps", [])
+        if app_ids != "all":
+            items = [item for item in items if item['appId'] in app_ids]
+        
+        # filter detections based on include_unannotated
+        include_unannotated = self.cfg.get("include_unannotated", [])
+        if "null" in include_unannotated:
+            # replace "null" with None
+            include_unannotated = [None if x == "null" else x for x in include_unannotated]
+        if include_unannotated:
+            items = [item for item in items if item['classification'] in include_unannotated]
+        
+        if self.cfg.get("tactic") == "limit":
+            num_of_imgs = self.cfg.get("num_of_imgs")
+            if num_of_imgs:
+                items = items[:num_of_imgs]
+        
+        return items
 
     def save_detections_info(self, items):
         detection_infos = []
@@ -121,27 +178,6 @@ class RH_Downloader:
             json.dump(detection_infos, f)
         
         print(f"Saved {len(detection_infos)} detections to {self.dest_dir}/detections.json")
-        
-    def filter_detections(self, items):
-        # filter detections by app_id
-        app_ids = self.cfg.get("apps", [])
-        if app_ids != "all":
-            items = [item for item in items if item['appId'] in app_ids]
-        
-        # filter detections based on include_unannotated
-        include_unannotated = self.cfg.get("include_unannotated", [])
-        if "null" in include_unannotated:
-            # replace "null" with None
-            include_unannotated = [None if x == "null" else x for x in include_unannotated]
-        if include_unannotated:
-            items = [item for item in items if item['classification'] in include_unannotated]
-        
-        if self.cfg.get("tactic") == "limit":
-            num_of_imgs = self.cfg.get("num_of_imgs")
-            if num_of_imgs:
-                items = items[:num_of_imgs]
-        
-        return items
 
     async def download_frames(self, item_info, session):
         id_ = item_info['id']
@@ -159,23 +195,6 @@ class RH_Downloader:
         async with session.get(url) as response:
             async with aiofiles.open(filename, "wb") as f:
                 await f.write(await response.read())
-
-    def get_detections(self, full_url):        
-        t = 100 if "take=all" in full_url else 10
-
-        response = requests.get(
-            full_url,
-            headers={'Authorization': f'Bearer {self.rh_token}'},
-            timeout=t
-        )
-        if response.status_code != 200:
-            print("Error: ", response.status_code)
-            print("Error occured while fetching detections.")
-            print(response.text)
-            return
-        
-        items = response.json()['items']
-        return items
     
     async def download_images(self, items):
         # check if the folder exists
@@ -189,8 +208,9 @@ class RH_Downloader:
             )
     
     def run_async_download(self):
-        url = self.build_url()
-        detections = self.get_detections(url)
+        # url = self.build_url()
+        # detections = self.get_detections(url)
+        detections = self.get_all_detections()
         filtered_detections = self.filter_detections(detections)
         asyncio.run(self.download_images(filtered_detections))
         self.save_detections_info(filtered_detections)
