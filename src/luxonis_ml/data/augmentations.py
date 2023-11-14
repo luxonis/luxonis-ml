@@ -2,9 +2,13 @@ import numpy as np
 import cv2
 import warnings
 import albumentations as A
-from albumentations import *
 from typing import Any, Dict, List, Tuple
+
 from .loader import LabelType
+from luxonis_ml.utils.registry import Registry
+
+
+AUGMENTATIONS = Registry(name="augmentations")
 
 
 class Augmentations:
@@ -50,15 +54,7 @@ class Augmentations:
         batched_augs = []
         if augmentations:
             for aug in augmentations:
-                # use our implementaiton
-                if aug["name"] == "Mosaic4":
-                    aug["name"] = "DeterministicMosaic4"
-                    params = aug.get("params", {})
-                    params["replace"] = False
-                    warnings.warn(
-                        "Our Mosaic4 implementation doesn't support replace, setting it to False"
-                    )
-                curr_aug = eval(aug["name"])(**aug.get("params", {}))
+                curr_aug = AUGMENTATIONS.get(aug["name"])(**aug.get("params", {}))
                 if isinstance(curr_aug, A.ImageOnlyTransform):
                     pixel_augs.append(curr_aug)
                 elif isinstance(curr_aug, A.DualTransform):
@@ -392,6 +388,97 @@ class ValAugmentations(Augmentations):
         )
 
 
+# Registering all supported transforms
+# Pixel-level transforms
+AUGMENTATIONS.register_module(module=A.AdvancedBlur)
+AUGMENTATIONS.register_module(module=A.Blur)
+AUGMENTATIONS.register_module(module=A.CLAHE)
+AUGMENTATIONS.register_module(module=A.ChannelDropout)
+AUGMENTATIONS.register_module(module=A.ChannelShuffle)
+AUGMENTATIONS.register_module(module=A.ColorJitter)
+AUGMENTATIONS.register_module(module=A.Defocus)
+AUGMENTATIONS.register_module(module=A.Downscale)
+AUGMENTATIONS.register_module(module=A.Emboss)
+AUGMENTATIONS.register_module(module=A.Equalize)
+AUGMENTATIONS.register_module(module=A.FDA)
+AUGMENTATIONS.register_module(module=A.FancyPCA)
+AUGMENTATIONS.register_module(module=A.FromFloat)
+AUGMENTATIONS.register_module(module=A.GaussNoise)
+AUGMENTATIONS.register_module(module=A.GaussianBlur)
+AUGMENTATIONS.register_module(module=A.GlassBlur)
+AUGMENTATIONS.register_module(module=A.HistogramMatching)
+AUGMENTATIONS.register_module(module=A.HueSaturationValue)
+AUGMENTATIONS.register_module(module=A.ISONoise)
+AUGMENTATIONS.register_module(module=A.ImageCompression)
+AUGMENTATIONS.register_module(module=A.InvertImg)
+AUGMENTATIONS.register_module(module=A.MedianBlur)
+AUGMENTATIONS.register_module(module=A.MotionBlur)
+AUGMENTATIONS.register_module(module=A.MultiplicativeNoise)
+AUGMENTATIONS.register_module(module=A.Normalize)
+AUGMENTATIONS.register_module(module=A.PixelDistributionAdaptation)
+AUGMENTATIONS.register_module(module=A.Posterize)
+AUGMENTATIONS.register_module(module=A.RGBShift)
+AUGMENTATIONS.register_module(module=A.RandomBrightnessContrast)
+AUGMENTATIONS.register_module(module=A.RandomFog)
+AUGMENTATIONS.register_module(module=A.RandomGamma)
+AUGMENTATIONS.register_module(module=A.RandomGravel)
+AUGMENTATIONS.register_module(module=A.RandomRain)
+AUGMENTATIONS.register_module(module=A.RandomShadow)
+AUGMENTATIONS.register_module(module=A.RandomSnow)
+AUGMENTATIONS.register_module(module=A.RandomSunFlare)
+AUGMENTATIONS.register_module(module=A.RandomToneCurve)
+AUGMENTATIONS.register_module(module=A.RingingOvershoot)
+AUGMENTATIONS.register_module(module=A.Sharpen)
+AUGMENTATIONS.register_module(module=A.Solarize)
+AUGMENTATIONS.register_module(module=A.Spatter)
+AUGMENTATIONS.register_module(module=A.Superpixels)
+AUGMENTATIONS.register_module(module=A.TemplateTransform)
+AUGMENTATIONS.register_module(module=A.ToFloat)
+AUGMENTATIONS.register_module(module=A.ToGray)
+AUGMENTATIONS.register_module(module=A.ToRGB)
+AUGMENTATIONS.register_module(module=A.ToSepia)
+AUGMENTATIONS.register_module(module=A.UnsharpMask)
+AUGMENTATIONS.register_module(module=A.ZoomBlur)
+
+# Spatial.level transforms
+AUGMENTATIONS.register_module(module=A.Affine)
+AUGMENTATIONS.register_module(module=A.BBoxSafeRandomCrop)
+AUGMENTATIONS.register_module(module=A.CenterCrop)
+AUGMENTATIONS.register_module(module=A.CoarseDropout)
+AUGMENTATIONS.register_module(module=A.Crop)
+AUGMENTATIONS.register_module(module=A.CropAndPad)
+AUGMENTATIONS.register_module(module=A.CropNonEmptyMaskIfExists)
+AUGMENTATIONS.register_module(module=A.ElasticTransform)
+AUGMENTATIONS.register_module(module=A.Flip)
+AUGMENTATIONS.register_module(module=A.GridDistortion)
+AUGMENTATIONS.register_module(module=A.GridDropout)
+AUGMENTATIONS.register_module(module=A.HorizontalFlip)
+AUGMENTATIONS.register_module(module=A.Lambda)
+AUGMENTATIONS.register_module(module=A.LongestMaxSize)
+AUGMENTATIONS.register_module(module=A.MaskDropout)
+AUGMENTATIONS.register_module(module=A.NoOp)
+AUGMENTATIONS.register_module(module=A.OpticalDistortion)
+AUGMENTATIONS.register_module(module=A.PadIfNeeded)
+AUGMENTATIONS.register_module(module=A.Perspective)
+AUGMENTATIONS.register_module(module=A.PiecewiseAffine)
+AUGMENTATIONS.register_module(module=A.PixelDropout)
+AUGMENTATIONS.register_module(module=A.RandomCrop)
+AUGMENTATIONS.register_module(module=A.RandomCropFromBorders)
+AUGMENTATIONS.register_module(module=A.RandomCropNearBBox)
+AUGMENTATIONS.register_module(module=A.RandomGridShuffle)
+AUGMENTATIONS.register_module(module=A.RandomResizedCrop)
+AUGMENTATIONS.register_module(module=A.RandomRotate90)
+AUGMENTATIONS.register_module(module=A.RandomScale)
+AUGMENTATIONS.register_module(module=A.RandomSizedBBoxSafeCrop)
+AUGMENTATIONS.register_module(module=A.RandomSizedCrop)
+AUGMENTATIONS.register_module(module=A.Resize)
+AUGMENTATIONS.register_module(module=A.Rotate)
+AUGMENTATIONS.register_module(module=A.SafeRotate)
+AUGMENTATIONS.register_module(module=A.ShiftScaleRotate)
+AUGMENTATIONS.register_module(module=A.SmallestMaxSize)
+AUGMENTATIONS.register_module(module=A.Transpose)
+AUGMENTATIONS.register_module(module=A.VerticalFlip)
+
 from albumentations.core.transforms_interface import (
     BoxInternalType,
     DualTransform,
@@ -400,6 +487,7 @@ from albumentations.core.transforms_interface import (
 from albumentations.core.bbox_utils import denormalize_bbox, normalize_bbox
 
 
+@AUGMENTATIONS.register_module()
 class LetterboxResize(DualTransform):
     def __init__(
         self,
@@ -574,8 +662,33 @@ class LetterboxResize(DualTransform):
         return value < min_limit or value > max_limit
 
 
-class DeterministicMosaic4(Mosaic4):
-    """Mosaic4 adaptaion that always uses batch images in same order"""
+@AUGMENTATIONS.register_module(name="Mosaic4")
+class DeterministicMosaic4(A.Mosaic4):
+    def __init__(
+        self,
+        out_height,
+        out_width,
+        value=None,
+        replace=True,
+        out_batch_size=1,
+        mask_value=None,
+        always_apply=False,
+        p=0.5,
+    ):
+        super().__init__(
+            out_height,
+            out_width,
+            value,
+            replace,
+            out_batch_size,
+            mask_value,
+            always_apply,
+            p,
+        )
+        warnings.warn(
+            "Only deterministic version of Mosaic4 is available, setting replace=False."
+        )
+        self.replace = False
 
     def get_params_dependent_on_targets(self, params: Dict[str, Any]) -> Dict[str, Any]:
         target_params = super().get_params_dependent_on_targets(params)
