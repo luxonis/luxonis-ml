@@ -232,7 +232,7 @@ class LuxonisFileSystem:
         return buffer
 
     def get_file_uuid(self, path: str, local: bool = False) -> str:
-        """Reads a file and returns Byte buffer
+        """Reads a file and returns the (unique) UUID generated from file bytes
 
         Args:
             path (str): If remote, relative path to the remote file. Else the local path
