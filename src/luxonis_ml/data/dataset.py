@@ -115,7 +115,7 @@ class LuxonisDataset:
         if team_id is None:
             team_id = self._get_config("LUXONISML_TEAM_ID", "offline")
         if team_name is None:
-            team_name = self._get_config("LUXONISML_TEAM_ID", "offline")
+            team_name = self._get_config("LUXONISML_TEAM_NAME", "offline")
 
         self.bucket = self._get_config("LUXONISML_BUCKET", None)
 
@@ -130,7 +130,7 @@ class LuxonisDataset:
         if not isinstance(self.bucket_storage, BucketStorage):
             raise Exception(f"Must use a valid BucketStorage!")
 
-        if self.bucket_storage.value != "local" and self.bucket is None:
+        if self.bucket_storage != BucketStorage.LOCAL and self.bucket is None:
             raise Exception("Must set LUXONISML_BUCKET environment variable!")
 
         self.online = self.team_id != "offline"
@@ -162,9 +162,9 @@ class LuxonisDataset:
 
         self._init_path()
 
-        if self.bucket_storage.value == "local":
+        if self.bucket_storage == BucketStorage.LOCAL:
             self.fs = LuxonisFileSystem(f"file://{self.path}")
-        elif self.bucket_storage.value == "azure":
+        elif self.bucket_storage == BucketStorage.AZURE_BLOB:
             raise NotImplementedError
         else:
             self.fs = LuxonisFileSystem(self.path)
@@ -235,7 +235,7 @@ class LuxonisDataset:
     def _init_path(self) -> None:
         """Configures local path or bucket directory"""
 
-        if self.bucket_storage.value == "local":
+        if self.bucket_storage == BucketStorage.LOCAL:
             self.path = str(
                 Path(self.base_path)
                 / "data"
@@ -250,14 +250,8 @@ class LuxonisDataset:
             os.makedirs(self.media_path, exist_ok=True)
             os.makedirs(self.annotations_path, exist_ok=True)
             os.makedirs(self.metadata_path, exist_ok=True)
-        elif self.bucket_storage.value == "s3":
-            self.path = (
-                f"s3://{self.bucket}/{self.team_id}/datasets/{self.dataset_name}"
-            )
-        elif self.bucket_storage.value == "gcs":
-            self.path = (
-                f"gcs://{self.bucket}/{self.team_id}/datasets/{self.dataset_name}"
-            )
+        else:
+            self.path = f"{self.bucket_storage.value}://{self.bucket}/{self.team_id}/datasets/{self.dataset_name}"
 
     def _load_df_offline(self) -> Optional[pd.DataFrame]:
         dfs = []
@@ -284,7 +278,7 @@ class LuxonisDataset:
 
     def _get_file_index(self) -> Optional[pd.DataFrame]:
         index = None
-        if self.bucket_storage.value == "local":
+        if self.bucket_storage == BucketStorage.LOCAL:
             file_index_path = os.path.join(self.metadata_path, "file_index.parquet")
         else:
             file_index_path = os.path.join(".luxonisml_tmp", "file_index.parquet")
@@ -381,7 +375,7 @@ class LuxonisDataset:
     def sync_from_cloud(self) -> None:
         """Downloads media from cloud bucket"""
 
-        if self.bucket_storage.value == "local":
+        if self.bucket_storage == BucketStorage.LOCAL:
             self.logger.warning("This is a local dataset! Cannot sync")
         else:
             local_dir = os.path.join(
@@ -426,7 +420,7 @@ class LuxonisDataset:
         else:
             del self.datasets[self.dataset_name]
             self._write_datasets()
-            if self.bucket_storage.value == "local":
+            if self.bucket_storage == BucketStorage.LOCAL:
                 shutil.rmtree(self.path)
 
     def add(self, generator: Generator, batch_size: int = 1000000) -> None:
@@ -462,7 +456,7 @@ class LuxonisDataset:
                 paths, local=True
             )  # TODO: support from bucket
             self._end_time()
-            if self.bucket_storage.value != "local":
+            if self.bucket_storage != BucketStorage.LOCAL:
                 print("Uploading media...")
                 # TODO: support from bucket (likely with a self.fs.copy_dir)
                 self._start_time()
@@ -506,7 +500,7 @@ class LuxonisDataset:
         if self.online:
             raise NotImplementedError()
         else:
-            if self.bucket_storage.value == "local":
+            if self.bucket_storage == BucketStorage.LOCAL:
                 self.pfm = ParquetFileManager(self.annotations_path)
             else:
                 tmp_dir = os.path.join(".luxonis_tmp", "annotations")
@@ -528,7 +522,7 @@ class LuxonisDataset:
 
             self.pfm.close()
 
-            if self.bucket_storage.value == "local":
+            if self.bucket_storage == BucketStorage.LOCAL:
                 self._write_index(index, new_index)
             else:
                 file_index_path = os.path.join(".luxonis_tmp", "file_index.parquet")
