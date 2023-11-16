@@ -6,7 +6,7 @@ numpy>=1.25.2
 onnx>=1.14.0
 # onnxruntime==1.15.1
 onnxruntime-gpu>=1.15.1
-opencv-python>=4.8.0.76
+opencv-python>=4.7.0.68
 qdrant-client>=1.4.0
 scikit-learn>=1.3.0
 scipy>=1.11.1
