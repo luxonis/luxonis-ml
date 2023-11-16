@@ -17,7 +17,12 @@ LuxonisLoaderOutput = Tuple[np.ndarray, Labels]
 
 
 class BaseLoader(ABC):
-    """Base abstract loader class that is enforces LuxonisLoaderOutput output label structure."""
+    """Base abstract loader class that enforces LuxonisLoaderOutput output label structure."""
+
+    @abstractmethod
+    def __len__(self) -> int:
+        """Returns length of the dataset"""
+        pass
 
     @abstractmethod
     def __getitem__(self, idx: int) -> LuxonisLoaderOutput:
