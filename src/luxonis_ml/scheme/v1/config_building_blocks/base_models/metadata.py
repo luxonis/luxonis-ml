@@ -3,7 +3,7 @@ from ..enums import *
 
 class Metadata(BaseModel):
     """
-    Represents metadata for a model.
+    Represents metadata of a model.
 
     Attributes:
         name (str): Name of the model.

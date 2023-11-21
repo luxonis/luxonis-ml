@@ -21,7 +21,7 @@ class PreprocessingBlock(CustomBaseModel):
 
 class Input(CustomBaseModel):
     """
-    Represents input stream for a model.
+    Represents input stream of a model.
 
     Attributes:
         name (str): Name of the input layer.

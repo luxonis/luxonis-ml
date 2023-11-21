@@ -3,9 +3,9 @@ from config_building_blocks import *
 
 class Model(CustomBaseModel):
     """
-    Class that defines a single-stage model.
+    Class defining a single-stage model config scheme.
 
-    Attributes
+    Attributes:
         metadata (Metadata): Metadata object defining the model metadata.
         inputs (list): List of Input objects defining the model inputs.
         outputs (list): List of Output objects defining the model outputs.

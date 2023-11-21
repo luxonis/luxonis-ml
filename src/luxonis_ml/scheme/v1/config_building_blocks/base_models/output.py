@@ -4,7 +4,7 @@ from ..enums import *
 
 class Output(CustomBaseModel):
     """
-    Represents output stream for a model.
+    Represents output stream of a model.
 
     Attributes:
         name (str): Name of the output layer.
