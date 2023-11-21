@@ -1,4 +1,4 @@
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, validator, Field
 from .custom_base_model import CustomBaseModel
 from typing import Optional, List, Union
 from ..enums import *
@@ -9,7 +9,7 @@ class HeadMetadata(BaseModel, ABC):
     Head metadata parent class.
     
     Attributes:
-        label_type (LabelType): Head label type (used to promote differentiation between classes).
+        label_type (list): List of LabelType objects (e.g. "keypoint_detection" and "object_detection" if we use keypoints with object detection).
         classes (list): Names of object classes recognized by the model.
         n_classes (int): Number of object classes recognized by the model.
     """
@@ -36,19 +36,16 @@ class HeadMetadataClassification(HeadMetadata):
             raise ValueError("wrong HeadMetadata child class")
         return value
 
-class HeadMetadataObjectDetection(HeadMetadata):
+class HeadMetadataObjectDetection(HeadMetadata, ABC):
     """
     Metadata for object detection head.
 
     Attributes:
+        family (str): Determines decoding family (e.g. YOLO or SSD).
         stride (int): Step size at which the filter (or kernel) moves across the input data during convolution.
         iou_threshold (float): Non-max supression threshold limiting boxes intersection.
         conf_threshold (float): Confidence score threshold above which a detected object is considered valid.
         max_det (int): Maximum detections per image.
-        n_keypoints (int): Number of keypoints per bbox if provided.
-        n_prototypes (int): Number of prototypes per bbox if provided.
-        prototype_output_name (str): Output node containing prototype information.
-        anchors (list): Predefined bounding boxes of different sizes and aspect ratios.
     """
     stride: int
     iou_threshold: float
@@ -69,11 +66,12 @@ class HeadMetadataObjectDetectionYOLO(HeadMetadataObjectDetection):
     Metadata for YOLO object detection head.
 
     Attributes:
-        subtype (ObjectDetectionSubtypeYOLO): Determines YOLO family decoding subtype.
+        subtype (ObjectDetectionSubtypeYOLO): Determines YOLO family decoding subtype (e.g. v5, v6, v7 etc.).
         n_keypoints (int): Number of keypoints per bbox if provided.
         n_prototypes (int): Number of prototypes per bbox if provided.
         prototype_output_name (str): Output node containing prototype information.
     """
+    family: str = Field("YOLO", Literal=True) 
     subtype: ObjectDetectionSubtypeYOLO
     n_keypoints: Optional[int] = None
     n_prototypes: Optional[int] = None
@@ -87,6 +85,7 @@ class HeadMetadataObjectDetectionSSD(HeadMetadataObjectDetection):
         subtype (ObjectDetectionSubtypeYOLO): Determines SSD family decoding subtype.
         anchors (list): Predefined bounding boxes of different sizes and aspect ratios.
     """
+    family: str = Field("SSD", Literal=True)
     subtype: ObjectDetectionSubtypeSSD
     anchors: Optional[List[List[int]]] = None
 
