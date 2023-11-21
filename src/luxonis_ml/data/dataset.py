@@ -235,18 +235,20 @@ class LuxonisDataset:
     def _init_path(self) -> None:
         """Configures local path or bucket directory"""
 
+        self.local_path = str(
+            Path(self.base_path)
+            / "data"
+            / self.team_id
+            / "datasets"
+            / self.dataset_name
+        )
+        self.media_path = os.path.join(self.local_path, "media")
+        self.annotations_path = os.path.join(self.local_path, "annotations")
+        self.metadata_path = os.path.join(self.local_path, "metadata")
+
         if self.bucket_storage == BucketStorage.LOCAL:
-            self.path = str(
-                Path(self.base_path)
-                / "data"
-                / self.team_id
-                / "datasets"
-                / self.dataset_name
-            )
+            self.path = self.local_path
             os.makedirs(self.path, exist_ok=True)
-            self.media_path = os.path.join(self.path, "media")
-            self.annotations_path = os.path.join(self.path, "annotations")
-            self.metadata_path = os.path.join(self.path, "metadata")
             os.makedirs(self.media_path, exist_ok=True)
             os.makedirs(self.annotations_path, exist_ok=True)
             os.makedirs(self.metadata_path, exist_ok=True)
@@ -383,7 +385,12 @@ class LuxonisDataset:
             )
             if not os.path.exists(local_dir):
                 os.makedirs(local_dir, exist_ok=True)
-            self.fs.get_dir(remote_dir=self.path, local_dir=local_dir)
+
+            protocol = self.bucket_storage.value
+            bucket = self.bucket
+            fs_path = f"{protocol}://{bucket}"
+            remote_dir = fs_path.split(fs_path)[1]
+            self.fs.get_dir(remote_dir=remote_dir, local_dir=local_dir)
 
     def get_classes(self) -> Tuple[List[str], Dict]:
         """Gets overall classes in the dataset and classes according to CV task"""
