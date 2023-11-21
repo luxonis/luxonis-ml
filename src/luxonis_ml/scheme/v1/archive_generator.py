@@ -8,9 +8,9 @@ from typing import List
 class ArchiveGenerator:
     
     """ 
-    Generator of abstracted NN archive (.tar) files containing executables (aka models), metadata, and all info required for output decoding.
+    Generator of abstracted NN archive (.tar) files containing config and model files (executables).
 
-    Attribures
+    Attribures:
         archive_name (str): Desired archive file name.
         save_path (str): Path to where we want to save the archive file.
         cfg_dict (dict): Archive configuration dict.
@@ -30,12 +30,10 @@ class ArchiveGenerator:
 
         self.save_path = save_path
         self.executables_paths = executables_paths
-
+        
         self.cfg = Config( # pydantic config check
-            metadata = cfg_dict["metadata"],
-            inputs = cfg_dict["inputs"],
-            outputs = cfg_dict["outputs"],
-            heads = cfg_dict["heads"],
+            config_version = cfg_dict["config_version"],
+            stages = cfg_dict["stages"]
         )
         
     def make_archive(self):
