@@ -58,8 +58,11 @@ class LuxonisLoader(BaseLoader):
 
         self.dataset = dataset
         self.stream = stream
+        self.sync_mode = (
+            self.dataset.bucket_storage != BucketStorage.LOCAL and not self.stream
+        )
 
-        if not self.stream and self.dataset.bucket_storage != BucketStorage.LOCAL:
+        if self.sync_mode:
             print("Syncing from cloud...")
             self.dataset.sync_from_cloud()
 
@@ -73,7 +76,10 @@ class LuxonisLoader(BaseLoader):
             )
 
         self.view = view
-        self.classes, self.classes_by_task = self.dataset.get_classes()
+
+        self.classes, self.classes_by_task = self.dataset.get_classes(
+            sync_mode=self.sync_mode
+        )
         self.nc = len(self.classes)
         self.ns = len(self.classes_by_task[LabelType.SEGMENTATION])
         self.nk = {
@@ -101,7 +107,7 @@ class LuxonisLoader(BaseLoader):
         else:
             raise NotImplementedError
 
-        self.df = dataset._load_df_offline()
+        self.df = dataset._load_df_offline(sync_mode=self.sync_mode)
         self.df.set_index(["instance_id"], inplace=True)
 
     def __len__(self) -> int:
