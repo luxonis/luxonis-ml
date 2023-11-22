@@ -1,0 +1,8 @@
+tactic: limit
+num_of_imgs: 25
+apps: all
+robots: all
+target_dataset:
+  team_id: luxonis_id
+  team_name: luxonis_team
+  dataset_name: new_robothub_dataset

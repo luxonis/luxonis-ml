@@ -1,3 +1,4 @@
+import datetime
 import yaml
 import json
 import jsonschema
@@ -56,9 +57,9 @@ class RHConfig:
 
     def rh_config_validate(self, config, schema):
         # Convert the dates to strings
-        if "from_date" in config and config["from_date"]:
+        if "from_date" in config and config["from_date"] and isinstance(config["from_date"], datetime.datetime):
             config["from_date"] = config["from_date"].strftime("%Y-%m-%d")
-        if "to_date" in config and config["to_date"]:
+        if "to_date" in config and config["to_date"] and isinstance(config["to_date"], datetime.datetime):
             config["to_date"] = config["to_date"].strftime("%Y-%m-%d")
 
         # Validate the config

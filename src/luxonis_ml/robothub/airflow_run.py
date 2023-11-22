@@ -121,11 +121,11 @@ def robothub_dag():
     fetched_config >> detections_result >> num_batches_list >> download_tasks >> converted_ldf
 
 
-# Assign the DAG to a variable to indicate it should be discovered by Airflow
-dynamic_robothub_dag = robothub_dag()
+# # Assign the DAG to a variable to indicate it should be discovered by Airflow
+# dynamic_robothub_dag = robothub_dag()
 
-if __name__ == "__main__":
-    from airflow.utils.state import State
-    dynamic_robothub_dag.clear(dag_run_state=State.NONE)
-    dynamic_robothub_dag.run()
+# if __name__ == "__main__":
+#     from airflow.utils.state import State
+#     dynamic_robothub_dag.clear(dag_run_state=State.NONE)
+#     dynamic_robothub_dag.run()
 

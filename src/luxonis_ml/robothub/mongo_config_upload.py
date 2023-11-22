@@ -51,14 +51,14 @@ def upload_configs_to_mongo(folder, configs, schema, mongo_uri, db_name, collect
 
         # update the config in MongoDB
         collection.update_one({"config_name": os.path.splitext(os.path.basename(config_file))[0]}, 
-                              {"$set": {"data": config_data}}, upsert=True)
+                              {"$set": {"data": config_data, "status": "active"}}, upsert=True)
 
     # Load JSON schema and store in MongoDB
     if schema:
         with open(schema, 'r') as file:
             schema_data = json.load(file)
         collection.update_one({"config_name": os.path.splitext(os.path.basename(schema))[0]}, 
-                              {"$set": {"data": schema_data}}, upsert=True)
+                              {"$set": {"data": schema_data, "status": "schema"}}, upsert=True)
 
 
 def main():
