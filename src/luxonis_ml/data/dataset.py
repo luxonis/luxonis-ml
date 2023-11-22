@@ -400,17 +400,20 @@ class LuxonisDataset:
         if self.bucket_storage == BucketStorage.LOCAL:
             self.logger.warning("This is a local dataset! Cannot sync")
         else:
-            local_dir = os.path.join(
-                self.base_path, "data", self.team_id, "datasets", self.dataset_name
-            )
-            if not os.path.exists(local_dir):
-                os.makedirs(local_dir, exist_ok=True)
+            if not hasattr(self, "is_synced") or not self.is_synced:
+                local_dir = os.path.join(
+                    self.base_path, "data", self.team_id, "datasets", self.dataset_name
+                )
+                if not os.path.exists(local_dir):
+                    os.makedirs(local_dir, exist_ok=True)
 
-            protocol = self.bucket_storage.value
-            bucket = self.bucket
-            fs_path = f"{protocol}://{bucket}"
-            remote_dir = fs_path.split(fs_path)[1]
-            self.fs.get_dir(remote_dir=remote_dir, local_dir=local_dir)
+                protocol = self.bucket_storage.value
+                bucket = self.bucket
+                fs_path = f"{protocol}://{bucket}"
+                remote_dir = fs_path.split(fs_path)[1]
+                self.fs.get_dir(remote_dir=remote_dir, local_dir=local_dir)
+
+                self.is_synced = True
 
     def get_classes(self, sync_mode: bool = False) -> Tuple[List[str], Dict]:
         """Gets overall classes in the dataset and classes according to CV task"""
