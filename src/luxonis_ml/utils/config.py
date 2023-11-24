@@ -17,21 +17,23 @@ from .filesystem import LuxonisFileSystem
 
 
 class Config(BaseModel):
-    """Singleton class which checks and merges user config with default one and provides access to its values"""
+    """Class to store configuration.
 
-    def __new__(
-        cls,
-        cfg: Optional[Union[str, Dict[str, Any]]] = None,
-    ):
-        """If needed creates new singleton instance of the Config, otherwise returns already created one
+    Singleton class which checks and merges user config with a default one
+    and provides access to its values.
+
+    """
+    def __new__(cls, cfg: Optional[Union[str, Dict[str, Any]]] = None) -> "Config":
+        """
+        If needed creates new singleton instance of the Config,
+        otherwise returns already created one.
 
         Args:
-            cfg (Optional[Union[str, Dict[str, Any]]], optional): Path to config or config dictionary. Defaults to None.
-            cfg_cls (Optional[type], optional): Class to use as internal config structure representation. This should be
-            a Pydantic BaseModel class. Defaults to None.
+            cfg (Optional[Union[str, Dict[str, Any]]], optional): Path to config or
+                config dictionary. Defaults to None.
 
         Returns:
-            _type_: Singleton instance
+            Config: Singleton instance
         """
         if not hasattr(cls, "instance"):
             if cfg is None:
@@ -186,7 +188,7 @@ class Config(BaseModel):
                     continue
             elif isinstance(last_obj, dict):
                 attr = last_obj.get(last_key, None)
-                if attr != None:
+                if attr is not None:
                     value_typed = TypeAdapter(type(attr)).validate_python(value)
                 else:
                     # infer correct type
