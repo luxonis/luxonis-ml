@@ -23,6 +23,7 @@ class Config(BaseModel):
     and provides access to its values.
 
     """
+
     def __new__(cls, cfg: Optional[Union[str, Dict[str, Any]]] = None) -> "Config":
         """
         If needed creates new singleton instance of the Config,
@@ -56,19 +57,10 @@ class Config(BaseModel):
 
             load_dotenv()  # load environment variables needed for authorization
 
-            fs = LuxonisFileSystem(cfg)
-            buffer = fs.read_to_byte_buffer()
+            self.fs = LuxonisFileSystem(cfg)
+            buffer = self.fs.read_to_byte_buffer()
             cfg_data = yaml.load(buffer, Loader=yaml.SafeLoader)
             super().__init__(**cfg_data)
-
-            if fs.is_mlflow:
-                warnings.warn(
-                    "Setting `project_id` and `run_id` to config's MLFlow run"
-                )
-                # set logger parameters to continue run
-                # TODO: should not be set here
-                self.logger.project_id = fs.experiment_id  # type: ignore
-                self.logger.run_id = fs.run_id  # type: ignore
 
         elif isinstance(cfg, dict):
             super().__init__(**cfg)
