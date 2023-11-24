@@ -41,6 +41,13 @@ class Config(BaseModel):
                 raise ValueError("Provide either config path or config dictionary.")
 
             cls.instance = super().__new__(cls)
+            cls._fs = None
+            if isinstance(cfg, str):
+                from dotenv import load_dotenv
+
+                load_dotenv()
+
+                cls._fs = LuxonisFileSystem(cfg)
 
         return cls.instance
 
@@ -52,22 +59,14 @@ class Config(BaseModel):
             cfg_cls (type): Class to use as internal config structure representation. This
             should be a Pydantic BaseModel class.
         """
-        if isinstance(cfg, str):
-            from dotenv import load_dotenv
-
-            load_dotenv()  # load environment variables needed for authorization
-
-            self.fs = LuxonisFileSystem(cfg)
-            buffer = self.fs.read_to_byte_buffer()
-            cfg_data = yaml.load(buffer, Loader=yaml.SafeLoader)
-            super().__init__(**cfg_data)
-
+        if self._fs is not None:
+            buffer = self._fs.read_to_byte_buffer()
+            data = yaml.load(buffer, Loader=yaml.SafeLoader)
         elif isinstance(cfg, dict):
-            super().__init__(**cfg)
+            data = cfg
         else:
             raise ValueError("Provided cfg is neither path(string) or dictionary.")
-
-        # perform validation on config object
+        super().__init__(**data)
         self._validate()
 
     def __repr__(self) -> str:
