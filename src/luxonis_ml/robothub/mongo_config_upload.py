@@ -25,7 +25,7 @@ import yaml
 import os
 import argparse
 
-def upload_configs_to_mongo(folder, configs, schema, mongo_uri, db_name, collection_name):
+def upload_configs_to_mongo(folder, configs, schema, mongo_uri, db_name, collection_name, schema_collection_name):
     # Connect to MongoDB
     client = pymongo.MongoClient(mongo_uri)
     db = client[db_name]
@@ -52,13 +52,15 @@ def upload_configs_to_mongo(folder, configs, schema, mongo_uri, db_name, collect
         # update the config in MongoDB
         collection.update_one({"config_name": os.path.splitext(os.path.basename(config_file))[0]}, 
                               {"$set": {"data": config_data, "status": "active"}}, upsert=True)
+        # mongo shell: db.configs.updateOne({ "config_name": "minimal_rh" }, { $set: { "status": "inactive" }})
 
     # Load JSON schema and store in MongoDB
     if schema:
         with open(schema, 'r') as file:
             schema_data = json.load(file)
-        collection.update_one({"config_name": os.path.splitext(os.path.basename(schema))[0]}, 
-                              {"$set": {"data": schema_data, "status": "schema"}}, upsert=True)
+        collection = db[schema_collection_name]
+        collection.update_one({"schema_name": os.path.splitext(os.path.basename(schema))[0]}, 
+                              {"$set": {"data": schema_data}}, upsert=True)
 
 
 def main():
@@ -70,12 +72,13 @@ def main():
     parser.add_argument('--mongo_uri', default="mongodb://localhost:27017/", help='MongoDB connection URI')
     parser.add_argument('--db_name', default="robothub", help='Name of the MongoDB database')
     parser.add_argument('--collection_name', default="configs", help='Name of the MongoDB collection to insert data into')
+    parser.add_argument('--schema_collection_name', default="schemas", help='Name of the MongoDB collection to insert schemas into')
 
     args = parser.parse_args()
-    upload_configs_to_mongo(args.folder, args.configs, args.schema, args.mongo_uri, args.db_name, args.collection_name)
+    upload_configs_to_mongo(args.folder, args.configs, args.schema, args.mongo_uri, args.db_name, args.collection_name, args.schema_collection_name)
 
 if __name__ == '__main__':
     main()
 
-# python3 mongo_config_upload.py --folder ./configs/ --configs simple.yaml full.yaml --schema schema.json
+# python3 mongo_config_upload.py --folder ./configs/ --configs simple_rh.yaml full_rh.yaml --schema schema.json
 # python3 mongo_config_upload.py --folder ./configs/ --configs all --schema ./configs/config_schema_rh.json

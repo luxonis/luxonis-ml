@@ -4,6 +4,10 @@
     "description": "Schema for automatic downloading of images from RobotHub",
     "type": "object",
     "properties": {
+        "schema_name": {
+            "type": "string",
+            "description": "Name of the schema used to check the config file"
+        },
         "tactic": {
             "type": "string",
             "enum": ["all", "smart", "random", "limit"],
@@ -134,5 +138,5 @@
     "then": {
         "required": ["num_of_imgs"]
     },
-    "required": ["tactic", "apps", "robots", "target_dataset"]
+    "required": ["schema_name", "tactic", "apps", "robots", "target_dataset"]
 }

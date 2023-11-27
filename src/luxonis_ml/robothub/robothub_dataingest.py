@@ -36,8 +36,6 @@ class RobotHubIngest():
 		def robothub_dag():
 			@task
 			def fetch_config_from_mongo(mongo_conn_id, config_name):
-				schema_name = 'config_schema_rh'
-
 				# Use the connection ID you set up in the Airflow UI
 				hook = MongoHook(conn_id=mongo_conn_id)
 				config_collection = hook.get_collection("configs", mongo_db="robothub")
@@ -48,8 +46,12 @@ class RobotHubIngest():
 					raise ValueError(f"Config {config_name} not found in MongoDB!")
 				config_data = config_entry["data"]
 
+				# extract the schema name from the config
+				schema_name = config_data['schema_name']
+
 				# Fetch the schema
-				schema_entry = config_collection.find_one(filter={"config_name": schema_name})
+				schema_collection = hook.get_collection("schemas", mongo_db="robothub")
+				schema_entry = schema_collection.find_one(filter={"schema_name": schema_name})
 				if schema_entry is None:
 					raise ValueError(f"Schema {schema_name} not found in MongoDB!")
 				schema_data = schema_entry["data"]

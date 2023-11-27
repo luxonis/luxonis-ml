@@ -1,3 +1,4 @@
+schema_name: config_schema_rh
 tactic: limit
 num_of_imgs: 30
 from_date: 2023-09-01
