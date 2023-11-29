@@ -1,6 +1,6 @@
 import os
 import uuid
-from typing import Optional, Any, List, Dict, Union
+from typing import Optional, Any, List, Dict, Union, Tuple
 from types import ModuleType
 import fsspec
 from io import BytesIO
@@ -25,17 +25,12 @@ class LuxonisFileSystem:
         if path is None:
             raise ValueError("No path provided to LuxonisFileSystem.")
 
-        if "://" in path:
-            self.protocol, self.path = path.split("://")
-            supported_protocols = ["s3", "gcs", "file", "mlflow"]
-            if self.protocol not in supported_protocols:
-                raise KeyError(
-                    f"Protocol `{self.protocol}` not supported. Choose from {supported_protocols}."
-                )
-        else:
-            # assume that it is local path
-            self.protocol = "file"
-            self.path = path
+        self.protocol, self.path = _get_protocol_and_path(path)
+        supported_protocols = ["s3", "gcs", "file", "mlflow"]
+        if self.protocol not in supported_protocols:
+            raise KeyError(
+                f"Protocol `{self.protocol}` not supported. Choose from {supported_protocols}."
+            )
 
         self.allow_local = allow_local
         if self.protocol == "file" and not self.allow_local:
@@ -284,3 +279,35 @@ class LuxonisFileSystem:
             parts[2] = "/".join(parts[2:])
             parts = parts[:3]
         return parts
+
+    @staticmethod
+    def split_full_path(path: str) -> Tuple[str, str]:
+        """Returns a tuple for the absolute and relative path given a full path"""
+
+        if os.path.isdir(path):
+            directory = os.path.dirname(path)
+            return path.split(directory)[0], directory
+        else:
+            basename = os.path.basename(path)
+            return path.split(basename)[0], basename
+
+    @staticmethod
+    def get_protocol(path: str) -> str:
+        """Gets the detected protocol of a path"""
+
+        return _get_protocol_and_path(path)[0]
+
+
+def _get_protocol_and_path(path: str) -> Tuple[str]:
+    """Gets the protocol and absolute path of a full path"""
+
+    if "://" in path:
+        protocol, path = path.split("://")
+        if protocol == "gs":
+            # ensure gs:// URLs are accepted as the gcs protocol
+            protocol = "gcs"
+    else:
+        # assume that it is local path
+        protocol = "file"
+
+    return protocol, path
