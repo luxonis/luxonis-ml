@@ -5,13 +5,14 @@ import warnings
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.theme import Theme
+from .environ import environ
 
 
 def setup_logging(
     *,
-    file: str | None = None,
+    file: Optional[str] = None,
     use_rich: bool = False,
-    level: str = "INFO",
+    level: Optional[str] = None,
     configure_warnings: bool = True,
 ) -> None:
     """Globally configures logging.
@@ -27,12 +28,12 @@ def setup_logging(
           Defaults to False.
         level (str, optional): Logging level. One of "DEBUG", "INFO", "WARNING",
           "ERROR", and "CRITICAL". Defaults to "INFO".
-          The log level can be changed using "LUXONIS_LOG_LEVEL" environment variable.
+          The log level can be changed using "LOG_LEVEL" environment variable.
         configure_warnings (bool, optional): If True, warnings will be logged.
           Defaults to True.
     """
-    # NOTE: So we can simply run e.g. `LUXONIS_LOG_LEVEL=DEBUG python ...`
-    level = os.getenv("LUXONIS_LOG_LEVEL", level)
+    # NOTE: So we can simply run e.g. `LOG_LEVEL=DEBUG python ...`
+    level = level or environ.LOG_LEVEL
 
     if level not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
         raise ValueError(

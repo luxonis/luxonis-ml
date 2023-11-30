@@ -5,7 +5,7 @@ from types import ModuleType
 import fsspec
 from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor
-
+from .environ import environ
 
 class LuxonisFileSystem:
     def __init__(
@@ -61,7 +61,7 @@ class LuxonisFileSystem:
                 raise ValueError(
                     "Using active MLFlow run is not allowed. Specify full MLFlow path."
                 )
-            self.tracking_uri = os.getenv("MLFLOW_TRACKING_URI")
+            self.tracking_uri = environ.MLFLOW_TRACKING_URI
 
             if self.tracking_uri is None:
                 raise KeyError(
@@ -81,9 +81,9 @@ class LuxonisFileSystem:
             # NOTE: In theory boto3 should look in environment variables automatically but it doesn't seem to work
             return fsspec.filesystem(
                 self.protocol,
-                key=os.getenv("AWS_ACCESS_KEY_ID"),
-                secret=os.getenv("AWS_SECRET_ACCESS_KEY"),
-                endpoint_url=os.getenv("AWS_S3_ENDPOINT_URL"),
+                key=environ.AWS_ACCESS_KEY_ID,
+                secret=environ.AWS_SECRET_ACCESS_KEY,
+                endpoint_url=environ.AWS_S3_ENDPOINT_URL,
             )
         elif self.protocol == "gcs":
             # NOTE: This should automatically read from GOOGLE_APPLICATION_CREDENTIALS

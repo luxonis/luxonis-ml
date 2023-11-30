@@ -44,10 +44,6 @@ class Config(BaseModel):
             cls.instance = super().__new__(cls)
             cls._fs = None
             if isinstance(cfg, str):
-                from dotenv import load_dotenv
-
-                load_dotenv()
-
                 cls._fs = LuxonisFileSystem(cfg)
 
         return cls.instance
