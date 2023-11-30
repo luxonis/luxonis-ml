@@ -115,6 +115,8 @@ class LuxonisFileSystem:
                 client.log_artifact(run_id=self.run_id, local_path=local_path)
 
         elif self.is_fsspec:
+            print(local_path)
+            print(os.path.join(self.path, remote_path))
             self.fs.put_file(local_path, os.path.join(self.path, remote_path))
 
     def put_dir(
@@ -308,6 +310,7 @@ class LuxonisFileSystem:
     def split_full_path(path: str) -> Tuple[str, str]:
         """Returns a tuple for the absolute and relative path given a full path"""
 
+        path = path.rstrip("/\\")
         return os.path.split(path)
 
     @staticmethod
