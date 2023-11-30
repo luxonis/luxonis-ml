@@ -228,7 +228,7 @@ class Config(BaseModel):
             obj (Any): Object at current level
 
         Returns:
-            Tuple[Optional[BaseModel | List[Any] | Dict[str, Any]], Optional[str | int]]:
+            Tuple[Optional[Union[BaseModel, List[Any], Dict[str, Any]]], Optional[Union[str, int]]]:
                 Last matched object and last key. If it fails before that than Tuple[None, None]
         """
         if len(keys) == 1:

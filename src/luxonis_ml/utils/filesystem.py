@@ -1,6 +1,6 @@
 import os
 import uuid
-from typing import Optional, Any, List, Dict, Union, Tuple
+from typing import Optional, Any, List, Dict, Union, Tuple, Generator
 from types import ModuleType
 import fsspec
 from io import BytesIO
@@ -190,6 +190,20 @@ class LuxonisFileSystem:
             self.fs.download(
                 os.path.join(self.path, remote_dir), local_dir, recursive=True
             )
+
+    def walk_dir(self, remote_dir: str) -> Generator[str, None, None]:
+        """Recursively walks through the individual files in a remote directory"""
+
+        if self.is_mlflow:
+            raise NotImplementedError
+        elif self.is_fsspec:
+            full_path = os.path.join(self.path, remote_dir)
+            for file in self.fs.glob(full_path + "/**", detail=True):
+                if self.fs.info(file)["type"] == "file":
+                    file_without_path = file.replace(self.path, "")
+                    if file_without_path.startswith("/"):
+                        file_without_path = file_without_path[1:]
+                    yield os.path.relpath(file, self.path)
 
     def read_to_byte_buffer(self, remote_path: Optional[str] = None) -> BytesIO:
         """Reads a file and returns Byte buffer
