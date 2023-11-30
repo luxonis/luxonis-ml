@@ -1,6 +1,6 @@
 import os
 import uuid
-from typing import Optional, Any, List, Dict, Union
+from typing import Optional, Any, List, Dict, Union, Tuple, Generator
 from types import ModuleType
 import fsspec
 from io import BytesIO
@@ -25,17 +25,12 @@ class LuxonisFileSystem:
         if path is None:
             raise ValueError("No path provided to LuxonisFileSystem.")
 
-        if "://" in path:
-            self.protocol, self.path = path.split("://")
-            supported_protocols = ["s3", "gcs", "file", "mlflow"]
-            if self.protocol not in supported_protocols:
-                raise KeyError(
-                    f"Protocol `{self.protocol}` not supported. Choose from {supported_protocols}."
-                )
-        else:
-            # assume that it is local path
-            self.protocol = "file"
-            self.path = path
+        self.protocol, self.path = _get_protocol_and_path(path)
+        supported_protocols = ["s3", "gcs", "file", "mlflow"]
+        if self.protocol not in supported_protocols:
+            raise KeyError(
+                f"Protocol `{self.protocol}` not supported. Choose from {supported_protocols}."
+            )
 
         self.allow_local = allow_local
         if self.protocol == "file" and not self.allow_local:
@@ -196,6 +191,20 @@ class LuxonisFileSystem:
                 os.path.join(self.path, remote_dir), local_dir, recursive=True
             )
 
+    def walk_dir(self, remote_dir: str) -> Generator[str, None, None]:
+        """Recursively walks through the individual files in a remote directory"""
+
+        if self.is_mlflow:
+            raise NotImplementedError
+        elif self.is_fsspec:
+            full_path = os.path.join(self.path, remote_dir)
+            for file in self.fs.glob(full_path + "/**", detail=True):
+                if self.fs.info(file)["type"] == "file":
+                    file_without_path = file.replace(self.path, "")
+                    if file_without_path.startswith("/"):
+                        file_without_path = file_without_path[1:]
+                    yield os.path.relpath(file, self.path)
+
     def read_to_byte_buffer(self, remote_path: Optional[str] = None) -> BytesIO:
         """Reads a file and returns Byte buffer
 
@@ -284,3 +293,41 @@ class LuxonisFileSystem:
             parts[2] = "/".join(parts[2:])
             parts = parts[:3]
         return parts
+
+    def is_directory(self, remote_path: str) -> bool:
+        """Returns True if a remote path points to a directory"""
+
+        full_path = os.path.join(self.path, remote_path)
+        file_info = self.fs.info(full_path)
+        if file_info["type"] == "directory":
+            return True
+        else:
+            return False
+
+    @staticmethod
+    def split_full_path(path: str) -> Tuple[str, str]:
+        """Returns a tuple for the absolute and relative path given a full path"""
+
+        path = path.rstrip("/\\")
+        return os.path.split(path)
+
+    @staticmethod
+    def get_protocol(path: str) -> str:
+        """Gets the detected protocol of a path"""
+
+        return _get_protocol_and_path(path)[0]
+
+
+def _get_protocol_and_path(path: str) -> Tuple[str, str]:
+    """Gets the protocol and absolute path of a full path"""
+
+    if "://" in path:
+        protocol, path = path.split("://")
+        if protocol == "gs":
+            # ensure gs:// URLs are accepted as the gcs protocol
+            protocol = "gcs"
+    else:
+        # assume that it is local path
+        protocol = "file"
+
+    return protocol, path

@@ -249,7 +249,9 @@ class Config(BaseModel):
 
     def _iterate_config(
         self, keys: List[str], obj: Any
-    ) -> Tuple[Optional[BaseModel | List[Any] | Dict[str, Any]], Optional[str | int]]:
+    ) -> Tuple[
+        Optional[Union[BaseModel, List[Any], Dict[str, Any]]], Optional[Union[str, int]]
+    ]:
         """Iterates over config object and returns last object and key encoutered.
         If a key in between isn't matched then it returns (None, None)
 
@@ -258,7 +260,7 @@ class Config(BaseModel):
             obj (Any): Object at current level
 
         Returns:
-            Tuple[Optional[BaseModel | List[Any] | Dict[str, Any]], Optional[str | int]]:
+            Tuple[Optional[Union[BaseModel, List[Any], Dict[str, Any]]], Optional[Union[str, int]]]:
                 Last matched object and last key. If it fails before that than Tuple[None, None]
         """
         if len(keys) == 1:
