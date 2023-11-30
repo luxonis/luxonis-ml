@@ -115,8 +115,6 @@ class LuxonisFileSystem:
                 client.log_artifact(run_id=self.run_id, local_path=local_path)
 
         elif self.is_fsspec:
-            print(local_path)
-            print(os.path.join(self.path, remote_path))
             self.fs.put_file(local_path, os.path.join(self.path, remote_path))
 
     def put_dir(
@@ -320,7 +318,7 @@ class LuxonisFileSystem:
         return _get_protocol_and_path(path)[0]
 
 
-def _get_protocol_and_path(path: str) -> Tuple[str]:
+def _get_protocol_and_path(path: str) -> Tuple[str, str]:
     """Gets the protocol and absolute path of a full path"""
 
     if "://" in path:
