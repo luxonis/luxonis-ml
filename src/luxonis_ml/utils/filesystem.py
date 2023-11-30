@@ -308,12 +308,7 @@ class LuxonisFileSystem:
     def split_full_path(path: str) -> Tuple[str, str]:
         """Returns a tuple for the absolute and relative path given a full path"""
 
-        if os.path.isdir(path):
-            directory = os.path.dirname(path)
-            return path.split(directory)[0], directory
-        else:
-            basename = os.path.basename(path)
-            return path.split(basename)[0], basename
+        return os.path.split(path)
 
     @staticmethod
     def get_protocol(path: str) -> str:
