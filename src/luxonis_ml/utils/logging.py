@@ -1,6 +1,6 @@
 import logging
-import os
 import warnings
+from typing import Optional
 
 from rich.console import Console
 from rich.logging import RichHandler
