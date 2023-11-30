@@ -294,6 +294,16 @@ class LuxonisFileSystem:
             parts = parts[:3]
         return parts
 
+    def is_directory(self, remote_path: str) -> bool:
+        """Returns True if a remote path points to a directory"""
+
+        full_path = os.path.join(self.path, remote_path)
+        file_info = self.fs.info(full_path)
+        if file_info["type"] == "directory":
+            return True
+        else:
+            return False
+
     @staticmethod
     def split_full_path(path: str) -> Tuple[str, str]:
         """Returns a tuple for the absolute and relative path given a full path"""
