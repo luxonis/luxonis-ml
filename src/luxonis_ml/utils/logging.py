@@ -1,7 +1,6 @@
 import logging
 import os
 import warnings
-from typing import Literal
 
 from rich.console import Console
 from rich.logging import RichHandler
@@ -12,7 +11,7 @@ def setup_logging(
     *,
     file: str | None = None,
     use_rich: bool = False,
-    level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO",
+    level: str = "INFO",
     configure_warnings: bool = True,
 ) -> None:
     """Globally configures logging.
@@ -28,13 +27,18 @@ def setup_logging(
           Defaults to False.
         level (str, optional): Logging level. One of "DEBUG", "INFO", "WARNING",
           "ERROR", and "CRITICAL". Defaults to "INFO".
-          If "DEBUG" is set in environment variables, the level is changed to "DEBUG".
+          The log level can be changed using "LUXONIS_LOG_LEVEL" environment variable.
         configure_warnings (bool, optional): If True, warnings will be logged.
           Defaults to True.
     """
-    # NOTE: So we can simply run `DEBUG= python ...`
-    if "DEBUG" in os.environ:
-        level = "DEBUG"
+    # NOTE: So we can simply run e.g. `LUXONIS_LOG_LEVEL=DEBUG python ...`
+    level = os.getenv("LUXONIS_LOG_LEVEL", level)
+
+    if level not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
+        raise ValueError(
+            f"Invalid logging level: {level}. "
+            "Use one of 'DEBUG', 'INFO', 'WARNING', 'ERROR', or 'CRITICAL'."
+        )
 
     handlers = []
 
@@ -73,3 +77,9 @@ def setup_logging(
             logger.warning(message)
 
         warnings.showwarning = custom_warning_handler
+
+
+def reset_logging() -> None:
+    """Resets the logging module back to its default state."""
+    for handler in logging.root.handlers[:]:
+        logging.root.removeHandler(handler)
