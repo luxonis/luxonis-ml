@@ -150,7 +150,22 @@ class Config(BaseModel):
             args (Dict[str, Any]): Dict of key-value pairs for override
         """
 
-        def cast_type(target_type: type, value: Any):
+        def _cast_type(target_type: type, value: Any) -> Any:
+            """Casts a value to the target type.
+
+            If the value is a string and casting using `pydantic.TypeAdapter` fails,
+            then the value is parsed as a python literal and casted again.
+
+            Args:
+                target_type (type): Target type to cast to.
+                value (Any): Value to cast.
+
+            Returns:
+                Any: Casted value.
+
+            Raises:
+                ValidationError: If the value can't be casted to the target type.
+            """
             adapter = TypeAdapter(target_type)
             try:
                 return adapter.validate_python(value)
@@ -178,7 +193,7 @@ class Config(BaseModel):
             if isinstance(last_obj, list):
                 if 0 <= last_key < len(last_obj):
                     target_type = type(last_obj[last_key])
-                    value_typed = cast_type(target_type, value)
+                    value_typed = _cast_type(target_type, value)
                 else:
                     warnings.warn(
                         f"Last key of `{'.'.join(keys)}` out of range, "
@@ -191,13 +206,13 @@ class Config(BaseModel):
                     if get_origin(type_hint) == Union:  # if it's Optional or Union
                         type_args = get_args(type_args[0])
                     target_type = type_args[0]
-                    value_typed = cast_type(target_type, value)
+                    value_typed = _cast_type(target_type, value)
                     last_obj.append(value_typed)
                     continue
             elif isinstance(last_obj, dict):
                 attr = last_obj.get(last_key, None)
                 if attr is not None:
-                    value_typed = cast_type(type(attr), value)
+                    value_typed = _cast_type(type(attr), value)
                 else:
                     # infer correct type
                     warnings.warn(
@@ -210,13 +225,13 @@ class Config(BaseModel):
                     if get_origin(type_hint) == Union:  # if it's Optional or Union
                         type_args = get_args(type_args[0])
                     key_type, target_type = type_args
-                    value_typed = cast_type(target_type, value)
+                    value_typed = _cast_type(target_type, value)
             else:
                 attr = getattr(last_obj, last_key, None)
                 all_types = get_type_hints(last_obj)
                 target_type = all_types.get(last_key, None)
                 if target_type is not None:
-                    value_typed = cast_type(target_type, value)
+                    value_typed = _cast_type(target_type, value)
                 else:
                     warnings.warn(
                         f"Last key of `{'.'.join(keys)}` not present, "
