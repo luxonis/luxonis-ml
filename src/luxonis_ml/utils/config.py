@@ -217,7 +217,9 @@ class Config(BaseModel):
 
     def _iterate_config(
         self, keys: List[str], obj: Any
-    ) -> Tuple[Optional[BaseModel | List[Any] | Dict[str, Any]], Optional[str | int]]:
+    ) -> Tuple[
+        Optional[Union[BaseModel, List[Any], Dict[str, Any]]], Optional[Union[str, int]]
+    ]:
         """Iterates over config object and returns last object and key encoutered.
         If a key in between isn't matched then it returns (None, None)
 
