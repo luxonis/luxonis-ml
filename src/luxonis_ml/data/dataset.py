@@ -550,7 +550,6 @@ class LuxonisDataset:
 
             print("Saving annotations...")
             self._start_time()
-            mask_paths = []
             for data in tqdm(batch_data):
                 filepath = data["file"]
                 file = os.path.basename(filepath)

@@ -70,8 +70,7 @@ def check_annotation(data: Dict) -> None:
     elif type_string == "polyline":
         _check_polyline(value)
     elif type_string == "segmentation":
-        # _check_segmentation(value)
-        pass
+        pass  # we check segmentation masks using check_segmentation_masks
     elif type_string == "keypoints":
         _check_keypoints(value)
 
