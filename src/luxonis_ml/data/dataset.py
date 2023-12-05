@@ -1,6 +1,7 @@
-import os, shutil, subprocess, time
+import os
+import shutil
+import time
 from pathlib import Path
-import cv2
 import json
 from tqdm import tqdm
 import numpy as np
@@ -11,11 +12,10 @@ from datetime import datetime
 from typing import List, Dict, Tuple, Optional, Generator
 
 import luxonis_ml.data.utils.data_utils as data_utils
-from luxonis_ml.utils import LuxonisFileSystem
+from luxonis_ml.utils import LuxonisFileSystem, environ
 from luxonis_ml.data.utils.parquet import ParquetFileManager
-from luxonis_ml.enums import LabelType
 from .utils.constants import LDF_VERSION, LABEL_TYPES
-from .utils.enums import *
+from .utils.enums import BucketType, BucketStorage, MediaType, ImageType
 
 
 class LuxonisComponent:
@@ -102,9 +102,7 @@ class LuxonisDataset:
                 "Must provide either dataset_name or dataset_id when initializing LuxonisDataset"
             )
 
-        self.base_path = os.getenv(
-            "LUXONISML_BASE_PATH", str(Path.home() / "luxonis_ml")
-        )
+        self.base_path = environ.LUXONISML_BASE_PATH
         credentials_cache_file = str(Path(self.base_path) / "credentials.json")
         if os.path.exists(credentials_cache_file):
             with open(credentials_cache_file) as file:
@@ -113,11 +111,11 @@ class LuxonisDataset:
             self.config = {}
 
         if team_id is None:
-            team_id = self._get_config("LUXONISML_TEAM_ID", "offline")
+            team_id = self._get_config("LUXONISML_TEAM_ID")
         if team_name is None:
-            team_name = self._get_config("LUXONISML_TEAM_NAME", "offline")
+            team_name = self._get_config("LUXONISML_TEAM_NAME")
 
-        self.bucket = self._get_config("LUXONISML_BUCKET", None)
+        self.bucket = self._get_config("LUXONISML_BUCKET")
 
         self.dataset_name = dataset_name
         self.dataset_id = dataset_id
@@ -126,9 +124,9 @@ class LuxonisDataset:
         self.bucket_type = bucket_type
         self.bucket_storage = bucket_storage
         if not isinstance(self.bucket_type, BucketType):
-            raise Exception(f"Must use a valid BucketType!")
+            raise Exception("Must use a valid BucketType!")
         if not isinstance(self.bucket_storage, BucketStorage):
-            raise Exception(f"Must use a valid BucketStorage!")
+            raise Exception("Must use a valid BucketStorage!")
 
         if self.bucket_storage != BucketStorage.LOCAL and self.bucket is None:
             raise Exception("Must set LUXONISML_BUCKET environment variable!")
@@ -224,13 +222,15 @@ class LuxonisDataset:
             ],
         )
 
-    def _get_config(self, key: str, default: Optional[str] = None) -> str:
+    def _get_config(self, key: str) -> str:
         """Gets secret credentials from credentials file or ENV variables"""
 
         if key in self.config.keys():
             return self.config[key]
         else:
-            return os.getenv(key, default)
+            if not hasattr(environ, key):
+                raise Exception(f"Must set {key} in ENV variables")
+            return getattr(environ, key)
 
     def _init_path(self) -> None:
         """Configures local path or bucket directory"""
@@ -284,7 +284,7 @@ class LuxonisDataset:
             file_index_path = os.path.join(".luxonisml_tmp", "file_index.parquet")
             try:
                 self.fs.get_file("metadata/file_index.parquet", file_index_path)
-            except Exception as e:
+            except Exception:
                 pass
         if os.path.exists(file_index_path):
             index = pd.read_parquet(file_index_path)
@@ -566,7 +566,7 @@ class LuxonisDataset:
                 index = self._get_file_index()
                 if index is None:
                     raise Exception("File index not found")
-                if set(definitions.keys()) != set("train", "val", "test"):
+                if set(definitions.keys()) != {"train", "val", "test"}:
                     raise Exception(
                         "Must specify train, val, and test and those keys only"
                     )
@@ -585,7 +585,7 @@ class LuxonisDataset:
     def exists(dataset_name: str) -> bool:
         """Returns whether the dataset under a given name exists. For offline mode only"""
 
-        base_path = os.getenv("LUXONISML_BASE_PATH", str(Path.home() / "luxonis_ml"))
+        base_path = environ.LUXONISML_BASE_PATH
         datasets_cache_file = str(Path(base_path) / "datasets.json")
         if os.path.exists(datasets_cache_file):
             with open(datasets_cache_file) as file:
