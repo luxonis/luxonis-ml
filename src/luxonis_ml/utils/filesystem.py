@@ -7,6 +7,7 @@ from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor
 from .environ import environ
 
+
 class LuxonisFileSystem:
     def __init__(
         self,
