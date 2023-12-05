@@ -135,7 +135,7 @@ class RH_Downloader:
                 image_time = detection['createdAt'].replace(":", "-").split(".")[0]
                 frame_path = f'{image_time}_{id_}_{frame_name}.png'
 
-                frame_full_path = os.path.abspath(os.path.join(self.dest_dir, frame_path))
+                frame_full_path = os.path.abspath(os.path.join(self.dest_dir+'/images', frame_path))
 
                 # Create a new dictionary with the required fields
                 detection_info = {

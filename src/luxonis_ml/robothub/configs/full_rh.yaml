@@ -1,5 +1,5 @@
 schema_name: config_schema_rh
-tactic: limit
+tactic: smart
 num_of_imgs: 30
 from_date: 2023-09-01
 to_date: 2023-09-02
