@@ -1,5 +1,6 @@
 import yaml
 import warnings
+import ast
 from typing import (
     Optional,
     Union,
@@ -11,43 +12,62 @@ from typing import (
     get_args,
     get_origin,
 )
-from pydantic import BaseModel, TypeAdapter
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from .filesystem import LuxonisFileSystem
 
 
-class ConfigHandler:
-    """Singleton class which checks and merges user config with default one and provides access to its values"""
+class Config(BaseModel):
+    """Class to store configuration.
 
-    def __new__(
-        cls,
-        cfg: Optional[Union[str, Dict[str, Any]]] = None,
-        cfg_cls: Optional[type] = None,
-    ):
-        """If needed creates new singleton instance of the Config, otherwise returns already created one
+    Singleton class which checks and merges user config with a default one
+    and provides access to its values.
+
+    """
+
+    def __new__(cls, cfg: Optional[Union[str, Dict[str, Any]]] = None) -> "Config":
+        """
+        If needed creates new singleton instance of the Config,
+        otherwise returns already created one.
 
         Args:
-            cfg (Optional[Union[str, Dict[str, Any]]], optional): Path to config or config dictionary. Defaults to None.
-            cfg_cls (Optional[type], optional): Class to use as internal config structure representation. This should be
-            a Pydantic BaseModel class. Defaults to None.
+            cfg (Optional[Union[str, Dict[str, Any]]], optional): Path to config or
+                config dictionary. Defaults to None.
 
         Returns:
-            _type_: Singleton instance
+            Config: Singleton instance
         """
         if not hasattr(cls, "instance"):
             if cfg is None:
                 raise ValueError("Provide either config path or config dictionary.")
 
-            if cfg_cls is None:
-                raise ValueError("Provide class for internal config object.")
-
-            cls.instance = super(ConfigHandler, cls).__new__(cls)
-            cls.instance._load(cfg, cfg_cls)
+            cls.instance = super().__new__(cls)
+            cls._fs = None
+            if isinstance(cfg, str):
+                cls._fs = LuxonisFileSystem(cfg)
 
         return cls.instance
 
+    def __init__(self, cfg: Union[str, Dict[str, Any]]):
+        """Loads cfg data in cfg class
+
+        Args:
+            cfg (Union[str, Dict[str, Any]]): Path to config or config dictionary
+            cfg_cls (type): Class to use as internal config structure representation. This
+            should be a Pydantic BaseModel class.
+        """
+        if self._fs is not None:
+            buffer = self._fs.read_to_byte_buffer()
+            data = yaml.load(buffer, Loader=yaml.SafeLoader)
+        elif isinstance(cfg, dict):
+            data = cfg
+        else:
+            raise ValueError("Provided cfg is neither path(string) or dictionary.")
+        super().__init__(**data)
+        self._validate()
+
     def __repr__(self) -> str:
-        return self._data.model_dump_json(indent=4)
+        return self.model_dump_json(indent=4)
 
     @classmethod
     def clear_instance(cls) -> None:
@@ -57,11 +77,11 @@ class ConfigHandler:
 
     def get_data(self) -> Dict[str, Any]:
         """Returns dict reperesentation of the config"""
-        return self._data.model_dump()
+        return self.model_dump()
 
     def get_json_schema(self) -> Dict[str, Any]:
         """Retuns dict representation of config json schema"""
-        return self._data.model_json_schema(model="validation")
+        return self.model_json_schema(mode="validation")
 
     def save_data(self, path: str) -> None:
         """Saves config to yaml file
@@ -70,7 +90,7 @@ class ConfigHandler:
             path (str): Path to output yaml file
         """
         with open(path, "w+") as f:
-            yaml.dump(self._data.model_dump(), f, default_flow_style=False)
+            yaml.dump(self.model_dump(), f, default_flow_style=False)
 
     def get(self, key_merged: str, default: Any = None) -> Any:
         """Returns value from Config based on key
@@ -83,15 +103,19 @@ class ConfigHandler:
         Returns:
             Any: Value of the key
         """
-        last_obj, last_key = self._iterate_config(key_merged.split("."), obj=self._data)
+        last_obj, last_key = self._iterate_config(key_merged.split("."), obj=self)
 
-        if last_obj is None:
+        if last_obj is None and last_key is None:
             warnings.warn(
                 f"Itaration for key `{key_merged}` failed, returning default."
             )
             return default
 
         if isinstance(last_obj, list):
+            if not isinstance(last_key, int):
+                raise ValueError(
+                    f"Attemped to access list with non-int key `{last_key}`."
+                )
             if 0 <= last_key < len(last_obj):
                 return last_obj[last_key]
             else:
@@ -121,9 +145,40 @@ class ConfigHandler:
         Args:
             args (Dict[str, Any]): Dict of key-value pairs for override
         """
+
+        def _cast_type(target_type: type, value: Any) -> Any:
+            """Casts a value to the target type.
+
+            If the value is a string and casting using `pydantic.TypeAdapter` fails,
+            then the value is parsed as a python literal and casted again.
+
+            Args:
+                target_type (type): Target type to cast to.
+                value (Any): Value to cast.
+
+            Returns:
+                Any: Casted value.
+
+            Raises:
+                ValidationError: If the value can't be casted to the target type.
+            """
+            adapter = TypeAdapter(target_type)
+            try:
+                return adapter.validate_python(value)
+            except ValidationError as e:
+                if not isinstance(value, str):
+                    raise e
+                # try to evaluate the string to python literal
+                try:
+                    literal = ast.literal_eval(value)
+                except Exception:
+                    raise ValueError(f"Can't parse string `{value}`.")
+
+                return adapter.validate_python(literal)
+
         for key_merged, value in args.items():
             keys = key_merged.split(".")
-            last_obj, last_key = self._iterate_config(keys, obj=self._data)
+            last_obj, last_key = self._iterate_config(keys, obj=self)
 
             # iterate failed
             if last_obj is None:
@@ -134,45 +189,45 @@ class ConfigHandler:
             if isinstance(last_obj, list):
                 if 0 <= last_key < len(last_obj):
                     target_type = type(last_obj[last_key])
-                    value_typed = TypeAdapter(target_type).validate_python(value)
+                    value_typed = _cast_type(target_type, value)
                 else:
                     warnings.warn(
                         f"Last key of `{'.'.join(keys)}` out of range, "
                         f"adding element to the end of the list."
                     )
                     # infer correct type
-                    types = self._trace_types(keys[:-1], self._data)
+                    types = self._trace_types(keys[:-1], self)
                     type_hint = get_type_hints(types[-1]).get(keys[-2])
                     type_args = get_args(type_hint)
                     if get_origin(type_hint) == Union:  # if it's Optional or Union
                         type_args = get_args(type_args[0])
                     target_type = type_args[0]
-                    value_typed = TypeAdapter(target_type).validate_python(value)
+                    value_typed = _cast_type(target_type, value)
                     last_obj.append(value_typed)
                     continue
             elif isinstance(last_obj, dict):
                 attr = last_obj.get(last_key, None)
-                if attr != None:
-                    value_typed = TypeAdapter(type(attr)).validate_python(value)
+                if attr is not None:
+                    value_typed = _cast_type(type(attr), value)
                 else:
                     # infer correct type
                     warnings.warn(
                         f"Last key of `{'.'.join(keys)}` not in dict, "
                         f"adding new key-value pair."
                     )
-                    types = self._trace_types(keys[:-1], self._data)
+                    types = self._trace_types(keys[:-1], self)
                     type_hint = get_type_hints(types[-1]).get(keys[-2])
                     type_args = get_args(type_hint)
                     if get_origin(type_hint) == Union:  # if it's Optional or Union
                         type_args = get_args(type_args[0])
                     key_type, target_type = type_args
-                    value_typed = TypeAdapter(target_type).validate_python(value)
+                    value_typed = _cast_type(target_type, value)
             else:
                 attr = getattr(last_obj, last_key, None)
                 all_types = get_type_hints(last_obj)
                 target_type = all_types.get(last_key, None)
-                if target_type != None:
-                    value_typed = TypeAdapter(target_type).validate_python(value)
+                if target_type is not None:
+                    value_typed = _cast_type(target_type, value)
                 else:
                     warnings.warn(
                         f"Last key of `{'.'.join(keys)}` not present, "
@@ -188,43 +243,11 @@ class ConfigHandler:
         if len(args) == 0:
             return
 
-    def _load(self, cfg: Union[str, Dict[str, Any]], cfg_cls: type) -> None:
-        """Loads cfg data in cfg class
-
-        Args:
-            cfg (Union[str, Dict[str, Any]]): Path to config or config dictionary
-            cfg_cls (type): Class to use as internal config structure representation. This
-            should be a Pydantic BaseModel class.
-        """
-        if isinstance(cfg, str):
-            from dotenv import load_dotenv
-
-            load_dotenv()  # load environment variables needed for authorization
-
-            fs = LuxonisFileSystem(cfg)
-            buffer = fs.read_to_byte_buffer()
-            cfg_data = yaml.load(buffer, Loader=yaml.SafeLoader)
-            self._data = cfg_cls(**cfg_data)
-
-            if fs.is_mlflow:
-                warnings.warn(
-                    "Setting `project_id` and `run_id` to config's MLFlow run"
-                )
-                # set logger parameters to continue run
-                self._data.logger.project_id = fs.experiment_id
-                self._data.logger.run_id = fs.run_id
-
-        elif isinstance(cfg, dict):
-            self._data = cfg_cls(**cfg)
-        else:
-            raise ValueError("Provided cfg is neither path(string) or dictionary.")
-
-        # perform validation on config object
-        self._validate()
-
     def _iterate_config(
         self, keys: List[str], obj: Any
-    ) -> Tuple[Optional[BaseModel | List[Any] | Dict[str, Any]], Optional[str | int]]:
+    ) -> Tuple[
+        Optional[Union[BaseModel, List[Any], Dict[str, Any]]], Optional[Union[str, int]]
+    ]:
         """Iterates over config object and returns last object and key encoutered.
         If a key in between isn't matched then it returns (None, None)
 
@@ -233,7 +256,7 @@ class ConfigHandler:
             obj (Any): Object at current level
 
         Returns:
-            Tuple[Optional[BaseModel | List[Any] | Dict[str, Any]], Optional[str | int]]:
+            Tuple[Optional[Union[BaseModel, List[Any], Dict[str, Any]]], Optional[Union[str, int]]]:
                 Last matched object and last key. If it fails before that than Tuple[None, None]
         """
         if len(keys) == 1:
