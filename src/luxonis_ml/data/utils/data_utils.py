@@ -68,6 +68,8 @@ def check_annotation(data: Dict) -> None:
         _check_box(value)
     elif type_string == "polyline":
         _check_polyline(value)
+    elif type_string == "segmentation":
+        _check_segmentation(value)
     elif type_string == "keypoints":
         _check_keypoints(value)
 
@@ -108,6 +110,13 @@ def _check_polyline(value: Any) -> None:
         for pnt in coord:
             if not isinstance(pnt, int) and not isinstance(pnt, float):
                 raise Exception(f"Polyline point {pnt} must be an int or float")
+
+
+def _check_segmentation(value: Any) -> None:
+    if not isinstance(value, str):
+        raise Exception(f"Segmentation {value} must be a path (string)")
+    if not os.path.exists(value):
+        raise Exception(f"Segmentation path {value} does not exist!")
 
 
 def _check_keypoints(value: Any) -> None:

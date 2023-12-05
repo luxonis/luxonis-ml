@@ -10,6 +10,8 @@ from abc import ABC, abstractmethod
 from typing import Optional, Tuple, Dict
 from pathlib import Path
 from luxonis_ml.enums import LabelType
+from luxonis_ml.utils import LuxonisFileSystem
+from .utils.enums import BucketStorage
 
 
 Labels = Dict[LabelType, np.ndarray]
@@ -55,19 +57,29 @@ class LuxonisLoader(BaseLoader):
         """
 
         self.dataset = dataset
+        self.stream = stream
+        self.sync_mode = (
+            self.dataset.bucket_storage != BucketStorage.LOCAL and not self.stream
+        )
 
-        if self.dataset.bucket_storage.value == "local":
+        if self.sync_mode:
+            print("Syncing from cloud...")
+            self.dataset.sync_from_cloud()
+
+        if self.dataset.bucket_storage == BucketStorage.LOCAL or not self.stream:
             self.file_index = self.dataset._get_file_index()
             if self.file_index is None:
                 raise Exception("Cannot find file index")
         else:
             raise NotImplementedError(
-                "Remote bucket storage not implemented yet for loader"
+                "Streaming for remote bucket storage not implemented yet"
             )
 
-        self.stream = stream
         self.view = view
-        self.classes, self.classes_by_task = self.dataset.get_classes()
+
+        self.classes, self.classes_by_task = self.dataset.get_classes(
+            sync_mode=self.sync_mode
+        )
         self.nc = len(self.classes)
         self.ns = len(self.classes_by_task[LabelType.SEGMENTATION])
         self.nk = {
@@ -83,9 +95,6 @@ class LuxonisLoader(BaseLoader):
         if self.dataset.online:
             raise NotImplementedError
 
-        if not self.stream and self.dataset.bucket_storage.value != "local":
-            self.dataset.sync_from_cloud()
-
         if self.view in ["train", "val", "test"]:
             splits_path = os.path.join(dataset.metadata_path, "splits.json")
             if not os.path.exists(splits_path):
@@ -98,7 +107,7 @@ class LuxonisLoader(BaseLoader):
         else:
             raise NotImplementedError
 
-        self.df = dataset._load_df_offline()
+        self.df = dataset._load_df_offline(sync_mode=self.sync_mode)
         self.df.set_index(["instance_id"], inplace=True)
 
     def __len__(self) -> int:
@@ -150,10 +159,12 @@ class LuxonisLoader(BaseLoader):
             matched = self.file_index[self.file_index["instance_id"] == instance_id]
             img_path = list(matched["original_filepath"])[0]
         else:
-            # Not implemented, but assumes we are synced locally
-            # TODO: add support for remote bucket storage
-            img_path = os.path.join(self.dataset.media_path, f"{instance_id}.*")
-            img_path = glob.glob(img_path)[0]
+            if self.dataset.bucket_storage == BucketStorage.LOCAL or not self.stream:
+                img_path = os.path.join(self.dataset.media_path, f"{instance_id}.*")
+                img_path = glob.glob(img_path)[0]
+            else:
+                # TODO: add support for streaming remote storage
+                raise NotImplementedError
 
         img = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)
 
@@ -162,8 +173,11 @@ class LuxonisLoader(BaseLoader):
 
         classification_rows = sub_df[sub_df["type"] == "classification"]
         box_rows = sub_df[sub_df["type"] == "box"]
-        segmentation_rows = sub_df[sub_df["type"] == "polyline"]
+        segmentation_rows = sub_df[sub_df["type"] == "segmentation"]
+        polyline_rows = sub_df[sub_df["type"] == "polyline"]
         keypoints_rows = sub_df[sub_df["type"] == "keypoints"]
+
+        seg = np.zeros((self.ns, ih, iw))
 
         if len(classification_rows):
             classes = [
@@ -188,9 +202,8 @@ class LuxonisLoader(BaseLoader):
                 boxes = np.append(boxes, box, axis=0)
             annotations[LabelType.BOUNDINGBOX] = boxes
 
-        if len(segmentation_rows):
-            seg = np.zeros((self.ns, ih, iw))
-            for row in segmentation_rows.iterrows():
+        if len(polyline_rows):
+            for row in polyline_rows.iterrows():
                 row = row[1]
                 cls = self.classes.index(row["class"])
                 polyline = json.loads(row["value"])
@@ -201,6 +214,19 @@ class LuxonisLoader(BaseLoader):
                 draw = ImageDraw.Draw(mask)
                 draw.polygon(polyline, fill=1, outline=1)
                 mask = np.array(mask)
+                seg[cls, ...] = seg[cls, ...] + mask
+            seg[seg > 0] = 1
+            annotations[LabelType.SEGMENTATION] = seg
+
+        if len(segmentation_rows):
+            for row in segmentation_rows.iterrows():
+                row = row[1]
+                cls = self.classes.index(row["class"])
+                if self.dataset.bucket_storage.value == "local":
+                    mask = cv2.imread(row["value"], cv2.IMREAD_GRAYSCALE)
+                else:
+                    # self.fs.get_file()
+                    raise NotImplementedError
                 seg[cls, ...] = seg[cls, ...] + mask
             seg[seg > 0] = 1
             annotations[LabelType.SEGMENTATION] = seg

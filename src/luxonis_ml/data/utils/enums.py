@@ -13,6 +13,7 @@ class DataLabelType(Enum):
     )
     BOX = "box"  # bounding box
     POLYLINE = "polyline"  # polyline to represent segmentation mask instances
+    SEGMENTATION = "segmentation"  # path to a binary image of a segmentation mask
     KEYPOINTS = "keypoints"  # keypoint skeleton instances
     LABEL = "label"  # an arbitrary label of string, bool, or number
 

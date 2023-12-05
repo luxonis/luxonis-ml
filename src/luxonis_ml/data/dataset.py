@@ -15,7 +15,7 @@ import luxonis_ml.data.utils.data_utils as data_utils
 from luxonis_ml.utils import LuxonisFileSystem, environ
 from luxonis_ml.data.utils.parquet import ParquetFileManager
 from .utils.constants import LDF_VERSION, LABEL_TYPES
-from .utils.enums import BucketType, BucketStorage, MediaType, ImageType
+from .utils.enums import BucketType, BucketStorage, MediaType, ImageType, DataLabelType
 
 
 class LuxonisComponent:
@@ -102,7 +102,12 @@ class LuxonisDataset:
                 "Must provide either dataset_name or dataset_id when initializing LuxonisDataset"
             )
 
-        self.base_path = environ.LUXONISML_BASE_PATH
+        self.base_path = os.getenv(
+            "LUXONISML_BASE_PATH", str(Path.home() / "luxonis_ml")
+        )
+        if not os.path.exists(self.base_path):
+            os.makedirs(self.base_path, exist_ok=True)
+
         credentials_cache_file = str(Path(self.base_path) / "credentials.json")
         if os.path.exists(credentials_cache_file):
             with open(credentials_cache_file) as file:
@@ -165,6 +170,7 @@ class LuxonisDataset:
         elif self.bucket_storage == BucketStorage.AZURE_BLOB:
             raise NotImplementedError
         else:
+            self.tmp_dir = ".luxonis_tmp"
             self.fs = LuxonisFileSystem(self.path)
 
     def __len__(self) -> int:
@@ -235,29 +241,35 @@ class LuxonisDataset:
     def _init_path(self) -> None:
         """Configures local path or bucket directory"""
 
+        self.local_path = str(
+            Path(self.base_path)
+            / "data"
+            / self.team_id
+            / "datasets"
+            / self.dataset_name
+        )
+        self.media_path = os.path.join(self.local_path, "media")
+        self.annotations_path = os.path.join(self.local_path, "annotations")
+        self.metadata_path = os.path.join(self.local_path, "metadata")
+
         if self.bucket_storage == BucketStorage.LOCAL:
-            self.path = str(
-                Path(self.base_path)
-                / "data"
-                / self.team_id
-                / "datasets"
-                / self.dataset_name
-            )
+            self.path = self.local_path
             os.makedirs(self.path, exist_ok=True)
-            self.media_path = os.path.join(self.path, "media")
-            self.annotations_path = os.path.join(self.path, "annotations")
-            self.metadata_path = os.path.join(self.path, "metadata")
             os.makedirs(self.media_path, exist_ok=True)
             os.makedirs(self.annotations_path, exist_ok=True)
             os.makedirs(self.metadata_path, exist_ok=True)
         else:
             self.path = f"{self.bucket_storage.value}://{self.bucket}/{self.team_id}/datasets/{self.dataset_name}"
 
-    def _load_df_offline(self) -> Optional[pd.DataFrame]:
+    def _load_df_offline(self, sync_mode: bool = False) -> Optional[pd.DataFrame]:
         dfs = []
-        for file in os.listdir(self.annotations_path):
+        if self.bucket_storage == BucketStorage.LOCAL or sync_mode:
+            annotations_path = self.annotations_path
+        else:
+            annotations_path = os.path.join(self.tmp_dir, "annotations")
+        for file in os.listdir(annotations_path):
             if os.path.splitext(file)[1] == ".parquet":
-                dfs.append(pd.read_parquet(os.path.join(self.annotations_path, file)))
+                dfs.append(pd.read_parquet(os.path.join(annotations_path, file)))
         if len(dfs):
             return pd.concat(dfs)
         else:
@@ -281,7 +293,7 @@ class LuxonisDataset:
         if self.bucket_storage == BucketStorage.LOCAL:
             file_index_path = os.path.join(self.metadata_path, "file_index.parquet")
         else:
-            file_index_path = os.path.join(".luxonisml_tmp", "file_index.parquet")
+            file_index_path = os.path.join(self.tmp_dir, "file_index.parquet")
             try:
                 self.fs.get_file("metadata/file_index.parquet", file_index_path)
             except Exception:
@@ -312,6 +324,12 @@ class LuxonisDataset:
     def _end_time(self) -> None:
         self.t1 = time.time()
         print(f"Took {self.t1 - self.t0} seconds")
+
+    def _make_temp_dir(self) -> None:
+        os.makedirs(self.tmp_dir, exist_ok=True)
+
+    def _remove_temp_dir(self) -> None:
+        shutil.rmtree(self.tmp_dir)
 
     def update_source(self, source: LuxonisSource) -> None:
         """
@@ -349,6 +367,15 @@ class LuxonisDataset:
                     self.datasets[self.dataset_name]["classes"][task] = classes
             self._write_datasets()
 
+            if self.bucket_storage != BucketStorage.LOCAL:
+                classes_json = self.datasets[self.dataset_name]["classes"]
+                self._make_temp_dir()
+                local_file = os.path.join(self.tmp_dir, "classes.json")
+                with open(local_file, "w") as file:
+                    json.dump(classes_json, file, indent=4)
+                self.fs.put_file(local_file, "metadata/classes.json")
+                self._remove_temp_dir()
+
     # TODO: method to auto-set classes per-task using pandas
 
     def set_skeletons(self, skeletons: Dict[str, Dict]) -> None:
@@ -378,14 +405,22 @@ class LuxonisDataset:
         if self.bucket_storage == BucketStorage.LOCAL:
             self.logger.warning("This is a local dataset! Cannot sync")
         else:
-            local_dir = os.path.join(
-                self.base_path, "data", self.team_id, "datasets", self.dataset_name
-            )
-            if not os.path.exists(local_dir):
-                os.makedirs(local_dir, exist_ok=True)
-            self.fs.get_dir(remote_dir=self.path, local_dir=local_dir)
+            if not hasattr(self, "is_synced") or not self.is_synced:
+                local_dir = os.path.join(
+                    self.base_path, "data", self.team_id, "datasets", self.dataset_name
+                )
+                if not os.path.exists(local_dir):
+                    os.makedirs(local_dir, exist_ok=True)
 
-    def get_classes(self) -> Tuple[List[str], Dict]:
+                protocol = self.bucket_storage.value
+                bucket = self.bucket
+                fs_path = f"{protocol}://{bucket}"
+                remote_dir = fs_path.split(fs_path)[1]
+                self.fs.get_dir(remote_dir=remote_dir, local_dir=local_dir)
+
+                self.is_synced = True
+
+    def get_classes(self, sync_mode: bool = False) -> Tuple[List[str], Dict]:
         """Gets overall classes in the dataset and classes according to CV task"""
 
         if self.online:
@@ -393,8 +428,15 @@ class LuxonisDataset:
         else:
             classes = set()
             classes_by_task = {}
-            for task in self.datasets[self.dataset_name]["classes"]:
-                task_classes = self.datasets[self.dataset_name]["classes"][task]
+            if sync_mode:
+                local_file = os.path.join(self.metadata_path, "classes.json")
+                self.fs.get_file("metadata/classes.json", local_file)
+                with open(local_file) as file:
+                    classes_json = json.load(file)
+            else:
+                classes_json = self.datasets[self.dataset_name]["classes"]
+            for task in classes_json:
+                task_classes = classes_json[task]
                 if len(task_classes):
                     classes_by_task[task] = task_classes
                     for cls in task_classes:
@@ -492,6 +534,11 @@ class LuxonisDataset:
                     data["value"] = json.dumps(data["value"])  # convert lists to string
                 else:
                     data["value"] = str(data["value"])
+                if (
+                    data["type"] == "segmentation"
+                    or data["type"] == DataLabelType.SEGMENTATION
+                ):
+                    data["value"] = os.path.abspath(data["value"])
                 data["created_at"] = datetime.utcnow()
 
                 self.pfm.write(data)
@@ -503,9 +550,10 @@ class LuxonisDataset:
             if self.bucket_storage == BucketStorage.LOCAL:
                 self.pfm = ParquetFileManager(self.annotations_path)
             else:
-                tmp_dir = os.path.join(".luxonis_tmp", "annotations")
-                os.makedirs(tmp_dir, exist_ok=True)
-                self.pfm = ParquetFileManager(tmp_dir)
+                self._make_temp_dir()
+                annotations_dir = os.path.join(self.tmp_dir, "annotations")
+                os.makedirs(annotations_dir, exist_ok=True)
+                self.pfm = ParquetFileManager(annotations_dir)
 
             index = self._get_file_index()
             new_index = {"instance_id": [], "file": [], "original_filepath": []}
@@ -527,9 +575,9 @@ class LuxonisDataset:
             else:
                 file_index_path = os.path.join(".luxonis_tmp", "file_index.parquet")
                 self._write_index(index, new_index, override_path=file_index_path)
-                self.fs.put_dir(tmp_dir, "annotations")
+                self.fs.put_dir(annotations_dir, "annotations")
                 self.fs.put_file(file_index_path, "metadata/file_index.parquet")
-                shutil.rmtree(tmp_dir)
+                self._remove_temp_dir()
 
     def make_splits(
         self, ratios: List[float] = [0.8, 0.1, 0.1], definitions: Optional[Dict] = None
@@ -553,6 +601,12 @@ class LuxonisDataset:
             splits = {}
 
             if definitions is None:  # random split
+                if self.bucket_storage != BucketStorage.LOCAL:
+                    self._make_temp_dir()
+                    self.fs.get_dir(
+                        "annotations", os.path.join(self.tmp_dir, "annotations")
+                    )
+
                 df = self._load_df_offline()
                 ids = list(set(df["instance_id"]))
                 np.random.shuffle(ids)
@@ -578,8 +632,15 @@ class LuxonisDataset:
                     ids = [self._try_instance_id(file, index) for file in files]
                     splits[split] = ids
 
-            with open(os.path.join(self.metadata_path, "splits.json"), "w") as file:
-                json.dump(splits, file, indent=4)
+            if self.bucket_storage == BucketStorage.LOCAL:
+                with open(os.path.join(self.metadata_path, "splits.json"), "w") as file:
+                    json.dump(splits, file, indent=4)
+            else:
+                local_file = os.path.join(self.tmp_dir, "splits.json")
+                with open(local_file, "w") as file:
+                    json.dump(splits, file, indent=4)
+                self.fs.put_file(local_file, "metadata/splits.json")
+                self._remove_temp_dir()
 
     @staticmethod
     def exists(dataset_name: str) -> bool:

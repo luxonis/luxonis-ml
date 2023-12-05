@@ -7,6 +7,7 @@ from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor
 from .environ import environ
 
+
 class LuxonisFileSystem:
     def __init__(
         self,
@@ -144,7 +145,9 @@ class LuxonisFileSystem:
                 with ThreadPoolExecutor() as executor:
                     for local_path in local_paths:
                         if uuid_dict:
-                            basename = uuid_dict[local_path]
+                            file_uuid = uuid_dict[local_path]
+                            ext = os.path.splitext(local_path)[1]
+                            basename = file_uuid + ext
                         else:
                             basename = os.path.basename(local_path)
                         remote_path = os.path.join(remote_dir, basename)
