@@ -102,12 +102,7 @@ class LuxonisDataset:
                 "Must provide either dataset_name or dataset_id when initializing LuxonisDataset"
             )
 
-        self.base_path = os.getenv(
-            "LUXONISML_BASE_PATH", str(Path.home() / "luxonis_ml")
-        )
-        if not os.path.exists(self.base_path):
-            os.makedirs(self.base_path, exist_ok=True)
-
+        self.base_path = environ.LUXONISML_BASE_PATH
         credentials_cache_file = str(Path(self.base_path) / "credentials.json")
         if os.path.exists(credentials_cache_file):
             with open(credentials_cache_file) as file:
