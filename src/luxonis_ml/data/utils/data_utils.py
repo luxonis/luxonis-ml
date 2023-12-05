@@ -2,6 +2,7 @@ import numpy as np
 import os
 import uuid
 from pathlib import Path
+import cv2
 
 # from luxonis_ml.data.utils.exceptions import *
 import typing
@@ -69,9 +70,19 @@ def check_annotation(data: Dict) -> None:
     elif type_string == "polyline":
         _check_polyline(value)
     elif type_string == "segmentation":
-        _check_segmentation(value)
+        # _check_segmentation(value)
+        pass
     elif type_string == "keypoints":
         _check_keypoints(value)
+
+
+def check_segmentation_masks(values: List[Any]) -> None:
+    """Throws an exception if a given path to a segmentation mask is invalid"""
+
+    for value in values:
+        _check_segmentation(value)
+
+    return values
 
 
 def _check_classification(value: Any) -> None:
@@ -115,8 +126,8 @@ def _check_polyline(value: Any) -> None:
 def _check_segmentation(value: Any) -> None:
     if not isinstance(value, str):
         raise Exception(f"Segmentation {value} must be a path (string)")
-    if not os.path.exists(value):
-        raise Exception(f"Segmentation path {value} does not exist!")
+    if not _check_valid_image(value):
+        raise Exception(f"Segmentation path {value} is not a valid image!")
 
 
 def _check_keypoints(value: Any) -> None:
@@ -130,3 +141,14 @@ def _check_keypoints(value: Any) -> None:
         for pnt in coord:
             if not isinstance(pnt, int) and not isinstance(pnt, float):
                 raise Exception(f"Keypoints point {pnt} must be an int or float")
+
+
+def _check_valid_image(path: str) -> bool:
+    try:
+        image = cv2.imread(path)
+        if image is None:
+            return False
+        else:
+            return True
+    except:
+        return False

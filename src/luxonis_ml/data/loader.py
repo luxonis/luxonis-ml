@@ -224,6 +224,10 @@ class LuxonisLoader(BaseLoader):
                 cls = self.classes.index(row["class"])
                 if self.dataset.bucket_storage.value == "local":
                     mask = cv2.imread(row["value"], cv2.IMREAD_GRAYSCALE)
+                elif self.sync_mode:
+                    _, mask_filename = os.path.split(row["value"])
+                    mask_path = os.path.join(self.dataset.masks_path, mask_filename)
+                    mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
                 else:
                     # self.fs.get_file()
                     raise NotImplementedError

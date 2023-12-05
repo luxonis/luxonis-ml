@@ -246,6 +246,7 @@ class LuxonisDataset:
         self.media_path = os.path.join(self.local_path, "media")
         self.annotations_path = os.path.join(self.local_path, "annotations")
         self.metadata_path = os.path.join(self.local_path, "metadata")
+        self.masks_path = os.path.join(self.local_path, "masks")
 
         if self.bucket_storage == BucketStorage.LOCAL:
             self.path = self.local_path
@@ -318,6 +319,7 @@ class LuxonisDataset:
 
     def _end_time(self) -> None:
         self.t1 = time.time()
+        # TODO: replace this with logging
         print(f"Took {self.t1 - self.t0} seconds")
 
     def _make_temp_dir(self) -> None:
@@ -502,8 +504,53 @@ class LuxonisDataset:
                 )
                 self._end_time()
 
+            mask_paths = list(
+                set(
+                    [
+                        data["value"]
+                        for data in batch_data
+                        if data["type"] == "segmentation"
+                        or data["type"] == DataLabelType.SEGMENTATION
+                    ]
+                )
+            )
+            if len(mask_paths):
+                print("Checking masks...")
+                self._start_time()
+                mask_paths = data_utils.check_segmentation_masks(mask_paths)
+                self._end_time()
+                print("Generating mask UUIDs...")
+                self._start_time()
+                mask_uuid_dict = self.fs.get_file_uuids(
+                    mask_paths, local=True
+                )  # TODO: support from bucket
+                self._end_time()
+                if self.bucket_storage != BucketStorage.LOCAL:
+                    print("Uploading segmentation masks...")
+                    # TODO: support from bucket (likely with a self.fs.copy_dir)
+                    self._start_time()
+                    mask_upload_dict = self.fs.put_dir(
+                        local_paths=mask_paths,
+                        remote_dir="masks",
+                        uuid_dict=mask_uuid_dict,
+                    )
+                    self._end_time()
+                print("Finalizing paths...")
+                for data in tqdm(batch_data):
+                    if (
+                        data["type"] == "segmentation"
+                        or data["type"] == DataLabelType.SEGMENTATION
+                    ):
+                        if self.bucket_storage != BucketStorage.LOCAL:
+                            remote_path = mask_upload_dict[data["value"]]
+                            remote_path = f"{self.fs.protocol}://{os.path.join(self.fs.path, remote_path)}"
+                            data["value"] = remote_path
+                        else:
+                            data["value"] = os.path.abspath(data["value"])
+
             print("Saving annotations...")
             self._start_time()
+            mask_paths = []
             for data in tqdm(batch_data):
                 filepath = data["file"]
                 file = os.path.basename(filepath)
@@ -529,11 +576,6 @@ class LuxonisDataset:
                     data["value"] = json.dumps(data["value"])  # convert lists to string
                 else:
                     data["value"] = str(data["value"])
-                if (
-                    data["type"] == "segmentation"
-                    or data["type"] == DataLabelType.SEGMENTATION
-                ):
-                    data["value"] = os.path.abspath(data["value"])
                 data["created_at"] = datetime.utcnow()
 
                 self.pfm.write(data)
