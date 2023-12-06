@@ -6,6 +6,7 @@ import warnings
 import os
 import glob
 import json
+import pandas as pd
 from abc import ABC, abstractmethod
 from typing import Optional, Tuple, Dict
 from pathlib import Path
@@ -159,6 +160,9 @@ class LuxonisLoader(BaseLoader):
 
         ih, iw, _ = img.shape
         annotations = {}
+
+        if sub_df.ndim == 1:
+            sub_df = pd.DataFrame([sub_df])
 
         classification_rows = sub_df[sub_df["type"] == "classification"]
         box_rows = sub_df[sub_df["type"] == "box"]
