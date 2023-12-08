@@ -160,10 +160,7 @@ def _check_array(value: Any) -> None:
 def _check_valid_image(path: str) -> bool:
     try:
         image = cv2.imread(path)
-        if image is None:
-            return False
-        else:
-            return True
+        return image is not None
     except:
         return False
 
