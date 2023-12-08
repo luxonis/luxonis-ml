@@ -3,10 +3,12 @@ import os
 import uuid
 from pathlib import Path
 import cv2
+import json
+import pycocotools.mask as mask_util
 
 # from luxonis_ml.data.utils.exceptions import *
 import typing
-from typing import Dict, List, Union, Optional, Any
+from typing import Dict, List, Union, Optional, Any, Tuple
 from .constants import ANNOTATIONS_SCHEMA as schema
 from .constants import ANNOTATION_TYPES as atypes
 
@@ -70,18 +72,16 @@ def check_annotation(data: Dict) -> None:
     elif type_string == "polyline":
         _check_polyline(value)
     elif type_string == "segmentation":
-        pass  # we check segmentation masks using check_segmentation_masks
+        _check_segmentation(value)
     elif type_string == "keypoints":
         _check_keypoints(value)
 
 
-def check_segmentation_masks(values: List[Any]) -> None:
-    """Throws an exception if a given path to a segmentation mask is invalid"""
+def check_arrays(values: List[Any]) -> None:
+    """Throws an exception if a given path to an array is invalid"""
 
     for value in values:
-        _check_segmentation(value)
-
-    return values
+        _check_array(value)
 
 
 def _check_classification(value: Any) -> None:
@@ -123,10 +123,18 @@ def _check_polyline(value: Any) -> None:
 
 
 def _check_segmentation(value: Any) -> None:
-    if not isinstance(value, str):
-        raise Exception(f"Segmentation {value} must be a path (string)")
-    if not _check_valid_image(value):
-        raise Exception(f"Segmentation path {value} is not a valid image!")
+    message = f"Segmentation {value} must be an RLE representation of type Tuple[int, int List[int]] of (height, width, counts)"
+    if not isinstance(value, tuple):
+        raise Exception(message)
+    if not isinstance(value[0], int):
+        raise Exception(message)
+    if not isinstance(value[1], int):
+        raise Exception(message)
+    if not isinstance(value[2], list):
+        raise Exception(message)
+    for val in value[2]:
+        if not isinstance(val, int):
+            raise Exception(message)
 
 
 def _check_keypoints(value: Any) -> None:
@@ -142,6 +150,13 @@ def _check_keypoints(value: Any) -> None:
                 raise Exception(f"Keypoints point {pnt} must be an int or float")
 
 
+def _check_array(value: Any) -> None:
+    if not isinstance(value, str):
+        raise Exception(f"Array value {value} must be a path to a numpy array (.npy)")
+    if not _check_valid_array(value):
+        raise Exception(f"Array at path {value} is not a valid numpy array (.npy)")
+
+
 def _check_valid_image(path: str) -> bool:
     try:
         image = cv2.imread(path)
@@ -151,3 +166,19 @@ def _check_valid_image(path: str) -> bool:
             return True
     except:
         return False
+
+
+def _check_valid_array(path: str) -> bool:
+    try:
+        np.load(path)
+        return True
+    except:
+        return False
+
+
+def transform_segmentation_value(value: Tuple[int, int, List[int]]) -> str:
+    height, width, counts = value
+    rle = {"counts": counts, "size": [height, width]}
+    rle = mask_util.frPyObjects(rle, height, width)
+    value = (rle["size"][0], rle["size"][1], rle["counts"].decode("utf-8"))
+    return json.dumps(value)

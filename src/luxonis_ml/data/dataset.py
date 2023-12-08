@@ -481,8 +481,10 @@ class LuxonisDataset:
                     (e.g. [0.5, 0.4, 0.1, 0.2])
                 value (polyline) [List[List[float]]] : an ordered list of [x, y] polyline points
                     (e.g. [[0.2, 0.3], [0.4, 0.5], ...])
+                value (segmentation) [Tuple[int, int, List[int]]]: an RLE representation of (height, width, counts) based on the COCO convention
                 value (keypoints) [List[List[float]]] : an ordered list of [x, y, visibility] keypoints for a keypoint skeleton instance
                     (e.g. [[0.2, 0.3, 2], [0.4, 0.5, 2], ...])
+                value (array) [str]: path to a numpy .npy file
         batch_size: The number of annotations generated before processing.
             This can be set to a lower value to reduce memory usage.
         """
@@ -504,43 +506,40 @@ class LuxonisDataset:
                 )
                 self._end_time()
 
-            mask_paths = list(
+            array_paths = list(
                 set(
                     [
                         data["value"]
                         for data in batch_data
-                        if data["type"] == "segmentation"
-                        or data["type"] == DataLabelType.SEGMENTATION
+                        if data["type"] == "array"
+                        or data["type"] == DataLabelType.ARRAY
                     ]
                 )
             )
-            if len(mask_paths):
-                print("Checking masks...")
+            if len(array_paths):
+                print("Checking arrays...")
                 self._start_time()
-                mask_paths = data_utils.check_segmentation_masks(mask_paths)
+                data_utils.check_arrays(array_paths)
                 self._end_time()
-                print("Generating mask UUIDs...")
+                print("Generating array UUIDs...")
                 self._start_time()
-                mask_uuid_dict = self.fs.get_file_uuids(
-                    mask_paths, local=True
+                array_uuid_dict = self.fs.get_file_uuids(
+                    array_paths, local=True
                 )  # TODO: support from bucket
                 self._end_time()
                 if self.bucket_storage != BucketStorage.LOCAL:
-                    print("Uploading segmentation masks...")
+                    print("Uploading arrays...")
                     # TODO: support from bucket (likely with a self.fs.copy_dir)
                     self._start_time()
                     mask_upload_dict = self.fs.put_dir(
-                        local_paths=mask_paths,
-                        remote_dir="masks",
-                        uuid_dict=mask_uuid_dict,
+                        local_paths=array_paths,
+                        remote_dir="arrays",
+                        uuid_dict=array_uuid_dict,
                     )
                     self._end_time()
                 print("Finalizing paths...")
                 for data in tqdm(batch_data):
-                    if (
-                        data["type"] == "segmentation"
-                        or data["type"] == DataLabelType.SEGMENTATION
-                    ):
+                    if data["type"] == "array" or data["type"] == DataLabelType.ARRAY:
                         if self.bucket_storage != BucketStorage.LOCAL:
                             remote_path = mask_upload_dict[data["value"]]
                             remote_path = f"{self.fs.protocol}://{os.path.join(self.fs.path, remote_path)}"
@@ -573,6 +572,10 @@ class LuxonisDataset:
                 data["value_type"] = type(data["value"]).__name__
                 if isinstance(data["value"], list):
                     data["value"] = json.dumps(data["value"])  # convert lists to string
+                elif isinstance(data["value"], tuple):  # handles RLE
+                    data["value"] = data_utils.transform_segmentation_value(
+                        data["value"]
+                    )
                 else:
                     data["value"] = str(data["value"])
                 data["created_at"] = datetime.utcnow()

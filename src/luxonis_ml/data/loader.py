@@ -9,6 +9,7 @@ import json
 from abc import ABC, abstractmethod
 from typing import Optional, Tuple, Dict
 from pathlib import Path
+import pycocotools.mask as mask_util
 from luxonis_ml.enums import LabelType
 from luxonis_ml.utils import LuxonisFileSystem
 from .utils.enums import BucketStorage
@@ -222,15 +223,10 @@ class LuxonisLoader(BaseLoader):
             for row in segmentation_rows.iterrows():
                 row = row[1]
                 cls = self.classes.index(row["class"])
-                if self.dataset.bucket_storage.value == "local":
-                    mask = cv2.imread(row["value"], cv2.IMREAD_GRAYSCALE)
-                elif self.sync_mode:
-                    _, mask_filename = os.path.split(row["value"])
-                    mask_path = os.path.join(self.dataset.masks_path, mask_filename)
-                    mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
-                else:
-                    # self.fs.get_file()
-                    raise NotImplementedError
+                height, width, counts_str = json.loads(row["value"])
+                mask = mask_util.decode(
+                    {"counts": counts_str.encode("utf-8"), "size": [height, width]}
+                )
                 seg[cls, ...] = seg[cls, ...] + mask
             seg[seg > 0] = 1
             annotations[LabelType.SEGMENTATION] = seg
