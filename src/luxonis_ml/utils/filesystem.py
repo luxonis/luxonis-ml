@@ -7,6 +7,7 @@ from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor
 from .environ import environ
 
+
 class LuxonisFileSystem:
     def __init__(
         self,
@@ -149,6 +150,26 @@ class LuxonisFileSystem:
                             basename = os.path.basename(local_path)
                         remote_path = os.path.join(remote_dir, basename)
                         executor.submit(self.put_file, local_path, remote_path)
+
+    def put_bytes(
+        self,
+        file_bytes: bytes,
+        remote_path: str,
+        mlflow_instance: Optional[ModuleType] = None,
+    ) -> None:
+        """Uploads a file to remote storage directly from file bytes
+
+        Args:
+            file_bytes (bytes): the bytes for the file contents
+            remote_path (str): Relative path to remote file
+            mlflow_instance (Optional[ModuleType], optional): MLFlow instance if uploading to active run. Defaults to None.
+        """
+        if self.is_mlflow:
+            raise NotImplementedError
+        elif self.is_fsspec:
+            full_path = os.path.join(self.path, remote_path)
+            with self.fs.open(full_path, "wb") as file:
+                file.write(file_bytes)
 
     def get_file(
         self,
