@@ -3,7 +3,6 @@ name: Unittests
 on:
   pull_request:
     branches: [ dev, main ]
-  push:
 
 jobs:
   build:
