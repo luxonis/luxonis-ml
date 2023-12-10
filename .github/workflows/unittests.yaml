@@ -30,10 +30,16 @@ jobs:
         pip install -r requirements-dev.txt
 
     - name: Run tests with coverage
-      run: pytest --cov=src/luxonis_ml tests
+      run: pytest --cov=src/luxonis_ml --cov-report xml tests
 
     - name: Generate coverage badge
       run: coverage-badge -o media/coverage_badge.svg -f
+
+    - name: Generate coverage report
+      uses: orgoro/coverage@v3.1
+      with:
+          coverageFile: coverage.xml
+          token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Commit coverage badge
       run: |
