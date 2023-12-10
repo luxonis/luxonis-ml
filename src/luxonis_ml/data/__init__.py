@@ -6,6 +6,6 @@ from .utils.enums import (
     BucketStorage,
 )
 from .dataset import LuxonisDataset, LuxonisSource, LuxonisComponent
-from .parsers import LuxonisParser, DatasetType
+from .parsers import LuxonisParser
 from .loader import BaseLoader, LuxonisLoader, LabelType, LuxonisLoaderOutput
 from .augmentations import Augmentations, TrainAugmentations, ValAugmentations
