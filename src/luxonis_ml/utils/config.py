@@ -38,6 +38,9 @@ class LuxonisConfig(BaseModel):
             overrides (Optional[Dict[str, str]], optional): List of CLI overrides
               in a form of a dictionary mapping "dotted" keys to unparsed string
               or python values. Defaults to None.
+
+        Returns:
+            T: Singleton instance of the config class.
         """
         if getattr(cls, "_instance", None) is None:
             if cfg is None:
@@ -51,7 +54,7 @@ class LuxonisConfig(BaseModel):
         cfg: Union[str, Dict[str, Any]],
         overrides: Optional[Dict[str, str]] = None,
     ):
-        """Loads cfg data in cfg class
+        """Loads config from yaml file or dictionary.
 
         Args:
             cfg (Union[str, Dict[str, Any]]): Path to config or config dictionary
@@ -102,15 +105,18 @@ class LuxonisConfig(BaseModel):
             yaml.dump(self.model_dump(), f, default_flow_style=False)
 
     def get(self, key_merged: str, default: Any = None) -> Any:
-        """Returns value from Config based on key
+        """Returns value from Config based on key.
+
+        If key doesn't exist, returns default value.
 
         Args:
-            key_merged (str): Merged key in format key1.key2.key3 where each key
-            goes one level deeper
-            default (Any, optional): Default returned value if key doesn't exist. Defaults to None.
+            key_merged (str): Merged key in format key1.key2.key3 where
+              each key goes one level deeper.
+            default (Any, optional): Default returned value if key doesn't exist.
+              Defaults to None.
 
         Returns:
-            Any: Value of the key
+            Any: Value of the key or default value.
         """
         value = self
         for key in key_merged.split("."):
@@ -143,8 +149,8 @@ class LuxonisConfig(BaseModel):
             with newly added "intermediate" values (like "a.b.c = 5", where "b"
             is missing). We don't know the types yet so we don't know whether
             to add a list or a dict.
-            I put together this backtracking algorithm which tries to guess
-            what to add. Any attempt to simplify it is appreciated.
+            I put together this algorithm which tries to guess
+            what to add and backtracks if necessary.
 
         Args:
             data (Dict[str, Any]): Data loaded from the config file.
