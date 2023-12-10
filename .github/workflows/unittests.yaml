@@ -26,12 +26,13 @@ jobs:
       run: pytest --cov=src/luxonis_ml tests
 
     - name: Generate coverage badge
-      run: coverage-badge -o media/coverage_badge.svg
+      run: coverage-badge -o media/coverage_badge.svg -f
 
     - name: Commit coverage badge
       run: |
         git config --global user.name 'Martin Kozlovsky'
         git config --global user.email 'martin.kozlovsky@luxonis.com'
-        git add media/coverage_badge.svg
-        git commit -m "Updated coverage badge"
-        git push
+        git diff --quiet badge.svg || \
+          (git add media/coverage_badge.svg && \
+           git commit -m "Update coverage badge" && \
+           git push)
