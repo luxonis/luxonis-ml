@@ -1,3 +1,10 @@
+# LuxonisML
+
+A collection of helper function and utilities.
+
+![Style](https://github.com/luxonis/models/actions/workflows/unittests.yaml/badge.svg)
+![Coverage](media/coverage_badge.svg)
+
 ## Luxonis Dataset Format
 
 The Luxonis Dataset Format (LDF) is intended to standardize the way the ML team stores data. We can use LDF with the `luxonis_ml.ops` package. LDF should provide the foundation for tasks such as training, evaluation, querying, and visualization. The library is largely powered by the open source software from [Voxel51](https://voxel51.com/).
