@@ -1,0 +1,37 @@
+name: Unit Tests and Coverage
+
+on:
+  pull_request:
+    branches: [ dev, main ]
+  push:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.8'
+
+    - name: Install dependencies
+      run: |
+        pip install -e .[all]
+        pip install -r requirements-dev.txt
+
+    - name: Run tests with coverage
+      run: pytest --cov=src/luxonis_ml tests
+
+    - name: Generate coverage badge
+      run: coverage-badge -o media/coverage_badge.svg
+
+    - name: Commit coverage badge
+      run: |
+        git config --global user.name 'Martin Kozlovsky'
+        git config --global user.email 'martin.kozlovsky@luxonis.com'
+        git add media/coverage_badge.svg
+        git commit -m "Updated coverage badge"
+        git push
