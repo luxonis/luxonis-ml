@@ -1,7 +1,7 @@
 import yaml
 import ast
 from typing import Optional, Union, Dict, Any, List, TypeVar, Type
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from .filesystem import LuxonisFileSystem
 
@@ -15,16 +15,15 @@ class LuxonisConfig(BaseModel):
     and provides access to its values.
 
     Note:
-        Only the `load_config` method can be used to instantiate this class.
+        Only the `get_config` method can be used to instantiate this class.
         Using `__init__` directly will raise an error.
 
     """
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
     @classmethod
-    def load_config(
+    def get_config(
         cls: Type[T],
         cfg: Optional[Union[str, Dict[str, Any]]] = None,
         overrides: Optional[Dict[str, Any]] = None,
@@ -43,7 +42,7 @@ class LuxonisConfig(BaseModel):
         if getattr(cls, "_instance", None) is None:
             if cfg is None:
                 raise ValueError("Config path or dictionary must be provided.")
-            cls._from_load_config = True
+            cls._from_get_config = True
             cls._instance = cls(cfg, overrides)
         return cls._instance
 
@@ -60,10 +59,10 @@ class LuxonisConfig(BaseModel):
               a form of a dictionary mapping "dotted" keys to unparsed string values.
                 Defaults to None.
         """
-        if not getattr(self, "_from_load_config", False):
+        if not getattr(self, "_from_get_config", False):
             raise NotImplementedError(
                 "You cannot use `__init__` on the `LuxonisConfig` class"
-                " directly. Use `LuxonisConfig.load_config` instead."
+                " directly. Use `LuxonisConfig.get_config` instead."
             )
         overrides = overrides or {}
 
@@ -87,7 +86,7 @@ class LuxonisConfig(BaseModel):
     def clear_instance(cls) -> None:
         """Clears all singleton instances, should be only used for unit-testing"""
         cls._instance = None
-        cls._from_load_config = False
+        cls._from_get_config = False
 
     def get_json_schema(self) -> Dict[str, Any]:
         """Retuns dict representation of config json schema"""

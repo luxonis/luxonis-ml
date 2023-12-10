@@ -65,17 +65,17 @@ class Config(LuxonisConfig):
 def test_invalid_config_path():
     Config.clear_instance()
     with pytest.raises(FileNotFoundError):
-        Config.load_config("invalid_path")
+        Config.get_config("invalid_path")
     Config.clear_instance()
 
     with pytest.raises(ValueError):
-        Config.load_config(None)
+        Config.get_config(None)
 
     Config.clear_instance()
 
 
 def test_persisted_config(config_file: str):
-    cfg = Config.load_config(config_file)
+    cfg = Config.get_config(config_file)
     assert cfg.sub_config.str_sub_param == CONFIG_DATA["sub_config"]["str_sub_param"]
     assert cfg.sub_config.int_sub_param == CONFIG_DATA["sub_config"]["int_sub_param"]
     assert (
@@ -88,14 +88,14 @@ def test_persisted_config(config_file: str):
     assert cfg._instance is not None
 
     del cfg
-    cfg = Config.load_config()
+    cfg = Config.get_config()
 
     assert cfg.sub_config.str_sub_param == "sub_param_test_persistent"
     assert cfg.sub_config.int_sub_param == 43
     assert cfg.sub_config.float_sub_param == -2.0
 
     Config.clear_instance()
-    cfg = Config.load_config(config_file)
+    cfg = Config.get_config(config_file)
 
     assert cfg.sub_config.str_sub_param == CONFIG_DATA["sub_config"]["str_sub_param"]
     assert cfg.sub_config.int_sub_param == CONFIG_DATA["sub_config"]["int_sub_param"]
@@ -110,7 +110,7 @@ def test_disabled_init(config_file: str):
 
 
 def test_config_simple(config_file: str):
-    cfg = Config.load_config(config_file)
+    cfg = Config.get_config(config_file)
     assert cfg.sub_config.str_sub_param == CONFIG_DATA["sub_config"]["str_sub_param"]
     assert cfg.sub_config.int_sub_param == CONFIG_DATA["sub_config"]["int_sub_param"]
     assert (
@@ -122,7 +122,7 @@ def test_config_simple_override(config_file: str):
     overrides = {
         "sub_config.str_sub_param": "sub_param_override",
     }
-    cfg = Config.load_config(config_file, overrides)
+    cfg = Config.get_config(config_file, overrides)
     assert cfg.sub_config.str_sub_param == overrides["sub_config.str_sub_param"]
     assert cfg.sub_config.int_sub_param == CONFIG_DATA["sub_config"]["int_sub_param"]
     assert (
@@ -131,7 +131,7 @@ def test_config_simple_override(config_file: str):
 
 
 def test_config_nested_structure(config_file: str):
-    cfg = Config.load_config(config_file)
+    cfg = Config.get_config(config_file)
     # Asserting nested configurations
     assert isinstance(cfg.sub_config.dict_sub_param, dict)
     assert isinstance(cfg.sub_config.list_sub_param, list)
@@ -140,7 +140,7 @@ def test_config_nested_structure(config_file: str):
 
 
 def test_config_optional_params(config_file: str):
-    cfg = Config.load_config(config_file)
+    cfg = Config.get_config(config_file)
     # Testing optional parameters
     assert cfg.optional_int is None
     assert isinstance(cfg.list_config, list)
@@ -156,7 +156,7 @@ def test_config_list_override(config_file: str):
         "nested_list_param.0": [30],
         "nested_list_param.0.1": 40,
     }
-    cfg = Config.load_config(config_file, overrides)
+    cfg = Config.get_config(config_file, overrides)
     # Testing list configurations
     assert len(cfg.list_config) == 2
     assert cfg.list_config[0].int_list_param == 10
@@ -176,7 +176,7 @@ def test_config_list_override_json(config_file: str):
         "list_config.2.int_list_param": 30,
     }
 
-    cfg = Config.load_config(config_file, overrides)
+    cfg = Config.get_config(config_file, overrides)
 
     assert len(cfg.list_config) == 3
     assert cfg.list_config[0].int_list_param == 10
@@ -206,18 +206,18 @@ def test_invalid_config(config_file: str):
     }
     for key, value in overrides.items():
         with pytest.raises(ValueError):
-            Config.load_config(config_file, {key: value})
+            Config.get_config(config_file, {key: value})
         Config.clear_instance()
 
     with pytest.raises(ValueError):
-        Config.load_config()
+        Config.get_config()
 
 
 def test_from_dict():
     config_dict = deepcopy(CONFIG_DATA)
     config_dict["nested_list_param"] = [[1, 2]]
     config_dict["nested_dict_param"] = {"a": {"b": 1}}
-    cfg = Config.load_config(
+    cfg = Config.get_config(
         config_dict,
         {
             "nested_list_param.0.1": 3,
@@ -234,15 +234,15 @@ def test_from_dict():
 
 
 def test_save(config_file: str):
-    cfg = Config.load_config(config_file)
+    cfg = Config.get_config(config_file)
     with tempfile.NamedTemporaryFile(delete=False) as f:
         cfg.save_data(f.name)
-    cfg2 = Config.load_config(f.name)
+    cfg2 = Config.get_config(f.name)
     assert cfg.__repr__() == cfg2.__repr__()
     assert cfg.get_json_schema() == cfg2.get_json_schema()
 
 def test_get(config_file: str):
-    cfg = Config.load_config(
+    cfg = Config.get_config(
         config_file,
         {"nested_list_param": [[1, 2]], "nested_dict_param": {"a": {"b": 1}}},
     )
