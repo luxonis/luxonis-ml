@@ -1,6 +1,6 @@
 # LuxonisML
 
-![Style](https://github.com/luxonis/models/actions/workflows/unittests.yaml/badge.svg)
+![Style](https://github.com/luxonis/luxonis-ml/actions/workflows/unittests.yaml/badge.svg)
 ![Coverage](media/coverage_badge.svg)
 
 A collection of helper function and utilities.
