@@ -202,6 +202,7 @@ def test_invalid_config(config_file: str):
         "sub_config.str_sub_param.non": "sub_param_override",
         "list_config": '[{"int_list_param": 10, "float_list_param": 2.5, '
         '"str_list_param": "test"}, {"int_list_param": 20.5} ]',
+        "extra_param": "test",
     }
     for key, value in overrides.items():
         with pytest.raises(ValueError):
@@ -239,7 +240,6 @@ def test_save(config_file: str):
     cfg2 = Config.load_config(f.name)
     assert cfg.__repr__() == cfg2.__repr__()
     assert cfg.get_json_schema() == cfg2.get_json_schema()
-
 
 def test_get(config_file: str):
     cfg = Config.load_config(

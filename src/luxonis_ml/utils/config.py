@@ -7,6 +7,7 @@ from .filesystem import LuxonisFileSystem
 
 T = TypeVar("T", bound="LuxonisConfig")
 
+
 class LuxonisConfig(BaseModel):
     """Class to store configuration.
 
@@ -18,6 +19,9 @@ class LuxonisConfig(BaseModel):
         Using `__init__` directly will raise an error.
 
     """
+
+    class Config:
+        extra = "forbid"
 
     @classmethod
     def load_config(
