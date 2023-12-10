@@ -1,6 +1,7 @@
 from luxonis_ml.utils.config import LuxonisConfig
 from pydantic import BaseModel
 from typing import List, Dict, Optional
+from copy import deepcopy
 import tempfile
 import pytest
 import yaml
@@ -57,6 +58,8 @@ class Config(LuxonisConfig):
 
     optional_int: Optional[int] = None
     list_config: List[ListConfig] = []
+    nested_list_param: List[List[int]] = []
+    nested_dict_param: Dict[str, Dict[str, int]] = {}
 
 
 def test_invalid_config_path():
@@ -83,6 +86,8 @@ def test_persisted_config(config_file: str):
     cfg.sub_config.float_sub_param = -2.0
 
     assert cfg._instance is not None
+
+    del cfg
     cfg = Config.load_config()
 
     assert cfg.sub_config.str_sub_param == "sub_param_test_persistent"
@@ -148,6 +153,8 @@ def test_config_list_override(config_file: str):
         "list_config.0.float_list_param": 2.5,
         "list_config.0.str_list_param": "test",
         "list_config.1.int_list_param": 20,
+        "nested_list_param.0": [30],
+        "nested_list_param.0.1": 40,
     }
     cfg = Config.load_config(config_file, overrides)
     # Testing list configurations
@@ -156,8 +163,10 @@ def test_config_list_override(config_file: str):
     assert cfg.list_config[0].float_list_param == 2.5
     assert cfg.list_config[0].str_list_param == "test"
     assert cfg.list_config[1].int_list_param == 20
-    assert cfg.list_config[1].float_list_param == 1.0  # Default value
-    assert cfg.list_config[1].str_list_param is None  # Default value
+    assert cfg.list_config[1].float_list_param == 1.0
+    assert cfg.list_config[1].str_list_param is None
+    assert cfg.nested_list_param[0][0] == 30
+    assert cfg.nested_list_param[0][1] == 40
 
 
 def test_config_list_override_json(config_file: str):
@@ -174,8 +183,8 @@ def test_config_list_override_json(config_file: str):
     assert cfg.list_config[0].float_list_param == 2.5
     assert cfg.list_config[0].str_list_param == "test"
     assert cfg.list_config[1].int_list_param == 20
-    assert cfg.list_config[1].float_list_param == 1.0  # Default value
-    assert cfg.list_config[1].str_list_param is None  # Default value
+    assert cfg.list_config[1].float_list_param == 1.0
+    assert cfg.list_config[1].str_list_param is None
     assert cfg.list_config[2].int_list_param == 30
 
 
@@ -186,6 +195,10 @@ def test_invalid_config(config_file: str):
         "list_config.0.str_list_param": "test",
         "sub_config.str_sub_param": 10,
         "list_config.2": 30,
+        "sub_config.5": 30,
+        "5.sub_config": 30,
+        "nested_list_param.non": [30],
+        "nested_list_param.0.non": 40,
         "sub_config.str_sub_param.non": "sub_param_override",
         "list_config": '[{"int_list_param": 10, "float_list_param": 2.5, '
         '"str_list_param": "test"}, {"int_list_param": 20.5} ]',
@@ -195,9 +208,44 @@ def test_invalid_config(config_file: str):
             Config.load_config(config_file, {key: value})
         Config.clear_instance()
 
+    with pytest.raises(ValueError):
+        Config.load_config()
+
+
+def test_from_dict():
+    config_dict = deepcopy(CONFIG_DATA)
+    config_dict["nested_list_param"] = [[1, 2]]
+    config_dict["nested_dict_param"] = {"a": {"b": 1}}
+    cfg = Config.load_config(
+        config_dict,
+        {
+            "nested_list_param.0.1": 3,
+            "nested_dict_param.a.b": 2,
+        },
+    )
+    assert cfg.sub_config.str_sub_param == CONFIG_DATA["sub_config"]["str_sub_param"]
+    assert cfg.sub_config.int_sub_param == CONFIG_DATA["sub_config"]["int_sub_param"]
+    assert (
+        cfg.sub_config.float_sub_param == CONFIG_DATA["sub_config"]["float_sub_param"]
+    )
+    assert cfg.nested_list_param[0][1] == 3
+    assert cfg.nested_dict_param["a"]["b"] == 2
+
+
+def test_save(config_file: str):
+    cfg = Config.load_config(config_file)
+    with tempfile.NamedTemporaryFile(delete=False) as f:
+        cfg.save_data(f.name)
+    cfg2 = Config.load_config(f.name)
+    assert cfg.__repr__() == cfg2.__repr__()
+    assert cfg.get_json_schema() == cfg2.get_json_schema()
+
 
 def test_get(config_file: str):
-    cfg = Config.load_config(config_file)
+    cfg = Config.load_config(
+        config_file,
+        {"nested_list_param": [[1, 2]], "nested_dict_param": {"a": {"b": 1}}},
+    )
     assert (
         cfg.get("sub_config.str_sub_param")
         == CONFIG_DATA["sub_config"]["str_sub_param"]
@@ -208,6 +256,11 @@ def test_get(config_file: str):
     )
     assert cfg.get("list_config.2.int_list_param", -56) == -56
     assert cfg.get("list_config.0.int_list_param") is None
+    assert cfg.get("nested_list_param.0.1") == 2
+    assert cfg.get("nested_dict_param.a.b") == 1
+    assert cfg.get("nested_dict_param.a.c") is None
 
     assert cfg.get("sub_config.str_sub_param.non", "default") == "default"
 
+    with pytest.raises(ValueError):
+        cfg.get("list_config.-1.int_list_param")

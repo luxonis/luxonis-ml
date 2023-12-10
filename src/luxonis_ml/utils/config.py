@@ -1,10 +1,11 @@
 import yaml
 import ast
-from typing import Optional, Union, Dict, Any, List
+from typing import Optional, Union, Dict, Any, List, TypeVar, Type
 from pydantic import BaseModel
 
 from .filesystem import LuxonisFileSystem
 
+T = TypeVar("T", bound="LuxonisConfig")
 
 class LuxonisConfig(BaseModel):
     """Class to store configuration.
@@ -18,15 +19,12 @@ class LuxonisConfig(BaseModel):
 
     """
 
-    _instance = None
-    _from_load_config = False
-
     @classmethod
     def load_config(
-        cls,
+        cls: Type[T],
         cfg: Optional[Union[str, Dict[str, Any]]] = None,
-        overrides: Optional[Dict[str, str]] = None,
-    ):
+        overrides: Optional[Dict[str, Any]] = None,
+    ) -> T:
         """Loads config from yaml file or dictionary.
 
         If config was already loaded before, it returns the same instance.
@@ -38,7 +36,7 @@ class LuxonisConfig(BaseModel):
               in a form of a dictionary mapping "dotted" keys to unparsed string
               or python values. Defaults to None.
         """
-        if cls._instance is None:
+        if getattr(cls, "_instance", None) is None:
             if cfg is None:
                 raise ValueError("Config path or dictionary must be provided.")
             cls._from_load_config = True
@@ -58,7 +56,7 @@ class LuxonisConfig(BaseModel):
               a form of a dictionary mapping "dotted" keys to unparsed string values.
                 Defaults to None.
         """
-        if not self._from_load_config:
+        if not getattr(self, "_from_load_config", False):
             raise NotImplementedError(
                 "You cannot use `__init__` on the `LuxonisConfig` class"
                 " directly. Use `LuxonisConfig.load_config` instead."
@@ -69,16 +67,17 @@ class LuxonisConfig(BaseModel):
             fs = LuxonisFileSystem(cfg)
             buffer = fs.read_to_byte_buffer()
             data = yaml.load(buffer, Loader=yaml.SafeLoader)
-        elif isinstance(cfg, dict):
-            data = cfg
         else:
-            raise ValueError("Provided cfg is neither path(string) or dictionary.")
+            data = cfg
 
         self._merge_overrides(data, overrides)
         super().__init__(**data)
 
-    def __repr__(self) -> str:
+    def __str__(self) -> str:
         return self.model_dump_json(indent=4)
+
+    def __repr__(self) -> str:
+        return self.__str__()
 
     @classmethod
     def clear_instance(cls) -> None:
@@ -168,14 +167,16 @@ class LuxonisConfig(BaseModel):
             key, *tail = dot_name.split(".")
             if not tail:
                 parsed_value = _parse_value(value)
-                if isinstance(data, list):
-                    if not key.isdecimal():
-                        raise ValueError(f"Can't access list with non-int key `{key}`.")
+                if key.isdecimal():
                     index = int(key)
-                    if index >= len(data) and data:
+                    if not isinstance(data, list):
+                        raise ValueError("int keys are not allowed for non-list values")
+                    if index >= len(data):
                         data.append(parsed_value)
                     else:
                         data[index] = parsed_value
+                elif isinstance(data, list):
+                    raise ValueError("Only int keys are allowed for list values")
                 else:
                     data[key] = parsed_value
 
@@ -194,11 +195,11 @@ class LuxonisConfig(BaseModel):
                         _merge_recursive(data[index], key_tail, value)
                     else:
                         # Try to guess type, backtrack if fails
+                        data.append([])
                         try:
-                            data.append({})
                             _merge_recursive(data[index], key_tail, value)
                         except Exception:
-                            data.append([])
+                            data[index] = {}
                             _merge_recursive(data[index], key_tail, value)
                 else:
                     _merge_recursive(data[index], key_tail, value)
@@ -209,11 +210,11 @@ class LuxonisConfig(BaseModel):
                     )
                 if key not in data:
                     # Try to guess type, backtrack if fails
+                    data[key] = []
                     try:
-                        data[key] = {}
                         _merge_recursive(data[key], key_tail, value)
                     except Exception:
-                        data[key] = []
+                        data[key] = {}
                         _merge_recursive(data[key], key_tail, value)
                 else:
                     _merge_recursive(data[key], key_tail, value)
