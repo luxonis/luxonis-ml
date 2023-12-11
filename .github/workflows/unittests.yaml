@@ -1,0 +1,62 @@
+name: Unittests
+
+on:
+  pull_request:
+    branches: [ dev, main ]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - .github/workflows/unittests.yaml
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        ref: ${{ github.head_ref }}
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.8'
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v2
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      run: |
+        pip install -e .[all]
+        pip install -r requirements-dev.txt
+
+    - name: Run tests with coverage
+      run: pytest --cov=src/luxonis_ml --cov-report xml tests
+
+    - name: Generate coverage badge
+      run: coverage-badge -o media/coverage_badge.svg -f
+
+    - name: Generate coverage report
+      uses: orgoro/coverage@v3.1
+      with:
+          coverageFile: coverage.xml
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Commit coverage badge
+      run: |
+        git config --global user.name 'GitHub Actions'
+        git config --global user.email 'actions@github.com'
+        git diff --quiet media/coverage_badge.svg || {
+          git add media/coverage_badge.svg
+          git commit -m "[Automated] Updated coverage badge"
+        }
+
+    - name: Push changes
+      uses: ad-m/github-push-action@master
+      with:
+        branch: ${{ github.head_ref }}
