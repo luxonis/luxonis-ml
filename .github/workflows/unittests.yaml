@@ -3,6 +3,10 @@ name: Unittests
 on:
   pull_request:
     branches: [ dev, main ]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - .github/workflows/unittests.yaml
 
 jobs:
   build:
