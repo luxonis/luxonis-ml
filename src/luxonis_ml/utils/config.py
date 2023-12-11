@@ -16,7 +16,7 @@ class LuxonisConfig(BaseModel):
 
     Note:
         Only the `get_config` method can be used to instantiate this class.
-        Using `__init__` directly will raise an error.
+        Using `__init__` directly will raise a `NotImplementedError`.
 
     """
 
@@ -41,33 +41,48 @@ class LuxonisConfig(BaseModel):
 
         Returns:
             T: Singleton instance of the config class.
+
+        Raises:
+            ValueError: If the config is instantiated for the first time
+              and neither `cfg` nor `overrides` are provided.
         """
         if getattr(cls, "_instance", None) is None:
-            if cfg is None:
-                raise ValueError("Config path or dictionary must be provided.")
+            if cfg is None and overrides is None:
+                raise ValueError(
+                    "At least one of `cfg` or `overrides` must be set"
+                    f"when calling `{cls.__name__}.get_config` for the first time."
+                )
             cls._from_get_config = True
             cls._instance = cls(cfg, overrides)
         return cls._instance
 
     def __init__(
         self,
-        cfg: Union[str, Dict[str, Any]],
-        overrides: Optional[Dict[str, str]] = None,
+        cfg: Optional[Union[str, Dict[str, Any]]] = None,
+        overrides: Optional[Dict[str, Any]] = None,
     ):
         """Loads config from yaml file or dictionary.
 
         Args:
-            cfg (Union[str, Dict[str, Any]]): Path to config or config dictionary
-            opts (Optional[Dict[str, str]], optional): List of CLI overrides in
-              a form of a dictionary mapping "dotted" keys to unparsed string values.
-                Defaults to None.
+            cfg (Optional[Union[str, Dict[str, Any]]], optional): Path to config
+              or config dictionary. Defaults to None.
+            overrides (Optional[Dict[str, str]], optional): List of CLI overrides
+              in a form of a dictionary mapping "dotted" keys to unparsed string
+              or python values. Defaults to None.
+
+        Raises:
+            NotImplementedError: When `__init__` is called directly.
+              `LuxonisConfig` can only be instantiated using
+              `LuxonisConfig.get_config` classmethod. Using `__init__` directly
+              will raise this error.
         """
         if not getattr(self, "_from_get_config", False):
             raise NotImplementedError(
                 "You cannot use `__init__` on the `LuxonisConfig` class"
-                " directly. Use `LuxonisConfig.get_config` instead."
+                f" directly. Use `{self.__class__.__name__}.get_config` instead."
             )
         overrides = overrides or {}
+        cfg = cfg or {}
 
         if isinstance(cfg, str):
             fs = LuxonisFileSystem(cfg)
