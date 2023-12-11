@@ -9,3 +9,4 @@ label-studio-sdk>=0.0.28
 albumentations @ git+https://github.com/i-aki-y/albumentations.git@c137e2b # albumentations fork with batched transform support
 pandas>=2.0.0
 pyarrow>=13.0.0
+pycocotools>=2.0.7

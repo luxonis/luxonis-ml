@@ -13,8 +13,10 @@ class DataLabelType(Enum):
     )
     BOX = "box"  # bounding box
     POLYLINE = "polyline"  # polyline to represent segmentation mask instances
+    SEGMENTATION = "segmentation"  # RLE encoding of a binary segmentation mask
     KEYPOINTS = "keypoints"  # keypoint skeleton instances
     LABEL = "label"  # an arbitrary label of string, bool, or number
+    ARRAY = "array"  # a path to a numpy (.npy) array
 
 
 class MediaType(Enum):
