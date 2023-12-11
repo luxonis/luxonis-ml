@@ -1,3 +1,10 @@
+# LuxonisML
+
+![Style](https://github.com/luxonis/luxonis-ml/actions/workflows/unittests.yaml/badge.svg)
+![Coverage](media/coverage_badge.svg)
+
+A collection of helper function and utilities.
+
 ## Luxonis Dataset Format
 
 The Luxonis Dataset Format (LDF) is intended to standardize the way the ML team stores data. We can use LDF with the `luxonis_ml.ops` package. LDF should provide the foundation for tasks such as training, evaluation, querying, and visualization. The library is largely powered by the open source software from [Voxel51](https://voxel51.com/).
@@ -24,7 +31,7 @@ sudo apt install s3fs
 After installing the `luxonis_ml` package with `pip`, you should be able to run
 
 ```bash
-luxonis_ml config 
+luxonis_ml config
 ```
 
 It will ask you to enter the following variables:
@@ -110,7 +117,7 @@ additions [list]:
         filepath [str]: local path to an image to be added
         class [str]: for Image Classification, the name of the class for the entire image
         boxes [list]: for Object Detection, a list of bounding boxes
-            box [list]: a list of length 5 encoding the following information - [class, x, y, width, height], where x, y, width, and height are all normalized to the image dimensions 
+            box [list]: a list of length 5 encoding the following information - [class, x, y, width, height], where x, y, width, and height are all normalized to the image dimensions
         segmentation [np.ndarray]: for Semantic Segmention, a HxW array where the pixels correspond to integer classes. The class names for these classes are defined by `dataset.set_mask_targets()`
         keypoints [list]: for Keypoint Detection, a list of keypoint instances
             points [list]: tuples of length 2 consisting of the class and a list of (x,y) points
@@ -152,7 +159,7 @@ import torch
 with LuxonisDataset(team_name, dataset_name) as dataset:
 
     loader = LuxonisLoader(
-        dataset, 
+        dataset,
         split='train'
     )
 
