@@ -12,7 +12,7 @@ from typing import Optional, Tuple, Dict
 from pathlib import Path
 import pycocotools.mask as mask_util
 from luxonis_ml.enums import LabelType
-from luxonis_ml.utils import LuxonisFileSystem, setup_logging, reset_logging
+from luxonis_ml.utils import LuxonisFileSystem
 from .utils.enums import BucketStorage
 
 
@@ -58,8 +58,6 @@ class LuxonisLoader(BaseLoader):
             augmentations (Optional[luxonis_ml.loader.Augmentations], optional): Augmentation class that performs augmentations. Defaults to None.
         """
 
-        reset_logging()
-        setup_logging(use_rich=True)
         self.logger = logging.getLogger(__name__)
 
         self.dataset = dataset
@@ -69,7 +67,7 @@ class LuxonisLoader(BaseLoader):
         )
 
         if self.sync_mode:
-            logging.info("Syncing from cloud...")
+            self.logger.info("Syncing from cloud...")
             self.dataset.sync_from_cloud()
 
         if self.dataset.bucket_storage == BucketStorage.LOCAL or not self.stream:

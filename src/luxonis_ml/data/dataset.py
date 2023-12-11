@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import List, Dict, Tuple, Optional, Generator
 
 import luxonis_ml.data.utils.data_utils as data_utils
-from luxonis_ml.utils import LuxonisFileSystem, environ, setup_logging, reset_logging
+from luxonis_ml.utils import LuxonisFileSystem, environ
 from luxonis_ml.data.utils.parquet import ParquetFileManager
 from .utils.constants import LDF_VERSION, LABEL_TYPES
 from .utils.enums import BucketType, BucketStorage, MediaType, ImageType, DataLabelType
@@ -169,8 +169,6 @@ class LuxonisDataset:
             self.tmp_dir = ".luxonis_tmp"
             self.fs = LuxonisFileSystem(self.path)
 
-        reset_logging()
-        setup_logging(use_rich=True)
         self.logger = logging.getLogger(__name__)
 
     def __len__(self) -> int:
@@ -324,7 +322,7 @@ class LuxonisDataset:
 
     def _end_time(self) -> None:
         self.t1 = time.time()
-        logging.info(f"Took {self.t1 - self.t0} seconds")
+        self.logger.info(f"Took {self.t1 - self.t0} seconds")
 
     def _make_temp_dir(self) -> None:
         os.makedirs(self.tmp_dir, exist_ok=True)
@@ -495,14 +493,14 @@ class LuxonisDataset:
 
         def _add_process_batch():
             paths = list(set([data["file"] for data in batch_data]))
-            logging.info("Generating UUIDs...")
+            self.logger.info("Generating UUIDs...")
             self._start_time()
             uuid_dict = self.fs.get_file_uuids(
                 paths, local=True
             )  # TODO: support from bucket
             self._end_time()
             if self.bucket_storage != BucketStorage.LOCAL:
-                logging.info("Uploading media...")
+                self.logger.info("Uploading media...")
                 # TODO: support from bucket (likely with a self.fs.copy_dir)
                 self._start_time()
                 self.fs.put_dir(
@@ -521,18 +519,18 @@ class LuxonisDataset:
                 )
             )
             if len(array_paths):
-                logging.info("Checking arrays...")
+                self.logger.info("Checking arrays...")
                 self._start_time()
                 data_utils.check_arrays(array_paths)
                 self._end_time()
-                logging.info("Generating array UUIDs...")
+                self.logger.info("Generating array UUIDs...")
                 self._start_time()
                 array_uuid_dict = self.fs.get_file_uuids(
                     array_paths, local=True
                 )  # TODO: support from bucket
                 self._end_time()
                 if self.bucket_storage != BucketStorage.LOCAL:
-                    logging.info("Uploading arrays...")
+                    self.logger.info("Uploading arrays...")
                     # TODO: support from bucket (likely with a self.fs.copy_dir)
                     self._start_time()
                     mask_upload_dict = self.fs.put_dir(
@@ -541,7 +539,7 @@ class LuxonisDataset:
                         uuid_dict=array_uuid_dict,
                     )
                     self._end_time()
-                logging.info("Finalizing paths...")
+                self.logger.info("Finalizing paths...")
                 for data in tqdm(batch_data):
                     if data["type"] == "array" or data["type"] == DataLabelType.ARRAY:
                         if self.bucket_storage != BucketStorage.LOCAL:
@@ -551,7 +549,7 @@ class LuxonisDataset:
                         else:
                             data["value"] = os.path.abspath(data["value"])
 
-            logging.info("Saving annotations...")
+            self.logger.info("Saving annotations...")
             self._start_time()
             for data in tqdm(batch_data):
                 filepath = data["file"]
