@@ -43,9 +43,11 @@ jobs:
 
     - name: Commit coverage badge
       run: |
-        git config --global user.name 'Martin Kozlovsky'
-        git config --global user.email 'martin.kozlovsky@luxonis.com'
-        git diff --quiet media/coverage_badge.svg || \
-          (git add media/coverage_badge.svg && \
-           git commit -m "Update coverage badge" && \
-           git push)
+        git config --global user.name 'GitHub Actions'
+        git config --global user.email 'actions@github.com'
+        git diff --quiet media/coverage_badge.svg
+        if [ $? -ne 0 ]; then
+          git add media/coverage_badge.svg
+          git commit -m "[Automated] Updated coverage badge"
+          git push
+        fi
