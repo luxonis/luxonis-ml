@@ -325,7 +325,9 @@ class LuxonisDataset:
         self.logger.info(f"Took {self.t1 - self.t0} seconds")
 
     def _make_temp_dir(self) -> None:
-        os.makedirs(self.tmp_dir, exist_ok=True)
+        if os.path.exists(self.tmp_dir):
+            shutil.rmtree(self.tmp_dir)
+        os.makedirs(self.tmp_dir, exist_ok=False)
 
     def _remove_temp_dir(self) -> None:
         shutil.rmtree(self.tmp_dir)
