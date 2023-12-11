@@ -3,6 +3,7 @@ import shutil
 import time
 from pathlib import Path
 import json
+import logging
 from tqdm import tqdm
 import numpy as np
 import pandas as pd
@@ -15,7 +16,7 @@ import luxonis_ml.data.utils.data_utils as data_utils
 from luxonis_ml.utils import LuxonisFileSystem, environ
 from luxonis_ml.data.utils.parquet import ParquetFileManager
 from .utils.constants import LDF_VERSION, LABEL_TYPES
-from .utils.enums import BucketType, BucketStorage, MediaType, ImageType
+from .utils.enums import BucketType, BucketStorage, MediaType, ImageType, DataLabelType
 
 
 class LuxonisComponent:
@@ -168,6 +169,8 @@ class LuxonisDataset:
             self.tmp_dir = ".luxonis_tmp"
             self.fs = LuxonisFileSystem(self.path)
 
+        self.logger = logging.getLogger(__name__)
+
     def __len__(self) -> int:
         """Returns the number of instances in the dataset"""
 
@@ -246,6 +249,7 @@ class LuxonisDataset:
         self.media_path = os.path.join(self.local_path, "media")
         self.annotations_path = os.path.join(self.local_path, "annotations")
         self.metadata_path = os.path.join(self.local_path, "metadata")
+        self.masks_path = os.path.join(self.local_path, "masks")
 
         if self.bucket_storage == BucketStorage.LOCAL:
             self.path = self.local_path
@@ -318,7 +322,7 @@ class LuxonisDataset:
 
     def _end_time(self) -> None:
         self.t1 = time.time()
-        print(f"Took {self.t1 - self.t0} seconds")
+        self.logger.info(f"Took {self.t1 - self.t0} seconds")
 
     def _make_temp_dir(self) -> None:
         os.makedirs(self.tmp_dir, exist_ok=True)
@@ -479,22 +483,24 @@ class LuxonisDataset:
                     (e.g. [0.5, 0.4, 0.1, 0.2])
                 value (polyline) [List[List[float]]] : an ordered list of [x, y] polyline points
                     (e.g. [[0.2, 0.3], [0.4, 0.5], ...])
+                value (segmentation) [Tuple[int, int, List[int]]]: an RLE representation of (height, width, counts) based on the COCO convention
                 value (keypoints) [List[List[float]]] : an ordered list of [x, y, visibility] keypoints for a keypoint skeleton instance
                     (e.g. [[0.2, 0.3, 2], [0.4, 0.5, 2], ...])
+                value (array) [str]: path to a numpy .npy file
         batch_size: The number of annotations generated before processing.
             This can be set to a lower value to reduce memory usage.
         """
 
         def _add_process_batch():
             paths = list(set([data["file"] for data in batch_data]))
-            print("Generating UUIDs...")
+            self.logger.info("Generating UUIDs...")
             self._start_time()
             uuid_dict = self.fs.get_file_uuids(
                 paths, local=True
             )  # TODO: support from bucket
             self._end_time()
             if self.bucket_storage != BucketStorage.LOCAL:
-                print("Uploading media...")
+                self.logger.info("Uploading media...")
                 # TODO: support from bucket (likely with a self.fs.copy_dir)
                 self._start_time()
                 self.fs.put_dir(
@@ -502,7 +508,48 @@ class LuxonisDataset:
                 )
                 self._end_time()
 
-            print("Saving annotations...")
+            array_paths = list(
+                set(
+                    [
+                        data["value"]
+                        for data in batch_data
+                        if data["type"] == "array"
+                        or data["type"] == DataLabelType.ARRAY
+                    ]
+                )
+            )
+            if len(array_paths):
+                self.logger.info("Checking arrays...")
+                self._start_time()
+                data_utils.check_arrays(array_paths)
+                self._end_time()
+                self.logger.info("Generating array UUIDs...")
+                self._start_time()
+                array_uuid_dict = self.fs.get_file_uuids(
+                    array_paths, local=True
+                )  # TODO: support from bucket
+                self._end_time()
+                if self.bucket_storage != BucketStorage.LOCAL:
+                    self.logger.info("Uploading arrays...")
+                    # TODO: support from bucket (likely with a self.fs.copy_dir)
+                    self._start_time()
+                    mask_upload_dict = self.fs.put_dir(
+                        local_paths=array_paths,
+                        remote_dir="arrays",
+                        uuid_dict=array_uuid_dict,
+                    )
+                    self._end_time()
+                self.logger.info("Finalizing paths...")
+                for data in tqdm(batch_data):
+                    if data["type"] == "array" or data["type"] == DataLabelType.ARRAY:
+                        if self.bucket_storage != BucketStorage.LOCAL:
+                            remote_path = mask_upload_dict[data["value"]]
+                            remote_path = f"{self.fs.protocol}://{os.path.join(self.fs.path, remote_path)}"
+                            data["value"] = remote_path
+                        else:
+                            data["value"] = os.path.abspath(data["value"])
+
+            self.logger.info("Saving annotations...")
             self._start_time()
             for data in tqdm(batch_data):
                 filepath = data["file"]
@@ -527,6 +574,10 @@ class LuxonisDataset:
                 data["value_type"] = type(data["value"]).__name__
                 if isinstance(data["value"], list):
                     data["value"] = json.dumps(data["value"])  # convert lists to string
+                elif isinstance(data["value"], tuple):  # handles RLE
+                    data["value"] = data_utils.transform_segmentation_value(
+                        data["value"]
+                    )
                 else:
                     data["value"] = str(data["value"])
                 data["created_at"] = datetime.utcnow()

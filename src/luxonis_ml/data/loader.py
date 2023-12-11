@@ -6,9 +6,11 @@ import warnings
 import os
 import glob
 import json
+import logging
 from abc import ABC, abstractmethod
 from typing import Optional, Tuple, Dict
 from pathlib import Path
+import pycocotools.mask as mask_util
 from luxonis_ml.enums import LabelType
 from luxonis_ml.utils import LuxonisFileSystem
 from .utils.enums import BucketStorage
@@ -56,6 +58,8 @@ class LuxonisLoader(BaseLoader):
             augmentations (Optional[luxonis_ml.loader.Augmentations], optional): Augmentation class that performs augmentations. Defaults to None.
         """
 
+        self.logger = logging.getLogger(__name__)
+
         self.dataset = dataset
         self.stream = stream
         self.sync_mode = (
@@ -63,7 +67,7 @@ class LuxonisLoader(BaseLoader):
         )
 
         if self.sync_mode:
-            print("Syncing from cloud...")
+            self.logger.info("Syncing from cloud...")
             self.dataset.sync_from_cloud()
 
         if self.dataset.bucket_storage == BucketStorage.LOCAL or not self.stream:
@@ -173,8 +177,11 @@ class LuxonisLoader(BaseLoader):
 
         classification_rows = sub_df[sub_df["type"] == "classification"]
         box_rows = sub_df[sub_df["type"] == "box"]
-        segmentation_rows = sub_df[sub_df["type"] == "polyline"]
+        segmentation_rows = sub_df[sub_df["type"] == "segmentation"]
+        polyline_rows = sub_df[sub_df["type"] == "polyline"]
         keypoints_rows = sub_df[sub_df["type"] == "keypoints"]
+
+        seg = np.zeros((self.ns, ih, iw))
 
         if len(classification_rows):
             classes = [
@@ -199,9 +206,8 @@ class LuxonisLoader(BaseLoader):
                 boxes = np.append(boxes, box, axis=0)
             annotations[LabelType.BOUNDINGBOX] = boxes
 
-        if len(segmentation_rows):
-            seg = np.zeros((self.ns, ih, iw))
-            for row in segmentation_rows.iterrows():
+        if len(polyline_rows):
+            for row in polyline_rows.iterrows():
                 row = row[1]
                 cls = self.classes.index(row["class"])
                 polyline = json.loads(row["value"])
@@ -212,6 +218,18 @@ class LuxonisLoader(BaseLoader):
                 draw = ImageDraw.Draw(mask)
                 draw.polygon(polyline, fill=1, outline=1)
                 mask = np.array(mask)
+                seg[cls, ...] = seg[cls, ...] + mask
+            seg[seg > 0] = 1
+            annotations[LabelType.SEGMENTATION] = seg
+
+        if len(segmentation_rows):
+            for row in segmentation_rows.iterrows():
+                row = row[1]
+                cls = self.classes.index(row["class"])
+                height, width, counts_str = json.loads(row["value"])
+                mask = mask_util.decode(
+                    {"counts": counts_str.encode("utf-8"), "size": [height, width]}
+                )
                 seg[cls, ...] = seg[cls, ...] + mask
             seg[seg > 0] = 1
             annotations[LabelType.SEGMENTATION] = seg

@@ -8,7 +8,7 @@ ANNOTATIONS_SCHEMA = {
     "file": str,  # path to file on local disk or object storage
     "class": str,  # any string specifying what the annotation is
     "type": str,  # type of annotation/label
-    "value": Union[str, list, int, float, bool],  # the actual annotation
+    "value": Union[str, list, int, float, bool, tuple],  # the actual annotation
     # "children": List[str],
     # "parent": List[str],
 }
