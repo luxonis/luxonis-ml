@@ -195,7 +195,7 @@ class LuxonisLoader(BaseLoader):
             ]
             classify = np.zeros(self.nc)
             for cls in classes:
-                cls = self.classes.index(cls)
+                cls = self.classes_by_task[LabelType.CLASSIFICATION].index(cls)
                 classify[cls] = classify[cls] + 1
             classify[classify > 0] = 1
             annotations[LabelType.CLASSIFICATION] = classify
@@ -204,7 +204,7 @@ class LuxonisLoader(BaseLoader):
             boxes = np.zeros((0, 5))
             for row in box_rows.iterrows():
                 row = row[1]
-                cls = self.classes.index(row["class"])
+                cls = self.classes_by_task[LabelType.BOUNDINGBOX].index(row["class"])
                 det = json.loads(row["value"])
                 box = np.array([cls, det[0], det[1], det[2], det[3]]).reshape(1, 5)
                 boxes = np.append(boxes, box, axis=0)
@@ -213,7 +213,7 @@ class LuxonisLoader(BaseLoader):
         if len(polyline_rows):
             for row in polyline_rows.iterrows():
                 row = row[1]
-                cls = self.classes.index(row["class"])
+                cls = self.classes_by_task[LabelType.SEGMENTATION].index(row["class"])
                 polyline = json.loads(row["value"])
                 polyline = [
                     (round(coord[0] * iw), round(coord[1] * ih)) for coord in polyline
@@ -229,7 +229,7 @@ class LuxonisLoader(BaseLoader):
         if len(segmentation_rows):
             for row in segmentation_rows.iterrows():
                 row = row[1]
-                cls = self.classes.index(row["class"])
+                cls = self.classes_by_task[LabelType.SEGMENTATION].index(row["class"])
                 height, width, counts_str = json.loads(row["value"])
                 mask = mask_util.decode(
                     {"counts": counts_str.encode("utf-8"), "size": [height, width]}
@@ -243,7 +243,7 @@ class LuxonisLoader(BaseLoader):
             keypoints = np.zeros((0, self.max_nk * 3 + 1))
             for row in keypoints_rows.iterrows():
                 row = row[1]
-                cls = self.classes.index(row["class"])
+                cls = self.classes_by_task[LabelType.KEYPOINT].index(row["class"])
                 kps = (
                     np.array(json.loads(row["value"]))
                     .reshape((-1, 3))

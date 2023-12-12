@@ -1,19 +1,19 @@
 import numpy as np
 import os
 import uuid
-from pathlib import Path
 import cv2
 import json
 import pycocotools.mask as mask_util
+from typeguard import check_type, TypeCheckError
 
 # from luxonis_ml.data.utils.exceptions import *
 import typing
-from typing import Dict, List, Union, Optional, Any, Tuple
+from typing import Dict, List, Union, Any, Tuple
 from .constants import ANNOTATIONS_SCHEMA as schema
-from .constants import ANNOTATION_TYPES as atypes
+from .enums import DataLabelType
 
 
-def generate_hashname(filepath: str) -> str:
+def generate_hashname(filepath: str) -> Tuple[str, str]:
     """Finds the UUID generated ID for a local file"""
 
     # Read the contents of the file
@@ -55,26 +55,42 @@ def check_annotation(data: Dict) -> None:
                 f"Found type {type(data[key])} for key '{key}' but expected: {schema[key]}"
             )
 
-    if isinstance(data["type"], str):
-        if data["type"] not in atypes:
-            raise Exception(
-                f"{data['type']} for key '{key}' is not a valid DataLabelType"
-            )
-        type_string = data["type"]
-
+    typ = data["type"]
     value = data["value"]
-    if type_string == "classification":
-        _check_classification(value)
-    elif type_string == "label":
-        _check_label(value)
-    elif type_string == "box":
-        _check_box(value)
-    elif type_string == "polyline":
-        _check_polyline(value)
-    elif type_string == "segmentation":
-        _check_segmentation(value)
-    elif type_string == "keypoints":
-        _check_keypoints(value)
+
+    if typ == "classification":
+        check_value_type(typ, value, bool)
+    elif typ == "label":
+        check_value_type(typ, value, Union[str, int, float, bool])
+    elif typ == "box":
+        check_value_type(
+            typ,
+            value,
+            Tuple[
+                Union[int, float],
+                Union[int, float],
+                Union[int, float],
+                Union[int, float],
+            ],
+        )
+    elif typ == "polyline":
+        check_value_type(
+            typ,
+            value,
+            List[Tuple[Union[int, float], Union[int, float]]],
+        )
+    elif typ == "segmentation":
+        check_value_type(
+            typ,
+            value,
+            Tuple[int, int, Union[List[int], bytes]],
+        )
+    elif typ == "keypoints":
+        check_value_type(
+            typ,
+            value,
+            List[Tuple[Union[int, float], Union[int, float], int]],
+        )
 
 
 def check_arrays(values: List[Any]) -> None:
@@ -84,70 +100,12 @@ def check_arrays(values: List[Any]) -> None:
         _check_array(value)
 
 
-def _check_classification(value: Any) -> None:
-    if not isinstance(value, bool):
-        raise Exception(f"Classification {value} must be a bool (True/False)")
-
-
-def _check_label(value: Any) -> None:
-    if (
-        not isinstance(value, str)
-        and not isinstance(value, int)
-        and not isinstance(value, float)
-        and not isinstance(value, bool)
-    ):
-        raise Exception(f"Label {value} must be a string, int, or float")
-
-
-def _check_box(value: Any) -> None:
-    if not isinstance(value, list):
-        raise Exception(f"Box {value} must be a list")
-    if len(value) != 4:
-        raise Exception(f"Box {value} must be of length 4")
-    for pnt in value:
-        if not isinstance(pnt, int) and not isinstance(pnt, float):
-            raise Exception(f"Box point {pnt} must be an int or float")
-
-
-def _check_polyline(value: Any) -> None:
-    if not isinstance(value, list):
-        raise Exception(f"Polyline must be a list")
-    for coord in value:
-        if not isinstance(coord, list):
-            raise Exception(f"Coordinate {coord} must be a list")
-        if len(coord) != 2:
-            raise Exception(f"Coordinate {coord} must be length 2")
-        for pnt in coord:
-            if not isinstance(pnt, int) and not isinstance(pnt, float):
-                raise Exception(f"Polyline point {pnt} must be an int or float")
-
-
-def _check_segmentation(value: Any) -> None:
-    message = f"Segmentation {value} must be an RLE representation of type Tuple[int, int List[int]] of (height, width, counts)"
-    if not isinstance(value, tuple):
-        raise Exception(message)
-    if not isinstance(value[0], int):
-        raise Exception(message)
-    if not isinstance(value[1], int):
-        raise Exception(message)
-    if not isinstance(value[2], list):
-        raise Exception(message)
-    for val in value[2]:
-        if not isinstance(val, int):
-            raise Exception(message)
-
-
-def _check_keypoints(value: Any) -> None:
-    if not isinstance(value, list):
-        raise Exception(f"Keypoints must be a list")
-    for coord in value:
-        if not isinstance(coord, list):
-            raise Exception(f"Coordinate {coord} must be a list")
-        if len(coord) != 3:
-            raise Exception(f"Coordinate {coord} must be length 3")
-        for pnt in coord:
-            if not isinstance(pnt, int) and not isinstance(pnt, float):
-                raise Exception(f"Keypoints point {pnt} must be an int or float")
+def check_value_type(name: str, value: Any, typ: Any) -> None:
+    """Checks if a value is of a given type, and raises a TypeError if not."""
+    try:
+        check_type(value, typ)
+    except TypeCheckError as e:
+        raise TypeError(f"Value {value} for key {name} is not of type {typ}") from e
 
 
 def _check_array(value: Any) -> None:
@@ -161,7 +119,7 @@ def _check_valid_image(path: str) -> bool:
     try:
         image = cv2.imread(path)
         return image is not None
-    except:
+    except Exception:
         return False
 
 
@@ -169,13 +127,17 @@ def _check_valid_array(path: str) -> bool:
     try:
         np.load(path)
         return True
-    except:
+    except Exception:
         return False
 
 
-def transform_segmentation_value(value: Tuple[int, int, List[int]]) -> str:
+def transform_segmentation_value(
+    value: Tuple[int, int, Union[bytes, List[int]]]
+) -> str:
     height, width, counts = value
+    if isinstance(counts, bytes):
+        return json.dumps((height, width, counts.decode("utf-8")))
+
     rle = {"counts": counts, "size": [height, width]}
     rle = mask_util.frPyObjects(rle, height, width)
-    value = (rle["size"][0], rle["size"][1], rle["counts"].decode("utf-8"))
-    return json.dumps(value)
+    return json.dumps((rle["size"][0], rle["size"][1], rle["counts"].decode("utf-8")))  # type: ignore
