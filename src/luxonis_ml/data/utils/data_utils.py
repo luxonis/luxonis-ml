@@ -175,7 +175,5 @@ def _check_valid_array(path: str) -> bool:
 
 def transform_segmentation_value(value: Tuple[int, int, List[int]]) -> str:
     height, width, counts = value
-    rle = {"counts": counts, "size": [height, width]}
-    rle = mask_util.frPyObjects(rle, height, width)
-    value = (rle["size"][0], rle["size"][1], rle["counts"].decode("utf-8"))
+    value = (height, width, bytes(counts).decode("utf-8"))
     return json.dumps(value)
