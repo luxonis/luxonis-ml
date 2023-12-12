@@ -493,7 +493,7 @@ class LuxonisDataset:
             This can be set to a lower value to reduce memory usage.
         """
 
-        def _add_process_batch():
+        def _add_process_batch(batch_data: List[Dict]) -> None:
             paths = list(set([data["file"] for data in batch_data]))
             self.logger.info("Generating UUIDs...")
             self._start_time()
@@ -516,7 +516,6 @@ class LuxonisDataset:
                         data["value"]
                         for data in batch_data
                         if data["type"] == "array"
-                        or data["type"] == DataLabelType.ARRAY
                     ]
                 )
             )
@@ -543,7 +542,7 @@ class LuxonisDataset:
                     self._end_time()
                 self.logger.info("Finalizing paths...")
                 for data in tqdm(batch_data):
-                    if data["type"] == "array" or data["type"] == DataLabelType.ARRAY:
+                    if data["type"] == "array":
                         if self.bucket_storage != BucketStorage.LOCAL:
                             remote_path = mask_upload_dict[data["value"]]
                             remote_path = f"{self.fs.protocol}://{os.path.join(self.fs.path, remote_path)}"
@@ -574,12 +573,12 @@ class LuxonisDataset:
                 data["instance_id"] = instance_id
                 data["file"] = file
                 data["value_type"] = type(data["value"]).__name__
-                if isinstance(data["value"], list):
-                    data["value"] = json.dumps(data["value"])  # convert lists to string
-                elif isinstance(data["value"], tuple):  # handles RLE
+                if data["type"] == "segmentation":  # handles RLE
                     data["value"] = data_utils.transform_segmentation_value(
                         data["value"]
                     )
+                if isinstance(data["value"], (list, tuple)):
+                    data["value"] = json.dumps(data["value"])  # convert lists to string
                 else:
                     data["value"] = str(data["value"])
                 data["created_at"] = datetime.utcnow()
@@ -606,10 +605,10 @@ class LuxonisDataset:
             for i, data in enumerate(generator()):
                 batch_data.append(data)
                 if (i + 1) % batch_size == 0:
-                    _add_process_batch()
+                    _add_process_batch(batch_data)
                     batch_data = []
 
-            _add_process_batch()
+            _add_process_batch(batch_data)
 
             self.pfm.close()
 
