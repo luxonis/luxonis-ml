@@ -1,3 +1,4 @@
+import random
 import requests
 import aiohttp
 import aiofiles
@@ -96,7 +97,11 @@ class RH_Downloader:
             page_i += 1
 
             if len(items) >= response.json()['pagination']['total'] or len(new_items) == 0:
-                break
+                if self.cfg.get("tactic") == "all":
+                    break
+                elif self.cfg.get("tactic") == "random":
+                    items = random.sample(items, self.cfg.get("num_of_imgs"))
+                    break
             elif self.cfg.get("tactic") == "limit" and len(items) >= self.cfg.get("num_of_imgs"):
                 break
         

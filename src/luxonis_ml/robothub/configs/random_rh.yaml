@@ -1,0 +1,17 @@
+schema_name: config_schema_rh
+tactic: random
+num_of_imgs: 35
+from_date: 2023-09-01
+to_date: 2023-09-02
+apps: all
+robots:
+  - a44bbb6d-c582-43bf-9514-033abd05a5eb
+  - 8cae84e6-9fe6-4756-b2bf-e6a4d5ee4865
+tags: 
+  - periodic
+  - still
+  - pred_close
+target_dataset:
+  team_id: luxonis_id
+  dataset_id: 64f984264246adca74a6b37d
+  bucket_type: local

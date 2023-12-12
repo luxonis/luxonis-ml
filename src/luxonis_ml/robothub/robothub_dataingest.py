@@ -231,6 +231,11 @@ class RobotHubIngest():
 				dest_dir = './tmp/' + self.config_name
 				ldf_converter = LDF_Converter(rh_config, dest_dir)
 				ldf_converter.detections_to_ldf()
+			
+			@task
+			def clear_tmp():
+				import shutil
+				shutil.rmtree('./tmp/' + self.config_name)
 
 			# Variables
 			rh_token = Variable.get("RH_TOKEN")
@@ -253,7 +258,9 @@ class RobotHubIngest():
 
 			converted_ldf = convert_to_ldf(fetched_config)
 
+			rm_tmp = clear_tmp()
+
 			# Dependencies
-			fetched_config >> detections_result >> num_batches_list >> download_tasks >> smart >> converted_ldf
+			fetched_config >> detections_result >> num_batches_list >> download_tasks >> smart >> converted_ldf >> rm_tmp
 
 		return robothub_dag()

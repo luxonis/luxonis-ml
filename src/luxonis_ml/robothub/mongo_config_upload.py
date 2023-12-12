@@ -82,3 +82,5 @@ if __name__ == '__main__':
 
 # python3 mongo_config_upload.py --folder ./configs/ --configs simple_rh.yaml full_rh.yaml --schema schema.json
 # python3 mongo_config_upload.py --folder ./configs/ --configs all --schema ./configs/config_schema_rh.json
+# python3 mongo_config_upload.py --folder ./configs/ --configs all --schema ./configs/config_schema_rh.json --mongo_uri "mongodb://user:pass@localhost:27017/"
+
