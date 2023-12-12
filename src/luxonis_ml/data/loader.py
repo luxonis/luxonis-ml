@@ -182,7 +182,6 @@ class LuxonisLoader(BaseLoader):
         classification_rows = sub_df[sub_df["type"] == "classification"]
         box_rows = sub_df[sub_df["type"] == "box"]
         segmentation_rows = sub_df[sub_df["type"] == "segmentation"]
-        array_rows = sub_df[sub_df["type"] == "array"]
         polyline_rows = sub_df[sub_df["type"] == "polyline"]
         keypoints_rows = sub_df[sub_df["type"] == "keypoints"]
 
@@ -235,15 +234,6 @@ class LuxonisLoader(BaseLoader):
                 mask = mask_util.decode(
                     {"counts": counts_str.encode("utf-8"), "size": [height, width]}
                 )
-                seg[cls, ...] = seg[cls, ...] + mask
-            seg[seg > 0] = 1
-            annotations[LabelType.SEGMENTATION] = seg
-
-        if len(array_rows):
-            for row in array_rows.iterrows():
-                row = row[1]
-                cls = self.classes_by_task[LabelType.SEGMENTATION].index(row["class"])
-                mask = np.load(row["value"])
                 seg[cls, ...] = seg[cls, ...] + mask
             seg[seg > 0] = 1
             annotations[LabelType.SEGMENTATION] = seg
