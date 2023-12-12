@@ -10,3 +10,4 @@ albumentations @ git+https://github.com/i-aki-y/albumentations.git@c137e2b # alb
 pandas>=2.0.0
 pyarrow>=13.0.0
 pycocotools>=2.0.7
+typeguard>=4.1.0
