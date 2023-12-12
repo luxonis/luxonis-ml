@@ -11,7 +11,7 @@ from .environ import environ
 class LuxonisFileSystem:
     def __init__(
         self,
-        path: Optional[str],
+        path: str,
         allow_active_mlflow_run: Optional[bool] = False,
         allow_local: Optional[bool] = True,
     ):
@@ -19,17 +19,14 @@ class LuxonisFileSystem:
         Supports S3, MLflow and local file systems.
 
         Args:
-            path (Optional[str]): Input path consisting of protocol and actual path or just path for local files
+            path (str): Input path consisting of protocol and actual path or just path for local files
             allow_active_mlflow_run (Optional[bool], optional): Flag if operations are allowed on active MLFlow run. Defaults to False.
             allow_local (Optional[bool], optional): Flag if operations are allowed on local file system. Defaults to True.
         """
-        if path is None:
-            raise ValueError("No path provided to LuxonisFileSystem.")
-
         self.protocol, self.path = _get_protocol_and_path(path)
         supported_protocols = ["s3", "gcs", "file", "mlflow"]
         if self.protocol not in supported_protocols:
-            raise KeyError(
+            raise ValueError(
                 f"Protocol `{self.protocol}` not supported. Choose from {supported_protocols}."
             )
 
