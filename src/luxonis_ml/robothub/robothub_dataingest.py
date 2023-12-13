@@ -6,9 +6,15 @@ from airflow.models import Variable
 from airflow.decorators import dag, task_group, task
 from airflow.providers.mongo.hooks.mongo import MongoHook
 
-from luxonis_ml.robothub.config_rh import RHConfig
-from luxonis_ml.robothub.filter_rh import RH_Downloader
-from luxonis_ml.robothub.convert_ldf import LDF_Converter
+from luxonis_ml.utils import LuxonisFileSystem
+
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from config_rh import RHConfig
+from filter_rh import RH_Downloader
+# from convert_ldf import LDF_Converter
+
 
 # Instantiate the DAG
 class RobotHubIngest():
@@ -99,7 +105,7 @@ class RobotHubIngest():
 					return dest_dir
 				
 				@task
-				def get_embeddings(images_path):
+				def get_embeddings(local_path):
 					import numpy as np
 					from torchvision import datasets, transforms
 					import torch
@@ -114,23 +120,27 @@ class RobotHubIngest():
 					])
 
 					# Create a dataset using ImageFolder
-					dataset = datasets.ImageFolder(root=images_path, transform=transform)
+					dataset = datasets.ImageFolder(root=local_path, transform=transform)
 
 					# Create a DataLoader
 					data_loader = torch.utils.data.DataLoader(dataset, batch_size=32, shuffle=False)
 
+					# Download the model from S3 using LuxonisFileSystem
+					lfs = LuxonisFileSystem("s3://luxonis-test-bucket")
+					lfs.get_file("models/pipelines/resnet50-1.onnx", local_path + "/resnet50-1.onnx")
+					
 					# Create an ONNX Runtime session
 					provider = ['CUDAExecutionProvider'] if torch.cuda.is_available() and 'CUDAExecutionProvider' in onnxruntime.get_available_providers() else None
-					ort_session = onnxruntime.InferenceSession("resnet50-1.onnx", providers=provider)
+					ort_session = onnxruntime.InferenceSession(local_path + "/resnet50-1.onnx", providers=provider)
 
 					# Extract embeddings from the dataset
 					embeddings, labels = extract_embeddings_onnx(ort_session, data_loader, "/Flatten_output_0")
 
 					# export to file
-					emb_file = images_path + '/embeddings.txt'
+					emb_file = local_path + '/embeddings.txt'
 					np.savetxt(emb_file, embeddings.numpy())
 					img_paths = [p[0] for p in dataset.imgs]
-					impath_savefile = images_path + '/img_paths.txt'
+					impath_savefile = local_path + '/img_paths.txt'
 					np.savetxt(impath_savefile, img_paths, fmt='%s')
 					return {'embeddings_path': emb_file, 'img_paths_file': img_paths}
 
@@ -156,10 +166,11 @@ class RobotHubIngest():
 
 					# Insert the embeddings into the collection
 					# all zero labels
-					labels = [0] * len(embeddings)
-					labels = np.array(labels)
+					# labels = [0] * len(embeddings)
+					# labels = np.array(labels)
 					img_paths = np.loadtxt(img_paths_file, dtype=str)
-					qdrant_api.batch_insert_embeddings_nooverwrite(embeddings, labels, img_paths, batch_size=50)
+					# labels_as_img_paths = [{"img_path": img_path} for img_path in img_paths]
+					qdrant_api.batch_insert_embeddings_nooverwrite(embeddings, img_paths, batch_size=50)
 				
 				img_path = download_images(batch_num, filtered_detections, serialized_data, rh_token, max_img_limit)
 				emb_out = get_embeddings(img_path)
@@ -193,7 +204,7 @@ class RobotHubIngest():
 				payloads = qdrant_api.get_payloads_from_ids(ids_sel)
 				print("Retrieved {len(payloads)} representative images from Qdrant")
 
-				represent_imgs = [p['image_path'] for p in payloads]
+				represent_imgs = [p['label'] for p in payloads]
 				represent_imgs = [img.split('/')[-1] for img in represent_imgs]
 				
 				# get representative images that are in this sample batch
@@ -230,8 +241,8 @@ class RobotHubIngest():
 			def convert_to_ldf(serialized_data):
 				rh_config = RHConfig.from_dict(serialized_data)
 				dest_dir = './tmp/' + self.config_name
-				ldf_converter = LDF_Converter(rh_config, dest_dir)
-				ldf_converter.detections_to_ldf()
+				# ldf_converter = LDF_Converter(rh_config, dest_dir)
+				# ldf_converter.detections_to_ldf()
 			
 			@task
 			def clear_tmp():

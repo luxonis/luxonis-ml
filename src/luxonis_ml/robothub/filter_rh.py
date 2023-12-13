@@ -8,8 +8,6 @@ import asyncio
 from datetime import datetime, timedelta
 from cron_validator import CronValidator
 
-from luxonis_ml.robothub.config_rh import RHConfig
-
 class RH_Downloader:
     
     def __init__(self, rh_token, rh_config, dest_dir):

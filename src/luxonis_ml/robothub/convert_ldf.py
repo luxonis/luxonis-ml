@@ -5,7 +5,6 @@ import cv2
 from matplotlib import pyplot as plt
 
 from luxonis_ml.data.dataset import HType, IType, LDFComponent, LuxonisDataset, BucketStorage
-from luxonis_ml.robothub.config_rh import RHConfig
 
 class LDF_Converter:
 
