@@ -6,17 +6,9 @@ import os
 import json
 import asyncio
 from datetime import datetime, timedelta
+from cron_validator import CronValidator
 
 from luxonis_ml.robothub.config_rh import RHConfig
-
-REPEAT_EVERY = {
-    "once": None,
-    "hour": timedelta(hours=1),
-    "day": timedelta(days=1),
-    "week": timedelta(weeks=1),
-    "month": timedelta(weeks=4),
-    "year": timedelta(weeks=52)
-}
 
 class RH_Downloader:
     
@@ -43,22 +35,22 @@ class RH_Downloader:
         params.append(f'page={page_i}')
 
         repeat_every = self.cfg.get("repeat_every")
-        if repeat_every and repeat_every != "once":
+        if repeat_every:
             # calculate the from_date and to_date
-            from_date = datetime.now() - REPEAT_EVERY[repeat_every]
+            now = datetime.now()
+
+            # get largest time unit
+            td_sec = [61, 3601, 86401, 2592001, 31536001]
+            n = repeat_every.split(' ')
+            s = [td_sec[i+1] for i in range(len(n)-1) if n[i] != '*'][-1]
+            if n[-1] != '*':
+                s = 2592001
+            start = now - timedelta(seconds=s)
+            exe_list = list(CronValidator.get_execution_time(repeat_every, start, now))
+
+            from_date = exe_list[-1]
             from_date = from_date.strftime("%Y-%m-%d")
-            to_date = datetime.now().strftime("%Y-%m-%d")
             params.append(f'from={from_date}')
-            params.append(f'to={to_date}')
-        else:
-            # use the from_date and to_date from the config
-            from_date = self.cfg.get("from_date")
-            if from_date:
-                params.append(f'from={from_date}')
-            
-            to_date = self.cfg.get("to_date")
-            if to_date:
-                params.append(f'to={to_date}')
 
         robot_ids = self.cfg.get("robots", [])
         if robot_ids == "all":
@@ -116,12 +108,13 @@ class RH_Downloader:
             page_i += 1
 
             if len(items) >= response.json()['pagination']['total'] or len(new_items) == 0:
-                if self.cfg.get("tactic") == "all":
+                if self.cfg.get("tactic") in ["all", "smart"]:
                     break
                 elif self.cfg.get("tactic") == "random":
                     items = random.sample(items, self.cfg.get("num_of_imgs"))
                     break
             elif self.cfg.get("tactic") == "limit" and len(items) >= self.cfg.get("num_of_imgs"):
+                items = items[:self.cfg.get("num_of_imgs")]
                 break
         
         return items

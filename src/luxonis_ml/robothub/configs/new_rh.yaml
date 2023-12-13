@@ -1,6 +1,7 @@
 schema_name: config_schema_rh
 tactic: limit
 num_of_imgs: 25
+repeat_every: '0 0 * * *'
 apps: all
 robots: all
 target_dataset:

@@ -10,21 +10,11 @@ from luxonis_ml.robothub.config_rh import RHConfig
 from luxonis_ml.robothub.filter_rh import RH_Downloader
 from luxonis_ml.robothub.convert_ldf import LDF_Converter
 
-REPEAT_EVERY = {
-	None: None,
-	"once": "@once", 
-	"hour": "@hourly", 
-	"day": "@daily", 
-	"week": "@weekly", 
-	"month": "@monthly", 
-	"year": "@yearly"
-}
-
 # Instantiate the DAG
 class RobotHubIngest():
 	def __init__(self, config_name, repeat):
 		self.config_name = config_name
-		self.repeat = REPEAT_EVERY[repeat]
+		self.repeat = repeat # cron expression
 
 		self.default_args = {
 				'owner': 'user',

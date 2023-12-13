@@ -1,8 +1,7 @@
 schema_name: config_schema_rh
 tactic: smart
 num_of_imgs: 30
-from_date: 2023-09-01
-to_date: 2023-09-02
+repeat_every: '0 0 * * *'
 apps:
   - 73bb8814-4f30-4e25-a728-06de298b017f
 robots:
