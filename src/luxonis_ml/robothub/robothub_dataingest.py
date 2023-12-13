@@ -10,10 +10,21 @@ from luxonis_ml.robothub.config_rh import RHConfig
 from luxonis_ml.robothub.filter_rh import RH_Downloader
 from luxonis_ml.robothub.convert_ldf import LDF_Converter
 
+REPEAT_EVERY = {
+	None: None,
+	"once": "@once", 
+	"hour": "@hourly", 
+	"day": "@daily", 
+	"week": "@weekly", 
+	"month": "@monthly", 
+	"year": "@yearly"
+}
+
 # Instantiate the DAG
 class RobotHubIngest():
-	def __init__(self, config_name):
+	def __init__(self, config_name, repeat):
 		self.config_name = config_name
+		self.repeat = REPEAT_EVERY[repeat]
 
 		self.default_args = {
 				'owner': 'user',
@@ -29,8 +40,8 @@ class RobotHubIngest():
 			 'robothub_dag_'+self.config_name,
 			 default_args=self.default_args,
 			 description='A DAG to process RobotHub data',
-			 schedule_interval=timedelta(days=1),
-			 start_date=datetime(2023, 9, 11),
+			 schedule_interval=self.repeat,
+			 start_date=datetime(2023, 9, 11), #it doesn't matter, as long as it's in the past
 			 catchup=False
 		)
 		def robothub_dag():

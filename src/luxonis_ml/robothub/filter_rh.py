@@ -5,8 +5,18 @@ import aiofiles
 import os
 import json
 import asyncio
+from datetime import datetime, timedelta
 
 from luxonis_ml.robothub.config_rh import RHConfig
+
+REPEAT_EVERY = {
+    "once": None,
+    "hour": timedelta(hours=1),
+    "day": timedelta(days=1),
+    "week": timedelta(weeks=1),
+    "month": timedelta(weeks=4),
+    "year": timedelta(weeks=52)
+}
 
 class RH_Downloader:
     
@@ -32,14 +42,23 @@ class RH_Downloader:
         params.append('take=100')
         params.append(f'page={page_i}')
 
-        from_date = self.cfg.get("from_date")
-        if from_date:
+        repeat_every = self.cfg.get("repeat_every")
+        if repeat_every and repeat_every != "once":
+            # calculate the from_date and to_date
+            from_date = datetime.now() - REPEAT_EVERY[repeat_every]
+            from_date = from_date.strftime("%Y-%m-%d")
+            to_date = datetime.now().strftime("%Y-%m-%d")
             params.append(f'from={from_date}')
-        
-        to_date = self.cfg.get("to_date")
-        if to_date:
             params.append(f'to={to_date}')
-        
+        else:
+            # use the from_date and to_date from the config
+            from_date = self.cfg.get("from_date")
+            if from_date:
+                params.append(f'from={from_date}')
+            
+            to_date = self.cfg.get("to_date")
+            if to_date:
+                params.append(f'to={to_date}')
 
         robot_ids = self.cfg.get("robots", [])
         if robot_ids == "all":

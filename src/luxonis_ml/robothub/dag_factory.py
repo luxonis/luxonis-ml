@@ -12,11 +12,12 @@ class DAGFactory():
     def __init__(self):
         pass
 
-    def create(self, dag_type, config):
+    def create(self, dag_type, config, repeat):
         supported_dags = {
             'RobotHubIngest': RobotHubIngest
         }
         dag = supported_dags[dag_type](
-            config_name=config
+            config_name=config,
+            repeat=repeat
         )
         return dag

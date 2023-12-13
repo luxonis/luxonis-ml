@@ -28,6 +28,12 @@
             "format": "date",
             "description": "Date until which to select images"
         },
+        "repeat_every": {
+            "type": "string",
+            "enum": ["once", "hour", "day", "week", "month", "year"],
+            "default": "once",
+            "description": "Repeat the download every once/hour/day/week/month/year"
+        },
         "apps": {
             "oneOf": [
                 {
