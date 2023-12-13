@@ -98,6 +98,9 @@ class LuxonisDataset:
             Underlying bucket storage from local (no cloud), S3, or GCS
         """
 
+        if dataset_name is not None and not isinstance(dataset_name, str):
+            raise ValueError("`dataset_name` argument must be a string")
+
         if dataset_name is None and dataset_id is None:
             raise Exception(
                 "Must provide either dataset_name or dataset_id when initializing LuxonisDataset"
