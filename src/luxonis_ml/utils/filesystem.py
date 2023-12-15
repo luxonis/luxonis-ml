@@ -14,6 +14,7 @@ class LuxonisFileSystem:
         path: Optional[str],
         allow_active_mlflow_run: Optional[bool] = False,
         allow_local: Optional[bool] = True,
+        **kwargs,
     ):
         """Helper class which abstracts uploading and downloading files from remote and local sources.
         Supports S3, MLflow and local file systems.
@@ -22,6 +23,7 @@ class LuxonisFileSystem:
             path (Optional[str]): Input path consisting of protocol and actual path or just path for local files
             allow_active_mlflow_run (Optional[bool], optional): Flag if operations are allowed on active MLFlow run. Defaults to False.
             allow_local (Optional[bool], optional): Flag if operations are allowed on local file system. Defaults to True.
+            **kwargs: Additional arguments that are passed to fsspec filesystem.
         """
         if path is None:
             raise ValueError("No path provided to LuxonisFileSystem.")
@@ -65,14 +67,18 @@ class LuxonisFileSystem:
                 )
         else:
             self.is_fsspec = True
-            self.fs = self.init_fsspec_filesystem()
+            self.fs = self.init_fsspec_filesystem(**kwargs)
 
     def full_path(self) -> str:
         """Returns full path"""
         return f"{self.protocol}://{self.path}"
 
-    def init_fsspec_filesystem(self) -> Any:
-        """Returns fsspec filesystem based on protocol"""
+    def init_fsspec_filesystem(self, **kwargs) -> Any:
+        """Returns fsspec filesystem based on protocol.
+
+        Args:
+            **kwargs: Additional arguments that are passed to fsspec filesystem.
+        """
         if self.protocol == "s3":
             # NOTE: In theory boto3 should look in environment variables automatically but it doesn't seem to work
             return fsspec.filesystem(
@@ -80,12 +86,13 @@ class LuxonisFileSystem:
                 key=environ.AWS_ACCESS_KEY_ID,
                 secret=environ.AWS_SECRET_ACCESS_KEY,
                 endpoint_url=environ.AWS_S3_ENDPOINT_URL,
+                **kwargs,
             )
         elif self.protocol == "gcs":
             # NOTE: This should automatically read from GOOGLE_APPLICATION_CREDENTIALS
-            return fsspec.filesystem(self.protocol)
+            return fsspec.filesystem(self.protocol, **kwargs)
         elif self.protocol == "file":
-            return fsspec.filesystem(self.protocol)
+            return fsspec.filesystem(self.protocol, **kwargs)
         else:
             raise NotImplementedError
 
