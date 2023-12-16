@@ -7,8 +7,7 @@ from pathlib import Path
 
 # TODO: place for common parser args
 def recognize(dataset_path: str) -> str:
-    """
-    dataset_path (str): Path to the root folder of the dataset.
+    """dataset_path (str): Path to the root folder of the dataset.
 
     NOTE: Dataset type checking is done by some significant property of the dataset (has to contain json file, yaml file,..).
     """

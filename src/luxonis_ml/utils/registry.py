@@ -6,7 +6,6 @@ class Registry:
     def __init__(self, name: str):
         """A registry to map strings to classes or functions.
 
-
         Args:
             name (str): Registry name
         """
@@ -32,7 +31,7 @@ class Registry:
         return self._module_dict
 
     def get(self, key: str) -> type:
-        """Get the registry record for the key
+        """Get the registry record for the key.
 
         Args:
             key (str): Name of the registered item, e.g. the class name in string format
@@ -52,7 +51,7 @@ class Registry:
         module: Optional[type] = None,
         force: bool = False,
     ) -> Union[type, Callable[[type], type]]:
-        """Registers a module
+        """Registers a module.
 
         Args:
             name (Optional[str], optional): Name of the module, if None then use class name. Defaults to None.
@@ -77,7 +76,7 @@ class Registry:
     def _register_module(
         self, module: type, module_name: Optional[str] = None, force: bool = False
     ) -> None:
-        """Registers a module by creating a (key, value) pair
+        """Registers a module by creating a (key, value) pair.
 
         Args:
             module (type): Module class to be registered

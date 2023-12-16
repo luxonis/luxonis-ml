@@ -3,10 +3,10 @@ from enum import Enum
 
 class DataLabelType(Enum):
     """Supported computer vision label types.
-    Annotation types can be nested
-    (e.g. a BOX has 2 LABELS,
-        a BOX has a POLYLINE instance segmentation,
-        etc.)"""
+
+    Annotation types can be nested (e.g. a BOX has 2 LABELS,     a BOX
+    has a POLYLINE instance segmentation,     etc.)
+    """
 
     CLASSIFICATION = (
         "classification"  # used for single, multi-class, or multi-label classification
@@ -20,7 +20,7 @@ class DataLabelType(Enum):
 
 
 class MediaType(Enum):
-    """Individual file type"""
+    """Individual file type."""
 
     IMAGE = "image"
     VIDEO = "video"
@@ -28,7 +28,7 @@ class MediaType(Enum):
 
 
 class ImageType(Enum):
-    """Image type for IMAGE HType"""
+    """Image type for IMAGE HType."""
 
     COLOR = "color"
     MONO = "mono"
@@ -36,7 +36,7 @@ class ImageType(Enum):
 
 
 class LDFTransactionType(Enum):
-    """The type of transaction"""
+    """The type of transaction."""
 
     END = "END"
     ADD = "ADD"
@@ -45,14 +45,14 @@ class LDFTransactionType(Enum):
 
 
 class BucketType(Enum):
-    """Whether storage is internal or external"""
+    """Whether storage is internal or external."""
 
     INTERNAL = "internal"
     EXTERNAL = "external"
 
 
 class BucketStorage(Enum):
-    """Underlying object storage for a bucket"""
+    """Underlying object storage for a bucket."""
 
     LOCAL = "local"
     S3 = "s3"

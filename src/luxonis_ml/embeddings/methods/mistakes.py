@@ -1,16 +1,15 @@
-"""
-Mismatch Detection in Labelled Data
+"""Mismatch Detection in Labelled Data.
 
-This module provides functionalities to detect mismatches or potential mislabelling 
-in a dataset based on various strategies. This is crucial in supervised machine 
+This module provides functionalities to detect mismatches or potential mislabelling
+in a dataset based on various strategies. This is crucial in supervised machine
 learning tasks where the quality of labels significantly affects model performance.
 
 Methods implemented:
-    - Centroids: This method identifies mismatches by comparing the distance of data points 
-                 to the centroid of their own class against the distances to centroids of 
+    - Centroids: This method identifies mismatches by comparing the distance of data points
+                 to the centroid of their own class against the distances to centroids of
                  other classes.
-    - KNN (k-Nearest Neighbors): This approach leverages the idea that if the majority of data 
-                                 is correctly labelled, then mislabelled data will be corrected 
+    - KNN (k-Nearest Neighbors): This approach leverages the idea that if the majority of data
+                                 is correctly labelled, then mislabelled data will be corrected
                                  by its nearest neighbors.
     - [Note: DBSCAN was considered but not implemented due to underperformance.]
 
@@ -21,7 +20,7 @@ Usage:
 
     # Detect mismatches using centroids
     mismatches, new_labels = find_mismatches_centroids(X_train, y_train)
-    
+
     # Detect mismatches using KNN
     mismatches, new_labels = find_mismatches_knn(X_train, y_train)
     ```
@@ -34,9 +33,8 @@ from sklearn.neighbors import KNeighborsClassifier
 
 
 def find_mismatches_centroids(X, y):
-    """
-    Find mismatches in the dataset.
-    A mismatch is defined as a sample that is closer to another centroid than to its own centroid.
+    """Find mismatches in the dataset. A mismatch is defined as a sample that
+    is closer to another centroid than to its own centroid.
 
     Parameters
     ----------

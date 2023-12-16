@@ -1,8 +1,7 @@
-"""
-Model Utility Functions
+"""Model Utility Functions.
 
 This script provides utility functions for handling pytorch models.
-It allows loading the model, exporting it to the ONNX format, 
+It allows loading the model, exporting it to the ONNX format,
 and manipulating ONNX models in order to extract intermediate outputs aka embeddings.
 
 Functions:
@@ -56,9 +55,8 @@ import torchvision.models.resnet as resnet
 
 
 def load_model_resnet50_minuslastlayer() -> nn.Module:
-    """
-    Load a pre-trained ResNet-50 model with the last fully connected layer removed.
-    """
+    """Load a pre-trained ResNet-50 model with the last fully connected layer
+    removed."""
     # model = models.resnet50(pretrained=True) # depricated
     model = models.resnet50(weights=resnet.ResNet50_Weights.IMAGENET1K_V1)
     model = nn.Sequential(
@@ -69,18 +67,14 @@ def load_model_resnet50_minuslastlayer() -> nn.Module:
 
 
 def load_model() -> nn.Module:
-    """
-    Load a pre-trained ResNet-50 model.
-    """
+    """Load a pre-trained ResNet-50 model."""
     model = models.resnet50(weights=resnet.ResNet50_Weights.IMAGENET1K_V1)
     model.eval()
     return model
 
 
 def export_model_onnx(model: nn.Module, model_path_out: str = "resnet50.onnx"):
-    """
-    Export the provided model to the ONNX format.
-    """
+    """Export the provided model to the ONNX format."""
     dummy_input = torch.randn(1, 3, 224, 224)
 
     torch.onnx.export(
@@ -97,18 +91,17 @@ def export_model_onnx(model: nn.Module, model_path_out: str = "resnet50.onnx"):
 
 
 def load_model_onnx(model_path: str = "resnet50.onnx") -> onnx.ModelProto:
-    """
-    Load an ONNX model from the provided path.
-    """
+    """Load an ONNX model from the provided path."""
     return onnx.load(model_path)
 
 
 def extend_output_onnx(
     onnx_model: onnx.ModelProto, intermediate_tensor_name: str
 ) -> onnx.ModelProto:
-    """
-    Set an intermediate output layer as output of the provided ONNX model.
-    (You need to know the name of the intermediate layer, which you can find by inspecting the ONNX model with Netron.app)
+    """Set an intermediate output layer as output of the provided ONNX model.
+
+    (You need to know the name of the intermediate layer, which you can
+    find by inspecting the ONNX model with Netron.app)
     """
     intermediate_layer_value_info = onnx.helper.ValueInfoProto()
     intermediate_layer_value_info.name = intermediate_tensor_name
@@ -119,9 +112,8 @@ def extend_output_onnx(
 def extend_output_onnx_overwrite(
     onnx_model: onnx.ModelProto, intermediate_tensor_name: str = "/Flatten_output_0"
 ) -> onnx.ModelProto:
-    """
-    Set the second to last layer ouput as output layer of the provided ONNX model, and rename it.
-    """
+    """Set the second to last layer ouput as output layer of the provided ONNX
+    model, and rename it."""
     onnx.checker.check_model(onnx_model)
     second_to_last_node = onnx_model.graph.node[-2]
     old_name = second_to_last_node.output[0]

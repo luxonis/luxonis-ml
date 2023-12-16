@@ -1,9 +1,10 @@
 from enum import Enum
 
-class ObjectDetectionSubtypeYOLO(Enum):
 
-    """ 
-    Object detection decoding subtypes for YOLO networks. Subtype members have exactly the same decoding. 
+class ObjectDetectionSubtypeYOLO(Enum):
+    """Object detection decoding subtypes for YOLO networks.
+
+    Subtype members have exactly the same decoding.
     """
 
     YOLOv5 = "yolov5"
@@ -13,9 +14,9 @@ class ObjectDetectionSubtypeYOLO(Enum):
 
 
 class ObjectDetectionSubtypeSSD(Enum):
+    """Object detection decoding subtypes for SSD networks.
 
-    """ 
-    Object detection decoding subtypes for SSD networks. Subtype members have exactly the same decoding. 
+    Subtype members have exactly the same decoding.
     """
 
     SSD_PARSED = "ssd-parsed"

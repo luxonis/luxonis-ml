@@ -1,5 +1,4 @@
 import unittest
-from unittest import mock
 import subprocess, shutil, os, glob, json, time
 import numpy as np
 import cv2
@@ -91,9 +90,7 @@ class LuxonisDatasetTester(unittest.TestCase):
             mask = np.zeros(
                 (height, width)
             )  # segmentation mask is always a HxW numpy array
-            boxes = (
-                []
-            )  # bounding boxes are a list of [class, x, y, width, height] of the box
+            boxes = []  # bounding boxes are a list of [class, x, y, width, height] of the box
             keypoints = []  # keypoints are a list of classes and (x,y) points
 
             # create the additions
@@ -1070,7 +1067,6 @@ if __name__ == "__main__":
         help="Omits dataset deletion for further exploratory testing",
     )
     args = parser.parse_args()
-
     """
     NOTE: Depsite the name, this is integration testing not unit testing.
     The test cases are meant to happen in a certain order to check how

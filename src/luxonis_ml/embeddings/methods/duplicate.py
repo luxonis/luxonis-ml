@@ -1,9 +1,8 @@
-"""
-Near-duplicate Search with Qdrant
+"""Near-duplicate Search with Qdrant.
 
 This module provides utilities to detect and remove near-duplicate data points
-within a given set of embeddings. The removal process uses Kernel Density 
-Estimation (KDE) on embeddings cosine similarity for optimal split, making 
+within a given set of embeddings. The removal process uses Kernel Density
+Estimation (KDE) on embeddings cosine similarity for optimal split, making
 this approach particularly suited for embeddings in high dimensional spaces.
 
 Functionality Includes:
@@ -64,12 +63,9 @@ import numpy as np
 
 # Near-duplicate search
 from scipy.signal import argrelextrema
-from scipy.stats import gaussian_kde
-import scipy.spatial.distance as distance
 from KDEpy import FFTKDE
 
 # Qdrant
-from luxonis_ml.embeddings.utils.qdrant import QdrantAPI
 
 
 def search_qdrant(qdrant_api, query_vector, data_name, limit=5000):
@@ -84,9 +80,7 @@ def search_qdrant(qdrant_api, query_vector, data_name, limit=5000):
 
 
 def _plot_kde(xs, s, density, maxima, minima):
-    """
-    Plot a KDE distribution.
-    """
+    """Plot a KDE distribution."""
     plt.plot(xs, density, label="KDE")
     plt.plot(xs[maxima], s[maxima], "ro", label="local maxima")
     plt.plot(xs[minima], s[minima], "bo", label="local minima")
@@ -96,9 +90,8 @@ def _plot_kde(xs, s, density, maxima, minima):
 
 
 def kde_peaks(data, bandwidth="scott", plot=False):
-    """
-    Find peaks in a KDE distribution using scipy's argrelextrema function.
-    """
+    """Find peaks in a KDE distribution using scipy's argrelextrema
+    function."""
     # fit density
     kde = FFTKDE(kernel="gaussian", bw=bandwidth)
     xs = np.linspace(np.min(data) - 0.01, np.max(data) + 0.01, 1000)
@@ -133,8 +126,7 @@ def find_similar_qdrant(
     kde_bw="scott",
     plot=False,
 ):
-    """
-    Find the most similar embeddings to the reference embeddings.
+    """Find the most similar embeddings to the reference embeddings.
 
     Parameters
     ----------
@@ -175,7 +167,6 @@ def find_similar_qdrant(
         The instance_ids of the most similar embeddings.
     np.array
         The image_paths of the most similar embeddings.
-
     """
     # Get the reference embeddings
     # check if reference_embeddings is a list of instance_ids

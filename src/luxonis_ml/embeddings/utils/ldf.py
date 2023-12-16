@@ -1,5 +1,5 @@
-"""
-This script provides utilities for generating embeddings from images, filtering new samples, and inserting them into a Qdrant database.
+"""This script provides utilities for generating embeddings from images,
+filtering new samples, and inserting them into a Qdrant database.
 
 Modules Used:
 - cv2: For reading and processing images.
@@ -25,19 +25,13 @@ Ensure that the Qdrant server is running and accessible before using these utili
 """
 
 import cv2
-import numpy as np
 import torch
 import torch.onnx
-import onnx
-import onnxruntime
-import torchvision
 import torchvision.transforms as transforms
-from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct, SearchRequest
+from qdrant_client.models import SearchRequest
 from qdrant_client.http import models
 
 from luxonis_ml.data.dataset import LuxonisDataset
-from luxonis_ml.embeddings.utils.qdrant import QdrantAPI
 
 
 def _get_sample_payloads_coco(luxonis_dataset: LuxonisDataset):
@@ -80,8 +74,7 @@ def _get_sample_payloads_coco(luxonis_dataset: LuxonisDataset):
 
 
 def _get_sample_payloads(luxonis_dataset: LuxonisDataset):
-    """
-    Extract payloads from the LuxonisDataset.
+    """Extract payloads from the LuxonisDataset.
 
     Args:
         luxonis_dataset: The dataset object.
@@ -117,8 +110,9 @@ def _get_sample_payloads(luxonis_dataset: LuxonisDataset):
 def _filter_new_samples(
     qdrant_client, collection_name, vector_size=2048, all_payloads=[]
 ):
-    """
-    Filter out samples that are already in the Qdrant database based on their sample ID.
+    """Filter out samples that are already in the Qdrant database based on
+    their sample ID.
+
     Args:
         qdrant_client: Qdrant client instance.
         collection_name: Name of the Qdrant collection.
@@ -154,8 +148,9 @@ def _filter_new_samples(
 
 
 def _filter_new_samples_by_id(qdrant_client, collection_name, all_payloads=[]):
-    """
-    Filter out samples that are already in the Qdrant database based on their instance ID.
+    """Filter out samples that are already in the Qdrant database based on
+    their instance ID.
+
     Args:
         qdrant_client: Qdrant client instance.
         collection_name: Name of the Qdrant collection.
@@ -191,8 +186,8 @@ def _generate_new_embeddings(
     new_payloads=[],
     transform=None,
 ):
-    """
-    Generate embeddings for new images using a given ONNX runtime session.
+    """Generate embeddings for new images using a given ONNX runtime session.
+
     Args:
         ort_session: ONNX runtime session.
         output_layer_name: Name of the output layer in the ONNX model.
@@ -243,8 +238,8 @@ def _generate_new_embeddings(
 def _batch_upsert(
     qdrant_client, collection_name, new_embeddings, new_payloads, qdrant_batch_size=64
 ):
-    """
-    Perform batch upserts of embeddings to Qdrant.
+    """Perform batch upserts of embeddings to Qdrant.
+
     Args:
         qdrant_client: Qdrant client instance.
         collection_name: Name of the Qdrant collection.
@@ -284,8 +279,8 @@ def generate_embeddings(
     emb_batch_size=64,
     qdrant_batch_size=64,
 ):
-    """
-    Generate embeddings for a given dataset and insert them into Qdrant.
+    """Generate embeddings for a given dataset and insert them into Qdrant.
+
     Args:
         luxonis_dataset: The dataset object.
         ort_session: ONNX runtime session.

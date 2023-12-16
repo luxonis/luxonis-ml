@@ -11,7 +11,6 @@ from fiftyone.core.fields import (
 )
 
 from fiftyone.core.odm.document import Document
-from fiftyone.core.odm.dataset import DatasetDocument
 
 
 class LuxonisDatasetDocument(Document):
