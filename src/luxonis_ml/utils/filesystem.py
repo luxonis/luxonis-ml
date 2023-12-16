@@ -14,7 +14,7 @@ class LuxonisFileSystem:
         path: Optional[str],
         allow_active_mlflow_run: Optional[bool] = False,
         allow_local: Optional[bool] = True,
-        **kwargs,
+        cache_storage: Optional[str] = None,
     ):
         """Helper class which abstracts uploading and downloading files from remote and local sources.
         Supports S3, MLflow and local file systems.
@@ -28,6 +28,7 @@ class LuxonisFileSystem:
         if path is None:
             raise ValueError("No path provided to LuxonisFileSystem.")
 
+        self.cache_storage = cache_storage
         self.protocol, self.path = _get_protocol_and_path(path)
         supported_protocols = ["s3", "gcs", "file", "mlflow"]
         if self.protocol not in supported_protocols:
@@ -67,34 +68,33 @@ class LuxonisFileSystem:
                 )
         else:
             self.is_fsspec = True
-            self.fs = self.init_fsspec_filesystem(**kwargs)
+            self.fs = self.init_fsspec_filesystem()
 
     def full_path(self) -> str:
         """Returns full path"""
         return f"{self.protocol}://{self.path}"
 
-    def init_fsspec_filesystem(self, **kwargs) -> Any:
-        """Returns fsspec filesystem based on protocol.
-
-        Args:
-            **kwargs: Additional arguments that are passed to fsspec filesystem.
-        """
+    def init_fsspec_filesystem(self) -> Any:
+        """Returns fsspec filesystem based on protocol."""
         if self.protocol == "s3":
             # NOTE: In theory boto3 should look in environment variables automatically but it doesn't seem to work
-            return fsspec.filesystem(
+            fs = fsspec.filesystem(
                 self.protocol,
                 key=environ.AWS_ACCESS_KEY_ID,
                 secret=environ.AWS_SECRET_ACCESS_KEY,
                 endpoint_url=environ.AWS_S3_ENDPOINT_URL,
-                **kwargs,
             )
         elif self.protocol == "gcs":
             # NOTE: This should automatically read from GOOGLE_APPLICATION_CREDENTIALS
-            return fsspec.filesystem(self.protocol, **kwargs)
+            fs = fsspec.filesystem(self.protocol)
         elif self.protocol == "file":
-            return fsspec.filesystem(self.protocol, **kwargs)
+            fs = fsspec.filesystem(self.protocol)
         else:
             raise NotImplementedError
+        if self.cache_storage is None:
+            return fs
+
+        return fsspec.filesystem("filecache", fs=fs, cache_storage=self.cache_storage)
 
     def put_file(
         self,
