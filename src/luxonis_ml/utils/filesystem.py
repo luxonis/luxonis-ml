@@ -20,10 +20,13 @@ class LuxonisFileSystem:
         Supports S3, MLflow and local file systems.
 
         Args:
-            path (Optional[str]): Input path consisting of protocol and actual path or just path for local files
+            path (Optional[str]): Input path consisting of protocol and actual
+                path or just path for local files
             allow_active_mlflow_run (Optional[bool], optional): Flag if operations are allowed on active MLFlow run. Defaults to False.
-            allow_local (Optional[bool], optional): Flag if operations are allowed on local file system. Defaults to True.
-            **kwargs: Additional arguments that are passed to fsspec filesystem.
+            allow_local (Optional[bool], optional): Flag if operations are
+                allowed on local file system. Defaults to True.
+            cache_storage (Optional[str], optional): Path to cache storage. No cache
+                is used if set to None. Defaults to None.
         """
         if path is None:
             raise ValueError("No path provided to LuxonisFileSystem.")
