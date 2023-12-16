@@ -1,4 +1,4 @@
-from .database import a
+from .database import (
     LuxonisDatasetDocument,
     LuxonisSourceDocument,
     VersionDocument,
