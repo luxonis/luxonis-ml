@@ -3,6 +3,7 @@ import shutil
 import time
 from pathlib import Path
 import json
+import logging
 from tqdm import tqdm
 import numpy as np
 import pandas as pd
@@ -15,7 +16,7 @@ import luxonis_ml.data.utils.data_utils as data_utils
 from luxonis_ml.utils import LuxonisFileSystem, environ
 from luxonis_ml.data.utils.parquet import ParquetFileManager
 from .utils.constants import LDF_VERSION, LABEL_TYPES
-from .utils.enums import BucketType, BucketStorage, MediaType, ImageType
+from .utils.enums import BucketType, BucketStorage, MediaType, ImageType, DataLabelType
 
 
 class LuxonisComponent:
@@ -97,6 +98,9 @@ class LuxonisDataset:
             Underlying bucket storage from local (no cloud), S3, or GCS
         """
 
+        if dataset_name is not None and not isinstance(dataset_name, str):
+            raise ValueError("`dataset_name` argument must be a string")
+
         if dataset_name is None and dataset_id is None:
             raise Exception(
                 "Must provide either dataset_name or dataset_id when initializing LuxonisDataset"
@@ -165,7 +169,10 @@ class LuxonisDataset:
         elif self.bucket_storage == BucketStorage.AZURE_BLOB:
             raise NotImplementedError
         else:
+            self.tmp_dir = ".luxonis_tmp"
             self.fs = LuxonisFileSystem(self.path)
+
+        self.logger = logging.getLogger(__name__)
 
     def __len__(self) -> int:
         """Returns the number of instances in the dataset"""
@@ -235,29 +242,36 @@ class LuxonisDataset:
     def _init_path(self) -> None:
         """Configures local path or bucket directory"""
 
+        self.local_path = str(
+            Path(self.base_path)
+            / "data"
+            / self.team_id
+            / "datasets"
+            / self.dataset_name
+        )
+        self.media_path = os.path.join(self.local_path, "media")
+        self.annotations_path = os.path.join(self.local_path, "annotations")
+        self.metadata_path = os.path.join(self.local_path, "metadata")
+        self.masks_path = os.path.join(self.local_path, "masks")
+
         if self.bucket_storage == BucketStorage.LOCAL:
-            self.path = str(
-                Path(self.base_path)
-                / "data"
-                / self.team_id
-                / "datasets"
-                / self.dataset_name
-            )
+            self.path = self.local_path
             os.makedirs(self.path, exist_ok=True)
-            self.media_path = os.path.join(self.path, "media")
-            self.annotations_path = os.path.join(self.path, "annotations")
-            self.metadata_path = os.path.join(self.path, "metadata")
             os.makedirs(self.media_path, exist_ok=True)
             os.makedirs(self.annotations_path, exist_ok=True)
             os.makedirs(self.metadata_path, exist_ok=True)
         else:
             self.path = f"{self.bucket_storage.value}://{self.bucket}/{self.team_id}/datasets/{self.dataset_name}"
 
-    def _load_df_offline(self) -> Optional[pd.DataFrame]:
+    def _load_df_offline(self, sync_mode: bool = False) -> Optional[pd.DataFrame]:
         dfs = []
-        for file in os.listdir(self.annotations_path):
+        if self.bucket_storage == BucketStorage.LOCAL or sync_mode:
+            annotations_path = self.annotations_path
+        else:
+            annotations_path = os.path.join(self.tmp_dir, "annotations")
+        for file in os.listdir(annotations_path):
             if os.path.splitext(file)[1] == ".parquet":
-                dfs.append(pd.read_parquet(os.path.join(self.annotations_path, file)))
+                dfs.append(pd.read_parquet(os.path.join(annotations_path, file)))
         if len(dfs):
             return pd.concat(dfs)
         else:
@@ -281,7 +295,7 @@ class LuxonisDataset:
         if self.bucket_storage == BucketStorage.LOCAL:
             file_index_path = os.path.join(self.metadata_path, "file_index.parquet")
         else:
-            file_index_path = os.path.join(".luxonisml_tmp", "file_index.parquet")
+            file_index_path = os.path.join(self.tmp_dir, "file_index.parquet")
             try:
                 self.fs.get_file("metadata/file_index.parquet", file_index_path)
             except Exception:
@@ -311,7 +325,15 @@ class LuxonisDataset:
 
     def _end_time(self) -> None:
         self.t1 = time.time()
-        print(f"Took {self.t1 - self.t0} seconds")
+        self.logger.info(f"Took {self.t1 - self.t0} seconds")
+
+    def _make_temp_dir(self) -> None:
+        if os.path.exists(self.tmp_dir):
+            shutil.rmtree(self.tmp_dir)
+        os.makedirs(self.tmp_dir, exist_ok=False)
+
+    def _remove_temp_dir(self) -> None:
+        shutil.rmtree(self.tmp_dir)
 
     def update_source(self, source: LuxonisSource) -> None:
         """
@@ -349,6 +371,15 @@ class LuxonisDataset:
                     self.datasets[self.dataset_name]["classes"][task] = classes
             self._write_datasets()
 
+            if self.bucket_storage != BucketStorage.LOCAL:
+                classes_json = self.datasets[self.dataset_name]["classes"]
+                self._make_temp_dir()
+                local_file = os.path.join(self.tmp_dir, "classes.json")
+                with open(local_file, "w") as file:
+                    json.dump(classes_json, file, indent=4)
+                self.fs.put_file(local_file, "metadata/classes.json")
+                self._remove_temp_dir()
+
     # TODO: method to auto-set classes per-task using pandas
 
     def set_skeletons(self, skeletons: Dict[str, Dict]) -> None:
@@ -378,14 +409,22 @@ class LuxonisDataset:
         if self.bucket_storage == BucketStorage.LOCAL:
             self.logger.warning("This is a local dataset! Cannot sync")
         else:
-            local_dir = os.path.join(
-                self.base_path, "data", self.team_id, "datasets", self.dataset_name
-            )
-            if not os.path.exists(local_dir):
-                os.makedirs(local_dir, exist_ok=True)
-            self.fs.get_dir(remote_dir=self.path, local_dir=local_dir)
+            if not hasattr(self, "is_synced") or not self.is_synced:
+                local_dir = os.path.join(
+                    self.base_path, "data", self.team_id, "datasets", self.dataset_name
+                )
+                if not os.path.exists(local_dir):
+                    os.makedirs(local_dir, exist_ok=True)
 
-    def get_classes(self) -> Tuple[List[str], Dict]:
+                protocol = self.bucket_storage.value
+                bucket = self.bucket
+                fs_path = f"{protocol}://{bucket}"
+                remote_dir = fs_path.split(fs_path)[1]
+                self.fs.get_dir(remote_dir=remote_dir, local_dir=local_dir)
+
+                self.is_synced = True
+
+    def get_classes(self, sync_mode: bool = False) -> Tuple[List[str], Dict]:
         """Gets overall classes in the dataset and classes according to CV task"""
 
         if self.online:
@@ -393,8 +432,15 @@ class LuxonisDataset:
         else:
             classes = set()
             classes_by_task = {}
-            for task in self.datasets[self.dataset_name]["classes"]:
-                task_classes = self.datasets[self.dataset_name]["classes"][task]
+            if sync_mode:
+                local_file = os.path.join(self.metadata_path, "classes.json")
+                self.fs.get_file("metadata/classes.json", local_file)
+                with open(local_file) as file:
+                    classes_json = json.load(file)
+            else:
+                classes_json = self.datasets[self.dataset_name]["classes"]
+            for task in classes_json:
+                task_classes = classes_json[task]
                 if len(task_classes):
                     classes_by_task[task] = task_classes
                     for cls in task_classes:
@@ -442,22 +488,24 @@ class LuxonisDataset:
                     (e.g. [0.5, 0.4, 0.1, 0.2])
                 value (polyline) [List[List[float]]] : an ordered list of [x, y] polyline points
                     (e.g. [[0.2, 0.3], [0.4, 0.5], ...])
+                value (segmentation) [Tuple[int, int, List[int]]]: an RLE representation of (height, width, counts) based on the COCO convention
                 value (keypoints) [List[List[float]]] : an ordered list of [x, y, visibility] keypoints for a keypoint skeleton instance
                     (e.g. [[0.2, 0.3, 2], [0.4, 0.5, 2], ...])
+                value (array) [str]: path to a numpy .npy file
         batch_size: The number of annotations generated before processing.
             This can be set to a lower value to reduce memory usage.
         """
 
-        def _add_process_batch():
+        def _add_process_batch(batch_data: List[Dict]) -> None:
             paths = list(set([data["file"] for data in batch_data]))
-            print("Generating UUIDs...")
+            self.logger.info("Generating UUIDs...")
             self._start_time()
             uuid_dict = self.fs.get_file_uuids(
                 paths, local=True
             )  # TODO: support from bucket
             self._end_time()
             if self.bucket_storage != BucketStorage.LOCAL:
-                print("Uploading media...")
+                self.logger.info("Uploading media...")
                 # TODO: support from bucket (likely with a self.fs.copy_dir)
                 self._start_time()
                 self.fs.put_dir(
@@ -465,7 +513,47 @@ class LuxonisDataset:
                 )
                 self._end_time()
 
-            print("Saving annotations...")
+            array_paths = list(
+                set(
+                    [
+                        data["value"]
+                        for data in batch_data
+                        if data["type"] == "array"
+                    ]
+                )
+            )
+            if len(array_paths):
+                self.logger.info("Checking arrays...")
+                self._start_time()
+                data_utils.check_arrays(array_paths)
+                self._end_time()
+                self.logger.info("Generating array UUIDs...")
+                self._start_time()
+                array_uuid_dict = self.fs.get_file_uuids(
+                    array_paths, local=True
+                )  # TODO: support from bucket
+                self._end_time()
+                if self.bucket_storage != BucketStorage.LOCAL:
+                    self.logger.info("Uploading arrays...")
+                    # TODO: support from bucket (likely with a self.fs.copy_dir)
+                    self._start_time()
+                    mask_upload_dict = self.fs.put_dir(
+                        local_paths=array_paths,
+                        remote_dir="arrays",
+                        uuid_dict=array_uuid_dict,
+                    )
+                    self._end_time()
+                self.logger.info("Finalizing paths...")
+                for data in tqdm(batch_data):
+                    if data["type"] == "array":
+                        if self.bucket_storage != BucketStorage.LOCAL:
+                            remote_path = mask_upload_dict[data["value"]]
+                            remote_path = f"{self.fs.protocol}://{os.path.join(self.fs.path, remote_path)}"
+                            data["value"] = remote_path
+                        else:
+                            data["value"] = os.path.abspath(data["value"])
+
+            self.logger.info("Saving annotations...")
             self._start_time()
             for data in tqdm(batch_data):
                 filepath = data["file"]
@@ -488,7 +576,11 @@ class LuxonisDataset:
                 data["instance_id"] = instance_id
                 data["file"] = file
                 data["value_type"] = type(data["value"]).__name__
-                if isinstance(data["value"], list):
+                if data["type"] == "segmentation":  # handles RLE
+                    data["value"] = data_utils.transform_segmentation_value(
+                        data["value"]
+                    )
+                if isinstance(data["value"], (list, tuple)):
                     data["value"] = json.dumps(data["value"])  # convert lists to string
                 else:
                     data["value"] = str(data["value"])
@@ -503,9 +595,10 @@ class LuxonisDataset:
             if self.bucket_storage == BucketStorage.LOCAL:
                 self.pfm = ParquetFileManager(self.annotations_path)
             else:
-                tmp_dir = os.path.join(".luxonis_tmp", "annotations")
-                os.makedirs(tmp_dir, exist_ok=True)
-                self.pfm = ParquetFileManager(tmp_dir)
+                self._make_temp_dir()
+                annotations_dir = os.path.join(self.tmp_dir, "annotations")
+                os.makedirs(annotations_dir, exist_ok=True)
+                self.pfm = ParquetFileManager(annotations_dir)
 
             index = self._get_file_index()
             new_index = {"instance_id": [], "file": [], "original_filepath": []}
@@ -515,10 +608,10 @@ class LuxonisDataset:
             for i, data in enumerate(generator()):
                 batch_data.append(data)
                 if (i + 1) % batch_size == 0:
-                    _add_process_batch()
+                    _add_process_batch(batch_data)
                     batch_data = []
 
-            _add_process_batch()
+            _add_process_batch(batch_data)
 
             self.pfm.close()
 
@@ -527,9 +620,9 @@ class LuxonisDataset:
             else:
                 file_index_path = os.path.join(".luxonis_tmp", "file_index.parquet")
                 self._write_index(index, new_index, override_path=file_index_path)
-                self.fs.put_dir(tmp_dir, "annotations")
+                self.fs.put_dir(annotations_dir, "annotations")
                 self.fs.put_file(file_index_path, "metadata/file_index.parquet")
-                shutil.rmtree(tmp_dir)
+                self._remove_temp_dir()
 
     def make_splits(
         self, ratios: List[float] = [0.8, 0.1, 0.1], definitions: Optional[Dict] = None
@@ -553,6 +646,12 @@ class LuxonisDataset:
             splits = {}
 
             if definitions is None:  # random split
+                if self.bucket_storage != BucketStorage.LOCAL:
+                    self._make_temp_dir()
+                    self.fs.get_dir(
+                        "annotations", os.path.join(self.tmp_dir, "annotations")
+                    )
+
                 df = self._load_df_offline()
                 ids = list(set(df["instance_id"]))
                 np.random.shuffle(ids)
@@ -578,8 +677,15 @@ class LuxonisDataset:
                     ids = [self._try_instance_id(file, index) for file in files]
                     splits[split] = ids
 
-            with open(os.path.join(self.metadata_path, "splits.json"), "w") as file:
-                json.dump(splits, file, indent=4)
+            if self.bucket_storage == BucketStorage.LOCAL:
+                with open(os.path.join(self.metadata_path, "splits.json"), "w") as file:
+                    json.dump(splits, file, indent=4)
+            else:
+                local_file = os.path.join(self.tmp_dir, "splits.json")
+                with open(local_file, "w") as file:
+                    json.dump(splits, file, indent=4)
+                self.fs.put_file(local_file, "metadata/splits.json")
+                self._remove_temp_dir()
 
     @staticmethod
     def exists(dataset_name: str) -> bool:

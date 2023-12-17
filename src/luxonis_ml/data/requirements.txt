@@ -7,5 +7,7 @@ label-studio-sdk>=0.0.28
 # boto3>=1.17.39
 # google-cloud-storage>=2.10.0
 albumentations @ git+https://github.com/i-aki-y/albumentations.git@c137e2b # albumentations fork with batched transform support
-pandas>=2.1.0
+pandas>=2.0.0
 pyarrow>=13.0.0
+pycocotools>=2.0.7
+typeguard>=4.1.0

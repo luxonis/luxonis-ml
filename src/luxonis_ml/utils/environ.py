@@ -16,8 +16,6 @@ class Environ(BaseSettings):
     AWS_SECRET_ACCESS_KEY: Optional[str] = None
     AWS_S3_ENDPOINT_URL: Optional[str] = None
 
-    MONGO_URI: Optional[str] = None
-
     MLFLOW_CLOUDFLARE_ID: Optional[str] = None
     MLFLOW_CLOUDFLARE_SECRET: Optional[str] = None
     MLFLOW_S3_BUCKET: Optional[str] = None
