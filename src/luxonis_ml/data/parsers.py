@@ -3,9 +3,10 @@ import json
 import csv
 import yaml
 import cv2
+import logging
 import numpy as np
 import xml.etree.ElementTree as ET
-from typing import Generator, List, Dict, Tuple, Any, Callable
+from typing import Generator, List, Dict, Tuple, Any, Callable, Optional, Literal
 
 from luxonis_ml.data import LuxonisDataset
 from luxonis_ml.enums import DatasetType
@@ -24,6 +25,17 @@ class LuxonisParser:
         Args:
             ldf_kwargs (Dict[str, Any]): Init parameters for LuxonisDataset
         """
+        self.logger = logging.getLogger(__name__)
+
+        # if LuxonisDataset.exists(dataset_name=ldf_kwargs["dataset_name"]):
+        #     self.dataset_exists = True
+        # else:
+        #     self.dataset_exists = False
+        self.dataset_exists = False
+
+        self.dataset = LuxonisDataset(**ldf_kwargs)
+        # NOTE: remove this, for testing only
+        self.dataset.delete_dataset()
         self.dataset = LuxonisDataset(**ldf_kwargs)
 
     def parsing_wrapper(func: Callable) -> Callable:
@@ -38,58 +50,154 @@ class LuxonisParser:
 
         def wrapper(*args, **kwargs):
             dataset = args[0].dataset
-            generator, class_names, skeletons = func(*args, **kwargs)
-
+            generator, class_names, skeletons, added_images = func(*args, **kwargs)
             dataset.set_classes(class_names)
             dataset.set_skeletons(skeletons)
             dataset.add(generator)
 
+            return added_images
+
         return wrapper
 
     def parse(
-        self, dataset_type: DatasetType, **parser_kwargs: Dict[str, Any]
+        self,
+        dataset_type: DatasetType,
+        dataset_dir: str,
+        **parser_kwargs: Dict[str, Any],
     ) -> LuxonisDataset:
-        """Parses annotations from specified dataset type to LDF
+        if dataset_type == DatasetType.LDF:
+            return self.dataset
 
-        Args:
-            dataset_type (DatasetType): Input dataset type
-            parser_kwargs (Dict[str, Any]): Parameters specific to chosen
-            dataset type parser
+        if self.dataset_exists:
+            self.logger.warning(
+                "There already exists an LDF dataset with this name. "
+                "Skipping parsing and using that one instead."
+            )
+            return self.dataset
 
-        Raises:
-            KeyError: Raised if input dataset type not supported
+        if dataset_type == DatasetType.COCO:
+            self.from_coco_dir(dataset_dir, **parser_kwargs)
+        elif dataset_type == DatasetType.VOC:
+            self.from_voc_dir(dataset_dir)
+        elif dataset_type == DatasetType.DARKNET:
+            self.from_darknet_dir(dataset_dir)
+        elif dataset_type == DatasetType.YOLOV6:
+            self.from_yolov6_dir(dataset_dir)
+        elif dataset_type == DatasetType.YOLOV4:
+            self.from_yolov4_dir(dataset_dir)
+        elif dataset_type == DatasetType.CREATEML:
+            self.from_create_ml_dir(dataset_dir)
+        elif dataset_type == DatasetType.TFCSV:
+            self.from_tensorflow_csv_dir(dataset_dir)
+        elif dataset_type == DatasetType.CLSDIR:
+            self.from_class_dir_dir(dataset_dir)
+        else:
+            raise ValueError(f"Parsing from `{dataset_type}` not supported.")
 
-        Returns:
-            LuxonisDataset: LuxonisDataset with parsed annotations
-        """
+        return self.dataset
+
+    def parse_single_dir(
+        self,
+        dataset_type: DatasetType,
+        split: Optional[Literal["train", "val", "test"]] = None,
+        random_split: bool = False,
+        split_ratios: Optional[List[float]] = None,
+        **parser_kwargs: Dict[str, Any],
+    ) -> LuxonisDataset:
         if dataset_type == DatasetType.LDF:
             pass
         elif dataset_type == DatasetType.COCO:
-            self._from_coco_format(**parser_kwargs)
+            added_images = self.from_coco_format(**parser_kwargs)
         elif dataset_type == DatasetType.VOC:
-            self._from_voc_format(**parser_kwargs)
+            added_images = self.from_voc_format(**parser_kwargs)
         elif dataset_type == DatasetType.DARKNET:
-            self._from_darknet_format(**parser_kwargs)
+            added_images = self.from_darknet_format(**parser_kwargs)
         elif dataset_type == DatasetType.YOLOV6:
-            self._from_yolov6_format(**parser_kwargs)
+            added_images = self.from_yolov6_format(**parser_kwargs)
         elif dataset_type == DatasetType.YOLOV4:
-            self._from_yolov4_format(**parser_kwargs)
+            added_images = self.from_yolov4_format(**parser_kwargs)
         elif dataset_type == DatasetType.CREATEML:
-            self._from_create_ml_format(**parser_kwargs)
+            added_images = self.from_create_ml_format(**parser_kwargs)
         elif dataset_type == DatasetType.TFCSV:
-            self._from_tensorflow_csv_format(**parser_kwargs)
+            added_images = self.from_tensorflow_csv_format(**parser_kwargs)
         elif dataset_type == DatasetType.CLSDIR:
-            self._from_class_dir_format(**parser_kwargs)
-        # elif dataset_type == DatasetType.SEGMASK:
-        #     self._from_seg_mask_format(**parser_kwargs)
+            added_images = self.from_class_dir_format(**parser_kwargs)
         else:
             raise KeyError(f"Parsing from `{dataset_type}` not supported.")
+
+        if split:
+            self.dataset.make_splits(definitions={split: added_images})
+        elif random_split:
+            split_ratios = split_ratios or [0.8, 0.1, 0.1]
+            self.dataset.make_splits(split_ratios)
+
         return self.dataset
 
+    def from_coco_dir(
+        self,
+        dataset_dir: str,
+        use_keypoint_ann: bool = False,
+        keypoint_ann_paths: Optional[Dict[str, str]] = None,
+        split_val_to_test: bool = True,
+    ):
+        if use_keypoint_ann and not keypoint_ann_paths:
+            keypoint_ann_paths = {
+                "train": "raw/person_keypoints_train2017.json",
+                "val": "raw/person_keypoints_val2017.json",
+                "test": "raw/person_keypoints_test2017.json",  # NOTE: this is not present by default
+            }
+
+        train_ann_path = (
+            os.path.join(dataset_dir, keypoint_ann_paths["train"])
+            if use_keypoint_ann
+            else os.path.join(dataset_dir, "train", "labels.json")
+        )
+        added_train_imgs = self.from_coco_format(
+            image_dir=os.path.join(dataset_dir, "train", "data"),
+            annotation_path=train_ann_path,
+        )
+
+        val_ann_path = (
+            os.path.join(dataset_dir, keypoint_ann_paths["val"])
+            if use_keypoint_ann
+            else os.path.join(dataset_dir, "validation", "labels.json")
+        )
+        _added_val_imgs = self.from_coco_format(
+            image_dir=os.path.join(dataset_dir, "validation", "data"),
+            annotation_path=val_ann_path,
+        )
+
+        if not split_val_to_test:
+            # NOTE: test split annotations are not included by default
+            test_ann_path = (
+                os.path.join(dataset_dir, keypoint_ann_paths["test"])
+                if use_keypoint_ann
+                else os.path.join(dataset_dir, "test", "labels.json")
+            )
+            added_test_imgs = self.from_coco_format(
+                image_dir=os.path.join(dataset_dir, "test", "data"),
+                annotation_path=test_ann_path,
+            )
+
+        if split_val_to_test:
+            split_point = round(len(_added_val_imgs) * 0.5)
+            added_val_imgs = _added_val_imgs[:split_point]
+            added_test_imgs = _added_val_imgs[split_point:]
+        else:
+            added_val_imgs = _added_val_imgs
+
+        self.dataset.make_splits(
+            definitions={
+                "train": added_train_imgs,
+                "val": added_val_imgs,
+                "test": added_test_imgs,
+            }
+        )
+
     @parsing_wrapper
-    def _from_coco_format(
+    def from_coco_format(
         self, image_dir: str, annotation_path: str
-    ) -> Tuple[Generator, List[str], Dict[str, Dict]]:
+    ) -> Tuple[Generator, List[str], Dict[str, Dict], List[str]]:
         """Parses annotations from COCO format to LDF. Annotations include classification,
         segmentation, object detection and keypoints if present.
 
@@ -98,8 +206,8 @@ class LuxonisParser:
             annotation_path (str): Path to annotation json file
 
         Returns:
-            Tuple[Generator, List[str], Dict[str, Dict]]: Annotation generator,
-            list of classes names and skeleton dictionary for keypoints
+            Tuple[Generator, List[str], Dict[str, Dict], List[str]]: Annotation generator,
+            list of classes names, skeleton dictionary for keypoints and list of added images
 
         Yields:
             Iterator[Tuple[Generator, List[str], Dict[str, Dict]]]: Annotation data
@@ -185,29 +293,75 @@ class LuxonisParser:
                             "value": keypoints,
                         }
 
-        return generator, class_names, skeletons
+        added_images = self._get_added_images(generator)
+
+        return generator, class_names, skeletons, added_images
+
+    def from_voc_dir(self, dataset_dir: str):
+        train_ann_path = os.path.join(dataset_dir, "ImageSets", "Main", "train.txt")
+        with open(train_ann_path) as f:
+            train_split = f.readlines()
+
+        with open(os.path.join(dataset_dir, "ImageSets", "Main", "val.txt")) as f:
+            val_test_split = f.readlines()
+            split_point = round(len(val_test_split) * 0.5)
+            val_split = val_test_split[:split_point]
+            test_split = val_test_split[split_point:]
+
+        # create test_new.txt and val_new.txt files with new splits
+        val_ann_path = os.path.join(dataset_dir, "ImageSets", "Main", "val_new.txt")
+        with open(val_ann_path) as f:
+            f.writelines(val_split)
+        test_ann_path = os.path.join(dataset_dir, "ImageSets", "Main", "test_new.txt")
+        with open(test_ann_path) as f:
+            f.writelines(test_split)
+
+        image_dir = os.path.join(dataset_dir, "JPEGImages")
+        ann_dir = os.path.join(dataset_dir, "Annotations")
+
+        added_train_imgs = self.from_voc_dir(
+            image_dir=image_dir, annotation_path=train_ann_path, annotation_dir=ann_dir
+        )
+        added_val_imgs = self.from_voc_dir(
+            image_dir=image_dir, annotation_path=val_ann_path, annotation_dir=ann_dir
+        )
+        added_test_imgs = self.from_voc_dir(
+            image_dir=image_dir, annotation_path=test_ann_path, annotation_dir=ann_dir
+        )
+
+        self.dataset.make_splits(
+            definitions={
+                "train": added_train_imgs,
+                "val": added_val_imgs,
+                "test": added_test_imgs,
+            }
+        )
 
     @parsing_wrapper
-    def _from_voc_format(
+    def from_voc_format(
         self,
         image_dir: str,
+        annotation_path: str,
         annotation_dir: str,
-    ) -> Tuple[Generator, List[str], Dict[str, Dict]]:
+    ) -> Tuple[Generator, List[str], Dict[str, Dict], List[str]]:
         """Parses annotations from VOC format to LDF. Annotations include classification
         and object detection.
 
         Args:
             image_dir (str): Path to directory with images
+            annotation_path (str): Path to txt file with image names
             annotation_dir (str): Path to directory with annotations
 
         Returns:
-            Tuple[Generator, List[str], Dict[str, Dict]]: Annotation generator,
-            list of classes names and skeleton dictionary for keypoints
+            Tuple[Generator, List[str], Dict[str, Dict], List[str]]: Annotation generator,
+            list of classes names, skeleton dictionary for keypoints and list of added images
 
         Yields:
             Iterator[Tuple[Generator, List[str], Dict[str, Dict]]]: Annotation data
         """
-        # NOTE: also includes segmentation masks but not for all images
+        with open(annotation_path) as f:
+            filenames = [l.rstrip() for l in f.readlines()]
+
         class_names = set()
         images_annotations = []
         for anno_file in os.listdir(annotation_dir):
@@ -216,6 +370,9 @@ class LuxonisParser:
             root = annotation_data.getroot()
 
             filename_item = root.find("filename")
+            if filename_item not in filenames:
+                continue
+
             path = os.path.join(os.path.abspath(image_dir), filename_item.text)
             if not os.path.exists(path):
                 continue
@@ -266,12 +423,36 @@ class LuxonisParser:
                         "value": bbox,
                     }
 
-        return generator, list(class_names), {}
+        added_images = self._get_added_images(generator)
+
+        return generator, list(class_names), {}, added_images
+
+    def from_darknet_dir(self, dataset_dir: str):
+        added_train_imgs = self.from_darknet_format(
+            image_dir=os.path.join(dataset_dir, "train"),
+            classes_path=os.path.join(dataset_dir, "_darknet.labels"),
+        )
+        added_val_imgs = self.from_darknet_format(
+            image_dir=os.path.join(dataset_dir, "valid"),
+            classes_path=os.path.join(dataset_dir, "_darknet.labels"),
+        )
+        added_test_imgs = self.from_darknet_format(
+            image_dir=os.path.join(dataset_dir, "test"),
+            classes_path=os.path.join(dataset_dir, "_darknet.labels"),
+        )
+
+        self.dataset.make_splits(
+            definitions={
+                "train": added_train_imgs,
+                "val": added_val_imgs,
+                "test": added_test_imgs,
+            }
+        )
 
     @parsing_wrapper
-    def _from_darknet_format(
+    def from_darknet_format(
         self, image_dir: str, classes_path: str
-    ) -> Tuple[Generator, List[str], Dict[str, Dict]]:
+    ) -> Tuple[Generator, List[str], Dict[str, Dict], List[str]]:
         """Parses annotations from Darknet format to LDF. Annotations include
         classification and object detection.
 
@@ -280,8 +461,8 @@ class LuxonisParser:
             classes_path (str): Path to file with class names
 
         Returns:
-            Tuple[Generator, List[str], Dict[str, Dict]]: Annotation generator,
-            list of classes names and skeleton dictionary for keypoints
+            Tuple[Generator, List[str], Dict[str, Dict], List[str]]: Annotation generator,
+            list of classes names, skeleton dictionary for keypoints and list of added images
 
         Yields:
             Iterator[Tuple[Generator, List[str], Dict[str, Dict]]]: Annotation data
@@ -322,12 +503,40 @@ class LuxonisParser:
                         "value": bbox_xywh,
                     }
 
-        return generator, list(class_names.values()), {}
+        added_images = self._get_added_images(generator)
+
+        return generator, list(class_names.values()), {}, added_images
+
+    def from_yolov6_dir(self, dataset_dir: str):
+        classes_path = os.path.join(dataset_dir, "data.yaml")
+        added_train_imgs = self.from_yolov6_format(
+            image_dir=os.path.join(dataset_dir, "images", "train"),
+            annotation_dir=os.path.join(dataset_dir, "labels", "train"),
+            classes_path=classes_path,
+        )
+        added_val_imgs = self.from_yolov6_format(
+            image_dir=os.path.join(dataset_dir, "images", "valid"),
+            annotation_dir=os.path.join(dataset_dir, "labels", "valid"),
+            classes_path=classes_path,
+        )
+        added_test_imgs = self.from_yolov6_format(
+            image_dir=os.path.join(dataset_dir, "images", "test"),
+            annotation_dir=os.path.join(dataset_dir, "labels", "test"),
+            classes_path=classes_path,
+        )
+
+        self.dataset.make_splits(
+            definitions={
+                "train": added_train_imgs,
+                "val": added_val_imgs,
+                "test": added_test_imgs,
+            }
+        )
 
     @parsing_wrapper
-    def _from_yolov6_format(
+    def from_yolov6_format(
         self, image_dir: str, annotation_dir: str, classes_path: str
-    ) -> Tuple[Generator, List[str], Dict[str, Dict]]:
+    ) -> Tuple[Generator, List[str], Dict[str, Dict], List[str]]:
         """Parses annotations from YoloV6 format to LDF. Annotations include
         classification and object detection.
 
@@ -337,8 +546,8 @@ class LuxonisParser:
             classes_path (str): Path to yaml file with classes names
 
         Returns:
-            Tuple[Generator, List[str], Dict[str, Dict]]: Annotation generator,
-            list of classes names and skeleton dictionary for keypoints
+            Tuple[Generator, List[str], Dict[str, Dict], List[str]]: Annotation generator,
+            list of classes names, skeleton dictionary for keypoints and list of added images
 
         Yields:
             Iterator[Tuple[Generator, List[str], Dict[str, Dict]]]: Annotation data
@@ -386,12 +595,39 @@ class LuxonisParser:
                         "value": bbox_xywh,
                     }
 
-        return generator, list(class_names.values()), {}
+        added_images = self._get_added_images(generator)
+
+        return generator, list(class_names.values()), {}, added_images
+
+    def from_yolov4_dir(self, dataset_dir: str):
+        added_train_imgs = self.from_yolov4_format(
+            image_dir=os.path.join(dataset_dir, "train"),
+            annotation_path=os.path.join(dataset_dir, "train", "_annotations.txt"),
+            classes_path=os.path.join(dataset_dir, "train", "_classes.txt"),
+        )
+        added_val_imgs = self.from_yolov4_format(
+            image_dir=os.path.join(dataset_dir, "valid"),
+            annotation_path=os.path.join(dataset_dir, "valid", "_annotations.txt"),
+            classes_path=os.path.join(dataset_dir, "valid", "_classes.txt"),
+        )
+        added_test_imgs = self.from_yolov4_format(
+            image_dir=os.path.join(dataset_dir, "test"),
+            annotation_path=os.path.join(dataset_dir, "test", "_annotations.txt"),
+            classes_path=os.path.join(dataset_dir, "test", "_classes.txt"),
+        )
+
+        self.dataset.make_splits(
+            definitions={
+                "train": added_train_imgs,
+                "val": added_val_imgs,
+                "test": added_test_imgs,
+            }
+        )
 
     @parsing_wrapper
-    def _from_yolov4_format(
+    def from_yolov4_format(
         self, image_dir: str, annotation_path: str, classes_path: str
-    ) -> Tuple[Generator, List[str], Dict[str, Dict]]:
+    ) -> Tuple[Generator, List[str], Dict[str, Dict], List[str]]:
         """Parses annotations from YoloV4 format to LDF. Annotations include
         classification and object detection.
 
@@ -401,8 +637,8 @@ class LuxonisParser:
             classes_path (str): Path to file with class names
 
         Returns:
-            Tuple[Generator, List[str], Dict[str, Dict]]: Annotation generator,
-            list of classes names and skeleton dictionary for keypoints
+            Tuple[Generator, List[str], Dict[str, Dict], List[str]]: Annotation generator,
+            list of classes names, skeleton dictionary for keypoints and list of added images
 
         Yields:
             Iterator[Tuple[Generator, List[str], Dict[str, Dict]]]: Annotation data
@@ -410,7 +646,7 @@ class LuxonisParser:
         with open(classes_path) as f:
             class_names = {i: line.rstrip() for i, line in enumerate(f.readlines())}
 
-        def generate() -> Dict[str, Any]:
+        def generator() -> Dict[str, Any]:
             with open(annotation_path) as f:
                 annotation_data = [line.rstrip() for line in f.readlines()]
 
@@ -450,12 +686,42 @@ class LuxonisParser:
                         "value": bbox_xywh,
                     }
 
-        return generate, list(class_names.values()), {}
+        added_images = self._get_added_images(generator)
+
+        return generator, list(class_names.values()), {}, added_images
+
+    def from_create_ml_dir(self, dataset_dir: str):
+        added_train_imgs = self.from_create_ml_format(
+            image_dir=os.path.join(dataset_dir, "train"),
+            annotation_path=os.path.join(
+                dataset_dir, "train", "_annotations.createml.json"
+            ),
+        )
+        added_val_imgs = self.from_create_ml_format(
+            image_dir=os.path.join(dataset_dir, "valid"),
+            annotation_path=os.path.join(
+                dataset_dir, "valid", "_annotations.createml.json"
+            ),
+        )
+        added_test_imgs = self.from_create_ml_format(
+            image_dir=os.path.join(dataset_dir, "test"),
+            annotation_path=os.path.join(
+                dataset_dir, "test", "_annotations.createml.json"
+            ),
+        )
+
+        self.dataset.make_splits(
+            definitions={
+                "train": added_train_imgs,
+                "val": added_val_imgs,
+                "test": added_test_imgs,
+            }
+        )
 
     @parsing_wrapper
-    def _from_create_ml_format(
+    def from_create_ml_format(
         self, image_dir: str, annotation_path: str
-    ) -> Tuple[Generator, List[str], Dict[str, Dict]]:
+    ) -> Tuple[Generator, List[str], Dict[str, Dict], List[str]]:
         """Parses annotations from CreateML format to LDF. Annotations include classification
         and object detection.
 
@@ -464,8 +730,8 @@ class LuxonisParser:
             annotation_path (str): Path to annotation json file
 
         Returns:
-            Tuple[Generator, List[str], Dict[str, Dict]]: Annotation generator,
-            list of classes names and skeleton dictionary for keypoints
+            Tuple[Generator, List[str], Dict[str, Dict], List[str]]: Annotation generator,
+            list of classes names, skeleton dictionary for keypoints and list of added images
 
         Yields:
             Iterator[Tuple[Generator, List[str], Dict[str, Dict]]]: Annotation data
@@ -518,12 +784,36 @@ class LuxonisParser:
                         "value": bbox,
                     }
 
-        return generator, list(class_names), {}
+        added_images = self._get_added_images(generator)
+
+        return generator, list(class_names), {}, added_images
+
+    def from_tensorflow_csv_dir(self, dataset_dir: str):
+        added_train_imgs = self.from_tensorflow_csv_format(
+            image_dir=os.path.join(dataset_dir, "train"),
+            annotation_path=os.path.join(dataset_dir, "train", "_annotations.csv"),
+        )
+        added_val_imgs = self.from_tensorflow_csv_format(
+            image_dir=os.path.join(dataset_dir, "valid"),
+            annotation_path=os.path.join(dataset_dir, "valid", "_annotations.csv"),
+        )
+        added_test_imgs = self.from_tensorflow_csv_format(
+            image_dir=os.path.join(dataset_dir, "test"),
+            annotation_path=os.path.join(dataset_dir, "test", "_annotations.csv"),
+        )
+
+        self.dataset.make_splits(
+            definitions={
+                "train": added_train_imgs,
+                "val": added_val_imgs,
+                "test": added_test_imgs,
+            }
+        )
 
     @parsing_wrapper
-    def _from_tensorflow_csv_format(
+    def from_tensorflow_csv_format(
         self, image_dir: str, annotation_path: str
-    ) -> Tuple[Generator, List[str], Dict[str, Dict]]:
+    ) -> Tuple[Generator, List[str], Dict[str, Dict], List[str]]:
         """Parses annotations from TensorflowCSV format to LDF. Annotations include classification
         and object detection.
 
@@ -532,8 +822,8 @@ class LuxonisParser:
             annotation_path (str): Path to annotation CSV file
 
         Returns:
-            Tuple[Generator, List[str], Dict[str, Dict]]: Annotation generator,
-            list of classes names and skeleton dictionary for keypoints
+            Tuple[Generator, List[str], Dict[str, Dict], List[str]]: Annotation generator,
+            list of classes names, skeleton dictionary for keypoints and list of added images
 
         Yields:
             Iterator[Tuple[Generator, List[str], Dict[str, Dict]]]: Annotation data
@@ -594,12 +884,33 @@ class LuxonisParser:
                         "value": bbox,
                     }
 
-        return generator, list(class_names), {}
+        added_images = self._get_added_images(generator)
+
+        return generator, list(class_names), {}, added_images
+
+    def from_class_dir_dir(self, dataset_dir: str):
+        added_train_imgs = self.from_class_dir_format(
+            class_dir=os.path.join(dataset_dir, "train"),
+        )
+        added_val_imgs = self.from_class_dir_format(
+            class_dir=os.path.join(dataset_dir, "valid"),
+        )
+        added_test_imgs = self.from_class_dir_format(
+            class_dir=os.path.join(dataset_dir, "test"),
+        )
+
+        self.dataset.make_splits(
+            definitions={
+                "train": added_train_imgs,
+                "val": added_val_imgs,
+                "test": added_test_imgs,
+            }
+        )
 
     @parsing_wrapper
-    def _from_class_dir_format(
+    def from_class_dir_format(
         self, class_dir: str
-    ) -> Tuple[Generator, List[str], Dict[str, Dict]]:
+    ) -> Tuple[Generator, List[str], Dict[str, Dict], List[str]]:
         """Parses annotations from classification directory format to LDF. Annotations
         include classification.
 
@@ -607,8 +918,8 @@ class LuxonisParser:
             class_dir (str): Path to top level directory
 
         Returns:
-            Tuple[Generator, List[str], Dict[str, Dict]]: Annotation generator,
-            list of classes names and skeleton dictionary for keypoints
+            Tuple[Generator, List[str], Dict[str, Dict], List[str]]: Annotation generator,
+            list of classes names, skeleton dictionary for keypoints and list of added images
 
         Yields:
             Iterator[Tuple[Generator, List[str], Dict[str, Dict]]]: Annotation data
@@ -633,7 +944,9 @@ class LuxonisParser:
                         "value": True,
                     }
 
-        return generator, class_names, {}
+        added_images = self._get_added_images(generator)
+
+        return generator, class_names, {}, added_images
 
     # # TODO: Test once segmentation PR merged
     # @parsing_wrapper
@@ -692,3 +1005,17 @@ class LuxonisParser:
     #                 }
 
     #     return generator, list(class_names.values()), {}
+
+    def _get_added_images(self, generator: Generator) -> List[str]:
+        added_images = set()
+        for item in generator():
+            added_images.add(item["file"])
+        return list(added_images)
+
+
+if __name__ == "__main__":
+    parser = LuxonisParser(dataset_name="coco_test")
+    dataset = parser.parse(
+        dataset_type=DatasetType.COCO,
+        dataset_dir="/home/klemen/fiftyone/coco-2017-all/",
+    )
