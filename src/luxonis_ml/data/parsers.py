@@ -257,7 +257,7 @@ class LuxonisParser:
                         for s in seg:
                             poly_arr = np.array(s).reshape(-1, 2)
                             poly += [
-                                [poly_arr[i, 0] / width, poly_arr[i, 1] / height]
+                                tuple([poly_arr[i, 0] / width, poly_arr[i, 1] / height])
                                 for i in range(len(poly_arr))
                             ]
                         yield {
@@ -272,7 +272,7 @@ class LuxonisParser:
                         "file": path,
                         "class": class_name,
                         "type": "box",
-                        "value": [x / width, y / height, w / width, h / height],
+                        "value": tuple([x / width, y / height, w / width, h / height]),
                     }
 
                     if "keypoints" in ann.keys():
@@ -420,7 +420,7 @@ class LuxonisParser:
                         "file": path,
                         "class": bbox_class,
                         "type": "box",
-                        "value": bbox,
+                        "value": tuple(bbox),
                     }
 
         added_images = self._get_added_images(generator)
@@ -500,7 +500,7 @@ class LuxonisParser:
                         "file": path,
                         "class": class_name,
                         "type": "box",
-                        "value": bbox_xywh,
+                        "value": tuple(bbox_xywh),
                     }
 
         added_images = self._get_added_images(generator)
@@ -592,7 +592,7 @@ class LuxonisParser:
                         "file": path,
                         "class": class_name,
                         "type": "box",
-                        "value": bbox_xywh,
+                        "value": tuple(bbox_xywh),
                     }
 
         added_images = self._get_added_images(generator)
@@ -683,7 +683,7 @@ class LuxonisParser:
                         "file": path,
                         "class": class_name,
                         "type": "box",
-                        "value": bbox_xywh,
+                        "value": tuple(bbox_xywh),
                     }
 
         added_images = self._get_added_images(generator)
@@ -781,7 +781,7 @@ class LuxonisParser:
                         "file": path,
                         "class": bbox_class,
                         "type": "box",
-                        "value": bbox,
+                        "value": tuple(bbox),
                     }
 
         added_images = self._get_added_images(generator)
@@ -881,7 +881,7 @@ class LuxonisParser:
                         "file": path,
                         "class": bbox_class,
                         "type": "box",
-                        "value": bbox,
+                        "value": tuple(bbox),
                     }
 
         added_images = self._get_added_images(generator)
@@ -1014,8 +1014,14 @@ class LuxonisParser:
 
 
 if __name__ == "__main__":
-    parser = LuxonisParser(dataset_name="coco_test")
+    # parser = LuxonisParser(dataset_name="coco_test")
+    # dataset = parser.parse(
+    #     dataset_type=DatasetType.COCO,
+    #     dataset_dir="/home/klemen/fiftyone/coco-2017-all/",
+    # )
+    parser = LuxonisParser(dataset_name="coco_test_person")
     dataset = parser.parse(
         dataset_type=DatasetType.COCO,
-        dataset_dir="/home/klemen/fiftyone/coco-2017-all/",
+        dataset_dir="/home/klemen/fiftyone/coco-2017-person/",
+        use_keypoint_ann=True,
     )

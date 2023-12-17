@@ -1,7 +1,7 @@
 from enum import Enum
 
 
-class LabelType(Enum):
+class LabelType(str, Enum):
     CLASSIFICATION = "class"
     SEGMENTATION = "segmentation"
     BOUNDINGBOX = "boxes"
