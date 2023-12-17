@@ -1,6 +1,6 @@
-from ..guard_extras import _guard_missing_extra
+from ..guard_extras import guard_missing_extra
 
-with _guard_missing_extra("utils"):
+with guard_missing_extra("utils"):
     from .config import LuxonisConfig
     from .filesystem import LuxonisFileSystem
     from .registry import Registry
