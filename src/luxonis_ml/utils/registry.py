@@ -14,11 +14,10 @@ class Registry:
         self._name = name
 
     def __str__(self):
-        string = f"--- Registry `{self.name}` ---\n"
-        for obj_name, obj_cls in self._module_dict.items():
-            string += f"{obj_name} {str(obj_cls)}\n"
-        string += "------"
-        return string
+        return f"Registry('{self.name}')"
+
+    def __repr__(self):
+        return self.__str__()
 
     def __len__(self):
         return len(self._module_dict)
@@ -153,7 +152,8 @@ class AutoRegisterMeta(ABCMeta):
                     "Registry has to be set in the base class or passed as an argument."
                 )
         if register:
-            (registry or new_class.REGISTRY).register_module(
+            registry = registry if registry is not None else new_class.REGISTRY
+            registry.register_module(
                 name=register_name or name, module=new_class
             )
         return new_class
