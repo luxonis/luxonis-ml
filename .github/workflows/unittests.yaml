@@ -35,8 +35,13 @@ jobs:
         pip install -e .[all]
         pip install -r requirements-dev.txt
 
-    - name: Run tests with coverage
-      run: pytest --cov=src/luxonis_ml --cov-report xml tests
+    - name: Run tests
+      run: pytest tests --cov=src/luxonis_ml --cov-report xml --junit-xml pytest.xml
+
+    - name: Publish Test Results
+      uses: EnricoMi/publish-unit-test-result-action@v2
+      with:
+        files: "pytest.xml"
 
     - name: Generate coverage badge
       run: coverage-badge -o media/coverage_badge.svg -f
