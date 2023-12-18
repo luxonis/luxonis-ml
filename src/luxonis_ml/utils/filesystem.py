@@ -6,6 +6,9 @@ import fsspec
 from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor
 from .environ import environ
+from logging import getLogger
+
+logger = getLogger(__name__)
 
 
 class LuxonisFileSystem:
@@ -95,6 +98,10 @@ class LuxonisFileSystem:
         else:
             raise NotImplementedError
         if self.cache_storage is None:
+            return fs
+
+        if self.protocol == "file":
+            logger.warning("Ignoring cache storage for local filesystem.")
             return fs
 
         return fsspec.filesystem("filecache", fs=fs, cache_storage=self.cache_storage)
