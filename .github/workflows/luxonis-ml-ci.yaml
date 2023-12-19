@@ -36,10 +36,10 @@ jobs:
           os_default=$(echo $os_list | jq -r '.[0]')
           python_default=$(echo $python_list | jq -r '.[0]')
 
-          echo "os_matrix='$os_list'" >> $GITHUB_OUTPUT
-          echo "os_default='$os_default'" >> $GITHUB_OUTPUT
-          echo "python_matrix='$python_list'" >> $GITHUB_OUTPUT
-          echo "python_default='$python_default'" >> $GITHUB_OUTPUT
+          echo "os_matrix=$os_list" >> $GITHUB_OUTPUT
+          echo "os_default=$os_default" >> $GITHUB_OUTPUT
+          echo "python_matrix=$python_list" >> $GITHUB_OUTPUT
+          echo "python_default=$python_default" >> $GITHUB_OUTPUT
 
   pre-commit:
     runs-on: ubuntu-latest
