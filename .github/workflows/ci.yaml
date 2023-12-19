@@ -14,5 +14,5 @@ jobs:
     uses: luxonis/luxonis-ml/.github/workflows/luxonis-ml-ci.yaml@feature/custom-pre-commit-hooks
     with:
       os: 'ubuntu-latest,macOS-latest,windows-latest'
-      python-version: "3.8,3.9,3.10"
+      python-version: "3.8,3.10"
       src-dir: 'src/luxonis_ml'
