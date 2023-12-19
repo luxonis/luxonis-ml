@@ -23,10 +23,10 @@ jobs:
   setup:
     runs-on: ubuntu-latest
     outputs:
-      os-matrix: ${{ steps.set-matrix.outputs.os_matrix }}
-      os-default: ${{ steps.set-matrix.outputs.os_default }}
-      python-matrix: ${{ steps.set-matrix.outputs.python_matrix }}
-      python-default: ${{ steps.set-matrix.outputs.python_default }}
+      os-matrix: ${{ steps.set-matrix.outputs.os-matrix }}
+      os-default: ${{ steps.set-matrix.outputs.os-default }}
+      python-matrix: ${{ steps.set-matrix.outputs.python-matrix }}
+      python-default: ${{ steps.set-matrix.outputs.python-default }}
     steps:
       - id: set-matrix
         run: |
@@ -36,10 +36,10 @@ jobs:
           os_default=$(echo $os_list | jq -r '.[0]')
           python_default=$(echo $python_list | jq -r '.[0]')
 
-          echo "::set-output name=os_matrix::$os_list"
-          echo "::set-output name=os_default::$os_default"
-          echo "::set-output name=python_matrix::$python_list"
-          echo "::set-output name=python_default::$python_default"
+          echo "::set-output name=os-matrix::$os_list"
+          echo "::set-output name=os-default::$os_default"
+          echo "::set-output name=python-matrix::$python_list"
+          echo "::set-output name=python-default::$python_default"
 
   pre-commit:
     runs-on: ubuntu-latest
@@ -58,7 +58,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJson(needs.setup.outputs.os_matrix) }}
+        os: ${{ fromJson(needs.setup.outputs.os-matrix) }}
         python-version: ${{ fromJson(needs.setup.outputs.python-matrix) }}
 
     runs-on: ${{ matrix.os }}
@@ -88,19 +88,19 @@ jobs:
 
     - name: Generate coverage badge
       uses: tj-actions/coverage-badge-py@v2
-      if: matrix.os == ${{ needs.setup.outputs.os_default }} && matrix.python-version == ${{ needs.setup.outputs.python_default }}
+      if: matrix.os == ${{ needs.setup.outputs.os-default }} && matrix.python-version == ${{ needs.setup.outputs.python-default }}
       with:
         output: media/coverage_badge.svg
 
     - name: Generate coverage report
       uses: orgoro/coverage@v3.1
-      if: matrix.os == ${{ needs.setup.outputs.os_default }} && matrix.python-version == ${{ needs.setup.outputs.python_default }}
+      if: matrix.os == ${{ needs.setup.outputs.os-default }} && matrix.python-version == ${{ needs.setup.outputs.python-default }}
       with:
           coverageFile: coverage.xml
           token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Commit coverage badge
-      if: matrix.os == ${{ needs.setup.outputs.os_default }} && matrix.python-version == ${{ needs.setup.outputs.python_default }}
+      if: matrix.os == ${{ needs.setup.outputs.os-default }} && matrix.python-version == ${{ needs.setup.outputs.python-default }}
       run: |
         git config --global user.name 'GitHub Actions'
         git config --global user.email 'actions@github.com'
@@ -111,6 +111,6 @@ jobs:
 
     - name: Push changes
       uses: ad-m/github-push-action@master
-      if: matrix.os == ${{ needs.setup.outputs.os_default }} && matrix.python-version == ${{ needs.setup.outputs.python_default }}
+      if: matrix.os == ${{ needs.setup.outputs.os-default }} && matrix.python-version == ${{ needs.setup.outputs.python-default }}
       with:
         branch: ${{ github.head_ref }}
