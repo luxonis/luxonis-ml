@@ -76,9 +76,7 @@ jobs:
         cache: pip
 
     - name: Install package
-      run: |
-        pip install -e .[all]
-        pip install gdown
+      run: pip install -e .[dev]
 
     - name: Run pytest
       uses: pavelzw/pytest-action@v2
