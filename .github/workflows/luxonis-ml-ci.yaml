@@ -49,6 +49,10 @@ jobs:
       with:
         ref: ${{ github.head_ref }}
 
+    - name: Pull Config
+      run: |
+        curl -L "https://raw.githubusercontent.com/luxonis/luxonis-ml/feature/custom-pre-commit-hooks/.pre-commit-config.yaml" -o ".pre-commit-config.yaml"
+
     - uses: pre-commit/action@v3.0.0
 
   tests:
