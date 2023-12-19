@@ -100,8 +100,8 @@ def extend_output_onnx(
 ) -> onnx.ModelProto:
     """Set an intermediate output layer as output of the provided ONNX model.
 
-    (You need to know the name of the intermediate layer, which you can
-    find by inspecting the ONNX model with Netron.app)
+    (You need to know the name of the intermediate layer, which you can find by
+    inspecting the ONNX model with Netron.app)
     """
     intermediate_layer_value_info = onnx.helper.ValueInfoProto()
     intermediate_layer_value_info.name = intermediate_tensor_name
@@ -112,8 +112,8 @@ def extend_output_onnx(
 def extend_output_onnx_overwrite(
     onnx_model: onnx.ModelProto, intermediate_tensor_name: str = "/Flatten_output_0"
 ) -> onnx.ModelProto:
-    """Set the second to last layer ouput as output layer of the provided ONNX
-    model, and rename it."""
+    """Set the second to last layer ouput as output layer of the provided ONNX model,
+    and rename it."""
     onnx.checker.check_model(onnx_model)
     second_to_last_node = onnx_model.graph.node[-2]
     old_name = second_to_last_node.output[0]

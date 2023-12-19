@@ -90,8 +90,7 @@ def _plot_kde(xs, s, density, maxima, minima):
 
 
 def kde_peaks(data, bandwidth="scott", plot=False):
-    """Find peaks in a KDE distribution using scipy's argrelextrema
-    function."""
+    """Find peaks in a KDE distribution using scipy's argrelextrema function."""
     # fit density
     kde = FFTKDE(kernel="gaussian", bw=bandwidth)
     xs = np.linspace(np.min(data) - 0.01, np.max(data) + 0.01, 1000)

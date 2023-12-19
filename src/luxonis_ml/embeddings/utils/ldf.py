@@ -1,5 +1,5 @@
-"""This script provides utilities for generating embeddings from images,
-filtering new samples, and inserting them into a Qdrant database.
+"""This script provides utilities for generating embeddings from images, filtering new
+samples, and inserting them into a Qdrant database.
 
 Modules Used:
 - cv2: For reading and processing images.
@@ -110,8 +110,8 @@ def _get_sample_payloads(luxonis_dataset: LuxonisDataset):
 def _filter_new_samples(
     qdrant_client, collection_name, vector_size=2048, all_payloads=[]
 ):
-    """Filter out samples that are already in the Qdrant database based on
-    their sample ID.
+    """Filter out samples that are already in the Qdrant database based on their sample
+    ID.
 
     Args:
         qdrant_client: Qdrant client instance.
@@ -148,8 +148,8 @@ def _filter_new_samples(
 
 
 def _filter_new_samples_by_id(qdrant_client, collection_name, all_payloads=[]):
-    """Filter out samples that are already in the Qdrant database based on
-    their instance ID.
+    """Filter out samples that are already in the Qdrant database based on their
+    instance ID.
 
     Args:
         qdrant_client: Qdrant client instance.

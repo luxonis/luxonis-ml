@@ -19,8 +19,8 @@ class LuxonisFileSystem:
         allow_local: Optional[bool] = True,
         cache_storage: Optional[str] = None,
     ):
-        """Helper class which abstracts uploading and downloading files from
-        remote and local sources. Supports S3, MLflow and local file systems.
+        """Helper class which abstracts uploading and downloading files from remote and
+        local sources. Supports S3, MLflow and local file systems.
 
         Args:
             path (str): Input path consisting of protocol and actual path or just path for local files
@@ -237,8 +237,7 @@ class LuxonisFileSystem:
             )
 
     def walk_dir(self, remote_dir: str) -> Generator[str, None, None]:
-        """Recursively walks through the individual files in a remote
-        directory."""
+        """Recursively walks through the individual files in a remote directory."""
 
         if self.is_mlflow:
             raise NotImplementedError
@@ -287,8 +286,7 @@ class LuxonisFileSystem:
         return buffer
 
     def get_file_uuid(self, path: str, local: bool = False) -> str:
-        """Reads a file and returns the (unique) UUID generated from file
-        bytes.
+        """Reads a file and returns the (unique) UUID generated from file bytes.
 
         Args:
             path (str): If remote, relative path to the remote file. Else the local path
@@ -353,8 +351,7 @@ class LuxonisFileSystem:
 
     @staticmethod
     def split_full_path(path: str) -> Tuple[str, str]:
-        """Returns a tuple for the absolute and relative path given a full
-        path."""
+        """Returns a tuple for the absolute and relative path given a full path."""
 
         path = path.rstrip("/\\")
         return os.path.split(path)

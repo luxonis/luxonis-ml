@@ -28,8 +28,8 @@ def generate_hashname(filepath: str) -> Tuple[str, str]:
 
 
 def check_annotation(data: Dict) -> None:
-    """Throws an exception if the input data does not match the expected
-    annotations schema."""
+    """Throws an exception if the input data does not match the expected annotations
+    schema."""
 
     if len(schema.keys()) != len(data.keys()) or set(schema.keys()) != set(data.keys()):
         raise Exception(
@@ -132,7 +132,7 @@ def _check_valid_array(path: str) -> bool:
 
 
 def transform_segmentation_value(
-    value: Tuple[int, int, Union[bytes, List[int]]]
+    value: Tuple[int, int, Union[bytes, List[int]]],
 ) -> str:
     height, width, counts = value
     if isinstance(counts, bytes):

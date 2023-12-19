@@ -47,8 +47,7 @@ class LuxonisComponent:
 
 
 class LuxonisSource:
-    """Abstracts the structure of a dataset and which components/media are
-    included."""
+    """Abstracts the structure of a dataset and which components/media are included."""
 
     def __init__(
         self,
@@ -341,8 +340,7 @@ class LuxonisDataset:
         shutil.rmtree(self.tmp_dir)
 
     def update_source(self, source: LuxonisSource) -> None:
-        """Updates underlying source of the dataset with a new
-        LuxonisSource."""
+        """Updates underlying source of the dataset with a new LuxonisSource."""
 
         if self.online:
             raise NotImplementedError()
@@ -354,8 +352,8 @@ class LuxonisDataset:
             self.source = source
 
     def set_classes(self, classes: List[str], task: Optional[str] = None) -> None:
-        """Sets the names of classes for the dataset. This can be across all CV
-        tasks or certain tasks.
+        """Sets the names of classes for the dataset. This can be across all CV tasks or
+        certain tasks.
 
         classes:
             List of class names to set
@@ -387,8 +385,8 @@ class LuxonisDataset:
     # TODO: method to auto-set classes per-task using pandas
 
     def set_skeletons(self, skeletons: Dict[str, Dict]) -> None:
-        """Sets the semantic structure of keypoint skeletons for the classes
-        that use keypoints.
+        """Sets the semantic structure of keypoint skeletons for the classes that use
+        keypoints.
 
         skeletons: A dict mapping class name to keypoint "labels" and "edges" between keypoints.
             The length of the "labels" determines the official number of keypoints.
@@ -429,8 +427,7 @@ class LuxonisDataset:
                 self.is_synced = True
 
     def get_classes(self, sync_mode: bool = False) -> Tuple[List[str], Dict]:
-        """Gets overall classes in the dataset and classes according to CV
-        task."""
+        """Gets overall classes in the dataset and classes according to CV task."""
 
         if self.online:
             raise NotImplementedError()
@@ -456,8 +453,8 @@ class LuxonisDataset:
             return classes, classes_by_task
 
     def get_skeletons(self) -> Dict[str, Dict]:
-        """Returns the dictionary defining the semantic skeleton for each class
-        using keypoints."""
+        """Returns the dictionary defining the semantic skeleton for each class using
+        keypoints."""
 
         if self.online:
             raise NotImplementedError()
@@ -626,8 +623,8 @@ class LuxonisDataset:
     def make_splits(
         self, ratios: List[float] = [0.8, 0.1, 0.1], definitions: Optional[Dict] = None
     ) -> None:
-        """Saves a splits.json file that specified the train/val/test split.
-        For use in OFFLINE mode only.
+        """Saves a splits.json file that specified the train/val/test split. For use in
+        OFFLINE mode only.
 
         ratios [List[float]] : length 3 list of train/val/test ratios in that order used for a random split.
             If no definitions are provided, this is used to generate a random split.

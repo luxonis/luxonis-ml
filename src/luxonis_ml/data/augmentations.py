@@ -37,8 +37,8 @@ class Augmentations:
         augmentations: List[Dict[str, Any]],
         keep_aspect_ratio: bool = True,
     ) -> Tuple[A.BatchCompose, A.Compose]:
-        """Parses provided config and returns Albumentations BatchedCompose
-        object and Compose object for default transforms.
+        """Parses provided config and returns Albumentations BatchedCompose object and
+        Compose object for default transforms.
 
         Args:
             image_size (List[int]): Desired image size [H,W]
@@ -379,8 +379,8 @@ class ValAugmentations(Augmentations):
         train_rgb: bool = True,
         keep_aspect_ratio: bool = True,
     ):
-        """Class for validation augmentations which performs only normalization
-        (if present) and resize.
+        """Class for validation augmentations which performs only normalization (if
+        present) and resize.
 
         Args:
             image_size (List[int]): Desired image size
@@ -501,8 +501,8 @@ class LetterboxResize(DualTransform):
         always_apply: bool = False,
         p: float = 1.0,
     ):
-        """Augmentation to apply letterbox resizing to images. Also transforms
-        masks, bboxes and keypoints to correct shape.
+        """Augmentation to apply letterbox resizing to images. Also transforms masks,
+        bboxes and keypoints to correct shape.
 
         Args:
             height (int): Desired height of the output

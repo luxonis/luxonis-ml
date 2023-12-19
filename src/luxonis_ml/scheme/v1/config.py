@@ -6,8 +6,8 @@ from __init__ import CONFIG_VERSION
 
 
 class Config(CustomBaseModel):
-    """The main class of the multi/single-stage model config scheme (multi-
-    stage models consists of interconnected single-stage models).
+    """The main class of the multi/single-stage model config scheme (multi- stage models
+    consists of interconnected single-stage models).
 
     Attributes:
         config_version (str): Static variable representing the version of the config scheme.

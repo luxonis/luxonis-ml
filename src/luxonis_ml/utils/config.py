@@ -101,8 +101,7 @@ class LuxonisConfig(BaseModel):
 
     @classmethod
     def clear_instance(cls) -> None:
-        """Clears all singleton instances, should be only used for unit-
-        testing."""
+        """Clears all singleton instances, should be only used for unit- testing."""
         cls._instance = None
         cls._from_get_config = False
 

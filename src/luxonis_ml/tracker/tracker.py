@@ -108,8 +108,7 @@ class LuxonisTracker:
     @property
     @rank_zero_only
     def experiment(self) -> Dict[str, Any]:
-        """Creates new experiments or returns active ones if already
-        created."""
+        """Creates new experiments or returns active ones if already created."""
         if self._experiment is not None:
             return self._experiment
 
@@ -186,8 +185,8 @@ class LuxonisTracker:
 
     @rank_zero_only
     def log_metric(self, name: str, value: float, step: int) -> None:
-        """Logs metric value with name and step. Note: step is ommited when
-        logging with wandb to avoid problems with inconsistent incrementation.
+        """Logs metric value with name and step. Note: step is ommited when logging with
+        wandb to avoid problems with inconsistent incrementation.
 
         Args:
             name (str): Metric name
@@ -222,8 +221,8 @@ class LuxonisTracker:
 
     @rank_zero_only
     def log_image(self, name: str, img: np.ndarray, step: int) -> None:
-        """Logs image with name and step. Note: step is omitted when logging
-        with wandb is used to avoid problems with inconsistent incrementation.
+        """Logs image with name and step. Note: step is omitted when logging with wandb
+        is used to avoid problems with inconsistent incrementation.
 
         Args:
             name (str): Caption of the image

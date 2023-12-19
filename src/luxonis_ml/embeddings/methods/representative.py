@@ -49,8 +49,8 @@ def calculate_similarity_matrix(embeddings):
 
 
 def find_representative_greedy(distance_matrix, desired_size=1000, seed=0):
-    """Find the most representative images using a greedy algorithm. Gready
-    search of maximally unique embeddings.
+    """Find the most representative images using a greedy algorithm. Gready search of
+    maximally unique embeddings.
 
     Parameters
     ----------
@@ -145,8 +145,8 @@ def find_representative_greedy_qdrant(qdrant_api, desired_size=1000, seed=None):
 def find_representative_kmedoids(
     similarity_matrix, desired_size=1000, max_iter=100, seed=None
 ):
-    """Find the most representative images using k-medoids. K-medoids
-    clustering of embeddings.
+    """Find the most representative images using k-medoids. K-medoids clustering of
+    embeddings.
 
     Parameters
     ----------

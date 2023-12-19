@@ -33,8 +33,8 @@ from sklearn.neighbors import KNeighborsClassifier
 
 
 def find_mismatches_centroids(X, y):
-    """Find mismatches in the dataset. A mismatch is defined as a sample that
-    is closer to another centroid than to its own centroid.
+    """Find mismatches in the dataset. A mismatch is defined as a sample that is closer
+    to another centroid than to its own centroid.
 
     Parameters
     ----------

@@ -22,8 +22,8 @@ LuxonisLoaderOutput = Tuple[np.ndarray, Labels]
 
 
 class BaseLoader(ABC):
-    """Base abstract loader class that enforces LuxonisLoaderOutput output
-    label structure."""
+    """Base abstract loader class that enforces LuxonisLoaderOutput output label
+    structure."""
 
     @abstractmethod
     def __len__(self) -> int:

@@ -31,8 +31,8 @@ class ParquetFileManager:
         self._read()
 
     def _get_current_parquet_file(self) -> str:
-        """Finds the best parquet file to edit based on the file size and most
-        last write time."""
+        """Finds the best parquet file to edit based on the file size and most last
+        write time."""
 
         path = self._generate_filename(self.num)[1]
         current_size = os.path.getsize(path) / (1024 * 1024)

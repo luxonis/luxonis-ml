@@ -7,8 +7,8 @@ from typing import List
 
 
 class ArchiveGenerator:
-    """Generator of abstracted NN archive (.tar) files containing config and
-    model files (executables).
+    """Generator of abstracted NN archive (.tar) files containing config and model files
+    (executables).
 
     Attribures:
         archive_name (str): Desired archive file name.

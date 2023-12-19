@@ -834,8 +834,8 @@ class LuxonisParser:
         dataset_size=None,
         override_main_component=None,
     ):
-        """Constructs a LDF dataset from a directory tree whose subfolders
-        define image classes.
+        """Constructs a LDF dataset from a directory tree whose subfolders define image
+        classes.
 
         Arguments:
             dataset: [LuxonisDataset] LDF dataset instance
