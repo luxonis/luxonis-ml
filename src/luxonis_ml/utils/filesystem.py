@@ -19,8 +19,8 @@ class LuxonisFileSystem:
         allow_local: Optional[bool] = True,
         cache_storage: Optional[str] = None,
     ):
-        """Helper class which abstracts uploading and downloading files from remote and local sources.
-        Supports S3, MLflow and local file systems.
+        """Helper class which abstracts uploading and downloading files from
+        remote and local sources. Supports S3, MLflow and local file systems.
 
         Args:
             path (str): Input path consisting of protocol and actual path or just path for local files
@@ -77,7 +77,7 @@ class LuxonisFileSystem:
             self.fs = self.init_fsspec_filesystem()
 
     def full_path(self) -> str:
-        """Returns full path"""
+        """Returns full path."""
         return f"{self.protocol}://{self.path}"
 
     def init_fsspec_filesystem(self) -> Any:
@@ -112,7 +112,7 @@ class LuxonisFileSystem:
         remote_path: str,
         mlflow_instance: Optional[ModuleType] = None,
     ) -> None:
-        """Copy single file to remote
+        """Copy single file to remote.
 
         Args:
             local_path (str): Path to local file
@@ -181,7 +181,7 @@ class LuxonisFileSystem:
         remote_path: str,
         mlflow_instance: Optional[ModuleType] = None,
     ) -> None:
-        """Uploads a file to remote storage directly from file bytes
+        """Uploads a file to remote storage directly from file bytes.
 
         Args:
             file_bytes (bytes): the bytes for the file contents
@@ -201,7 +201,7 @@ class LuxonisFileSystem:
         local_path: str,
         mlflow_instance: Optional[ModuleType] = None,
     ) -> None:
-        """Copy a single file from remote
+        """Copy a single file from remote.
 
         Args:
             remote_path (str): Relative path to remote file
@@ -237,7 +237,8 @@ class LuxonisFileSystem:
             )
 
     def walk_dir(self, remote_dir: str) -> Generator[str, None, None]:
-        """Recursively walks through the individual files in a remote directory"""
+        """Recursively walks through the individual files in a remote
+        directory."""
 
         if self.is_mlflow:
             raise NotImplementedError
@@ -251,7 +252,7 @@ class LuxonisFileSystem:
                     yield os.path.relpath(file, self.path)
 
     def read_to_byte_buffer(self, remote_path: Optional[str] = None) -> BytesIO:
-        """Reads a file and returns Byte buffer
+        """Reads a file and returns Byte buffer.
 
         Args:
             remote_path (Optional[str]): If provided, the relative path to the remote file
@@ -286,7 +287,8 @@ class LuxonisFileSystem:
         return buffer
 
     def get_file_uuid(self, path: str, local: bool = False) -> str:
-        """Reads a file and returns the (unique) UUID generated from file bytes
+        """Reads a file and returns the (unique) UUID generated from file
+        bytes.
 
         Args:
             path (str): If remote, relative path to the remote file. Else the local path
@@ -329,7 +331,7 @@ class LuxonisFileSystem:
         return result
 
     def _split_mlflow_path(self, path: str) -> List[Optional[str]]:
-        """Splits mlflow path into 3 parts"""
+        """Splits mlflow path into 3 parts."""
         parts = path.split("/")
         if len(parts) < 3:
             while len(parts) < 3:
@@ -340,7 +342,7 @@ class LuxonisFileSystem:
         return parts
 
     def is_directory(self, remote_path: str) -> bool:
-        """Returns True if a remote path points to a directory"""
+        """Returns True if a remote path points to a directory."""
 
         full_path = os.path.join(self.path, remote_path)
         file_info = self.fs.info(full_path)
@@ -351,20 +353,21 @@ class LuxonisFileSystem:
 
     @staticmethod
     def split_full_path(path: str) -> Tuple[str, str]:
-        """Returns a tuple for the absolute and relative path given a full path"""
+        """Returns a tuple for the absolute and relative path given a full
+        path."""
 
         path = path.rstrip("/\\")
         return os.path.split(path)
 
     @staticmethod
     def get_protocol(path: str) -> str:
-        """Gets the detected protocol of a path"""
+        """Gets the detected protocol of a path."""
 
         return _get_protocol_and_path(path)[0]
 
 
 def _get_protocol_and_path(path: str) -> Tuple[str, str]:
-    """Gets the protocol and absolute path of a full path"""
+    """Gets the protocol and absolute path of a full path."""
 
     if "://" in path:
         protocol, path = path.split("://")

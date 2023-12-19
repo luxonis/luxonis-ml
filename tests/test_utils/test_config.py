@@ -241,6 +241,7 @@ def test_save(config_file: str):
     assert cfg.__repr__() == cfg2.__repr__()
     assert cfg.get_json_schema() == cfg2.get_json_schema()
 
+
 def test_get(config_file: str):
     cfg = Config.get_config(
         config_file,

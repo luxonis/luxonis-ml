@@ -1,6 +1,6 @@
-import os, io
-import numpy as np
-from typing import Tuple, Optional, Dict
+import os
+import io
+from typing import Tuple, Dict
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -13,9 +13,7 @@ class ParquetFileManager:
         file_size_mb: int = 20,
         row_check: int = 100000,
     ) -> None:
-        """
-        Class to manage the insert of data into parquet files.
-        """
+        """Class to manage the insert of data into parquet files."""
 
         self.dir = directory
         self.files = os.listdir(self.dir)
@@ -33,7 +31,8 @@ class ParquetFileManager:
         self._read()
 
     def _get_current_parquet_file(self) -> str:
-        """Finds the best parquet file to edit based on the file size and most last write time"""
+        """Finds the best parquet file to edit based on the file size and most
+        last write time."""
 
         path = self._generate_filename(self.num)[1]
         current_size = os.path.getsize(path) / (1024 * 1024)
@@ -76,7 +75,7 @@ class ParquetFileManager:
             return buffer.tell() / (1024 * 1024)
 
     def write(self, add_data: Dict) -> None:
-        """Writes a row to the current working parquet file"""
+        """Writes a row to the current working parquet file."""
         if len(self.data) == 0:
             self._initialize_data(add_data)
         for key in add_data:
@@ -95,7 +94,7 @@ class ParquetFileManager:
                 self._read()
 
     def close(self) -> None:
-        """Ensure all data is written to parquet"""
+        """Ensure all data is written to parquet."""
 
         df = pd.DataFrame(self.data)
         table = pa.Table.from_pandas(df)

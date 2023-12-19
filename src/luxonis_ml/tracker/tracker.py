@@ -23,7 +23,8 @@ class LuxonisTracker:
         mlflow_tracking_uri: Optional[str] = None,
         rank: int = 0,
     ):
-        """Implementation of PytorchLightning Logger that wraps various logging software. Supported loggers: TensorBoard, WandB and MLFlow
+        """Implementation of PytorchLightning Logger that wraps various logging
+        software. Supported loggers: TensorBoard, WandB and MLFlow.
 
         Args:
             project_name (Optional[str], optional): Name of the project used for WandB and MLFlow. Defaults to None.
@@ -82,8 +83,9 @@ class LuxonisTracker:
             parents=True, exist_ok=True
         )
 
+    @staticmethod
     def rank_zero_only(fn: Callable) -> Callable:
-        """Function wrapper that lets only processes with rank=0 execute it"""
+        """Function wrapper that lets only processes with rank=0 execute it."""
 
         @wraps(fn)
         def wrapped_fn(self, *args: Any, **kwargs: Any) -> Optional[Any]:
@@ -95,18 +97,19 @@ class LuxonisTracker:
 
     @property
     def name(self) -> str:
-        """Returns run name"""
+        """Returns run name."""
         return self.run_name
 
     @property
     def version(self) -> int:
-        """Returns tracker's version"""
+        """Returns tracker's version."""
         return 1
 
     @property
     @rank_zero_only
     def experiment(self) -> Dict[str, Any]:
-        """Creates new experiments or returns active ones if already created"""
+        """Creates new experiments or returns active ones if already
+        created."""
         if self._experiment is not None:
             return self._experiment
 
@@ -128,7 +131,7 @@ class LuxonisTracker:
 
             self._experiment["wandb"].init(
                 project=self.project_name
-                if self.project_name != None
+                if self.project_name is not None
                 else self.project_id,
                 entity=self.wandb_entity,
                 dir=log_dir,
@@ -164,7 +167,7 @@ class LuxonisTracker:
     def log_hyperparams(
         self, params: Dict[str, Union[str, bool, int, float, None]]
     ) -> None:
-        """Logs hyperparameter dictionary
+        """Logs hyperparameter dictionary.
 
         Args:
             params (Dict[str, Union[str, bool, int, float, None]]): Dict of hyperparameters key-value pairs
@@ -183,8 +186,8 @@ class LuxonisTracker:
 
     @rank_zero_only
     def log_metric(self, name: str, value: float, step: int) -> None:
-        """Logs metric value with name and step. Note: step is ommited when logging
-        with wandb to avoid problems with inconsistent incrementation.
+        """Logs metric value with name and step. Note: step is ommited when
+        logging with wandb to avoid problems with inconsistent incrementation.
 
         Args:
             name (str): Metric name
@@ -203,7 +206,7 @@ class LuxonisTracker:
 
     @rank_zero_only
     def log_metrics(self, metrics: Dict[str, float], step: int) -> None:
-        """Logs metric dictionary
+        """Logs metric dictionary.
 
         Args:
             metrics (Dict[str, float]): Dict of metric key-value pairs
@@ -244,7 +247,7 @@ class LuxonisTracker:
 
     @rank_zero_only
     def log_images(self, imgs: Dict[str, np.ndarray], step: int) -> None:
-        """Logs multiple images
+        """Logs multiple images.
 
         Args:
             imgs (Dict[str, np.ndarray]): Dict of image key-value pairs where key is image caption and value is image data
@@ -254,7 +257,7 @@ class LuxonisTracker:
             self.log_image(caption, img, step)
 
     def _get_next_run_number(self) -> int:
-        """Returns number id for next run"""
+        """Returns number id for next run."""
         # find all directories that should be runs
         log_dirs = glob.glob(f"{self.save_directory}/*")
         log_dirs = [path.split("/")[-1] for path in log_dirs if os.path.isdir(path)]
@@ -268,22 +271,22 @@ class LuxonisTracker:
             return max(nums) + 1
 
     def _get_run_name(self) -> str:
-        """Generates new run name"""
+        """Generates new run name."""
         name_without_number = get_random_name(separator="-", style="lowercase")
         number = self._get_next_run_number()
         return f"{number}-{name_without_number}"
 
     def _get_latest_run_name(self) -> str:
-        """Returns most recently created run name"""
+        """Returns most recently created run name."""
         # find all directories that should be runs
         log_dirs = glob.glob(f"{self.save_directory}/*")
         log_dirs = [path for path in log_dirs if os.path.isdir(path)]
         # find run names based on the naming convention and sort them by last modified time
         runs = []
-        for l in log_dirs:
-            l = l.replace(f"{self.save_directory}/", "")
-            if l.split("-")[0].isnumeric():
-                runs.append(l)
+        for ld in log_dirs:
+            ld = ld.replace(f"{self.save_directory}/", "")
+            if ld.split("-")[0].isnumeric():
+                runs.append(ld)
         runs.sort(
             key=lambda x: os.path.getmtime(os.path.join(self.save_directory, x)),
             reverse=True,

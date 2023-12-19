@@ -1,41 +1,37 @@
-"""
-Out-of-Distribution Detection for Embeddings
+"""Out-of-Distribution Detection for Embeddings.
 
-This module provides two primary methods for detecting out-of-distribution (OOD) samples 
-in embeddings. OOD samples can be crucial to identify as they represent anomalies or novel 
+This module provides two primary methods for detecting out-of-distribution (OOD) samples
+in embeddings. OOD samples can be crucial to identify as they represent anomalies or novel
 patterns that don't conform to the expected distribution of the dataset.
 
 Methods available:
-- Isolation Forests: A tree-based model that partitions the space in such a manner that 
+- Isolation Forests: A tree-based model that partitions the space in such a manner that
   anomalies are isolated from the rest.
-  
-- Leverage with Linear Regression: Leverages (or hat values) represent the distance between 
+
+- Leverage with Linear Regression: Leverages (or hat values) represent the distance between
   the predicted values and the true values. Higher leverages indicate potential OOD points.
 
 Typical use cases include:
 - Anomaly Detection: Identifying rare patterns or outliers.
-  
+
 - Dataset Reduction: By removing or studying OOD samples, we can have a more homogeneous dataset.
-  
-- Expanding Datasets: Recognizing valuable data points that are distinct from the current distribution can be helpful 
+
+- Expanding Datasets: Recognizing valuable data points that are distinct from the current distribution can be helpful
   when we're looking to diversify the dataset, especially in iterative learning scenarios.
 
 Dependencies:
 - numpy
 - scikit-learn
-
 """
 
 import numpy as np
 from sklearn.ensemble import IsolationForest
-from sklearn.linear_model import LinearRegression
 
 
 def isolation_forest_OOD(
     X, contamination="auto", n_jobs=-1, verbose=1, random_state=None
 ):
-    """
-    Out-of-distribution detection using Isolation Forests.
+    """Out-of-distribution detection using Isolation Forests.
 
     Parameters
     ----------
@@ -54,7 +50,6 @@ def isolation_forest_OOD(
     -------
     np.array
         The indices of the embeddings that are in-distribution.
-
     """
     # Initialize the Isolation Forest model
     isolation_forest = IsolationForest(
@@ -77,8 +72,7 @@ def isolation_forest_OOD(
 
 
 def leverage_OOD(X, std_threshold=3):
-    """
-    Out-of-distribution detection using leverage and linear regression.
+    """Out-of-distribution detection using leverage and linear regression.
 
     Parameters
     ----------
@@ -91,7 +85,6 @@ def leverage_OOD(X, std_threshold=3):
     -------
     np.array
         The indices of the embeddings that are out-of-distribution.
-
     """
     # Calculate the hat matrix (projection matrix) to get the leverage for each point
     hat_matrix = np.matmul(np.matmul(X, np.linalg.inv(np.matmul(X.T, X))), X.T)

@@ -17,7 +17,6 @@ class LuxonisConfig(BaseModel):
     Note:
         Only the `get_config` method can be used to instantiate this class.
         Using `__init__` directly will raise a `NotImplementedError`.
-
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -102,16 +101,17 @@ class LuxonisConfig(BaseModel):
 
     @classmethod
     def clear_instance(cls) -> None:
-        """Clears all singleton instances, should be only used for unit-testing"""
+        """Clears all singleton instances, should be only used for unit-
+        testing."""
         cls._instance = None
         cls._from_get_config = False
 
     def get_json_schema(self) -> Dict[str, Any]:
-        """Retuns dict representation of config json schema"""
+        """Retuns dict representation of config json schema."""
         return self.model_json_schema(mode="validation")
 
     def save_data(self, path: str) -> None:
-        """Saves config to yaml file
+        """Saves config to yaml file.
 
         Args:
             path (str): Path to output yaml file

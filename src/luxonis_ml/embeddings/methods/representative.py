@@ -1,17 +1,16 @@
-"""
-Find Representative Images from Embeddings
+"""Find Representative Images from Embeddings.
 
 This module offers techniques to identify representative images or embeddings within a dataset.
 This aids in achieving a condensed yet expressive view of your data.
 
 Methods:
 - Greedy Search: Aims to find a diverse subset of images by maximizing the minimum similarity to any image outside the set.
-  
+
 - K-Medoids: An adaptation of the k-means clustering algorithm, it partitions data into k clusters, each associated with a medoid.
 
 Main Applications:
 - Dataset Reduction: Helps in representing large datasets with a minimal subset while retaining the essence.
-  
+
 - Validation Set Creation: Identifies diverse samples for a robust validation set.
 
 Dependencies:
@@ -38,14 +37,11 @@ Example Usage:
     desired_size = int(len(embeddings) * 0.1)
     selected_image_indices = find_representative_kmedoids(similarity_matrix, desired_size)
     ```
-
 """
 
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 from kmedoids import KMedoids
-
-from luxonis_ml.embeddings.utils.qdrant import QdrantAPI
 
 
 def calculate_similarity_matrix(embeddings):
@@ -53,9 +49,8 @@ def calculate_similarity_matrix(embeddings):
 
 
 def find_representative_greedy(distance_matrix, desired_size=1000, seed=0):
-    """
-    Find the most representative images using a greedy algorithm.
-    Gready search of maximally unique embeddings
+    """Find the most representative images using a greedy algorithm. Gready
+    search of maximally unique embeddings.
 
     Parameters
     ----------
@@ -150,9 +145,8 @@ def find_representative_greedy_qdrant(qdrant_api, desired_size=1000, seed=None):
 def find_representative_kmedoids(
     similarity_matrix, desired_size=1000, max_iter=100, seed=None
 ):
-    """
-    Find the most representative images using k-medoids.
-    K-medoids clustering of embeddings
+    """Find the most representative images using k-medoids. K-medoids
+    clustering of embeddings.
 
     Parameters
     ----------
