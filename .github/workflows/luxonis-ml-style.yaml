@@ -1,0 +1,11 @@
+name: pre-commit
+
+on:
+  commit:
+
+jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: luxonis/luxonis-ml/.github/actions/luxonis-ml-style@feature/custom-pre-commit-hooks

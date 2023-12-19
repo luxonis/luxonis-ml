@@ -1,0 +1,5 @@
+name: 'Luxonis ML Style'
+description: 'Run pre-commit hooks using luxonis-ml shared config'
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
