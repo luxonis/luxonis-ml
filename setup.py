@@ -6,6 +6,7 @@ data_requires = open("src/luxonis_ml/data/requirements.txt").readlines()
 tracker_requires = open("src/luxonis_ml/tracker/requirements.txt").readlines()
 embeddings_requires = open("src/luxonis_ml/embeddings/requirements.txt").readlines()
 all_requires = utils_requires + data_requires + tracker_requires + embeddings_requires
+dev_requires = open("src/luxonis_ml/dev/requirements.txt").readlines() + all_requires
 
 setup(
     name="luxonis-ml",
@@ -26,6 +27,7 @@ setup(
         "tracker": tracker_requires,
         "embedd": embeddings_requires,
         "all": all_requires,
+        "dev": dev_requires,
     },
     include_package_data=True,
     classifiers=[
