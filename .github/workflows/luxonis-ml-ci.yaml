@@ -92,7 +92,7 @@ jobs:
 
     - name: Generate coverage report
       uses: orgoro/coverage@v3.1
-      if: ${{ matrix.os == needs.setup.outputs.os-default && matrix.python-version == needs.setup.outputs.python-default && github.event_name == pull_request }}
+      if: ${{ matrix.os == needs.setup.outputs.os-default && matrix.python-version == needs.setup.outputs.python-default && github.event_name == 'pull_request' }}
       with:
           coverageFile: coverage.xml
           token: ${{ secrets.GITHUB_TOKEN }}
