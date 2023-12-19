@@ -215,6 +215,26 @@ class LuxonisFileSystem:
             self.fs.download(
                 os.path.join(self.path, remote_path), local_path, recursive=False
             )
+    
+    def delete_file(self, remote_path: str) -> None:
+        """Deletes a single file from remote storage.
+
+        Args:
+            remote_path (str): Relative path to the remote file to be deleted.
+        """
+        if self.is_fsspec:
+            full_remote_path = os.path.join(self.path, remote_path)
+            self.fs.rm(full_remote_path)
+    
+    def delete_files(self, remote_paths: List[str]) -> None:
+        """Deletes multiple files from remote storage.
+
+        Args:
+            remote_paths (List[str]): Relative paths to the remote files to be deleted.
+        """
+        if self.is_fsspec:
+            for remote_path in remote_paths:
+                self.delete_file(remote_path)
 
     def get_dir(
         self,
@@ -235,6 +255,16 @@ class LuxonisFileSystem:
             self.fs.download(
                 os.path.join(self.path, remote_dir), local_dir, recursive=True
             )
+    
+    def delete_dir(self, remote_dir: str) -> None:
+        """Deletes a directory and all its contents from remote storage.
+
+        Args:
+            remote_dir (str): Relative path to the remote directory to be deleted.
+        """
+        if self.is_fsspec:
+            full_remote_dir = os.path.join(self.path, remote_dir)
+            self.fs.rm(full_remote_dir, recursive=True)
 
     def walk_dir(self, remote_dir: str) -> Generator[str, None, None]:
         """Recursively walks through the individual files in a remote directory"""
