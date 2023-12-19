@@ -1,4 +1,5 @@
 import io
+import sys
 from setuptools import setup, find_packages
 
 utils_requires = open("src/luxonis_ml/utils/requirements.txt").readlines()
@@ -7,6 +8,13 @@ tracker_requires = open("src/luxonis_ml/tracker/requirements.txt").readlines()
 embeddings_requires = open("src/luxonis_ml/embeddings/requirements.txt").readlines()
 all_requires = utils_requires + data_requires + tracker_requires + embeddings_requires
 dev_requires = open("requirements-dev.txt").readlines() + all_requires
+
+for i in range(len(embeddings_requires)):
+    req = embeddings_requires[i]
+    if "onnxruntime-gpu" in req and sys.platform in ["win32", "darwin"]:
+        req = req.replace("onnxruntime-gpu", "onnxruntime")
+    embeddings_requires[i] = req
+
 
 setup(
     name="luxonis-ml",

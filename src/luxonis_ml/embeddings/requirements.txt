@@ -4,7 +4,6 @@ kmedoids>=0.4.3
 matplotlib>=3.7.2
 numpy>=1.22
 onnx>=1.14.0
-# onnxruntime==1.15.1
 onnxruntime-gpu>=1.15.1
 opencv-python>=4.7.0.68
 qdrant-client>=1.4.0

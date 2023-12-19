@@ -82,23 +82,23 @@ jobs:
       uses: pavelzw/pytest-action@v2
       with:
         emoji: false
-        custom-arguments: --cov ${{ github.event.inputs.src-dir }}
+        custom-arguments: --cov ${{ github.event.inputs.src-dir }} --cov-report xml
 
     - name: Generate coverage badge
       uses: tj-actions/coverage-badge-py@v2
-      if: matrix.os == ${{ needs.setup.outputs.os-default }} && matrix.python-version == ${{ needs.setup.outputs.python-default }}
+      if: ${{ matrix.os == needs.setup.outputs.os-default && matrix.python-version == needs.setup.outputs.python-default }}
       with:
         output: media/coverage_badge.svg
 
     - name: Generate coverage report
       uses: orgoro/coverage@v3.1
-      if: matrix.os == ${{ needs.setup.outputs.os-default }} && matrix.python-version == ${{ needs.setup.outputs.python-default }}
+      if: ${{ matrix.os == needs.setup.outputs.os-default && matrix.python-version == needs.setup.outputs.python-default && github.event_name == "pull_request" }}
       with:
           coverageFile: coverage.xml
           token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Commit coverage badge
-      if: matrix.os == ${{ needs.setup.outputs.os-default }} && matrix.python-version == ${{ needs.setup.outputs.python-default }}
+      if: ${{ matrix.os == needs.setup.outputs.os-default && matrix.python-version == needs.setup.outputs.python-default }}
       run: |
         git config --global user.name 'GitHub Actions'
         git config --global user.email 'actions@github.com'
@@ -109,6 +109,6 @@ jobs:
 
     - name: Push changes
       uses: ad-m/github-push-action@master
-      if: matrix.os == ${{ needs.setup.outputs.os-default }} && matrix.python-version == ${{ needs.setup.outputs.python-default }}
+      if: ${{ matrix.os == needs.setup.outputs.os-default && matrix.python-version == needs.setup.outputs.python-default }}
       with:
         branch: ${{ github.head_ref }}
