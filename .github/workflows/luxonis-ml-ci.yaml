@@ -33,15 +33,13 @@ jobs:
           python_list=$(echo "${{ inputs.python-version }}" | xargs | jq -R -s -c 'split(",")')
           os_list=$(echo "${{ inputs.os }}" | xargs | jq -R -s -c 'split(",")')
 
-          echo "os-matrix=$os_list" >> $GITHUB_ENV
-          echo "python-matrix=$python_list" >> $GITHUB_ENV
-
-          # Extract the first element as default
           os_default=$(echo $os_list | jq -r '.[0]')
           python_default=$(echo $python_list | jq -r '.[0]')
 
-          echo "os-default=$os_default" >> $GITHUB_ENV
-          echo "python-default=$python_default" >> $GITHUB_ENV
+          echo "::set-output name=os-matrix::$os_list"
+          echo "::set-output name=os-default::$os_default"
+          echo "::set-output name=python-matrix::$python_list"
+          echo "::set-output name=python-default::$python_default"
 
   pre-commit:
     runs-on: ubuntu-latest
