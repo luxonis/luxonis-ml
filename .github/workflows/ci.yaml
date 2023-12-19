@@ -1,6 +1,6 @@
 name: CI
 
-on: issue_comment
+on: push
 
 jobs:
   call-reusable-workflow:
