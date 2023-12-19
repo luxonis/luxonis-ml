@@ -1,0 +1,11 @@
+name: CI
+
+on: [push]
+
+jobs:
+  call-reusable-workflow:
+    uses: luxonis/luxonis-ml/.github/workflows/luxonis-ml-ci.yaml@feature/custom-pre-commit-hooks
+    with:
+      os: 'ubuntu-latest, macos-latest'
+      python_version: '3.8, 3.9'
+      src_dir: 'src/luxonis_ml'
