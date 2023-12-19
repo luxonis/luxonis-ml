@@ -1,11 +1,11 @@
 name: CI
 
-on: issue_comment
+on: push
 
 jobs:
   call-reusable-workflow:
     uses: luxonis/luxonis-ml/.github/workflows/luxonis-ml-ci.yaml@feature/custom-pre-commit-hooks
     with:
       os: 'ubuntu-latest'
-      python: "3.8"
-      src_dir: 'src/luxonis_ml'
+      python-version: "3.8"
+      src-dir: 'src/luxonis_ml'

@@ -3,7 +3,7 @@ name: luxonis-ml-ci
 on:
   workflow_call:
     inputs:
-      python:
+      python-version:
         required: false
         type: string
         description: "Python version to use for the virtual environment"
@@ -13,7 +13,7 @@ on:
         type: string
         description: "Operating system versions to run tests on"
         default: "ubuntu-latest"
-      src_dir:
+      src-dir:
         required: true
         type: string
         description: "Source directory to monitor for coverage report"
@@ -30,7 +30,7 @@ jobs:
     steps:
       - id: set-matrix
         run: |
-          python_list=$(echo "${{ inputs.os }}" | xargs | jq -R -s -c 'split(",")')
+          python_list=$(echo "${{ inputs.python-version }}" | xargs | jq -R -s -c 'split(",")')
           os_list=$(echo "${{ inputs.os }}" | xargs | jq -R -s -c 'split(",")')
 
           echo "os-matrix=$os_list" >> $GITHUB_ENV
@@ -86,7 +86,7 @@ jobs:
       uses: pavelzw/pytest-action@v2
       with:
         emoji: false
-        custom-arguments: --cov ${{ github.event.inputs.src_dir }}
+        custom-arguments: --cov ${{ github.event.inputs.src-dir }}
 
     - name: Generate coverage badge
       uses: tj-actions/coverage-badge-py@v2
