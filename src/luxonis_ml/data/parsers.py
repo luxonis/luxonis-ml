@@ -11,6 +11,7 @@ import shutil
 # from luxonis_ml.data.dataset_type import DatasetType as dt
 from enum import Enum
 import threading
+from threading import Thread
 import xml.etree.ElementTree as ET
 from luxonis_ml.data import *
 import csv
@@ -130,8 +131,8 @@ class LuxonisParser:
         dataset_size=None,
         override_main_component=None,
     ):
-        """Constructs a LDF dataset from a COCO type dataset.
-
+        """
+        Constructs a LDF dataset from a COCO type dataset.
         Arguments:
             dataset: [LuxonisDataset] LDF dataset instance
             source_name: [string] name of the LDFSource to add to
@@ -247,8 +248,8 @@ class LuxonisParser:
         dataset_size=None,
         override_main_component=None,
     ):
-        """Constructs a LDF dataset from a VOC type dataset.
-
+        """
+        Constructs a LDF dataset from a VOC type dataset.
         Arguments:
             dataset: [LuxonisDataset] LDF dataset instance
             source_name: [string] name of the LDFSource to add to
@@ -340,8 +341,8 @@ class LuxonisParser:
         dataset_size=None,
         override_main_component=None,
     ):
-        """Constructs a LDF dataset from a YOLO4 type dataset.
-
+        """
+        Constructs a LDF dataset from a YOLO4 type dataset.
         Arguments:
             dataset: [LuxonisDataset] LDF dataset instance
             source_name: [string] name of the LDFSource to add to
@@ -429,8 +430,8 @@ class LuxonisParser:
         dataset_size=None,
         override_main_component=None,
     ):
-        """Constructs a LDF dataset from a YOLO5 type dataset.
-
+        """
+        Constructs a LDF dataset from a YOLO5 type dataset.
         Arguments:
             dataset: [LuxonisDataset] LDF dataset instance
             source_name: [string] name of the LDFSource to add to
@@ -462,7 +463,7 @@ class LuxonisParser:
             yolo = yaml.safe_load(Path(os.path.join(root_path, yaml_path)).read_text())
             classes = yolo["names"]
             if yolo["nc"] != len(classes):
-                raise Exception("nc in YOLO YAML file does not match names!")
+                raise Exception(f"nc in YOLO YAML file does not match names!")
 
         ## dataset construction loop
         iter = tqdm(os.listdir(image_dir))
@@ -555,8 +556,8 @@ class LuxonisParser:
         dataset_size=None,
         override_main_component=None,
     ):
-        """Constructs a LDF dataset from a TFObjectDetectionCSV type dataset.
-
+        """
+        Constructs a LDF dataset from a TFObjectDetectionCSV type dataset.
         Arguments:
             dataset: [LuxonisDataset] LDF dataset instance
             source_name: [string] name of the LDFSource to add to
@@ -656,8 +657,8 @@ class LuxonisParser:
         dataset_size=None,
         override_main_component=None,
     ):
-        """Constructs a LDF dataset from a CreateML type dataset.
-
+        """
+        Constructs a LDF dataset from a CreateML type dataset.
         Arguments:
             dataset: [LuxonisDataset] LDF dataset instance
             source_name: [string] name of the LDFSource to add to
@@ -742,8 +743,8 @@ class LuxonisParser:
         dataset_size=None,
         override_main_component=None,
     ):
-        """Constructs a LDF dataset from data provided in numpy arrays.
-
+        """
+        Constructs a LDF dataset from data provided in numpy arrays.
         Arguments:
             dataset: [LuxonisDataset] LDF dataset instance
             source_name: [string] name of the LDFSource to add to
@@ -839,9 +840,8 @@ class LuxonisParser:
         dataset_size=None,
         override_main_component=None,
     ):
-        """Constructs a LDF dataset from a directory tree whose subfolders
-        define image classes.
-
+        """
+        Constructs a LDF dataset from a directory tree whose subfolders define image classes.
         Arguments:
             dataset: [LuxonisDataset] LDF dataset instance
             source_name: [string] name of the LDFSource to add to
@@ -911,9 +911,8 @@ class LuxonisParser:
         dataset_size=None,
         override_main_component=None,
     ):
-        """Constructs a LDF dataset based on image paths and labels from text
-        annotations.
-
+        """
+        Constructs a LDF dataset based on image paths and labels from text annotations.
         Arguments:
             dataset: [LuxonisDataset] LDF dataset instance
             source_name: [string] name of the LDFSource to add to
