@@ -4,7 +4,7 @@ on: push
 
 jobs:
   call-reusable-workflow:
-    uses: luxonis/luxonis-ml/.github/workflows/luxonis-ml-ci.yaml@27c324e
+    uses: luxonis/luxonis-ml/.github/workflows/luxonis-ml-ci.yaml@feature/custom-pre-commit-hooks
     with:
       os: 'ubuntu-latest'
       python-version: "3.8"
