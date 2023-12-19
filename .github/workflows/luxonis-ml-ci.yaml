@@ -56,7 +56,9 @@ jobs:
     - uses: pre-commit/action@v3.0.0
 
   tests:
-    needs: setup
+    needs:
+      - setup
+      - pre-commit
     strategy:
       fail-fast: false
       matrix:
