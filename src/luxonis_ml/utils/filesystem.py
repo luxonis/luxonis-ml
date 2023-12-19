@@ -6,30 +6,39 @@ import fsspec
 from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor
 from .environ import environ
+from logging import getLogger
+
+logger = getLogger(__name__)
 
 
 class LuxonisFileSystem:
     def __init__(
         self,
-        path: Optional[str],
+        path: str,
         allow_active_mlflow_run: Optional[bool] = False,
         allow_local: Optional[bool] = True,
+        cache_storage: Optional[str] = None,
     ):
         """Helper class which abstracts uploading and downloading files from
         remote and local sources. Supports S3, MLflow and local file systems.
 
         Args:
-            path (Optional[str]): Input path consisting of protocol and actual path or just path for local files
+            path (str): Input path consisting of protocol and actual path or just path for local files
             allow_active_mlflow_run (Optional[bool], optional): Flag if operations are allowed on active MLFlow run. Defaults to False.
-            allow_local (Optional[bool], optional): Flag if operations are allowed on local file system. Defaults to True.
+            allow_local (Optional[bool], optional): Flag if operations are
+                allowed on local file system. Defaults to True.
+            cache_storage (Optional[str], optional): Path to cache storage. No cache
+                is used if set to None. Defaults to None.
         """
         if path is None:
             raise ValueError("No path provided to LuxonisFileSystem.")
 
+        self.cache_storage = cache_storage
+
         self.protocol, self.path = _get_protocol_and_path(path)
         supported_protocols = ["s3", "gcs", "file", "mlflow"]
         if self.protocol not in supported_protocols:
-            raise KeyError(
+            raise ValueError(
                 f"Protocol `{self.protocol}` not supported. Choose from {supported_protocols}."
             )
 
@@ -75,7 +84,7 @@ class LuxonisFileSystem:
         """Returns fsspec filesystem based on protocol."""
         if self.protocol == "s3":
             # NOTE: In theory boto3 should look in environment variables automatically but it doesn't seem to work
-            return fsspec.filesystem(
+            fs = fsspec.filesystem(
                 self.protocol,
                 key=environ.AWS_ACCESS_KEY_ID,
                 secret=environ.AWS_SECRET_ACCESS_KEY,
@@ -83,11 +92,19 @@ class LuxonisFileSystem:
             )
         elif self.protocol == "gcs":
             # NOTE: This should automatically read from GOOGLE_APPLICATION_CREDENTIALS
-            return fsspec.filesystem(self.protocol)
+            fs = fsspec.filesystem(self.protocol)
         elif self.protocol == "file":
-            return fsspec.filesystem(self.protocol)
+            fs = fsspec.filesystem(self.protocol)
         else:
             raise NotImplementedError
+        if self.cache_storage is None:
+            return fs
+
+        if self.protocol == "file":
+            logger.warning("Ignoring cache storage for local filesystem.")
+            return fs
+
+        return fsspec.filesystem("filecache", fs=fs, cache_storage=self.cache_storage)
 
     def put_file(
         self,

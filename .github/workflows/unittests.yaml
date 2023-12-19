@@ -13,30 +13,28 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         ref: ${{ github.head_ref }}
 
     - name: Set up Python
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v5
       with:
         python-version: '3.8'
-
-    - name: Cache pip dependencies
-      uses: actions/cache@v2
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
+        cache: pip
 
     - name: Install dependencies
       run: |
         pip install -e .[all]
         pip install -r requirements-dev.txt
 
-    - name: Run tests with coverage
-      run: pytest --cov=src/luxonis_ml --cov-report xml tests
+    - name: Run tests
+      run: pytest tests --cov=src/luxonis_ml --cov-report xml --junit-xml pytest.xml
+
+    - name: Publish Test Results
+      uses: EnricoMi/publish-unit-test-result-action@v2
+      with:
+        files: "pytest.xml"
 
     - name: Generate coverage badge
       run: coverage-badge -o media/coverage_badge.svg -f
