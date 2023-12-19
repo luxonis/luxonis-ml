@@ -6,7 +6,7 @@ RUN pip install pre-commit
 
 # Copy the shared pre-commit configuration and the entrypoint script
 COPY .pre-commit-config.yaml /.pre-commit-config.yaml
-COPY .github/actions/pre-commit-action/entrypoint.sh /entrypoint.sh
+COPY .github/actions/luxonis-ml-style/entrypoint.sh /entrypoint.sh
 
 # Set the entrypoint to the entrypoint script
 ENTRYPOINT ["/entrypoint.sh"]
