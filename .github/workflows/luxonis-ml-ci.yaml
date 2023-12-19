@@ -54,7 +54,7 @@ jobs:
   tests:
     needs:
       - setup
-      # - pre-commit
+      - pre-commit
     strategy:
       fail-fast: false
       matrix:
