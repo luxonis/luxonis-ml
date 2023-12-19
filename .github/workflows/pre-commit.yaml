@@ -7,6 +7,7 @@ on:
         required: false
         type: string
         description: "Python version to use for the virtual environment"
+        default: "3.8"
       os:
         required: false
         type: string
