@@ -31,7 +31,7 @@ import torchvision.transforms as transforms
 from qdrant_client.models import SearchRequest
 from qdrant_client.http import models
 
-from luxonis_ml.data.dataset import LuxonisDataset
+from luxonis_ml.data import LuxonisDataset
 
 
 def _get_sample_payloads_coco(luxonis_dataset: LuxonisDataset):

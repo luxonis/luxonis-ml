@@ -13,6 +13,3 @@ def test_protocol():
 
     with pytest.raises(ValueError):
         LuxonisFileSystem("foo://bar")
-
-
-

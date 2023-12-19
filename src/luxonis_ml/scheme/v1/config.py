@@ -1,6 +1,6 @@
 from typing import List
 from pydantic import Field
-from config_building_blocks import *
+from .config_building_blocks import CustomBaseModel
 from model import Model
 from __init__ import CONFIG_VERSION
 

@@ -152,7 +152,5 @@ class AutoRegisterMeta(ABCMeta):
                 )
         if register:
             registry = registry if registry is not None else new_class.REGISTRY
-            registry.register_module(
-                name=register_name or name, module=new_class
-            )
+            registry.register_module(name=register_name or name, module=new_class)
         return new_class

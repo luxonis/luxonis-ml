@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-from luxonis_ml.data import *
 import argparse
 import os
 import json
@@ -46,8 +45,7 @@ def _config():
 
 
 def _dataset_sync(args):
-    with LuxonisDataset(args.team_id, args.dataset_id) as dataset:
-        dataset.sync_from_cloud()
+    raise NotImplementedError
 
 
 def _debug_performance(args):
@@ -87,9 +85,7 @@ def main():
     parser = argparse.ArgumentParser()
 
     subparsers = parser.add_subparsers(dest="main")
-    parser_config = subparsers.add_parser(
-        "config", help="Configure API keys for luxonis_ml"
-    )
+    subparsers.add_parser("config", help="Configure API keys for luxonis_ml")
     parser_dataset = subparsers.add_parser(
         "dataset", help="Dataset programs to work with LDF"
     )

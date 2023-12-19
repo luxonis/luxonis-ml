@@ -1,7 +1,7 @@
 from pydantic import BaseModel, validator, Field
 from .custom_base_model import CustomBaseModel
 from typing import Optional, List, Union
-from ..enums import *
+from ..enums import ObjectDetectionSubtypeYOLO
 from abc import ABC
 
 
