@@ -23,10 +23,10 @@ jobs:
   setup:
     runs-on: ubuntu-latest
     outputs:
-      os-matrix: ${{ steps.set-matrix.outputs.os_matrix }}
-      os-default: ${{ steps.set-matrix.outputs.os_default }}
-      python-matrix: ${{ steps.set-matrix.outputs.python_matrix }}
-      python-default: ${{ steps.set-matrix.outputs.python_default }}
+      os-matrix: ${{ steps.set-matrix.outputs.os-matrix }}
+      os-default: ${{ steps.set-matrix.outputs.os-default }}
+      python-matrix: ${{ steps.set-matrix.outputs.python-matrix }}
+      python-default: ${{ steps.set-matrix.outputs.python-default }}
     steps:
       - id: set-matrix
         run: |
@@ -36,10 +36,10 @@ jobs:
           os_default=$(echo $os_list | jq -r '.[0]')
           python_default=$(echo $python_list | jq -r '.[0]')
 
-          echo "os_matrix=$os_list" >> $GITHUB_OUTPUT
-          echo "os_default=$os_default" >> $GITHUB_OUTPUT
-          echo "python_matrix=$python_list" >> $GITHUB_OUTPUT
-          echo "python_default=$python_default" >> $GITHUB_OUTPUT
+          echo "::set-output name=os-matrix::$os_list"
+          echo "::set-output name=os-default::$os_default"
+          echo "::set-output name=python-matrix::$python_list"
+          echo "::set-output name=python-default::$python_default"
 
   pre-commit:
     runs-on: ubuntu-latest
