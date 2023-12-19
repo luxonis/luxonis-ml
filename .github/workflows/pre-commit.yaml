@@ -30,8 +30,8 @@ jobs:
     steps:
       - id: set-matrix
         run: |
+          python_list=$(echo "${{ inputs.os }}" | xargs | jq -R -s -c 'split(",")')
           os_list=$(echo "${{ inputs.os }}" | xargs | jq -R -s -c 'split(",")')
-          python_list=$(echo "${{ inputs.python }}" | xargs | jq -R -s -c 'split(",")')
 
           echo "os-matrix=$os_list" >> $GITHUB_ENV
           echo "python-matrix=$python_list" >> $GITHUB_ENV
