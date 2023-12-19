@@ -82,7 +82,7 @@ jobs:
       uses: pavelzw/pytest-action@v2
       with:
         emoji: false
-        custom-arguments: --cov ${{ github.event.inputs.src-dir }} --cov-report xml --junit-xml pytest.xml
+        custom-arguments: --cov ${{ inputs.src-dir }} --cov-report xml --junit-xml pytest.xml
 
     - name: Create Test Report
       uses: EnricoMi/publish-unit-test-result-action@v2
