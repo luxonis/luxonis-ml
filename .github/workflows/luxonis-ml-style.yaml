@@ -1,7 +1,7 @@
 name: pre-commit
 
 on:
-  commit:
+  push:
 
 jobs:
   pre-commit:
