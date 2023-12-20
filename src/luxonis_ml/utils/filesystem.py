@@ -225,6 +225,8 @@ class LuxonisFileSystem:
         if self.is_fsspec:
             full_remote_path = os.path.join(self.path, remote_path)
             self.fs.rm(full_remote_path)
+        else:
+            raise NotImplementedError
     
     def delete_files(self, remote_paths: List[str]) -> None:
         """Deletes multiple files from remote storage.
@@ -233,8 +235,11 @@ class LuxonisFileSystem:
             remote_paths (List[str]): Relative paths to the remote files to be deleted.
         """
         if self.is_fsspec:
-            for remote_path in remote_paths:
-                self.delete_file(remote_path)
+            with ThreadPoolExecutor() as executor:
+                for remote_path in remote_paths:
+                    executor.submit(self.delete_file, remote_path)
+        else:
+            raise NotImplementedError
 
     def get_dir(
         self,
@@ -265,6 +270,8 @@ class LuxonisFileSystem:
         if self.is_fsspec:
             full_remote_dir = os.path.join(self.path, remote_dir)
             self.fs.rm(full_remote_dir, recursive=True)
+        else:
+            raise NotImplementedError
 
     def walk_dir(self, remote_dir: str) -> Generator[str, None, None]:
         """Recursively walks through the individual files in a remote directory"""
