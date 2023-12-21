@@ -235,9 +235,8 @@ class LuxonisFileSystem:
             remote_paths (List[str]): Relative paths to the remote files to be deleted.
         """
         if self.is_fsspec:
-            with ThreadPoolExecutor() as executor:
-                for remote_path in remote_paths:
-                    executor.submit(self.delete_file, remote_path)
+            full_remote_paths = [os.path.join(self.path, remote_path) for remote_path in remote_paths]
+            self.fs.rm(full_remote_paths)
         else:
             raise NotImplementedError
 
