@@ -212,8 +212,8 @@ class LuxonisParser:
         Yields:
             Iterator[Tuple[Generator, List[str], Dict[str, Dict]]]: Annotation data
         """
-        with open(annotation_path) as file:
-            annotation_data = json.load(file)
+        with open(annotation_path) as f:
+            annotation_data = json.load(f)
 
         coco_images = annotation_data["images"]
         coco_annotations = annotation_data["annotations"]
@@ -232,12 +232,14 @@ class LuxonisParser:
         def generator() -> Dict[str, Any]:
             for img in coco_images:
                 img_id = img["id"]
-                img_anns = [
-                    ann for ann in coco_annotations if ann["image_id"] == img_id
-                ]
+
                 path = os.path.join(os.path.abspath(image_dir), img["file_name"])
                 if not os.path.exists(path):
                     continue
+
+                img_anns = [
+                    ann for ann in coco_annotations if ann["image_id"] == img_id
+                ]
 
                 height = img["height"]
                 width = img["width"]
@@ -280,11 +282,13 @@ class LuxonisParser:
                         keypoints = []
                         for kp in kpts:
                             keypoints.append(
-                                [
-                                    float(kp[0] / width),
-                                    float(kp[1] / height),
-                                    int(kp[2]),
-                                ]
+                                tuple(
+                                    [
+                                        float(kp[0] / width),
+                                        float(kp[1] / height),
+                                        int(kp[2]),
+                                    ]
+                                )
                             )
                         yield {
                             "file": path,
@@ -310,22 +314,22 @@ class LuxonisParser:
 
         # create test_new.txt and val_new.txt files with new splits
         val_ann_path = os.path.join(dataset_dir, "ImageSets", "Main", "val_new.txt")
-        with open(val_ann_path) as f:
+        with open(val_ann_path, "w+") as f:
             f.writelines(val_split)
         test_ann_path = os.path.join(dataset_dir, "ImageSets", "Main", "test_new.txt")
-        with open(test_ann_path) as f:
+        with open(test_ann_path, "w+") as f:
             f.writelines(test_split)
 
         image_dir = os.path.join(dataset_dir, "JPEGImages")
         ann_dir = os.path.join(dataset_dir, "Annotations")
 
-        added_train_imgs = self.from_voc_dir(
+        added_train_imgs = self.from_voc_format(
             image_dir=image_dir, annotation_path=train_ann_path, annotation_dir=ann_dir
         )
-        added_val_imgs = self.from_voc_dir(
+        added_val_imgs = self.from_voc_format(
             image_dir=image_dir, annotation_path=val_ann_path, annotation_dir=ann_dir
         )
-        added_test_imgs = self.from_voc_dir(
+        added_test_imgs = self.from_voc_format(
             image_dir=image_dir, annotation_path=test_ann_path, annotation_dir=ann_dir
         )
 
@@ -370,7 +374,7 @@ class LuxonisParser:
             root = annotation_data.getroot()
 
             filename_item = root.find("filename")
-            if filename_item not in filenames:
+            if filename_item.text.split(".")[0] not in filenames:
                 continue
 
             path = os.path.join(os.path.abspath(image_dir), filename_item.text)
@@ -402,7 +406,6 @@ class LuxonisParser:
                     bbox_xywh[1::2] /= height
                     bbox_xywh = bbox_xywh.tolist()
                     curr_annotations["bboxes"].append((class_name, bbox_xywh))
-
             images_annotations.append(curr_annotations)
 
         def generator() -> Dict[str, Any]:
@@ -430,15 +433,15 @@ class LuxonisParser:
     def from_darknet_dir(self, dataset_dir: str):
         added_train_imgs = self.from_darknet_format(
             image_dir=os.path.join(dataset_dir, "train"),
-            classes_path=os.path.join(dataset_dir, "_darknet.labels"),
+            classes_path=os.path.join(dataset_dir, "train", "_darknet.labels"),
         )
         added_val_imgs = self.from_darknet_format(
             image_dir=os.path.join(dataset_dir, "valid"),
-            classes_path=os.path.join(dataset_dir, "_darknet.labels"),
+            classes_path=os.path.join(dataset_dir, "valid", "_darknet.labels"),
         )
         added_test_imgs = self.from_darknet_format(
             image_dir=os.path.join(dataset_dir, "test"),
-            classes_path=os.path.join(dataset_dir, "_darknet.labels"),
+            classes_path=os.path.join(dataset_dir, "test", "_darknet.labels"),
         )
 
         self.dataset.make_splits(
@@ -1011,17 +1014,3 @@ class LuxonisParser:
         for item in generator():
             added_images.add(item["file"])
         return list(added_images)
-
-
-if __name__ == "__main__":
-    # parser = LuxonisParser(dataset_name="coco_test")
-    # dataset = parser.parse(
-    #     dataset_type=DatasetType.COCO,
-    #     dataset_dir="/home/klemen/fiftyone/coco-2017-all/",
-    # )
-    parser = LuxonisParser(dataset_name="coco_test_person")
-    dataset = parser.parse(
-        dataset_type=DatasetType.COCO,
-        dataset_dir="/home/klemen/fiftyone/coco-2017-person/",
-        use_keypoint_ann=True,
-    )
