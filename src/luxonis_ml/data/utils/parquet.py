@@ -10,15 +10,20 @@ class ParquetFileManager:
     def __init__(
         self,
         directory: str,
-        file_size_mb: int = 20,
-        row_check: int = 100000,
+        num_rows: int = 100000,
     ) -> None:
-        """Class to manage the insert of data into parquet files."""
+        """Manages the insertion of data into parquet files.
+
+        @type directory: str @param directory: The local directory in
+        which parquet files are stored.
+
+        @type num_rows: int @param num_rows: The maximum number of rows
+        permitted in a parquet file before another file is created.
+        """
 
         self.dir = directory
         self.files = os.listdir(self.dir)
-        self.file_size = file_size_mb
-        self.row_check = row_check
+        self.num_rows = num_rows
 
         if len(self.files):
             self.num = self._find_num()
@@ -75,7 +80,14 @@ class ParquetFileManager:
             return buffer.tell() / (1024 * 1024)
 
     def write(self, add_data: Dict) -> None:
-        """Writes a row to the current working parquet file."""
+        """Writes a row to the current working parquet file.
+
+        @type add_data: Dict @param add_data: A dictionary representing
+        annotations, mapping annotation types to values.
+
+        @rtype: NoneType @return: None
+        """
+
         if len(self.data) == 0:
             self._initialize_data(add_data)
         for key in add_data:
@@ -84,7 +96,7 @@ class ParquetFileManager:
             self.data[key].append(add_data[key])
             self.row_count += 1
 
-        if self.row_count % self.row_check == 0:
+        if self.row_count % self.num_rows == 0:
             df = pd.DataFrame(self.data)
             estimated_size = self._estimate_file_size(df)
             if estimated_size > self.file_size:
@@ -94,7 +106,10 @@ class ParquetFileManager:
                 self._read()
 
     def close(self) -> None:
-        """Ensure all data is written to parquet."""
+        """Ensures all data is written to parquet.
+
+        @rtype: NoneType @return: None
+        """
 
         df = pd.DataFrame(self.data)
         table = pa.Table.from_pandas(df)

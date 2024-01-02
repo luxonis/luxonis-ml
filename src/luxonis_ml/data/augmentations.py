@@ -327,7 +327,15 @@ class Augmentations:
         return out_image, out_mask, out_bboxes, out_keypoints
 
     def check_bboxes(self, bboxes: np.ndarray) -> np.ndarray:
-        """Check bbox annotations and correct those with width or height 0."""
+        """Check bbox annotations and correct those with width or height 0.
+
+        @type bboxes: np.ndarray @param bboxes: A numpy array
+        representing bounding boxes.
+
+        @rtype: np.ndarray @return: The same bounding boxes with any
+        out-of-bounds coordinate corrections.
+        """
+
         for i in range(bboxes.shape[0]):
             if bboxes[i, 2] == 0:
                 bboxes[i, 2] = 1
@@ -338,7 +346,18 @@ class Augmentations:
     def mark_invisible_keypoints(
         self, keypoints: np.ndarray, ih: int, iw: int
     ) -> np.ndarray:
-        """Mark invisible keypoints with label == 0."""
+        """Mark invisible keypoints with label == 0.
+
+        @type keypoints: np.ndarray @param keypoints: A numpy array
+        representing keypoints.
+
+        @type ih: int @param ih: The image height.
+
+        @type iw: int @param iw: The image width.
+
+        @rtype: np.ndarray @return: The same keypoints with corrections
+        to mark keypoints out-of-bounds as invisible.
+        """
         for kp in keypoints:
             if not (0 <= kp[0] < iw and 0 <= kp[1] < ih):
                 kp[2] = 0
@@ -530,6 +549,17 @@ class LetterboxResize(DualTransform):
         self.mask_value = mask_value
 
     def update_params(self, params: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+        """Updates augmentation parameters with the necessary metadata.
+
+        @type params: Dict[str, Any] @param params: The existing
+        augmentation parameters dictionary.
+
+        @param kwargs: Additional keyword arguments to add the
+        parameters.
+
+        @rtype: Dict[str, Any] @return: The updated parameters.
+        """
+
         params = super().update_params(params, **kwargs)
 
         img_height = params["rows"]
@@ -566,6 +596,27 @@ class LetterboxResize(DualTransform):
         pad_right: int,
         **params,
     ) -> np.ndarray:
+        """Applies the letterbox augmentation to an image.
+
+        @type img: np.ndarray @param img: The image as numpy array.
+
+        @type pad_top: int @param pad_top: Number of pixels to pad to
+        the top of the image.
+
+        @type pad_bottom: int @param pad_bottom: Number of pixels to pad
+        to the bottom of the image.
+
+        @type pad_left: int @param pad_left: Number of pixels to pad to
+        the left of the image.
+
+        @type pad_right: int @param pad_right: Number of pixels to pad
+        to the right of the image.
+
+        @param params: Additional keyword arguments.
+
+        @rtype: np.ndarray @return: The augmented image.
+        """
+
         resized_img = cv2.resize(
             img,
             (self.width - pad_left - pad_right, self.height - pad_top - pad_bottom),
@@ -592,6 +643,27 @@ class LetterboxResize(DualTransform):
         pad_right: int,
         **params,
     ) -> np.ndarray:
+        """Applies the letterbox augmentation to a segmentation mask.
+
+        @type img: np.ndarray @param img: The mask as numpy array.
+
+        @type pad_top: int @param pad_top: Number of pixels to pad to
+        the top of the mask.
+
+        @type pad_bottom: int @param pad_bottom: Number of pixels to pad
+        to the bottom of the mask.
+
+        @type pad_left: int @param pad_left: Number of pixels to pad to
+        the left of the mask.
+
+        @type pad_right: int @param pad_right: Number of pixels to pad
+        to the right of the mask.
+
+        @param params: Additional keyword arguments.
+
+        @rtype: np.ndarray @return: The augmented mask.
+        """
+
         resized_img = cv2.resize(
             img,
             (self.width - pad_left - pad_right, self.height - pad_top - pad_bottom),
@@ -618,6 +690,28 @@ class LetterboxResize(DualTransform):
         pad_right: int,
         **params,
     ) -> BoxInternalType:
+        """Applies the letterbox augmentation to a bounding box.
+
+        @type bbox: BoxInternalType @param bbox: The bounding box in
+        which to apply the augmentation.
+
+        @type pad_top: int @param pad_top: Number of pixels to pad to
+        the top of the image.
+
+        @type pad_bottom: int @param pad_bottom: Number of pixels to pad
+        to the bottom of the image.
+
+        @type pad_left: int @param pad_left: Number of pixels to pad to
+        the left of the image.
+
+        @type pad_right: int @param pad_right: Number of pixels to pad
+        to the right of the image.
+
+        @param params: Additional keyword arguments.
+
+        @rtype: BoxInternalType @return: The augmented bounding box.
+        """
+
         x_min, y_min, x_max, y_max = denormalize_bbox(
             bbox, self.height - pad_top - pad_bottom, self.width - pad_left - pad_right
         )[:4]
@@ -640,6 +734,28 @@ class LetterboxResize(DualTransform):
         pad_right: int,
         **params,
     ) -> KeypointInternalType:
+        """Applies the letterbox augmentation to keypoints.
+
+        @type bbox: KeypointInternalType @param bbox: The bounding box
+        in which to apply the augmentation.
+
+        @type pad_top: int @param pad_top: Number of pixels to pad to
+        the top of the image.
+
+        @type pad_bottom: int @param pad_bottom: Number of pixels to pad
+        to the bottom of the image.
+
+        @type pad_left: int @param pad_left: Number of pixels to pad to
+        the left of the image.
+
+        @type pad_right: int @param pad_right: Number of pixels to pad
+        to the right of the image.
+
+        @param params: Additional keyword arguments.
+
+        @rtype: KeypointInternalType @return: The augmented keypoints.
+        """
+
         x, y, angle, scale = keypoint[:4]
         scale_x = (self.width - pad_left - pad_right) / params["cols"]
         scale_y = (self.height - pad_top - pad_bottom) / params["rows"]
@@ -659,6 +775,12 @@ class LetterboxResize(DualTransform):
         return out_keypoint
 
     def get_transform_init_args_names(self) -> Tuple[str, ...]:
+        """Gets the default arguments for the letterbox augmentation.
+
+        @rtype: Tuple[str, ...]
+        @return: The string keywords of the arguments.
+        """
+
         return ("height", "width", "interpolation", "border_value", "mask_value")
 
     def _out_of_bounds(self, value: float, min_limit: float, max_limit: float) -> bool:
@@ -708,9 +830,9 @@ class MixUp(A.BatchBasedTransform):
         always_apply: bool = False,
         p: float = 0.5,
     ):
-        """MixUp augmentation that merges two images and their annotations into one.
-        If images are not of same size then second one is first resized to match the
-        first one.
+        """MixUp augmentation that merges two images and their annotations into
+        one. If images are not of same size then second one is first resized to
+        match the first one.
 
         Args:
             alpha (Union[float, Tuple[float, float]], optional): Alpha value used for blending images.
@@ -725,6 +847,11 @@ class MixUp(A.BatchBasedTransform):
         self.out_batch_size = 1
 
     def get_transform_init_args_names(self) -> Tuple[str, ...]:
+        """Gets the default arguments for the letterbox augmentation.
+
+        @rtype: Tuple[str, ...]
+        @return: The string keywords of the arguments.
+        """
         return ("alpha", "out_batch_size")
 
     @property

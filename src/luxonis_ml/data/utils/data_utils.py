@@ -1,35 +1,23 @@
 import numpy as np
-import os
-import uuid
 import cv2
 import json
 import pycocotools.mask as mask_util
 from typeguard import check_type, TypeCheckError
 
-# from luxonis_ml.data.utils.exceptions import *
 import typing
 from typing import Dict, List, Union, Any, Tuple
 from .constants import ANNOTATIONS_SCHEMA as schema
 
 
-def generate_hashname(filepath: str) -> Tuple[str, str]:
-    """Finds the UUID generated ID for a local file."""
-
-    # Read the contents of the file
-    with open(filepath, "rb") as file:
-        file_contents = file.read()
-
-    # TODO: check for a corrupted image by handling cv2.imread
-
-    # Generate the UUID5 based on the file contents and the NAMESPACE_URL
-    file_hash_uuid = uuid.uuid5(uuid.NAMESPACE_URL, file_contents.hex())
-
-    return str(file_hash_uuid) + os.path.splitext(filepath)[1], str(file_hash_uuid)
-
-
 def check_annotation(data: Dict) -> None:
-    """Throws an exception if the input data does not match the expected
-    annotations schema."""
+    """Checks whether annotations match the expected format. Throws an
+    exception if there is a formatting error.
+
+    @type data: Dict @param data: A dictionary representing annotations,
+    mapping annotation types to values.
+
+    @rtype: NoneType @return: None
+    """
 
     if len(schema.keys()) != len(data.keys()) or set(schema.keys()) != set(data.keys()):
         raise Exception(
@@ -59,11 +47,11 @@ def check_annotation(data: Dict) -> None:
     value = data["value"]
 
     if typ == "classification":
-        check_value_type(typ, value, bool)
+        _check_value_type(typ, value, bool)
     elif typ == "label":
-        check_value_type(typ, value, Union[str, int, float, bool])
+        _check_value_type(typ, value, Union[str, int, float, bool])
     elif typ == "box":
-        check_value_type(
+        _check_value_type(
             typ,
             value,
             Tuple[
@@ -74,19 +62,19 @@ def check_annotation(data: Dict) -> None:
             ],
         )
     elif typ == "polyline":
-        check_value_type(
+        _check_value_type(
             typ,
             value,
             List[Tuple[Union[int, float], Union[int, float]]],
         )
     elif typ == "segmentation":
-        check_value_type(
+        _check_value_type(
             typ,
             value,
             Tuple[int, int, Union[List[int], bytes]],
         )
     elif typ == "keypoints":
-        check_value_type(
+        _check_value_type(
             typ,
             value,
             List[Tuple[Union[int, float], Union[int, float], int]],
@@ -94,13 +82,20 @@ def check_annotation(data: Dict) -> None:
 
 
 def check_arrays(values: List[Any]) -> None:
-    """Throws an exception if a given path to an array is invalid."""
+    """Checks whether paths to numpy arrays are valid. This checks that th file
+    exists and is readable by numpy.
+
+    @type values: List[Any] @param values: A list of paths to numpy
+    arrays.
+
+    @rtype: NoneType @return: None
+    """
 
     for value in values:
         _check_array(value)
 
 
-def check_value_type(name: str, value: Any, typ: Any) -> None:
+def _check_value_type(name: str, value: Any, typ: Any) -> None:
     """Checks if a value is of a given type, and raises a TypeError if not."""
     try:
         check_type(value, typ)
@@ -134,6 +129,17 @@ def _check_valid_array(path: str) -> bool:
 def transform_segmentation_value(
     value: Tuple[int, int, Union[bytes, List[int]]]
 ) -> str:
+    """Transforms a segmentation in RLE format to the format stored by
+    LuxonisDataset.
+
+    @type value: Tuple[int, int, Union[bytes, List[int]]] @param value:
+    The segmentation value in RLE format of (height, width, counts).
+    Counts can be encoded bytes or a raw list.
+
+    @rtype: str @return: A dumped string of the segmentation format
+    recognized by LuxonisDataset.
+    """
+
     height, width, counts = value
     if isinstance(counts, bytes):
         return json.dumps((height, width, counts.decode("utf-8")))
