@@ -10,10 +10,13 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 from datetime import datetime
+from abc import ABC, abstractmethod
 from typing import List, Dict, Tuple, Optional, Generator
 
 import luxonis_ml.data.utils.data_utils as data_utils
+from luxonis_ml.data.utils.registry import DATASETS
 from luxonis_ml.utils import LuxonisFileSystem, environ
+from luxonis_ml.utils.registry import AutoRegisterMeta
 from luxonis_ml.data.utils.parquet import ParquetFileManager
 from .utils.constants import LDF_VERSION, LABEL_TYPES
 from .utils.enums import BucketType, BucketStorage, MediaType, ImageType
@@ -72,7 +75,48 @@ class LuxonisSource:
             ]  # make first component main component by default
 
 
-class LuxonisDataset:
+class BaseDataset(ABC, metaclass=AutoRegisterMeta, register=False):
+    """Base abstract dataset class for managing datasets in the Luxonis MLOps
+    ecosystem."""
+
+    @abstractmethod
+    def update_source():
+        pass
+
+    @abstractmethod
+    def set_classes():
+        pass
+
+    @abstractmethod
+    def set_skeletons():
+        pass
+
+    @abstractmethod
+    def get_classes():
+        pass
+
+    @abstractmethod
+    def get_skeletons():
+        pass
+
+    @abstractmethod
+    def add():
+        pass
+
+    @abstractmethod
+    def make_splits():
+        pass
+
+    @abstractmethod
+    def delete_dataset():
+        pass
+
+    @abstractmethod
+    def create_version():
+        pass
+
+
+class LuxonisDataset(BaseDataset, registry=DATASETS):
     """Luxonis Dataset Format (LDF).
 
     Used to define datasets in the Luxonis MLOps ecosystem
@@ -684,6 +728,9 @@ class LuxonisDataset:
                     json.dump(splits, file, indent=4)
                 self.fs.put_file(local_file, "metadata/splits.json")
                 self._remove_temp_dir()
+
+    def create_version(self) -> None:
+        raise Exception("Versioning is not supported for this dataset.")
 
     @staticmethod
     def exists(dataset_name: str) -> bool:
