@@ -514,13 +514,7 @@ class LuxonisDataset:
                 self._end_time()
 
             array_paths = list(
-                set(
-                    [
-                        data["value"]
-                        for data in batch_data
-                        if data["type"] == "array"
-                    ]
-                )
+                set([data["value"] for data in batch_data if data["type"] == "array"])
             )
             if len(array_paths):
                 self.logger.info("Checking arrays...")
@@ -631,19 +625,18 @@ class LuxonisDataset:
         Saves a splits.json file that specified the train/val/test split.
         For use in OFFLINE mode only.
 
-        ratios [List[float]] : length 3 list of train/val/test ratios in that order used for a random split.
+        ratios [List[float]] : Length 3 list of train/val/test ratios in that order used for a random split.
             If no definitions are provided, this is used to generate a random split.
-        definitions [Optional[Dict]] : dictionary specifying split keys to lists of filepath values.
+        definitions [Optional[Dict]] : Dictionary specifying split keys to lists of filepath values.
             Note that this assumes unique filenames
-            (e.g. {"train": ["/path/to/cat.jpg", "/path/to/dog.jpg"], "val": [...], "test": [...]})
-
-        WARNING: this will overwrite any previously saved splits.
+            (e.g. {"train": ["/path/to/cat.jpg", "/path/to/dog.jpg"], "val": [...], "test": [...]}).
+            Only overrides splits that are present in the dictionary.
         """
-
         if self.online:
             raise NotImplementedError()
         else:
-            splits = {}
+            new_splits = {"train": {}, "val": {}, "test": {}}
+            splits_to_update = []
 
             if definitions is None:  # random split
                 if self.bucket_storage != BucketStorage.LOCAL:
@@ -658,33 +651,50 @@ class LuxonisDataset:
                 N = len(ids)
                 b1 = round(N * ratios[0])
                 b2 = round(N * ratios[0]) + round(N * ratios[1])
-                splits["train"] = ids[:b1]
-                splits["val"] = ids[b1:b2]
-                splits["test"] = ids[b2:]
+                new_splits["train"] = ids[:b1]
+                new_splits["val"] = ids[b1:b2]
+                new_splits["test"] = ids[b2:]
+                splits_to_update = ["train", "val", "test"]
             else:  # provided split
                 index = self._get_file_index()
                 if index is None:
                     raise Exception("File index not found")
-                if set(definitions.keys()) != {"train", "val", "test"}:
-                    raise Exception(
-                        "Must specify train, val, and test and those keys only"
-                    )
                 for split in "train", "val", "test":
+                    if split not in definitions:
+                        continue
+                    splits_to_update.append(split)
                     files = definitions[split]
                     if not isinstance(files, list):
                         raise Exception("Must provide splits as a list of str")
                     files = [os.path.basename(file) for file in files]
                     ids = [self._try_instance_id(file, index) for file in files]
-                    splits[split] = ids
+                    new_splits[split] = ids
 
             if self.bucket_storage == BucketStorage.LOCAL:
+                splits_path = os.path.join(self.metadata_path, "splits.json")
+                if os.path.exists(splits_path):
+                    with open(splits_path, "r") as file:
+                        splits = json.load(file)
+                    for split in splits_to_update:
+                        splits[split] = new_splits[split]
+                else:
+                    splits = new_splits
                 with open(os.path.join(self.metadata_path, "splits.json"), "w") as file:
                     json.dump(splits, file, indent=4)
             else:
-                local_file = os.path.join(self.tmp_dir, "splits.json")
-                with open(local_file, "w") as file:
+                remote_path = "metadata/splits.json"
+                local_path = os.path.join(self.tmp_dir, "splits.json")
+                if self.fs.file_exists(remote_path):
+                    self.fs.get_file(remote_path, local_path)
+                    with open(splits_path, "r") as file:
+                        splits = json.load(file)
+                    for split in splits_to_update:
+                        splits[split] = new_splits[split]
+                else:
+                    splits = new_splits
+                with open(local_path, "w") as file:
                     json.dump(splits, file, indent=4)
-                self.fs.put_file(local_file, "metadata/splits.json")
+                self.fs.put_file(local_path, "metadata/splits.json")
                 self._remove_temp_dir()
 
     @staticmethod

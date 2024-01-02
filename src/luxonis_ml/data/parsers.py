@@ -29,13 +29,9 @@ class LuxonisParser:
             ldf_kwargs (Dict[str, Any]): Init parameters for LuxonisDataset
         """
         self.logger = logging.getLogger(__name__)
-
-        # self.dataset_exists = LuxonisDataset.exists(dataset_name=ldf_kwargs["dataset_name"])
-        self.dataset_exists = False
-
-        self.dataset = LuxonisDataset(**ldf_kwargs)
-        # NOTE: remove this, for testing only
-        self.dataset.delete_dataset()
+        self.dataset_exists = LuxonisDataset.exists(
+            dataset_name=ldf_kwargs["dataset_name"]
+        )
         self.dataset = LuxonisDataset(**ldf_kwargs)
 
     def parsing_wrapper(func: Callable) -> Callable:
