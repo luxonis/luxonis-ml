@@ -39,5 +39,6 @@ setup(
     entry_points={
         "mlflow.request_header_provider": "unused=luxonis_ml.tracker.mlflow_plugins:LuxonisRequestHeaderProvider",
         "console_scripts": ["luxonis_ml=luxonis_ml.luxonis_ml:main"],
+        "dataset_plugins": [],
     },
 )

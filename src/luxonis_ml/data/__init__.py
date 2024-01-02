@@ -1,5 +1,6 @@
 from ..guard_extras import guard_missing_extra
 import pkg_resources
+from luxonis_ml.data.utils.registry import DATASETS
 
 with guard_missing_extra("data"):
     from .utils.enums import (
@@ -17,12 +18,9 @@ with guard_missing_extra("data"):
 
 def load_dataset_plugins() -> None:
     """Registers any external dataset BaseDataset class plugins."""
-
     for entry_point in pkg_resources.iter_entry_points("dataset_plugins"):
         plugin_class = entry_point.load()
-        # DATASETS.register(name=)
-        print(type(plugin_class))
-        print(plugin_class)
+        DATASETS.register_module(module=plugin_class)
 
 
 load_dataset_plugins()
