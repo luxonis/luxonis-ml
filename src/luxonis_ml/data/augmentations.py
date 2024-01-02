@@ -1,8 +1,9 @@
 import numpy as np
 import cv2
 import warnings
+import random
 import albumentations as A
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Union
 
 from .loader import LabelType
 from luxonis_ml.utils.registry import Registry
@@ -703,7 +704,7 @@ class DeterministicMosaic4(A.Mosaic4):
 class MixUp(A.BatchBasedTransform):
     def __init__(
         self,
-        alpha: float = 0.5,
+        alpha: Union[float, Tuple[float, float]] = 0.5,
         always_apply: bool = False,
         p: float = 0.5,
     ):
@@ -712,14 +713,15 @@ class MixUp(A.BatchBasedTransform):
         first one.
 
         Args:
-            alpha (float, optional): Alpha value used for blending images. Defaults to 0.5.
+            alpha (Union[float, Tuple[float, float]], optional): Alpha value used for blending images.
+            If Tuple[float, float] then random value in this range is chosen every time. Defaults to 0.5.
             always_apply (bool, optional): Defaults to False.
             p (float, optional): Probability of applying the transform. Defaults to 1.0.
         """
         super().__init__(always_apply=always_apply, p=p)
 
-        self.n_tiles = 2
         self.alpha = alpha
+        self.n_tiles = 2
         self.out_batch_size = 1
 
     def get_transform_init_args_names(self) -> Tuple[str, ...]:
@@ -733,7 +735,12 @@ class MixUp(A.BatchBasedTransform):
         image1 = image_batch[0]
         # resize second image to size of the first one
         image2 = cv2.resize(image_batch[1], (image_shapes[0][1], image_shapes[0][0]))
-        img_out = cv2.addWeighted(image1, self.alpha, image2, 1 - self.alpha, 0.0)
+
+        if isinstance(self.alpha, float):
+            curr_alpha = np.clip(self.alpha, 0, 1)
+        else:
+            curr_alpha = random.uniform(max(self.alpha[0], 0), min(self.alpha[1], 1))
+        img_out = cv2.addWeighted(image1, curr_alpha, image2, 1 - curr_alpha, 0.0)
         return [img_out]
 
     def apply_to_mask_batch(self, mask_batch, image_shapes, **params):
