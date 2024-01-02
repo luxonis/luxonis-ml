@@ -5,6 +5,7 @@ import yaml
 import cv2
 import logging
 import numpy as np
+import pycocotools.mask as mask_util
 import xml.etree.ElementTree as ET
 from typing import Generator, List, Dict, Tuple, Any, Callable, Optional, Literal
 
@@ -16,6 +17,8 @@ class LuxonisParser:
     """Class used for parsing other common dataset formats to LDF
 
     Attributes:
+        logger (Logger): Internal logger used
+        dataset_exists (bool): Flag if dataset already exists
         dataset (LuxonisDataset): LuxonisDataset where data is stored
     """
 
@@ -27,10 +30,7 @@ class LuxonisParser:
         """
         self.logger = logging.getLogger(__name__)
 
-        # if LuxonisDataset.exists(dataset_name=ldf_kwargs["dataset_name"]):
-        #     self.dataset_exists = True
-        # else:
-        #     self.dataset_exists = False
+        # self.dataset_exists = LuxonisDataset.exists(dataset_name=ldf_kwargs["dataset_name"])
         self.dataset_exists = False
 
         self.dataset = LuxonisDataset(**ldf_kwargs)
@@ -65,6 +65,17 @@ class LuxonisParser:
         dataset_dir: str,
         **parser_kwargs: Dict[str, Any],
     ) -> LuxonisDataset:
+        """Parses all present data in LuxonisDataset format. Check under selected parser
+        function for expected directory structure.
+
+        Args:
+            dataset_type (DatasetType): Source dataset type
+            dataset_dir (str): Path to source dataset directory
+            parser_kwargs (Dict[str, Any]): Additional kwargs for specific parser function
+
+        Returns:
+            LuxonisDataset: Output LDF with all images and annotations parsed
+        """
         if dataset_type == DatasetType.LDF:
             return self.dataset
 
@@ -91,8 +102,8 @@ class LuxonisParser:
             self.from_tensorflow_csv_dir(dataset_dir)
         elif dataset_type == DatasetType.CLSDIR:
             self.from_class_dir_dir(dataset_dir)
-        else:
-            raise ValueError(f"Parsing from `{dataset_type}` not supported.")
+        elif dataset_type == DatasetType.SEGMASK:
+            self.from_seg_mask_dir(dataset_dir)
 
         return self.dataset
 
@@ -104,6 +115,20 @@ class LuxonisParser:
         split_ratios: Optional[List[float]] = None,
         **parser_kwargs: Dict[str, Any],
     ) -> LuxonisDataset:
+        """Parses data in specific directory, should be used if adding/changing only
+        specific split. Check under selected parser function for expected directory structure.
+
+        Args:
+            dataset_type (DatasetType): Source dataset type
+            split (Optional[Literal["train", "val", "test"]], optional): Split under which
+            data will be added. Defaults to None.
+            random_split (bool, optional): If random splits should be made. Defaults to False.
+            split_ratios (Optional[List[float]], optional): Ratios for random splits. Defaults to None.
+            parser_kwargs (Dict[str, Any]): Additional kwargs for specific parser function
+
+        Returns:
+            LuxonisDataset: Output LDF with all images and annotations parsed
+        """
         if dataset_type == DatasetType.LDF:
             pass
         elif dataset_type == DatasetType.COCO:
@@ -122,8 +147,8 @@ class LuxonisParser:
             added_images = self.from_tensorflow_csv_format(**parser_kwargs)
         elif dataset_type == DatasetType.CLSDIR:
             added_images = self.from_class_dir_format(**parser_kwargs)
-        else:
-            raise KeyError(f"Parsing from `{dataset_type}` not supported.")
+        elif dataset_type == DatasetType.SEGMASK:
+            added_images = self.from_seg_mask_format(**parser_kwargs)
 
         if split:
             self.dataset.make_splits(definitions={split: added_images})
@@ -140,11 +165,25 @@ class LuxonisParser:
         keypoint_ann_paths: Optional[Dict[str, str]] = None,
         split_val_to_test: bool = True,
     ):
+        """Parses directory with COCO annotations to LDF.
+        Expected format: "train", "validation" and "test" directories. Each one has "data" dir
+        with images and "labels.json" file with annotations. This is default format returned
+        when using fiftyone package.
+
+        Args:
+            dataset_dir (str): Path to dataset directory
+            use_keypoint_ann (bool, optional): If keypoint annotations should be used.
+            Defaults to False.
+            keypoint_ann_paths (Optional[Dict[str, str]], optional): Path to keypoint
+            annotations for each split. Defaults to None.
+            split_val_to_test (bool, optional): If part of validation data should be used
+            as test data. Defaults to True.
+        """
         if use_keypoint_ann and not keypoint_ann_paths:
             keypoint_ann_paths = {
                 "train": "raw/person_keypoints_train2017.json",
                 "val": "raw/person_keypoints_val2017.json",
-                "test": "raw/person_keypoints_test2017.json",  # NOTE: this is not present by default
+                "test": "raw/person_keypoints_test2017.json",  # NOTE: this file is not present by default
             }
 
         train_ann_path = (
@@ -302,35 +341,24 @@ class LuxonisParser:
         return generator, class_names, skeletons, added_images
 
     def from_voc_dir(self, dataset_dir: str):
-        train_ann_path = os.path.join(dataset_dir, "ImageSets", "Main", "train.txt")
-        with open(train_ann_path) as f:
-            train_split = f.readlines()
+        """Parses directory with VOC annotations to LDF.
+        Expected format: "train", "valid" and "test" directories. Each one has images
+        and .xml annotations. This is default format returned when using Roboflow.
 
-        with open(os.path.join(dataset_dir, "ImageSets", "Main", "val.txt")) as f:
-            val_test_split = f.readlines()
-            split_point = round(len(val_test_split) * 0.5)
-            val_split = val_test_split[:split_point]
-            test_split = val_test_split[split_point:]
-
-        # create test_new.txt and val_new.txt files with new splits
-        val_ann_path = os.path.join(dataset_dir, "ImageSets", "Main", "val_new.txt")
-        with open(val_ann_path, "w+") as f:
-            f.writelines(val_split)
-        test_ann_path = os.path.join(dataset_dir, "ImageSets", "Main", "test_new.txt")
-        with open(test_ann_path, "w+") as f:
-            f.writelines(test_split)
-
-        image_dir = os.path.join(dataset_dir, "JPEGImages")
-        ann_dir = os.path.join(dataset_dir, "Annotations")
-
+        Args:
+            dataset_dir (str): Path to dataset directory
+        """
         added_train_imgs = self.from_voc_format(
-            image_dir=image_dir, annotation_path=train_ann_path, annotation_dir=ann_dir
+            image_dir=os.path.join(dataset_dir, "train"),
+            annotation_dir=os.path.join(dataset_dir, "train"),
         )
         added_val_imgs = self.from_voc_format(
-            image_dir=image_dir, annotation_path=val_ann_path, annotation_dir=ann_dir
+            image_dir=os.path.join(dataset_dir, "valid"),
+            annotation_dir=os.path.join(dataset_dir, "valid"),
         )
         added_test_imgs = self.from_voc_format(
-            image_dir=image_dir, annotation_path=test_ann_path, annotation_dir=ann_dir
+            image_dir=os.path.join(dataset_dir, "test"),
+            annotation_dir=os.path.join(dataset_dir, "test"),
         )
 
         self.dataset.make_splits(
@@ -345,7 +373,6 @@ class LuxonisParser:
     def from_voc_format(
         self,
         image_dir: str,
-        annotation_path: str,
         annotation_dir: str,
     ) -> Tuple[Generator, List[str], Dict[str, Dict], List[str]]:
         """Parses annotations from VOC format to LDF. Annotations include classification
@@ -353,8 +380,7 @@ class LuxonisParser:
 
         Args:
             image_dir (str): Path to directory with images
-            annotation_path (str): Path to txt file with image names
-            annotation_dir (str): Path to directory with annotations
+            annotation_dir (str): Path to directory with .xml annotations
 
         Returns:
             Tuple[Generator, List[str], Dict[str, Dict], List[str]]: Annotation generator,
@@ -363,20 +389,16 @@ class LuxonisParser:
         Yields:
             Iterator[Tuple[Generator, List[str], Dict[str, Dict]]]: Annotation data
         """
-        with open(annotation_path) as f:
-            filenames = [l.rstrip() for l in f.readlines()]
+        anno_files = [i for i in os.listdir(annotation_dir) if i.endswith(".xml")]
 
         class_names = set()
         images_annotations = []
-        for anno_file in os.listdir(annotation_dir):
+        for anno_file in anno_files:
             anno_xml = os.path.join(annotation_dir, anno_file)
             annotation_data = ET.parse(anno_xml)
             root = annotation_data.getroot()
 
             filename_item = root.find("filename")
-            if filename_item.text.split(".")[0] not in filenames:
-                continue
-
             path = os.path.join(os.path.abspath(image_dir), filename_item.text)
             if not os.path.exists(path):
                 continue
@@ -393,13 +415,14 @@ class LuxonisParser:
 
                 bbox_info = object_item.find("bndbox")
                 if bbox_info:
-                    bbox_xyxy = [float(i.text) for i in bbox_info]
                     bbox_xywh = np.array(
                         [
-                            bbox_xyxy[0],
-                            bbox_xyxy[1],
-                            bbox_xyxy[2] - bbox_xyxy[0],
-                            bbox_xyxy[3] - bbox_xyxy[1],
+                            float(bbox_info.find("xmin").text),
+                            float(bbox_info.find("ymin").text),
+                            float(bbox_info.find("xmax").text)
+                            - float(bbox_info.find("xmin").text),
+                            float(bbox_info.find("ymax").text)
+                            - float(bbox_info.find("ymin").text),
                         ]
                     )
                     bbox_xywh[::2] /= width
@@ -431,6 +454,14 @@ class LuxonisParser:
         return generator, list(class_names), {}, added_images
 
     def from_darknet_dir(self, dataset_dir: str):
+        """Parses directory with DarkNet annotations to LDF.
+        Expected format: "train", "valid" and "test" directories. Each one has images,
+        .txt annotations and "darknet.labels" file with all present class names.
+        This is default format returned when using Roboflow.
+
+        Args:
+            dataset_dir (str): Path to dataset directory
+        """
         added_train_imgs = self.from_darknet_format(
             image_dir=os.path.join(dataset_dir, "train"),
             classes_path=os.path.join(dataset_dir, "train", "_darknet.labels"),
@@ -511,6 +542,16 @@ class LuxonisParser:
         return generator, list(class_names.values()), {}, added_images
 
     def from_yolov6_dir(self, dataset_dir: str):
+        """Parses annotations from YoloV6 annotations to LDF.
+        Expected format: "images" and "labels" directories on top level and then "train",
+        "valid" and "test" directories in each of them. Images are in directories under
+        "images" and annotations in directories under "labels" as .txt files. On top level
+        there is also "data.yaml" with names of all present classes. This is default
+        format returned when using Roboflow.
+
+        Args:
+            dataset_dir (str): Path to dataset directory
+        """
         classes_path = os.path.join(dataset_dir, "data.yaml")
         added_train_imgs = self.from_yolov6_format(
             image_dir=os.path.join(dataset_dir, "images", "train"),
@@ -603,6 +644,14 @@ class LuxonisParser:
         return generator, list(class_names.values()), {}, added_images
 
     def from_yolov4_dir(self, dataset_dir: str):
+        """Parses directory with YoloV4 annotations to LDF.
+        Expected format: "train", "valid" and "test" directories. Each one has images,
+        "_annotations.txt" file with annotations and "_classes.txt" file with all present
+        class names. This is default format returned when using Roboflow.
+
+        Args:
+            dataset_dir (str): Path to dataset directory
+        """
         added_train_imgs = self.from_yolov4_format(
             image_dir=os.path.join(dataset_dir, "train"),
             annotation_path=os.path.join(dataset_dir, "train", "_annotations.txt"),
@@ -694,6 +743,14 @@ class LuxonisParser:
         return generator, list(class_names.values()), {}, added_images
 
     def from_create_ml_dir(self, dataset_dir: str):
+        """Parses directory with CreateML annotations to LDF.
+        Expected format: "train", "valid" and "test" directories. Each one has images
+        and "_annotations.createml.json" file with annotations. This is default format
+        returned when using Roboflow.
+
+        Args:
+            dataset_dir (str): Path to dataset directory
+        """
         added_train_imgs = self.from_create_ml_format(
             image_dir=os.path.join(dataset_dir, "train"),
             annotation_path=os.path.join(
@@ -792,6 +849,14 @@ class LuxonisParser:
         return generator, list(class_names), {}, added_images
 
     def from_tensorflow_csv_dir(self, dataset_dir: str):
+        """Parses directory with TensorflowCSV annotations to LDF.
+        Expected format: "train", "valid" and "test" directories. Each one has images
+        and "_annotations.csv" file with annotations. This is default format
+        returned when using Roboflow.
+
+        Args:
+            dataset_dir (str): Path to dataset directory
+        """
         added_train_imgs = self.from_tensorflow_csv_format(
             image_dir=os.path.join(dataset_dir, "train"),
             annotation_path=os.path.join(dataset_dir, "train", "_annotations.csv"),
@@ -892,6 +957,14 @@ class LuxonisParser:
         return generator, list(class_names), {}, added_images
 
     def from_class_dir_dir(self, dataset_dir: str):
+        """Parses directory with ClassificationDirectory annotations to LDF.
+        Expected format: "train", "valid" and "test" directories. Each one has
+        subdirectories with class name and images with this class inside. This is
+        default format when using Roboflow.
+
+        Args:
+            dataset_dir (str): Path to dataset directory
+        """
         added_train_imgs = self.from_class_dir_format(
             class_dir=os.path.join(dataset_dir, "train"),
         )
@@ -951,65 +1024,118 @@ class LuxonisParser:
 
         return generator, class_names, {}, added_images
 
-    # # TODO: Test once segmentation PR merged
-    # @parsing_wrapper
-    # def _from_seg_mask_format(
-    #     self, image_dir: str, seg_dir: str, annotation_path: str
-    # ) -> Tuple[Generator, List[str], Dict[str, Dict]]:
-    #     """Parses annotations from segmentation masks to LDF. Annotations include
-    #     classification and segmentation.
+    def from_seg_mask_dir(self, dataset_dir: str):
+        """Parses directory with SegmentationMask annotations to LDF.
+        Expected format: "train", "valid" and "test" directories. Each one has
+        images (.jpg), their masks (.png) and "_classes.csv" with mappings between
+        pixel value and class name. This is default format returned when using
+        Roboflow.
 
-    #     Args:
-    #         image_dir (str): Path to directory with images
-    #         seg_dir (str): Path to directory with segmentation masks
-    #         annotation_path (str): Path to annotation CSV file
+        Args:
+            dataset_dir (str): _description_
+        """
+        added_train_imgs = self.from_seg_mask_format(
+            image_dir=os.path.join(dataset_dir, "train"),
+            seg_dir=os.path.join(dataset_dir, "train"),
+            classes_path=os.path.join(dataset_dir, "train", "_classes.csv"),
+        )
+        added_val_imgs = self.from_seg_mask_format(
+            image_dir=os.path.join(dataset_dir, "valid"),
+            seg_dir=os.path.join(dataset_dir, "valid"),
+            classes_path=os.path.join(dataset_dir, "valid", "_classes.csv"),
+        )
+        added_test_imgs = self.from_seg_mask_format(
+            image_dir=os.path.join(dataset_dir, "test"),
+            seg_dir=os.path.join(dataset_dir, "test"),
+            classes_path=os.path.join(dataset_dir, "test", "_classes.csv"),
+        )
 
-    #     Returns:
-    #         Tuple[Generator, List[str], Dict[str, Dict]]: Annotation generator,
-    #         list of classes names and skeleton dictionary for keypoints
+        self.dataset.make_splits(
+            definitions={
+                "train": added_train_imgs,
+                "val": added_val_imgs,
+                "test": added_test_imgs,
+            }
+        )
 
-    #     Yields:
-    #         Iterator[Tuple[Generator, List[str], Dict[str, Dict]]]: Annotation data
-    #     """
-    #     with open(annotation_path) as f:
-    #         reader = csv.reader(f, delimiter=",")
+    @parsing_wrapper
+    def from_seg_mask_format(
+        self, image_dir: str, seg_dir: str, classes_path: str
+    ) -> Tuple[Generator, List[str], Dict[str, Dict], List[str]]:
+        """Parses annotations with SegmentationMask format to LDF. Annotations include
+        classification and segmentation.
 
-    #         class_names = {}
-    #         for i, row in enumerate(reader):
-    #             if i == 0:
-    #                 idx_pixel_val = row.index("Pixel Value")
-    #                 idx_class = row.index(" Class")  # space prefix included
-    #             else:
-    #                 class_names[int(row[idx_pixel_val])] = row[idx_class]
+        Args:
+            image_dir (str): Path to directory with images
+            seg_dir (str): Path to directory with segmentation mask
+            classes_path (str): Path to annotation CSV file
 
-    #     def generator() -> Dict[str, Any]:
-    #         images = [i for i in os.listdir(image_dir) if i.endswith(".jpg")]
-    #         for image_path in images:
-    #             mask_path = image_path.removesuffix(".jpg") + "_mask.png"
-    #             mask_path = os.path.abspath(os.path.join(seg_dir, mask_path))
-    #             path = os.path.abspath(os.path.join(image_dir, image_path))
-    #             mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
-    #             ids = np.unique(mask)
-    #             for id in ids:
-    #                 class_name = class_names[id]
-    #                 yield {
-    #                     "file": path,
-    #                     "class": class_name,
-    #                     "type": "classification",
-    #                     "value": True,
-    #                 }
+        Returns:
+            Tuple[Generator, List[str], Dict[str, Dict], List[str]]: Annotation generator,
+            list of classes names, skeleton dictionary for keypoints and list of added images
 
-    #                 binary_mask = (mask == id).astype(np.uint8)
-    #                 yield {
-    #                     "file": path,
-    #                     "class": class_name,
-    #                     "type": "segmentation",
-    #                     "value": binary_mask,
-    #                 }
+        Yields:
+            Iterator[Tuple[Generator, List[str], Dict[str, Dict], List[str]]]: Annotation data
+        """
+        with open(classes_path) as f:
+            reader = csv.reader(f, delimiter=",")
 
-    #     return generator, list(class_names.values()), {}
+            class_names = {}
+            for i, row in enumerate(reader):
+                if i == 0:
+                    idx_pixel_val = row.index("Pixel Value")
+                    idx_class = row.index(" Class")  # space prefix included
+                else:
+                    class_names[int(row[idx_pixel_val])] = row[idx_class]
+
+        def generator() -> Dict[str, Any]:
+            images = [i for i in os.listdir(image_dir) if i.endswith(".jpg")]
+            for image_path in images:
+                mask_path = image_path.removesuffix(".jpg") + "_mask.png"
+                mask_path = os.path.abspath(os.path.join(seg_dir, mask_path))
+                path = os.path.abspath(os.path.join(image_dir, image_path))
+                mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+
+                ids = np.unique(mask)
+                for id in ids:
+                    class_name = class_names[id]
+                    yield {
+                        "file": path,
+                        "class": class_name,
+                        "type": "classification",
+                        "value": True,
+                    }
+
+                    curr_seg_mask = np.zeros_like(mask)
+                    curr_seg_mask[mask == id] = 1
+                    curr_seg_mask = np.asfortranarray(
+                        curr_seg_mask
+                    )  # pycocotools requirement
+                    curr_rle = mask_util.encode(curr_seg_mask)
+                    value = (
+                        curr_rle["size"][0],
+                        curr_rle["size"][1],
+                        curr_rle["counts"],
+                    )
+                    yield {
+                        "file": path,
+                        "class": class_name,
+                        "type": "segmentation",
+                        "value": value,
+                    }
+
+        added_images = self._get_added_images(generator)
+        return generator, list(class_names.values()), {}, added_images
 
     def _get_added_images(self, generator: Generator) -> List[str]:
+        """Returns list of unique images added by the generator function
+
+        Args:
+            generator (Generator): Generator function
+
+        Returns:
+            List[str]: List of added images by generator function
+        """
         added_images = set()
         for item in generator():
             added_images.add(item["file"])
