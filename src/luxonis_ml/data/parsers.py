@@ -55,7 +55,7 @@ class LuxonisParser:
 
         return wrapper
 
-    def parse(
+    def parse_dir(
         self,
         dataset_type: DatasetType,
         dataset_dir: str,
@@ -103,7 +103,7 @@ class LuxonisParser:
 
         return self.dataset
 
-    def parse_single_dir(
+    def parse_raw_dir(
         self,
         dataset_type: DatasetType,
         split: Optional[Literal["train", "val", "test"]] = None,
