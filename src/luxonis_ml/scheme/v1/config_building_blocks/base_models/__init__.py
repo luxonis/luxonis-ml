@@ -1,5 +1,5 @@
-from .base_models import (
-    CustomBaseModel,
+from .custom_base_model import CustomBaseModel
+from .head import (
     HeadMetadataObjectDetectionYOLO,
     HeadMetadata,
     Head,
@@ -8,18 +8,10 @@ from .base_models import (
     HeadMetadataObjectDetectionSSD,
     HeadMetadataObjectDetection,
     HeadMetadataKeypointDetection,
-    Input,
-    PreprocessingBlock,
-    Output,
-    Metadata,
 )
-from .enums import (
-    DataType,
-    Platform,
-    InputType,
-    ObjectDetectionSubtypeSSD,
-    ObjectDetectionSubtypeYOLO,
-)
+from .input import Input, PreprocessingBlock
+from .output import Output
+from .metadata import Metadata
 
 
 __all__ = [
@@ -36,9 +28,4 @@ __all__ = [
     "PreprocessingBlock",
     "Output",
     "Metadata",
-    "DataType",
-    "Platform",
-    "InputType",
-    "ObjectDetectionSubtypeSSD",
-    "ObjectDetectionSubtypeYOLO",
 ]

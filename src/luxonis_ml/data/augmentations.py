@@ -1,11 +1,19 @@
 import numpy as np
 import cv2
 import warnings
+import random
 import albumentations as A
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Union
 
 from .loader import LabelType
 from luxonis_ml.utils.registry import Registry
+
+from albumentations.core.transforms_interface import (
+    BoxInternalType,
+    DualTransform,
+    KeypointInternalType,
+)
+from albumentations.core.bbox_utils import denormalize_bbox, normalize_bbox
 
 
 AUGMENTATIONS = Registry(name="augmentations")
@@ -13,7 +21,7 @@ AUGMENTATIONS = Registry(name="augmentations")
 
 class Augmentations:
     def __init__(self, train_rgb: bool = True):
-        """Base class for augmentations that are used in LuxonisLoader
+        """Base class for augmentations that are used in LuxonisLoader.
 
         Args:
             train_rgb (bool, optional): Whether should use RGB or BGR images. Defaults to True.
@@ -30,7 +38,8 @@ class Augmentations:
         augmentations: List[Dict[str, Any]],
         keep_aspect_ratio: bool = True,
     ) -> Tuple[A.BatchCompose, A.Compose]:
-        """Parses provided config and returns Albumentations BatchedCompose object and Compose object for default transforms
+        """Parses provided config and returns Albumentations BatchedCompose
+        object and Compose object for default transforms.
 
         Args:
             image_size (List[int]): Desired image size [H,W]
@@ -102,7 +111,7 @@ class Augmentations:
         ns: int = 1,
         nk: int = 1,
     ) -> Tuple[np.ndarray, Dict[LabelType, np.ndarray]]:
-        """Performs augmentations on provided data
+        """Performs augmentations on provided data.
 
         Args:
             data (List[Tuple[np.ndarray, Dict[LabelType, np.ndarray]]]): Data with list of input images and their annotations
@@ -203,7 +212,7 @@ class Augmentations:
     def prepare_img_annotations(
         self, annotations: Dict[LabelType, np.ndarray], ih: int, iw: int
     ) -> Tuple[np.ndarray]:
-        """Prepare annotations to be compatible with albumentations
+        """Prepare annotations to be compatible with albumentations.
 
         Args:
             annotations (Dict[LabelType, np.ndarray]): Dict with annotations
@@ -257,7 +266,7 @@ class Augmentations:
         nk: int,
         filter_kpts_by_bbox: bool,
     ) -> Tuple[np.ndarray]:
-        """Postprocessing of albumentations output to LuxonisLoader format
+        """Postprocessing of albumentations output to LuxonisLoader format.
 
         Args:
             transformed_data (Dict[str, np.ndarray]): Output data from albumentations
@@ -318,7 +327,7 @@ class Augmentations:
         return out_image, out_mask, out_bboxes, out_keypoints
 
     def check_bboxes(self, bboxes: np.ndarray) -> np.ndarray:
-        """Check bbox annotations and correct those with width or height 0"""
+        """Check bbox annotations and correct those with width or height 0."""
         for i in range(bboxes.shape[0]):
             if bboxes[i, 2] == 0:
                 bboxes[i, 2] = 1
@@ -329,7 +338,7 @@ class Augmentations:
     def mark_invisible_keypoints(
         self, keypoints: np.ndarray, ih: int, iw: int
     ) -> np.ndarray:
-        """Mark invisible keypoints with label == 0"""
+        """Mark invisible keypoints with label == 0."""
         for kp in keypoints:
             if not (0 <= kp[0] < iw and 0 <= kp[1] < ih):
                 kp[2] = 0
@@ -346,7 +355,7 @@ class TrainAugmentations(Augmentations):
         train_rgb: bool = True,
         keep_aspect_ratio: bool = True,
     ):
-        """Class for train augmentations
+        """Class for train augmentations.
 
         Args:
             image_size (List[int]): Desired image size
@@ -371,7 +380,8 @@ class ValAugmentations(Augmentations):
         train_rgb: bool = True,
         keep_aspect_ratio: bool = True,
     ):
-        """Class for validation augmentations which performs only normalization (if present) and resize
+        """Class for validation augmentations which performs only normalization
+        (if present) and resize.
 
         Args:
             image_size (List[int]): Desired image size
@@ -441,23 +451,24 @@ AUGMENTATIONS.register_module(module=A.UnsharpMask)
 AUGMENTATIONS.register_module(module=A.ZoomBlur)
 
 # Spatial.level transforms
+# NOTE: only augmentations that are supported for all targets
 AUGMENTATIONS.register_module(module=A.Affine)
-AUGMENTATIONS.register_module(module=A.BBoxSafeRandomCrop)
+# AUGMENTATIONS.register_module(module=A.BBoxSafeRandomCrop)
 AUGMENTATIONS.register_module(module=A.CenterCrop)
 AUGMENTATIONS.register_module(module=A.CoarseDropout)
 AUGMENTATIONS.register_module(module=A.Crop)
 AUGMENTATIONS.register_module(module=A.CropAndPad)
 AUGMENTATIONS.register_module(module=A.CropNonEmptyMaskIfExists)
-AUGMENTATIONS.register_module(module=A.ElasticTransform)
+# AUGMENTATIONS.register_module(module=A.ElasticTransform)
 AUGMENTATIONS.register_module(module=A.Flip)
-AUGMENTATIONS.register_module(module=A.GridDistortion)
-AUGMENTATIONS.register_module(module=A.GridDropout)
+# AUGMENTATIONS.register_module(module=A.GridDistortion)
+# AUGMENTATIONS.register_module(module=A.GridDropout)
 AUGMENTATIONS.register_module(module=A.HorizontalFlip)
 AUGMENTATIONS.register_module(module=A.Lambda)
 AUGMENTATIONS.register_module(module=A.LongestMaxSize)
-AUGMENTATIONS.register_module(module=A.MaskDropout)
+# AUGMENTATIONS.register_module(module=A.MaskDropout)
 AUGMENTATIONS.register_module(module=A.NoOp)
-AUGMENTATIONS.register_module(module=A.OpticalDistortion)
+# AUGMENTATIONS.register_module(module=A.OpticalDistortion)
 AUGMENTATIONS.register_module(module=A.PadIfNeeded)
 AUGMENTATIONS.register_module(module=A.Perspective)
 AUGMENTATIONS.register_module(module=A.PiecewiseAffine)
@@ -469,7 +480,7 @@ AUGMENTATIONS.register_module(module=A.RandomGridShuffle)
 AUGMENTATIONS.register_module(module=A.RandomResizedCrop)
 AUGMENTATIONS.register_module(module=A.RandomRotate90)
 AUGMENTATIONS.register_module(module=A.RandomScale)
-AUGMENTATIONS.register_module(module=A.RandomSizedBBoxSafeCrop)
+# AUGMENTATIONS.register_module(module=A.RandomSizedBBoxSafeCrop)
 AUGMENTATIONS.register_module(module=A.RandomSizedCrop)
 AUGMENTATIONS.register_module(module=A.Resize)
 AUGMENTATIONS.register_module(module=A.Rotate)
@@ -478,13 +489,6 @@ AUGMENTATIONS.register_module(module=A.ShiftScaleRotate)
 AUGMENTATIONS.register_module(module=A.SmallestMaxSize)
 AUGMENTATIONS.register_module(module=A.Transpose)
 AUGMENTATIONS.register_module(module=A.VerticalFlip)
-
-from albumentations.core.transforms_interface import (
-    BoxInternalType,
-    DualTransform,
-    KeypointInternalType,
-)
-from albumentations.core.bbox_utils import denormalize_bbox, normalize_bbox
 
 
 @AUGMENTATIONS.register_module()
@@ -560,7 +564,7 @@ class LetterboxResize(DualTransform):
         pad_bottom: int,
         pad_left: int,
         pad_right: int,
-        **params
+        **params,
     ) -> np.ndarray:
         resized_img = cv2.resize(
             img,
@@ -586,7 +590,7 @@ class LetterboxResize(DualTransform):
         pad_bottom: int,
         pad_left: int,
         pad_right: int,
-        **params
+        **params,
     ) -> np.ndarray:
         resized_img = cv2.resize(
             img,
@@ -612,7 +616,7 @@ class LetterboxResize(DualTransform):
         pad_bottom: int,
         pad_left: int,
         pad_right: int,
-        **params
+        **params,
     ) -> BoxInternalType:
         x_min, y_min, x_max, y_max = denormalize_bbox(
             bbox, self.height - pad_top - pad_bottom, self.width - pad_left - pad_right
@@ -634,7 +638,7 @@ class LetterboxResize(DualTransform):
         pad_bottom: int,
         pad_left: int,
         pad_right: int,
-        **params
+        **params,
     ) -> KeypointInternalType:
         x, y, angle, scale = keypoint[:4]
         scale_x = (self.width - pad_left - pad_right) / params["cols"]
@@ -658,7 +662,7 @@ class LetterboxResize(DualTransform):
         return ("height", "width", "interpolation", "border_value", "mask_value")
 
     def _out_of_bounds(self, value: float, min_limit: float, max_limit: float) -> bool:
-        """Check if value is out of set range"""
+        """Check if value is out of set range."""
         return value < min_limit or value > max_limit
 
 
@@ -694,3 +698,78 @@ class DeterministicMosaic4(A.Mosaic4):
         target_params = super().get_params_dependent_on_targets(params)
         target_params["indices"] = list(range(self.n_tiles))
         return target_params
+
+
+@AUGMENTATIONS.register_module()
+class MixUp(A.BatchBasedTransform):
+    def __init__(
+        self,
+        alpha: Union[float, Tuple[float, float]] = 0.5,
+        always_apply: bool = False,
+        p: float = 0.5,
+    ):
+        """MixUp augmentation that merges two images and their annotations into one.
+        If images are not of same size then second one is first resized to match the
+        first one.
+
+        Args:
+            alpha (Union[float, Tuple[float, float]], optional): Alpha value used for blending images.
+            If Tuple[float, float] then random value in this range is chosen every time. Defaults to 0.5.
+            always_apply (bool, optional): Defaults to False.
+            p (float, optional): Probability of applying the transform. Defaults to 1.0.
+        """
+        super().__init__(always_apply=always_apply, p=p)
+
+        self.alpha = alpha
+        self.n_tiles = 2
+        self.out_batch_size = 1
+
+    def get_transform_init_args_names(self) -> Tuple[str, ...]:
+        return ("alpha", "out_batch_size")
+
+    @property
+    def targets_as_params(self):
+        return ["image_batch"]
+
+    def apply_to_image_batch(self, image_batch, image_shapes, **params):
+        image1 = image_batch[0]
+        # resize second image to size of the first one
+        image2 = cv2.resize(image_batch[1], (image_shapes[0][1], image_shapes[0][0]))
+
+        if isinstance(self.alpha, float):
+            curr_alpha = np.clip(self.alpha, 0, 1)
+        else:
+            curr_alpha = random.uniform(max(self.alpha[0], 0), min(self.alpha[1], 1))
+        img_out = cv2.addWeighted(image1, curr_alpha, image2, 1 - curr_alpha, 0.0)
+        return [img_out]
+
+    def apply_to_mask_batch(self, mask_batch, image_shapes, **params):
+        mask1 = mask_batch[0]
+        mask2 = cv2.resize(
+            mask_batch[1],
+            (image_shapes[0][1], image_shapes[0][0]),
+            interpolation=cv2.INTER_NEAREST,
+        )
+        out_mask = mask1 + mask2
+        # if masks intersect keep one present in first image
+        mask_inter = mask1 > 0
+        out_mask[mask_inter] = mask1[mask_inter]
+        return [out_mask]
+
+    def apply_to_bboxes_batch(self, bboxes_batch, image_shapes, **params):
+        return [bboxes_batch[0] + bboxes_batch[1]]
+
+    def apply_to_keypoints_batch(self, keypoints_batch, image_shapes, **params):
+        scaled_kpts2 = []
+        scale_x = image_shapes[0][1] / image_shapes[1][1]
+        scale_y = image_shapes[0][0] / image_shapes[1][0]
+        for kpt in keypoints_batch[1]:
+            new_kpt = A.augmentations.geometric.functional.keypoint_scale(
+                keypoint=kpt, scale_x=scale_x, scale_y=scale_y
+            )
+            scaled_kpts2.append(new_kpt + kpt[4:])
+        return [keypoints_batch[0] + scaled_kpts2]
+
+    def get_params_dependent_on_targets(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        image_batch = params["image_batch"]
+        return {"image_shapes": [image.shape[:2] for image in image_batch]}

@@ -6,30 +6,39 @@ import fsspec
 from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor
 from .environ import environ
+from logging import getLogger
+
+logger = getLogger(__name__)
 
 
 class LuxonisFileSystem:
     def __init__(
         self,
-        path: Optional[str],
+        path: str,
         allow_active_mlflow_run: Optional[bool] = False,
         allow_local: Optional[bool] = True,
+        cache_storage: Optional[str] = None,
     ):
-        """Helper class which abstracts uploading and downloading files from remote and local sources.
-        Supports S3, MLflow and local file systems.
+        """Helper class which abstracts uploading and downloading files from
+        remote and local sources. Supports S3, MLflow and local file systems.
 
         Args:
-            path (Optional[str]): Input path consisting of protocol and actual path or just path for local files
+            path (str): Input path consisting of protocol and actual path or just path for local files
             allow_active_mlflow_run (Optional[bool], optional): Flag if operations are allowed on active MLFlow run. Defaults to False.
-            allow_local (Optional[bool], optional): Flag if operations are allowed on local file system. Defaults to True.
+            allow_local (Optional[bool], optional): Flag if operations are
+                allowed on local file system. Defaults to True.
+            cache_storage (Optional[str], optional): Path to cache storage. No cache
+                is used if set to None. Defaults to None.
         """
         if path is None:
             raise ValueError("No path provided to LuxonisFileSystem.")
 
+        self.cache_storage = cache_storage
+
         self.protocol, self.path = _get_protocol_and_path(path)
         supported_protocols = ["s3", "gcs", "file", "mlflow"]
         if self.protocol not in supported_protocols:
-            raise KeyError(
+            raise ValueError(
                 f"Protocol `{self.protocol}` not supported. Choose from {supported_protocols}."
             )
 
@@ -68,14 +77,14 @@ class LuxonisFileSystem:
             self.fs = self.init_fsspec_filesystem()
 
     def full_path(self) -> str:
-        """Returns full path"""
+        """Returns full path."""
         return f"{self.protocol}://{self.path}"
 
     def init_fsspec_filesystem(self) -> Any:
-        """Returns fsspec filesystem based on protocol"""
+        """Returns fsspec filesystem based on protocol."""
         if self.protocol == "s3":
             # NOTE: In theory boto3 should look in environment variables automatically but it doesn't seem to work
-            return fsspec.filesystem(
+            fs = fsspec.filesystem(
                 self.protocol,
                 key=environ.AWS_ACCESS_KEY_ID,
                 secret=environ.AWS_SECRET_ACCESS_KEY,
@@ -83,11 +92,19 @@ class LuxonisFileSystem:
             )
         elif self.protocol == "gcs":
             # NOTE: This should automatically read from GOOGLE_APPLICATION_CREDENTIALS
-            return fsspec.filesystem(self.protocol)
+            fs = fsspec.filesystem(self.protocol)
         elif self.protocol == "file":
-            return fsspec.filesystem(self.protocol)
+            fs = fsspec.filesystem(self.protocol)
         else:
             raise NotImplementedError
+        if self.cache_storage is None:
+            return fs
+
+        if self.protocol == "file":
+            logger.warning("Ignoring cache storage for local filesystem.")
+            return fs
+
+        return fsspec.filesystem("filecache", fs=fs, cache_storage=self.cache_storage)
 
     def put_file(
         self,
@@ -95,7 +112,7 @@ class LuxonisFileSystem:
         remote_path: str,
         mlflow_instance: Optional[ModuleType] = None,
     ) -> None:
-        """Copy single file to remote
+        """Copy single file to remote.
 
         Args:
             local_path (str): Path to local file
@@ -164,7 +181,7 @@ class LuxonisFileSystem:
         remote_path: str,
         mlflow_instance: Optional[ModuleType] = None,
     ) -> None:
-        """Uploads a file to remote storage directly from file bytes
+        """Uploads a file to remote storage directly from file bytes.
 
         Args:
             file_bytes (bytes): the bytes for the file contents
@@ -184,7 +201,7 @@ class LuxonisFileSystem:
         local_path: str,
         mlflow_instance: Optional[ModuleType] = None,
     ) -> None:
-        """Copy a single file from remote
+        """Copy a single file from remote.
 
         Args:
             remote_path (str): Relative path to remote file
@@ -198,6 +215,30 @@ class LuxonisFileSystem:
             self.fs.download(
                 os.path.join(self.path, remote_path), local_path, recursive=False
             )
+    
+    def delete_file(self, remote_path: str) -> None:
+        """Deletes a single file from remote storage.
+
+        Args:
+            remote_path (str): Relative path to the remote file to be deleted.
+        """
+        if self.is_fsspec:
+            full_remote_path = os.path.join(self.path, remote_path)
+            self.fs.rm(full_remote_path)
+        else:
+            raise NotImplementedError
+    
+    def delete_files(self, remote_paths: List[str]) -> None:
+        """Deletes multiple files from remote storage.
+
+        Args:
+            remote_paths (List[str]): Relative paths to the remote files to be deleted.
+        """
+        if self.is_fsspec:
+            full_remote_paths = [os.path.join(self.path, remote_path) for remote_path in remote_paths]
+            self.fs.rm(full_remote_paths)
+        else:
+            raise NotImplementedError
 
     def get_dir(
         self,
@@ -218,9 +259,22 @@ class LuxonisFileSystem:
             self.fs.download(
                 os.path.join(self.path, remote_dir), local_dir, recursive=True
             )
+    
+    def delete_dir(self, remote_dir: str) -> None:
+        """Deletes a directory and all its contents from remote storage.
+
+        Args:
+            remote_dir (str): Relative path to the remote directory to be deleted.
+        """
+        if self.is_fsspec:
+            full_remote_dir = os.path.join(self.path, remote_dir)
+            self.fs.rm(full_remote_dir, recursive=True)
+        else:
+            raise NotImplementedError
 
     def walk_dir(self, remote_dir: str) -> Generator[str, None, None]:
-        """Recursively walks through the individual files in a remote directory"""
+        """Recursively walks through the individual files in a remote
+        directory."""
 
         if self.is_mlflow:
             raise NotImplementedError
@@ -234,7 +288,7 @@ class LuxonisFileSystem:
                     yield os.path.relpath(file, self.path)
 
     def read_to_byte_buffer(self, remote_path: Optional[str] = None) -> BytesIO:
-        """Reads a file and returns Byte buffer
+        """Reads a file and returns Byte buffer.
 
         Args:
             remote_path (Optional[str]): If provided, the relative path to the remote file
@@ -269,7 +323,8 @@ class LuxonisFileSystem:
         return buffer
 
     def get_file_uuid(self, path: str, local: bool = False) -> str:
-        """Reads a file and returns the (unique) UUID generated from file bytes
+        """Reads a file and returns the (unique) UUID generated from file
+        bytes.
 
         Args:
             path (str): If remote, relative path to the remote file. Else the local path
@@ -312,7 +367,7 @@ class LuxonisFileSystem:
         return result
 
     def _split_mlflow_path(self, path: str) -> List[Optional[str]]:
-        """Splits mlflow path into 3 parts"""
+        """Splits mlflow path into 3 parts."""
         parts = path.split("/")
         if len(parts) < 3:
             while len(parts) < 3:
@@ -323,7 +378,7 @@ class LuxonisFileSystem:
         return parts
 
     def is_directory(self, remote_path: str) -> bool:
-        """Returns True if a remote path points to a directory"""
+        """Returns True if a remote path points to a directory."""
 
         full_path = os.path.join(self.path, remote_path)
         file_info = self.fs.info(full_path)
@@ -339,20 +394,21 @@ class LuxonisFileSystem:
 
     @staticmethod
     def split_full_path(path: str) -> Tuple[str, str]:
-        """Returns a tuple for the absolute and relative path given a full path"""
+        """Returns a tuple for the absolute and relative path given a full
+        path."""
 
         path = path.rstrip("/\\")
         return os.path.split(path)
 
     @staticmethod
     def get_protocol(path: str) -> str:
-        """Gets the detected protocol of a path"""
+        """Gets the detected protocol of a path."""
 
         return _get_protocol_and_path(path)[0]
 
 
 def _get_protocol_and_path(path: str) -> Tuple[str, str]:
-    """Gets the protocol and absolute path of a full path"""
+    """Gets the protocol and absolute path of a full path."""
 
     if "://" in path:
         protocol, path = path.split("://")

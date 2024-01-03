@@ -104,8 +104,8 @@ You could see that this configuration could also be used for any OAK-D-like prod
 
 Some more definitions:
 
-* `HType`\: The type of the component. Right now, there's really only `IMAGE`. But eventually, we will have video and point cloud.
-* `IType`\: For an image component, the type of the image. `BGR` is for any 3-channel image, `MONO` is for single-channel images, and `DEPTH` and `DISPARITY` can be uint16 single-channel images for subpixel disparity. The only difference between `DISPARITY` and `DEPTH` is a semantic difference.
+- `HType`: The type of the component. Right now, there's really only `IMAGE`. But eventually, we will have video and point cloud.
+- `IType`: For an image component, the type of the image. `BGR` is for any 3-channel image, `MONO` is for single-channel images, and `DEPTH` and `DISPARITY` can be uint16 single-channel images for subpixel disparity. The only difference between `DISPARITY` and `DEPTH` is a semantic difference.
 
 #### Adding Data
 
@@ -177,8 +177,8 @@ with LuxonisDataset(team_name, dataset_name) as dataset:
 
 The first element in the loaded tuple is the image(s) and the second is a dictionary where the keys may provide annotations in different formats.
 
-* `imgs` is (batch size x number of channels x height x width)
-* `dict['class']` is (batch size x number of classes)
-* `dict['bbox']` is (number of boxes in batch x 6 [image ID, class, x, y, width, height])
-* `dict['segmentation']` is (batch size x number of classes x height x width)
-* `dict['keypoints']` is (batch size x (number of points*2 + 1))
+- `imgs` is (batch size x number of channels x height x width)
+- `dict['class']` is (batch size x number of classes)
+- `dict['bbox']` is (number of boxes in batch x 6 \[image ID, class, x, y, width, height\])
+- `dict['segmentation']` is (batch size x number of classes x height x width)
+- `dict['keypoints']` is (batch size x (number of points\*2 + 1))

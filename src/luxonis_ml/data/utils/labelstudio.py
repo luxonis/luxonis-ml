@@ -1,17 +1,16 @@
 import numpy as np
 import os
 import xml.etree.ElementTree as ET
-from typing import List
 
 
 def generate_random_color():
-    """Generates random RGB color"""
+    """Generates random RGB color."""
 
     return [np.random.randint(0, 255) for _ in range(3)]
 
 
 def get_xml_config(dataset) -> str:
-    """Returns the labelstudio XML for a LuxonisDataset"""
+    """Returns the labelstudio XML for a LuxonisDataset."""
 
     root = ET.Element("View")
 
@@ -21,7 +20,6 @@ def get_xml_config(dataset) -> str:
     image.set("zoom", "true")
 
     classes = dataset.fo_dataset.classes
-
     if "class" in classes and len(classes["class"]):
         choices = ET.SubElement(root, "Choices")
         choices.set("name", "choice")

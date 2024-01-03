@@ -10,11 +10,11 @@ import logging
 import pandas as pd
 from abc import ABC, abstractmethod
 from typing import Optional, Tuple, Dict
-from pathlib import Path
 import pycocotools.mask as mask_util
 from luxonis_ml.enums import LabelType
-from luxonis_ml.utils import LuxonisFileSystem
 from .utils.enums import BucketStorage
+from .dataset import LuxonisDataset
+from .augmentations import Augmentations
 
 
 Labels = Dict[LabelType, np.ndarray]
@@ -22,16 +22,17 @@ LuxonisLoaderOutput = Tuple[np.ndarray, Labels]
 
 
 class BaseLoader(ABC):
-    """Base abstract loader class that enforces LuxonisLoaderOutput output label structure."""
+    """Base abstract loader class that enforces LuxonisLoaderOutput output
+    label structure."""
 
     @abstractmethod
     def __len__(self) -> int:
-        """Returns length of the dataset"""
+        """Returns length of the dataset."""
         pass
 
     @abstractmethod
     def __getitem__(self, idx: int) -> LuxonisLoaderOutput:
-        """Loads sample from dataset
+        """Loads sample from dataset.
 
         Args:
             idx (int): Sample index
@@ -45,12 +46,12 @@ class BaseLoader(ABC):
 class LuxonisLoader(BaseLoader):
     def __init__(
         self,
-        dataset: "luxonis_ml.data.LuxonisDataset",
+        dataset: LuxonisDataset,
         view: str = "train",
         stream: bool = False,
-        augmentations: Optional["luxonis_ml.loader.Augmentations"] = None,
+        augmentations: Optional[Augmentations] = None,
     ) -> None:
-        """LuxonisLoader used for loading LuxonisDataset
+        """LuxonisLoader used for loading LuxonisDataset.
 
         Args:
             dataset (luxonis_ml.data.LuxonisDataset): LuxonisDataset to use
@@ -116,11 +117,11 @@ class LuxonisLoader(BaseLoader):
         self.df.set_index(["instance_id"], inplace=True)
 
     def __len__(self) -> int:
-        """Returns length of the pytorch dataset"""
+        """Returns length of the pytorch dataset."""
         return len(self.instances)
 
     def __getitem__(self, idx: int) -> LuxonisLoaderOutput:
-        """Function to load a sample"""
+        """Function to load a sample."""
 
         img, annotations = self._load_image_with_annotations(idx)
 

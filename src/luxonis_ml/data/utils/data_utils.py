@@ -10,11 +10,10 @@ from typeguard import check_type, TypeCheckError
 import typing
 from typing import Dict, List, Union, Any, Tuple
 from .constants import ANNOTATIONS_SCHEMA as schema
-from .enums import DataLabelType
 
 
 def generate_hashname(filepath: str) -> Tuple[str, str]:
-    """Finds the UUID generated ID for a local file"""
+    """Finds the UUID generated ID for a local file."""
 
     # Read the contents of the file
     with open(filepath, "rb") as file:
@@ -29,7 +28,8 @@ def generate_hashname(filepath: str) -> Tuple[str, str]:
 
 
 def check_annotation(data: Dict) -> None:
-    """Throws an exception if the input data does not match the expected annotations schema"""
+    """Throws an exception if the input data does not match the expected
+    annotations schema."""
 
     if len(schema.keys()) != len(data.keys()) or set(schema.keys()) != set(data.keys()):
         raise Exception(
@@ -94,7 +94,7 @@ def check_annotation(data: Dict) -> None:
 
 
 def check_arrays(values: List[Any]) -> None:
-    """Throws an exception if a given path to an array is invalid"""
+    """Throws an exception if a given path to an array is invalid."""
 
     for value in values:
         _check_array(value)

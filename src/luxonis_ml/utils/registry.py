@@ -6,7 +6,6 @@ class Registry:
     def __init__(self, name: str):
         """A registry to map strings to classes or functions.
 
-
         Args:
             name (str): Registry name
         """
@@ -14,11 +13,10 @@ class Registry:
         self._name = name
 
     def __str__(self):
-        string = f"--- Registry `{self.name}` ---\n"
-        for obj_name, obj_cls in self._module_dict.items():
-            string += f"{obj_name} {str(obj_cls)}\n"
-        string += "------"
-        return string
+        return f"Registry('{self.name}')"
+
+    def __repr__(self):
+        return self.__str__()
 
     def __len__(self):
         return len(self._module_dict)
@@ -32,7 +30,7 @@ class Registry:
         return self._module_dict
 
     def get(self, key: str) -> type:
-        """Get the registry record for the key
+        """Get the registry record for the key.
 
         Args:
             key (str): Name of the registered item, e.g. the class name in string format
@@ -52,7 +50,7 @@ class Registry:
         module: Optional[type] = None,
         force: bool = False,
     ) -> Union[type, Callable[[type], type]]:
-        """Registers a module
+        """Registers a module.
 
         Args:
             name (Optional[str], optional): Name of the module, if None then use class name. Defaults to None.
@@ -77,7 +75,7 @@ class Registry:
     def _register_module(
         self, module: type, module_name: Optional[str] = None, force: bool = False
     ) -> None:
-        """Registers a module by creating a (key, value) pair
+        """Registers a module by creating a (key, value) pair.
 
         Args:
             module (type): Module class to be registered
@@ -153,7 +151,6 @@ class AutoRegisterMeta(ABCMeta):
                     "Registry has to be set in the base class or passed as an argument."
                 )
         if register:
-            (registry or new_class.REGISTRY).register_module(
-                name=register_name or name, module=new_class
-            )
+            registry = registry if registry is not None else new_class.REGISTRY
+            registry.register_module(name=register_name or name, module=new_class)
         return new_class

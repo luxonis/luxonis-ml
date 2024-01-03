@@ -1,5 +1,4 @@
-"""
-Qdrant Docker Management and Embedding Operations
+"""Qdrant Docker Management and Embedding Operations.
 
 This script provides a set of utility functions to manage Qdrant using Docker and perform various operations related to embeddings.
 
@@ -37,7 +36,8 @@ DEFAULT_COLLECTION_NAME = "mnist"
 
 
 class QdrantManager:
-    """Class to manage Qdrant Docker container and perform various operations related to embeddings."""
+    """Class to manage Qdrant Docker container and perform various operations
+    related to embeddings."""
 
     def __init__(self, image_name="qdrant/qdrant", container_name="qdrant_container"):
         """Initialize the QdrantManager."""
@@ -86,8 +86,7 @@ class QdrantManager:
             return False
 
     def start_docker_qdrant(self):
-        """
-        Start the Qdrant Docker container.
+        """Start the Qdrant Docker container.
 
         NOTE: Make sure the user has the appropriate permissions to run Docker commands
             without sudo. Otherwise, the client_docker.images.pull() command will fail.
@@ -148,7 +147,7 @@ class QdrantAPI:
         try:
             self.client.get_collection(collection_name=self.collection_name)
             print("Collection already exists")
-        except Exception as e:
+        except Exception:
             self.client.recreate_collection(
                 collection_name=self.collection_name,
                 vectors_config=VectorParams(size=vector_size, distance=distance),
@@ -170,7 +169,8 @@ class QdrantAPI:
         )
 
     def insert_embeddings_nooverwrite(self, embeddings, labels):
-        """Insert embeddings and labels into a Qdrant collection only if they don't already exist (independent of the id)."""
+        """Insert embeddings and labels into a Qdrant collection only if they
+        don't already exist (independent of the id)."""
         # Create a list of search requests
         search_queries = [
             SearchRequest(
@@ -214,7 +214,8 @@ class QdrantAPI:
         print("Inserted {} new embeddings".format(len(new_embeddings)))
 
     def batch_insert_embeddings(self, embeddings, labels, img_paths, batch_size=50):
-        """Batch insert embeddings, labels, and image paths into a Qdrant collection."""
+        """Batch insert embeddings, labels, and image paths into a Qdrant
+        collection."""
         total_len = len(embeddings)
 
         for i in range(0, total_len, batch_size):
@@ -237,7 +238,8 @@ class QdrantAPI:
             self.client.upsert(collection_name=self.collection_name, points=batch)
 
     def batch_insert_embeddings_nooverwrite(self, embeddings, labels, batch_size=50):
-        """Batch insert embeddings and labels into a Qdrant collection, avoiding overwriting existing embeddings."""
+        """Batch insert embeddings and labels into a Qdrant collection,
+        avoiding overwriting existing embeddings."""
         total_len = len(embeddings)
 
         for i in range(0, total_len, batch_size):
@@ -310,7 +312,8 @@ class QdrantAPI:
         return search_results
 
     def search_embeddings_by_imagepath(self, embedding, image_path_part, top=5):
-        """Search for top similar embeddings in a Qdrant collection based on a partial image path."""
+        """Search for top similar embeddings in a Qdrant collection based on a
+        partial image path."""
         hits = self.client.search(
             collection_name=self.collection_name,
             query_vector=embedding.tolist(),
@@ -367,8 +370,8 @@ class QdrantAPI:
         return ids, scores
 
     def get_full_similarity_matrix(self, batch_size=100):
-        """
-        Compute a full similarity matrix for all embeddings in a Qdrant collection.
+        """Compute a full similarity matrix for all embeddings in a Qdrant
+        collection.
 
         NOTE: This method is not recommended for large collections.
             It is better to use the get_all_embeddings() method and compute the similarity matrix yourself.
@@ -412,8 +415,11 @@ class QdrantAPI:
         return ids, sim_matrix
 
     def get_payloads_from_ids(self, ids):
-        """Retrieve payloads associated with a list of IDs from a Qdrant collection.
-        (The order of the payloads IS preserved.)"""
+        """Retrieve payloads associated with a list of IDs from a Qdrant
+        collection.
+
+        (The order of the payloads IS preserved.)
+        """
         # Retrieve the payloads for the given ids
         hits = self.client.retrieve(
             collection_name=self.collection_name,
@@ -432,8 +438,11 @@ class QdrantAPI:
         return payloads
 
     def get_embeddings_from_ids(self, ids):
-        """Retrieve embeddings associated with a list of IDs from a Qdrant collection.
-        (The order of the embeddings IS preserved.)"""
+        """Retrieve embeddings associated with a list of IDs from a Qdrant
+        collection.
+
+        (The order of the embeddings IS preserved.)
+        """
         # Retrieve the embeddings for the given ids
         hits = self.client.retrieve(
             collection_name=self.collection_name,
