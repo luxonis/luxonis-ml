@@ -20,17 +20,26 @@ from .utils.enums import BucketType, BucketStorage, MediaType, ImageType
 
 
 class LuxonisComponent:
-    """Abstraction for a piece of media within a source.
-
-    Most commonly, this abstracts an image sensor.
-    """
-
     def __init__(
         self,
         name: str,
         media_type: MediaType = MediaType.IMAGE,
         image_type: Optional[ImageType] = ImageType.COLOR,
     ) -> None:
+        """Abstraction for a piece of media within a source. Most commonly,
+        this abstracts an image sensor.
+
+        @type name: str @param name: A recognizable name for the
+        component.
+
+        @type media_type: MediaType @param media_type: Enum for the type
+        of media for the component.
+
+        @type image_type: Optional[ImageType] @param image_type: Enum
+        for the image type if C{media_type==MediaType.IMAGE}. Else this
+        param can be None or default.
+        """
+
         if media_type not in MediaType:
             raise Exception(f"{media_type.value} is not a valid MediaType")
         if image_type not in ImageType:
@@ -56,6 +65,22 @@ class LuxonisSource:
         components: Optional[List[LuxonisComponent]] = None,
         main_component: Optional[str] = None,
     ) -> None:
+        """Abstracts the structure of a dataset by grouping together
+        components.
+
+        For example, with an OAK-D, you might have a source with 4 image
+        components: rgb (color), left (mono), right (mono), and depth.
+
+        @type name: str @param name: A recognizable name for the source.
+
+        @type components: Optional[List[LuxonisComponent]] @param
+        components: If not using the default configuration, a list of
+        LuxonisComponent to group together in the source.
+
+        @type main_component: Optional[str] @param main_component: The
+        name of the component that should be primarily visualized.
+        """
+
         self.name = name
         if components is None:
             components = [
@@ -73,11 +98,6 @@ class LuxonisSource:
 
 
 class LuxonisDataset:
-    """Luxonis Dataset Format (LDF).
-
-    Used to define datasets in the Luxonis MLOps ecosystem
-    """
-
     def __init__(
         self,
         dataset_name: Optional[str] = None,
@@ -87,7 +107,8 @@ class LuxonisDataset:
         bucket_type: BucketType = BucketType.INTERNAL,
         bucket_storage: BucketStorage = BucketStorage.LOCAL,
     ) -> None:
-        """Initializes LDF.
+        """Luxonis Dataset Format (LDF). This is used to define datasets in the
+        Luxonis MLOps ecosystem.
 
         dataset_name:
             Name of the dataset
@@ -341,8 +362,13 @@ class LuxonisDataset:
         shutil.rmtree(self.tmp_dir)
 
     def update_source(self, source: LuxonisSource) -> None:
-        """Updates underlying source of the dataset with a new
-        LuxonisSource."""
+        """Updates underlying source of the dataset with a new LuxonisSource.
+
+        @type source: LuxonisSource @param source: The new LuxonisSource
+        to replace the old one.
+
+        @rtype: NoneType @return: None
+        """
 
         if self.online:
             raise NotImplementedError()
@@ -408,7 +434,7 @@ class LuxonisDataset:
             self._write_datasets()
 
     def sync_from_cloud(self) -> None:
-        """Downloads media from cloud bucket."""
+        """Downloads data from a remote cloud bucket."""
 
         if self.bucket_storage == BucketStorage.LOCAL:
             self.logger.warning("This is a local dataset! Cannot sync")
@@ -429,8 +455,16 @@ class LuxonisDataset:
                 self.is_synced = True
 
     def get_classes(self, sync_mode: bool = False) -> Tuple[List[str], Dict]:
-        """Gets overall classes in the dataset and classes according to CV
-        task."""
+        """Gets overall classes in the dataset and classes according to
+        computer vision task.
+
+        @type sync_mode: bool @param sync_mode: If True, this reads
+        classes from remote storage. If False, classes are read locally.
+
+        @rtype: Tuple[List[str], Dict] @return: A combined list of
+        classes for all tasks and a dictionary mapping tasks to the
+        classes used in each task.
+        """
 
         if self.online:
             raise NotImplementedError()

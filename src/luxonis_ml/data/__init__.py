@@ -4,7 +4,6 @@ with guard_missing_extra("data"):
     from .utils.enums import (
         MediaType,
         ImageType,
-        LDFTransactionType,
         BucketType,
         BucketStorage,
     )
@@ -28,7 +27,6 @@ __all__ = [
     "ValAugmentations",
     "MediaType",
     "ImageType",
-    "LDFTransactionType",
     "BucketType",
     "BucketStorage",
 ]
