@@ -10,7 +10,7 @@ with guard_missing_extra("data"):
         BucketType,
         BucketStorage,
     )
-    from .dataset import BaseDataset, LuxonisDataset, LuxonisSource, LuxonisComponent
+    from .dataset import BaseDataset, LuxonisDataset, Media, MediaGroup
     from .parsers import LuxonisParser, DatasetType
     from .loader import BaseLoader, LuxonisLoader, LabelType, LuxonisLoaderOutput
     from .augmentations import Augmentations, TrainAugmentations, ValAugmentations
@@ -28,8 +28,8 @@ load_dataset_plugins()
 __all__ = [
     "BaseDataset",
     "LuxonisDataset",
-    "LuxonisSource",
-    "LuxonisComponent",
+    "Media",
+    "MediaGroup",
     "LuxonisParser",
     "DatasetType",
     "BaseLoader",

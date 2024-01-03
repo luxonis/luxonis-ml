@@ -22,8 +22,8 @@ from .utils.constants import LDF_VERSION, LABEL_TYPES
 from .utils.enums import BucketType, BucketStorage, MediaType, ImageType
 
 
-class LuxonisComponent:
-    """Abstraction for a piece of media within a source.
+class Media:
+    """Abstraction for a source of media in a dataset.
 
     Most commonly, this abstracts an image sensor.
     """
@@ -49,30 +49,27 @@ class LuxonisComponent:
             self.image_type = None
 
 
-class LuxonisSource:
-    """Abstracts the structure of a dataset and which components/media are
-    included."""
+class MediaGroup:
+    """Abstracts the structure of a dataset and which media are included."""
 
     def __init__(
         self,
         name: str,
-        components: Optional[List[LuxonisComponent]] = None,
-        main_component: Optional[str] = None,
+        medias: Optional[List[Media]] = None,
+        main_media: Optional[str] = None,
     ) -> None:
         self.name = name
-        if components is None:
-            components = [
-                LuxonisComponent(name)
-            ]  # basic source includes a single color image
+        if medias is None:
+            medias = [Media(name)]  # basic source includes a single color image
 
-        self.components = {component.name: component for component in components}
+        self.medias = {media.name: media for media in medias}
 
-        if main_component is not None:
-            self.main_component = main_component
+        if main_media is not None:
+            self.main_media = main_media
         else:
-            self.main_component = list(self.components.keys())[
+            self.main_media = list(self.medias.keys())[
                 0
-            ]  # make first component main component by default
+            ]  # make first media main media by default
 
 
 class BaseDataset(ABC, metaclass=AutoRegisterMeta, register=False):
@@ -80,39 +77,44 @@ class BaseDataset(ABC, metaclass=AutoRegisterMeta, register=False):
     ecosystem."""
 
     @abstractmethod
-    def update_source():
+    def set_media(self, media_group: MediaGroup) -> None:
         pass
 
     @abstractmethod
-    def set_classes():
+    def set_classes(self, classes: List[str], task: Optional[str] = None) -> None:
         pass
 
     @abstractmethod
-    def set_skeletons():
+    def set_skeletons(self, skeletons: Dict[str, Dict]) -> None:
         pass
 
     @abstractmethod
-    def get_classes():
+    def get_classes(self) -> Tuple[List[str], Dict]:
+        # TODO: how should we handle extra sync_mode param?
         pass
 
     @abstractmethod
-    def get_skeletons():
+    def get_skeletons(self) -> Dict[str, Dict]:
         pass
 
     @abstractmethod
-    def add():
+    def add(self, generator: Generator) -> None:
+        # TODO: how to handle extra batch_size param?
         pass
 
     @abstractmethod
-    def make_splits():
+    def make_splits(
+        self, ratios: List[float] = [0.8, 0.1, 0.1], definitions: Optional[Dict] = None
+    ) -> None:
+        # TODO: consider refactoring for use in plugin dataset
         pass
 
     @abstractmethod
-    def delete_dataset():
+    def delete_dataset(self) -> None:
         pass
 
     @abstractmethod
-    def create_version():
+    def create_version(self, note: str) -> None:
         pass
 
 
@@ -202,9 +204,9 @@ class LuxonisDataset(BaseDataset, registry=DATASETS):
                 self.dataset_doc = self.datasets[self.dataset_name]
 
             else:
-                self.source = LuxonisSource("default")
+                self.media_group = MediaGroup("default")
                 self.datasets[self.dataset_name] = {
-                    "source": self._source_to_document(self.source),
+                    "media_group": self._media_group_to_document(self.media_group),
                     "ldf_version": LDF_VERSION,
                     "classes": {},
                     "skeletons": {},
@@ -239,42 +241,40 @@ class LuxonisDataset(BaseDataset, registry=DATASETS):
         with open(self.datasets_cache_file, "w") as file:
             json.dump(self.datasets, file, indent=4)
 
-    def _component_to_document(self, component: LuxonisComponent) -> Dict:
+    def _media_to_document(self, media: Media) -> Dict:
         return {
-            "name": component.name,
-            "media_type": component.media_type.value,
-            "image_type": component.image_type.value,
+            "name": media.name,
+            "media_type": media.media_type.value,
+            "image_type": media.image_type.value,
         }
 
-    def _source_to_document(self, source: LuxonisSource) -> Dict:
+    def _media_group_to_document(self, media_group: MediaGroup) -> Dict:
         return {
-            "name": source.name,
-            "main_component": source.main_component,
-            "components": [
-                self._component_to_document(component)
-                for component in source.components.values()
+            "name": media_group.name,
+            "main_media": media_group.main_media,
+            "medias": [
+                self._media_to_document(media) for media in media_group.medias.values()
             ],
         }
 
-    def _component_from_document(self, document: Dict) -> LuxonisComponent:
+    def _media_from_document(self, document: Dict) -> Media:
         if document["image_type"] is not None:
-            return LuxonisComponent(
+            return Media(
                 name=document["name"],
                 media_type=MediaType(document["media_type"]),
                 image_type=ImageType(document["image_type"]),
             )
         else:
-            return LuxonisComponent(
+            return Media(
                 name=document["name"], media_type=MediaType(document["media_type"])
             )
 
-    def _source_from_document(self, document: Dict) -> LuxonisSource:
-        return LuxonisSource(
+    def _media_group_from_document(self, document: Dict) -> MediaGroup:
+        return MediaGroup(
             name=document["name"],
-            main_component=document["main_component"],
-            components=[
-                self._component_from_document(component_doc)
-                for component_doc in document["components"]
+            main_media=document["main_media"],
+            medias=[
+                self._media_from_document(media_doc) for media_doc in document["medias"]
             ],
         )
 
@@ -384,18 +384,17 @@ class LuxonisDataset(BaseDataset, registry=DATASETS):
     def _remove_temp_dir(self) -> None:
         shutil.rmtree(self.tmp_dir)
 
-    def update_source(self, source: LuxonisSource) -> None:
-        """Updates underlying source of the dataset with a new
-        LuxonisSource."""
+    def set_media(self, media_group: MediaGroup) -> None:
+        """Updates the underlying media structure of the dataset."""
 
         if self.online:
             raise NotImplementedError()
         else:
-            self.datasets[self.dataset_name]["source"] = self._source_to_document(
-                source
-            )
+            self.datasets[self.dataset_name][
+                "media_group"
+            ] = self._media_group_to_document(media_group)
             self._write_datasets()
-            self.source = source
+            self.media_group = media_group
 
     def set_classes(self, classes: List[str], task: Optional[str] = None) -> None:
         """Sets the names of classes for the dataset. This can be across all CV
@@ -729,7 +728,7 @@ class LuxonisDataset(BaseDataset, registry=DATASETS):
                 self.fs.put_file(local_file, "metadata/splits.json")
                 self._remove_temp_dir()
 
-    def create_version(self) -> None:
+    def create_version(self, note: str) -> None:
         raise Exception("Versioning is not supported for this dataset.")
 
     @staticmethod
