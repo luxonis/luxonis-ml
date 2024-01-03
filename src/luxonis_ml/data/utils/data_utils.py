@@ -130,7 +130,8 @@ def transform_segmentation_value(
     value: Tuple[int, int, Union[bytes, List[int]]]
 ) -> str:
     """Transforms a segmentation in RLE format to the format stored by
-    LuxonisDataset.
+    LuxonisDataset. The format recognized by LuxonisDataset is still RLE, but a
+    dumped JSON string of height, width, and compressed counts.
 
     @type value: Tuple[int, int, Union[bytes, List[int]]] @param value:
     The segmentation value in RLE format of (height, width, counts).
