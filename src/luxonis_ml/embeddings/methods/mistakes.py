@@ -5,7 +5,7 @@ in a dataset based on various strategies. This is crucial in supervised machine
 learning tasks where the quality of labels significantly affects model performance.
 
 Methods implemented
-====================
+===================
     - Centroids: This method identifies mismatches by comparing the distance of data points
                  to the centroid of their own class against the distances to centroids of
                  other classes.
@@ -18,13 +18,11 @@ Usage
 =====
     To use this module, import the desired methods and provide the embeddings and labels:
 
-        from mismatch_detection import find_mismatches_centroids, find_mismatches_knn
-
-        # Detect mismatches using centroids
-        mismatches, new_labels = find_mismatches_centroids(X_train, y_train)
-
-        # Detect mismatches using KNN
-        mismatches, new_labels = find_mismatches_knn(X_train, y_train)
+        >>> from mismatch_detection import find_mismatches_centroids, find_mismatches_knn
+        >>> # Detect mismatches using centroids
+        >>> mismatches, new_labels = find_mismatches_centroids(X_train, y_train)
+        >>> # Detect mismatches using KNN
+        >>> mismatches, new_labels = find_mismatches_knn(X_train, y_train)
 """
 
 import numpy as np

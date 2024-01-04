@@ -22,7 +22,7 @@ Usage:
 Note:
     - The default collection name is set to "mnist".
     - Ensure the user has the appropriate permissions to run Docker commands without sudo.
-      See https://docs.docker.com/engine/install/linux-postinstall/ for more details.
+      See U{https://docs.docker.com/engine/install/linux-postinstall/} for more details.
 """
 
 import os
@@ -88,9 +88,9 @@ class QdrantManager:
     def start_docker_qdrant(self):
         """Start the Qdrant Docker container.
 
-        NOTE: Make sure the user has the appropriate permissions to run Docker commands
+        @note: Make sure the user has the appropriate permissions to run Docker commands
             without sudo. Otherwise, the client_docker.images.pull() command will fail.
-            See https://docs.docker.com/engine/install/linux-postinstall/ for more details.
+            See U{https://docs.docker.com/engine/install/linux-postinstall/} for more details.
         """
         if not self.is_docker_installed():
             print("Docker is not installed. Please install Docker to proceed.")
@@ -302,7 +302,6 @@ class QdrantAPI:
 
     def search_embeddings(self, embedding: np.ndarray, top=5):
         """Search for the top similar embeddings in a Qdrant collection."""
-        # Search for the nearest neighbors
         search_results = self.client.search(
             collection_name=self.collection_name,
             query_vector=embedding.tolist(),
@@ -328,23 +327,17 @@ class QdrantAPI:
         return hits
 
     def get_similarities(self, reference_id, other_ids):
-        """
-        Get a list of similarity scores between the reference embedding and other embeddings.
-        NOTE: The initial order of the other_ids list is NOT preserved.
+        """Get a list of similarity scores between the reference embedding and other
+        embeddings. @note: The initial order of the other_ids list is NOT preserved.
 
-        Parameters
-        ----------
-        reference_id : int
-            The instance_id of the reference embedding.
-        other_ids : list[int]
-            The list of instance_ids of other embeddings to compare with the reference.
-
-        Returns
-        -------
-        list[int]
-            The list of instance_ids of the other embeddings.
-        list[float]
-            The list of similarity scores.
+        @type reference_id: int
+        @param reference_id: The instance_id of the reference embedding.
+        @type other_ids: List[int]
+        @param other_ids: The list of instance_ids of other embeddings to compare with
+            the reference.
+        @rtype: Tuple[List[int], List[float]
+        @return: The list of instance_ids of the other embeddings and the list of
+            similarity scores.
         """
         # Retrieve the embedding vector for the reference_id
         reference_embedding = self.get_embeddings_from_ids([reference_id])[0]
@@ -371,8 +364,8 @@ class QdrantAPI:
     def get_full_similarity_matrix(self, batch_size=100):
         """Compute a full similarity matrix for all embeddings in a Qdrant collection.
 
-        NOTE: This method is not recommended for large collections.
-            It is better to use the get_all_embeddings() method and compute the similarity matrix yourself.
+        @note: This method is not recommended for large collections. It is better to use
+            the L{get_all_embeddings} method and compute the similarity matrix yourself.
         """
         # Get all embeddings
         ids, embeddings = self.get_all_embeddings()
@@ -415,7 +408,7 @@ class QdrantAPI:
     def get_payloads_from_ids(self, ids):
         """Retrieve payloads associated with a list of IDs from a Qdrant collection.
 
-        (The order of the payloads IS preserved.)
+        The order of the payloads IS preserved.
         """
         # Retrieve the payloads for the given ids
         hits = self.client.retrieve(
@@ -437,7 +430,7 @@ class QdrantAPI:
     def get_embeddings_from_ids(self, ids):
         """Retrieve embeddings associated with a list of IDs from a Qdrant collection.
 
-        (The order of the embeddings IS preserved.)
+        The order of the embeddings IS preserved.
         """
         # Retrieve the embeddings for the given ids
         hits = self.client.retrieve(

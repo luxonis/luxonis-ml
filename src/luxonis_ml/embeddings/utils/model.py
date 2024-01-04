@@ -5,45 +5,41 @@ It allows loading the model, exporting it to the ONNX format,
 and manipulating ONNX models in order to extract intermediate outputs aka embeddings.
 
 Functions:
-----------
-load_model_resnet50_minus_last_layer() -> nn.Module:
-    Returns a pre-trained ResNet-50 model with its last fully connected layer removed.
+    - load_model_resnet50_minus_last_layer() -> nn.Module:
+        Returns a pre-trained ResNet-50 model with its last fully connected layer removed.
 
-load_model() -> nn.Module:
-    Returns a fully pre-trained ResNet-50 model.
+    - load_model() -> nn.Module:
+        Returns a fully pre-trained ResNet-50 model.
 
-export_model_onnx(model: nn.Module, model_path_out: str = "resnet50.onnx"):
-    Exports the provided PyTorch model into the ONNX format.
+    - export_model_onnx(model: nn.Module, model_path_out: str = "resnet50.onnx"):
+        Exports the provided PyTorch model into the ONNX format.
 
-load_model_onnx(model_path: str = "resnet50.onnx") -> onnx.ModelProto:
-    Loads an ONNX model from the specified file path.
+    - load_model_onnx(model_path: str = "resnet50.onnx") -> onnx.ModelProto:
+        Loads an ONNX model from the specified file path.
 
-extend_output_onnx(onnx_model: onnx.ModelProto, intermediate_tensor_name: str = "/Flatten_output_0") -> onnx.ModelProto:
-    Sets an intermediate output layer as output of the provided ONNX model.
+    - extend_output_onnx(onnx_model: onnx.ModelProto, intermediate_tensor_name: str = "/Flatten_output_0") -> onnx.ModelProto:
+        Sets an intermediate output layer as output of the provided ONNX model.
 
-extend_output_onnx_overwrite(onnx_model: onnx.ModelProto, intermediate_tensor_name: str = "/Flatten_output_0") -> onnx.ModelProto:
-    Sets the second to last layer ouput as output layer of the provided ONNX model, and renames it.
+    - extend_output_onnx_overwrite(onnx_model: onnx.ModelProto, intermediate_tensor_name: str = "/Flatten_output_0") -> onnx.ModelProto:
+        Sets the second to last layer ouput as output layer of the provided ONNX model, and renames it.
 
 Usage:
-------
 This utility can be imported as a module and provides capabilities to manage and manipulate ResNet-50 and its ONNX counterpart.
 
 Example:
-    from luxonis_ml.embeddings.model_utils import load_model, export_model_onnx, load_model_onnx, extend_output_onnx_overwrite
-
-    model = load_model()
-    export_model_onnx(model, "path_to_save.onnx")
-    onnx_model = load_model_onnx("path_to_save.onnx")
-    onnx_model_new = extend_output_onnx_overwrite(onnx_model, "/Flatten_output_0")
+    >>> from luxonis_ml.embeddings.model_utils import load_model, export_model_onnx, load_model_onnx, extend_output_onnx_overwrite
+    >>> model = load_model()
+    >>> export_model_onnx(model, "path_to_save.onnx")
+    >>> onnx_model = load_model_onnx("path_to_save.onnx")
+    >>> onnx_model_new = extend_output_onnx_overwrite(onnx_model, "/Flatten_output_0")
 
 Dependencies:
--------------
-- torch
-- torch.nn
-- torch.onnx
-- onnx
-- torchvision.models
-- torchvision.models.resnet
+    - torch
+    - torch.nn
+    - torch.onnx
+    - onnx
+    - torchvision.models
+    - torchvision.models.resnet
 """
 
 import torch

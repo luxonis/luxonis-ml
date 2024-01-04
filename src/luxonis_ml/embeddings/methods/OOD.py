@@ -33,23 +33,20 @@ def isolation_forest_OOD(
 ):
     """Out-of-distribution detection using Isolation Forests.
 
-    Parameters
-    ----------
-    X : np.array
-        The embeddings to use.
-    contamination : float
-        The contamination parameter for Isolation Forests. Default is 'auto'.
-    n_jobs : int
-        The number of jobs to use. Default is -1, which means all available CPUs.
-    verbose : int
-        The verbosity level. Default is 1.
-    random_state : int
-        The random state to use. Default is None.
-
-    Returns
-    -------
-    np.array
-        The indices of the embeddings that are in-distribution.
+    @type X: np.array
+    @param X: The embeddings to use.
+    @type contamination: float
+    @param contamination: The contamination parameter for Isolation Forests. Default is
+        'auto'.
+    @type n_jobs: int
+    @param n_jobs: The number of jobs to use. Default is -1, which means all available
+        CPUs.
+    @type verbose: int
+    @param verbose: The verbosity level. Default is 1.
+    @type random_state: int
+    @param random_state: The random state to use. Default is None.
+    @rtype: np.array
+    @return: The indices of the embeddings that are in-distribution.
     """
     # Initialize the Isolation Forest model
     isolation_forest = IsolationForest(
@@ -74,17 +71,13 @@ def isolation_forest_OOD(
 def leverage_OOD(X, std_threshold=3):
     """Out-of-distribution detection using leverage and linear regression.
 
-    Parameters
-    ----------
-    X : np.array
-        The embeddings to use.
-    std_threshold : int
-        The number of standard deviations to use for the leverage threshold. Default is 3.
-
-    Returns
-    -------
-    np.array
-        The indices of the embeddings that are out-of-distribution.
+    @type X: np.array
+    @param X: The embeddings to use.
+    @type std_threshold: int
+    @param std_threshold: The number of standard deviations to use for the leverage
+        threshold. Default is 3.
+    @rtype: np.array
+    @return: The indices of the embeddings that are out-of-distribution.
     """
     # Calculate the hat matrix (projection matrix) to get the leverage for each point
     hat_matrix = np.matmul(np.matmul(X, np.linalg.inv(np.matmul(X.T, X))), X.T)

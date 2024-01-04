@@ -157,12 +157,10 @@ def _filter_new_samples_by_id(qdrant_client, collection_name, all_payloads=[]):
     """Filter out samples that are already in the Qdrant database based on their
     instance ID.
 
-    Args:
-        qdrant_client: Qdrant client instance.
-        collection_name: Name of the Qdrant collection.
-        all_payloads: List of all payloads.
-    Returns:
-        List of new payloads that are not in the Qdrant database.
+    @param qdrant_client: Qdrant client instance.
+    @param collection_name: Name of the Qdrant collection.
+    @param all_payloads: List of all payloads.
+    @return: List of new payloads that are not in the Qdrant database.
     """
     # Filter out samples that are already in the Qdrant database
     if len(all_payloads) == 0:
@@ -194,14 +192,18 @@ def _generate_new_embeddings(
 ):
     """Generate embeddings for new images using a given ONNX runtime session.
 
-    Args:
-        ort_session: ONNX runtime session.
-        output_layer_name: Name of the output layer in the ONNX model.
-        emb_batch_size: Batch size for generating embeddings.
-        new_payloads: List of new payloads.
-        transform: Optional torchvision transform for preprocessing images.
-    Returns:
-        List of generated embeddings.
+    @type ort_session: L{InferenceSession}
+    @param ort_session: ONNX runtime session.
+    @type output_layer_name: str
+    @param output_layer_name: Name of the output layer in the ONNX model.
+    @type emb_batch_size: int
+    @param emb_batch_size: Batch size for generating embeddings.
+    @type new_payloads: List[Dict[str, Any]]
+    @param new_payloads: List of new payloads.
+    @type transform: torchvision.transforms
+    @param transform: Optional torchvision transform for preprocessing images.
+    @rtype: List[Dict[str, Any]]
+    @return: List of generated embeddings.
     """
     # Generate embeddings for the new images using batching
     new_embeddings = []
@@ -246,12 +248,16 @@ def _batch_upsert(
 ):
     """Perform batch upserts of embeddings to Qdrant.
 
-    Args:
-        qdrant_client: Qdrant client instance.
-        collection_name: Name of the Qdrant collection.
-        new_embeddings: List of new embeddings.
-        new_payloads: List of new payloads.
-        qdrant_batch_size: Batch size for inserting into Qdrant.
+    @type qdrant_client: L{QdrantClient}
+    @param qdrant_client: Qdrant client instance.
+    @type collection_name: str
+    @param collection_name: Name of the Qdrant collection.
+    @type new_embeddings: List[Dict[str, Any]]
+    @param new_embeddings: List of new embeddings.
+    @type new_payloads: List[Dict[str, Any]]
+    @param new_payloads: List of new payloads.
+    @type qdrant_batch_size: int
+    @param qdrant_batch_size: Batch size for inserting into Qdrant.
     """
     # Perform batch upserts to Qdrant
     for i in range(0, len(new_embeddings), qdrant_batch_size):
@@ -287,15 +293,18 @@ def generate_embeddings(
 ):
     """Generate embeddings for a given dataset and insert them into Qdrant.
 
-    Args:
-        luxonis_dataset: The dataset object.
-        ort_session: ONNX runtime session.
-        qdrant_api: Qdrant client API instance.
-        output_layer_name: Name of the output layer in the ONNX model.
-        emb_batch_size: Batch size for generating embeddings.
-        qdrant_batch_size: Batch size for inserting into Qdrant.
-    Returns:
-        Dictionary mapping sample IDs to their embeddings.
+    @type luxonis_dataset: L{LuxonisDataset}
+    @param luxonis_dataset: The dataset object.
+    @type ort_session: L{InferenceSession}
+    @param ort_session: ONNX runtime session.
+    @type qdrant_api: L{QdrantAPI}
+    @param qdrant_api: Qdrant client API instance.
+    @type output_layer_name: str
+    @param output_layer_name: Name of the output layer in the ONNX model.
+    @type emb_batch_size: int
+    @param emb_batch_size: Batch size for generating embeddings.
+    @type qdrant_batch_size: int
+    @param qdrant_batch_size: Batch size for inserting into Qdrant.
     """
 
     all_payloads = _get_sample_payloads_coco(luxonis_dataset)

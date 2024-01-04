@@ -32,9 +32,9 @@ Usage Examples:
         loaded_embeddings, loaded_labels = load_embeddings("./embeddings/")
 
 Note:
-    Ensure the DataLoader provided to the extraction functions outputs batches
-    in the form (data, labels). Make sure to match the output_layer_name in the ONNX extraction
-    with the appropriate output layer's name from the ONNX model.
+Ensure the DataLoader provided to the extraction functions outputs batches
+in the form (data, labels). Make sure to match the output_layer_name in the ONNX extraction
+with the appropriate output layer's name from the ONNX model.
 
 Dependencies:
     - torch

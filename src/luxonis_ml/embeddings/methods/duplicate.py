@@ -6,50 +6,49 @@ Estimation (KDE) on embeddings cosine similarity for optimal split, making
 this approach particularly suited for embeddings in high dimensional spaces.
 
 Functionality Includes:
-- Using Qdrant for efficient search and retrieval of embeddings.
-- Applying Kernel Density Estimation (KDE) to detect similarity peaks.
-- Visualizing KDE results with matplotlib.
-- Dynamic selection of best candidates for removal based on KDE peaks.
+    - Using Qdrant for efficient search and retrieval of embeddings.
+    - Applying Kernel Density Estimation (KDE) to detect similarity peaks.
+    - Visualizing KDE results with matplotlib.
+    - Dynamic selection of best candidates for removal based on KDE peaks.
 
 Dependencies:
-- Requires the KDEpy library for KDE.
-- Utilizes Qdrant (an open-source vector database) for embedding storage and search.
+    - Requires the KDEpy library for KDE.
+    - Utilizes Qdrant (an open-source vector database) for embedding storage and search.
 
 Functions:
-- search_qdrant: Search embeddings within Qdrant based on query vectors.
-- _plot_kde: Utility function to plot a KDE distribution.
-- kde_peaks: Determine peaks in a KDE distribution.
-- find_similar_qdrant: Find the most similar embeddings to the given reference embeddings.
+    - search_qdrant: Search embeddings within Qdrant based on query vectors.
+    - _plot_kde: Utility function to plot a KDE distribution.
+    - kde_peaks: Determine peaks in a KDE distribution.
+    - find_similar_qdrant: Find the most similar embeddings to the given reference embeddings.
 
-Examples
-===============
-Initialize a Qdrant client and retrieve all embeddings from a specific collection:
+Examples:
+    1. Initialize a Qdrant client and retrieve all embeddings from a specific collection:
 
-    from luxonis_ml.embeddings.utils.qdrant import QdrantAPI
-    qdrant_api = QdrantAPI(host="localhost", port=6333, collection_name="webscraped_real_all")
-    id_X, X = qdrant_api.get_all_embeddings()
-    i = 111
+        from luxonis_ml.embeddings.utils.qdrant import QdrantAPI
+        qdrant_api = QdrantAPI(host="localhost", port=6333, collection_name="webscraped_real_all")
+        id_X, X = qdrant_api.get_all_embeddings()
+        i = 111
 
-1. Search for similar embeddings in Qdrant for a specific embedding:
+    2. Search for similar embeddings in Qdrant for a specific embedding:
 
-    ids, similarites, image_paths = search_qdrant(qdrant_api, X[i], "real", 1000)
-    vals = np.array(similarites)
-    k = len(np.where(vals > 0.961)[0])  # manually selected threshold
-    imgk = image_paths[:k]
+        ids, similarites, image_paths = search_qdrant(qdrant_api, X[i], "real", 1000)
+        vals = np.array(similarites)
+        k = len(np.where(vals > 0.961)[0])  # manually selected threshold
+        imgk = image_paths[:k]
 
-2. Find similar embeddings by providing an instance ID:
+    3. Find similar embeddings by providing an instance ID:
 
-    ix, paths = find_similar_qdrant(id_X[i], qdrant_api, "real", 5, 100, "first")
+        ix, paths = find_similar_qdrant(id_X[i], qdrant_api, "real", 5, 100, "first")
 
-3. Find similar embeddings using the KDE Peaks method:
+    4. Find similar embeddings using the KDE Peaks method:
 
-    ix, paths = find_similar_qdrant(X[i], qdrant_api, "real", 5, 100, "first", "kde_peaks", "silverman", plot=False)
+        ix, paths = find_similar_qdrant(X[i], qdrant_api, "real", 5, 100, "first", "kde_peaks", "silverman", plot=False)
 
-4. Calculate the average of multiple embeddings and then find similar embeddings:
+    5. Calculate the average of multiple embeddings and then find similar embeddings:
 
-    dark_ix = np.array([10,123,333,405])
-    emb_dark = X[dark_ix]
-    remove_dark_ix, paths = find_similar_qdrant(emb_dark, qdrant_api, "real", 25, 5000, "average", "kde_basic", "scott", plot=True)
+        dark_ix = np.array([10,123,333,405])
+        emb_dark = X[dark_ix]
+        remove_dark_ix, paths = find_similar_qdrant(emb_dark, qdrant_api, "real", 25, 5000, "average", "kde_basic", "scott", plot=True)
 """
 
 
