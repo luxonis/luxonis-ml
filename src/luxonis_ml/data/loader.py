@@ -117,11 +117,23 @@ class LuxonisLoader(BaseLoader):
         self.df.set_index(["instance_id"], inplace=True)
 
     def __len__(self) -> int:
-        """Returns length of the pytorch dataset."""
+        """Returns length of the dataset.
+
+        @rtype: int
+        return: Length of dataset.
+        """
         return len(self.instances)
 
     def __getitem__(self, idx: int) -> LuxonisLoaderOutput:
-        """Function to load a sample."""
+        """Function to load a sample consisting of an image and its
+        annotations.
+
+        @type idx: int @param idx: The (often random) integer index to
+        retrieve a sample from the dataset.
+
+        @rtype: LuxonisLoaderOutput @return: The loader ouput consisting
+        of the image and a dictionary defining its annotations.
+        """
 
         img, annotations = self._load_image_with_annotations(idx)
 

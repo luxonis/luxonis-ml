@@ -1,8 +1,9 @@
 import numpy as np
 import cv2
 import warnings
+import random
 import albumentations as A
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Union, Optional
 
 from .loader import LabelType
 from luxonis_ml.utils.registry import Registry
@@ -11,6 +12,8 @@ from albumentations.core.transforms_interface import (
     BoxInternalType,
     DualTransform,
     KeypointInternalType,
+    BoxType,
+    KeypointType,
 )
 from albumentations.core.bbox_utils import denormalize_bbox, normalize_bbox
 
@@ -326,7 +329,15 @@ class Augmentations:
         return out_image, out_mask, out_bboxes, out_keypoints
 
     def check_bboxes(self, bboxes: np.ndarray) -> np.ndarray:
-        """Check bbox annotations and correct those with width or height 0."""
+        """Check bbox annotations and correct those with width or height 0.
+
+        @type bboxes: np.ndarray @param bboxes: A numpy array
+        representing bounding boxes.
+
+        @rtype: np.ndarray @return: The same bounding boxes with any
+        out-of-bounds coordinate corrections.
+        """
+
         for i in range(bboxes.shape[0]):
             if bboxes[i, 2] == 0:
                 bboxes[i, 2] = 1
@@ -337,7 +348,18 @@ class Augmentations:
     def mark_invisible_keypoints(
         self, keypoints: np.ndarray, ih: int, iw: int
     ) -> np.ndarray:
-        """Mark invisible keypoints with label == 0."""
+        """Mark invisible keypoints with label == 0.
+
+        @type keypoints: np.ndarray @param keypoints: A numpy array
+        representing keypoints.
+
+        @type ih: int @param ih: The image height.
+
+        @type iw: int @param iw: The image width.
+
+        @rtype: np.ndarray @return: The same keypoints with corrections
+        to mark keypoints out-of-bounds as invisible.
+        """
         for kp in keypoints:
             if not (0 <= kp[0] < iw and 0 <= kp[1] < ih):
                 kp[2] = 0
@@ -450,23 +472,24 @@ AUGMENTATIONS.register_module(module=A.UnsharpMask)
 AUGMENTATIONS.register_module(module=A.ZoomBlur)
 
 # Spatial.level transforms
+# NOTE: only augmentations that are supported for all targets
 AUGMENTATIONS.register_module(module=A.Affine)
-AUGMENTATIONS.register_module(module=A.BBoxSafeRandomCrop)
+# AUGMENTATIONS.register_module(module=A.BBoxSafeRandomCrop)
 AUGMENTATIONS.register_module(module=A.CenterCrop)
 AUGMENTATIONS.register_module(module=A.CoarseDropout)
 AUGMENTATIONS.register_module(module=A.Crop)
 AUGMENTATIONS.register_module(module=A.CropAndPad)
 AUGMENTATIONS.register_module(module=A.CropNonEmptyMaskIfExists)
-AUGMENTATIONS.register_module(module=A.ElasticTransform)
+# AUGMENTATIONS.register_module(module=A.ElasticTransform)
 AUGMENTATIONS.register_module(module=A.Flip)
-AUGMENTATIONS.register_module(module=A.GridDistortion)
-AUGMENTATIONS.register_module(module=A.GridDropout)
+# AUGMENTATIONS.register_module(module=A.GridDistortion)
+# AUGMENTATIONS.register_module(module=A.GridDropout)
 AUGMENTATIONS.register_module(module=A.HorizontalFlip)
 AUGMENTATIONS.register_module(module=A.Lambda)
 AUGMENTATIONS.register_module(module=A.LongestMaxSize)
-AUGMENTATIONS.register_module(module=A.MaskDropout)
+# AUGMENTATIONS.register_module(module=A.MaskDropout)
 AUGMENTATIONS.register_module(module=A.NoOp)
-AUGMENTATIONS.register_module(module=A.OpticalDistortion)
+# AUGMENTATIONS.register_module(module=A.OpticalDistortion)
 AUGMENTATIONS.register_module(module=A.PadIfNeeded)
 AUGMENTATIONS.register_module(module=A.Perspective)
 AUGMENTATIONS.register_module(module=A.PiecewiseAffine)
@@ -478,7 +501,7 @@ AUGMENTATIONS.register_module(module=A.RandomGridShuffle)
 AUGMENTATIONS.register_module(module=A.RandomResizedCrop)
 AUGMENTATIONS.register_module(module=A.RandomRotate90)
 AUGMENTATIONS.register_module(module=A.RandomScale)
-AUGMENTATIONS.register_module(module=A.RandomSizedBBoxSafeCrop)
+# AUGMENTATIONS.register_module(module=A.RandomSizedBBoxSafeCrop)
 AUGMENTATIONS.register_module(module=A.RandomSizedCrop)
 AUGMENTATIONS.register_module(module=A.Resize)
 AUGMENTATIONS.register_module(module=A.Rotate)
@@ -504,15 +527,28 @@ class LetterboxResize(DualTransform):
         """Augmentation to apply letterbox resizing to images. Also transforms masks,
         bboxes and keypoints to correct shape.
 
-        Args:
-            height (int): Desired height of the output
-            width (int): Desired width of the output
-            interpolation (int, optional): Cv2 flag to specify interpolation used when resizing. Defaults to cv2.INTER_LINEAR.
-            border_value (int, optional): Padding value for images. Defaults to 0.
-            mask_value (int, optional): Padding value for masks. Defaults to 0.
-            always_apply (bool, optional): Defaults to False.
-            p (float, optional): Probability of applying the transform. Defaults to 1.0.
+        @param height: Desired height of the output.
+        @type height: int
+
+        @param width: Desired width of the output.
+        @type width: int
+
+        @param interpolation: Cv2 flag to specify interpolation used when resizing. Defaults to cv2.INTER_LINEAR.
+        @type interpolation: int, optional
+
+        @param border_value: Padding value for images. Defaults to 0.
+        @type border_value: int, optional
+
+        @param mask_value: Padding value for masks. Defaults to 0.
+        @type mask_value: int, optional
+
+        @param always_apply: Whether to always apply the transform. Defaults to False.
+        @type always_apply: bool, optional
+
+        @param p: Probability of applying the transform. Defaults to 1.0.
+        @type p: float, optional
         """
+
         super().__init__(always_apply, p)
 
         if not (0 <= border_value <= 255):
@@ -528,6 +564,18 @@ class LetterboxResize(DualTransform):
         self.mask_value = mask_value
 
     def update_params(self, params: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+        """Updates augmentation parameters with the necessary metadata.
+
+        @param params: The existing augmentation parameters dictionary.
+        @type params: Dict[str, Any]
+
+        @param kwargs: Additional keyword arguments to add the parameters.
+        @type kwargs: Any
+
+        @return: Updated dictionary containing the merged parameters.
+        @rtype: Dict[str, Any]
+        """
+
         params = super().update_params(params, **kwargs)
 
         img_height = params["rows"]
@@ -564,6 +612,30 @@ class LetterboxResize(DualTransform):
         pad_right: int,
         **params,
     ) -> np.ndarray:
+        """Applies the letterbox augmentation to an image.
+
+        @param img: Input image to which resize is applied.
+        @type img: np.ndarray
+
+        @param pad_top: Number of pixels to pad at the top.
+        @type pad_top: int
+
+        @param pad_bottom: Number of pixels to pad at the bottom.
+        @type pad_bottom: int
+
+        @param pad_left: Number of pixels to pad on the left.
+        @type pad_left: int
+
+        @param pad_right: Number of pixels to pad on the right.
+        @type pad_right: int
+
+        @param params: Additional parameters for the padding operation.
+        @type params: Any
+
+        @return: Image with applied letterbox resize.
+        @rtype: np.ndarray
+        """
+
         resized_img = cv2.resize(
             img,
             (self.width - pad_left - pad_right, self.height - pad_top - pad_bottom),
@@ -590,6 +662,30 @@ class LetterboxResize(DualTransform):
         pad_right: int,
         **params,
     ) -> np.ndarray:
+        """Applies letterbox augmentation to the input mask.
+
+        @param img: Input mask to which resize is applied.
+        @type img: np.ndarray
+
+        @param pad_top: Number of pixels to pad at the top.
+        @type pad_top: int
+
+        @param pad_bottom: Number of pixels to pad at the bottom.
+        @type pad_bottom: int
+
+        @param pad_left: Number of pixels to pad on the left.
+        @type pad_left: int
+
+        @param pad_right: Number of pixels to pad on the right.
+        @type pad_right: int
+
+        @param params: Additional parameters for the padding operation.
+        @type params: Any
+
+        @return: Mask with applied letterbox resize.
+        @rtype: np.ndarray
+        """
+
         resized_img = cv2.resize(
             img,
             (self.width - pad_left - pad_right, self.height - pad_top - pad_bottom),
@@ -616,6 +712,30 @@ class LetterboxResize(DualTransform):
         pad_right: int,
         **params,
     ) -> BoxInternalType:
+        """Applies letterbox augmentation to the bounding box.
+
+        @param img: Bounding box to which resize is applied.
+        @type img: BoxInternalType
+
+        @param pad_top: Number of pixels to pad at the top.
+        @type pad_top: int
+
+        @param pad_bottom: Number of pixels to pad at the bottom.
+        @type pad_bottom: int
+
+        @param pad_left: Number of pixels to pad on the left.
+        @type pad_left: int
+
+        @param pad_right: Number of pixels to pad on the right.
+        @type pad_right: int
+
+        @param params: Additional parameters for the padding operation.
+        @type params: Any
+
+        @return: Bounding box with applied letterbox resize.
+        @rtype: BoxInternalType
+        """
+
         x_min, y_min, x_max, y_max = denormalize_bbox(
             bbox, self.height - pad_top - pad_bottom, self.width - pad_left - pad_right
         )[:4]
@@ -638,6 +758,30 @@ class LetterboxResize(DualTransform):
         pad_right: int,
         **params,
     ) -> KeypointInternalType:
+        """Applies letterbox augmentation to the keypoint.
+
+        @param img: Keypoint to which resize is applied.
+        @type img: KeypointInternalType
+
+        @param pad_top: Number of pixels to pad at the top.
+        @type pad_top: int
+
+        @param pad_bottom: Number of pixels to pad at the bottom.
+        @type pad_bottom: int
+
+        @param pad_left: Number of pixels to pad on the left.
+        @type pad_left: int
+
+        @param pad_right: Number of pixels to pad on the right.
+        @type pad_right: int
+
+        @param params: Additional parameters for the padding operation.
+        @type params: Any
+
+        @return: Keypoint with applied letterbox resize.
+        @rtype: KeypointInternalType
+        """
+
         x, y, angle, scale = keypoint[:4]
         scale_x = (self.width - pad_left - pad_right) / params["cols"]
         scale_y = (self.height - pad_top - pad_bottom) / params["rows"]
@@ -657,10 +801,29 @@ class LetterboxResize(DualTransform):
         return out_keypoint
 
     def get_transform_init_args_names(self) -> Tuple[str, ...]:
+        """Gets the default arguments for the letterbox augmentation.
+
+        @return: The string keywords of the arguments.
+        @rtype: Tuple[str, ...]
+        """
+
         return ("height", "width", "interpolation", "border_value", "mask_value")
 
     def _out_of_bounds(self, value: float, min_limit: float, max_limit: float) -> bool:
-        """Check if value is out of set range."""
+        """ "Check if the given value is outside the specified limits.
+
+        @param value: The value to be checked.
+        @type value: float
+
+        @param min_limit: Minimum limit.
+        @type min_limit: float
+
+        @param max_limit: Maximum limit.
+        @type max_limit: float
+
+        @return: True if the value is outside the specified limits, False otherwise.
+        @rtype: bool
+        """
         return value < min_limit or value > max_limit
 
 
@@ -668,15 +831,49 @@ class LetterboxResize(DualTransform):
 class DeterministicMosaic4(A.Mosaic4):
     def __init__(
         self,
-        out_height,
-        out_width,
-        value=None,
-        replace=True,
-        out_batch_size=1,
-        mask_value=None,
-        always_apply=False,
-        p=0.5,
+        out_height: int,
+        out_width: int,
+        value: Optional[Union[int, float, List[int], List[float]]] = None,
+        replace: bool = False,
+        out_batch_size: int = 1,
+        mask_value: Optional[Union[int, float, List[int], List[float]]] = None,
+        always_apply: bool = False,
+        p: float = 0.5,
     ):
+        """Mosaic augmentation arranges selected four images into single image in a 2x2 grid layout. This
+        is done in deterministic way meaning first image in the batch will always be in top left.
+        The input images should have the same number of channels but can have different widths and heights.
+        The output is cropped around the intersection point of the four images with the size (out_with x out_height).
+        If the mosaic image is smaller than with x height, the gap is filled by the fill_value.
+
+        @param out_height: Output image height. The mosaic image is cropped by this height around the mosaic center.
+        If the size of the mosaic image is smaller than this value the gap is filled by the `value`.
+        @type out_height: int
+
+        @param out_width: Output image width. The mosaic image is cropped by this height around the mosaic center.
+        If the size of the mosaic image is smaller than this value the gap is filled by the `value`.
+        @type out_width: int
+
+        @param value: Padding value. Defaults to None.
+        @type value: Optional[Union[int, float, List[int], List[float]]], optional
+
+        @param replace: Whether to replace the original images in the mosaic. Current implementation
+        only supports this set to False. Defaults to False.
+        @type replace: bool, optional
+
+        @param out_batch_size: Number of output images in the batch. Defaults to 1.
+        @type out_batch_size: int, optional
+
+        @param mask_value: Padding value for masks. Defaults to None.
+        @type mask_value: Optional[Union[int, float, List[int], List[float]]], optional
+
+        @param always_apply: Whether to always apply the transform. Defaults to False.
+        @type always_apply: bool, optional
+
+        @param p: Probability of applying the transform. Defaults to 0.5.
+        @type p: float, optional
+        """
+
         super().__init__(
             out_height,
             out_width,
@@ -693,6 +890,184 @@ class DeterministicMosaic4(A.Mosaic4):
         self.replace = False
 
     def get_params_dependent_on_targets(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Get parameters dependent on the targets.
+
+        @param params: Dictionary containing parameters.
+        @type params: Dict[str, Any]
+
+        @return: Dictionary containing parameters dependent on the targets.
+        @rtype: Dict[str, Any]
+        """
         target_params = super().get_params_dependent_on_targets(params)
         target_params["indices"] = list(range(self.n_tiles))
         return target_params
+
+
+@AUGMENTATIONS.register_module()
+class MixUp(A.BatchBasedTransform):
+    def __init__(
+        self,
+        alpha: Union[float, Tuple[float, float]] = 0.5,
+        always_apply: bool = False,
+        p: float = 0.5,
+    ):
+        """MixUp augmentation that merges two images and their annotations into
+        one. If images are not of same size then second one is first resized to
+        match the first one.
+
+        @param alpha: Mixing coefficient, either a single float or a tuple representing the range.
+        Defaults to 0.5.
+        @type alpha: Union[float, Tuple[float, float]], optional
+
+        @param always_apply: Whether to always apply the transform. Defaults to False.
+        @type always_apply: bool, optional
+
+        @param p: Probability of applying the transform. Defaults to 0.5.
+        @type p: float, optional
+        """
+        super().__init__(always_apply=always_apply, p=p)
+
+        self.alpha = alpha
+        self.n_tiles = 2
+        self.out_batch_size = 1
+
+    def get_transform_init_args_names(self) -> Tuple[str, ...]:
+        """Gets the default arguments for the mixup augmentation.
+
+        @return: The string keywords of the arguments.
+        @rtype: Tuple[str, ...]
+        """
+        return ("alpha", "out_batch_size")
+
+    @property
+    def targets_as_params(self) -> List[str]:
+        """List of augmentation targets
+
+        @return: Output list of augmentation targets.
+        @rtype: List[str]
+        """
+        return ["image_batch"]
+
+    def apply_to_image_batch(
+        self,
+        image_batch: List[np.ndarray],
+        image_shapes: List[Tuple[int, int]],
+        **params,
+    ) -> List[np.ndarray]:
+        """Applies the transformation to a batch of images.
+
+        @param image_batch: Batch of input images to which the transformation is applied.
+        @type image_batch: List[np.ndarray]
+
+        @param image_shapes: Shapes of the input images in the batch.
+        @type image_shapes: List[Tuple[int, int]]
+
+        @param params: Additional parameters for the transformation.
+        @type params: Any
+
+        @return: List of transformed images.
+        @rtype: List[np.ndarray]
+        """
+        image1 = image_batch[0]
+        # resize second image to size of the first one
+        image2 = cv2.resize(image_batch[1], (image_shapes[0][1], image_shapes[0][0]))
+
+        if isinstance(self.alpha, float):
+            curr_alpha = np.clip(self.alpha, 0, 1)
+        else:
+            curr_alpha = random.uniform(max(self.alpha[0], 0), min(self.alpha[1], 1))
+        img_out = cv2.addWeighted(image1, curr_alpha, image2, 1 - curr_alpha, 0.0)
+        return [img_out]
+
+    def apply_to_mask_batch(
+        self,
+        mask_batch: List[np.ndarray],
+        image_shapes: List[Tuple[int, int]],
+        **params,
+    ) -> List[np.ndarray]:
+        """Applies the transformation to a batch of masks.
+
+        @param image_batch: Batch of input masks to which the transformation is applied.
+        @type image_batch: List[np.ndarray]
+
+        @param image_shapes: Shapes of the input images in the batch.
+        @type image_shapes: List[Tuple[int, int]]
+
+        @param params: Additional parameters for the transformation.
+        @type params: Any
+
+        @return: List of transformed masks.
+        @rtype: List[np.ndarray]
+        """
+        mask1 = mask_batch[0]
+        mask2 = cv2.resize(
+            mask_batch[1],
+            (image_shapes[0][1], image_shapes[0][0]),
+            interpolation=cv2.INTER_NEAREST,
+        )
+        out_mask = mask1 + mask2
+        # if masks intersect keep one present in first image
+        mask_inter = mask1 > 0
+        out_mask[mask_inter] = mask1[mask_inter]
+        return [out_mask]
+
+    def apply_to_bboxes_batch(
+        self, bboxes_batch: List[BoxType], image_shapes: List[Tuple[int, int]], **params
+    ) -> List[BoxType]:
+        """Applies the transformation to a batch of bboxes.
+
+        @param image_batch: Batch of input bboxes to which the transformation is applied.
+        @type image_batch: List[BoxType]
+
+        @param image_shapes: Shapes of the input images in the batch.
+        @type image_shapes: List[Tuple[int, int]]
+
+        @param params: Additional parameters for the transformation.
+        @type params: Any
+
+        @return: List of transformed bboxes.
+        @rtype: List[BoxType]
+        """
+        return [bboxes_batch[0] + bboxes_batch[1]]
+
+    def apply_to_keypoints_batch(
+        self,
+        keypoints_batch: List[KeypointType],
+        image_shapes: List[Tuple[int, int]],
+        **params,
+    ) -> List[KeypointType]:
+        """Applies the transformation to a batch of keypoints.
+
+        @param image_batch: Batch of input keypoints to which the transformation is applied.
+        @type image_batch: List[BoxType]
+
+        @param image_shapes: Shapes of the input images in the batch.
+        @type image_shapes: List[Tuple[int, int]]
+
+        @param params: Additional parameters for the transformation.
+        @type params: Any
+
+        @return: List of transformed keypoints.
+        @rtype: List[BoxType]
+        """
+        scaled_kpts2 = []
+        scale_x = image_shapes[0][1] / image_shapes[1][1]
+        scale_y = image_shapes[0][0] / image_shapes[1][0]
+        for kpt in keypoints_batch[1]:
+            new_kpt = A.augmentations.geometric.functional.keypoint_scale(
+                keypoint=kpt, scale_x=scale_x, scale_y=scale_y
+            )
+            scaled_kpts2.append(new_kpt + kpt[4:])
+        return [keypoints_batch[0] + scaled_kpts2]
+
+    def get_params_dependent_on_targets(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Get parameters dependent on the targets.
+
+        @param params: Dictionary containing parameters.
+        @type params: Dict[str, Any]
+
+        @return: Dictionary containing parameters dependent on the targets.
+        @rtype: Dict[str, Any]
+        """
+        image_batch = params["image_batch"]
+        return {"image_shapes": [image.shape[:2] for image in image_batch]}

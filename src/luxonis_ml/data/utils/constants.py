@@ -9,8 +9,6 @@ ANNOTATIONS_SCHEMA = {
     "class": str,  # any string specifying what the annotation is
     "type": str,  # type of annotation/label
     "value": Union[str, list, int, float, bool, tuple],  # the actual annotation
-    # "children": List[str],
-    # "parent": List[str],
 }
 
 ANNOTATION_TYPES = [val.value for val in list(DataLabelType.__members__.values())]

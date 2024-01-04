@@ -20,17 +20,26 @@ from .utils.enums import BucketType, BucketStorage, MediaType, ImageType
 
 
 class LuxonisComponent:
-    """Abstraction for a piece of media within a source.
-
-    Most commonly, this abstracts an image sensor.
-    """
-
     def __init__(
         self,
         name: str,
         media_type: MediaType = MediaType.IMAGE,
         image_type: Optional[ImageType] = ImageType.COLOR,
     ) -> None:
+        """Abstraction for a piece of media within a source. Most commonly,
+        this abstracts an image sensor.
+
+        @type name: str @param name: A recognizable name for the
+        component.
+
+        @type media_type: MediaType @param media_type: Enum for the type
+        of media for the component.
+
+        @type image_type: Optional[ImageType] @param image_type: Enum
+        for the image type if C{media_type==MediaType.IMAGE}. Else this
+        param can be None or default.
+        """
+
         if media_type not in MediaType:
             raise Exception(f"{media_type.value} is not a valid MediaType")
         if image_type not in ImageType:
@@ -55,6 +64,22 @@ class LuxonisSource:
         components: Optional[List[LuxonisComponent]] = None,
         main_component: Optional[str] = None,
     ) -> None:
+        """Abstracts the structure of a dataset by grouping together
+        components.
+
+        For example, with an OAK-D, you might have a source with 4 image
+        components: rgb (color), left (mono), right (mono), and depth.
+
+        @type name: str @param name: A recognizable name for the source.
+
+        @type components: Optional[List[LuxonisComponent]] @param
+        components: If not using the default configuration, a list of
+        LuxonisComponent to group together in the source.
+
+        @type main_component: Optional[str] @param main_component: The
+        name of the component that should be primarily visualized.
+        """
+
         self.name = name
         if components is None:
             components = [
@@ -72,11 +97,6 @@ class LuxonisSource:
 
 
 class LuxonisDataset:
-    """Luxonis Dataset Format (LDF).
-
-    Used to define datasets in the Luxonis MLOps ecosystem
-    """
-
     def __init__(
         self,
         dataset_name: Optional[str] = None,
@@ -86,7 +106,8 @@ class LuxonisDataset:
         bucket_type: BucketType = BucketType.INTERNAL,
         bucket_storage: BucketStorage = BucketStorage.LOCAL,
     ) -> None:
-        """Initializes LDF.
+        """Luxonis Dataset Format (LDF). This is used to define datasets in the
+        Luxonis MLOps ecosystem.
 
         dataset_name:
             Name of the dataset
@@ -340,7 +361,13 @@ class LuxonisDataset:
         shutil.rmtree(self.tmp_dir)
 
     def update_source(self, source: LuxonisSource) -> None:
-        """Updates underlying source of the dataset with a new LuxonisSource."""
+        """Updates underlying source of the dataset with a new LuxonisSource.
+
+        @type source: LuxonisSource @param source: The new LuxonisSource
+        to replace the old one.
+
+        @rtype: NoneType @return: None
+        """
 
         if self.online:
             raise NotImplementedError()
@@ -406,7 +433,7 @@ class LuxonisDataset:
             self._write_datasets()
 
     def sync_from_cloud(self) -> None:
-        """Downloads media from cloud bucket."""
+        """Downloads data from a remote cloud bucket."""
 
         if self.bucket_storage == BucketStorage.LOCAL:
             self.logger.warning("This is a local dataset! Cannot sync")
@@ -427,7 +454,16 @@ class LuxonisDataset:
                 self.is_synced = True
 
     def get_classes(self, sync_mode: bool = False) -> Tuple[List[str], Dict]:
-        """Gets overall classes in the dataset and classes according to CV task."""
+        """Gets overall classes in the dataset and classes according to
+        computer vision task.
+
+        @type sync_mode: bool @param sync_mode: If True, this reads
+        classes from remote storage. If False, classes are read locally.
+
+        @rtype: Tuple[List[str], Dict] @return: A combined list of
+        classes for all tasks and a dictionary mapping tasks to the
+        classes used in each task.
+        """
 
         if self.online:
             raise NotImplementedError()
@@ -626,19 +662,18 @@ class LuxonisDataset:
         """Saves a splits.json file that specified the train/val/test split. For use in
         OFFLINE mode only.
 
-        ratios [List[float]] : length 3 list of train/val/test ratios in that order used for a random split.
+        ratios [List[float]] : Length 3 list of train/val/test ratios in that order used for a random split.
             If no definitions are provided, this is used to generate a random split.
-        definitions [Optional[Dict]] : dictionary specifying split keys to lists of filepath values.
+        definitions [Optional[Dict]] : Dictionary specifying split keys to lists of filepath values.
             Note that this assumes unique filenames
-            (e.g. {"train": ["/path/to/cat.jpg", "/path/to/dog.jpg"], "val": [...], "test": [...]})
-
-        WARNING: this will overwrite any previously saved splits.
+            (e.g. {"train": ["/path/to/cat.jpg", "/path/to/dog.jpg"], "val": [...], "test": [...]}).
+            Only overrides splits that are present in the dictionary.
         """
-
         if self.online:
             raise NotImplementedError()
         else:
-            splits = {}
+            new_splits = {"train": {}, "val": {}, "test": {}}
+            splits_to_update = []
 
             if definitions is None:  # random split
                 if self.bucket_storage != BucketStorage.LOCAL:
@@ -653,33 +688,50 @@ class LuxonisDataset:
                 N = len(ids)
                 b1 = round(N * ratios[0])
                 b2 = round(N * ratios[0]) + round(N * ratios[1])
-                splits["train"] = ids[:b1]
-                splits["val"] = ids[b1:b2]
-                splits["test"] = ids[b2:]
+                new_splits["train"] = ids[:b1]
+                new_splits["val"] = ids[b1:b2]
+                new_splits["test"] = ids[b2:]
+                splits_to_update = ["train", "val", "test"]
             else:  # provided split
                 index = self._get_file_index()
                 if index is None:
                     raise Exception("File index not found")
-                if set(definitions.keys()) != {"train", "val", "test"}:
-                    raise Exception(
-                        "Must specify train, val, and test and those keys only"
-                    )
                 for split in "train", "val", "test":
+                    if split not in definitions:
+                        continue
+                    splits_to_update.append(split)
                     files = definitions[split]
                     if not isinstance(files, list):
                         raise Exception("Must provide splits as a list of str")
                     files = [osp.basename(file) for file in files]
                     ids = [self._try_instance_id(file, index) for file in files]
-                    splits[split] = ids
+                    new_splits[split] = ids
 
             if self.bucket_storage == BucketStorage.LOCAL:
-                with open(osp.join(self.metadata_path, "splits.json"), "w") as file:
+                splits_path = os.path.join(self.metadata_path, "splits.json")
+                if os.path.exists(splits_path):
+                    with open(splits_path, "r") as file:
+                        splits = json.load(file)
+                    for split in splits_to_update:
+                        splits[split] = new_splits[split]
+                else:
+                    splits = new_splits
+                with open(os.path.join(self.metadata_path, "splits.json"), "w") as file:
                     json.dump(splits, file, indent=4)
             else:
-                local_file = osp.join(self.tmp_dir, "splits.json")
-                with open(local_file, "w") as file:
+                remote_path = "metadata/splits.json"
+                local_path = os.path.join(self.tmp_dir, "splits.json")
+                if self.fs.file_exists(remote_path):
+                    self.fs.get_file(remote_path, local_path)
+                    with open(splits_path, "r") as file:
+                        splits = json.load(file)
+                    for split in splits_to_update:
+                        splits[split] = new_splits[split]
+                else:
+                    splits = new_splits
+                with open(local_path, "w") as file:
                     json.dump(splits, file, indent=4)
-                self.fs.put_file(local_file, "metadata/splits.json")
+                self.fs.put_file(local_path, "metadata/splits.json")
                 self._remove_temp_dir()
 
     @staticmethod

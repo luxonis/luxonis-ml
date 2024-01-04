@@ -30,22 +30,13 @@ class MediaType(Enum):
 class ImageType(Enum):
     """Image type for IMAGE HType."""
 
-    COLOR = "color"
-    MONO = "mono"
-    DISPARITY = "disparity"
-
-
-class LDFTransactionType(Enum):
-    """The type of transaction."""
-
-    END = "END"
-    ADD = "ADD"
-    UPDATE = "UPDATE"
-    DELETE = "DELETE"
+    COLOR = "color"  # 3 channel BGR or RGB (uint8)
+    MONO = "mono"  # 1 channel (uint8)
+    DISPARITY = "disparity"  # disparity or depth (uint16)
 
 
 class BucketType(Enum):
-    """Whether storage is internal or external."""
+    """Whether bucket storage is internal to Luxonis or not."""
 
     INTERNAL = "internal"
     EXTERNAL = "external"
