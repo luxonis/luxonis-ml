@@ -8,7 +8,7 @@ with guard_missing_extra("data"):
         BucketStorage,
     )
     from .dataset import LuxonisDataset, LuxonisSource, LuxonisComponent
-    from .parsers import LuxonisParser, DatasetType
+    from .parsers import LuxonisParser
     from .loader import BaseLoader, LuxonisLoader, LabelType, LuxonisLoaderOutput
     from .augmentations import Augmentations, TrainAugmentations, ValAugmentations
 
@@ -17,7 +17,6 @@ __all__ = [
     "LuxonisSource",
     "LuxonisComponent",
     "LuxonisParser",
-    "DatasetType",
     "BaseLoader",
     "LuxonisLoader",
     "LabelType",

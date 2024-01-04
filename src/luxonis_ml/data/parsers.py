@@ -1,1027 +1,1138 @@
-import json, yaml
 import os
-import numpy as np
-import cv2
-from tqdm import tqdm
-from pathlib import Path
-import warnings
-import random
-import shutil
-
-# from luxonis_ml.data.dataset_type import DatasetType as dt
-from enum import Enum
-import threading
-from threading import Thread
-import xml.etree.ElementTree as ET
-from luxonis_ml.data import *
+import json
 import csv
+import yaml
+import cv2
+import logging
+import numpy as np
+import pycocotools.mask as mask_util
+import xml.etree.ElementTree as ET
+from typing import Generator, List, Dict, Tuple, Any, Callable, Optional, Literal
 
-
-class DatasetType(Enum):
-    LDF = "LDF"
-    S3DIR = "S3DIR"
-    COCO = "COCO"
-    CDT = "ClassificationDirectoryTree"
-    CTA = "ClassificationWithTextAnnotations"
-    FOD = "FiftyOneDetection"
-    CML = "CreateML"
-    VOC = "VOC"
-    YOLO4 = "YOLO4"
-    YOLO5 = "YOLO5"
-    TFODD = "TFObjectDetectionDataset"
-    TFODC = "TFObjectDetectionCSV"
-    YAML = "YAML"
-    NUMPY = "numpy"
-    UNKNOWN = "unknown"
-
-
-"""
-Functions used with LuxonisDataset to convert other data formats to LDF
-"""
+from luxonis_ml.data import LuxonisDataset
+from luxonis_ml.enums import DatasetType
 
 
 class LuxonisParser:
-    def __init__(self):
-        self.percentage = 0
-        self.error_message = None
-        self.parsing_in_progress = False
-        self.source_name = "image"
+    """Class used for parsing other common dataset formats to LDF
 
-    # This wrapper enables us to decorate parser functions to do some thing before and after every parser call
-    def parsing_wrapper(func):
-        def inner(*args, **kwargs):
-            args[0].parsing_in_progress = True
+    Attributes:
+        logger (Logger): Internal logger used
+        dataset_exists (bool): Flag if dataset already exists
+        dataset (LuxonisDataset): LuxonisDataset where data is stored
+    """
 
-            bucket_type = "aws" if args[1][2] == DatasetType.S3DIR else "local"
-            with LuxonisDataset(
-                args[1][0], args[1][1], bucket_type=bucket_type
-            ) as dataset:
-                print("setting component")
-                custom_components = [
-                    LDFComponent(
-                        name="image",
-                        htype=HType.IMAGE,  # data component type
-                        itype=IType.BGR,  # image type
-                    )
-                ]
-                # Just set source to some default name, as of right now, I think that parser users will care about its name
-                print("setting source")
-                dataset.create_source(
-                    name=args[0].source_name, custom_components=custom_components
-                )
-                # once we create dataset, we just replace "dataset_info" with an actual "dataset" object and everything should work
-                args = list(args)
-                args[1] = dataset
+    def __init__(self, **ldf_kwargs: Dict[str, Any]):
+        """Initializes LuxonisDataset
 
-                print("started parsing..")
-                func(*tuple(args), **kwargs)
+        Args:
+            ldf_kwargs (Dict[str, Any]): Init parameters for LuxonisDataset
+        """
+        self.logger = logging.getLogger(__name__)
+        self.dataset_exists = LuxonisDataset.exists(
+            dataset_name=ldf_kwargs["dataset_name"]
+        )
+        self.dataset = LuxonisDataset(**ldf_kwargs)
 
-            args[0].parsing_in_progress = False
-            args[0].percentage = 100.0
+    def parsing_wrapper(func: Callable) -> Callable:
+        """Wrapper for parsing functions that adds data to LDF
 
-        return inner
+        Args:
+            func (Callable): Parsing function
 
-    @parsing_wrapper
-    def from_s3_directory_format(
+        Returns:
+            Callable: Wrapper function
+        """
+
+        def wrapper(*args, **kwargs):
+            dataset = args[0].dataset
+            generator, class_names, skeletons, added_images = func(*args, **kwargs)
+            dataset.set_classes(class_names)
+            dataset.set_skeletons(skeletons)
+            dataset.add(generator)
+
+            return added_images
+
+        return wrapper
+
+    def parse_dir(
         self,
-        dataset,
-        image_dir,
-        splits=None,
-        dataset_size=None,
-        override_main_component=None,
+        dataset_type: DatasetType,
+        dataset_dir: str,
+        **parser_kwargs: Dict[str, Any],
+    ) -> LuxonisDataset:
+        """Parses all present data in LuxonisDataset format. Check under selected parser
+        function for expected directory structure.
+
+        Args:
+            dataset_type (DatasetType): Source dataset type
+            dataset_dir (str): Path to source dataset directory
+            parser_kwargs (Dict[str, Any]): Additional kwargs for specific parser function
+
+        Returns:
+            LuxonisDataset: Output LDF with all images and annotations parsed
+        """
+        if dataset_type == DatasetType.LDF:
+            return self.dataset
+
+        if self.dataset_exists:
+            self.logger.warning(
+                "There already exists an LDF dataset with this name. "
+                "Skipping parsing and using that one instead."
+            )
+            return self.dataset
+
+        if dataset_type == DatasetType.COCO:
+            self.from_coco_dir(dataset_dir, **parser_kwargs)
+        elif dataset_type == DatasetType.VOC:
+            self.from_voc_dir(dataset_dir)
+        elif dataset_type == DatasetType.DARKNET:
+            self.from_darknet_dir(dataset_dir)
+        elif dataset_type == DatasetType.YOLOV6:
+            self.from_yolov6_dir(dataset_dir)
+        elif dataset_type == DatasetType.YOLOV4:
+            self.from_yolov4_dir(dataset_dir)
+        elif dataset_type == DatasetType.CREATEML:
+            self.from_create_ml_dir(dataset_dir)
+        elif dataset_type == DatasetType.TFCSV:
+            self.from_tensorflow_csv_dir(dataset_dir)
+        elif dataset_type == DatasetType.CLSDIR:
+            self.from_class_dir_dir(dataset_dir)
+        elif dataset_type == DatasetType.SEGMASK:
+            self.from_seg_mask_dir(dataset_dir)
+
+        return self.dataset
+
+    def parse_raw_dir(
+        self,
+        dataset_type: DatasetType,
+        split: Optional[Literal["train", "val", "test"]] = None,
+        random_split: bool = False,
+        split_ratios: Optional[List[float]] = None,
+        **parser_kwargs: Dict[str, Any],
+    ) -> LuxonisDataset:
+        """Parses data in specific directory, should be used if adding/changing only
+        specific split. Check under selected parser function for expected directory structure.
+
+        Args:
+            dataset_type (DatasetType): Source dataset type
+            split (Optional[Literal["train", "val", "test"]], optional): Split under which
+            data will be added. Defaults to None.
+            random_split (bool, optional): If random splits should be made. Defaults to False.
+            split_ratios (Optional[List[float]], optional): Ratios for random splits. Defaults to None.
+            parser_kwargs (Dict[str, Any]): Additional kwargs for specific parser function
+
+        Returns:
+            LuxonisDataset: Output LDF with all images and annotations parsed
+        """
+        if dataset_type == DatasetType.LDF:
+            pass
+        elif dataset_type == DatasetType.COCO:
+            added_images = self.from_coco_format(**parser_kwargs)
+        elif dataset_type == DatasetType.VOC:
+            added_images = self.from_voc_format(**parser_kwargs)
+        elif dataset_type == DatasetType.DARKNET:
+            added_images = self.from_darknet_format(**parser_kwargs)
+        elif dataset_type == DatasetType.YOLOV6:
+            added_images = self.from_yolov6_format(**parser_kwargs)
+        elif dataset_type == DatasetType.YOLOV4:
+            added_images = self.from_yolov4_format(**parser_kwargs)
+        elif dataset_type == DatasetType.CREATEML:
+            added_images = self.from_create_ml_format(**parser_kwargs)
+        elif dataset_type == DatasetType.TFCSV:
+            added_images = self.from_tensorflow_csv_format(**parser_kwargs)
+        elif dataset_type == DatasetType.CLSDIR:
+            added_images = self.from_class_dir_format(**parser_kwargs)
+        elif dataset_type == DatasetType.SEGMASK:
+            added_images = self.from_seg_mask_format(**parser_kwargs)
+
+        if split:
+            self.dataset.make_splits(definitions={split: added_images})
+        elif random_split:
+            split_ratios = split_ratios or [0.8, 0.1, 0.1]
+            self.dataset.make_splits(split_ratios)
+
+        return self.dataset
+
+    def from_coco_dir(
+        self,
+        dataset_dir: str,
+        use_keypoint_ann: bool = False,
+        keypoint_ann_paths: Optional[Dict[str, str]] = None,
+        split_val_to_test: bool = True,
     ):
-        ## define main component
-        if override_main_component is not None:
-            component_name = override_main_component
-        else:
-            component_name = dataset.source.main_component
+        """Parses directory with COCO annotations to LDF.
+        Expected format: "train", "validation" and "test" directories. Each one has "data" dir
+        with images and "labels.json" file with annotations. This is default format returned
+        when using fiftyone package.
 
-        ## initialize additions
-        contents = dataset.client.list_objects(Bucket=dataset.bucket, Prefix=image_dir)[
-            "Contents"
-        ]
+        Args:
+            dataset_dir (str): Path to dataset directory
+            use_keypoint_ann (bool, optional): If keypoint annotations should be used.
+            Defaults to False.
+            keypoint_ann_paths (Optional[Dict[str, str]], optional): Path to keypoint
+            annotations for each split. Defaults to None.
+            split_val_to_test (bool, optional): If part of validation data should be used
+            as test data. Defaults to True.
+        """
+        if use_keypoint_ann and not keypoint_ann_paths:
+            keypoint_ann_paths = {
+                "train": "raw/person_keypoints_train2017.json",
+                "val": "raw/person_keypoints_val2017.json",
+                "test": "raw/person_keypoints_test2017.json",  # NOTE: this file is not present by default
+            }
 
-        if splits is None:
-            idxs = np.arange(len(contents))
-            np.random.shuffle(idxs)
-            i1 = round(0.8 * len(contents))
-            i2 = round(0.9 * len(contents))
-            splits = {contents[idxs[n]]["Key"]: "train" for n in range(0, i1)}
-            val = {contents[idxs[n]]["Key"]: "val" for n in range(i1, i2)}
-            test = {contents[idxs[n]]["Key"]: "test" for n in range(i2, len(contents))}
-            splits.update(val)
-            splits.update(test)
+        train_ann_path = (
+            os.path.join(dataset_dir, keypoint_ann_paths["train"])
+            if use_keypoint_ann
+            else os.path.join(dataset_dir, "train", "labels.json")
+        )
+        added_train_imgs = self.from_coco_format(
+            image_dir=os.path.join(dataset_dir, "train", "data"),
+            annotation_path=train_ann_path,
+        )
 
-        additions = []
-        for metadata in contents:
-            filepath = metadata["Key"]
-            additions.append(
-                {component_name: {"filepath": filepath, "split": splits[filepath]}}
+        val_ann_path = (
+            os.path.join(dataset_dir, keypoint_ann_paths["val"])
+            if use_keypoint_ann
+            else os.path.join(dataset_dir, "validation", "labels.json")
+        )
+        _added_val_imgs = self.from_coco_format(
+            image_dir=os.path.join(dataset_dir, "validation", "data"),
+            annotation_path=val_ann_path,
+        )
+
+        if not split_val_to_test:
+            # NOTE: test split annotations are not included by default
+            test_ann_path = (
+                os.path.join(dataset_dir, keypoint_ann_paths["test"])
+                if use_keypoint_ann
+                else os.path.join(dataset_dir, "test", "labels.json")
+            )
+            added_test_imgs = self.from_coco_format(
+                image_dir=os.path.join(dataset_dir, "test", "data"),
+                annotation_path=test_ann_path,
             )
 
-        dataset.add(additions, note="S3 directory parser", from_bucket=True)
+        if split_val_to_test:
+            split_point = round(len(_added_val_imgs) * 0.5)
+            added_val_imgs = _added_val_imgs[:split_point]
+            added_test_imgs = _added_val_imgs[split_point:]
+        else:
+            added_val_imgs = _added_val_imgs
+
+        self.dataset.make_splits(
+            definitions={
+                "train": added_train_imgs,
+                "val": added_val_imgs,
+                "test": added_test_imgs,
+            }
+        )
 
     @parsing_wrapper
     def from_coco_format(
-        self,
-        dataset,
-        image_dir,
-        annotation_path,
-        split,
-        dataset_size=None,
-        override_main_component=None,
-    ):
-        """
-        Constructs a LDF dataset from a COCO type dataset.
-        Arguments:
-            dataset: [LuxonisDataset] LDF dataset instance
-            source_name: [string] name of the LDFSource to add to
-            image_dir: [string] path to root directory containing images
-            annotation_path: [string] path to json annotations file
-            split: [string] 'train', 'val', or 'test'
-            dataset_size: [int] number of data instances to include in our dataset (if None include all)
-            override_main_component: [LDFComponent] provide another LDFComponent if not using the main component from the LDFSource
+        self, image_dir: str, annotation_path: str
+    ) -> Tuple[Generator, List[str], Dict[str, Dict], List[str]]:
+        """Parses annotations from COCO format to LDF. Annotations include classification,
+        segmentation, object detection and keypoints if present.
+
+        Args:
+            image_dir (str): Path to directory with images
+            annotation_path (str): Path to annotation json file
+
         Returns:
-            None
+            Tuple[Generator, List[str], Dict[str, Dict], List[str]]: Annotation generator,
+            list of classes names, skeleton dictionary for keypoints and list of added images
+
+        Yields:
+            Iterator[Tuple[Generator, List[str], Dict[str, Dict]]]: Annotation data
         """
+        with open(annotation_path) as f:
+            annotation_data = json.load(f)
 
-        ## define main component
-        if override_main_component is not None:
-            component_name = override_main_component
-        else:
-            component_name = dataset.sources[self.source_name].main_component
-
-        ## load data
-        with open(annotation_path) as file:
-            coco = json.load(file)
-        coco_images = coco["images"]
-        coco_annotations = coco["annotations"]
-        coco_categories = coco["categories"]
+        coco_images = annotation_data["images"]
+        coco_annotations = annotation_data["annotations"]
+        coco_categories = annotation_data["categories"]
         categories = {cat["id"]: cat["name"] for cat in coco_categories}
-        keypoint_definitions = {
-            cat["id"]: {"keypoints": cat["keypoints"], "skeleton": cat["skeleton"]}
-            for cat in coco_categories
-            if "keypoints" in cat.keys() and "skeleton" in cat.keys()
-        }
 
-        ## dataset construction loop
-        iter = tqdm(coco_images)
-        for image in iter:
-            self.percentage = round((iter.n / iter.total) * 100, 2)
+        class_names = list(categories.values())
+        skeletons = {}
+        for cat in coco_categories:
+            if "keypoints" in cat.keys() and "skeleton" in cat.keys():
+                skeletons[categories[cat["id"]]] = {
+                    "labels": cat["keypoints"],
+                    "edges": (np.array(cat["skeleton"]) - 1).tolist(),
+                }
 
-            new_ann = {component_name: {"annotations": []}}
+        def generator() -> Dict[str, Any]:
+            for img in coco_images:
+                img_id = img["id"]
 
-            image_name = image["file_name"]
-            image_id = image["id"]
-            image_path = os.path.join(image_dir, image_name)
-            if os.path.exists(image_path):
-                image = cv2.imread(image_path)
-            else:
-                warnings.warn(f"skipping {image_path} as it does no exist!")
+                path = os.path.join(os.path.abspath(image_dir), img["file_name"])
+                if not os.path.exists(path):
+                    continue
 
-            annotations = [
-                ann for ann in coco_annotations if ann["image_id"] == image_id
-            ]
-            for annotation in annotations:
-                new_ann_instance = {}
+                img_anns = [
+                    ann for ann in coco_annotations if ann["image_id"] == img_id
+                ]
 
-                cat_id = annotation["category_id"]
-                class_name = categories[cat_id]
-                new_ann_instance["class_name"] = class_name
+                height = img["height"]
+                width = img["width"]
 
-                class_id = dataset._add_class(new_ann_instance)
-                new_ann_instance["class"] = class_id
+                for ann in img_anns:
+                    class_name = categories[ann["category_id"]]
+                    yield {
+                        "file": path,
+                        "class": class_name,
+                        "type": "classification",
+                        "value": True,
+                    }
 
-                if cat_id in keypoint_definitions.keys():
-                    dataset._add_keypoint_definition(
-                        class_id, keypoint_definitions[cat_id]
-                    )
-
-                if "segmentation" in annotation.keys():
-                    segmentation = annotation["segmentation"]
-                    if (
-                        isinstance(segmentation, list) and len(segmentation) > 0
-                    ):  # polygon format
-                        new_ann_instance["segmentation"] = {
-                            "type": "polygon",
-                            "task": "instance",
-                            "data": segmentation,
-                        }
-                    elif (
-                        isinstance(segmentation, dict)
-                        and len(segmentation["counts"]) > 0
-                    ):
-                        new_ann_instance["segmentation"] = {
-                            "type": "mask",
-                            "task": "instance",
-                            "data": segmentation,
+                    seg = ann["segmentation"]
+                    if isinstance(seg, list):
+                        poly = []
+                        for s in seg:
+                            poly_arr = np.array(s).reshape(-1, 2)
+                            poly += [
+                                tuple([poly_arr[i, 0] / width, poly_arr[i, 1] / height])
+                                for i in range(len(poly_arr))
+                            ]
+                        yield {
+                            "file": path,
+                            "class": class_name,
+                            "type": "polyline",
+                            "value": poly,
                         }
 
-                if "bbox" in annotation.keys():
-                    new_ann_instance["bbox"] = annotation["bbox"]
+                    x, y, w, h = ann["bbox"]
+                    yield {
+                        "file": path,
+                        "class": class_name,
+                        "type": "box",
+                        "value": tuple([x / width, y / height, w / width, h / height]),
+                    }
 
-                if "keypoints" in annotation.keys():
-                    new_ann_instance["keypoints"] = annotation["keypoints"]
+                    if "keypoints" in ann.keys():
+                        kpts = np.array(ann["keypoints"]).reshape(-1, 3)
+                        keypoints = []
+                        for kp in kpts:
+                            keypoints.append(
+                                tuple(
+                                    [
+                                        float(kp[0] / width),
+                                        float(kp[1] / height),
+                                        int(kp[2]),
+                                    ]
+                                )
+                            )
+                        yield {
+                            "file": path,
+                            "class": class_name,
+                            "type": "keypoints",
+                            "value": keypoints,
+                        }
 
-                new_ann[component_name]["annotations"].append(new_ann_instance)
+        added_images = self._get_added_images(generator)
 
-            ## add instance to the dataset
-            dataset.add_data(
-                self.source_name, {component_name: image, "json": new_ann}, split=split
-            )
+        return generator, class_names, skeletons, added_images
 
-            ## limit dataset size
-            if dataset_size is not None and iter.n + 1 >= dataset_size:
-                break
+    def from_voc_dir(self, dataset_dir: str):
+        """Parses directory with VOC annotations to LDF.
+        Expected format: "train", "valid" and "test" directories. Each one has images
+        and .xml annotations. This is default format returned when using Roboflow.
 
-        ## Convert to webdataset
-        query = f"SELECT basename FROM df WHERE split='{split}';"
-        dataset.to_webdataset(split, query)
+        Args:
+            dataset_dir (str): Path to dataset directory
+        """
+        added_train_imgs = self.from_voc_format(
+            image_dir=os.path.join(dataset_dir, "train"),
+            annotation_dir=os.path.join(dataset_dir, "train"),
+        )
+        added_val_imgs = self.from_voc_format(
+            image_dir=os.path.join(dataset_dir, "valid"),
+            annotation_dir=os.path.join(dataset_dir, "valid"),
+        )
+        added_test_imgs = self.from_voc_format(
+            image_dir=os.path.join(dataset_dir, "test"),
+            annotation_dir=os.path.join(dataset_dir, "test"),
+        )
+
+        self.dataset.make_splits(
+            definitions={
+                "train": added_train_imgs,
+                "val": added_val_imgs,
+                "test": added_test_imgs,
+            }
+        )
 
     @parsing_wrapper
     def from_voc_format(
         self,
-        dataset,
-        image_dir,
-        xml_annotation_files_paths,
-        split,
-        dataset_size=None,
-        override_main_component=None,
-    ):
-        """
-        Constructs a LDF dataset from a VOC type dataset.
-        Arguments:
-            dataset: [LuxonisDataset] LDF dataset instance
-            source_name: [string] name of the LDFSource to add to
-            image_dir: [string] path to root directory containing images
-            xml_annotation_files_paths: [list of strings] path to xml annotation files
-            split: [string] 'train', 'val', or 'test'
-            dataset_size: [int] number of data instances to include in our dataset (if None include all)
-            override_main_component: [LDFComponent] provide another LDFComponent if not using the main component from the LDFSource
+        image_dir: str,
+        annotation_dir: str,
+    ) -> Tuple[Generator, List[str], Dict[str, Dict], List[str]]:
+        """Parses annotations from VOC format to LDF. Annotations include classification
+        and object detection.
+
+        Args:
+            image_dir (str): Path to directory with images
+            annotation_dir (str): Path to directory with .xml annotations
+
         Returns:
-            None
-        Note:
-            only bounding boxes supported for now
+            Tuple[Generator, List[str], Dict[str, Dict], List[str]]: Annotation generator,
+            list of classes names, skeleton dictionary for keypoints and list of added images
+
+        Yields:
+            Iterator[Tuple[Generator, List[str], Dict[str, Dict]]]: Annotation data
         """
+        anno_files = [i for i in os.listdir(annotation_dir) if i.endswith(".xml")]
 
-        ## define main component
-        if override_main_component is not None:
-            component_name = override_main_component
-        else:
-            component_name = dataset.sources[self.source_name].main_component
+        class_names = set()
+        images_annotations = []
+        for anno_file in anno_files:
+            anno_xml = os.path.join(annotation_dir, anno_file)
+            annotation_data = ET.parse(anno_xml)
+            root = annotation_data.getroot()
 
-        ## dataset construction loop
-        iter = tqdm(xml_annotation_files_paths)
-        for xml_annotation_file_path in iter:
-            self.percentage = round((iter.n / iter.total) * 100, 2)
-
-            new_ann = {component_name: {"annotations": []}}
-
-            instance_tree = ET.parse(xml_annotation_file_path)
-            instance_root = instance_tree.getroot()
-
-            for child in instance_root:
-                if child.tag == "filename":
-                    image_path = os.path.join(image_dir, child.text)
-                    if os.path.exists(image_path):
-                        image = cv2.imread(image_path)
-                    else:
-                        warnings.warn(f"skipping {image_path} as it does no exist!")
-                        continue
-
-                if child.tag == "object":
-                    new_ann_instance = {}
-
-                    for info in child:
-                        if info.tag == "name":
-                            new_ann_instance["class_name"] = info.text
-                            class_id = dataset._add_class(new_ann_instance)
-                            new_ann_instance["class"] = class_id
-                        if info.tag == "bndbox":
-                            for point in info:
-                                if point.tag == "xmin":
-                                    bbox_xmin = int(point.text)
-                                if point.tag == "ymin":
-                                    bbox_ymin = int(point.text)
-                                if point.tag == "xmax":
-                                    bbox_xmax = int(point.text)
-                                if point.tag == "ymax":
-                                    bbox_ymax = int(point.text)
-                            coco_bbox = [
-                                bbox_xmin,
-                                bbox_ymin,
-                                bbox_xmax - bbox_xmin,
-                                bbox_ymax - bbox_ymin,
-                            ]  # x_min, y_min, width, height
-                            new_ann_instance["bbox"] = coco_bbox
-
-                    new_ann[component_name]["annotations"].append(new_ann_instance)
-
-            ## add to dataset
-            dataset.add_data(
-                self.source_name, {component_name: image, "json": new_ann}, split=split
-            )
-
-            ## limit dataset size
-            if dataset_size is not None and iter.n + 1 >= dataset_size:
-                break
-
-        ## Convert to webdataset
-        query = f"SELECT basename FROM df WHERE split='{split}';"
-        dataset.to_webdataset(split, query)
-
-    @parsing_wrapper
-    def from_yolo4_format(
-        self,
-        dataset,
-        image_dir,
-        txt_annotations_file_path,
-        classes_txt_file_path,
-        split,
-        dataset_size=None,
-        override_main_component=None,
-    ):
-        """
-        Constructs a LDF dataset from a YOLO4 type dataset.
-        Arguments:
-            dataset: [LuxonisDataset] LDF dataset instance
-            source_name: [string] name of the LDFSource to add to
-            image_dir: [string] path to the directory where images are stored
-            split: [string] 'train', 'val', or 'test'
-            dataset_size: [int] number of data instances to include in our dataset (if None include all)
-            override_main_component: [LDFComponent] provide another LDFComponent if not using the main component from the LDFSource
-        Returns:
-            None
-        Note:
-            only bounding boxes supported for now
-        """
-
-        ## define main component
-        if override_main_component is not None:
-            component_name = override_main_component
-        else:
-            component_name = dataset.sources[self.source_name].main_component
-
-        ## get class names
-        if not os.path.exists(classes_txt_file_path):
-            raise RuntimeError("classes file path non-existent.")
-        with open(classes_txt_file_path, "r", encoding="utf-8-sig") as text:
-            classes = text.readlines()
-            classes = [class_name.replace("\n", "") for class_name in classes]
-
-        ## dataset construction loop
-        with open(txt_annotations_file_path, "r", encoding="utf-8-sig") as text:
-            iter = tqdm(text.readlines())
-            for line in iter:
-                self.percentage = round((iter.n / iter.total) * 100, 2)
-
-                new_ann = {component_name: {"annotations": []}}
-
-                image_name = line.split(" ")[0]
-                image_path = os.path.join(image_dir, image_name)
-                if os.path.exists(image_path):
-                    image = cv2.imread(image_path)
-                else:
-                    warnings.warn(f"skipping {image_path} as it does no exist!")
-                    continue
-
-                for annotation in line.split(" ")[1:]:
-                    new_ann_instance = {}
-
-                    bbox_xmin, bbox_ymin, bbox_xmax, bbox_ymax, class_idx = [
-                        int(x) for x in annotation.split(",")
-                    ]
-
-                    new_ann_instance["class_name"] = classes[class_idx]
-                    class_id = dataset._add_class(new_ann_instance)
-                    new_ann_instance["class"] = class_id
-
-                    coco_bbox_format = [
-                        bbox_xmin,
-                        bbox_ymin,
-                        bbox_xmax - bbox_xmin,
-                        bbox_ymax - bbox_ymin,
-                    ]  # x_min, y_min, width, height
-                    new_ann_instance["bbox"] = coco_bbox_format
-                    new_ann[component_name]["annotations"].append(new_ann_instance)
-
-                ## add to dataset
-                dataset.add_data(
-                    self.source_name,
-                    {component_name: image, "json": new_ann},
-                    split=split,
-                )
-
-                ## limit dataset size
-                if dataset_size is not None and iter.n + 1 >= dataset_size:
-                    break
-
-        ## Convert to webdataset
-        query = f"SELECT basename FROM df WHERE split='{split}';"
-        dataset.to_webdataset(split, query)
-
-    @parsing_wrapper
-    def from_yolo5_format(
-        self,
-        dataset,
-        image_dir,
-        # txt_annotation_files_paths, # list of paths to the text annotation files where each line encodes a bounding box
-        split,
-        dataset_size=None,
-        override_main_component=None,
-    ):
-        """
-        Constructs a LDF dataset from a YOLO5 type dataset.
-        Arguments:
-            dataset: [LuxonisDataset] LDF dataset instance
-            source_name: [string] name of the LDFSource to add to
-            image_dir: [string] path to the directory where images are stored
-            split: [string] 'train', 'val', or 'test'
-            dataset_size: [int] number of data instances to include in our dataset (if None include all)
-            override_main_component: [LDFComponent] provide another LDFComponent if not using the main component from the LDFSource
-        Returns:
-            None
-        Note:
-            only bounding boxes supported for now
-        """
-
-        ## define main component
-        if override_main_component is not None:
-            component_name = override_main_component
-        else:
-            component_name = dataset.sources[self.source_name].main_component
-
-        ## get class names
-        root_path = os.path.split(os.path.split(image_dir)[0])[0]  # go two levels up
-        yaml_files = [
-            fname for fname in os.listdir(root_path) if fname.endswith(".yaml")
-        ]
-        if len(yaml_files) > 1:
-            raise RuntimeError("Multiple YAML files - possible ambiguity")
-        else:
-            yaml_path = yaml_files[0]
-            yolo = yaml.safe_load(Path(os.path.join(root_path, yaml_path)).read_text())
-            classes = yolo["names"]
-            if yolo["nc"] != len(classes):
-                raise Exception(f"nc in YOLO YAML file does not match names!")
-
-        ## dataset construction loop
-        iter = tqdm(os.listdir(image_dir))
-        for image_name in iter:
-            self.percentage = round((iter.n / iter.total) * 100, 2)
-
-            image_path = os.path.join(image_dir, image_name)
-            if os.path.exists(image_path):
-                image = cv2.imread(image_path)
-            else:
-                warnings.warn(f"skipping {image_path} as it does no exist!")
+            filename_item = root.find("filename")
+            path = os.path.join(os.path.abspath(image_dir), filename_item.text)
+            if not os.path.exists(path):
                 continue
 
-            ext = image_path.split(".")[-1]
-            label_path = image_path.replace("/images/", "/labels/").replace(
-                f".{ext}", ".txt"
-            )
-            if not os.path.exists(label_path):
-                warnings.warn(
-                    f"Skipping image {image_path} - label {label_path} not found!"
-                )
-                continue
-
-            # add YOLO data
-            new_ann = {component_name: {"annotations": []}}
-
-            h, w = image.shape[0], image.shape[1]
-
-            with open(label_path) as file:
-                lines = file.readlines()
-                rows = len(lines)
-                data = np.array(
-                    [
-                        float(num)
-                        for line in lines
-                        for num in line.replace("\n", "").split(" ")
-                    ]
-                )
-                data = data.reshape(rows, -1).tolist()
-
-            for row in data:
-                new_ann_instance = {}
-                yolo_class_id = int(row[0])
-                class_name = classes[yolo_class_id]
-                new_ann_instance["class_name"] = class_name
-                class_id = dataset._add_class(new_ann_instance)
-                new_ann_instance["class"] = class_id
-
-                # bounding box
-
-                bbox_xcenter = row[1] * w
-                bbox_ycenter = row[2] * h
-
-                # bbox_xmin = annotation["coordinates"]["x"]
-                # bbox_ymin = annotation["coordinates"]["y"]
-                bbox_width = row[3] * w
-                bbox_height = row[4] * h
-
-                bbox_xmin = bbox_xcenter - bbox_width / 2
-                bbox_ymin = bbox_ycenter - bbox_height / 2
-
-                coco_bbox_format = [bbox_xmin, bbox_ymin, bbox_width, bbox_height]
-                new_ann_instance["bbox"] = coco_bbox_format
-                new_ann[component_name]["annotations"].append(new_ann_instance)
-
-                #############################
-                # new_ann_instance['bbox'] = [, , , ]
-                # new_ann[component_name]['annotations'].append(new_ann_instance)
-
-            ## add to dataset
-            dataset.add_data(
-                self.source_name, {component_name: image, "json": new_ann}, split=split
-            )
-
-            ## limit dataset size
-            if dataset_size is not None and iter.n + 1 >= dataset_size:
-                break
-
-        ## Convert to webdataset
-        query = f"SELECT basename FROM df WHERE split='{split}';"
-        dataset.to_webdataset(split, query)
-
-    @parsing_wrapper
-    def from_tfodc_format(
-        self,
-        dataset,
-        image_dir,
-        csv_file_path,
-        split,
-        dataset_size=None,
-        override_main_component=None,
-    ):
-        """
-        Constructs a LDF dataset from a TFObjectDetectionCSV type dataset.
-        Arguments:
-            dataset: [LuxonisDataset] LDF dataset instance
-            source_name: [string] name of the LDFSource to add to
-            image_folder_path: [string] path to the directory where images are stored
-            csv_file_path: [string] path to csv file where annotations are stored
-            split: [string] 'train', 'val', or 'test'
-            dataset_size: [int] number of data instances to include in our dataset (if None include all)
-            override_main_component: [LDFComponent] provide another LDFComponent if not using the main component from the LDFSource
-        Returns:
-            None
-        Note:
-            only bounding boxes supported for now
-        """
-
-        ## define main component
-        if override_main_component is not None:
-            component_name = override_main_component
-        else:
-            component_name = dataset.sources[self.source_name].main_component
-
-        ## extract annotations for each image
-        annotations = {}
-        reader = csv.reader(open(csv_file_path), delimiter=",")
-        for n, row in enumerate(reader):
-            if n == 0:
-                idx_fname = row.index("filename")
-                idx_class = row.index("class")
-                idx_xmin = row.index("xmin")
-                idx_ymin = row.index("ymin")
-                idx_xmax = row.index("xmax")
-                idx_ymax = row.index("ymax")
-
-            else:
-                image_name = row[idx_fname]
-                class_name = row[idx_class]
-                xmin = int(row[idx_xmin])
-                ymin = int(row[idx_ymin])
-                xmax = int(row[idx_xmax])
-                ymax = int(row[idx_ymax])
-
-                if image_name not in annotations:
-                    annotations[image_name] = []
-                annotations[image_name].append((class_name, xmin, ymin, xmax, ymax))
-
-        ## dataset construction loop
-        iter = tqdm(annotations.keys())
-        for image_name in iter:
-            self.percentage = round((iter.n / iter.total) * 100, 2)
-
-            image_path = os.path.join(image_dir, image_name)
-            if os.path.exists(image_path):
-                image = cv2.imread(image_path)
-            else:
-                warnings.warn(f"skipping {image_path} as it does no exist!")
-                continue
-
-            new_ann = {component_name: {"annotations": []}}
-
-            for annotation in annotations[image_name]:
-                class_name, bbox_xmin, bbox_ymin, bbox_xmax, bbox_ymax = annotation
-
-                new_ann_instance = {}
-
-                new_ann_instance["class_name"] = class_name
-                class_id = dataset._add_class(new_ann_instance)
-                new_ann_instance["class"] = class_id
-
-                coco_bbox = [
-                    bbox_xmin,
-                    bbox_ymin,
-                    bbox_xmax - bbox_xmin,
-                    bbox_ymax - bbox_ymin,
-                ]  # x_min, y_min, width, height
-                new_ann_instance["bbox"] = coco_bbox
-                new_ann[component_name]["annotations"].append(new_ann_instance)
-
-            ## add data to the provided LDF dataset instance
-            dataset.add_data(
-                self.source_name, {component_name: image, "json": new_ann}, split=split
-            )
-
-            ## limit dataset size
-            if dataset_size is not None and iter.n + 1 >= dataset_size:
-                break
-
-        ## Convert to webdataset
-        query = f"SELECT basename FROM df WHERE split='{split}';"
-        dataset.to_webdataset(split, query)
-
-    @parsing_wrapper
-    def from_cml_format(
-        self,
-        dataset,
-        image_dir,
-        annotation_path,
-        split,
-        dataset_size=None,
-        override_main_component=None,
-    ):
-        """
-        Constructs a LDF dataset from a CreateML type dataset.
-        Arguments:
-            dataset: [LuxonisDataset] LDF dataset instance
-            source_name: [string] name of the LDFSource to add to
-            image_dir: [string] path to the directory where images are stored
-            annotation_path: [string] path to json file where annotations are stored
-            split: [string] 'train', 'val', or 'test'
-            dataset_size: [int] number of data instances to include in our dataset (if None include all)
-            override_main_component: [LDFComponent] provide another LDFComponent if not using the main component from the LDFSource
-        Returns:
-            None
-        Note:
-            only bounding boxes supported for now
-        """
-
-        ## define main component
-        if override_main_component is not None:
-            component_name = override_main_component
-        else:
-            component_name = dataset.sources[self.source_name].main_component
-
-        ## read annotations file
-        with open(annotation_path) as file:
-            cml_annotations = json.load(file)
-
-        ## dataset construction loop
-        iter = tqdm(cml_annotations)
-        for annotations_instance in iter:
-            self.percentage = round((iter.n / iter.total) * 100, 2)
-
-            image_name = annotations_instance["image"]
-            image_path = os.path.join(image_dir, image_name)
-            if os.path.exists(image_path):
-                image = cv2.imread(image_path)
-            else:
-                warnings.warn(f"skipping {image_path} as it does no exist!")
-                continue
-
-            new_ann = {component_name: {"annotations": []}}
-
-            annotations = annotations_instance["annotations"]
-            for annotation in annotations:
-                class_name = annotation["label"]
-                bbox_xcenter = annotation["coordinates"]["x"]
-                bbox_ycenter = annotation["coordinates"]["y"]
-
-                bbox_width = annotation["coordinates"]["width"]
-                bbox_height = annotation["coordinates"]["height"]
-
-                bbox_xmin = bbox_xcenter - bbox_width / 2
-                bbox_ymin = bbox_ycenter - bbox_height / 2
-
-                new_ann_instance = {}
-
-                new_ann_instance["class_name"] = class_name
-                class_id = dataset._add_class(new_ann_instance)
-                new_ann_instance["class"] = class_id
-
-                coco_bbox_format = [bbox_xmin, bbox_ymin, bbox_width, bbox_height]
-                new_ann_instance["bbox"] = coco_bbox_format
-                new_ann[component_name]["annotations"].append(new_ann_instance)
-
-            ## add data to the provided LDF dataset instance
-            dataset.add_data(
-                self.source_name, {component_name: image, "json": new_ann}, split=split
-            )
-
-            ## limit dataset size
-            if dataset_size is not None and iter.n + 1 >= dataset_size:
-                break
-
-        ## Convert to webdataset
-        query = f"SELECT basename FROM df WHERE split='{split}';"
-        dataset.to_webdataset(split, query)
-
-    @parsing_wrapper
-    def from_numpy_format(
-        self,
-        dataset,
-        images,
-        labels,
-        split,
-        dataset_size=None,
-        override_main_component=None,
-    ):
-        """
-        Constructs a LDF dataset from data provided in numpy arrays.
-        Arguments:
-            dataset: [LuxonisDataset] LDF dataset instance
-            source_name: [string] name of the LDFSource to add to
-            images: [numpy.array] numpy.array of RGB images of shape (N, image_height, image_width) or (N, image_height, image_width, color)
-            labels: [numpy.array] classification labels in numpy.array of shape (N,)
-            split: [string] 'train', 'val', or 'test'
-            dataset_size: [int] number of data instances to include in our dataset (if None include all)
-            override_main_component: [LDFComponent] provide another LDFComponent if not using the main component from the LDFSource
-        Returns:
-            None
-        """
-
-        ## define main component
-        if override_main_component is not None:
-            component_name = override_main_component
-        else:
-            component_name = dataset.sources[self.source_name].main_component
-
-        ## dataset size limit
-        if dataset_size is not None:
-            images = images[:dataset_size]
-            labels = labels[:dataset_size]
-
-        ## dataset construction loop
-        iter = tqdm(zip(images, labels))
-        for image, label in iter:
-            self.percentage = round((iter.n / iter.total) * 100, 2)
-
-            new_ann = {component_name: {"annotations": []}}
-            new_ann_instance = {}
-            new_ann_instance["class_name"] = str(label)
-            new_ann[component_name]["annotations"].append(new_ann_instance)
-
-            dataset.add_data(
-                self.source_name, {component_name: image, "json": new_ann}, split=split
-            )
-
-        ## Convert to webdataset
-        query = f"SELECT basename FROM df WHERE split='{split}';"
-        dataset.to_webdataset(split, query)
-
-    def train_test_split_image_classification_directory_tree(
-        self,
-        directory_tree_path,
-        destination_path1,
-        destination_path2,
-        split_proportion,
-        folders_to_ignore=[],
-    ):
-        """
-        Split directory tree into two parts. This is useful as some classification directory tree format datasets
-        (e.g. Caltech101) do not separately provide data for training, validation and testing.
-        Arguments:
-            directory_tree_path: [string] path to the directory tree folder
-            destination_path1: [string] path to the destination directory 1 - must be an existing and empty folder
-            destination_path2: [string] path to the destination directory 2 - must be an existing and empty folder
-            split_proportion: [float] proportion of dataset going into output directory 1
-            folders_to_ignore: [list] list of folder names which should not be included in the split
-        Returns:
-            None
-        """
-
-        for folder_name in os.listdir(directory_tree_path):
-            if folder_name in folders_to_ignore:
-                continue
-
-            image_names = os.listdir(os.path.join(directory_tree_path, folder_name))
-            random.shuffle(image_names)
-            split_idx = int(len(image_names) * split_proportion)
-            image_names1 = image_names[:split_idx]
-            image_names2 = image_names[split_idx:]
-
-            os.mkdir(os.path.join(destination_path1, folder_name))
-            os.mkdir(os.path.join(destination_path2, folder_name))
-
-            for image_name in image_names1:
-                shutil.copyfile(
-                    src=os.path.join(directory_tree_path, folder_name, image_name),
-                    dst=os.path.join(destination_path1, folder_name, image_name),
-                )
-            for image_name in image_names2:
-                shutil.copyfile(
-                    src=os.path.join(directory_tree_path, folder_name, image_name),
-                    dst=os.path.join(destination_path2, folder_name, image_name),
-                )
-
-    @parsing_wrapper
-    def from_image_classification_directory_tree_format(
-        self,
-        dataset,
-        class_folders_paths,
-        split,
-        dataset_size=None,
-        override_main_component=None,
-    ):
-        """
-        Constructs a LDF dataset from a directory tree whose subfolders define image classes.
-        Arguments:
-            dataset: [LuxonisDataset] LDF dataset instance
-            source_name: [string] name of the LDFSource to add to
-            class_folders_paths: [list of strings] paths to folders containing images of specific class
-            split: [string] 'train', 'val', or 'test'
-            dataset_size: [int] number of data instances to include in the LDF dataset (if None include all)
-            override_main_component: [LDFComponent] provide another LDFComponent if not using the main component from the LDFSource
-        Returns:
-            None
-        """
-
-        ## define main component
-        if override_main_component is not None:
-            component_name = override_main_component
-        else:
-            component_name = dataset.sources[self.source_name].main_component
-
-        if len(class_folders_paths) == 0:
-            raise RuntimeError("Directory tree is empty")
-
-        ## dataset construction loop
-        iter1 = tqdm(class_folders_paths)
-        for class_folder_path in iter1:
-            class_folder_name = os.path.split(class_folder_path)[-1]
-            iter2 = tqdm(os.listdir(class_folder_path))
-            for image_name in iter2:
-                self.percentage = round((iter1.n / iter1.total) * 100, 2) + round(
-                    ((iter2.n / iter2.total) / iter1.total) * 100, 2
-                )
-
-                image_path = os.path.join(class_folder_path, image_name)
-                if os.path.exists(image_path):
-                    image = cv2.imread(image_path)
-                else:
-                    warnings.warn(f"skipping {image_path} as it does no exist!")
-                    continue
-
-                ## structure annotations
-                new_ann = {component_name: {"annotations": []}}
-                new_ann_instance = {}
-                new_ann_instance["class_name"] = str(class_folder_name)
-                new_ann[component_name]["annotations"].append(new_ann_instance)
-
-                ## add data to the provided LDF dataset instance
-                dataset.add_data(
-                    self.source_name,
-                    {component_name: image, "json": new_ann},
-                    split=split,
-                )
-
-                ## limit dataset size
-                if dataset_size is not None and iter.n + 1 >= dataset_size:
-                    break
-
-        ## Convert to webdataset
-        query = f"SELECT basename FROM df WHERE split='{split}';"
-        dataset.to_webdataset(split, query)
-
-    @parsing_wrapper
-    def from_image_classification_with_text_annotations_format(
-        self,
-        dataset,
-        image_dir,
-        info_file_path,
-        split,
-        delimiter=" ",
-        dataset_size=None,
-        override_main_component=None,
-    ):
-        """
-        Constructs a LDF dataset based on image paths and labels from text annotations.
-        Arguments:
-            dataset: [LuxonisDataset] LDF dataset instance
-            source_name: [string] name of the LDFSource to add to
-            image_dir: [string] path to the directory where images are stored
-            info_file_path: [string] path to the text annotations file where each line encodes a name and the associated class of an image
-            split: [string] 'train', 'val', or 'test'
-            delimiter: [string] how image names and classes are separated in the info file (e.g. " ", "," or ";")
-            dataset_size: [int] number of data instances to include in our dataset (if None include all)
-            override_main_component: [LDFComponent] provide another LDFComponent if not using the main component from the LDFSource
-        Returns:
-            None
-        """
-
-        ## define main component
-        if override_main_component is not None:
-            component_name = override_main_component
-        else:
-            component_name = dataset.sources[self.source_name].main_component
-
-        if not os.path.exists(info_file_path):
-            raise RuntimeError("Info file path non-existent.")
-
-        ## dataset construction loop
-        with open(info_file_path) as f:
-            lines = f.readlines()
-            iter = tqdm(lines)
-            for line in iter:
-                self.percentage = round((iter.n / iter.total) * 100, 2)
-                try:
-                    image_path, label = line.split(delimiter)
-                except:
-                    raise RuntimeError(
-                        "Unable to split the info file based on the provided delimiter."
+            curr_annotations = {"path": path, "classes": [], "bboxes": []}
+            size_item = root.find("size")
+            height = float(size_item.find("height").text)
+            width = float(size_item.find("width").text)
+
+            for object_item in root.findall("object"):
+                class_name = object_item.find("name").text
+                curr_annotations["classes"].append(class_name)
+                class_names.add(class_name)
+
+                bbox_info = object_item.find("bndbox")
+                if bbox_info:
+                    bbox_xywh = np.array(
+                        [
+                            float(bbox_info.find("xmin").text),
+                            float(bbox_info.find("ymin").text),
+                            float(bbox_info.find("xmax").text)
+                            - float(bbox_info.find("xmin").text),
+                            float(bbox_info.find("ymax").text)
+                            - float(bbox_info.find("ymin").text),
+                        ]
                     )
+                    bbox_xywh[::2] /= width
+                    bbox_xywh[1::2] /= height
+                    bbox_xywh = bbox_xywh.tolist()
+                    curr_annotations["bboxes"].append((class_name, bbox_xywh))
+            images_annotations.append(curr_annotations)
 
-                label = label.strip()
+        def generator() -> Dict[str, Any]:
+            for curr_annotations in images_annotations:
+                path = curr_annotations["path"]
+                for class_name in curr_annotations["classes"]:
+                    yield {
+                        "file": path,
+                        "class": class_name,
+                        "type": "classification",
+                        "value": True,
+                    }
+                for bbox_class, bbox in curr_annotations["bboxes"]:
+                    yield {
+                        "file": path,
+                        "class": bbox_class,
+                        "type": "box",
+                        "value": tuple(bbox),
+                    }
 
-                image_path = os.path.join(image_dir, image_path)
-                if os.path.exists(image_path):
-                    image = cv2.imread(image_path)
-                else:
-                    warnings.warn(f"skipping {image_path} as it does no exist!")
+        added_images = self._get_added_images(generator)
+
+        return generator, list(class_names), {}, added_images
+
+    def from_darknet_dir(self, dataset_dir: str):
+        """Parses directory with DarkNet annotations to LDF.
+        Expected format: "train", "valid" and "test" directories. Each one has images,
+        .txt annotations and "darknet.labels" file with all present class names.
+        This is default format returned when using Roboflow.
+
+        Args:
+            dataset_dir (str): Path to dataset directory
+        """
+        added_train_imgs = self.from_darknet_format(
+            image_dir=os.path.join(dataset_dir, "train"),
+            classes_path=os.path.join(dataset_dir, "train", "_darknet.labels"),
+        )
+        added_val_imgs = self.from_darknet_format(
+            image_dir=os.path.join(dataset_dir, "valid"),
+            classes_path=os.path.join(dataset_dir, "valid", "_darknet.labels"),
+        )
+        added_test_imgs = self.from_darknet_format(
+            image_dir=os.path.join(dataset_dir, "test"),
+            classes_path=os.path.join(dataset_dir, "test", "_darknet.labels"),
+        )
+
+        self.dataset.make_splits(
+            definitions={
+                "train": added_train_imgs,
+                "val": added_val_imgs,
+                "test": added_test_imgs,
+            }
+        )
+
+    @parsing_wrapper
+    def from_darknet_format(
+        self, image_dir: str, classes_path: str
+    ) -> Tuple[Generator, List[str], Dict[str, Dict], List[str]]:
+        """Parses annotations from Darknet format to LDF. Annotations include
+        classification and object detection.
+
+        Args:
+            image_dir (str): Path to directory with images
+            classes_path (str): Path to file with class names
+
+        Returns:
+            Tuple[Generator, List[str], Dict[str, Dict], List[str]]: Annotation generator,
+            list of classes names, skeleton dictionary for keypoints and list of added images
+
+        Yields:
+            Iterator[Tuple[Generator, List[str], Dict[str, Dict]]]: Annotation data
+        """
+        with open(classes_path) as f:
+            class_names = {i: line.rstrip() for i, line in enumerate(f.readlines())}
+
+        def generator() -> Dict[str, Any]:
+            images = [img for img in os.listdir(image_dir) if img.endswith(".jpg")]
+            for img_path in images:
+                path = os.path.join(os.path.abspath(image_dir), img_path)
+                ann_path = os.path.join(image_dir, img_path.replace(".jpg", ".txt"))
+                with open(ann_path) as f:
+                    annotation_data = f.readlines()
+
+                for ann_line in annotation_data:
+                    class_id, x_center, y_center, width, height = [
+                        float(i) for i in ann_line.split(" ")
+                    ]
+                    class_name = class_names[class_id]
+                    yield {
+                        "file": path,
+                        "class": class_name,
+                        "type": "classification",
+                        "value": True,
+                    }
+
+                    bbox_xywh = [
+                        x_center - width / 2,
+                        y_center - height / 2,
+                        width,
+                        height,
+                    ]
+                    yield {
+                        "file": path,
+                        "class": class_name,
+                        "type": "box",
+                        "value": tuple(bbox_xywh),
+                    }
+
+        added_images = self._get_added_images(generator)
+
+        return generator, list(class_names.values()), {}, added_images
+
+    def from_yolov6_dir(self, dataset_dir: str):
+        """Parses annotations from YoloV6 annotations to LDF.
+        Expected format: "images" and "labels" directories on top level and then "train",
+        "valid" and "test" directories in each of them. Images are in directories under
+        "images" and annotations in directories under "labels" as .txt files. On top level
+        there is also "data.yaml" with names of all present classes. This is default
+        format returned when using Roboflow.
+
+        Args:
+            dataset_dir (str): Path to dataset directory
+        """
+        classes_path = os.path.join(dataset_dir, "data.yaml")
+        added_train_imgs = self.from_yolov6_format(
+            image_dir=os.path.join(dataset_dir, "images", "train"),
+            annotation_dir=os.path.join(dataset_dir, "labels", "train"),
+            classes_path=classes_path,
+        )
+        added_val_imgs = self.from_yolov6_format(
+            image_dir=os.path.join(dataset_dir, "images", "valid"),
+            annotation_dir=os.path.join(dataset_dir, "labels", "valid"),
+            classes_path=classes_path,
+        )
+        added_test_imgs = self.from_yolov6_format(
+            image_dir=os.path.join(dataset_dir, "images", "test"),
+            annotation_dir=os.path.join(dataset_dir, "labels", "test"),
+            classes_path=classes_path,
+        )
+
+        self.dataset.make_splits(
+            definitions={
+                "train": added_train_imgs,
+                "val": added_val_imgs,
+                "test": added_test_imgs,
+            }
+        )
+
+    @parsing_wrapper
+    def from_yolov6_format(
+        self, image_dir: str, annotation_dir: str, classes_path: str
+    ) -> Tuple[Generator, List[str], Dict[str, Dict], List[str]]:
+        """Parses annotations from YoloV6 format to LDF. Annotations include
+        classification and object detection.
+
+        Args:
+            image_dir (str): Path to directory with images
+            annotation_dir (str): Path to directory with annotations
+            classes_path (str): Path to yaml file with classes names
+
+        Returns:
+            Tuple[Generator, List[str], Dict[str, Dict], List[str]]: Annotation generator,
+            list of classes names, skeleton dictionary for keypoints and list of added images
+
+        Yields:
+            Iterator[Tuple[Generator, List[str], Dict[str, Dict]]]: Annotation data
+        """
+        with open(classes_path) as f:
+            classes_data = yaml.safe_load(f)
+        class_names = {
+            i: class_name for i, class_name in enumerate(classes_data["names"])
+        }
+
+        def generator() -> Dict[str, Any]:
+            for ann_file in os.listdir(annotation_dir):
+                ann_path = os.path.join(os.path.abspath(annotation_dir), ann_file)
+                path = os.path.join(
+                    os.path.abspath(image_dir), ann_file.replace(".txt", ".jpg")
+                )
+                if not os.path.exists(path):
                     continue
 
-                new_ann = {component_name: {"annotations": []}}
-                new_ann_instance = {}
-                new_ann_instance["class_name"] = str(label)
-                new_ann[component_name]["annotations"].append(new_ann_instance)
+                with open(ann_path) as f:
+                    annotation_data = f.readlines()
 
-                ## add data to the provided LDF dataset instance
-                dataset.add_data(
-                    self.source_name,
-                    {component_name: image, "json": new_ann},
-                    split=split,
-                )
+                for ann_line in annotation_data:
+                    class_id, x_center, y_center, width, height = [
+                        float(i) for i in ann_line.split(" ")
+                    ]
+                    class_name = class_names[class_id]
+                    yield {
+                        "file": path,
+                        "class": class_name,
+                        "type": "classification",
+                        "value": True,
+                    }
 
-                ## limit dataset size
-                if dataset_size is not None and iter.n + 1 >= dataset_size:
-                    break
+                    bbox_xywh = [
+                        x_center - width / 2,
+                        y_center - height / 2,
+                        width,
+                        height,
+                    ]
+                    yield {
+                        "file": path,
+                        "class": class_name,
+                        "type": "box",
+                        "value": tuple(bbox_xywh),
+                    }
 
-        # Convert to webdataset
-        query = f"SELECT basename FROM df WHERE split='{split}';"
-        dataset.to_webdataset(split, query)
+        added_images = self._get_added_images(generator)
 
-    # Defining this below all the functions
-    DATASET_TYPE_TO_FUNCTION = {
-        DatasetType.S3DIR: from_s3_directory_format,
-        DatasetType.COCO: from_coco_format,
-        DatasetType.YOLO4: from_yolo4_format,
-        DatasetType.YOLO5: from_yolo5_format,
-        DatasetType.TFODC: from_tfodc_format,
-        DatasetType.CML: from_cml_format,
-        DatasetType.CDT: from_image_classification_directory_tree_format,
-        DatasetType.CTA: from_image_classification_with_text_annotations_format,
-        DatasetType.NUMPY: from_numpy_format,
-        DatasetType.VOC: from_voc_format,
-    }
+        return generator, list(class_names.values()), {}, added_images
 
-    def get_percentage(self):
-        return self.percentage
+    def from_yolov4_dir(self, dataset_dir: str):
+        """Parses directory with YoloV4 annotations to LDF.
+        Expected format: "train", "valid" and "test" directories. Each one has images,
+        "_annotations.txt" file with annotations and "_classes.txt" file with all present
+        class names. This is default format returned when using Roboflow.
 
-    def get_error_message(self):
-        return self.error_message
+        Args:
+            dataset_dir (str): Path to dataset directory
+        """
+        added_train_imgs = self.from_yolov4_format(
+            image_dir=os.path.join(dataset_dir, "train"),
+            annotation_path=os.path.join(dataset_dir, "train", "_annotations.txt"),
+            classes_path=os.path.join(dataset_dir, "train", "_classes.txt"),
+        )
+        added_val_imgs = self.from_yolov4_format(
+            image_dir=os.path.join(dataset_dir, "valid"),
+            annotation_path=os.path.join(dataset_dir, "valid", "_annotations.txt"),
+            classes_path=os.path.join(dataset_dir, "valid", "_classes.txt"),
+        )
+        added_test_imgs = self.from_yolov4_format(
+            image_dir=os.path.join(dataset_dir, "test"),
+            annotation_path=os.path.join(dataset_dir, "test", "_annotations.txt"),
+            classes_path=os.path.join(dataset_dir, "test", "_classes.txt"),
+        )
 
-    def get_parsing_in_progress(self):
-        return self.parsing_in_progress
+        self.dataset.make_splits(
+            definitions={
+                "train": added_train_imgs,
+                "val": added_val_imgs,
+                "test": added_test_imgs,
+            }
+        )
 
-    def parse_to_dataset(
-        self, dataset_type, team_name, dataset_name, *args, new_thread=False, **kwargs
-    ):
-        # Order of args passed in parsing functions has to be (self, dataset_info) + other args
+    @parsing_wrapper
+    def from_yolov4_format(
+        self, image_dir: str, annotation_path: str, classes_path: str
+    ) -> Tuple[Generator, List[str], Dict[str, Dict], List[str]]:
+        """Parses annotations from YoloV4 format to LDF. Annotations include
+        classification and object detection.
 
-        dataset_info = (team_name, dataset_name, dataset_type)
-        if not new_thread:
-            LuxonisParser.DATASET_TYPE_TO_FUNCTION[dataset_type](
-                self, dataset_info, *args, **kwargs
-            )
-        else:
+        Args:
+            image_dir (str): Path to directory with images
+            annotation_path (str): Path to annotation file
+            classes_path (str): Path to file with class names
 
-            def thread_exception_hook(args):
-                self.error_message = str(args.exc_value)
-                self.parsing_in_progress = False
+        Returns:
+            Tuple[Generator, List[str], Dict[str, Dict], List[str]]: Annotation generator,
+            list of classes names, skeleton dictionary for keypoints and list of added images
 
-            threading.excepthook = thread_exception_hook
+        Yields:
+            Iterator[Tuple[Generator, List[str], Dict[str, Dict]]]: Annotation data
+        """
+        with open(classes_path) as f:
+            class_names = {i: line.rstrip() for i, line in enumerate(f.readlines())}
 
-            self.thread = threading.Thread(
-                target=Parser.DATASET_TYPE_TO_FUNCTION[dataset_type],
-                args=(self, dataset_info) + args,
-                kwargs=kwargs,
-                daemon=True,
-            )
-            self.thread.start()
+        def generator() -> Dict[str, Any]:
+            with open(annotation_path) as f:
+                annotation_data = [line.rstrip() for line in f.readlines()]
+
+            for ann_line in annotation_data:
+                data = ann_line.split(" ")
+                img_path = data[0]
+
+                path = os.path.join(os.path.abspath(image_dir), img_path)
+                if not os.path.exists(path):
+                    continue
+                else:
+                    img = cv2.imread(path)
+                    shape = img.shape
+                    height, width = shape[0], shape[1]
+
+                for ann_data in data[1:]:
+                    curr_ann_data = ann_data.split(",")
+                    class_name = class_names[int(curr_ann_data[4])]
+                    yield {
+                        "file": path,
+                        "class": class_name,
+                        "type": "classification",
+                        "value": True,
+                    }
+
+                    bbox_xyxy = [float(i) for i in curr_ann_data[:4]]
+                    bbox_xywh = [
+                        bbox_xyxy[0] / width,
+                        bbox_xyxy[1] / height,
+                        (bbox_xyxy[2] - bbox_xyxy[0]) / width,
+                        (bbox_xyxy[3] - bbox_xyxy[1]) / height,
+                    ]
+                    yield {
+                        "file": path,
+                        "class": class_name,
+                        "type": "box",
+                        "value": tuple(bbox_xywh),
+                    }
+
+        added_images = self._get_added_images(generator)
+
+        return generator, list(class_names.values()), {}, added_images
+
+    def from_create_ml_dir(self, dataset_dir: str):
+        """Parses directory with CreateML annotations to LDF.
+        Expected format: "train", "valid" and "test" directories. Each one has images
+        and "_annotations.createml.json" file with annotations. This is default format
+        returned when using Roboflow.
+
+        Args:
+            dataset_dir (str): Path to dataset directory
+        """
+        added_train_imgs = self.from_create_ml_format(
+            image_dir=os.path.join(dataset_dir, "train"),
+            annotation_path=os.path.join(
+                dataset_dir, "train", "_annotations.createml.json"
+            ),
+        )
+        added_val_imgs = self.from_create_ml_format(
+            image_dir=os.path.join(dataset_dir, "valid"),
+            annotation_path=os.path.join(
+                dataset_dir, "valid", "_annotations.createml.json"
+            ),
+        )
+        added_test_imgs = self.from_create_ml_format(
+            image_dir=os.path.join(dataset_dir, "test"),
+            annotation_path=os.path.join(
+                dataset_dir, "test", "_annotations.createml.json"
+            ),
+        )
+
+        self.dataset.make_splits(
+            definitions={
+                "train": added_train_imgs,
+                "val": added_val_imgs,
+                "test": added_test_imgs,
+            }
+        )
+
+    @parsing_wrapper
+    def from_create_ml_format(
+        self, image_dir: str, annotation_path: str
+    ) -> Tuple[Generator, List[str], Dict[str, Dict], List[str]]:
+        """Parses annotations from CreateML format to LDF. Annotations include classification
+        and object detection.
+
+        Args:
+            image_dir (str): Path to directory with images
+            annotation_path (str): Path to annotation json file
+
+        Returns:
+            Tuple[Generator, List[str], Dict[str, Dict], List[str]]: Annotation generator,
+            list of classes names, skeleton dictionary for keypoints and list of added images
+
+        Yields:
+            Iterator[Tuple[Generator, List[str], Dict[str, Dict]]]: Annotation data
+        """
+        with open(annotation_path) as f:
+            annotations_data = json.load(f)
+
+        class_names = set()
+        images_annotations = []
+        for annotations in annotations_data:
+            path = os.path.join(os.path.abspath(image_dir), annotations["image"])
+            if not os.path.exists(path):
+                continue
+            else:
+                img = cv2.imread(path)
+                shape = img.shape
+                height, width = shape[0], shape[1]
+
+            curr_annotations = {"path": path, "classes": [], "bboxes": []}
+            for curr_ann in annotations["annotations"]:
+                class_name = curr_ann["label"]
+                curr_annotations["classes"].append(class_name)
+                class_names.add(class_name)
+
+                bbox_ann = curr_ann["coordinates"]
+                bbox_xywh = [
+                    (bbox_ann["x"] - bbox_ann["width"] / 2) / width,
+                    (bbox_ann["y"] - bbox_ann["height"] / 2) / height,
+                    bbox_ann["width"] / width,
+                    bbox_ann["height"] / height,
+                ]
+                curr_annotations["bboxes"].append((class_name, bbox_xywh))
+            images_annotations.append(curr_annotations)
+
+        def generator() -> Dict[str, Any]:
+            for curr_annotations in images_annotations:
+                path = curr_annotations["path"]
+                for class_name in curr_annotations["classes"]:
+                    yield {
+                        "file": path,
+                        "class": class_name,
+                        "type": "classification",
+                        "value": True,
+                    }
+                for bbox_class, bbox in curr_annotations["bboxes"]:
+                    yield {
+                        "file": path,
+                        "class": bbox_class,
+                        "type": "box",
+                        "value": tuple(bbox),
+                    }
+
+        added_images = self._get_added_images(generator)
+
+        return generator, list(class_names), {}, added_images
+
+    def from_tensorflow_csv_dir(self, dataset_dir: str):
+        """Parses directory with TensorflowCSV annotations to LDF.
+        Expected format: "train", "valid" and "test" directories. Each one has images
+        and "_annotations.csv" file with annotations. This is default format
+        returned when using Roboflow.
+
+        Args:
+            dataset_dir (str): Path to dataset directory
+        """
+        added_train_imgs = self.from_tensorflow_csv_format(
+            image_dir=os.path.join(dataset_dir, "train"),
+            annotation_path=os.path.join(dataset_dir, "train", "_annotations.csv"),
+        )
+        added_val_imgs = self.from_tensorflow_csv_format(
+            image_dir=os.path.join(dataset_dir, "valid"),
+            annotation_path=os.path.join(dataset_dir, "valid", "_annotations.csv"),
+        )
+        added_test_imgs = self.from_tensorflow_csv_format(
+            image_dir=os.path.join(dataset_dir, "test"),
+            annotation_path=os.path.join(dataset_dir, "test", "_annotations.csv"),
+        )
+
+        self.dataset.make_splits(
+            definitions={
+                "train": added_train_imgs,
+                "val": added_val_imgs,
+                "test": added_test_imgs,
+            }
+        )
+
+    @parsing_wrapper
+    def from_tensorflow_csv_format(
+        self, image_dir: str, annotation_path: str
+    ) -> Tuple[Generator, List[str], Dict[str, Dict], List[str]]:
+        """Parses annotations from TensorflowCSV format to LDF. Annotations include classification
+        and object detection.
+
+        Args:
+            image_dir (str): Path to directory with images
+            annotation_path (str): Path to annotation CSV file
+
+        Returns:
+            Tuple[Generator, List[str], Dict[str, Dict], List[str]]: Annotation generator,
+            list of classes names, skeleton dictionary for keypoints and list of added images
+
+        Yields:
+            Iterator[Tuple[Generator, List[str], Dict[str, Dict]]]: Annotation data
+        """
+        with open(annotation_path) as f:
+            reader = csv.reader(f, delimiter=",")
+
+            class_names = set()
+            images_annotations = {}
+            for i, row in enumerate(reader):
+                if i == 0:
+                    idx_fname = row.index("filename")
+                    idx_class = row.index("class")
+                    idx_xmin = row.index("xmin")
+                    idx_ymin = row.index("ymin")
+                    idx_xmax = row.index("xmax")
+                    idx_ymax = row.index("ymax")
+                    idx_height = row.index("height")
+                    idx_width = row.index("width")
+                else:
+                    path = os.path.join(os.path.abspath(image_dir), row[idx_fname])
+                    if not os.path.exists(path):
+                        continue
+                    if path not in images_annotations:
+                        images_annotations[path] = {"classes": [], "bboxes": []}
+
+                    class_name = row[idx_class]
+                    images_annotations[path]["classes"].append(class_name)
+                    class_names.add(class_name)
+
+                    height = float(row[idx_height])
+                    width = float(row[idx_width])
+                    xmin = float(row[idx_xmin])
+                    ymin = float(row[idx_ymin])
+                    xmax = float(row[idx_xmax])
+                    ymax = float(row[idx_ymax])
+                    bbox_xywh = np.array([xmin, ymin, xmax - xmin, ymax - ymin])
+                    bbox_xywh[::2] /= width
+                    bbox_xywh[1::2] /= height
+                    bbox_xywh = bbox_xywh.tolist()
+                    images_annotations[path]["bboxes"].append((class_name, bbox_xywh))
+
+        def generator() -> Dict[str, Any]:
+            for path in images_annotations:
+                curr_annotations = images_annotations[path]
+                for class_name in curr_annotations["classes"]:
+                    yield {
+                        "file": path,
+                        "class": class_name,
+                        "type": "classification",
+                        "value": True,
+                    }
+                for bbox_class, bbox in curr_annotations["bboxes"]:
+                    yield {
+                        "file": path,
+                        "class": bbox_class,
+                        "type": "box",
+                        "value": tuple(bbox),
+                    }
+
+        added_images = self._get_added_images(generator)
+
+        return generator, list(class_names), {}, added_images
+
+    def from_class_dir_dir(self, dataset_dir: str):
+        """Parses directory with ClassificationDirectory annotations to LDF.
+        Expected format: "train", "valid" and "test" directories. Each one has
+        subdirectories with class name and images with this class inside. This is
+        default format when using Roboflow.
+
+        Args:
+            dataset_dir (str): Path to dataset directory
+        """
+        added_train_imgs = self.from_class_dir_format(
+            class_dir=os.path.join(dataset_dir, "train"),
+        )
+        added_val_imgs = self.from_class_dir_format(
+            class_dir=os.path.join(dataset_dir, "valid"),
+        )
+        added_test_imgs = self.from_class_dir_format(
+            class_dir=os.path.join(dataset_dir, "test"),
+        )
+
+        self.dataset.make_splits(
+            definitions={
+                "train": added_train_imgs,
+                "val": added_val_imgs,
+                "test": added_test_imgs,
+            }
+        )
+
+    @parsing_wrapper
+    def from_class_dir_format(
+        self, class_dir: str
+    ) -> Tuple[Generator, List[str], Dict[str, Dict], List[str]]:
+        """Parses annotations from classification directory format to LDF. Annotations
+        include classification.
+
+        Args:
+            class_dir (str): Path to top level directory
+
+        Returns:
+            Tuple[Generator, List[str], Dict[str, Dict], List[str]]: Annotation generator,
+            list of classes names, skeleton dictionary for keypoints and list of added images
+
+        Yields:
+            Iterator[Tuple[Generator, List[str], Dict[str, Dict]]]: Annotation data
+        """
+        class_names = [
+            d
+            for d in os.listdir(class_dir)
+            if os.path.isdir(os.path.join(class_dir, d))
+        ]
+
+        def generator() -> Dict[str, Any]:
+            for class_name in class_names:
+                images = os.listdir(os.path.join(class_dir, class_name))
+                for img_path in images:
+                    path = os.path.join(
+                        os.path.abspath(class_dir), class_name, img_path
+                    )
+                    yield {
+                        "file": path,
+                        "class": class_name,
+                        "type": "classification",
+                        "value": True,
+                    }
+
+        added_images = self._get_added_images(generator)
+
+        return generator, class_names, {}, added_images
+
+    def from_seg_mask_dir(self, dataset_dir: str):
+        """Parses directory with SegmentationMask annotations to LDF.
+        Expected format: "train", "valid" and "test" directories. Each one has
+        images (.jpg), their masks (.png) and "_classes.csv" with mappings between
+        pixel value and class name. This is default format returned when using
+        Roboflow.
+
+        Args:
+            dataset_dir (str): _description_
+        """
+        added_train_imgs = self.from_seg_mask_format(
+            image_dir=os.path.join(dataset_dir, "train"),
+            seg_dir=os.path.join(dataset_dir, "train"),
+            classes_path=os.path.join(dataset_dir, "train", "_classes.csv"),
+        )
+        added_val_imgs = self.from_seg_mask_format(
+            image_dir=os.path.join(dataset_dir, "valid"),
+            seg_dir=os.path.join(dataset_dir, "valid"),
+            classes_path=os.path.join(dataset_dir, "valid", "_classes.csv"),
+        )
+        added_test_imgs = self.from_seg_mask_format(
+            image_dir=os.path.join(dataset_dir, "test"),
+            seg_dir=os.path.join(dataset_dir, "test"),
+            classes_path=os.path.join(dataset_dir, "test", "_classes.csv"),
+        )
+
+        self.dataset.make_splits(
+            definitions={
+                "train": added_train_imgs,
+                "val": added_val_imgs,
+                "test": added_test_imgs,
+            }
+        )
+
+    @parsing_wrapper
+    def from_seg_mask_format(
+        self, image_dir: str, seg_dir: str, classes_path: str
+    ) -> Tuple[Generator, List[str], Dict[str, Dict], List[str]]:
+        """Parses annotations with SegmentationMask format to LDF. Annotations include
+        classification and segmentation.
+
+        Args:
+            image_dir (str): Path to directory with images
+            seg_dir (str): Path to directory with segmentation mask
+            classes_path (str): Path to annotation CSV file
+
+        Returns:
+            Tuple[Generator, List[str], Dict[str, Dict], List[str]]: Annotation generator,
+            list of classes names, skeleton dictionary for keypoints and list of added images
+
+        Yields:
+            Iterator[Tuple[Generator, List[str], Dict[str, Dict], List[str]]]: Annotation data
+        """
+        with open(classes_path) as f:
+            reader = csv.reader(f, delimiter=",")
+
+            class_names = {}
+            for i, row in enumerate(reader):
+                if i == 0:
+                    idx_pixel_val = row.index("Pixel Value")
+                    idx_class = row.index(" Class")  # space prefix included
+                else:
+                    class_names[int(row[idx_pixel_val])] = row[idx_class]
+
+        def generator() -> Dict[str, Any]:
+            images = [i for i in os.listdir(image_dir) if i.endswith(".jpg")]
+            for image_path in images:
+                mask_path = image_path.removesuffix(".jpg") + "_mask.png"
+                mask_path = os.path.abspath(os.path.join(seg_dir, mask_path))
+                path = os.path.abspath(os.path.join(image_dir, image_path))
+                mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+
+                ids = np.unique(mask)
+                for id in ids:
+                    class_name = class_names[id]
+                    yield {
+                        "file": path,
+                        "class": class_name,
+                        "type": "classification",
+                        "value": True,
+                    }
+
+                    curr_seg_mask = np.zeros_like(mask)
+                    curr_seg_mask[mask == id] = 1
+                    curr_seg_mask = np.asfortranarray(
+                        curr_seg_mask
+                    )  # pycocotools requirement
+                    curr_rle = mask_util.encode(curr_seg_mask)
+                    value = (
+                        curr_rle["size"][0],
+                        curr_rle["size"][1],
+                        curr_rle["counts"],
+                    )
+                    yield {
+                        "file": path,
+                        "class": class_name,
+                        "type": "segmentation",
+                        "value": value,
+                    }
+
+        added_images = self._get_added_images(generator)
+        return generator, list(class_names.values()), {}, added_images
+
+    def _get_added_images(self, generator: Generator) -> List[str]:
+        """Returns list of unique images added by the generator function
+
+        Args:
+            generator (Generator): Generator function
+
+        Returns:
+            List[str]: List of added images by generator function
+        """
+        added_images = set()
+        for item in generator():
+            added_images.add(item["file"])
+        return list(added_images)

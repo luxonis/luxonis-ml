@@ -387,6 +387,11 @@ class LuxonisFileSystem:
         else:
             return False
 
+    def file_exists(self, remote_path: str) -> bool:
+        """Returns True if there is a file at the given remote path"""
+        full_path = os.path.join(self.path, remote_path)
+        return self.fs.exists(full_path)
+
     @staticmethod
     def split_full_path(path: str) -> Tuple[str, str]:
         """Returns a tuple for the absolute and relative path given a full
