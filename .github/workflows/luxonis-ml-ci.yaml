@@ -55,10 +55,29 @@ jobs:
 
     - uses: pre-commit/action@v3.0.0
 
+  docs:
+    needs: pre-commit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Install dependencies
+        run: |
+          pip install -r docs/requirements.txt
+          curl -L "https://raw.githubusercontent.com/luxonis/python-api-analyzer-to-json/main/gen-docs.py" -o "gen-docs.py"
+
+      - name: Build docs
+        run: |
+          python gen-docs.py src/luxonis_ml
+
   tests:
     needs:
       - setup
       - pre-commit
+      - docs
     strategy:
       fail-fast: false
       matrix:
@@ -122,3 +141,4 @@ jobs:
       if: ${{ matrix.os == needs.setup.outputs.os-default && matrix.python-version == needs.setup.outputs.python-default }}
       with:
         branch: ${{ github.head_ref }}
+
