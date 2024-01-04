@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [ dev, main ]
     paths:
-      - 'src/**'
+      - 'luxonis_ml/**'
       - 'tests/**'
       - .github/workflows/ci.yaml
       - .github/workflows/luxonis-ml-ci.yaml
@@ -15,4 +15,4 @@ jobs:
     with:
       os: 'ubuntu-latest,macOS-latest,windows-latest'
       python-version: "3.8,3.10"
-      src-dir: 'src/luxonis_ml'
+      src-dir: 'luxonis_ml'
