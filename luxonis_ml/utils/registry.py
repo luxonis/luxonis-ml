@@ -1,5 +1,5 @@
-from typing import Optional, Callable, Dict, Union, Tuple
 from abc import ABCMeta
+from typing import Callable, Dict, Optional, Tuple, Union
 
 
 class Registry:

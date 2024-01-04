@@ -1,9 +1,10 @@
-from config import Config
-from io import BytesIO
-import tarfile
-import os
 import json
+import os
+import tarfile
+from io import BytesIO
 from typing import List
+
+from config import Config
 
 
 class ArchiveGenerator:

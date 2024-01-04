@@ -24,13 +24,14 @@ Note:
 Ensure that the Qdrant server is running and accessible before using these utilities.
 """
 
+from typing import Any, Dict, List
+
 import cv2
 import torch
 import torch.onnx
 import torchvision.transforms as transforms
-from qdrant_client.models import SearchRequest
 from qdrant_client.http import models
-from typing import Any, Dict, List
+from qdrant_client.models import SearchRequest
 
 from luxonis_ml.data import LuxonisDataset
 
@@ -110,7 +111,7 @@ def _get_sample_payloads(luxonis_dataset: LuxonisDataset) -> List[Dict[str, Any]
 
 
 def _filter_new_samples(
-    qdrant_client, collection_name, vector_size=2048, all_payloads=[]
+    qdrant_client, collection_name, vector_size=2048, all_payloads=None
 ) -> List[Dict[str, Any]]:
     """Filter out samples that are already in the Qdrant database based on their sample
     ID.
@@ -126,6 +127,8 @@ def _filter_new_samples(
     @rtype: List[Dict[str, Any]]
     @return: List of new payloads that are not in the Qdrant database.
     """
+
+    all_payloads = all_payloads or []
 
     # Filter out samples that are already in the Qdrant database
     search_queries = [
@@ -153,7 +156,7 @@ def _filter_new_samples(
     return new_payloads
 
 
-def _filter_new_samples_by_id(qdrant_client, collection_name, all_payloads=[]):
+def _filter_new_samples_by_id(qdrant_client, collection_name, all_payloads=None):
     """Filter out samples that are already in the Qdrant database based on their
     instance ID.
 
@@ -162,6 +165,7 @@ def _filter_new_samples_by_id(qdrant_client, collection_name, all_payloads=[]):
     @param all_payloads: List of all payloads.
     @return: List of new payloads that are not in the Qdrant database.
     """
+    all_payloads = all_payloads or []
     # Filter out samples that are already in the Qdrant database
     if len(all_payloads) == 0:
         print("Payloads list is empty!")
@@ -187,7 +191,7 @@ def _generate_new_embeddings(
     ort_session,
     output_layer_name="/Flatten_output_0",
     emb_batch_size=64,
-    new_payloads=[],
+    new_payloads=None,
     transform=None,
 ):
     """Generate embeddings for new images using a given ONNX runtime session.
@@ -207,6 +211,7 @@ def _generate_new_embeddings(
     """
     # Generate embeddings for the new images using batching
     new_embeddings = []
+    new_payloads = new_payloads or []
 
     if transform is None:
         # Define a transformation for resizing and normalizing the images

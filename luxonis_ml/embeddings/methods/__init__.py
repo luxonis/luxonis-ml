@@ -7,7 +7,6 @@ from .representative import (
     find_representative_kmedoids,
 )
 
-
 __all__ = [
     "find_similar_qdrant",
     "find_mismatches_centroids",

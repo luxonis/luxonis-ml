@@ -1,5 +1,6 @@
 from typing import List
-from config_building_blocks import Metadata, Input, Output, Head, CustomBaseModel
+
+from config_building_blocks import CustomBaseModel, Head, Input, Metadata, Output
 
 
 class Model(CustomBaseModel):

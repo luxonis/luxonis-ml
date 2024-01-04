@@ -1,6 +1,7 @@
-import yaml
 import ast
-from typing import Optional, Union, Dict, Any, List, TypeVar, Type
+from typing import Any, Dict, List, Optional, Type, TypeVar, Union
+
+import yaml
 from pydantic import BaseModel, ConfigDict
 
 from .filesystem import LuxonisFileSystem

@@ -5,6 +5,7 @@ from typing import Optional
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.theme import Theme
+
 from .environ import environ
 
 

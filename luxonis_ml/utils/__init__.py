@@ -2,10 +2,10 @@ from ..guard_extras import guard_missing_extra
 
 with guard_missing_extra("utils"):
     from .config import LuxonisConfig
+    from .environ import Environ, environ
     from .filesystem import LuxonisFileSystem
+    from .logging import reset_logging, setup_logging
     from .registry import Registry
-    from .logging import setup_logging, reset_logging
-    from .environ import environ, Environ
 
 
 __all__ = [

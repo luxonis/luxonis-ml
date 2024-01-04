@@ -26,11 +26,12 @@ Note:
 """
 
 import os
+
 import docker
 import numpy as np
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct, SearchRequest
 from qdrant_client.http import models
+from qdrant_client.models import Distance, PointStruct, SearchRequest, VectorParams
 
 DEFAULT_COLLECTION_NAME = "mnist"
 

@@ -1,10 +1,12 @@
-from luxonis_ml.utils.config import LuxonisConfig
-from pydantic import BaseModel
-from typing import List, Dict, Optional
-from copy import deepcopy
 import tempfile
+from copy import deepcopy
+from typing import Dict, List, Optional
+
 import pytest
 import yaml
+from pydantic import BaseModel
+
+from luxonis_ml.utils.config import LuxonisConfig
 
 CONFIG_DATA = {
     "sub_config": {

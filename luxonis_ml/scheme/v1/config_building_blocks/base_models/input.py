@@ -1,8 +1,10 @@
+from typing import List, Optional
+
 from pydantic import Field
-from .custom_base_model import CustomBaseModel
-from typing import Optional, List
 from typing_extensions import Annotated
+
 from ..enums import DataType, InputType
+from .custom_base_model import CustomBaseModel
 
 
 class PreprocessingBlock(CustomBaseModel):

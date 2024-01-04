@@ -1,26 +1,25 @@
 from .base_models import (
     CustomBaseModel,
-    HeadMetadataObjectDetectionYOLO,
-    HeadMetadata,
     Head,
-    HeadMetadataSegmentation,
+    HeadMetadata,
     HeadMetadataClassification,
-    HeadMetadataObjectDetectionSSD,
-    HeadMetadataObjectDetection,
     HeadMetadataKeypointDetection,
+    HeadMetadataObjectDetection,
+    HeadMetadataObjectDetectionSSD,
+    HeadMetadataObjectDetectionYOLO,
+    HeadMetadataSegmentation,
     Input,
-    PreprocessingBlock,
-    Output,
     Metadata,
+    Output,
+    PreprocessingBlock,
 )
 from .enums import (
     DataType,
-    Platform,
     InputType,
     ObjectDetectionSubtypeSSD,
     ObjectDetectionSubtypeYOLO,
+    Platform,
 )
-
 
 __all__ = [
     "CustomBaseModel",

@@ -1,6 +1,7 @@
-from .custom_base_model import CustomBaseModel
 from typing import List
+
 from ..enums import DataType
+from .custom_base_model import CustomBaseModel
 
 
 class Output(CustomBaseModel):

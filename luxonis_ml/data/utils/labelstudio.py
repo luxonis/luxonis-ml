@@ -1,8 +1,10 @@
-import numpy as np
 import os
-from typing import Tuple
-from .. import LuxonisDataset
 import xml.etree.ElementTree as ET
+from typing import Tuple
+
+import numpy as np
+
+from .. import LuxonisDataset
 
 
 def generate_random_color() -> Tuple[int, int, int]:

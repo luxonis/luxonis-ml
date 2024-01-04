@@ -26,7 +26,6 @@ Usage
 """
 
 import numpy as np
-
 import scipy.spatial.distance as distance
 from sklearn.neighbors import KNeighborsClassifier
 

@@ -54,10 +54,10 @@ Examples:
 
 import matplotlib.pyplot as plt
 import numpy as np
+from KDEpy import FFTKDE
 
 # Near-duplicate search
 from scipy.signal import argrelextrema
-from KDEpy import FFTKDE
 
 # Qdrant
 

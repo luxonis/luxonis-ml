@@ -1,10 +1,11 @@
-import os
 import glob
-import numpy as np
-from pathlib import Path
-from unique_names_generator import get_random_name
-from typing import Any, Optional, Union, Dict, Callable
+import os
 from functools import wraps
+from pathlib import Path
+from typing import Any, Callable, Dict, Optional, Union
+
+import numpy as np
+from unique_names_generator import get_random_name
 
 
 class LuxonisTracker:

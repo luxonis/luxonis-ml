@@ -43,9 +43,10 @@ Dependencies:
     - onnx
 """
 
-import torch
-import onnxruntime as ort
 from typing import Tuple
+
+import onnxruntime as ort
+import torch
 
 
 def extract_embeddings(

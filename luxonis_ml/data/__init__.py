@@ -1,22 +1,22 @@
 from ..guard_extras import guard_missing_extra
 
 with guard_missing_extra("data"):
-    from .utils.enums import (
-        MediaType,
-        ImageType,
-        BucketType,
-        BucketStorage,
-    )
+    from .augmentations import Augmentations, TrainAugmentations, ValAugmentations
     from .dataset import (
+        DatasetGenerator,
+        DatasetGeneratorFunction,
+        LuxonisComponent,
         LuxonisDataset,
         LuxonisSource,
-        LuxonisComponent,
-        DatasetGeneratorFunction,
-        DatasetGenerator,
     )
+    from .loader import BaseLoader, LabelType, LuxonisLoader, LuxonisLoaderOutput
     from .parsers import LuxonisParser
-    from .loader import BaseLoader, LuxonisLoader, LabelType, LuxonisLoaderOutput
-    from .augmentations import Augmentations, TrainAugmentations, ValAugmentations
+    from .utils.enums import (
+        BucketStorage,
+        BucketType,
+        ImageType,
+        MediaType,
+    )
 
 __all__ = [
     "Augmentations",

@@ -1,16 +1,17 @@
-import os
-import json
-import os.path as osp
 import csv
-import yaml
-import cv2
+import json
 import logging
+import os
+import os.path as osp
+import xml.etree.ElementTree as ET
+from typing import Callable, Dict, List, Literal, Optional, Tuple
+
+import cv2
 import numpy as np
 import pycocotools.mask as mask_util
-import xml.etree.ElementTree as ET
-from typing import List, Dict, Tuple, Callable, Optional, Literal
+import yaml
 
-from luxonis_ml.data import LuxonisDataset, DatasetGeneratorFunction, DatasetGenerator
+from luxonis_ml.data import DatasetGenerator, DatasetGeneratorFunction, LuxonisDataset
 from luxonis_ml.enums import DatasetType
 
 ParserOutput = Tuple[DatasetGeneratorFunction, List[str], Dict[str, Dict], List[str]]

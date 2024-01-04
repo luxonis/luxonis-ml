@@ -43,8 +43,8 @@ Example
 """
 
 import numpy as np
-from sklearn.metrics.pairwise import cosine_similarity
 from kmedoids import KMedoids
+from sklearn.metrics.pairwise import cosine_similarity
 
 
 def calculate_similarity_matrix(embeddings):

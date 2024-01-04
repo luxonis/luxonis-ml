@@ -1,22 +1,22 @@
-import numpy as np
-import cv2
-import warnings
 import random
+import warnings
+from typing import Any, Dict, List, Optional, Tuple, Union
+
 import albumentations as A
-from typing import Any, Dict, List, Tuple, Union, Optional
-
-from .loader import LabelType
-from luxonis_ml.utils.registry import Registry
-
+import cv2
+import numpy as np
+from albumentations.core.bbox_utils import denormalize_bbox, normalize_bbox
 from albumentations.core.transforms_interface import (
     BoxInternalType,
+    BoxType,
     DualTransform,
     KeypointInternalType,
-    BoxType,
     KeypointType,
 )
-from albumentations.core.bbox_utils import denormalize_bbox, normalize_bbox
 
+from luxonis_ml.utils.registry import Registry
+
+from .loader import LabelType
 
 AUGMENTATIONS = Registry(name="augmentations")
 

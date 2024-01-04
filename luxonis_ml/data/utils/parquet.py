@@ -1,6 +1,7 @@
-import os
 import io
-from typing import Tuple, Dict
+import os
+from typing import Dict, Tuple
+
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq

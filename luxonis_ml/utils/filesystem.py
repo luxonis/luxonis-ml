@@ -1,12 +1,14 @@
 import os
 import uuid
-from typing import Optional, List, Dict, Union, Tuple, Iterator
-from types import ModuleType
-import fsspec
-from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor
-from .environ import environ
+from io import BytesIO
 from logging import getLogger
+from types import ModuleType
+from typing import Dict, Iterator, List, Optional, Tuple, Union
+
+import fsspec
+
+from .environ import environ
 
 logger = getLogger(__name__)
 

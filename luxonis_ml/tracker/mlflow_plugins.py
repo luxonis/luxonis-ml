@@ -2,6 +2,7 @@ from mlflow import __version__
 from mlflow.tracking.request_header.abstract_request_header_provider import (
     RequestHeaderProvider,
 )
+
 from luxonis_ml.utils import environ
 
 _USER_AGENT = "User-Agent"

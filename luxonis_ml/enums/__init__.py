@@ -1,3 +1,3 @@
-from .enums import LabelType, DatasetType
+from .enums import DatasetType, LabelType
 
 __all__ = ["LabelType", "DatasetType"]

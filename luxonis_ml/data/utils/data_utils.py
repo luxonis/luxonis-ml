@@ -1,11 +1,12 @@
-import numpy as np
-import cv2
 import json
-import pycocotools.mask as mask_util
-from typeguard import check_type, TypeCheckError
-
 import typing
-from typing import Dict, List, Union, Any, Tuple
+from typing import Any, Dict, List, Tuple, Union
+
+import cv2
+import numpy as np
+import pycocotools.mask as mask_util
+from typeguard import TypeCheckError, check_type
+
 from .constants import ANNOTATIONS_SCHEMA as schema
 
 

@@ -42,10 +42,10 @@ Dependencies:
     - torchvision.models.resnet
 """
 
+import onnx
 import torch
 import torch.nn as nn
 import torch.onnx
-import onnx
 import torchvision.models as models
 import torchvision.models.resnet as resnet
 

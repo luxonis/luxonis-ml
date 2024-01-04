@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 
 import argparse
-import os
 import json
+import os
 from pathlib import Path
+
 import numpy as np
 from tabulate import tabulate
 

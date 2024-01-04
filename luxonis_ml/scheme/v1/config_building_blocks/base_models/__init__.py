@@ -1,18 +1,17 @@
 from .custom_base_model import CustomBaseModel
 from .head import (
-    HeadMetadataObjectDetectionYOLO,
-    HeadMetadata,
     Head,
-    HeadMetadataSegmentation,
+    HeadMetadata,
     HeadMetadataClassification,
-    HeadMetadataObjectDetectionSSD,
-    HeadMetadataObjectDetection,
     HeadMetadataKeypointDetection,
+    HeadMetadataObjectDetection,
+    HeadMetadataObjectDetectionSSD,
+    HeadMetadataObjectDetectionYOLO,
+    HeadMetadataSegmentation,
 )
 from .input import Input, PreprocessingBlock
-from .output import Output
 from .metadata import Metadata
-
+from .output import Output
 
 __all__ = [
     "CustomBaseModel",
