@@ -1,0 +1,82 @@
+[project]
+name = "luxonis-ml"
+version = "0.1.0"
+description = "This package provides MLOps tools for training models for OAK devices"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { file = "LICENSE" }
+authors = [{ name = "Luxonis", email = "support@luxonis.com" }]
+maintainers = [{ name = "Luxonis", email = "support@luxonis.com" }]
+keywords = ["ml", "ops", "camera", "luxonis", "oak"]
+dynamic = ["dependencies", "optional-dependencies"]
+classifiers = [
+  "License :: Apache License 2.0",
+  "Development Status :: 3 - Alpha",
+  "Programming Language :: Python :: 3.8",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Scientific/Engineering :: Image Processing",
+  "Topic :: Scientific/Engineering :: Image Recognition",
+]
+
+[project.scripts]
+luxonis_ml = "luxonis_ml.luxonis_ml:main"
+
+[project.urls]
+repository = "https://github.com/luxonis/models"
+issues = "https://github.com/luxonis/models/issues"
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["luxonis_ml/utils/requirements.txt"] }
+
+[tool.setuptools.dynamic.optional-dependencies]
+data = { file = ["luxonis_ml/data/requirements.txt"] }
+utils = { file = ["luxonis_ml/utils/requirements.txt"] }
+tracker = { file = ["luxonis_ml/tracker/requirements.txt"] }
+embedd = { file = ["luxonis_ml/embeddings/requirements.txt"] }
+
+[tool.setuptools.dynamic.optional-dependencies.all]
+file = [
+    "luxonis_ml/data/requirements.txt",
+    "luxonis_ml/utils/requirements.txt",
+    "luxonis_ml/tracker/requirements.txt",
+    "luxonis_ml/embeddings/requirements.txt",
+]
+
+[tool.setuptools.dynamic.optional-dependencies.dev]
+file = [
+    "luxonis_ml/data/requirements.txt",
+    "luxonis_ml/utils/requirements.txt",
+    "luxonis_ml/tracker/requirements.txt",
+    "luxonis_ml/embeddings/requirements.txt",
+    "requirements-dev.txt"
+]
+
+[tool.ruff]
+target-version = "py38"
+line-length = 88
+indent-width = 4
+
+[tool.ruff.lint]
+ignore = ["F403", "B028", "B905", "D1", "W191"]
+select = ["E4", "E7", "E9", "F", "W", "B", "I"]
+
+[tool.ruff.pydocstyle]
+convention = "epytext"
+
+[tool.docformatter]
+black = true
+style = "epytext"
+
+[tool.mypy]
+python_version = "3.8"
+ignore_missing_imports = true
+
+[tool.pyright]
+typeCheckingMode = "basic"

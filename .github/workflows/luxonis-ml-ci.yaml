@@ -71,7 +71,7 @@ jobs:
 
       - name: Build docs
         run: |
-          python gen-docs.py src/luxonis_ml
+          python gen-docs.py luxonis_ml
 
   tests:
     needs:
