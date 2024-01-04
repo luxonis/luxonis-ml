@@ -2,23 +2,23 @@
 samples, and inserting them into a Qdrant database.
 
 Modules Used:
-- cv2: For reading and processing images.
-- numpy: For numerical operations.
-- torch: PyTorch library for deep learning.
-- torch.onnx: PyTorch's ONNX utilities.
-- onnx: Open Neural Network Exchange.
-- onnxruntime: Runtime for ONNX models.
-- torchvision: PyTorch's computer vision library.
-- qdrant_client: Client for interacting with Qdrant.
+    - cv2: For reading and processing images.
+    - numpy: For numerical operations.
+    - torch: PyTorch library for deep learning.
+    - torch.onnx: PyTorch's ONNX utilities.
+    - onnx: Open Neural Network Exchange.
+    - onnxruntime: Runtime for ONNX models.
+    - torchvision: PyTorch's computer vision library.
+    - qdrant_client: Client for interacting with Qdrant.
 
 Main Functions:
-- _get_sample_payloads_coco: Extracts payloads from the LuxonisDataset for the COCO dataset format.
-- _get_sample_payloads: Extracts payloads from the LuxonisDataset.
-- _filter_new_samples: Filters out samples that are already in the Qdrant database based on their sample ID.
-- _filter_new_samples_by_id: Filters out samples that are already in the Qdrant database based on their instance ID.
-- _generate_new_embeddings: Generates embeddings for new images using a given ONNX runtime session.
-- _batch_upsert: Performs batch upserts of embeddings to Qdrant.
-- generate_embeddings: Main function that generates embeddings for a given dataset and inserts them into Qdrant.
+    - _get_sample_payloads_coco: Extracts payloads from the LuxonisDataset for the COCO dataset format.
+    - _get_sample_payloads: Extracts payloads from the LuxonisDataset.
+    - _filter_new_samples: Filters out samples that are already in the Qdrant database based on their sample ID.
+    - _filter_new_samples_by_id: Filters out samples that are already in the Qdrant database based on their instance ID.
+    - _generate_new_embeddings: Generates embeddings for new images using a given ONNX runtime session.
+    - _batch_upsert: Performs batch upserts of embeddings to Qdrant.
+    - generate_embeddings: Main function that generates embeddings for a given dataset and inserts them into Qdrant.
 
 Note:
 Ensure that the Qdrant server is running and accessible before using these utilities.
@@ -30,20 +30,22 @@ import torch.onnx
 import torchvision.transforms as transforms
 from qdrant_client.models import SearchRequest
 from qdrant_client.http import models
+from typing import Any, Dict, List
 
 from luxonis_ml.data import LuxonisDataset
 
 
-def _get_sample_payloads_coco(luxonis_dataset: LuxonisDataset):
+def _get_sample_payloads_coco(luxonis_dataset: LuxonisDataset) -> List[Dict[str, Any]]:
     """
     Extract payloads from the LuxonisDataset for the COCO dataset format.
     (Actually any dataset format that has the following keys: id, instance_id, filepath, path, class, split.
     And the class key has the following format: {"classifications": [{"label": "class_name"}]} )
 
-    Args:
-        luxonis_dataset: The dataset object.
-    Returns:
-        List of payloads.
+    @type luxonis_dataset: L{LuxonisDataset}
+    @param luxonis_dataset: The dataset object.
+
+    @rtype: List[Dict[str, Any]]
+    @return: List of payloads.
     """
     # Iterate over the samples in the LuxonisDataset to get all img_paths and payloads
     all_payloads = []
@@ -73,13 +75,13 @@ def _get_sample_payloads_coco(luxonis_dataset: LuxonisDataset):
     return all_payloads
 
 
-def _get_sample_payloads(luxonis_dataset: LuxonisDataset):
+def _get_sample_payloads(luxonis_dataset: LuxonisDataset) -> List[Dict[str, Any]]:
     """Extract payloads from the LuxonisDataset.
 
-    Args:
-        luxonis_dataset: The dataset object.
-    Returns:
-        List of payloads.
+    @type luxonis_dataset: L{LuxonisDataset}
+    @param luxonis_dataset: The dataset object.
+    @rtype: List[Dict[str, Any]]
+    @return: List of payloads.
     """
     # Iterate over the samples in the LuxonisDataset to get all img_paths and payloads
     all_payloads = []
@@ -109,18 +111,22 @@ def _get_sample_payloads(luxonis_dataset: LuxonisDataset):
 
 def _filter_new_samples(
     qdrant_client, collection_name, vector_size=2048, all_payloads=[]
-):
+) -> List[Dict[str, Any]]:
     """Filter out samples that are already in the Qdrant database based on their sample
     ID.
 
-    Args:
-        qdrant_client: Qdrant client instance.
-        collection_name: Name of the Qdrant collection.
-        vector_size: Size of the vector embeddings.
-        all_payloads: List of all payloads.
-    Returns:
-        List of new payloads that are not in the Qdrant database.
+    @type qdrant_client: L{QdrantClient}
+    @param qdrant_client: Qdrant client instance.
+    @type collection_name: str
+    @param collection_name: Name of the Qdrant collection.
+    @type vector_size: int
+    @param vector_size: Size of the vector embeddings.
+    @type all_payloads: List[Dict[str, Any]]
+    @param all_payloads: List of all payloads.
+    @rtype: List[Dict[str, Any]]
+    @return: List of new payloads that are not in the Qdrant database.
     """
+
     # Filter out samples that are already in the Qdrant database
     search_queries = [
         SearchRequest(

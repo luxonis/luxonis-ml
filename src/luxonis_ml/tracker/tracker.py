@@ -26,21 +26,54 @@ class LuxonisTracker:
         """Implementation of PytorchLightning Logger that wraps various logging
         software. Supported loggers: TensorBoard, WandB and MLFlow.
 
-        Args:
-            project_name (Optional[str], optional): Name of the project used for WandB and MLFlow. Defaults to None.
-            project_id (Optional[str], optional): Project id used for WandB and MLFlow. Defaults to None.
-            run_name (Optional[str], optional): Name of the run, if None then auto-generate random name. Defaults to None.
-            run_id (Optional[str], optional): Run id used for continuing MLFlow run. Defaults to None.
-            save_directory (str, optional): Path to save directory. Defaults to "output".
-            is_tensorboard (bool, optional): Wheter use TensorBoard logging. Defaults to False.
-            is_wandb (bool, optional): Wheter use WandB logging. Defaults to False.
-            is_mlflow (bool, optional): Wheter use MLFlow logging. Defaults to False.
-            is_sweep (bool, optional): Wheter current run is part of a sweep. Defaults to False.
-            wandb_entity (Optional[str], optional): WandB entity to use. Defaults to None.
-            mlflow_tracking_uri (Optional[str], optional): MLFlow tracking uri to use. Defaults to None.
-            rank (int, optional): Rank of the process, used when running on multiple threads. Defaults to 0.
-        """
+        @type project_name: Optional[str]
+        @param project_name: Name of the project used for WandB and MLFlow.
+            Defaults to None.
 
+        @type project_id: Optional[str]
+        @param project_id: Project id used for WandB and MLFlow.
+            Defaults to None.
+
+        @type run_name: Optional[str]
+        @param run_name: Name of the run, if None then auto-generate random name.
+            Defaults to None.
+
+        @type run_id: Optional[str]
+        @param run_id: Run id used for continuing MLFlow run.
+            Defaults to None.
+
+        @type save_directory: str
+        @param save_directory: Path to save directory.
+            Defaults to "output".
+
+        @type is_tensorboard: bool
+        @param is_tensorboard: Wheter use TensorBoard logging.
+            Defaults to False.
+
+        @type is_wandb: bool
+        @param is_wandb: Wheter use WandB logging.
+            Defaults to False.
+
+        @type is_mlflow: bool
+        @param is_mlflow: Wheter use MLFlow logging.
+            Defaults to False.
+
+        @type is_sweep: bool
+        @param is_sweep: Wheter current run is part of a sweep.
+            Defaults to False.
+
+        @type wandb_entity: Optional[str]
+        @param wandb_entity: WandB entity to use.
+            Defaults to None.
+
+        @type mlflow_tracking_uri: Optional[str]
+        @param mlflow_tracking_uri: MLFlow tracking uri to use.
+            Defaults to None.
+
+        @type rank: int
+        @param rank: Rank of the process, used when running on multiple threads.
+            Defaults to 0.
+        """
         self.project_name = project_name
         self.project_id = project_id
         self.save_directory = save_directory
@@ -97,12 +130,18 @@ class LuxonisTracker:
 
     @property
     def name(self) -> str:
-        """Returns run name."""
+        """Returns run name.
+
+        @type: str
+        """
         return self.run_name
 
     @property
     def version(self) -> int:
-        """Returns tracker's version."""
+        """Returns tracker's version.
+
+        @type: int
+        """
         return 1
 
     @property
@@ -168,8 +207,8 @@ class LuxonisTracker:
     ) -> None:
         """Logs hyperparameter dictionary.
 
-        Args:
-            params (Dict[str, Union[str, bool, int, float, None]]): Dict of hyperparameters key-value pairs
+        @type params: Dict[str, Union[str, bool, int, float, None]]
+        @param params: Dict of hyperparameters key-value pairs.
         """
         if self.is_tensorboard:
             self.experiment["tensorboard"].add_hparams(
@@ -185,13 +224,16 @@ class LuxonisTracker:
 
     @rank_zero_only
     def log_metric(self, name: str, value: float, step: int) -> None:
-        """Logs metric value with name and step. Note: step is ommited when logging with
-        wandb to avoid problems with inconsistent incrementation.
+        """Logs metric value with name and step.
 
-        Args:
-            name (str): Metric name
-            value (float): Metric value
-            step (int): Current step
+        @note: step is ommited when logging with wandb to avoid problems with
+            inconsistent incrementation.
+        @type name: str
+        @param name: Metric name
+        @type value: float
+        @param value: Metric value
+        @type step: int
+        @param step: Current step
         """
         if self.is_tensorboard:
             self.experiment["tensorboard"].add_scalar(name, value, step)
@@ -207,9 +249,10 @@ class LuxonisTracker:
     def log_metrics(self, metrics: Dict[str, float], step: int) -> None:
         """Logs metric dictionary.
 
-        Args:
-            metrics (Dict[str, float]): Dict of metric key-value pairs
-            step (int): Current step
+        @type metrics: Dict[str, float]
+        @param metrics: Dict of metric key-value pairs
+        @type step: int
+        @param step: Current step
         """
         if self.is_tensorboard:
             for key, value in metrics.items():
@@ -224,10 +267,12 @@ class LuxonisTracker:
         """Logs image with name and step. Note: step is omitted when logging with wandb
         is used to avoid problems with inconsistent incrementation.
 
-        Args:
-            name (str): Caption of the image
-            img (np.ndarray): Image data
-            step (int): Current step
+        @type name: str
+        @param name: Caption of the image
+        @type img: np.ndarray
+        @param img: Image data
+        @type step: int
+        @param step: Current step
         """
         if self.is_tensorboard:
             self.experiment["tensorboard"].add_image(name, img, step, dataformats="HWC")
@@ -248,19 +293,21 @@ class LuxonisTracker:
     def log_images(self, imgs: Dict[str, np.ndarray], step: int) -> None:
         """Logs multiple images.
 
-        Args:
-            imgs (Dict[str, np.ndarray]): Dict of image key-value pairs where key is image caption and value is image data
-            step (int): Current step
+        @type imgs: Dict[str, np.ndarray]
+        @param imgs: Dict of image key-value pairs where key is image caption and value
+            is image data
+        @type step: int
+        @param step: Current step
         """
         for caption, img in imgs.items():
             self.log_image(caption, img, step)
 
     def _get_next_run_number(self) -> int:
         """Returns number id for next run."""
-        # find all directories that should be runs
+
         log_dirs = glob.glob(f"{self.save_directory}/*")
         log_dirs = [path.split("/")[-1] for path in log_dirs if os.path.isdir(path)]
-        # find the numbers based on the naming convention
+
         nums = [path.split("-")[0] for path in log_dirs]
         nums = [int(num) for num in nums if num.isnumeric()]
 
@@ -277,10 +324,8 @@ class LuxonisTracker:
 
     def _get_latest_run_name(self) -> str:
         """Returns most recently created run name."""
-        # find all directories that should be runs
         log_dirs = glob.glob(f"{self.save_directory}/*")
         log_dirs = [path for path in log_dirs if os.path.isdir(path)]
-        # find run names based on the naming convention and sort them by last modified time
         runs = []
         for ld in log_dirs:
             ld = ld.replace(f"{self.save_directory}/", "")

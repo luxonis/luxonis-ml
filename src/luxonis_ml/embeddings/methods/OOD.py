@@ -5,23 +5,23 @@ in embeddings. OOD samples can be crucial to identify as they represent anomalie
 patterns that don't conform to the expected distribution of the dataset.
 
 Methods available:
-- Isolation Forests: A tree-based model that partitions the space in such a manner that
-  anomalies are isolated from the rest.
+    - Isolation Forests: A tree-based model that partitions the space in such a manner that
+      anomalies are isolated from the rest.
 
-- Leverage with Linear Regression: Leverages (or hat values) represent the distance between
-  the predicted values and the true values. Higher leverages indicate potential OOD points.
+    - Leverage with Linear Regression: Leverages (or hat values) represent the distance between
+      the predicted values and the true values. Higher leverages indicate potential OOD points.
 
 Typical use cases include:
-- Anomaly Detection: Identifying rare patterns or outliers.
+    - Anomaly Detection: Identifying rare patterns or outliers.
 
-- Dataset Reduction: By removing or studying OOD samples, we can have a more homogeneous dataset.
+    - Dataset Reduction: By removing or studying OOD samples, we can have a more homogeneous dataset.
 
-- Expanding Datasets: Recognizing valuable data points that are distinct from the current distribution can be helpful
-  when we're looking to diversify the dataset, especially in iterative learning scenarios.
+    - Expanding Datasets: Recognizing valuable data points that are distinct from the current distribution can be helpful
+      when we're looking to diversify the dataset, especially in iterative learning scenarios.
 
 Dependencies:
-- numpy
-- scikit-learn
+    - numpy
+    - scikit-learn
 """
 
 import numpy as np

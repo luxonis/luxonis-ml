@@ -10,13 +10,16 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 from datetime import datetime
-from typing import List, Dict, Tuple, Optional, Generator
+from typing import List, Dict, Tuple, Optional, Any, Generator, Callable
 
 import luxonis_ml.data.utils.data_utils as data_utils
 from luxonis_ml.utils import LuxonisFileSystem, environ
 from luxonis_ml.data.utils.parquet import ParquetFileManager
 from .utils.constants import LDF_VERSION, LABEL_TYPES
 from .utils.enums import BucketType, BucketStorage, MediaType, ImageType
+
+DatasetGenerator = Generator[Dict[str, Any], None, None]
+DatasetGeneratorFunction = Callable[[], DatasetGenerator]
 
 
 class LuxonisComponent:
@@ -26,18 +29,16 @@ class LuxonisComponent:
         media_type: MediaType = MediaType.IMAGE,
         image_type: Optional[ImageType] = ImageType.COLOR,
     ) -> None:
-        """Abstraction for a piece of media within a source. Most commonly,
-        this abstracts an image sensor.
+        """Abstraction for a piece of media within a source. Most commonly, this
+        abstracts an image sensor.
 
-        @type name: str @param name: A recognizable name for the
-        component.
-
-        @type media_type: MediaType @param media_type: Enum for the type
-        of media for the component.
-
-        @type image_type: Optional[ImageType] @param image_type: Enum
-        for the image type if C{media_type==MediaType.IMAGE}. Else this
-        param can be None or default.
+        @type name: str
+        @param name: A recognizable name for the component.
+        @type media_type: MediaType
+        @param media_type: Enum for the type of media for the component.
+        @type image_type: Optional[ImageType]
+        @param image_type: Enum for the image type if C{media_type==MediaType.IMAGE}.
+            Else this param can be None or default.
         """
 
         if media_type not in MediaType:
@@ -64,20 +65,22 @@ class LuxonisSource:
         components: Optional[List[LuxonisComponent]] = None,
         main_component: Optional[str] = None,
     ) -> None:
-        """Abstracts the structure of a dataset by grouping together
-        components.
+        """Abstracts the structure of a dataset by grouping together components.
 
-        For example, with an OAK-D, you might have a source with 4 image
+        For example, with an U{OAK-D<https://docs.luxonis.com/projects/hardware
+        /en/latest/pages/BW1098OAK/>}, you can have a source with 4 image
         components: rgb (color), left (mono), right (mono), and depth.
 
-        @type name: str @param name: A recognizable name for the source.
+        @type name: str
+        @param name: A recognizable name for the source.
 
-        @type components: Optional[List[LuxonisComponent]] @param
-        components: If not using the default configuration, a list of
-        LuxonisComponent to group together in the source.
+        @type components: Optional[List[LuxonisComponent]]
+        @param components: If not using the default configuration, a list of
+        L{LuxonisComponent} to group together in the source.
 
-        @type main_component: Optional[str] @param main_component: The
-        name of the component that should be primarily visualized.
+        @type main_component: Optional[str]
+        @param main_component: The name of the component that should be
+            primarily visualized.
         """
 
         self.name = name
@@ -87,13 +90,7 @@ class LuxonisSource:
             ]  # basic source includes a single color image
 
         self.components = {component.name: component for component in components}
-
-        if main_component is not None:
-            self.main_component = main_component
-        else:
-            self.main_component = list(self.components.keys())[
-                0
-            ]  # make first component main component by default
+        self.main_component = main_component or next(iter(self.components))
 
 
 class LuxonisDataset:
@@ -106,28 +103,30 @@ class LuxonisDataset:
         bucket_type: BucketType = BucketType.INTERNAL,
         bucket_storage: BucketStorage = BucketStorage.LOCAL,
     ) -> None:
-        """Luxonis Dataset Format (LDF). This is used to define datasets in the
-        Luxonis MLOps ecosystem.
+        """Luxonis Dataset Format (LDF) is used to define datasets in the Luxonis MLOps
+        ecosystem.
 
-        dataset_name:
-            Name of the dataset
-        team_id:
-            Optional unique team identifier for the cloud
-        team_name:
-            Optional team name for the cloud
-        dataset_id:
-            Optional dataset ID unique identifier
-        bucket_type:
-            Whether to use external cloud buckets
-        bucket_storage:
-            Underlying bucket storage from local (no cloud), S3, or GCS
+        @type dataset_name: Optional[str]
+        @param dataset_name: Name of the dataset
+        @type team_id: Optional[str]
+        @param team_id: Optional unique team identifier for the cloud
+        @type team_name: Optional[str]
+        @param team_name: Optional team name for the cloud
+        @type dataset_id: Optional[str]
+        @param dataset_id: Optional dataset ID unique identifier
+        @type bucket_type: BucketType
+        @param bucket_type: Whether to use external cloud buckets
+        @type bucket_storage: BucketStorage
+        @param bucket_storage: Underlying bucket storage from local, S3, or GCS
+        @raise ValueError: If C{dataset_name} is not a string or if neither
+            C{dataset_name} nor C{dataset_id} are provided.
         """
 
         if dataset_name is not None and not isinstance(dataset_name, str):
             raise ValueError("`dataset_name` argument must be a string")
 
         if dataset_name is None and dataset_id is None:
-            raise Exception(
+            raise ValueError(
                 "Must provide either dataset_name or dataset_id when initializing LuxonisDataset"
             )
 
@@ -363,10 +362,8 @@ class LuxonisDataset:
     def update_source(self, source: LuxonisSource) -> None:
         """Updates underlying source of the dataset with a new LuxonisSource.
 
-        @type source: LuxonisSource @param source: The new LuxonisSource
-        to replace the old one.
-
-        @rtype: NoneType @return: None
+        @type source: L{LuxonisSource}
+        @param source: The new L{LuxonisSource} to replace the old one.
         """
 
         if self.online:
@@ -382,10 +379,10 @@ class LuxonisDataset:
         """Sets the names of classes for the dataset. This can be across all CV tasks or
         certain tasks.
 
-        classes:
-            List of class names to set
-        task:
-            Optionally specify the LabelType where these classes apply
+        @type classes: List[str]
+        @param classes: List of class names to set.
+        @type task: Optional[str]
+        @param task: Optionally specify the LabelType where these classes apply.
         """
 
         if self.online:
@@ -415,15 +412,20 @@ class LuxonisDataset:
         """Sets the semantic structure of keypoint skeletons for the classes that use
         keypoints.
 
-        skeletons: A dict mapping class name to keypoint "labels" and "edges" between keypoints.
+        @type skeletons: Dict[str, Dict]
+        @param skeletons: A dict mapping class name to keypoint "labels" and "edges"
+            between keypoints.
             The length of the "labels" determines the official number of keypoints.
             The inclusion of "edges" is optional.
-            e.g. {
-                "person": {
-                    "labels": ["right hand", "right shoulder", ...]
-                    "edges" [[0,1],[4,5],...]
+
+            Example:
+
+                {
+                    "person": {
+                        "labels": ["right hand", "right shoulder", ...]
+                        "edges" [[0, 1], [4, 5], ...]
+                    }
                 }
-            }
         """
 
         if self.online:
@@ -454,15 +456,15 @@ class LuxonisDataset:
                 self.is_synced = True
 
     def get_classes(self, sync_mode: bool = False) -> Tuple[List[str], Dict]:
-        """Gets overall classes in the dataset and classes according to
-        computer vision task.
+        """Gets overall classes in the dataset and classes according to computer vision
+        task.
 
-        @type sync_mode: bool @param sync_mode: If True, this reads
-        classes from remote storage. If False, classes are read locally.
-
-        @rtype: Tuple[List[str], Dict] @return: A combined list of
-        classes for all tasks and a dictionary mapping tasks to the
-        classes used in each task.
+        @type sync_mode: bool
+        @param sync_mode: If C{True}, reads classes from remote storage. If C{False},
+            classes are read locally.
+        @rtype: Tuple[List[str], Dict]
+        @return: A combined list of classes for all tasks and a dictionary mapping tasks
+            to the classes used in each task.
         """
 
         if self.online:
@@ -508,29 +510,36 @@ class LuxonisDataset:
             if self.bucket_storage == BucketStorage.LOCAL:
                 shutil.rmtree(self.path)
 
-    def add(self, generator: Generator, batch_size: int = 1000000) -> None:
+    def add(
+        self,
+        generator: DatasetGeneratorFunction,
+        batch_size: int = 1000000,
+    ) -> None:
         """Write annotations to parquet files.
 
-        generator: A python generator that yields dictionaries of data
-            with the key described by the ANNOTATIONS_SCHEMA but also listed below
-            - file [str] : path to file on local disk or object storage
-            - class [str]: string specifying the class name or label name
-            - type [str] : the type of label or annotation
-            - value [Union[str, list, int, float, bool]]: the actual annotation value
-                For here are the expected structures for `value`.
-                The function will check to ensure `value` matches this for each annotation type
+        @type generator: L{DatasetGeneratorFunction}
+        @param iterator: A Python iterator that yields dictionaries of data
+            with the key described by the C{ANNOTATIONS_SCHEMA} but also listed below:
 
-                value (classification) [bool] : Marks whether the class is present or not
-                    (e.g. True/False)
-                value (box) [List[float]] : the normalized (0-1) x, y, w, and h of a bounding box
-                    (e.g. [0.5, 0.4, 0.1, 0.2])
-                value (polyline) [List[List[float]]] : an ordered list of [x, y] polyline points
-                    (e.g. [[0.2, 0.3], [0.4, 0.5], ...])
-                value (segmentation) [Tuple[int, int, List[int]]]: an RLE representation of (height, width, counts) based on the COCO convention
-                value (keypoints) [List[List[float]]] : an ordered list of [x, y, visibility] keypoints for a keypoint skeleton instance
-                    (e.g. [[0.2, 0.3, 2], [0.4, 0.5, 2], ...])
-                value (array) [str]: path to a numpy .npy file
-        batch_size: The number of annotations generated before processing.
+                - file (C{str}) : path to file on local disk or object storage
+                - class (C{str}): string specifying the class name or label name
+                - type (C{str}) : the type of label or annotation
+                - value (C{Union[str, list, int, float, bool]}): the actual annotation value
+                    The function will check to ensure `value` matches this for each annotation type
+
+                    value (classification) [bool] : Marks whether the class is present or not
+                        (e.g. True/False)
+                    value (box) [List[float]] : the normalized (0-1) x, y, w, and h of a bounding box
+                        (e.g. [0.5, 0.4, 0.1, 0.2])
+                    value (polyline) [List[List[float]]] : an ordered list of [x, y] polyline points
+                        (e.g. [[0.2, 0.3], [0.4, 0.5], ...])
+                    value (segmentation) [Tuple[int, int, List[int]]]: an RLE representation of (height, width, counts) based on the COCO convention
+                    value (keypoints) [List[List[float]]] : an ordered list of [x, y, visibility] keypoints for a keypoint skeleton instance
+                        (e.g. [[0.2, 0.3, 2], [0.4, 0.5, 2], ...])
+                    value (array) [str]: path to a numpy .npy file
+
+        @type batch_size: int
+        @param batch_size: The number of annotations generated before processing.
             This can be set to a lower value to reduce memory usage.
         """
 
@@ -657,16 +666,28 @@ class LuxonisDataset:
                 self._remove_temp_dir()
 
     def make_splits(
-        self, ratios: List[float] = [0.8, 0.1, 0.1], definitions: Optional[Dict] = None
+        self,
+        ratios: Tuple[float, float, float] = (0.8, 0.1, 0.1),
+        definitions: Optional[Dict] = None,
     ) -> None:
-        """Saves a splits.json file that specified the train/val/test split. For use in
+        """Saves a splits json file that specified the train/val/test split. For use in
         OFFLINE mode only.
 
-        ratios [List[float]] : Length 3 list of train/val/test ratios in that order used for a random split.
-            If no definitions are provided, this is used to generate a random split.
-        definitions [Optional[Dict]] : Dictionary specifying split keys to lists of filepath values.
-            Note that this assumes unique filenames
-            (e.g. {"train": ["/path/to/cat.jpg", "/path/to/dog.jpg"], "val": [...], "test": [...]}).
+        @type ratios: Tuple[float, float, float]
+        @param ratios: A tuple of rations for train/val/test used for a random split.
+            Defaults to (0.8, 0.1, 0.1).
+
+        @type definitions: Optional[Dict]
+        @param definitions [Optional[Dict]]: Dictionary specifying split keys to lists
+            of filepath values. Note that this assumes unique filenames.
+            Example:
+
+                {
+                    "train": ["/path/to/cat.jpg", "/path/to/dog.jpg"],
+                    "val": [...],
+                    "test": [...]
+                }
+
             Only overrides splits that are present in the dictionary.
         """
         if self.online:
@@ -736,11 +757,14 @@ class LuxonisDataset:
 
     @staticmethod
     def exists(dataset_name: str) -> bool:
-        """Returns whether the dataset under a given name exists.
+        """Checks whether a dataset exists.
 
-        For offline mode only
+        @warning: For offline mode only.
+        @type dataset_name: str
+        @param dataset_name: Name of the dataset
+        @rtype: bool
+        @return: Whether the dataset exists
         """
-
         base_path = environ.LUXONISML_BASE_PATH
         datasets_cache_file = osp.join(base_path, "datasets.json")
         if osp.exists(datasets_cache_file):

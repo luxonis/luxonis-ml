@@ -4,7 +4,8 @@ This module provides functionalities to detect mismatches or potential mislabell
 in a dataset based on various strategies. This is crucial in supervised machine
 learning tasks where the quality of labels significantly affects model performance.
 
-Methods implemented:
+Methods implemented
+====================
     - Centroids: This method identifies mismatches by comparing the distance of data points
                  to the centroid of their own class against the distances to centroids of
                  other classes.
@@ -13,17 +14,17 @@ Methods implemented:
                                  by its nearest neighbors.
     - [Note: DBSCAN was considered but not implemented due to underperformance.]
 
-Usage:
+Usage
+=====
     To use this module, import the desired methods and provide the embeddings and labels:
-    ```python
-    from mismatch_detection import find_mismatches_centroids, find_mismatches_knn
 
-    # Detect mismatches using centroids
-    mismatches, new_labels = find_mismatches_centroids(X_train, y_train)
+        from mismatch_detection import find_mismatches_centroids, find_mismatches_knn
 
-    # Detect mismatches using KNN
-    mismatches, new_labels = find_mismatches_knn(X_train, y_train)
-    ```
+        # Detect mismatches using centroids
+        mismatches, new_labels = find_mismatches_centroids(X_train, y_train)
+
+        # Detect mismatches using KNN
+        mismatches, new_labels = find_mismatches_knn(X_train, y_train)
 """
 
 import numpy as np
@@ -36,19 +37,12 @@ def find_mismatches_centroids(X, y):
     """Find mismatches in the dataset. A mismatch is defined as a sample that is closer
     to another centroid than to its own centroid.
 
-    Parameters
-    ----------
-    X : np.array
-        The embeddings to use.
-    y : np.array
-        The targets to use.
-
-    Returns
-    -------
-    np.array
-        The indices of the mismatches.
-    np.array
-        The new predicted labels.
+    @type X: np.array
+    @param X: The embeddings to use.
+    @type y: np.array
+    @param y: The targets to use.
+    @rtype: np.array
+    @return: The indices of the mismatches.
     """
     unique_labels = np.unique(y)
     # Create a mapping from string labels to integer indices
@@ -104,21 +98,17 @@ def find_mismatches_knn(X, y, n_neighbors=5):
     Single Algorithm Filter (see Figure 1 in Brodley, Carla E., and Mark A. Friedl. "Identifying mislabeled training data.").
     Idea: if the vast majority of the data is correctly labeled and you do knn prediction, the minority of mislabeled data will be engulfed (corrected) by the correct neighbors.
 
-    Parameters
-    ----------
-    X : np.array
-        The embeddings to use.
-    y : np.array
-        The targets to use.
-    n_neighbors : int
-        The number of neighbors to use for KNN. Default is 5.
+    @type X: np.array
+    @param X: The embeddings to use.
 
-    Returns
-    -------
-    np.array
-        The indices of the mismatches.
-    np.array
-        The new predicted labels.
+    @type y: np.array
+    @param y: The targets to use.
+
+    @type n_neighbors: int
+    @param n_neighbors: The number of neighbors to use for KNN. Default is 5.
+
+    @rtype: np.array
+    @return: The indices of the mismatches.
     """
 
     # Step 1: Fit KNN on the train set with corrupted labels

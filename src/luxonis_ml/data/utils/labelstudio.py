@@ -8,21 +8,21 @@ import xml.etree.ElementTree as ET
 def generate_random_color() -> Tuple[int, int, int]:
     """Generates a random RGB color for labelstudio visualization.
 
-    @rtype: Tuple[int, int, int] @return: A randomly generated RGB
-    value.
+    @rtype: Tuple[int, int, int]
+    @return: A randomly generated RGB value.
     """
 
     return (np.random.randint(0, 255) for _ in range(3))
 
 
 def get_xml_config(dataset: LuxonisDataset) -> str:
-    """Generates the labelstudio XML for visualizing an annotation project for
-    a LuxonisDataset.
+    """Generates the labelstudio XML for visualizing an annotation project for a
+    LuxonisDataset.
 
-    @type dataset: C{LuxonisDataset} @param dataset: The LuxonisDataset
-    used to generate the XML
-
-    @rtype: str @return: The XML file contents as a string.
+    @type dataset: C{LuxonisDataset}
+    @param dataset: The LuxonisDataset used to generate the XML
+    @rtype: str
+    @return: The XML file contents as a string.
     """
 
     root = ET.Element("View")

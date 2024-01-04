@@ -9,14 +9,13 @@ T = TypeVar("T", bound="LuxonisConfig")
 
 
 class LuxonisConfig(BaseModel):
-    """Class to store configuration.
+    """Class for storing configuration.
 
-    Singleton class which checks and merges user config with a default one
-    and provides access to its values.
+    Singleton class which checks and merges user config with a default one and provides
+    access to its values.
 
-    Note:
-        Only the `get_config` method can be used to instantiate this class.
-        Using `__init__` directly will raise a `NotImplementedError`.
+    @warning: Only the L{get_config} method can be used to instantiate this class. Using
+        C{__init__} directly will raise a L{NotImplementedError}.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -27,23 +26,19 @@ class LuxonisConfig(BaseModel):
         cfg: Optional[Union[str, Dict[str, Any]]] = None,
         overrides: Optional[Dict[str, Any]] = None,
     ) -> T:
-        """Loads config from yaml file or dictionary.
+        """Loads config from a yaml file or a dictionary.
 
         If config was already loaded before, it returns the same instance.
 
-        Args:
-            cfg (Optional[Union[str, Dict[str, Any]]], optional): Path to config
-              or config dictionary. Defaults to None.
-            overrides (Optional[Dict[str, str]], optional): List of CLI overrides
-              in a form of a dictionary mapping "dotted" keys to unparsed string
-              or python values. Defaults to None.
-
-        Returns:
-            T: Singleton instance of the config class.
-
-        Raises:
-            ValueError: If the config is instantiated for the first time
-              and neither `cfg` nor `overrides` are provided.
+        @type cfg: str or dict
+        @param cfg: Path to config or config dictionary.
+        @type overrides: dict
+        @param overrides: List of CLI overrides in a form of a dictionary mapping
+            "dotted" keys to unparsed string or python values.
+        @rtype: LuxonisConfig
+        @return: Singleton instance of the config class.
+        @raise ValueError: If the config is instantiated for the first time and neither
+            C{cfg} nor C{overrides} are provided.
         """
         if getattr(cls, "_instance", None) is None:
             if cfg is None and overrides is None:
@@ -60,20 +55,17 @@ class LuxonisConfig(BaseModel):
         cfg: Optional[Union[str, Dict[str, Any]]] = None,
         overrides: Optional[Dict[str, Any]] = None,
     ):
-        """Loads config from yaml file or dictionary.
+        """Loads config from a yaml file or a dictionary.
 
-        Args:
-            cfg (Optional[Union[str, Dict[str, Any]]], optional): Path to config
-              or config dictionary. Defaults to None.
-            overrides (Optional[Dict[str, str]], optional): List of CLI overrides
-              in a form of a dictionary mapping "dotted" keys to unparsed string
-              or python values. Defaults to None.
-
-        Raises:
-            NotImplementedError: When `__init__` is called directly.
-              `LuxonisConfig` can only be instantiated using
-              `LuxonisConfig.get_config` classmethod. Using `__init__` directly
-              will raise this error.
+        @warning: Only the L{get_config} method can be used to instantiate this class.
+        @type cfg: str or dict
+        @param cfg: Path to config or config dictionary.
+        @type overrides: dict
+        @param overrides: List of CLI overrides in a form of a dictionary mapping
+            "dotted" keys to unparsed string or python values.
+        @raise NotImplementedError: When C{__init__} is called directly.
+            L{LuxonisConfig} can only be instantiated using the L{get_config}
+            classmethod. Using C{__init__} directly will raise this error.
         """
         if not getattr(self, "_from_get_config", False):
             raise NotImplementedError(
@@ -101,36 +93,38 @@ class LuxonisConfig(BaseModel):
 
     @classmethod
     def clear_instance(cls) -> None:
-        """Clears all singleton instances, should be only used for unit- testing."""
+        """Clears all singleton instances, should be only used for unit-testing."""
         cls._instance = None
         cls._from_get_config = False
 
     def get_json_schema(self) -> Dict[str, Any]:
-        """Retuns dict representation of config json schema."""
+        """Retuns dict representation of the config json schema.
+
+        @rtype: dict
+        @return: Dictionary with config json schema.
+        """
         return self.model_json_schema(mode="validation")
 
     def save_data(self, path: str) -> None:
-        """Saves config to yaml file.
+        """Saves config to a yaml file.
 
-        Args:
-            path (str): Path to output yaml file
+        @type path: str
+        @param path: Path to output yaml file.
         """
         with open(path, "w+") as f:
             yaml.dump(self.model_dump(), f, default_flow_style=False)
 
     def get(self, key_merged: str, default: Any = None) -> Any:
-        """Returns value from Config based on key.
+        """Returns a value from L{Config} based on the given key.
 
-        If key doesn't exist, returns default value.
+        If the key doesn't exist, the default value is returned.
 
-        Args:
-            key_merged (str): Merged key in format key1.key2.key3 where
-              each key goes one level deeper.
-            default (Any, optional): Default returned value if key doesn't exist.
-              Defaults to None.
-
-        Returns:
-            Any: Value of the key or default value.
+        @type key_merged: str
+        @param key_merged: Key in a form of a string with levels separated by dots.
+        @type default: Any
+        @param default: Default value to return if the key doesn't exist.
+        @rtype: Any
+        @return: Value of the key or default value.
         """
         value = self
         for key in key_merged.split("."):
@@ -155,25 +149,14 @@ class LuxonisConfig(BaseModel):
     def _merge_overrides(data: Dict[str, Any], overrides: Dict[str, Any]) -> None:
         """Merges the config dictionary with the CLI overrides.
 
-        The overrides are a dictionary mapping "dotted" keys to either final
-        or unparsed values.
+        The overrides are a dictionary mapping "dotted" keys to either final or unparsed
+        values.
 
-        Note:
-            It turned out to be more challenging than expected. Main issue is
-            with newly added "intermediate" values (like "a.b.c = 5", where "b"
-            is missing). We don't know the types yet so we don't know whether
-            to add a list or a dict.
-            I put together this algorithm which tries to guess
-            what to add and backtracks if necessary.
-
-        Args:
-            data (Dict[str, Any]): Data loaded from the config file.
-            overrides (Dict[str, Any]): Dictionary of CLI overrides. Keys are
-              "dotted" config keys, values are either unparsed
-              strings or python values.
-
-        Raises:
-            ValueError: In case of an invalid option.
+        @type data: dict
+        @param data: Dictionary with config data.
+        @type overrides: dict
+        @param overrides: Dictionary with CLI overrides.
+        @raise ValueError: If the overrides contain an invalid option.
         """
 
         def _parse_value(value: Any) -> Any:

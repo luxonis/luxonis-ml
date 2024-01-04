@@ -14,11 +14,11 @@ class ParquetFileManager:
     ) -> None:
         """Manages the insertion of data into parquet files.
 
-        @type directory: str @param directory: The local directory in
-        which parquet files are stored.
-
-        @type num_rows: int @param num_rows: The maximum number of rows
-        permitted in a parquet file before another file is created.
+        @type directory: str
+        @param directory: The local directory in which parquet files are stored.
+        @type num_rows: int
+        @param num_rows: The maximum number of rows permitted in a parquet file before
+            another file is created.
         """
 
         self.dir = directory
@@ -82,10 +82,9 @@ class ParquetFileManager:
     def write(self, add_data: Dict) -> None:
         """Writes a row to the current working parquet file.
 
-        @type add_data: Dict @param add_data: A dictionary representing
-        annotations, mapping annotation types to values.
-
-        @rtype: NoneType @return: None
+        @type add_data: Dict
+        @param add_data: A dictionary representing annotations, mapping annotation types
+            to values.
         """
 
         if len(self.data) == 0:
@@ -106,10 +105,7 @@ class ParquetFileManager:
                 self._read()
 
     def close(self) -> None:
-        """Ensures all data is written to parquet.
-
-        @rtype: NoneType @return: None
-        """
+        """Ensures all data is written to parquet."""
 
         df = pd.DataFrame(self.data)
         table = pa.Table.from_pandas(df)

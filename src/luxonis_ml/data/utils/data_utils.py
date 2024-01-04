@@ -10,13 +10,14 @@ from .constants import ANNOTATIONS_SCHEMA as schema
 
 
 def check_annotation(data: Dict) -> None:
-    """Checks whether annotations match the expected format. Throws an
-    exception if there is a formatting error.
+    """Checks whether annotations match the expected format. Throws an exception if
+    there is a formatting error.
 
-    @type data: Dict @param data: A dictionary representing annotations,
-    mapping annotation types to values.
-
-    @rtype: NoneType @return: None
+    @type data: Dict
+    @param data: A dictionary representing annotations, mapping annotation types to
+        values.
+    @rtype: NoneType
+    @return: None
     """
 
     if len(schema.keys()) != len(data.keys()) or set(schema.keys()) != set(data.keys()):
@@ -82,13 +83,13 @@ def check_annotation(data: Dict) -> None:
 
 
 def check_arrays(values: List[Any]) -> None:
-    """Checks whether paths to numpy arrays are valid. This checks that th file
-    exists and is readable by numpy.
+    """Checks whether paths to numpy arrays are valid. This checks that th file exists
+    and is readable by numpy.
 
-    @type values: List[Any] @param values: A list of paths to numpy
-    arrays.
-
-    @rtype: NoneType @return: None
+    @type values: List[Any]
+    @param values: A list of paths to numpy arrays.
+    @rtype: NoneType
+    @return: None
     """
 
     for value in values:
@@ -129,16 +130,15 @@ def _check_valid_array(path: str) -> bool:
 def transform_segmentation_value(
     value: Tuple[int, int, Union[bytes, List[int]]],
 ) -> str:
-    """Transforms a segmentation in RLE format to the format stored by
-    LuxonisDataset. The format recognized by LuxonisDataset is still RLE, but a
-    dumped JSON string of height, width, and compressed counts.
+    """Transforms a segmentation in RLE format to the format stored by LuxonisDataset.
+    The format recognized by LuxonisDataset is still RLE, but a dumped JSON string of
+    height, width, and compressed counts.
 
-    @type value: Tuple[int, int, Union[bytes, List[int]]] @param value:
-    The segmentation value in RLE format of (height, width, counts).
-    Counts can be encoded bytes or a raw list.
-
-    @rtype: str @return: A dumped string of the segmentation format
-    recognized by LuxonisDataset.
+    @type value: Tuple[int, int, Union[bytes, List[int]]]
+    @param value: The segmentation value in RLE format of (height, width, counts).
+        Counts can be encoded bytes or a raw list.
+    @rtype: str
+    @return: A dumped string of the segmentation format recognized by LuxonisDataset.
     """
 
     height, width, counts = value

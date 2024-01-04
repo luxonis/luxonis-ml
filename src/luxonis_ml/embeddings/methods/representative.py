@@ -3,40 +3,43 @@
 This module offers techniques to identify representative images or embeddings within a dataset.
 This aids in achieving a condensed yet expressive view of your data.
 
-Methods:
-- Greedy Search: Aims to find a diverse subset of images by maximizing the minimum similarity to any image outside the set.
+Methods
+=======
+    - Greedy Search: Aims to find a diverse subset of images by maximizing the minimum similarity to any image outside the set.
 
-- K-Medoids: An adaptation of the k-means clustering algorithm, it partitions data into k clusters, each associated with a medoid.
+    - K-Medoids: An adaptation of the k-means clustering algorithm, it partitions data into k clusters, each associated with a medoid.
 
-Main Applications:
-- Dataset Reduction: Helps in representing large datasets with a minimal subset while retaining the essence.
+Main Applications
+=================
+    - Dataset Reduction: Helps in representing large datasets with a minimal subset while retaining the essence.
 
-- Validation Set Creation: Identifies diverse samples for a robust validation set.
+    - Validation Set Creation: Identifies diverse samples for a robust validation set.
 
-Dependencies:
-- numpy
-- scikit-learn
-- kmedoids
-- luxonis_ml
+Dependencies
+============
+    - numpy
+    - scikit-learn
+    - kmedoids
+    - luxonis_ml
 
-Example Usage:
-1. Greedy Search:
-    ```python
-    # Assuming you have 'embeddings' as a numpy array of shape (num_images, embedding_dim)
-    similarity_matrix = calculate_similarity_matrix(embeddings)
-    desired_size = int(len(embeddings) * 0.1)
-    selected_image_indices = find_representative_greedy(1-similarity_matrix, desired_size)
-    ```
+Example
+=======
 
-2. K-Medoids:
-    ```python
-    # to get all embeddings from qdrant:
-    ids, embeddings = get_all_embeddings(qdrant_client, collection_name="mnist")
-    # Assuming you have 'embeddings' as a numpy array of shape (num_images, embedding_dim)
-    similarity_matrix = calculate_similarity_matrix(embeddings)
-    desired_size = int(len(embeddings) * 0.1)
-    selected_image_indices = find_representative_kmedoids(similarity_matrix, desired_size)
-    ```
+    1. Greedy Search:
+
+        # Assuming you have 'embeddings' as a numpy array of shape (num_images, embedding_dim)
+        similarity_matrix = calculate_similarity_matrix(embeddings)
+        desired_size = int(len(embeddings) * 0.1)
+        selected_image_indices = find_representative_greedy(1-similarity_matrix, desired_size)
+
+    2. K-Medoids:
+
+            # to get all embeddings from qdrant:
+            ids, embeddings = get_all_embeddings(qdrant_client, collection_name="mnist")
+            # Assuming you have 'embeddings' as a numpy array of shape (num_images, embedding_dim)
+            similarity_matrix = calculate_similarity_matrix(embeddings)
+            desired_size = int(len(embeddings) * 0.1)
+            selected_image_indices = find_representative_kmedoids(similarity_matrix, desired_size)
 """
 
 import numpy as np
@@ -52,20 +55,15 @@ def find_representative_greedy(distance_matrix, desired_size=1000, seed=0):
     """Find the most representative images using a greedy algorithm. Gready search of
     maximally unique embeddings.
 
-    Parameters
-    ----------
-    distance_matrix : np.array
-        The distance matrix to use.
-    desired_size : int
-        The desired size of the representative set. Default is 1000.
-    seed : int
-        The index of the seed image. Default is 0.
-        Must be in the range [0, num_images-1].
-
-    Returns
-    -------
-    np.array
-        The indices of the representative images.
+    @type distance_matrix: np.array
+    @param distance_matrix: The distance matrix to use.
+    @type desired_size: int
+    @param desired_size: The desired size of the representative set. Default is 1000.
+    @type seed: int
+    @param seed: The index of the seed image. Default is 0. Must be in the range [0,
+        num_images-1].
+    @rtype: np.array
+    @return: The indices of the representative images.
     """
     num_images = distance_matrix.shape[0]
     selected_images = set()
@@ -90,23 +88,19 @@ def find_representative_greedy(distance_matrix, desired_size=1000, seed=0):
 
 
 def find_representative_greedy_qdrant(qdrant_api, desired_size=1000, seed=None):
-    """
-    Find the most representative embeddings using a greedy algorithm with Qdrant.
-    NOTE: Due to many Qdrant requests, this function is very slow. Use get_all_embeddings() and find_representative_greedy() instead.
+    """Find the most representative embeddings using a greedy algorithm with Qdrant.
 
-    Parameters
-    ----------
-    qdrant_api : QdrantAPI
-        The Qdrant client instance to use for searches.
-    desired_size : int
-        The desired size of the representative set. Default is 1000.
-    seed : int
-        The ID of the seed embedding. Default is None, which means a random seed is chosen.
-
-    Returns
-    -------
-    list
-        The IDs of the representative embeddings.
+    @note: Due to many Qdrant requests, this function is very slow. Use
+        get_all_embeddings() and find_representative_greedy() instead.
+    @type qdrant_api: QdrantAPI
+    @param qdrant_api: The Qdrant client instance to use for searches.
+    @type desired_size: int
+    @param desired_size: The desired size of the representative set. Default is 1000.
+    @type seed: int
+    @param seed: The ID of the seed embedding. Default is None, which means a random
+        seed is chosen.
+    @rtype: list
+    @return: The IDs of the representative embeddings.
     """
     all_ids = qdrant_api.get_all_ids()
 
@@ -148,21 +142,16 @@ def find_representative_kmedoids(
     """Find the most representative images using k-medoids. K-medoids clustering of
     embeddings.
 
-    Parameters
-    ----------
-    similarity_matrix : np.array
-        The similarity matrix to use.
-    desired_size : int
-        The desired size of the representative set. Default is 1000.
-    max_iter : int
-        The maximum number of iterations to use. Default is 100.
-    seed : int
-        The random seed to use. Default is None.
-
-    Returns
-    -------
-    np.array
-        The indices of the representative images.
+    @type similarity_matrix: np.array
+    @param similarity_matrix: The similarity matrix to use.
+    @type desired_size: int
+    @param desired_size: The desired size of the representative set. Default is 1000.
+    @type max_iter: int
+    @param max_iter: The maximum number of iterations to use. Default is 100.
+    @type seed: int
+    @param seed: The random seed to use. Default is None.
+    @rtype: np.array
+    @return: The indices of the representative images.
     """
     num_images = similarity_matrix.shape[0]
     k = min(

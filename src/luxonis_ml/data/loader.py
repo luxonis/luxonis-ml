@@ -18,27 +18,36 @@ from .augmentations import Augmentations
 
 
 Labels = Dict[LabelType, np.ndarray]
+"""C{Labels} is a dictionary of a label type and its annotations as L{numpy
+arrays<np.ndarray>}."""
+
 LuxonisLoaderOutput = Tuple[np.ndarray, Labels]
+"""C{LuxonisLoaderOutput} is a tuple of image and its annotations."""
 
 
 class BaseLoader(ABC):
-    """Base abstract loader class that enforces LuxonisLoaderOutput output label
-    structure."""
+    """Base abstract loader class.
+
+    Enforces the L{LuxonisLoaderOutput} output label structure.
+    """
 
     @abstractmethod
     def __len__(self) -> int:
-        """Returns length of the dataset."""
+        """Returns the length of the dataset.
+
+        @rtype: int
+        @return: Length of the dataset.
+        """
         pass
 
     @abstractmethod
     def __getitem__(self, idx: int) -> LuxonisLoaderOutput:
         """Loads sample from dataset.
 
-        Args:
-            idx (int): Sample index
-
-        Returns:
-            LuxonisLoaderOutput: Sample's data in LuxonisLoaderOutput format
+        @type idx: int
+        @param idx: Index of the sample to load.
+        @rtype: LuxonisLoaderOutput
+        @return: Sample's data in L{LuxonisLoaderOutput} format.
         """
         pass
 
@@ -51,13 +60,17 @@ class LuxonisLoader(BaseLoader):
         stream: bool = False,
         augmentations: Optional[Augmentations] = None,
     ) -> None:
-        """LuxonisLoader used for loading LuxonisDataset.
+        """A loader class used for loading data from L{LuxonisDataset}.
 
-        Args:
-            dataset (luxonis_ml.data.LuxonisDataset): LuxonisDataset to use
-            view (str, optional): View of the dataset. Defaults to "train".
-            stream (bool, optional): Flag for data streaming. Defaults to False.
-            augmentations (Optional[luxonis_ml.loader.Augmentations], optional): Augmentation class that performs augmentations. Defaults to None.
+        @type dataset: LuxonisDataset
+        @param dataset: LuxonisDataset to use
+        @type view: str
+        @param view: View of the dataset. Defaults to "train".
+        @type stream: bool
+        @param stream: Flag for data streaming. Defaults to False.
+        @type augmentations: Optional[luxonis_ml.loader.Augmentations]
+        @param augmentations: Augmentation class that performs augmentations. Defaults
+            to None.
         """
 
         self.logger = logging.getLogger(__name__)
@@ -120,19 +133,19 @@ class LuxonisLoader(BaseLoader):
         """Returns length of the dataset.
 
         @rtype: int
-        return: Length of dataset.
+        @return: Length of dataset.
         """
         return len(self.instances)
 
     def __getitem__(self, idx: int) -> LuxonisLoaderOutput:
-        """Function to load a sample consisting of an image and its
-        annotations.
+        """Function to load a sample consisting of an image and its annotations.
 
-        @type idx: int @param idx: The (often random) integer index to
-        retrieve a sample from the dataset.
-
-        @rtype: LuxonisLoaderOutput @return: The loader ouput consisting
-        of the image and a dictionary defining its annotations.
+        @type idx: int
+        @param idx: The (often random) integer index to retrieve a sample from the
+            dataset.
+        @rtype: LuxonisLoaderOutput
+        @return: The loader ouput consisting of the image and a dictionary defining its
+            annotations.
         """
 
         img, annotations = self._load_image_with_annotations(idx)
@@ -164,11 +177,11 @@ class LuxonisLoader(BaseLoader):
     def _load_image_with_annotations(self, idx: int) -> Tuple[np.ndarray, Dict]:
         """Loads image and its annotations based on index.
 
-        Args:
-            idx (int): Index of the image
-
-        Returns:
-            Tuple[np.ndarray, dict]: Image as np.ndarray in RGB format and dict with all present annotations
+        @type idx: int
+        @param idx: Index of the image
+        @rtype: Tuple[L{np.ndarray}, dict]
+        @return: Image as L{np.ndarray} in RGB format and a dictionary with all the
+            present annotations
         """
 
         instance_id = self.instances[idx]

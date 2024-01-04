@@ -3,26 +3,26 @@
 This script provides a set of utility functions to manage Qdrant using Docker and perform various operations related to embeddings.
 
 Features:
-- Docker management: Check if Docker is installed, running, and if specific images or containers exist.
-- Qdrant management: Start a Qdrant container, connect to Qdrant, and create a collection.
-- Embedding operations: Insert, batch insert, search, and retrieve embeddings from a Qdrant collection.
+    - Docker management: Check if Docker is installed, running, and if specific images or containers exist.
+    - Qdrant management: Start a Qdrant container, connect to Qdrant, and create a collection.
+    - Embedding operations: Insert, batch insert, search, and retrieve embeddings from a Qdrant collection.
 
 Dependencies:
-- os: For file operations.
-- docker: For Docker-related operations.
-- numpy: For numerical operations on embeddings.
-- qdrant_client: For interacting with Qdrant.
+    - os: For file operations.
+    - docker: For Docker-related operations.
+    - numpy: For numerical operations on embeddings.
+    - qdrant_client: For interacting with Qdrant.
 
 Usage:
-1. Ensure Docker is installed and running.
-2. Start a Qdrant container using the QdrantManager class and the start_docker_qdrant() method.
-3. Connect to Qdrant or create a new collection using the QdrantAPI class.
-4. Perform various operations on the Qdrant collection using the QdrantAPI class.
+    1. Ensure Docker is installed and running.
+    2. Start a Qdrant container using the QdrantManager class and the start_docker_qdrant() method.
+    3. Connect to Qdrant or create a new collection using the QdrantAPI class.
+    4. Perform various operations on the Qdrant collection using the QdrantAPI class.
 
 Note:
-- The default collection name is set to "mnist".
-- Ensure the user has the appropriate permissions to run Docker commands without sudo.
-  See https://docs.docker.com/engine/install/linux-postinstall/ for more details.
+    - The default collection name is set to "mnist".
+    - Ensure the user has the appropriate permissions to run Docker commands without sudo.
+      See https://docs.docker.com/engine/install/linux-postinstall/ for more details.
 """
 
 import os

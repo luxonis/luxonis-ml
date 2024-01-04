@@ -1,6 +1,6 @@
 import os
 import uuid
-from typing import Optional, Any, List, Dict, Union, Tuple, Generator
+from typing import Optional, List, Dict, Union, Tuple, Iterator
 from types import ModuleType
 import fsspec
 from io import BytesIO
@@ -19,16 +19,23 @@ class LuxonisFileSystem:
         allow_local: Optional[bool] = True,
         cache_storage: Optional[str] = None,
     ):
-        """Helper class which abstracts uploading and downloading files from remote and
-        local sources. Supports S3, MLflow and local file systems.
+        """Abstraction over remote and local sources.
 
-        Args:
-            path (str): Input path consisting of protocol and actual path or just path for local files
-            allow_active_mlflow_run (Optional[bool], optional): Flag if operations are allowed on active MLFlow run. Defaults to False.
-            allow_local (Optional[bool], optional): Flag if operations are
-                allowed on local file system. Defaults to True.
-            cache_storage (Optional[str], optional): Path to cache storage. No cache
-                is used if set to None. Defaults to None.
+        Helper class which abstracts uploading and downloading files from remote and
+        local sources. Supports S3, MLflow, GCS, and local file systems.
+
+        @type path: str
+        @param path: Input path consisting of protocol and actual path or just path for
+            local files
+        @type allow_active_mlflow_run: Optional[bool]
+        @param allow_active_mlflow_run: Flag if operations are allowed on active MLFlow
+            run. Defaults to False.
+        @type allow_local: Optional[bool]
+        @param allow_local: Flag if operations are allowed on local file system.
+            Defaults to True.
+        @type cache_storage: Optional[str]
+        @param cache_storage: Path to cache storage. No cache is used if set to None.
+            Defaults to None.
         """
         if path is None:
             raise ValueError("No path provided to LuxonisFileSystem.")
@@ -76,12 +83,20 @@ class LuxonisFileSystem:
             self.is_fsspec = True
             self.fs = self.init_fsspec_filesystem()
 
+    @property
     def full_path(self) -> str:
-        """Returns full path."""
+        """Returns full remote path.
+
+        @type: str
+        """
         return f"{self.protocol}://{self.path}"
 
-    def init_fsspec_filesystem(self) -> Any:
-        """Returns fsspec filesystem based on protocol."""
+    def init_fsspec_filesystem(self) -> fsspec.AbstractFileSystem:
+        """Initializes L{fsspec} filesystem based on the used protocol.
+
+        @rtype: L{fsspec.AbstractFileSystem}
+        @return: Initialized fsspec filesystem.
+        """
         if self.protocol == "s3":
             # NOTE: In theory boto3 should look in environment variables automatically but it doesn't seem to work
             fs = fsspec.filesystem(
@@ -112,12 +127,15 @@ class LuxonisFileSystem:
         remote_path: str,
         mlflow_instance: Optional[ModuleType] = None,
     ) -> None:
-        """Copy single file to remote.
+        """Copy a single file to remote storage.
 
-        Args:
-            local_path (str): Path to local file
-            remote_path (str): Relative path to remote file
-            mlflow_instance (Optional[ModuleType], optional): MLFlow instance if uploading to active run. Defaults to None.
+        @type local_path: str
+        @param local_path: Path to local file
+        @type remote_path: str
+        @param remote_path: Relative path to remote file
+        @type mlflow_instance: Optional[L{ModuleType}]
+        @param mlflow_instance: MLFlow instance if uploading to active run. Defaults to
+            None.
         """
         if self.is_mlflow:
             # NOTE: remote_path not used in mlflow since it creates new folder each time
@@ -142,16 +160,21 @@ class LuxonisFileSystem:
         uuid_dict: Optional[Dict[str, str]] = None,
         mlflow_instance: Optional[ModuleType] = None,
     ) -> Optional[Dict[str, str]]:
-        """Copies many files from local storage to remote storage in parallel.
+        """Uploads files to remote storage.
 
-        Args:
-            local_paths (Union[str, List[str]]): Either a string specifying a directory to walk the files or a list of files
-                which can be in different directories
-            remote_dir (str): Relative path to remote directory
-            uuid_dict (Optional[Dict[str, str]]): Stores paths as keys and corresponding UUIDs as values to replace the file basename.
-            mlflow_instance (Optional[ModuleType], optional): MLFlow instance if uploading to active run. Defaults to None.
-        Returns:
-            upload_dict (Optional[Dict[str, str]]): When local_paths is a list, this maps local_paths to remote_paths
+        @type local_paths: Union[str, List[str]]
+        @param local_paths: Either a string specifying a directory to walk the files or
+            a list of files which can be in different directories
+        @type remote_dir: str
+        @param remote_dir: Relative path to remote directory
+        @type uuid_dict: Optional[Dict[str, str]]
+        @param uuid_dict: Stores paths as keys and corresponding UUIDs as values to
+            replace the file basename.
+        @type mlflow_instance: Optional[L{ModuleType}]
+        @param mlflow_instance: MLFlow instance if uploading to active run. Defaults to
+            None.
+        @rtype: Optional[Dict[str, str]]
+        @return: When local_paths is a list, this maps local_paths to remote_paths
         """
         if self.is_mlflow:
             raise NotImplementedError
@@ -183,10 +206,13 @@ class LuxonisFileSystem:
     ) -> None:
         """Uploads a file to remote storage directly from file bytes.
 
-        Args:
-            file_bytes (bytes): the bytes for the file contents
-            remote_path (str): Relative path to remote file
-            mlflow_instance (Optional[ModuleType], optional): MLFlow instance if uploading to active run. Defaults to None.
+        @type file_bytes: bytes
+        @param file_bytes: the bytes for the file contents
+        @type remote_path: str
+        @param remote_path: Relative path to remote file
+        @type mlflow_instance: Optional[L{ModuleType}]
+        @param mlflow_instance: MLFlow instance if uploading to active run. Defaults to
+            None.
         """
         if self.is_mlflow:
             raise NotImplementedError
@@ -201,12 +227,15 @@ class LuxonisFileSystem:
         local_path: str,
         mlflow_instance: Optional[ModuleType] = None,
     ) -> None:
-        """Copy a single file from remote.
+        """Copy a single file from remote storage.
 
-        Args:
-            remote_path (str): Relative path to remote file
-            local_path (str): Path to local file
-            mlflow_instance (Optional[ModuleType], optional): MLFlow instance if uploading to active run. Defaults to None.
+        @type remote_path: str
+        @param remote_path: Relative path to remote file
+        @type local_path: str
+        @param local_path: Path to local file
+        @type mlflow_instance: Optional[L{ModuleType}]
+        @param mlflow_instance: MLFlow instance if uploading to active run. Defaults to
+            None.
         """
 
         if self.is_mlflow:
@@ -215,27 +244,29 @@ class LuxonisFileSystem:
             self.fs.download(
                 os.path.join(self.path, remote_path), local_path, recursive=False
             )
-    
+
     def delete_file(self, remote_path: str) -> None:
         """Deletes a single file from remote storage.
 
-        Args:
-            remote_path (str): Relative path to the remote file to be deleted.
+        @type remote_path: str
+        @param remote_path: Relative path to remote file
         """
         if self.is_fsspec:
             full_remote_path = os.path.join(self.path, remote_path)
             self.fs.rm(full_remote_path)
         else:
             raise NotImplementedError
-    
+
     def delete_files(self, remote_paths: List[str]) -> None:
         """Deletes multiple files from remote storage.
 
-        Args:
-            remote_paths (List[str]): Relative paths to the remote files to be deleted.
+        @type remote_paths: List[str]
+        @param remote_paths: Relative paths to remote files
         """
         if self.is_fsspec:
-            full_remote_paths = [os.path.join(self.path, remote_path) for remote_path in remote_paths]
+            full_remote_paths = [
+                os.path.join(self.path, remote_path) for remote_path in remote_paths
+            ]
             self.fs.rm(full_remote_paths)
         else:
             raise NotImplementedError
@@ -246,12 +277,15 @@ class LuxonisFileSystem:
         local_dir: str,
         mlflow_instance: Optional[ModuleType] = None,
     ) -> None:
-        """Copies many files from remote storage to local storage in parallel.
+        """Copies many files from remote storage to local storage.
 
-        Args:
-            remote_dir (str): Relative path to remote directory
-            local_dir (str): Path to the local directory
-            mlflow_instance (Optional[ModuleType], optional): MLFlow instance if uploading to active run. Defaults to None.
+        @type remote_dir: str
+        @param remote_dir: Relative path to remote directory
+        @type local_dir: str
+        @param local_dir: Path to local directory
+        @type mlflow_instance: Optional[L{ModuleType}]
+        @param mlflow_instance: MLFlow instance if uploading to active run. Defaults to
+            None.
         """
         if self.is_mlflow:
             raise NotImplementedError
@@ -259,12 +293,12 @@ class LuxonisFileSystem:
             self.fs.download(
                 os.path.join(self.path, remote_dir), local_dir, recursive=True
             )
-    
+
     def delete_dir(self, remote_dir: str) -> None:
         """Deletes a directory and all its contents from remote storage.
 
-        Args:
-            remote_dir (str): Relative path to the remote directory to be deleted.
+        @type remote_dir: str
+        @param remote_dir: Relative path to remote directory
         """
         if self.is_fsspec:
             full_remote_dir = os.path.join(self.path, remote_dir)
@@ -272,8 +306,14 @@ class LuxonisFileSystem:
         else:
             raise NotImplementedError
 
-    def walk_dir(self, remote_dir: str) -> Generator[str, None, None]:
-        """Recursively walks through the individual files in a remote directory."""
+    def walk_dir(self, remote_dir: str) -> Iterator[str]:
+        """Recursively walks through the individual files in a remote directory.
+
+        @type remote_dir: str
+        @param remote_dir: Relative path to remote directory
+        @rtype: Iterator[str]
+        @return: Iterator over the paths.
+        """
 
         if self.is_mlflow:
             raise NotImplementedError
@@ -281,16 +321,20 @@ class LuxonisFileSystem:
             full_path = os.path.join(self.path, remote_dir)
             for file in self.fs.glob(full_path + "/**", detail=True):
                 if self.fs.info(file)["type"] == "file":
+                    assert isinstance(file, str)
+
                     file_without_path = file.replace(self.path, "")
                     if file_without_path.startswith("/"):
                         file_without_path = file_without_path[1:]
                     yield os.path.relpath(file, self.path)
 
     def read_to_byte_buffer(self, remote_path: Optional[str] = None) -> BytesIO:
-        """Reads a file and returns Byte buffer.
+        """Reads a file into a byte buffer.
 
-        Args:
-            remote_path (Optional[str]): If provided, the relative path to the remote file
+        @type remote_path: Optional[str]
+        @param remote_path: Relative path to remote file.
+        @rtype: BytesIO
+        @return: The byte buffer containing the file contents.
         """
 
         if self.is_mlflow:
@@ -324,9 +368,12 @@ class LuxonisFileSystem:
     def get_file_uuid(self, path: str, local: bool = False) -> str:
         """Reads a file and returns the (unique) UUID generated from file bytes.
 
-        Args:
-            path (str): If remote, relative path to the remote file. Else the local path
-            local (bool): Specifies a local path as opposed to a remote path
+        @type path: str
+        @param path: Relative path to remote file.
+        @type local: bool
+        @param local: Specifies a local path as opposed to a remote path.
+        @rtype: str
+        @return: The generated UUID.
         """
 
         if local:
@@ -346,12 +393,14 @@ class LuxonisFileSystem:
         return file_hash_uuid
 
     def get_file_uuids(self, paths: List[str], local: bool = False) -> Dict[str, str]:
-        """Computes the UUID for files stored in the filesystem.
+        """Computes the UUIDs for all files stored in the filesystem.
 
-        Args:
-            paths (List[str]): A list of relative remote paths if remote else local paths
-            local (bool): Specifies local paths as opposed to remote paths
-        Returns: A dictionary mapping the paths to their UUIDs
+        @type paths: List[str]
+        @param paths: A list of relative remote paths if remote else local paths.
+        @type local: bool
+        @param local: Specifies local paths as opposed to remote paths.
+        @rtype: Dict[str, str]
+        @return: A dictionary mapping the paths to their UUIDs
         """
 
         result = {}
@@ -376,7 +425,13 @@ class LuxonisFileSystem:
         return parts
 
     def is_directory(self, remote_path: str) -> bool:
-        """Returns True if a remote path points to a directory."""
+        """Checks whether the given remote path is a directory.
+
+        @type remote_path: str
+        @param remote_path: Relative path to remote file.
+        @rtype: bool
+        @return: True if the path is a directory.
+        """
 
         full_path = os.path.join(self.path, remote_path)
         file_info = self.fs.info(full_path)
@@ -386,21 +441,37 @@ class LuxonisFileSystem:
             return False
 
     def file_exists(self, remote_path: str) -> bool:
-        """Returns True if there is a file at the given remote path"""
+        """Checks whether the given remote path exists.
+
+        @type remote_path: str
+        @param remote_path: Relative path to remote file.
+        @rtype: bool
+        @return: True if the path exists.
+        """
         full_path = os.path.join(self.path, remote_path)
         return self.fs.exists(full_path)
 
     @staticmethod
     def split_full_path(path: str) -> Tuple[str, str]:
-        """Returns a tuple for the absolute and relative path given a full path."""
+        """Splits the full path into protocol and absolute path.
 
+        @type path: str
+        @param path: Full path
+        @rtype: Tuple[str, str]
+        @return: Tuple of protocol and absolute path.
+        """
         path = path.rstrip("/\\")
         return os.path.split(path)
 
     @staticmethod
     def get_protocol(path: str) -> str:
-        """Gets the detected protocol of a path."""
+        """Extracts the detected protocol from a path.
 
+        @type path: str
+        @param path: Full path
+        @rtype: str
+        @return: Protocol of the path.
+        """
         return _get_protocol_and_path(path)[0]
 
 

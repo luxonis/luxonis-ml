@@ -10,11 +10,14 @@ class ArchiveGenerator:
     """Generator of abstracted NN archive (.tar) files containing config and model files
     (executables).
 
-    Attribures:
-        archive_name (str): Desired archive file name.
-        save_path (str): Path to where we want to save the archive file.
-        cfg_dict (dict): Archive configuration dict.
-        executables_paths (list): Paths to relevant model executables.
+    @type archive_name: str
+    @ivar archive_name: Desired archive file name.
+    @type save_path: str
+    @ivar save_path: Path to where we want to save the archive file.
+    @type cfg_dict: dict
+    @ivar cfg_dict: Archive configuration dict.
+    @type executables_paths: list
+    @ivar executables_paths: Paths to relevant model executables.
     """
 
     def __init__(

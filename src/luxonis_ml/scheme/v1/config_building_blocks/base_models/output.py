@@ -6,10 +6,13 @@ from ..enums import DataType
 class Output(CustomBaseModel):
     """Represents output stream of a model.
 
-    Attributes:
-        name (str): Name of the output layer.
-        dtype (DataType): Data type of the output data (e.g., 'float32').
-        head_ids (list): IDs of heads which accept this output stream (beware that a single output can go into multiple heads).
+    @type name: str
+    @ivar name: Name of the output layer.
+    @type dtype: DataType
+    @ivar dtype: Data type of the output data (e.g., 'float32').
+    @type head_ids: list
+    @ivar head_ids: IDs of heads which accept this output stream (beware that a single
+        output can go into multiple heads).
     """
 
     name: str

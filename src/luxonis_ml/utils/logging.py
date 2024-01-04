@@ -17,20 +17,20 @@ def setup_logging(
 ) -> None:
     """Globally configures logging.
 
-    Configures a standar Luxonis logger.
-    Optionally utilizes rich library, configures handling of warnings
-    (from warnings module) and saves the logs to a file.
+    Configures a standar Luxonis logger. Optionally utilizes rich library, configures
+    handling of warnings (from warnings module) and saves the logs to a file.
 
-    Args:
-        file (str, optional): Path to a file where logs will be saved.
-          If None, logs will not be saved. Defaults to None.
-        use_rich (bool, optional): If True, rich library will be used for logging.
-          Defaults to False.
-        level (str, optional): Logging level. One of "DEBUG", "INFO", "WARNING",
-          "ERROR", and "CRITICAL". Defaults to "INFO".
-          The log level can be changed using "LOG_LEVEL" environment variable.
-        configure_warnings (bool, optional): If True, warnings will be logged.
-          Defaults to True.
+    @type file: str or None
+    @param file: Path to a file where logs will be saved. If None, logs will not be
+        saved. Defaults to None.
+    @type use_rich: bool
+    @param use_rich: If True, rich library will be used for logging. Defaults to False.
+    @type level: str or None
+    @param level: Logging level. One of "DEBUG", "INFO", "WARNING", "ERROR", and
+        "CRITICAL". Defaults to "INFO". The log level can be changed using "LOG_LEVEL"
+        environment variable.
+    @type configure_warnings: bool
+    @param configure_warnings: If True, warnings will be logged. Defaults to True.
     """
     # NOTE: So we can simply run e.g. `LOG_LEVEL=DEBUG python ...`
     level = level or environ.LOG_LEVEL

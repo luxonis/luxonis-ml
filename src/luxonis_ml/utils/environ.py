@@ -8,6 +8,8 @@ __all__ = ["Environ", "environ"]
 
 
 class Environ(BaseSettings):
+    """A L{BaseSettings} subclass for storing environment variables."""
+
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )

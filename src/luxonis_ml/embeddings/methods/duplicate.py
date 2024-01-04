@@ -21,40 +21,35 @@ Functions:
 - kde_peaks: Determine peaks in a KDE distribution.
 - find_similar_qdrant: Find the most similar embeddings to the given reference embeddings.
 
-Usage Examples:
----------------
+Examples
+===============
 Initialize a Qdrant client and retrieve all embeddings from a specific collection:
-```python
-from luxonis_ml.embeddings.utils.qdrant import QdrantAPI
-qdrant_api = QdrantAPI(host="localhost", port=6333, collection_name="webscraped_real_all")
-id_X, X = qdrant_api.get_all_embeddings()
-i = 111
-```
+
+    from luxonis_ml.embeddings.utils.qdrant import QdrantAPI
+    qdrant_api = QdrantAPI(host="localhost", port=6333, collection_name="webscraped_real_all")
+    id_X, X = qdrant_api.get_all_embeddings()
+    i = 111
 
 1. Search for similar embeddings in Qdrant for a specific embedding:
-```python
-ids, similarites, image_paths = search_qdrant(qdrant_api, X[i], "real", 1000)
-vals = np.array(similarites)
-k = len(np.where(vals > 0.961)[0])  # manually selected threshold
-imgk = image_paths[:k]
-```
+
+    ids, similarites, image_paths = search_qdrant(qdrant_api, X[i], "real", 1000)
+    vals = np.array(similarites)
+    k = len(np.where(vals > 0.961)[0])  # manually selected threshold
+    imgk = image_paths[:k]
 
 2. Find similar embeddings by providing an instance ID:
-```python
-ix, paths = find_similar_qdrant(id_X[i], qdrant_api, "real", 5, 100, "first")
-```
+
+    ix, paths = find_similar_qdrant(id_X[i], qdrant_api, "real", 5, 100, "first")
 
 3. Find similar embeddings using the KDE Peaks method:
-```python
-ix, paths = find_similar_qdrant(X[i], qdrant_api, "real", 5, 100, "first", "kde_peaks", "silverman", plot=False)
-```
+
+    ix, paths = find_similar_qdrant(X[i], qdrant_api, "real", 5, 100, "first", "kde_peaks", "silverman", plot=False)
 
 4. Calculate the average of multiple embeddings and then find similar embeddings:
-```python
-dark_ix = np.array([10,123,333,405])
-emb_dark = X[dark_ix]
-remove_dark_ix, paths = find_similar_qdrant(emb_dark, qdrant_api, "real", 25, 5000, "average", "kde_basic", "scott", plot=True)
-```
+
+    dark_ix = np.array([10,123,333,405])
+    emb_dark = X[dark_ix]
+    remove_dark_ix, paths = find_similar_qdrant(emb_dark, qdrant_api, "real", 25, 5000, "average", "kde_basic", "scott", plot=True)
 """
 
 
@@ -127,45 +122,38 @@ def find_similar_qdrant(
 ):
     """Find the most similar embeddings to the reference embeddings.
 
-    Parameters
-    ----------
-    reference_embeddings : np.array / list
-        The embeddings to compare against.
-        Or a list of of embedding instance_ids that reside in Qdrant.
-    qdrant_api : QdrantAPI
-        The Qdrant client API instance to use for searches.
-    dataset : str
-        The dataset to use.
-        (It actually filters on the image_path field, so it can be any string.
-        It can be helpful if you have different datasets in subfolders for the same collection, like 'real/img1.jpg' and 'synth/img1.jpg'.)
-    k : int
-        The number of embeddings to return. Default is 100.
-    n : int
-        The number of embeddings to compare against. Default is 1000.
-        (This is the number of embeddings that are returned by the Qdrant search.
-        It matters for the KDE, as it can be slow for large n.
-        Your choice of n depends on the amount of duplicates in your dataset, the more duplicates, the larger n should be.
-        If you have 2-10 duplicates per image, n=100 should be ok. If you have 50-300 duplicates per image, n=1000 should work good enough.)
-    method : str
-        The method to use to find the most similar embeddings.
-        If 'first' use the first of the reference embeddings.
-        If 'average', use the average of the reference embeddings.
-    k_method : str
-        The method to select the best k.
-        If None, use k as is.
-        If 'kde_basic', use the minimum of the KDE.
-        If 'kde_peaks', use the minimum of the KDE peaks, according to a specific hardcoded hevristics/thresholds.
-    kde_bw : str/float
-        The bandwidth to use for the KDE. Default is 'scott'. See https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.gaussian_kde.html.
-    plot : bool
-        Whether to plot the KDE.
-
-    Returns
-    -------
-    np.array
-        The instance_ids of the most similar embeddings.
-    np.array
-        The image_paths of the most similar embeddings.
+    @type reference_embeddings: Union[np.array, list]
+    @param reference_embeddings: The embeddings to compare against. Or a list of of
+        embedding instance_ids that reside in Qdrant.
+    @type qdrant_api: QdrantAPI
+    @param qdrant_api: The Qdrant client API instance to use for searches.
+    @type dataset: str
+    @param dataset: The dataset to use. (It actually filters on the image_path field, so
+        it can be any string. It can be helpful if you have different datasets in
+        subfolders for the same collection, like 'real/img1.jpg' and 'synth/img1.jpg'.)
+    @type k: int
+    @param k: The number of embeddings to return. Default is 100.
+    @type n: int
+    @param n: The number of embeddings to compare against. Default is 1000. (This is the
+        number of embeddings that are returned by the Qdrant search. It matters for the
+        KDE, as it can be slow for large n. Your choice of n depends on the amount of
+        duplicates in your dataset, the more duplicates, the larger n should be. If you
+        have 2-10 duplicates per image, n=100 should be ok. If you have 50-300
+        duplicates per image, n=1000 should work good enough.
+    @type method: str
+    @param method: The method to use to find the most similar embeddings. If 'first' use
+        the first of the reference embeddings. If 'average', use the average of the
+        reference embeddings.
+    @type k_method: str
+    @param k_method: The method to select the best k. If None, use k as is. If
+        'kde_basic', use the minimum of the KDE. If 'kde_peaks', use the minimum of the
+        KDE peaks, according to a specific hardcoded hevristics/thresholds.
+    @type kde_bw: Union[str, float]
+    @param kde_bw: The bandwidth to use for the KDE. Default is 'scott'.
+    @type plot: bool
+    @param plot: Whether to plot the KDE.
+    @rtype: np.array
+    @return: The instance_ids of the most similar embeddings.
     """
     # Get the reference embeddings
     # check if reference_embeddings is a list of instance_ids

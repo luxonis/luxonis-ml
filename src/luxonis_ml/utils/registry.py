@@ -4,10 +4,10 @@ from abc import ABCMeta
 
 class Registry:
     def __init__(self, name: str):
-        """A registry to map strings to classes or functions.
+        """A Registry class to store and retrieve modules.
 
-        Args:
-            name (str): Registry name
+        @type name: str
+        @param name: Name of the registry
         """
         self._module_dict: Dict[str, type] = dict()
         self._name = name
@@ -30,13 +30,14 @@ class Registry:
         return self._module_dict
 
     def get(self, key: str) -> type:
-        """Get the registry record for the key.
+        """Retrieves the registry record for the key.
 
-        Args:
-            key (str): Name of the registered item, e.g. the class name in string format
-
-        Returns:
-            tpye: Corresponding class if `key` exists
+        @type key: str
+        @param key: Name of the registered item, I{e.g.} the class name in string
+            format.
+        @rtype: type
+        @return: Corresponding class if L{key} exists
+        @raise KeyError: If L{key} is not in the registry
         """
         module_cls = self._module_dict.get(key, None)
         if module_cls is None:
@@ -52,14 +53,37 @@ class Registry:
     ) -> Union[type, Callable[[type], type]]:
         """Registers a module.
 
-        Args:
-            name (Optional[str], optional): Name of the module, if None then use class name. Defaults to None.
-            module (Optional[type], optional): Module class to be registered. Defaults to None.
-            force (bool, optional): Wheather to override an existing class with the same name. Defaults to False.
+        Can be used as a decorator or as a normal method.
 
-        Returns:
-            Union[type, Callable[[type], type]]: Module class or register function if used as a decorator
+            >>> registry = Registry(name="modules")
+            >>> @registry.register_module()
+            ... class Foo:
+            ...     pass
+            >>> registry.get("Foo")
+            <class '__main__.Foo'>
+            >>> class Bar:
+            ...     pass
+            >>> registry.register_module(module=Bar)
+            >>> registry.get("Bar")
+            <class '__main__.Bar'>
+
+        @type name: Optional[str]
+        @param name: Name of the module. If C{None}, then use class name.
+            Defaults to None.
+
+        @type module: Optional[type]
+        @param module: Module class to be registered. Defaults to None.
+
+        @type force: bool
+        @param force: Whether to override an existing class with the same name.
+            Defaults to False.
+
+        @rtype: Union[type, Callable[[type], type]]
+        @return: Module class or register function if used as a decorator
+
+        @raise KeyError: Raised if class name already exists and C{force==False}
         """
+
         # use it as a normal method: x.register_module(module=SomeClass)
         if module is not None:
             self._register_module(module=module, module_name=name, force=force)
@@ -75,16 +99,7 @@ class Registry:
     def _register_module(
         self, module: type, module_name: Optional[str] = None, force: bool = False
     ) -> None:
-        """Registers a module by creating a (key, value) pair.
-
-        Args:
-            module (type): Module class to be registered
-            module_name (Optional[str], optional): Name of the module, if None use class name. Defaults to None.
-            force (bool, optional): Weather to override an existing class with the same name. Defaults to False.
-
-        Raises:
-            KeyError: Raised if class name already exists and force==False
-        """
+        """Registers a module by creating a (key, value) pair."""
         if module_name is None:
             module_name = module.__name__
 
@@ -103,10 +118,8 @@ class AutoRegisterMeta(ABCMeta):
     Can be set as a metaclass for abstract base classes. Then, all subclasses will be
     automatically registered under the name of the subclass.
 
-    Attributes:
-        REGISTRY (Registry): Registry used for registration of sub-classes.
-
     Example:
+
         >>> REGISTRY = Registry(name="modules")
         >>> class BaseClass(metaclass=AutoRegisterMeta, registry=REGISTRY):
         ...     pass
@@ -131,16 +144,26 @@ class AutoRegisterMeta(ABCMeta):
     ):
         """Automatically register the class.
 
-        Args:
-            name (str): Class name
-            bases (tuple): Base classes
-            attrs (dict): Class attributes
-            register (bool, optional): Weather to register the class. Defaults to True.
-              Should be set to False for abstract base classes.
-            register_name (str | None, optional): Name used for registration.
-              If unset, the class name is used. Defaults to None.
-            registry (Registry | None, optional): Registry to use for registration.
-              Defaults to None. Has to be set in the base class.
+        @type name: str
+        @param name: Class name
+
+        @type bases: Tuple[type, ...]
+        @param bases: Base classes
+
+        @type attrs: Dict[str, type]
+        @param attrs: Class attributes
+
+        @type register: bool
+        @param register: Weather to register the class. Defaults to True.
+            Should be set to False for abstract base classes.
+
+        @type register_name: Optional[str]
+        @param register_name: Name used for registration.
+            If unset, the class name is used. Defaults to None.
+
+        @type registry: Optional[Registry]
+        @param registry: Registry to use for registration.
+            Defaults to None. Has to be set in the base class.
         """
         new_class = super().__new__(cls, name, bases, attrs)
         if not hasattr(new_class, "REGISTRY"):

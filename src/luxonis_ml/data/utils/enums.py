@@ -4,8 +4,8 @@ from enum import Enum
 class DataLabelType(Enum):
     """Supported computer vision label types.
 
-    Annotation types can be nested (e.g. a BOX has 2 LABELS,     a BOX has a POLYLINE
-    instance segmentation,     etc.)
+    Annotation types can be nested (I{e.g.} a BOX has 2 LABELS, a BOX has a POLYLINE
+    instance segmentation, I{etc.})
     """
 
     CLASSIFICATION = (
