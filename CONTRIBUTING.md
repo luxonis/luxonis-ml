@@ -33,7 +33,6 @@ In addition to the pre-commit hook, our GitHub Actions workflow includes tests t
 1. Commit (pre-commit hook will run).
 1. Push to your branch and create a pull request. Always request a review from:
    - [Martin Kozlovský](https://github.com/kozlov721)
-     - His permission is required for merge
    - [Matija Teršek](https://github.com/tersekmatija)
    - [Conor Simmons](https://github.com/conorsim)
 1. The team will review and merge your PR.
