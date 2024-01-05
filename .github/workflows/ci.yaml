@@ -11,7 +11,7 @@ on:
 
 jobs:
   call-reusable-workflow:
-    uses: luxonis/luxonis-ml/.github/workflows/luxonis-ml-ci.yaml@misc/style
+    uses: luxonis/luxonis-ml/.github/workflows/luxonis-ml-ci.yaml@dev
     with:
       os: 'ubuntu-latest,macOS-latest,windows-latest'
       python-version: "3.8,3.10"
