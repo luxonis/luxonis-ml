@@ -1,7 +1,7 @@
 [project]
 name = "luxonis-ml"
 version = "0.0.1"
-description = "This package provides MLOps tools for training models for OAK devices"
+description = "MLOps tools for training models for Luxonis devices"
 readme = "README.md"
 requires-python = ">=3.8"
 license = { file = "LICENSE" }
@@ -10,7 +10,7 @@ maintainers = [{ name = "Luxonis", email = "support@luxonis.com" }]
 keywords = ["ml", "ops", "camera", "luxonis", "oak"]
 dynamic = ["dependencies", "optional-dependencies"]
 classifiers = [
-  "License :: Apache License 2.0",
+  "License :: OSI Approved :: Apache Software License",
   "Development Status :: 3 - Alpha",
   "Programming Language :: Python :: 3.8",
   "Programming Language :: Python :: 3.9",
@@ -24,8 +24,8 @@ classifiers = [
 luxonis_ml = "luxonis_ml.luxonis_ml:main"
 
 [project.urls]
-repository = "https://github.com/luxonis/models"
-issues = "https://github.com/luxonis/models/issues"
+repository = "https://github.com/luxonis/luxonis-ml"
+issues = "https://github.com/luxonis/luxonis-ml/issues"
 
 [build-system]
 requires = ["setuptools", "wheel"]
