@@ -20,9 +20,6 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Image Recognition",
 ]
 
-[project.scripts]
-luxonis_ml = "luxonis_ml.luxonis_ml:main"
-
 [project.urls]
 repository = "https://github.com/luxonis/luxonis-ml"
 issues = "https://github.com/luxonis/luxonis-ml/issues"
