@@ -37,30 +37,6 @@ To install the package with all dependecies, run:
 pip install luxonis-ml[all]
 ```
 
-We will want to install [`s3fs-fuse`](https://github.com/s3fs-fuse/s3fs-fuse) to mount S3 buckets to our local filesystem. Check the link for installation on other operating systems. For Debian, it can be installed like:
-
-```bash
-sudo apt install s3fs
-```
-
-## Setup
-
-After installing the `luxonis_ml` package, you should be able to run
-
-```bash
-luxonis_ml config
-```
-
-It will ask you to enter the following variables:
-
-```text
-AWS Bucket: xxxxxxxxxxxxxxxxx
-AWS Access Key: xxxxxxxxxxxxxxxxx
-AWS Secret Access Key: xxxxxxxxxxxxxxxxx
-AWS Endpoint URL: xxxxxxxxxxxxxxxxx
-MONGO_URI: xxxxxxxxxxxxxxxxx
-```
-
 ## Contributing
 
 If you want to contribute to this project, read the instructions in [CONTRIBUTING.md](CONTRIBUTING.md)
