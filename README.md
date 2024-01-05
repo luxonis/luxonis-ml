@@ -16,6 +16,7 @@ The project is in an alpha state, so it may be missing some critical features or
 
 - [Installation](#installation)
 - [Setup](#setup)
+- [Contributing](#contributing)
 
 ## Installation
 
@@ -59,3 +60,7 @@ AWS Secret Access Key: xxxxxxxxxxxxxxxxx
 AWS Endpoint URL: xxxxxxxxxxxxxxxxx
 MONGO_URI: xxxxxxxxxxxxxxxxx
 ```
+
+## Contributing
+
+If you want to contribute to this project, read the instructions in [CONTRIBUTING.md](CONTRIBUTING.md)
