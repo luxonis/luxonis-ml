@@ -37,8 +37,7 @@ import torchvision.transforms as transforms
 def mnist_transformations():
     """Returns composed transformations for the MNIST dataset.
 
-    Transforms the images from 1 channel grayscale to 3 channels RGB and
-    resizes them.
+    Transforms the images from 1 channel grayscale to 3 channels RGB and resizes them.
     """
     return transforms.Compose(
         [

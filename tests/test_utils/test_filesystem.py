@@ -1,6 +1,6 @@
-from luxonis_ml.utils.filesystem import LuxonisFileSystem, _get_protocol_and_path
-
 import pytest
+
+from luxonis_ml.utils.filesystem import LuxonisFileSystem, _get_protocol_and_path
 
 
 def test_protocol():

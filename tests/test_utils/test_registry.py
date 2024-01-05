@@ -1,5 +1,6 @@
-from luxonis_ml.utils.registry import Registry, AutoRegisterMeta
 import pytest
+
+from luxonis_ml.utils.registry import AutoRegisterMeta, Registry
 
 
 @pytest.fixture(scope="function")
