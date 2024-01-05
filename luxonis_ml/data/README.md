@@ -1,54 +1,26 @@
 # LuxonisML - Data
 
+Check out [this notebook](../../examples/COCO_people_subset.ipynb) for a complete example of utilizing `LuxonisDataset` and `LuxonisLoader`.
+
 ## Table of Contents
 
 - [LuxonisDataset](#luxonisdataset)
-  - [Source](#source)
-  - [Components](#components)
   - [Adding Data](#adding-data)
-- [Dataset Versioning](#dataset-versioning)
 - [LuxonisLoader](#luxonisloader)
 
 ## LuxonisDataset
 
-The Luxonis Dataset Format (LDF) is intended to standardize the way the ML team stores data. We can use LDF with the `luxonis_ml.ops` package. LDF should provide the foundation for tasks such as training, evaluation, querying, and visualization. The library is largely powered by the open source software from [Voxel51](https://voxel51.com/).
+The `LuxonisDataset` is intended to standardize the way data is stored and managed in the Luxonis MLOps ecosystem. `LuxonisDataset` should provide the foundation for tasks such as training, evaluation, querying, and visualization.
 
-When initializing a `LuxonisDataset` in Python, we want to specigy a dataset name.
+To initialize a `LuxonisDataset` in Python, we want to specigy a dataset name.
 
 ```python
 from luxonis_ml.data import LuxonisDataset
-dataset_name = 'bdd'
+dataset_name = 'my_dataset'
 
 dataset = LuxonisDataset(dataset_name)
 print(dataset.name)
 ```
-
-### Source
-
-The source abstracts the dataset source to specify the type of training media and optionally groups of training media.
-
-### Components
-
-In the code above, you can see that since COCO is not from a default configuration of Luxonis hardware, we want to create custom components for it to define the structure of the source. In the COCO example, it's simple. We don't need to define any components for annotations, we just want to define them for any images we might have. Obviously, we don't have multi-cam setups in the COCO dataset, so we just define one component called `image` that represents our input BGR image.
-
-The default components for OAK-D looks like this:
-
-```python
-components = [
-    LDFComponent('left', htype=HType.IMAGE, itype=IType.MONO),
-    LDFComponent('right', htype=HType.IMAGE, itype=IType.MONO),
-    LDFComponent('color', htype=HType.IMAGE, itype=IType.BGR),
-    LDFComponent('disparity', htype=HType.IMAGE, itype=IType.DISPARITY),
-    LDFComponent('depth', htype=HType.IMAGE, itype=IType.DEPTH)
-]
-```
-
-You could see that this configuration could also be used for any OAK-D-like product. When adding data, you do not need to provide data for every single component.
-
-Some more definitions:
-
-- `HType`: The type of the component. Right now, there's really only `IMAGE`. But eventually, we will have video and point cloud.
-- `IType`: For an image component, the type of the image. `BGR` is for any 3-channel image, `MONO` is for single-channel images, and `DEPTH` and `DISPARITY` can be uint16 single-channel images for subpixel disparity. The only difference between `DISPARITY` and `DEPTH` is a semantic difference.
 
 ### Adding Data
 
@@ -98,10 +70,6 @@ classes, classes_by_task = dataset.get_classes()
 print(classes)
 print(classes_by_task)
 ```
-
-## Dataset Versioning
-
-Every time the `dataset.add` method is called, dataset versioning is handled in the background and stored as fiftyone dataset views. The library will detect if there are any "add" or "update" cases.
 
 ## LuxonisLoader
 
