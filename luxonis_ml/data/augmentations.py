@@ -14,9 +14,8 @@ from albumentations.core.transforms_interface import (
     KeypointType,
 )
 
+from luxonis_ml.enums import LabelType
 from luxonis_ml.utils.registry import Registry
-
-from .loader import LabelType
 
 AUGMENTATIONS = Registry(name="augmentations")
 

@@ -22,6 +22,27 @@ dictionary for keypoints and list of added images.
 """
 
 
+def parsing_wrapper(func: Callable) -> Callable:
+    """Wrapper for parsing functions that adds data to LDF.
+
+    @type func: Callable
+    @param func: Parsing function
+    @rtype: Callable
+    @return: Wrapper function
+    """
+
+    def wrapper(*args, **kwargs):
+        dataset = args[0].dataset
+        generator, class_names, skeletons, added_images = func(*args, **kwargs)
+        dataset.set_classes(class_names)
+        dataset.set_skeletons(skeletons)
+        dataset.add(generator)
+
+        return added_images
+
+    return wrapper
+
+
 class LuxonisParser:
     def __init__(self, **ldf_kwargs):
         """A parser class used for parsing common dataset formats to LDF.
@@ -35,27 +56,6 @@ class LuxonisParser:
             dataset_name=ldf_kwargs["dataset_name"]
         )
         self.dataset = LuxonisDataset(**ldf_kwargs)
-
-    @staticmethod
-    def parsing_wrapper(func: Callable) -> Callable:
-        """Wrapper for parsing functions that adds data to LDF.
-
-        @type func: Callable
-        @param func: Parsing function
-        @rtype: Callable
-        @return: Wrapper function
-        """
-
-        def wrapper(*args, **kwargs):
-            dataset = args[0].dataset
-            generator, class_names, skeletons, added_images = func(*args, **kwargs)
-            dataset.set_classes(class_names)
-            dataset.set_skeletons(skeletons)
-            dataset.add(generator)
-
-            return added_images
-
-        return wrapper
 
     def parse_dir(
         self,
