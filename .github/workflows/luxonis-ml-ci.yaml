@@ -53,8 +53,24 @@ jobs:
         curl -L "https://raw.githubusercontent.com/luxonis/luxonis-ml/dev/.pre-commit-config.yaml" -o ".pre-commit-config.yaml"
 
     - uses: pre-commit/action@v3.0.0
+      name: ruff
       with:
-        extra_args: ruff docformatter mdformat --all-files
+        extra_args: ruff --all-files
+        
+    - uses: pre-commit/action@v3.0.0
+      name: ruff-format
+      with:
+        extra_args: ruff-format --all-files
+        
+    - uses: pre-commit/action@v3.0.0
+      name: docformatter
+      with:
+        extra_args: docformatter --all-files
+
+    - uses: pre-commit/action@v3.0.0
+      name: mdformat
+      with:
+        extra_args: mdformat --all-files
 
   tests:
     needs:
