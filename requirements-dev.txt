@@ -1,3 +1,5 @@
 pre-commit>=3.2.1
-pytest>=7.2.0
+pytest-cov>=4.1.0
+pytest-md>=0.2.0
 gdown>=4.7.1
+coverage-badge>=1.1.0

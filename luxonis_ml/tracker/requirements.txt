@@ -1,0 +1,5 @@
+unique-names-generator>=1.0.2
+numpy>=1.22
+mlflow>=2.0.1
+# wandb # if using wandb logging
+# torch>=2.0.1 # if using tensorboard logging
