@@ -14,8 +14,10 @@ from albumentations.core.transforms_interface import (
     KeypointType,
 )
 
+import luxonis_ml.data.utils.aug_utils as A_batched
 from luxonis_ml.enums import LabelType
 from luxonis_ml.utils.registry import Registry
+
 
 AUGMENTATIONS = Registry(name="augmentations")
 
@@ -38,7 +40,7 @@ class Augmentations:
         image_size: List[int],
         augmentations: List[Dict[str, Any]],
         keep_aspect_ratio: bool = True,
-    ) -> Tuple[A.BatchCompose, A.Compose]:
+    ) -> Tuple[A_batched.BatchCompose, A.Compose]:
         """Parses provided config and returns Albumentations BatchedCompose object and
         Compose object for default transforms.
 
@@ -71,16 +73,16 @@ class Augmentations:
                     pixel_augs.append(curr_aug)
                 elif isinstance(curr_aug, A.DualTransform):
                     spatial_augs.append(curr_aug)
-                elif isinstance(curr_aug, A.BatchBasedTransform):
+                elif isinstance(curr_aug, A_batched.BatchBasedTransform):
                     self.is_batched = True
                     self.aug_batch_size = max(self.aug_batch_size, curr_aug.n_tiles)
                     batched_augs.append(curr_aug)
         # NOTE: always perform resize last
         spatial_augs.append(resize)
 
-        batch_transform = A.BatchCompose(
+        batch_transform = A_batched.BatchCompose(
             [
-                A.ForEach(pixel_augs),
+                A_batched.ForEach(pixel_augs),
                 *batched_augs,
             ],
             bbox_params=A.BboxParams(
@@ -217,7 +219,15 @@ class Augmentations:
 
     def prepare_img_annotations(
         self, annotations: Dict[LabelType, np.ndarray], ih: int, iw: int
-    ) -> Tuple[np.ndarray]:
+    ) -> Tuple[
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+    ]:
         """Prepare annotations to be compatible with albumentations.
 
         @type annotations: Dict[LabelType, np.ndarray]
@@ -226,7 +236,7 @@ class Augmentations:
         @param ih: Input image height
         @type iw: int
         @param iw: Input image width
-        @rtype: Tuple[np.ndarray]
+        @rtype: Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]
         @return: Annotations in albumentations format
         """
 
@@ -272,7 +282,7 @@ class Augmentations:
         ns: int,
         nk: int,
         filter_kpts_by_bbox: bool,
-    ) -> Tuple[np.ndarray]:
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Postprocessing of albumentations output to LuxonisLoader format.
 
         @type transformed_data: Dict[str, np.ndarray]
@@ -284,7 +294,7 @@ class Augmentations:
         @type filter_kpts_by_bbox: bool
         @param filter_kpts_by_bbox: If True removes keypoint instances if its bounding
             box was removed.
-        @rtype: Tuple[np.ndarray]
+        @rtype: Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
         @return: Postprocessed annotations
         """
 
@@ -809,7 +819,7 @@ class LetterboxResize(DualTransform):
 
 
 @AUGMENTATIONS.register_module(name="Mosaic4")
-class DeterministicMosaic4(A.Mosaic4):
+class DeterministicMosaic4(A_batched.Mosaic4):
     def __init__(
         self,
         out_height: int,
@@ -886,7 +896,7 @@ class DeterministicMosaic4(A.Mosaic4):
 
 
 @AUGMENTATIONS.register_module()
-class MixUp(A.BatchBasedTransform):
+class MixUp(A_batched.BatchBasedTransform):
     def __init__(
         self,
         alpha: Union[float, Tuple[float, float]] = 0.5,
