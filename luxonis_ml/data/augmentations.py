@@ -745,7 +745,7 @@ class LetterboxResize(DualTransform):
         # clip bbox to image, ignoring padding
         bbox = bbox.clip(
             min=[pad_left, pad_top] * 2,
-            max=[params["cols"] + pad_left, params["rows"] + pad_top] * 2,
+            max=[self.width - pad_left, self.height - pad_top] * 2,
         ).tolist()
         return normalize_bbox(bbox, self.height, self.width)
 
@@ -784,10 +784,10 @@ class LetterboxResize(DualTransform):
         # if keypoint is in the padding then set coordinates to -1
         out_keypoint = (
             new_x
-            if not self._out_of_bounds(new_x, pad_left, params["cols"] + pad_left)
+            if not self._out_of_bounds(new_x, pad_left, self.width - pad_left)
             else -1,
             new_y
-            if not self._out_of_bounds(new_y, pad_top, params["rows"] + pad_top)
+            if not self._out_of_bounds(new_y, pad_top, self.height - pad_top)
             else -1,
             angle,
             scale * max(scale_x, scale_y),
