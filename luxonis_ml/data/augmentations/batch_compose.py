@@ -1,40 +1,49 @@
 import random
+from typing import Any, Dict, List, Optional, Union, cast
+
 import numpy as np
-from typing import Optional, Union, Dict, Any, List, cast
+from albumentations.core.bbox_utils import (
+    BboxParams,
+    BboxProcessor,
+    DataProcessor,
+)
 from albumentations.core.composition import (
     BaseCompose,
     TransformsSeqType,
     get_always_apply,
 )
-from albumentations.core.bbox_utils import (
-    DataProcessor,
-    BboxProcessor,
-    BboxParams,
-)
 from albumentations.core.keypoints_utils import KeypointParams, KeypointsProcessor
 from albumentations.core.utils import get_shape
+
 from .batch_processors import BboxBatchProcessor, KeypointsBatchProcessor
-from .batch_utils import *
+from .batch_utils import batch2list, concat_batches, list2batch, to_unbatched_name
 
 
 class Compose(BaseCompose):
-    """Compose transforms and handle all transformations regarding bounding boxes
+    """Compose transforms and handle all transformations regarding bounding boxes.
 
-    Args:
-        transforms (list): list of transformations to compose.
-        bbox_params (BboxParams): Parameters for bounding boxes transforms
-        keypoint_params (KeypointParams): Parameters for keypoints transforms
-        additional_targets (dict): Dict with keys - new target name, values - old target name. ex: {'image2': 'image'}
-        p (float): probability of applying all list of transforms. Default: 1.0.
-        is_check_shapes (bool): If True shapes consistency of images/mask/masks would be checked on each call. If you
-            would like to disable this check - pass False (do it only if you are sure in your data consistency).
+    @param transforms: List of transformations to compose
+    @type transforms: TransformsSeqType
+    @param bboxparams: Parameters for bounding boxes transforms. Defaults to None.
+    @type bboxparams: Optional[Union[dict, BboxParams]]
+    @param keypoint_params: Parameters for keypoint transforms. Defaults to None.
+    @type keypoint_params: Optional[Union[dict, KeypointParams]]
+    @param additional_targets: Dict with keys - new target name, values - old target
+    name. ex: {'image2': 'image'}. Defaults to None.
+    @type additional_targets: Optional[Dict[str, str]]
+    @param p: Probability of applying all list of transforms. Defaults to 1.0.
+    @type p: float
+    @param is_check_shapes: If True shapes consistency of images/mask/masks would be checked on
+    each call. If you would like to disable this check - pass False (do it only if you are sure
+    in your data consistency). Defaults to True.
+    @type is_check_shapes: bool
     """
 
     def __init__(
         self,
         transforms: TransformsSeqType,
-        bbox_params: Optional[Union[dict, "BboxParams"]] = None,
-        keypoint_params: Optional[Union[dict, "KeypointParams"]] = None,
+        bbox_params: Optional[Union[dict, BboxParams]] = None,
+        keypoint_params: Optional[Union[dict, KeypointParams]] = None,
         additional_targets: Optional[Dict[str, str]] = None,
         p: float = 1.0,
         is_check_shapes: bool = True,
@@ -232,26 +241,34 @@ class Compose(BaseCompose):
 
 
 class BatchCompose(Compose):
-    """Compose designed to handle the multi-image transforms
-    The contents can be a subclass of `BatchBasedTransform` or
-    other transforms enclosed by ForEach container.
-    All targets' names should have the suffix "_batch", ex ("image_batch", "bboxes_batch").
-    Note this nameing rule is applied to the `label_fields` of the `BboxParams` and the `KeypointsParams`.
-    Args:
-        transforms (list): list of transformations to compose.
-        bbox_params (BboxParams): Parameters for bounding boxes transforms
-        keypoint_params (KeypointParams): Parameters for keypoints transforms
-        additional_targets (dict): Dict with keys - new target name, values - old target name. ex: {'image2': 'image'}
-        p (float): probability of applying all list of transforms. Default: 1.0.
-        is_check_shapes (bool): If True shapes consistency of images/mask/masks would be checked on each call. If you
-            would like to disable this check - pass False (do it only if you are sure in your data consistency).
+    """Compose designed to handle the multi-image transforms The contents can be a
+    subclass of `BatchBasedTransform` or other transforms enclosed by ForEach container.
+    All targets' names should have the suffix "_batch", ex ("image_batch",
+    "bboxes_batch"). Note this nameing rule is applied to the `label_fields` of the
+    `BboxParams` and the `KeypointsParams`.
+
+    @param transforms: List of transformations to compose
+    @type transforms: TransformsSeqType
+    @param bboxparams: Parameters for bounding boxes transforms. Defaults to None.
+    @type bboxparams: Optional[Union[dict, BboxParams]]
+    @param keypoint_params: Parameters for keypoint transforms. Defaults to None.
+    @type keypoint_params: Optional[Union[dict, KeypointParams]]
+    @param additional_targets: Dict with keys - new target name, values - old target
+    name. ex: {'image2': 'image'}. Defaults to None.
+    @type additional_targets: Optional[Dict[str, str]]
+    @param p: Probability of applying all list of transforms. Defaults to 1.0.
+    @type p: float
+    @param is_check_shapes: If True shapes consistency of images/mask/masks would be checked on
+    each call. If you would like to disable this check - pass False (do it only if you are sure
+    in your data consistency). Defaults to True.
+    @type is_check_shapes: bool
     """
 
     def __init__(
         self,
         transforms: TransformsSeqType,
-        bbox_params: Optional[Union[dict, "BboxParams"]] = None,
-        keypoint_params: Optional[Union[dict, "KeypointParams"]] = None,
+        bbox_params: Optional[Union[dict, BboxParams]] = None,
+        keypoint_params: Optional[Union[dict, KeypointParams]] = None,
         additional_targets: Optional[Dict[str, str]] = None,
         p: float = 1.0,
         is_check_shapes: bool = True,
@@ -308,8 +325,9 @@ class BatchCompose(Compose):
 
 
 class ForEach(BaseCompose):
-    """Apply transforms for each batch element
-    This expects batched input and can be contained by the `BatchCompose`.
+    """Apply transforms for each batch element This expects batched input and can be
+    contained by the `BatchCompose`.
+
     This can contains any other transforms but a subclass of the `BatchBasedTransform`.
     Internally, this container works as the following way:
     ```
@@ -349,6 +367,7 @@ class ForEach(BaseCompose):
 
 class Repeat(BaseCompose):
     """Apply transforms repeatedly and concatenates the output batches.
+
     This expects batched input and can be contained by the `BatchCompose`.
     The contained transforms should be a subbclass of the `BatchBasedTransform`.
     Internally, this container works as the following way:

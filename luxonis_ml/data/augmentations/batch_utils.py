@@ -1,4 +1,4 @@
-from typing import Dict, List, Any
+from typing import Any, Dict, List
 
 
 def batch2list(data: Dict[str, List]) -> List[Dict[str, Any]]:
@@ -55,8 +55,9 @@ def list2batch(data: List[Dict[str, Any]]) -> Dict[str, List]:
 
 
 def to_unbatched_name(batched_name: str) -> str:
-    """Get a normal target name from a batched target name
-    If the given name does not have "_batched" suffix, ValueError will be raised.
+    """Get a normal target name from a batched target name If the given name does not
+    have "_batched" suffix, ValueError will be raised.
+
     ex. `abc --> abc_batched`
     """
     if not batched_name.endswith("_batch"):
@@ -67,8 +68,9 @@ def to_unbatched_name(batched_name: str) -> str:
 
 
 def to_batched_name(name: str) -> str:
-    """Get a unbatched target name from a normal target name
-    If the given name already has had "_batched" suffix, ValueError will be raised.
+    """Get a unbatched target name from a normal target name If the given name already
+    has had "_batched" suffix, ValueError will be raised.
+
     ex. `abc_batched --> abc `
     """
 

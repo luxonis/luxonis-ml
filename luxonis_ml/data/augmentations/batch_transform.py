@@ -1,14 +1,27 @@
+from typing import Any, Callable, Dict, List, Sequence
+
 import numpy as np
-from typing import Dict, Any, Sequence, Callable, List
 from albumentations.core.transforms_interface import (
+    BasicTransform,
     BoxType,
     KeypointType,
-    BasicTransform,
 )
 
 
 class BatchBasedTransform(BasicTransform):
-    """Transform for multi-image."""
+    """."""
+
+    def __init__(self, batch_size: int, **kwargs):
+        """Transform for multi-image.
+
+        @param batch_size: Batch size needed for augmentation to work
+        @type batch_size: int
+        @param kwargs: Additional BasicTransform parameters
+        @type kwargs: Any
+        """
+        super().__init__(**kwargs)
+
+        self.batch_size = batch_size
 
     @property
     def targets(self) -> Dict[str, Callable]:
