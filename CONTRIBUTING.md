@@ -45,6 +45,8 @@ pytest tests --cov=luxonis_ml
 This command will run all tests and print a coverage report. The coverage report
 is only informational for now, but we may enforce a minimum coverage in the future.
 
+**If a new feature is added, a new test should be added to cover it.**
+
 ## GitHub Actions
 
 Our GitHub Actions workflow is run when a new PR is opened.
@@ -67,4 +69,5 @@ Successful tests are required for merging a PR.
    - [Martin Kozlovský](https://github.com/kozlov721)
    - [Matija Teršek](https://github.com/tersekmatija)
    - [Conor Simmons](https://github.com/conorsim)
+1. Any other relevant team members can be added as reviewers as well.
 1. The team will review and merge your PR.
