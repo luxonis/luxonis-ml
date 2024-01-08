@@ -14,7 +14,7 @@ It outlines our workflow and standards for contributing to this project.
 
 ## Pre-commit Hooks
 
-We use a pre-commit hooks to ensure code quality and consistency:
+We use pre-commit hooks to ensure code quality and consistency:
 
 1. Install pre-commit (see [pre-commit.com](https://pre-commit.com/#install)).
 1. Clone the repository and run `pre-commit install` in the root directory.
