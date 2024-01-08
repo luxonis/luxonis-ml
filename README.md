@@ -7,7 +7,12 @@
 ![Docs](https://github.com/luxonis/luxonis-ml/actions/workflows/docs.yaml/badge.svg)
 ![Coverage](media/coverage_badge.svg)
 
-A collection of helper function and utilities.
+This library includes a collection of helper functions and utilities for the Luxonis MLOps stack. This includes the following submodules:
+
+- [Dataset Management](./luxonis_ml/data): Creating computer vision datasets focused around Luxonis hardware and loading data into our training library.
+- [Embeddings](./luxonis_ml/embeddings): Methods to compute image embeddings.
+- [Tracking](./luxonis_ml/tracker): Our implementation of a logger for use with PyTorch Lightning or in our training library.
+- [Utils](./luxonis_ml/utils): Miscellaneous utils for developers. See this README for details on the different utils.
 
 **NOTE**:
 The project is in an alpha state, so it may be missing some critical features or contain bugs - please report any feedback!
@@ -24,10 +29,10 @@ The `luxonis_ml` package is hosted on PyPI, so you can install it with `pip`.
 
 We offer several version of the package:
 
-- [`luxonis-ml[data]`](./luxonis_ml/data/README.md): installs necessary dependencies for using `luxonis_ml.data` module
-- [`luxonis-ml[utils]`](./luxonis_ml/utils/README.md): installs necessary dependencies for using `luxonis_ml.utils` module
-- [`luxonis-ml[embedd]`](./luxonis_ml/embeddings/README.md): installs necessary dependencies for using `luxonis_ml.embeddings` module
-- [`luxonis-ml[tracker]`](./luxonis_ml/tracker/README.md): installs necessary dependencies for using `luxonis_ml.tracker` module
+- `luxonis-ml[data]`: installs necessary dependencies for using `luxonis_ml.data` module
+- `luxonis-ml[utils]`: installs necessary dependencies for using `luxonis_ml.utils` module
+- `luxonis-ml[embedd]`: installs necessary dependencies for using `luxonis_ml.embeddings` module
+- `luxonis-ml[tracker]`: installs necessary dependencies for using `luxonis_ml.tracker` module
 - `luxonis-ml[all]`: installs all dependencies
 - `luxonis-ml[dev]`: installs all dependencies, including development dependencies
 
