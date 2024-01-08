@@ -2,16 +2,7 @@ from typing import Any, Dict, List
 
 
 def batch2list(data: Dict[str, List]) -> List[Dict[str, Any]]:
-    """Convert from a batched target dict to list of normal target dicts
-    ex:
-    {"image_batch": image_batch, "bboxes_batch": bboxes_batch, ...}
-    =>
-    [
-        {"image": image_batch[0], "bboxes": bboxes_batch[0], ...},
-        {"image": image_batch[1], "bboxes": bboxes_batch[1], ...},
-        ...
-    ]
-    """
+    """Convert from a batched target dict to list of normal target dicts."""
     if "image_batch" not in data:
         raise ValueError("Batch-based transform should have `image_batch` target")
     batch_size = len(data["image_batch"])
@@ -30,16 +21,7 @@ def batch2list(data: Dict[str, List]) -> List[Dict[str, Any]]:
 
 
 def list2batch(data: List[Dict[str, Any]]) -> Dict[str, List]:
-    """Convert from a list of normal target dicts to a batched target dict
-    ex:
-    [
-        {"image": image_batch[0], "bboxes": bboxes_batch[0], ...},
-        {"image": image_batch[1], "bboxes": bboxes_batch[1], ...},
-        ...
-    ]
-    =>
-    {"image_batch": image_batch, "bboxes_batch": bboxes_batch, ...}
-    """
+    """Convert from a list of normal target dicts to a batched target dict."""
 
     if len(data) == 0:
         raise ValueError("The input should have at least one item.")
@@ -56,10 +38,7 @@ def list2batch(data: List[Dict[str, Any]]) -> Dict[str, List]:
 
 def to_unbatched_name(batched_name: str) -> str:
     """Get a normal target name from a batched target name If the given name does not
-    have "_batched" suffix, ValueError will be raised.
-
-    ex. `abc --> abc_batched`
-    """
+    have "_batched" suffix, ValueError will be raised."""
     if not batched_name.endswith("_batch"):
         raise ValueError(
             f"Batched target name must have '_batch' suffix, got `{batched_name}`"
@@ -69,10 +48,7 @@ def to_unbatched_name(batched_name: str) -> str:
 
 def to_batched_name(name: str) -> str:
     """Get a unbatched target name from a normal target name If the given name already
-    has had "_batched" suffix, ValueError will be raised.
-
-    ex. `abc_batched --> abc `
-    """
+    has had "_batched" suffix, ValueError will be raised."""
 
     if name.endswith("_batch"):
         raise ValueError(
@@ -82,17 +58,7 @@ def to_batched_name(name: str) -> str:
 
 
 def concat_batches(batches: List[Dict[str, List]]) -> Dict[str, List]:
-    """Concatenate batched targets
-     ex:
-      [
-        {"image_batch": image_batch1, "bboxes_batch": bboxes_batch1, ...}
-        {"image_batch": image_batch1, "bboxes_batch": bboxes_batch1, ...}
-      ]
-    =>
-      {
-        "image_batch": image_batch1 + image_batch2, "bboxes_batch": bboxes_batch1 + bboxes_batch2, ...
-      }
-    """
+    """Concatenate batched targets."""
 
     n_batches = len(batches)
     if n_batches == 0:
