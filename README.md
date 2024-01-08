@@ -20,7 +20,6 @@ The project is in an alpha state, so it may be missing some critical features or
 ## Table of Contents
 
 - [Installation](#installation)
-- [Setup](#setup)
 - [Contributing](#contributing)
 
 ## Installation
