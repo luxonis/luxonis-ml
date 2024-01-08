@@ -9,10 +9,10 @@
 
 This library includes a collection of helper functions and utilities for the Luxonis MLOps stack. This includes the following submodules:
 
-- [Dataset Management](./luxonis_ml/data): Creating computer vision datasets focused around Luxonis hardware and loading data into our training library.
-- [Embeddings](./luxonis_ml/embeddings): Methods to compute image embeddings.
-- [Tracking](./luxonis_ml/tracker): Our implementation of a logger for use with PyTorch Lightning or in our training library.
-- [Utils](./luxonis_ml/utils): Miscellaneous utils for developers. See this README for details on the different utils.
+- **Dataset Management**: Creating computer vision datasets focused around Luxonis hardware and loading data into our training library.
+- **Embeddings**: Methods to compute image embeddings.
+- **Tracking**: Our implementation of a logger for use with PyTorch Lightning or in our training library.
+- **Utils**: Miscellaneous utils for developers. See this README for details on the different utils.
 
 **NOTE**:
 The project is in an alpha state, so it may be missing some critical features or contain bugs - please report any feedback!
