@@ -7,6 +7,7 @@ It outlines our workflow and standards for contributing to this project.
 
 - [Pre-commit Hooks](#pre-commit-hooks)
 - [Documentation](#documentation)
+  - [Editor Support](#editor-support)
 - [Tests](#tests)
 - [GitHub Actions](#github-actions)
 - [Making and Reviewing Changes](#making-and-reviewing-changes)
@@ -32,6 +33,12 @@ To verify that your documentation is formatted correctly, follow these steps:
    - If the script runs successfully and produces `docs.json` file, your documentation is formatted correctly.
    - **NOTE:** If the script fails, it might not give the specific error message. In that case, you can run
      the script for each file individually until you find the one that is causing the error.
+
+### Editor Support
+
+- **PyCharm** - built in support for generating `epytext` docstrings
+- **Visual Studie Code** - [AI Docify](https://marketplace.visualstudio.com/items?itemName=AIC.docify) extension offers support for `epytext`
+- **NeoVim** - [vim-python-docstring](https://github.com/pixelneo/vim-python-docstring) supports `epytext` style
 
 ## Tests
 
