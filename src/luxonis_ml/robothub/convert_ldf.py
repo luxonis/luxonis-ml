@@ -5,6 +5,7 @@ import cv2
 from matplotlib import pyplot as plt
 
 from luxonis_ml.data.dataset import HType, IType, LDFComponent, LuxonisDataset, BucketStorage
+from luxonis_ml.utils import LuxonisFileSystem
 
 class LDF_Converter:
 
@@ -160,6 +161,13 @@ class LDF_Converter:
             break
 
     def detections_to_ldf(self):
+        if self.tmp_path.startswith("gs://"):
+            bucket_name = self.tmp_path.split("/")[2]
+            lfs = LuxonisFileSystem(bucket_name)
+            gs_path = self.tmp_path.split(bucket_name + "/")[1]
+            lfs.get_file(gs_path + '/detections.json', './detections.json')
+            self.tmp_path = '.'
+            
         detections_path = self.tmp_path + '/detections.json'
 
         with open(detections_path, 'r') as f:

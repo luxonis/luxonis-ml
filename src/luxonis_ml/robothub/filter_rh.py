@@ -1,19 +1,23 @@
 import random
+import uuid
 import requests
 import aiohttp
 import aiofiles
 import os
 import json
 import asyncio
+from google.cloud import storage
 from datetime import datetime, timedelta
 from cron_validator import CronValidator
+from luxonis_ml.utils import LuxonisFileSystem
 
 class RH_Downloader:
     
-    def __init__(self, rh_token, rh_config, dest_dir):
+    def __init__(self, rh_token, rh_config, dest_dir, lfs:LuxonisFileSystem):
         self.rh_token = rh_token
         self.cfg = rh_config.get_config()
-        self.dest_dir = dest_dir
+        self.dest_dir = dest_dir # without gs://bucket_name, only prefix
+        self.lfs = lfs
 
     def get_all_robot_ids(self):
         response = requests.get(
@@ -67,23 +71,6 @@ class RH_Downloader:
         full_url = base_url + '?' + '&'.join(params)
         print("Fetching detections from: ", full_url)
         return full_url
-    
-    # def get_detections(self, full_url):        
-    #     t = 100 if "take=all" in full_url else 10
-
-    #     response = requests.get(
-    #         full_url,
-    #         headers={'Authorization': f'Bearer {self.rh_token}'},
-    #         timeout=t
-    #     )
-    #     if response.status_code != 200:
-    #         print("Error: ", response.status_code)
-    #         print("Error occured while fetching detections.")
-    #         print(response.text)
-    #         return
-        
-    #     items = response.json()['items']
-    #     return items
     
     def get_all_detections(self):
         items = []
@@ -144,13 +131,17 @@ class RH_Downloader:
         # Filter and reformat the detections
         for detection in items:
             try:
-                device_id = detection['title'].split(' ')[4].strip('.')
-                frame_name = detection['frames'][0]['path']
-                id_ = detection['id']
-                image_time = detection['createdAt'].replace(":", "-").split(".")[0]
-                frame_path = f'{image_time}_{id_}_{frame_name}.png'
-
-                frame_full_path = os.path.abspath(os.path.join(self.dest_dir+'/images', frame_path))
+                # try getting device_id
+                device_id = ""
+                if "title" in detection:
+                    title_name = detection['title'].split(' ')
+                    if len(title_name) > 4:
+                        device_id = title_name[4].strip('.')
+                
+                image_data = detection['frames'][0]
+                image_name = image_data["path"] if isinstance(image_data, dict) else image_data
+                image_uuid = image_name.split('frame__')[-1]
+                new_full_path = self.dest_dir + '/images/' + image_uuid + '.png'
 
                 # Create a new dictionary with the required fields
                 detection_info = {
@@ -161,8 +152,8 @@ class RH_Downloader:
                     "deviceId": device_id,
                     "appId": detection["appId"],
                     "tags": detection["tags"],
-                    "frame": frame_name,
-                    "framePath": frame_full_path,
+                    "frame": image_name,
+                    "framePath": new_full_path,
                     "data": detection["data"],
                     "classification": detection["classification"]
                 }
@@ -184,38 +175,26 @@ class RH_Downloader:
                 print("Error occured while processing detection: ", detection)
                 continue
         
-        # check if the folder exists
-        if not os.path.exists(self.dest_dir):
-            os.makedirs(self.dest_dir) # exist_ok=True)
+        # Save the detections to a json file
+        filename = self.dest_dir + '/detections.json'
+        data = json.dumps(detection_infos).encode('utf-8')
+        self.lfs.put_bytes(data, filename)
         
-        # Save the filtered detections to a JSON file
-        with open(self.dest_dir + '/detections.json', 'w') as f:
-            json.dump(detection_infos, f)
-        
-        print(f"Saved {len(detection_infos)} detections to {self.dest_dir}/detections.json")
+        print(f"Saved {len(detection_infos)} detections to {filename}")
+        return filename
 
     async def download_frames(self, item_info, session):
         id_ = item_info['id']
-
-        image_time = item_info['createdAt'].replace(":", "-").split(".")[0]
-
-        image_data = item_info['frames'][0]
-        if isinstance(image_data, dict):
-            image_name = image_data["path"]
-        else:
-            image_name = image_data
+        image_name = item_info['frame']
+        file_name = item_info['framePath']
 
         url = f"https://robothub.luxonis.com/api/detection/{id_}/download/{image_name}"
-        filename = os.path.join(self.dest_dir, f'{image_time}_{id_}_{image_name}.png')
+
         async with session.get(url) as response:
-            async with aiofiles.open(filename, "wb") as f:
-                await f.write(await response.read())
+            image_data = await response.read()
+            self.lfs.put_bytes(image_data, file_name)
     
-    async def download_images(self, items):
-        # check if the folder exists
-        if not os.path.exists(self.dest_dir):
-            os.makedirs(self.dest_dir) # exist_ok=True)
-        
+    async def download_images(self, items):        
         # Download the frames
         async with aiohttp.ClientSession(headers={'Authorization': f'Bearer {self.rh_token}'}) as session:
             await asyncio.gather(
@@ -223,9 +202,10 @@ class RH_Downloader:
             )
     
     def run_async_download(self):
-        # url = self.build_url()
-        # detections = self.get_detections(url)
         detections = self.get_all_detections()
         filtered_detections = self.filter_detections(detections)
-        asyncio.run(self.download_images(filtered_detections))
-        self.save_detections_info(filtered_detections)
+        detections_file = self.save_detections_info(filtered_detections)
+        saved_detections_buffer = self.lfs.read_to_byte_buffer(detections_file)
+        saved_detections = json.loads(saved_detections_buffer.decode('utf-8'))
+        asyncio.run(self.download_images(saved_detections))
+        

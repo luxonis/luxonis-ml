@@ -2,7 +2,7 @@ import asyncio
 from datetime import datetime, timedelta
 
 from airflow import DAG
-from airflow.models import Variable
+from airflow.models import Variable, DagRun
 from airflow.decorators import dag, task_group, task
 from airflow.providers.mongo.hooks.mongo import MongoHook
 
@@ -10,9 +10,11 @@ from luxonis_ml.utils import LuxonisFileSystem
 
 import os
 import sys
+import json
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from config_rh import RHConfig
 from filter_rh import RH_Downloader
+# from weav_api import WeaviateAPI
 # from convert_ldf import LDF_Converter
 
 
@@ -67,212 +69,273 @@ class RobotHubIngest():
 				return rh_config.to_dict()
 
 			@task
-			def get_detections(serialized_data, rh_token):
-				rh_config = RHConfig.from_dict(serialized_data)
-				dest_dir = './tmp/' + self.config_name
-
-				rh_downloader = RH_Downloader(rh_token, rh_config, dest_dir)
+			def get_detections(config_data, rh_token, gcs):
+				rh_config = RHConfig.from_dict(config_data)
+				
+				lfs = LuxonisFileSystem("gs://" + gcs["bucket"])
+				dest_dir = gcs["prefix"]
+				rh_downloader = RH_Downloader(rh_token, rh_config, dest_dir, lfs)
 				
 				detections = rh_downloader.get_all_detections()
 				filtered_detections = rh_downloader.filter_detections(detections)
-				rh_downloader.save_detections_info(filtered_detections)
+				detections_file = rh_downloader.save_detections_info(filtered_detections)
 				
-				return filtered_detections
+				return detections_file
 
 			@task
-			def get_num_batches(filtered_detections, max_img_limit):
-				num_batches = (len(filtered_detections) + max_img_limit - 1) // max_img_limit
+			def get_num_batches(detections_file, max_img_limit, gcs):
+				lfs = LuxonisFileSystem("gs://" + gcs["bucket"])
+				saved_detections_buffer = lfs.read_to_byte_buffer(detections_file)
+				saved_detections_bytes = saved_detections_buffer.read()
+				saved_detections_str = saved_detections_bytes.decode('utf-8')
+				saved_detections = json.loads(saved_detections_str)
+			
+				num_batches = (len(saved_detections) + max_img_limit - 1) // max_img_limit
 				return list(range(num_batches))
 			
 			@task_group
-			def image_embedding_tasks(batch_num, filtered_detections, serialized_data, rh_token, max_img_limit):
+			def image_embedding_tasks(batch_num, detections_file, config_data, rh_token, max_img_limit, gcs):
 				# Task to download images
 				@task
-				def download_images(batch_num, filtered_detections, serialized_data, rh_token, max_img_limit):
-					rh_config = RHConfig.from_dict(serialized_data)
-					dest_dir = './tmp/' + self.config_name
+				def download_images(batch_num, detections_file, config_data, rh_token, max_img_limit, gcs):
+					rh_config = RHConfig.from_dict(config_data)
 
-					rh_downloader = RH_Downloader(rh_token, rh_config, dest_dir + '/images')
+					lfs = LuxonisFileSystem("gs://" + gcs["bucket"])
+					saved_detections_buffer = lfs.read_to_byte_buffer(detections_file)
+					saved_detections_bytes = saved_detections_buffer.read()
+					saved_detections_str = saved_detections_bytes.decode('utf-8')
+					saved_detections = json.loads(saved_detections_str)
+
+					rh_downloader = RH_Downloader(rh_token, rh_config, gcs["prefix"] + '/images', lfs)
 
 					start = batch_num * max_img_limit
 					end = (batch_num + 1) * max_img_limit
-					if start >= len(filtered_detections) or start < 0 or end < 0:
+					if start >= len(saved_detections) or start < 0 or end < 0:
 						return
-					subset_detections = filtered_detections[start:end]
+					subset_detections = saved_detections[start:end]
 
 					asyncio.run(rh_downloader.download_images(subset_detections))
 
-					return dest_dir
+					return [d['framePath'] for d in subset_detections]
 				
 				@task
-				def get_embeddings(local_path):
+				def get_embeddings(image_paths, gcs):
+					from typing import List, Tuple
+					from PIL import Image
+					from io import BytesIO
 					import numpy as np
-					from torchvision import datasets, transforms
+					
 					import torch
-					import onnxruntime
-					from luxonis_ml.embeddings.utils import extract_embeddings_onnx
+					# from torchvision import transforms
+					import torchvision.transforms as transforms
+					import onnxruntime as ort
+
+					def get_image_tensors_from_gcs(
+						image_paths: List[str],
+						transform: transforms.Compose,
+						lfs: LuxonisFileSystem,
+					) -> torch.Tensor:
+						tensors = []
+						for path in image_paths:
+							buffer = lfs.read_to_byte_buffer(remote_path=path).getvalue()
+							try:
+								image = Image.open(BytesIO(buffer)).convert('RGB')
+							except:
+								print("Error occured while processing image: ", path)
+								continue
+							tensor = transform(image)
+							tensors.append(tensor)
+						return torch.stack(tensors)
+
+					def extract_embeddings_onnx(
+						image_paths: List[str],
+						ort_session: ort.InferenceSession,
+						transform: transforms.Compose,
+						lfs: LuxonisFileSystem,
+						output_layer_name: str = "/Flatten_output_0",
+						batch_size: int = 64,
+					) -> torch.Tensor:
+						embeddings = []
+
+						for i in range(0, len(image_paths), batch_size):
+							batch_paths = image_paths[i:i + batch_size]
+							batch_tensors = get_image_tensors_from_gcs(batch_paths, transform, lfs)
+
+							# Extract embeddings using ONNX
+							ort_inputs = {ort_session.get_inputs()[0].name: batch_tensors.numpy()}
+							ort_outputs = ort_session.run([output_layer_name], ort_inputs)[0]
+							embeddings.extend(torch.from_numpy(ort_outputs).squeeze())
+
+						return torch.stack(embeddings)
+
+					# Assuming lsf is an instance of LuxonisFileSystem
+					lfs = LuxonisFileSystem("gs://" + gcs["bucket"]) 
+
+					local_model = "./emb_model.onnx"
+					lfs.get_file(gcs["model_path"], local_model)
 
 					# Define the transform
 					transform = transforms.Compose([
-						transforms.Resize((224, 224)),  # Adjust the size according to your model
+						transforms.Resize((224, 224)),
 						transforms.ToTensor(),
-						# Add other necessary transforms here
+						transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
 					])
 
-					# Create a dataset using ImageFolder
-					dataset = datasets.ImageFolder(root=local_path, transform=transform)
+					# Batch process images from GCS
+					provider = (
+						['CUDAExecutionProvider'] 
+						if torch.cuda.is_available() 
+						and 'CUDAExecutionProvider' in ort.get_available_providers() 
+						else None
+					)
+					ort_session = ort.InferenceSession(local_model, providers=provider)
 
-					# Create a DataLoader
-					data_loader = torch.utils.data.DataLoader(dataset, batch_size=32, shuffle=False)
-
-					# Download the model from S3 using LuxonisFileSystem
-					lfs = LuxonisFileSystem("s3://luxonis-test-bucket")
-					lfs.get_file("models/pipelines/resnet50-1.onnx", local_path + "/resnet50-1.onnx")
-					
-					# Create an ONNX Runtime session
-					provider = ['CUDAExecutionProvider'] if torch.cuda.is_available() and 'CUDAExecutionProvider' in onnxruntime.get_available_providers() else None
-					ort_session = onnxruntime.InferenceSession(local_path + "/resnet50-1.onnx", providers=provider)
-
-					# Extract embeddings from the dataset
-					embeddings, labels = extract_embeddings_onnx(ort_session, data_loader, "/Flatten_output_0")
-
-					# export to file
-					emb_file = local_path + '/embeddings.txt'
-					np.savetxt(emb_file, embeddings.numpy())
-					img_paths = [p[0] for p in dataset.imgs]
-					impath_savefile = local_path + '/img_paths.txt'
-					np.savetxt(impath_savefile, img_paths, fmt='%s')
-					return {'embeddings_path': emb_file, 'img_paths_file': img_paths}
+					embeddings = extract_embeddings_onnx(
+						image_paths,
+						ort_session,
+						transform,
+						lfs,
+						output_layer_name="/Flatten_output_0",
+						batch_size=64,
+					)
+					embeddings = embeddings.numpy()
+					np.savetxt("embeddings.txt", embeddings)
+					remote_path = gcs["prefix"] + '/embeddings.txt'
+					lfs.put_file("embeddings.txt", remote_path)
+					return remote_path
 
 				@task
-				def emb_to_qdrant(embeddings_out):
+				def emb_to_weaviate(image_paths, embeddings_file_path, gcs):
 					import numpy as np
-					from luxonis_ml.embeddings.utils.qdrant import QdrantAPI, QdrantManager
-					from qdrant_client.models import Distance
+					from weav_api import WeaviateAPI
+					import weaviate
 
-					embeddings_file_path = embeddings_out['embeddings_path']
-					img_paths_file = embeddings_out['img_paths_file']
+					# Get embeddings
+					lfs = LuxonisFileSystem("gs://" + gcs["bucket"])
+					local_embeddings_file_path = embeddings_file_path.split('/')[-1]
+					lfs.get_file(embeddings_file_path, local_embeddings_file_path)
+					embeddings = np.loadtxt(local_embeddings_file_path)
+					
+					# Get uuids
+					uuids = [img.split('/')[-1].split('.')[0] for img in image_paths]
 
-					# Start Qdrant docker container
-					QdrantManager("qdrant/qdrant", "qdrant_container2").start_docker_qdrant()
+					# Connect Weaviate
+					client = weaviate.connect_to_local()
+					w_api = WeaviateAPI(client, self.config_name)
 
-					# Connect to Qdrant
-					qdrant_api = QdrantAPI("localhost", 6333, self.config_name)
-
-					# Create a collection
-					embeddings = np.loadtxt(embeddings_file_path)
-					vector_size = embeddings.shape[1]
-					qdrant_api.create_collection(vector_size=vector_size, distance=Distance.COSINE)
-
-					# Insert the embeddings into the collection
-					# all zero labels
-					# labels = [0] * len(embeddings)
-					# labels = np.array(labels)
-					img_paths = np.loadtxt(img_paths_file, dtype=str)
-					# labels_as_img_paths = [{"img_path": img_path} for img_path in img_paths]
-					qdrant_api.batch_insert_embeddings_nooverwrite(embeddings, img_paths, batch_size=50)
+					# Insert embeddings
+					w_api.insert_embeddings(uuids, embeddings.tolist())
 				
-				img_path = download_images(batch_num, filtered_detections, serialized_data, rh_token, max_img_limit)
-				emb_out = get_embeddings(img_path)
-				eq = emb_to_qdrant(emb_out)
+				img_path = download_images(
+					batch_num, 
+					detections_file, 
+					config_data, 
+					rh_token, 
+					max_img_limit,
+					gcs
+				)
+				emb_out = get_embeddings(img_path, gcs)
+				eq = emb_to_weaviate(img_path, emb_out, gcs)
 				img_path >> emb_out >> eq
 			
 			@task
-			def smart_select(serialized_data, filtered_detections):
+			def smart_select(config_data, detections_file, gcs):
 				import os
 				import json
 				import numpy as np
-				from luxonis_ml.embeddings.utils.qdrant import QdrantAPI
+				import weaviate
+				from weav_api import WeaviateAPI
 				from luxonis_ml.embeddings.methods.representative import calculate_similarity_matrix, find_representative_kmedoids
 
-				rh_config = RHConfig.from_dict(serialized_data)
+				rh_config = RHConfig.from_dict(config_data)
 				cfg = rh_config.get_config()
 				if cfg.get('tactic') != 'smart':
 					return
+				
+				lfs = LuxonisFileSystem("gs://" + gcs["bucket"])
+				saved_detections_buffer = lfs.read_to_byte_buffer(detections_file)
+				saved_detections_bytes = saved_detections_buffer.read()
+				saved_detections_str = saved_detections_bytes.decode('utf-8')
+				saved_detections = json.loads(saved_detections_str)
+				
+				# connect Weaviate
+				client = weaviate.connect_to_local()
+				w_api = WeaviateAPI(client, self.config_name)
 
-				# Connect to Qdrant
-				qdrant_api = QdrantAPI("localhost", 6333, self.config_name)
-				ids = qdrant_api.get_all_ids()
-				ids, embeddings = qdrant_api.get_all_embeddings()
+				# get all emb and ids
+				embeddings, ids = w_api.get_all_embeddings_and_ids()
+
+				# calculate similarity matrix
 				similarity_matrix = calculate_similarity_matrix(embeddings)
 
+				# find representative images
 				desired_size = int(len(embeddings)*0.05)
-				# desired_size = 10
 				selected_image_indices = find_representative_kmedoids(similarity_matrix, desired_size)
 
-				ids_sel = np.array(ids)[selected_image_indices].tolist()
-				payloads = qdrant_api.get_payloads_from_ids(ids_sel)
-				print("Retrieved {len(payloads)} representative images from Qdrant")
-
-				represent_imgs = [p['label'] for p in payloads]
-				represent_imgs = [img.split('/')[-1] for img in represent_imgs]
-				
-				# get representative images that are in this sample batch
-				filtered_detections = [d['frames'][0]['path'] for d in filtered_detections]
-				# Join represent_imgs into a single string
-				represent_string = ' '.join(represent_imgs)
-				# Initialize an empty list to hold the filtered representations
-				represent_filtered = []
-				# Loop through filtered_detections and check if each is in represent_string
-				for filt_d in filtered_detections:
-					if filt_d in represent_string:
-						# Extract the full path from represent_imgs that contains filt_d
-						matching_paths = [img for img in represent_imgs if filt_d in img]
-						represent_filtered.extend(matching_paths)
-				represent_imgs = represent_filtered
-				print(f"Representative images in this batch: {len(represent_imgs)}")
+				# rep_file_names = [img+'.png' for img in ids[rep_ixs]]
+				represent_imgs = [ids[i]+'.png' for i in selected_image_indices]
+				print(f"Number of representative images: {len(represent_imgs)}")
 
 				# delete all images not representative in dist_dir
-				dist_dir = './tmp/' + self.config_name 
-				for img in os.listdir(dist_dir + '/images'):
-					if img not in represent_imgs and img != 'detections.json':
-						os.remove(os.path.join(dist_dir+'/images', img))
+				for img in lfs.walk_dir(gcs["prefix"] + '/images'):
+					if img not in represent_imgs:
+						lfs.delete_file(img)
 				
 				# update detections.json 
-				detections_json = os.path.join(dist_dir, 'detections.json')
+				detections_json = 'detections.json'
+				lfs.get_file(gcs["prefix"] + '/' + detections_json, detections_json)
 				with open(detections_json, 'r') as f:
 					detections = json.load(f)
 				detections = [d for d in detections if d['framePath'].split('/')[-1] in represent_imgs]
 				with open(detections_json, 'w') as f:
 					json.dump(detections, f)
+				lfs.put_file(detections_json, gcs["prefix"] + '/' + detections_json)
 
 			# Task to convert images to LDF
 			@task
-			def convert_to_ldf(serialized_data):
-				rh_config = RHConfig.from_dict(serialized_data)
-				dest_dir = './tmp/' + self.config_name
+			def convert_to_ldf(config_data, gcs):
+				rh_config = RHConfig.from_dict(config_data)
+				dest_dir = "gs://" + gcs["bucket"] + "/" + gcs["prefix"] 
 				# ldf_converter = LDF_Converter(rh_config, dest_dir)
 				# ldf_converter.detections_to_ldf()
 			
 			@task
-			def clear_tmp():
-				import shutil
-				shutil.rmtree('./tmp/' + self.config_name)
-
+			def clear_tmp(gcs):
+				lfs = LuxonisFileSystem("gs://" + gcs["bucket"])
+				lfs.delete_dir(gcs["prefix"])
+			
 			# Variables
 			rh_token = Variable.get("RH_TOKEN")
 			mongo_conn_id = Variable.get("MONGO_CONN_ID")
 			max_img_limit = int(Variable.get("MAX_IMG_LIMIT"))
+			gcs = {
+				"bucket": "luxonis-test-bucket",
+				"prefix": "airflow/tmp/"+self.config_name+"_{{ run_id }}",
+				"model_path": "airflow/models/resnet50-1.onnx",
+			}
+			# gcs = Variable.get("GCS", deserialize_json=True)
+			# gcs["prefix"] = gcs["prefix"] + DagRun.run_id
 
 			# Tasks
 			fetched_config = fetch_config_from_mongo(mongo_conn_id, self.config_name)
-			detections_result = get_detections(fetched_config, rh_token)
-			num_batches_list = get_num_batches(detections_result, max_img_limit)
+			detections_file = get_detections(fetched_config, rh_token, gcs)
+			num_batches_list = get_num_batches(detections_file, max_img_limit, gcs)
 
 			download_tasks = image_embedding_tasks.partial(
-				filtered_detections=detections_result,
-				serialized_data=fetched_config,
+				detections_file=detections_file,
+				config_data=fetched_config,
 				rh_token=rh_token,
-				max_img_limit=max_img_limit
+				max_img_limit=max_img_limit,
+				gcs=gcs
 			).expand(batch_num=num_batches_list)
 
-			smart = smart_select(fetched_config, detections_result)
+			smart = smart_select(fetched_config, detections_file, gcs)
 
-			converted_ldf = convert_to_ldf(fetched_config)
+			converted_ldf = convert_to_ldf(fetched_config, gcs)
 
-			rm_tmp = clear_tmp()
+			rm_tmp = clear_tmp(gcs)
 
 			# Dependencies
-			fetched_config >> detections_result >> num_batches_list >> download_tasks >> smart >> converted_ldf >> rm_tmp
+			fetched_config >> detections_file >> num_batches_list >> download_tasks >> smart >> converted_ldf >> rm_tmp
 
 		return robothub_dag()
