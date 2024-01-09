@@ -14,6 +14,7 @@ from .model import (
     load_model_resnet50_minuslastlayer,
 )
 from .qdrant import QdrantAPI, QdrantManager
+from .weaviate import WeaviateAPI
 
 __all__ = [
     "load_model_resnet50_minuslastlayer",
@@ -24,6 +25,7 @@ __all__ = [
     "extend_output_onnx_overwrite",
     "QdrantManager",
     "QdrantAPI",
+    "WeaviateAPI",
     "extract_embeddings",
     "extract_embeddings_onnx",
     "save_embeddings",
