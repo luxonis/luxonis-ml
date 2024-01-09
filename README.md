@@ -26,7 +26,7 @@ The project is in an alpha state, so it may be missing some critical features or
 
 The `luxonis_ml` package is hosted on PyPI, so you can install it with `pip`.
 
-We offer several version of the package:
+We offer several versions of the package:
 
 - `luxonis-ml[data]`: installs necessary dependencies for using `luxonis_ml.data` module
 - `luxonis-ml[utils]`: installs necessary dependencies for using `luxonis_ml.utils` module
