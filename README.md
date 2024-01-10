@@ -43,4 +43,4 @@ pip install luxonis-ml[all]
 
 ## Contributing
 
-If you want to contribute to this project, read the instructions in [CONTRIBUTING.md](CONTRIBUTING.md)
+If you want to contribute to this project, read the instructions in [CONTRIBUTING.md](https://github.com/luxonis/luxonis-ml/blob/main/CONTRIBUTING.md)
