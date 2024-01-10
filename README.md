@@ -1,11 +1,11 @@
 # LuxonisML
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-![PyBadge](media/pybadge.svg)
+![PyBadge](https://github.com/luxonis/luxonis-ml/blob/main/media/pybadge.svg)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 ![CI](https://github.com/luxonis/luxonis-ml/actions/workflows/ci.yaml/badge.svg)
 ![Docs](https://github.com/luxonis/luxonis-ml/actions/workflows/docs.yaml/badge.svg)
-![Coverage](media/coverage_badge.svg)
+![Coverage](https://github.com/luxonis/luxonis-ml/blob/dev/media/coverage_badge.svg)
 
 This library includes a collection of helper functions and utilities for the Luxonis MLOps stack. This includes the following submodules:
 
