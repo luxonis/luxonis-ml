@@ -42,12 +42,16 @@ Dependencies:
     - onnxruntime
     - onnx
 """
-
-from typing import Tuple
+from PIL import Image
+from io import BytesIO
+from typing import Tuple, List
 
 import onnxruntime as ort
 import torch
+import torchvision.transforms as transforms
 
+from luxonis_ml.data import LuxonisDataset
+from luxonis_ml.utils import LuxonisFileSystem
 
 def extract_embeddings(
     model: torch.nn.Module, data_loader: torch.utils.data.DataLoader
@@ -83,6 +87,43 @@ def extract_embeddings_onnx(
 
     return torch.stack(embeddings), torch.tensor(labels)
 
+def get_image_tensors_from_gcs(
+    image_paths: List[str],
+    transform: transforms.Compose,
+    lfs: LuxonisFileSystem,
+) -> torch.Tensor:
+    tensors = []
+    for path in image_paths:
+        buffer = lfs.read_to_byte_buffer(remote_path=path).getvalue()
+        try:
+            image = Image.open(BytesIO(buffer)).convert('RGB')
+        except:
+            print("Error occured while processing image: ", path)
+            continue
+        tensor = transform(image)
+        tensors.append(tensor)
+    return torch.stack(tensors)
+
+def extract_embeddings_onnx_GCS(
+    image_paths: List[str],
+    ort_session: ort.InferenceSession,
+    transform: transforms.Compose,
+    lfs: LuxonisFileSystem,
+    output_layer_name: str = "/Flatten_output_0",
+    batch_size: int = 64,
+) -> torch.Tensor:
+    embeddings = []
+
+    for i in range(0, len(image_paths), batch_size):
+        batch_paths = image_paths[i:i + batch_size]
+        batch_tensors = get_image_tensors_from_gcs(batch_paths, transform, lfs)
+
+        # Extract embeddings using ONNX
+        ort_inputs = {ort_session.get_inputs()[0].name: batch_tensors.numpy()}
+        ort_outputs = ort_session.run([output_layer_name], ort_inputs)[0]
+        embeddings.extend(torch.from_numpy(ort_outputs).squeeze())
+
+    return torch.stack(embeddings)
 
 def save_embeddings(
     embeddings: torch.Tensor, labels: torch.Tensor, save_path: str = "./"

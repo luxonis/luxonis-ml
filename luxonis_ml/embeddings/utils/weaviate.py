@@ -3,44 +3,102 @@ import weaviate.classes as wvc
 from weaviate.collections.classes.filters import FilterMetadata
 
 class WeaviateAPI:
-    def __init__(self, client: weaviate.client.WeaviateClient, collection_name: str):
-        self.client = client
-        self.collection_name = collection_name
+    def __init__(self, url="http://localhost:8080", auth_api_key=None):
+        """
+        Initializes the Weaviate API.
 
-        if not client.collections.exists(collection_name):
-            print(f"Collection {collection_name} does not exist. Creating...")
-            self.create_collection(collection_name)
+        Parameters:
+        - url (str): URL of the Weaviate instance. Defaults to http://localhost:8080.
+        - grpc_url (str): URL of the Weaviate gRPC instance. Defaults to http://localhost:50052.
+        - auth_key (str): Authentication key for the Weaviate instance.
+        """
+        if auth_api_key is not None:
+            auth_api_key = weaviate.AuthApiKey(auth_api_key)
+        
+        # # old v3 client
+        # self.client = weaviate.Client(
+        #     url=url,
+        #     auth_client_secret=auth_api_key
+        # )
 
-        self.collection = client.collections.get(collection_name)
-    
-    def create_collection(self, name: str):
+        # # works only with gRPC enabled
+        # self.client = weaviate.WeaviateClient(
+        #     connection_params=weaviate.ConnectionParams.from_params(
+        #         http_host = url.split("://")[1].split(":")[0],
+        #         http_port = url.split("://")[1].split(":")[1],
+        #         http_secure = url.split("://")[0] == "https",
+        #         grpc_host = grpc_url.split("://")[1].split(":")[0],
+        #         grpc_port = grpc_url.split("://")[1].split(":")[1],
+        #         grpc_secure = grpc_url.split("://")[0] == "https"
+        #     ),
+        #     auth_client_secret=auth_key
+        # )
+        
+        if "localhost" in url:
+            self.client = weaviate.connect_to_local()
+        else:
+            # Not implemented yet
+            raise NotImplementedError("Weaviate API only supports local connections at the moment.")
+
+    def create_collection(self, collection_name: str, label=False):
         """
         Creates a Weaviate collection.
 
         Parameters:
-        - name (str): Name of the collection.
+        - collection_name (str): Name of the collection.
+        - label (bool): Whether to add a label property to the collection. Defaults to False.
         """
-        self.client.collections.create(
-            name=name,
-            vector_index_config=wvc.Configure.VectorIndex.hnsw(
-                distance_metric=wvc.VectorDistance.COSINE
-            ),
-        )
+        self.collection_name = collection_name
+        if not self.client.collections.exists(collection_name):
+            print(f"Collection {collection_name} does not exist. Creating...")
+            
+            properties = None
 
-    def insert_embeddings(self, uuids, embeddings, batch_size=100):
+            if label:
+                properties = [
+                    wvc.Property(
+                        name="label",
+                        data_type=wvc.DataType.TEXT,
+                        skip_vectorization=True
+                    )
+                ]
+
+            self.collection = self.client.collections.create(
+                name=collection_name,
+                properties=properties,
+                vector_index_config=wvc.Configure.VectorIndex.hnsw(
+                    distance_metric=wvc.VectorDistance.COSINE
+                ),
+            )
+        else:
+            self.collection = self.client.collections.get(collection_name)
+        
+    def delete_collection(self):
+        """
+        Deletes the Weaviate collection.
+        """
+        self.client.collections.delete(self.collection_name)
+
+    def insert_embeddings(self, uuids, embeddings, labels=None, batch_size=100):
         """
         Inserts embeddings into the Weaviate collection.
 
         Parameters:
         - uuids (List[str]): List of UUIDs for the embeddings.
         - embeddings (List[List[float]]): List of embeddings.
+        - labels (List[str]): List of labels for the embeddings. Defaults to None.
         - batch_size (int): Batch size for inserting the embeddings.
         """
         data = []
+        if labels is not None:
+            properties = [{"label": label} for label in labels]
+        else:
+            properties = [{}] * len(uuids)
+
         for i, embedding in enumerate(embeddings):
             data.append(
                 wvc.DataObject(
-                    properties={}, # no properties
+                    properties=properties[i],
                     uuid=uuids[i],
                     vector=embedding
                 )
@@ -82,7 +140,7 @@ class WeaviateAPI:
         - uuids (List[str]): List of UUIDs of the similar embeddings.
         """
         response = self.collection.query.near_vector(
-            vector=embedding,
+            near_vector=embedding,
             limit=k
         )
 
@@ -190,6 +248,29 @@ class WeaviateAPI:
             embeddings.append(result.vector)
 
         return embeddings
+
+    def get_labels(self, uuids):
+        """
+        Gets the labels for the specified UUIDs.
+
+        Parameters:
+        - uuids (List[str]): List of UUIDs of the embeddings to get.
+
+        Returns:
+        - labels (List[str]): List of labels.
+        """
+        labels = []
+
+        response = self.collection.query.fetch_objects(
+            limit=10000,
+            filters=FilterMetadata.ById.contains_any(uuids),
+            return_properties=["label"]
+        )
+
+        for result in response.objects:
+            labels.append(result.properties["label"])
+
+        return labels
     
     def get_all_ids(self):
         """

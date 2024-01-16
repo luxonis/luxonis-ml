@@ -1,10 +1,11 @@
 from .embedding import (
     extract_embeddings,
     extract_embeddings_onnx,
+    extract_embeddings_onnx_GCS,
     load_embeddings,
     save_embeddings,
 )
-from .ldf import generate_embeddings
+from .ldf import generate_embeddings, generate_embeddings_weaviate
 from .model import (
     export_model_onnx,
     extend_output_onnx,
@@ -28,7 +29,9 @@ __all__ = [
     "WeaviateAPI",
     "extract_embeddings",
     "extract_embeddings_onnx",
+    "extract_embeddings_onnx_GCS",
     "save_embeddings",
     "load_embeddings",
     "generate_embeddings",
+    "generate_embeddings_weaviate"
 ]
