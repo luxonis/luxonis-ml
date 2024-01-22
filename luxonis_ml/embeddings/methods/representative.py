@@ -34,12 +34,12 @@ Example
 
     2. K-Medoids:
 
-            # to get all embeddings from qdrant:
-            ids, embeddings = get_all_embeddings(qdrant_client, collection_name="mnist")
-            # Assuming you have 'embeddings' as a numpy array of shape (num_images, embedding_dim)
-            similarity_matrix = calculate_similarity_matrix(embeddings)
-            desired_size = int(len(embeddings) * 0.1)
-            selected_image_indices = find_representative_kmedoids(similarity_matrix, desired_size)
+        # to get all embeddings from qdrant:
+        ids, embeddings = get_all_embeddings(qdrant_client, collection_name="mnist")
+        # Assuming you have 'embeddings' as a numpy array of shape (num_images, embedding_dim)
+        similarity_matrix = calculate_similarity_matrix(embeddings)
+        desired_size = int(len(embeddings) * 0.1)
+        selected_image_indices = find_representative_kmedoids(similarity_matrix, desired_size)
 """
 
 import numpy as np
@@ -135,6 +135,60 @@ def find_representative_greedy_qdrant(qdrant_api, desired_size=1000, seed=None):
 
     return list(selected_embeddings)
 
+# def find_representative_greedy_weaviate(weaviate_api, desired_size=1000, seed=None)
+# all_ids = weaviate_api.get_all_ids()
+# sim_matrix = weaviate_api.get_similarity_matrix(all_ids)  
+# # sim_matrix is list list float
+# todo: find representative greedy weaviate
+# return list(selected_embeddings)
+
+def find_representative_greedy_weaviate(weaviate_api, desired_size=1000, seed=None):
+    """Find the most representative embeddings using a greedy algorithm with Weaviate.
+
+    @note: Due to many Weaviate requests, this function is very slow. Use
+        get_all_embeddings() and find_representative_greedy() instead.
+    @type weaviate_api: WeaviateAPI
+    @param weaviate_api: The Weaviate client instance to use for searches.
+    @type desired_size: int
+    @param desired_size: The desired size of the representative set. Default is 1000.
+    @type seed: int
+    @param seed: The ID of the seed embedding. Default is None, which means a random
+        seed is chosen.
+    @rtype: list
+    @return: The IDs of the representative embeddings.
+    """
+    all_ids = weaviate_api.get_all_ids()
+
+    if seed is None:
+        seed = np.random.choice(all_ids)
+    elif seed > len(all_ids):
+        raise ValueError(f"Seed must be in the range [0, {len(all_ids)-1}].")
+
+    selected_embeddings = set()
+    selected_embeddings.add(all_ids[seed])
+
+    while len(selected_embeddings) < desired_size:
+        max_similarity = -1
+        best_embedding = None
+
+        for embedding_id in all_ids:
+            if embedding_id not in selected_embeddings:
+                # Get similarities of the current embedding with the already selected embeddings
+                _, scores = weaviate_api.get_similarity_score(
+                    embedding_id, list(selected_embeddings)
+                )
+
+                # Calculate the minimum similarity to all previously selected embeddings
+                min_similarity = max(scores) if scores else -1
+
+                if 1 - min_similarity > max_similarity:
+                    max_similarity = min_similarity
+                    best_embedding = embedding_id
+
+        if best_embedding is not None:
+            selected_embeddings.add(best_embedding)
+
+    return list(selected_embeddings)
 
 def find_representative_kmedoids(
     similarity_matrix, desired_size=1000, max_iter=100, seed=None

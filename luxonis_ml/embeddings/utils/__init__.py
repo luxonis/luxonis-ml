@@ -1,7 +1,7 @@
 from .embedding import (
     extract_embeddings,
     extract_embeddings_onnx,
-    extract_embeddings_onnx_GCS,
+    extract_embeddings_onnx_LFS,
     load_embeddings,
     save_embeddings,
 )
@@ -29,7 +29,7 @@ __all__ = [
     "WeaviateAPI",
     "extract_embeddings",
     "extract_embeddings_onnx",
-    "extract_embeddings_onnx_GCS",
+    "extract_embeddings_onnx_LFS",
     "save_embeddings",
     "load_embeddings",
     "generate_embeddings",

@@ -3,43 +3,32 @@ import weaviate.classes as wvc
 from weaviate.collections.classes.filters import FilterMetadata
 
 class WeaviateAPI:
-    def __init__(self, url="http://localhost:8080", auth_api_key=None):
+    def __init__(self, url="http://localhost:8080", grpc_url="http://localhost:50051", auth_api_key=None):
         """
         Initializes the Weaviate API.
 
         Parameters:
         - url (str): URL of the Weaviate instance. Defaults to http://localhost:8080.
-        - grpc_url (str): URL of the Weaviate gRPC instance. Defaults to http://localhost:50052.
+        - grpc_url (str): URL of the Weaviate gRPC instance. Defaults to http://localhost:50051.
         - auth_key (str): Authentication key for the Weaviate instance.
         """
         if auth_api_key is not None:
             auth_api_key = weaviate.AuthApiKey(auth_api_key)
         
-        # # old v3 client
-        # self.client = weaviate.Client(
-        #     url=url,
-        #     auth_client_secret=auth_api_key
-        # )
-
-        # # works only with gRPC enabled
-        # self.client = weaviate.WeaviateClient(
-        #     connection_params=weaviate.ConnectionParams.from_params(
-        #         http_host = url.split("://")[1].split(":")[0],
-        #         http_port = url.split("://")[1].split(":")[1],
-        #         http_secure = url.split("://")[0] == "https",
-        #         grpc_host = grpc_url.split("://")[1].split(":")[0],
-        #         grpc_port = grpc_url.split("://")[1].split(":")[1],
-        #         grpc_secure = grpc_url.split("://")[0] == "https"
-        #     ),
-        #     auth_client_secret=auth_key
-        # )
-        
         if "localhost" in url:
             self.client = weaviate.connect_to_local()
         else:
-            # Not implemented yet
-            raise NotImplementedError("Weaviate API only supports local connections at the moment.")
-
+            # make sure the gRPC port is correct
+            self.client = weaviate.connect_to_custom(
+                http_host = url.split("://")[1].split(":")[0],
+                http_port = url.split("://")[1].split(":")[1],
+                http_secure = url.split("://")[0] == "https",
+                grpc_host = grpc_url.split("://")[1].split(":")[0],
+                grpc_port = grpc_url.split("://")[1].split(":")[1],
+                grpc_secure = grpc_url.split("://")[0] == "https",
+                auth_credentials=auth_api_key
+            )
+        
     def create_collection(self, collection_name: str, label=False):
         """
         Creates a Weaviate collection.
@@ -138,17 +127,21 @@ class WeaviateAPI:
 
         Returns:
         - uuids (List[str]): List of UUIDs of the similar embeddings.
+        - scores (List[float]): List of similarity scores.
         """
         response = self.collection.query.near_vector(
             near_vector=embedding,
-            limit=k
+            limit=k,
+            return_metadata=wvc.query.MetadataQuery(distance=True)
         )
 
         uuids = []
+        scores = []
         for result in response.objects:
             uuids.append(result.uuid)
+            scores.append(result.metadata.distance)
 
-        return uuids
+        return uuids, scores
 
     def find_similar_embeddings_by_id(self, uuid, k=10):
         """
@@ -161,17 +154,21 @@ class WeaviateAPI:
                     
         Returns:
         - uuids (List[str]): List of UUIDs of the similar embeddings.
+        - scores (List[float]): List of similarity scores.
         """
         response = self.collection.query.near_object(
             near_object=uuid,
-            limit=k
+            limit=k,
+            return_metadata=wvc.query.MetadataQuery(distance=True)
         )
 
         uuids = []
+        scores = []
         for result in response.objects:
             uuids.append(result.uuid)
+            scores.append(result.metadata.distance)
 
-        return uuids
+        return uuids, scores
     
     def get_similarity_score(self, ref_uuid, uuids, sort_distance=False):
         """

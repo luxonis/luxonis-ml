@@ -87,43 +87,52 @@ def extract_embeddings_onnx(
 
     return torch.stack(embeddings), torch.tensor(labels)
 
-def get_image_tensors_from_gcs(
+def get_image_tensors_from_LFS(
     image_paths: List[str],
     transform: transforms.Compose,
     lfs: LuxonisFileSystem,
-) -> torch.Tensor:
+) -> Tuple[torch.Tensor, List[int]]:
     tensors = []
-    for path in image_paths:
-        buffer = lfs.read_to_byte_buffer(remote_path=path).getvalue()
+    successful_ixs = []
+
+    for i, path in enumerate(image_paths):
         try:
+            buffer = lfs.read_to_byte_buffer(remote_path=path).getvalue()
             image = Image.open(BytesIO(buffer)).convert('RGB')
+            tensor = transform(image)
+            tensors.append(tensor)
+            successful_ixs.append(i)
         except:
             print("Error occured while processing image: ", path)
             continue
-        tensor = transform(image)
-        tensors.append(tensor)
-    return torch.stack(tensors)
 
-def extract_embeddings_onnx_GCS(
+    return torch.stack(tensors), successful_ixs
+
+def extract_embeddings_onnx_LFS(
     image_paths: List[str],
     ort_session: ort.InferenceSession,
     transform: transforms.Compose,
     lfs: LuxonisFileSystem,
     output_layer_name: str = "/Flatten_output_0",
     batch_size: int = 64,
-) -> torch.Tensor:
+) -> Tuple[torch.Tensor, List[int]]:
     embeddings = []
+    successful_ixs = []
 
     for i in range(0, len(image_paths), batch_size):
         batch_paths = image_paths[i:i + batch_size]
-        batch_tensors = get_image_tensors_from_gcs(batch_paths, transform, lfs)
+        batch_tensors, batch_ixs = get_image_tensors_from_LFS(batch_paths, transform, lfs)
 
         # Extract embeddings using ONNX
         ort_inputs = {ort_session.get_inputs()[0].name: batch_tensors.numpy()}
         ort_outputs = ort_session.run([output_layer_name], ort_inputs)[0]
+
         embeddings.extend(torch.from_numpy(ort_outputs).squeeze())
 
-    return torch.stack(embeddings)
+        batch_ixs = [i + ix for ix in batch_ixs]
+        successful_ixs.extend(batch_ixs)
+
+    return torch.stack(embeddings), successful_ixs
 
 def save_embeddings(
     embeddings: torch.Tensor, labels: torch.Tensor, save_path: str = "./"
