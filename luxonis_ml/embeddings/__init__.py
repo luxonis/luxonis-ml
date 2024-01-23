@@ -7,7 +7,7 @@ with guard_missing_extra("embedd"):
         find_mismatches_knn,
         find_representative_greedy,
         find_representative_kmedoids,
-        find_similar_qdrant,
+        find_similar,
         isolation_forest_OOD,
         leverage_OOD,
     )
@@ -31,7 +31,7 @@ with guard_missing_extra("embedd"):
     )
 
 __all__ = [
-    "find_similar_qdrant",
+    "find_similar",
     "find_mismatches_centroids",
     "find_mismatches_knn",
     "isolation_forest_OOD",

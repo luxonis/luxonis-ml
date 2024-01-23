@@ -25,6 +25,7 @@ Ensure that the Qdrant server is running and accessible before using these utili
 """
 
 from typing import Any, Dict, List
+import uuid
 
 import cv2
 import numpy as np
@@ -55,7 +56,14 @@ def _get_sample_payloads_coco(dataset: LuxonisDataset) -> List[Dict[str, Any]]:
 
     for row in df.iterrows():
         if row[1]["type"] == "classification":
-            instance_id = row[1]["instance_id"]
+            try:
+                instance_id = row[1]["original_filepath"].split("/")[-1].split(".")[0]
+                # throw if not uuid
+                uuid.UUID(instance_id)
+            except:
+                print(f"Skipping {row[1]['original_filepath']}, not a valid uuid")
+                continue
+            #instance_id = row[1]["instance_id"]
             img_path = row[1]["original_filepath"]
             class_name = row[1]["class"]
 
@@ -255,6 +263,7 @@ def generate_embeddings(
     ort_session,
     qdrant_api,
     output_layer_name,
+    transform=None,
     emb_batch_size=64,
     qdrant_batch_size=64,
 ):
@@ -286,7 +295,7 @@ def generate_embeddings(
     )
 
     new_embeddings = _generate_new_embeddings(
-        ort_session, output_layer_name, emb_batch_size, new_payloads
+        ort_session, output_layer_name, emb_batch_size, new_payloads, transform=transform
     )
 
     _batch_upsert(
@@ -310,6 +319,7 @@ def generate_embeddings_weaviate(
     ort_session,
     weaviate_api,
     output_layer_name,
+    transform=None,
     emb_batch_size=64,
     weaviate_batch_size=64,
 ):
@@ -339,7 +349,7 @@ def generate_embeddings_weaviate(
     )
 
     new_embeddings = _generate_new_embeddings(
-        ort_session, output_layer_name, emb_batch_size, new_payloads
+        ort_session, output_layer_name, emb_batch_size, new_payloads, transform=transform
     )
 
     _batch_upsert_weaviate(

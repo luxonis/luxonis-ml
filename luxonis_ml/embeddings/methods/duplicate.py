@@ -70,6 +70,13 @@ def search_qdrant(qdrant_api, query_vector, data_name, limit=5000):
     return ix, vals, res
 
 
+def search_weaviate(weaviate_api, query_vector, limit=5000):
+    """Search embeddings in Weaviate."""
+    ix, vals = weaviate_api.find_similar_embeddings(query_vector, k=limit)
+    # uuids and distances
+    return ix, vals
+
+
 def _plot_kde(xs, s, density, maxima, minima):
     """Plot a KDE distribution."""
     plt.plot(xs, density, label="KDE")
@@ -105,9 +112,10 @@ def kde_peaks(data, bandwidth="scott", plot=False):
     return xs[maxima], xs[minima], global_max_ix, std
 
 
-def find_similar_qdrant(
+def find_similar(
     reference_embeddings,
-    qdrant_api,
+    db_type,
+    vector_db_api,
     dataset,
     k=100,
     n=1000,
@@ -151,12 +159,15 @@ def find_similar_qdrant(
     @rtype: np.array
     @return: The instance_ids of the most similar embeddings.
     """
+    if not (db_type == "qdrant" or db_type == "weaviate"):
+        raise ValueError(f"Unknown db_type: {db_type}")
+
     # Get the reference embeddings
     # check if reference_embeddings is a list of instance_ids
     if isinstance(reference_embeddings, str):
         reference_embeddings = [reference_embeddings]
     if isinstance(reference_embeddings[0], str):
-        reference_embeddings = qdrant_api.get_embeddings_from_ids(reference_embeddings)
+        reference_embeddings = vector_db_api.get_embeddings_from_ids(reference_embeddings)
 
     # Select the reference embedding
     if method == "first":
@@ -171,11 +182,20 @@ def find_similar_qdrant(
     else:
         raise ValueError(f"Unknown method: {method}")
 
-    # Search for similar embeddings in Qdrant
-    ix, vals, res = search_qdrant(
-        qdrant_api, reference_embeddings, data_name=dataset, limit=n
-    )
-    ix, similarities, res = np.array(ix), np.array(vals), np.array(res)
+    if db_type == "qdrant":
+        # Search for similar embeddings in Qdrant
+        ix, vals, res = search_qdrant(
+            vector_db_api, reference_embeddings, data_name=dataset, limit=n
+        )
+        ix, similarities, res = np.array(ix), np.array(vals), np.array(res)
+    
+    elif db_type == "weaviate":
+        # Search for similar embeddings in Weaviate
+        ix, distances = search_weaviate(vector_db_api, reference_embeddings, limit=n)
+        ix, distances = np.array(ix), np.array(distances)
+
+        # Convert distances to similarities if needed
+        similarities = 1 - distances  
 
     # Select the best k embeddings
     if k_method is None:
@@ -230,130 +250,8 @@ def find_similar_qdrant(
 
     else:
         raise ValueError(f"Unknown k_method: {k_method}")
-
-    return ix[best_embeddings_ix], res[best_embeddings_ix]
-
-
-def search_weaviate(weaviate_api, query_vector, limit=5000):
-    """Search embeddings in Weaviate."""
-    ix, vals = weaviate_api.find_similar_embeddings(query_vector, top=limit)
-    # uuids and distances
-    return ix, vals
-
-def find_similar_weaviate(
-    reference_embeddings,
-    weaviate_api,
-    k=100,
-    n=1000,
-    method="first",
-    k_method=None,
-    kde_bw="scott",
-    plot=False,
-):
-    """Find the most similar embeddings to the reference embeddings.
-
-    @type reference_embeddings: Union[np.array, list]
-    @param reference_embeddings: The embeddings to compare against. Or a list of of
-        embedding instance_ids that reside in Weaviate.
-    @type weaviate_api: WeaviateAPI
-    @param weaviate_api: The Weaviate client API instance to use for searches.
-    @type k: int
-    @param k: The number of embeddings to return. Default is 100.
-    @type n: int
-    @param n: The number of embeddings to compare against. Default is 1000. (This is the
-        number of embeddings that are returned by the Weaviate search. It matters for the
-        KDE, as it can be slow for large n. Your choice of n depends on the amount of
-        duplicates in your dataset, the more duplicates, the larger n should be. If you
-        have 2-10 duplicates per image, n=100 should be ok. If you have 50-300
-        duplicates per image, n=1000 should work good enough.
-    @type method: str
-    @param method: The method to use to find the most similar embeddings. If 'first' use
-        the first of the reference embeddings. If 'average', use the average of the
-        reference embeddings.
-    @type k_method: str
-    @param k_method: The method to select the best k. If None, use k as is. If
-        'kde_basic', use the minimum of the KDE. If 'kde_peaks', use the minimum of the
-        KDE peaks, according to a specific hardcoded hevristics/thresholds.
-    @type kde_bw: Union[str, float]
-    @param kde_bw: The bandwidth to use for the KDE. Default is 'scott'.
-    @type plot: bool
-    @param plot: Whether to plot the KDE.
-    @rtype: np.array
-    @return: The instance_ids of the most similar embeddings.
-    """
-    # Get the reference embeddings
-    if isinstance(reference_embeddings, str):
-        reference_embeddings = [reference_embeddings]
-    if isinstance(reference_embeddings[0], str):
-        reference_embeddings = weaviate_api.get_embeddings_from_ids(reference_embeddings)
-
-    # Select the reference embedding
-    if method == "first":
-        reference_embeddings = np.array(reference_embeddings)[0]
-    elif method == "average":
-        reference_embeddings = np.mean(np.array(reference_embeddings), axis=0)
-    else:
-        raise ValueError(f"Unknown method: {method}")
-
-    # Search for similar embeddings in Weaviate
-    ix, distances = search_weaviate(weaviate_api, reference_embeddings, limit=n)
-    ix, distances = np.array(ix), np.array(distances)
-
-    # Convert distances to similarities if needed
-    similarities = 1 - distances  
-
-    # Select the best k embeddings
-    if k_method is None:
-        best_embeddings_ix = np.argsort(similarities)[-k:]
-
-    elif k_method == "kde_basic":
-        _, new_min, _, _ = kde_peaks(similarities, bandwidth=kde_bw, plot=plot)
-
-        if len(new_min) > 0:
-            k = len(np.where(similarities > new_min[-1])[0])
-            if k < 2 and len(new_min) > 1:
-                k = len(np.where(similarities > new_min[-2])[0])
-            print(k, new_min)
-
-        best_embeddings_ix = np.argsort(similarities)[-k:]
-
-    elif k_method == "kde_peaks":
-        if len(similarities) > 50000:
-            print("Too many embeddings, using 97 percentile")
-            # take top 97 procentile of closest points
-            p_97 = np.percentile(similarities, 97)
-            ix_sim = np.where(similarities > p_97)[0]
-            _, new_min, _, _ = kde_peaks(
-                similarities[ix_sim], bandwidth=kde_bw, plot=plot
-            )
-
-            if len(new_min) > 0:
-                k = len(np.where(similarities > new_min[-1])[0])
-                print(k, new_min)
-
-        else:
-            # get maxima and minima of the KDE on the distances
-            _, minima, _, _ = kde_peaks(similarities, bandwidth=kde_bw, plot=plot)
-            if len(minima) > 0:
-                minima = minima[-1]
-                if minima < 0.94:
-                    minima = 0.97
-                else:
-                    minima = max(minima, 0.96)
-
-            else:
-                minima = 0.97
-
-            # select k closest embeddings
-            k = len(np.where(similarities > minima)[0])
-            if minima > 0.97 and k < 2:
-                k = len(np.where(similarities > 0.97)[0])
-            print(k, minima)
-
-        # select the best k embeddings
-        best_embeddings_ix = np.argsort(similarities)[-k:]
-
-    else:
-        raise ValueError(f"Unknown k_method: {k_method}")
-
-    return ix[best_embeddings_ix]
+    
+    if db_type == "qdrant":
+        return ix[best_embeddings_ix], res[best_embeddings_ix]
+    elif db_type == "weaviate":
+        return ix[best_embeddings_ix]

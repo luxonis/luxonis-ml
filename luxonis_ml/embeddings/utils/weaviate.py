@@ -220,7 +220,7 @@ class WeaviateAPI:
 
         return sim_matrix
     
-    def get_embeddings(self, uuids):
+    def get_embeddings_from_ids(self, uuids):
         """
         Gets the embeddings for the specified UUIDs.
 
