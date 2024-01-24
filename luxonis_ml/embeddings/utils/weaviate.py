@@ -2,8 +2,16 @@ import weaviate
 import weaviate.classes as wvc
 from weaviate.collections.classes.filters import FilterMetadata
 
-class WeaviateAPI:
-    def __init__(self, url="http://localhost:8080", grpc_url="http://localhost:50051", auth_api_key=None):
+from luxonis_ml.embeddings.utils.vectordb import VectorDBAPI
+
+convert_distance_metric = {
+    "cosine": wvc.VectorDistance.COSINE,
+    "dot": wvc.VectorDistance.DOT,
+    "euclidean": wvc.VectorDistance.L2_SQUARED
+}
+
+class WeaviateAPI(VectorDBAPI):
+    def __init__(self, url="http://localhost:8080", grpc_url="http://localhost:50051", auth_api_key=None, collection_name="mnist"):
         """
         Initializes the Weaviate API.
 
@@ -11,6 +19,7 @@ class WeaviateAPI:
         - url (str): URL of the Weaviate instance. Defaults to http://localhost:8080.
         - grpc_url (str): URL of the Weaviate gRPC instance. Defaults to http://localhost:50051.
         - auth_key (str): Authentication key for the Weaviate instance.
+        - collection_name (str): Name of the collection. Defaults to "mnist".
         """
         if auth_api_key is not None:
             auth_api_key = weaviate.AuthApiKey(auth_api_key)
@@ -29,17 +38,19 @@ class WeaviateAPI:
                 auth_credentials=auth_api_key
             )
         
-    def create_collection(self, collection_name: str, label=False):
+        self.collection_name = collection_name
+        
+    def create_collection(self, label=False, vector_size: int = 512, distance_metric: str = "cosine"):
         """
         Creates a Weaviate collection.
 
         Parameters:
-        - collection_name (str): Name of the collection.
         - label (bool): Whether to add a label property to the collection. Defaults to False.
+        - vector_size (int): Size of the embeddings. Not used in Weaviate. Defaults to 512.
+        - distance_metric (str): Distance metric to use for the vector index. Can be "cosine", "dot" or "euclidean".
         """
-        self.collection_name = collection_name
-        if not self.client.collections.exists(collection_name):
-            print(f"Collection {collection_name} does not exist. Creating...")
+        if not self.client.collections.exists(self.collection_name):
+            print(f"Collection {self.collection_name} does not exist. Creating...")
             
             properties = None
 
@@ -53,14 +64,14 @@ class WeaviateAPI:
                 ]
 
             self.collection = self.client.collections.create(
-                name=collection_name,
+                name=self.collection_name,
                 properties=properties,
                 vector_index_config=wvc.Configure.VectorIndex.hnsw(
-                    distance_metric=wvc.VectorDistance.COSINE
+                    distance_metric=convert_distance_metric[distance_metric]
                 ),
             )
         else:
-            self.collection = self.client.collections.get(collection_name)
+            self.collection = self.client.collections.get(self.collection_name)
         
     def delete_collection(self):
         """
@@ -100,24 +111,7 @@ class WeaviateAPI:
         if len(data) > 0:
             self.collection.data.insert_many(data)
 
-    def search_embeddings(self, uuids):
-        """
-        Searches for embeddings in the Weaviate collection.
-
-        Parameters:
-        - uuids (List[str]): List of UUIDs for the embeddings.
-
-        Returns:
-        - embeddings (List[List[float]]): List of embeddings found.
-        """
-        embeddings = []
-        for uuid in uuids:
-            embedding = self.collection.query.fetch_object_by_id(uuid, include_vector=True).vector
-            embeddings.append(embedding)
-
-        return embeddings
-
-    def find_similar_embeddings(self, embedding, k=10):
+    def search_similar_embeddings(self, embedding, top_k=10):
         """
         Finds similar embeddings to the specified embedding.
 
@@ -131,34 +125,7 @@ class WeaviateAPI:
         """
         response = self.collection.query.near_vector(
             near_vector=embedding,
-            limit=k,
-            return_metadata=wvc.query.MetadataQuery(distance=True)
-        )
-
-        uuids = []
-        scores = []
-        for result in response.objects:
-            uuids.append(result.uuid)
-            scores.append(result.metadata.distance)
-
-        return uuids, scores
-
-    def find_similar_embeddings_by_id(self, uuid, k=10):
-        """
-        Finds similar embeddings to the specified embedding.
-
-        Parameters:
-        - uuid (str): UUID of the embedding to search for.
-        - k (int): Number of similar embeddings to
-                     find.  Defaults to 10.
-                    
-        Returns:
-        - uuids (List[str]): List of UUIDs of the similar embeddings.
-        - scores (List[float]): List of similarity scores.
-        """
-        response = self.collection.query.near_object(
-            near_object=uuid,
-            limit=k,
+            limit=top_k,
             return_metadata=wvc.query.MetadataQuery(distance=True)
         )
 
@@ -170,7 +137,7 @@ class WeaviateAPI:
 
         return uuids, scores
     
-    def get_similarity_score(self, ref_uuid, uuids, sort_distance=False):
+    def get_similarity_scores(self, reference_id, other_ids, sort_distances=False):
         """
         Calculates the similarity score between the reference embedding and the specified embeddings.
 
@@ -181,28 +148,32 @@ class WeaviateAPI:
                                 Defaults to False.
 
         Returns:
+        - ids (List[str]): List of UUIDs of the embeddings.
         - scores (List[float]): List of similarity scores.
         """
         response = self.collection.query.near_object(
-            near_object=ref_uuid,
-            limit=len(uuids),
-            filters=FilterMetadata.ById.contains_any(uuids),
+            near_object=reference_id,
+            limit=len(other_ids),
+            filters=FilterMetadata.ById.contains_any(other_ids),
             return_metadata=wvc.query.MetadataQuery(distance=True)
         )
         # near object gives order by distance result
 
-        if sort_distance:
+        if sort_distances:
+            ids = []
             scores = []
             for result in response.objects:
+                ids.append(result.uuid)
                 scores.append(result.metadata.distance)
         else:
-            scores = [0] * len(uuids)
+            ids = other_ids
+            scores = [0] * len(other_ids)
             for result in response.objects:
-                scores[uuids.index(result.uuid)] = result.metadata.distance
+                scores[other_ids.index(result.uuid)] = result.metadata.distance
 
-        return scores
+        return ids, scores
     
-    def get_similarity_matrix(self, uuids):
+    def compute_similarity_matrix(self):
         """
         Calculates the similarity matrix between the specified embeddings.
         NOTE: This is a very inefficient implementation. 
@@ -214,13 +185,15 @@ class WeaviateAPI:
         Returns:
         - scores (List[List[float]]): List of similarity scores.
         """
+        uuids = self.retrieve_all_ids()
+
         sim_matrix = []
         for uuid in uuids:
-            sim_matrix.append(self.get_similarity_score(uuid, uuids))
+            sim_matrix.append(self.get_similarity_scores(uuid, uuids))
 
         return sim_matrix
     
-    def get_embeddings_from_ids(self, uuids):
+    def retrieve_embeddings_by_ids(self, uuids):
         """
         Gets the embeddings for the specified UUIDs.
 
@@ -231,9 +204,6 @@ class WeaviateAPI:
         - embeddings (List[List[float]]): List of embeddings.
         """
         embeddings = []
-        # for uuid in uuids:
-        #     embedding = self.collection.query.fetch_object_by_id(uuid, include_vector=True).vector
-        #     embeddings.append(embedding)
 
         response = self.collection.query.fetch_objects(
             limit=10000,
@@ -241,12 +211,14 @@ class WeaviateAPI:
             include_vector=True
         )
 
-        for result in response.objects:
-            embeddings.append(result.vector)
+        # Create a dictionary mapping UUIDs to embeddings
+        uuid_embedding_map = {result.uuid: result.vector for result in response.objects}
+        # Retrieve embeddings in the order of the provided UUIDs
+        embeddings = [uuid_embedding_map[uuid] for uuid in uuids if uuid in uuid_embedding_map]
 
         return embeddings
 
-    def get_labels(self, uuids):
+    def retrieve_labels_by_ids(self, uuids):
         """
         Gets the labels for the specified UUIDs.
 
@@ -263,73 +235,28 @@ class WeaviateAPI:
             filters=FilterMetadata.ById.contains_any(uuids),
             return_properties=["label"]
         )
-
-        for result in response.objects:
-            labels.append(result.properties["label"])
+        
+        # Create a dictionary mapping UUIDs to labels
+        uuid_label_map = {result.uuid: result.properties["label"] for result in response.objects}
+        # Retrieve labels in the order of the provided UUIDs
+        labels = [uuid_label_map[uuid] for uuid in uuids if uuid in uuid_label_map]
 
         return labels
     
-    def get_all_ids(self):
+    def retrieve_all_ids(self):
         """
         Gets all the UUIDs in the Weaviate collection, up to a maximum of 10000.
 
         Returns:
         - uuids (List[str]): List of UUIDs.
         """
-        # uuids = []
-        # limit = 10000
-        # while(True):
-        #     # Fetch the objects without their vectors
-        #     response_i = self.collection.query.fetch_objects(
-        #         limit=limit
-        #     )
-
-        #     # Append the UUIDs to the list
-        #     uuids.extend([r.uuid for r in response_i.objects])
-
-        #     # Break if the number of objects returned is less than the limit (i.e. we've reached the end)
-        #     if len(response_i.objects) < limit:
-        #         break
-        
         uuids = []
         for item in self.collection.iterator():
             uuids.append(item.uuid)
         
         return uuids
         
-    def get_all_embeddings(self):
-        """
-        Gets all the embeddings in the Weaviate collection, up to a maximum of 10000.
-
-        Returns:
-        - embeddings (List[List[float]]): List of embeddings.
-        """
-        # embeddings = []
-        # limit = 10000
-        # while(True):
-        #     # Fetch the objects with their vectors
-        #     response_i = self.collection.query.fetch_objects(
-        #         limit=limit,
-        #         include_vector=True
-        #     )
-
-        #     # Append the vectors to the list
-        #     emb_i = [r.vector for r in response_i.objects]
-        #     embeddings.extend(emb_i)
-
-        #     # Break if the number of objects returned is less than the limit (i.e. we've reached the end)
-        #     if len(response_i.objects) < limit:
-        #         break
-
-        embeddings = []
-        for item in self.collection.iterator(
-            include_vector=True
-        ):
-            embeddings.append(item.vector)
-        
-        return embeddings
-    
-    def get_all_embeddings_and_ids(self):
+    def retrieve_all_embeddings(self):
         """
         Gets all the embeddings and UUIDs in the Weaviate collection, up to a maximum of 10000.
 
@@ -338,13 +265,13 @@ class WeaviateAPI:
         - uuids (List[str]): List of UUIDs.
         """
 
-        embeddings = []
-        uuids = []
+        uuids = []; embeddings = []
+
         for item in self.collection.iterator(
             include_vector=True
         ):
-            embeddings.append(item.vector)
             uuids.append(item.uuid)
+            embeddings.append(item.vector)
         
-        return embeddings, uuids
+        return uuids, embeddings
             

@@ -59,24 +59,6 @@ from KDEpy import FFTKDE
 # Near-duplicate search
 from scipy.signal import argrelextrema
 
-def search_qdrant(qdrant_api, query_vector, data_name, limit=5000):
-    """Search embeddings in Qdrant."""
-    hits = qdrant_api.search_embeddings_by_imagepath(query_vector, data_name, top=limit)
-
-    ix = [h.id for h in hits]
-    vals = [h.score for h in hits]
-    res = [h.payload["image_path"] for h in hits]
-
-    return ix, vals, res
-
-
-def search_weaviate(weaviate_api, query_vector, limit=5000):
-    """Search embeddings in Weaviate."""
-    ix, vals = weaviate_api.find_similar_embeddings(query_vector, k=limit)
-    # uuids and distances
-    return ix, vals
-
-
 def _plot_kde(xs, s, density, maxima, minima):
     """Plot a KDE distribution."""
     plt.plot(xs, density, label="KDE")
@@ -116,7 +98,6 @@ def find_similar(
     reference_embeddings,
     db_type,
     vector_db_api,
-    dataset,
     k=100,
     n=1000,
     method="first",
@@ -131,10 +112,6 @@ def find_similar(
         embedding instance_ids that reside in Qdrant.
     @type qdrant_api: QdrantAPI
     @param qdrant_api: The Qdrant client API instance to use for searches.
-    @type dataset: str
-    @param dataset: The dataset to use. (It actually filters on the image_path field, so
-        it can be any string. It can be helpful if you have different datasets in
-        subfolders for the same collection, like 'real/img1.jpg' and 'synth/img1.jpg'.)
     @type k: int
     @param k: The number of embeddings to return. Default is 100.
     @type n: int
@@ -182,20 +159,14 @@ def find_similar(
     else:
         raise ValueError(f"Unknown method: {method}")
 
-    if db_type == "qdrant":
-        # Search for similar embeddings in Qdrant
-        ix, vals, res = search_qdrant(
-            vector_db_api, reference_embeddings, data_name=dataset, limit=n
-        )
-        ix, similarities, res = np.array(ix), np.array(vals), np.array(res)
+    ix, vals = vector_db_api.find_similar_embeddings(reference_embeddings, top_k=n)
+    ix, vals = np.array(ix), np.array(vals)
     
+    if db_type == "qdrant":
+        similarities = vals
     elif db_type == "weaviate":
-        # Search for similar embeddings in Weaviate
-        ix, distances = search_weaviate(vector_db_api, reference_embeddings, limit=n)
-        ix, distances = np.array(ix), np.array(distances)
-
         # Convert distances to similarities if needed
-        similarities = 1 - distances  
+        similarities = 1 - vals  
 
     # Select the best k embeddings
     if k_method is None:
@@ -251,7 +222,4 @@ def find_similar(
     else:
         raise ValueError(f"Unknown k_method: {k_method}")
     
-    if db_type == "qdrant":
-        return ix[best_embeddings_ix], res[best_embeddings_ix]
-    elif db_type == "weaviate":
-        return ix[best_embeddings_ix]
+    return ix[best_embeddings_ix]

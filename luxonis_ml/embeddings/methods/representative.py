@@ -135,13 +135,6 @@ def find_representative_greedy_qdrant(qdrant_api, desired_size=1000, seed=None):
 
     return list(selected_embeddings)
 
-# def find_representative_greedy_weaviate(weaviate_api, desired_size=1000, seed=None)
-# all_ids = weaviate_api.get_all_ids()
-# sim_matrix = weaviate_api.get_similarity_matrix(all_ids)  
-# # sim_matrix is list list float
-# todo: find representative greedy weaviate
-# return list(selected_embeddings)
-
 def find_representative_greedy_weaviate(weaviate_api, desired_size=1000, seed=None):
     """Find the most representative embeddings using a greedy algorithm with Weaviate.
 
