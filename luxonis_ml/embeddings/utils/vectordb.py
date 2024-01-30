@@ -77,3 +77,17 @@ class VectorDBAPI(ABC):
         Retrieve labels associated with a list of IDs.
         """
         pass
+
+    # @abstractmethod
+    # def filter_properties(self, property, value):
+    #     """
+    #     Filter properties from the collection.
+    #     """
+    #     pass
+
+    # @abstractmethod
+    # def update_property(self, id, property, value):
+    #     """
+    #     Update a property for an embedding.
+    #     """
+    #     pass

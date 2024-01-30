@@ -75,15 +75,16 @@ def _get_sample_payloads_coco(dataset: LuxonisDataset) -> List[Dict[str, Any]]:
 
     return all_payloads
 
-
-def _filter_new_samples_by_id(qdrant_client, collection_name, all_payloads=None):
-    """Filter out samples that are already in the Qdrant database based on their
+def _filter_new_samples_by_id(vectordb_api, all_payloads=None):
+    """Filter out samples that are already in the Vector database based on their
     instance ID.
 
-    @param qdrant_client: Qdrant client instance.
-    @param collection_name: Name of the Qdrant collection.
+    @type vectordb_api: L{VectorDBAPI}
+    @param vectordb_api: Vector database API instance.
+    @type all_payloads: List[Dict[str, Any]]
     @param all_payloads: List of all payloads.
-    @return: List of new payloads that are not in the Qdrant database.
+    @rtype: List[Dict[str, Any]]
+    @return: List of new payloads.
     """
     all_payloads = all_payloads or []
     # Filter out samples that are already in the Qdrant database
@@ -91,35 +92,7 @@ def _filter_new_samples_by_id(qdrant_client, collection_name, all_payloads=None)
         print("Payloads list is empty!")
         return all_payloads
 
-    ids = [payload["instance_id"] for payload in all_payloads]
-    search_results = qdrant_client.retrieve(
-        collection_name=collection_name, ids=ids, with_payload=False, with_vectors=False
-    )
-
-    retrieved_ids = [res.id for res in search_results]
-
-    new_payloads = [
-        payload
-        for payload in all_payloads
-        if payload["instance_id"] not in retrieved_ids
-    ]
-
-    return new_payloads
-
-def _filter_new_samples_by_id_weaviate(weaviate_api, all_payloads=None):
-    """Filter out samples that are already in the Weaviate database based on their
-    instance ID.
-
-    @param weaviate_api: WeaviateAPI instance.
-    @return: List of new payloads that are not in the Weaviate database.
-    """
-    all_payloads = all_payloads or []
-    # Filter out samples that are already in the Qdrant database
-    if len(all_payloads) == 0:
-        print("Payloads list is empty!")
-        return all_payloads
-
-    retrieved_ids = weaviate_api.get_all_ids()
+    retrieved_ids = vectordb_api.retrieve_all_ids()
 
     new_payloads = [
         payload
@@ -190,91 +163,50 @@ def _generate_new_embeddings(
 
     return new_embeddings
 
-
 def _batch_upsert(
-    qdrant_client, collection_name, new_embeddings, new_payloads, qdrant_batch_size=64
+    vectordb_api, new_embeddings, new_payloads, vectordb_batch_size=64
 ):
-    """Perform batch upserts of embeddings to Qdrant.
+    """Perform batch upserts of embeddings to VectorDB.
 
-    @type qdrant_client: L{QdrantClient}
-    @param qdrant_client: Qdrant client instance.
-    @type collection_name: str
-    @param collection_name: Name of the Qdrant collection.
+    @type vectordb_api: L{VectorDBAPI}
+    @param vectordb_api: VectorDBAPI instance.
     @type new_embeddings: List[Dict[str, Any]]
     @param new_embeddings: List of new embeddings.
     @type new_payloads: List[Dict[str, Any]]
     @param new_payloads: List of new payloads.
-    @type qdrant_batch_size: int
-    @param qdrant_batch_size: Batch size for inserting into Qdrant.
-    """
-    # Perform batch upserts to Qdrant
-    for i in range(0, len(new_embeddings), qdrant_batch_size):
-        batch_embeddings = new_embeddings[i : i + qdrant_batch_size]
-        batch_payloads = new_payloads[i : i + qdrant_batch_size]
-
-        points = [
-            models.PointStruct(
-                id=payload["instance_id"], vector=embedding, payload=payload
-            )
-            for j, (embedding, payload) in enumerate(
-                zip(batch_embeddings, batch_payloads)
-            )
-        ]
-
-        try:
-            qdrant_client.upsert(collection_name=collection_name, points=points)
-            print(
-                f"Upserted batch {i // qdrant_batch_size + 1} / {len(new_embeddings) // qdrant_batch_size + 1} of size {len(points)} to Qdrant.",
-                flush=True
-            )
-        except Exception as e:
-            print(e)
-            print(f"Failed to upsert batch {i // qdrant_batch_size + 1} to Qdrant.")
-
-def _batch_upsert_weaviate(
-    weaviate_api, new_embeddings, new_payloads, weaviate_batch_size=64
-):
-    """Perform batch upserts of embeddings to Weaviate.
-
-    @type weaviate_api: L{WeaviateAPI}
-    @param weaviate_api: WeaviateAPI instance.
-    @type new_embeddings: List[Dict[str, Any]]
-    @param new_embeddings: List of new embeddings.
-    @type new_payloads: List[Dict[str, Any]]
-    @param new_payloads: List of new payloads.
-    @type weaviate_batch_size: int
-    @param weaviate_batch_size: Batch size for inserting into Weaviate.
+    @type vectordb_batch_size: int
+    @param vectordb_batch_size: Batch size for inserting into VectorDB.
     """
     uuids = [payload["instance_id"] for payload in new_payloads]
     embeddings = new_embeddings
     labels = [payload["class"] for payload in new_payloads]
 
     try:
-        weaviate_api.insert_embeddings(uuids, embeddings, labels, weaviate_batch_size)
-        print(f"Upserted {len(uuids)} of embeddings to Weaviate.")
+        vectordb_api.insert_embeddings(uuids, embeddings, labels, vectordb_batch_size)
+        print(f"Upserted {len(uuids)} of embeddings to VectorDB.")
         
     except Exception as e:
         print(e)
-        print(f"Failed to upsert embeddings to Weaviate.")
+        print(f"Failed to upsert embeddings to VectorDB.")
 
 
 def generate_embeddings(
     luxonis_dataset,
     ort_session,
-    qdrant_api,
+    vectordb_api,
     output_layer_name,
     transform=None,
     emb_batch_size=64,
-    qdrant_batch_size=64,
+    weaviate_batch_size=64,
 ):
-    """Generate embeddings for a given dataset and insert them into Qdrant.
+    """Generate embeddings for a given dataset and insert them into a VectorDB.
 
     @type luxonis_dataset: L{LuxonisDataset}
     @param luxonis_dataset: The dataset object.
     @type ort_session: L{InferenceSession}
     @param ort_session: ONNX runtime session.
-    @type qdrant_api: L{QdrantAPI}
-    @param qdrant_api: Qdrant client API instance.
+    @type vectordb_api: L{VectorDBAPI}
+    @param vectordb_api: VectorDBAPI instance.
     @type output_layer_name: str
     @param output_layer_name: Name of the output layer in the ONNX model.
     @type emb_batch_size: int
@@ -288,10 +220,8 @@ def generate_embeddings(
     all_payloads = _get_sample_payloads_coco(luxonis_dataset)
     # all_payloads = _get_sample_payloads(luxonis_dataset)
 
-    qdrant_client, collection_name = qdrant_api.client, qdrant_api.collection_name
-
     new_payloads = _filter_new_samples_by_id(
-        qdrant_client, collection_name, all_payloads
+        vectordb_api, all_payloads
     )
 
     new_embeddings = _generate_new_embeddings(
@@ -299,61 +229,7 @@ def generate_embeddings(
     )
 
     _batch_upsert(
-        qdrant_client, collection_name, new_embeddings, new_payloads, qdrant_batch_size
-    )
-
-    # make a instance_id : embedding dictionary
-    instance_id_to_embedding = {
-        payload["instance_id"]: embedding
-        for payload, embedding in zip(new_payloads, new_embeddings)
-    }
-    print("Embeddings generation and insertion completed!")
-
-    # returns only the new embeddings
-    return instance_id_to_embedding
-
-
-
-def generate_embeddings_weaviate(
-    luxonis_dataset,
-    ort_session,
-    weaviate_api,
-    output_layer_name,
-    transform=None,
-    emb_batch_size=64,
-    weaviate_batch_size=64,
-):
-    """Generate embeddings for a given dataset and insert them into Qdrant.
-
-    @type luxonis_dataset: L{LuxonisDataset}
-    @param luxonis_dataset: The dataset object.
-    @type ort_session: L{InferenceSession}
-    @param ort_session: ONNX runtime session.
-    @type qdrant_api: L{QdrantAPI}
-    @param qdrant_api: Qdrant client API instance.
-    @type output_layer_name: str
-    @param output_layer_name: Name of the output layer in the ONNX model.
-    @type emb_batch_size: int
-    @param emb_batch_size: Batch size for generating embeddings.
-    @type qdrant_batch_size: int
-    @param qdrant_batch_size: Batch size for inserting into Qdrant.
-    @type: Dict[str, List[float]]
-    @return: Dictionary of instance ID to embedding.
-    """
-
-    all_payloads = _get_sample_payloads_coco(luxonis_dataset)
-    # all_payloads = _get_sample_payloads(luxonis_dataset)
-
-    new_payloads = _filter_new_samples_by_id_weaviate(
-        weaviate_api, all_payloads
-    )
-
-    new_embeddings = _generate_new_embeddings(
-        ort_session, output_layer_name, emb_batch_size, new_payloads, transform=transform
-    )
-
-    _batch_upsert_weaviate(
-        weaviate_api, new_embeddings, new_payloads, weaviate_batch_size
+        vectordb_api, new_embeddings, new_payloads, weaviate_batch_size
     )
 
     # make a instance_id : embedding dictionary

@@ -96,8 +96,7 @@ def kde_peaks(data, bandwidth="scott", plot=False):
 
 def find_similar(
     reference_embeddings,
-    db_type,
-    vector_db_api,
+    vectordb_api,
     k=100,
     n=1000,
     method="first",
@@ -110,8 +109,8 @@ def find_similar(
     @type reference_embeddings: Union[np.array, list]
     @param reference_embeddings: The embeddings to compare against. Or a list of of
         embedding instance_ids that reside in Qdrant.
-    @type qdrant_api: QdrantAPI
-    @param qdrant_api: The Qdrant client API instance to use for searches.
+    @type vectordb_api: VectorDBAPI
+    @param vectordb_api: The VectorDBAPI instance to use.
     @type k: int
     @param k: The number of embeddings to return. Default is 100.
     @type n: int
@@ -136,15 +135,13 @@ def find_similar(
     @rtype: np.array
     @return: The instance_ids of the most similar embeddings.
     """
-    if not (db_type == "qdrant" or db_type == "weaviate"):
-        raise ValueError(f"Unknown db_type: {db_type}")
 
     # Get the reference embeddings
     # check if reference_embeddings is a list of instance_ids
     if isinstance(reference_embeddings, str):
         reference_embeddings = [reference_embeddings]
     if isinstance(reference_embeddings[0], str):
-        reference_embeddings = vector_db_api.get_embeddings_from_ids(reference_embeddings)
+        reference_embeddings = vectordb_api.retrieve_embeddings_by_ids(reference_embeddings)
 
     # Select the reference embedding
     if method == "first":
@@ -159,15 +156,9 @@ def find_similar(
     else:
         raise ValueError(f"Unknown method: {method}")
 
-    ix, vals = vector_db_api.find_similar_embeddings(reference_embeddings, top_k=n)
-    ix, vals = np.array(ix), np.array(vals)
+    ix, similarities = vectordb_api.search_similar_embeddings(reference_embeddings, top_k=n)
+    ix, similarities = np.array(ix), np.array(similarities)
     
-    if db_type == "qdrant":
-        similarities = vals
-    elif db_type == "weaviate":
-        # Convert distances to similarities if needed
-        similarities = 1 - vals  
-
     # Select the best k embeddings
     if k_method is None:
         best_embeddings_ix = np.argsort(similarities)[-k:]

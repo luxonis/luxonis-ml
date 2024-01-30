@@ -86,14 +86,13 @@ def find_representative_greedy(distance_matrix, desired_size=1000, seed=0):
 
     return list(selected_images)
 
+def find_representative_greedy_vectordb(vectordb_api, desired_size=1000, seed=None):
+    """Find the most representative embeddings using a greedy algorithm with VectorDB.
 
-def find_representative_greedy_qdrant(qdrant_api, desired_size=1000, seed=None):
-    """Find the most representative embeddings using a greedy algorithm with Qdrant.
-
-    @note: Due to many Qdrant requests, this function is very slow. Use
-        get_all_embeddings() and find_representative_greedy() instead.
-    @type qdrant_api: QdrantAPI
-    @param qdrant_api: The Qdrant client instance to use for searches.
+    @note: Due to many requests, this function is very slow. Use
+        vectordb_api.retrieve_all_embeddings() and find_representative_greedy() instead.
+    @type vectordb_api: VectorDBAPI
+    @param vectordb_api: The Vector database client instance to use for searches.
     @type desired_size: int
     @param desired_size: The desired size of the representative set. Default is 1000.
     @type seed: int
@@ -102,7 +101,7 @@ def find_representative_greedy_qdrant(qdrant_api, desired_size=1000, seed=None):
     @rtype: list
     @return: The IDs of the representative embeddings.
     """
-    all_ids = qdrant_api.get_all_ids()
+    all_ids = vectordb_api.retrieve_all_ids()
 
     if seed is None:
         seed = np.random.choice(all_ids)
@@ -119,55 +118,7 @@ def find_representative_greedy_qdrant(qdrant_api, desired_size=1000, seed=None):
         for embedding_id in all_ids:
             if embedding_id not in selected_embeddings:
                 # Get similarities of the current embedding with the already selected embeddings
-                _, scores = qdrant_api.get_similarities(
-                    embedding_id, list(selected_embeddings)
-                )
-
-                # Calculate the minimum similarity to all previously selected embeddings
-                min_similarity = max(scores) if scores else -1
-
-                if 1 - min_similarity > max_similarity:
-                    max_similarity = min_similarity
-                    best_embedding = embedding_id
-
-        if best_embedding is not None:
-            selected_embeddings.add(best_embedding)
-
-    return list(selected_embeddings)
-
-def find_representative_greedy_weaviate(weaviate_api, desired_size=1000, seed=None):
-    """Find the most representative embeddings using a greedy algorithm with Weaviate.
-
-    @note: Due to many Weaviate requests, this function is very slow. Use
-        get_all_embeddings() and find_representative_greedy() instead.
-    @type weaviate_api: WeaviateAPI
-    @param weaviate_api: The Weaviate client instance to use for searches.
-    @type desired_size: int
-    @param desired_size: The desired size of the representative set. Default is 1000.
-    @type seed: int
-    @param seed: The ID of the seed embedding. Default is None, which means a random
-        seed is chosen.
-    @rtype: list
-    @return: The IDs of the representative embeddings.
-    """
-    all_ids = weaviate_api.get_all_ids()
-
-    if seed is None:
-        seed = np.random.choice(all_ids)
-    elif seed > len(all_ids):
-        raise ValueError(f"Seed must be in the range [0, {len(all_ids)-1}].")
-
-    selected_embeddings = set()
-    selected_embeddings.add(all_ids[seed])
-
-    while len(selected_embeddings) < desired_size:
-        max_similarity = -1
-        best_embedding = None
-
-        for embedding_id in all_ids:
-            if embedding_id not in selected_embeddings:
-                # Get similarities of the current embedding with the already selected embeddings
-                _, scores = weaviate_api.get_similarity_score(
+                _, scores = vectordb_api.get_similarity_scores(
                     embedding_id, list(selected_embeddings)
                 )
 
