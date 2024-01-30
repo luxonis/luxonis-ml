@@ -197,7 +197,7 @@ def generate_embeddings(
     output_layer_name,
     transform=None,
     emb_batch_size=64,
-    weaviate_batch_size=64,
+    vectordb_batch_size=64,
 ):
     """Generate embeddings for a given dataset and insert them into a VectorDB.
 
@@ -211,8 +211,8 @@ def generate_embeddings(
     @param output_layer_name: Name of the output layer in the ONNX model.
     @type emb_batch_size: int
     @param emb_batch_size: Batch size for generating embeddings.
-    @type qdrant_batch_size: int
-    @param qdrant_batch_size: Batch size for inserting into Qdrant.
+    @type vectordb_batch_size: int
+    @param vectordb_batch_size: Batch size for inserting into a vector DB.
     @type: Dict[str, List[float]]
     @return: Dictionary of instance ID to embedding.
     """
@@ -229,7 +229,7 @@ def generate_embeddings(
     )
 
     _batch_upsert(
-        vectordb_api, new_embeddings, new_payloads, weaviate_batch_size
+        vectordb_api, new_embeddings, new_payloads, vectordb_batch_size
     )
 
     # make a instance_id : embedding dictionary

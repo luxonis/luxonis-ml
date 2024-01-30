@@ -334,6 +334,9 @@ class QdrantAPI(VectorDBAPI):
         )
         collection_size = collection_info.vectors_count
 
+        if collection_size == 0:
+            return []
+
         # Use qdrant scroll method
         hits, _offset = self.client.scroll(
             collection_name=self.collection_name, limit=collection_size

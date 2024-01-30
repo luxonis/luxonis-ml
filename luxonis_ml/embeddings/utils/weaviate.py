@@ -187,9 +187,10 @@ class WeaviateAPI(VectorDBAPI):
     
     def compute_similarity_matrix(self):
         """
-        Calculates the similarity matrix between the specified embeddings.
+        Calculates the similarity matrix for all the embeddings in the collection.
         @note: This is a very inefficient implementation. 
-              For large numbers of embeddings, calculate the similarity matrix by hand (sklearn.metrics.pairwise.cosine_similarity).
+              For large numbers of embeddings, calculate the similarity matrix 
+              by hand (sklearn.metrics.pairwise.cosine_similarity).
         
         @type uuids: List[str]
         @param uuids: List of UUIDs of the embeddings to compare.
@@ -224,7 +225,7 @@ class WeaviateAPI(VectorDBAPI):
         )
 
         # Create a dictionary mapping UUIDs to embeddings
-        uuid_embedding_map = {result.uuid: result.vector for result in response.objects}
+        uuid_embedding_map = {str(result.uuid): result.vector for result in response.objects}
         # Retrieve embeddings in the order of the provided UUIDs
         embeddings = [uuid_embedding_map[uuid] for uuid in uuids if uuid in uuid_embedding_map]
 

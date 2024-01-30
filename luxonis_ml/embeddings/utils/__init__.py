@@ -5,7 +5,7 @@ from .embedding import (
     load_embeddings,
     save_embeddings,
 )
-from .ldf import generate_embeddings, generate_embeddings_weaviate
+from .ldf import generate_embeddings
 from .model import (
     export_model_onnx,
     extend_output_onnx,
@@ -34,6 +34,5 @@ __all__ = [
     "extract_embeddings_onnx_LFS",
     "save_embeddings",
     "load_embeddings",
-    "generate_embeddings",
-    "generate_embeddings_weaviate"
+    "generate_embeddings"
 ]

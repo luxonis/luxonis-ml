@@ -23,7 +23,6 @@ with guard_missing_extra("embedd"):
         extract_embeddings_onnx,
         extract_embeddings_onnx_LFS,
         generate_embeddings,
-        generate_embeddings_weaviate,
         load_embeddings,
         load_model,
         load_model_onnx,
@@ -56,5 +55,4 @@ __all__ = [
     "save_embeddings",
     "load_embeddings",
     "generate_embeddings",
-    "generate_embeddings_weaviate",
 ]
