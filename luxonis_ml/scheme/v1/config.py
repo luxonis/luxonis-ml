@@ -1,10 +1,11 @@
 from typing import List
 
-from __init__ import CONFIG_VERSION
-from model import Model
 from pydantic import Field
 
 from .config_building_blocks import CustomBaseModel
+from .model import Model
+
+CONFIG_VERSION = "1.0"
 
 
 class Config(CustomBaseModel):
