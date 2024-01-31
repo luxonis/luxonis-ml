@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..enums import Platform
 
@@ -13,5 +13,7 @@ class Metadata(BaseModel):
         'rvc4').
     """
 
-    name: str
-    platform: Platform
+    name: str = Field(description="Name of the model.")
+    platform: Platform = Field(
+        description="Luxonis hardware platform for which the model was exported (e.g. 'rvc4')."
+    )

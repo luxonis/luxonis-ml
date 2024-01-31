@@ -1,5 +1,7 @@
 from typing import List
 
+from pydantic import Field
+
 from .config_building_blocks import CustomBaseModel, Head, Input, Metadata, Output
 
 
@@ -16,7 +18,15 @@ class Model(CustomBaseModel):
     @ivar heads: List of Head objects defining the model heads.
     """
 
-    metadata: Metadata
-    inputs: List[Input]
-    outputs: List[Output]
-    heads: List[Head]
+    metadata: Metadata = Field(
+        description="Metadata object defining the model metadata."
+    )
+    inputs: List[Input] = Field(
+        description="List of Input objects defining the model inputs."
+    )
+    outputs: List[Output] = Field(
+        description="List of Output objects defining the model outputs."
+    )
+    heads: List[Head] = Field(
+        description="List of Head objects defining the model heads."
+    )

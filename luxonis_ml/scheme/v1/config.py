@@ -22,6 +22,15 @@ class Config(CustomBaseModel):
         (empty for single-stage models).
     """
 
-    config_version: str = Field(CONFIG_VERSION, Literal=True)
-    stages: List[Model]
-    connections: List = []  # TODO: To be implemented
+    config_version: str = Field(
+        CONFIG_VERSION,
+        Literal=True,
+        description="Static variable representing the version of the config scheme.",
+    )
+    stages: List[Model] = Field(
+        description="List of Model objects each representing a stage in the model (list of one element for single-stage models)"
+    )
+    connections: List = Field(
+        default=[],
+        description="List of connections instructing how to connect multi stage models (empty for single-stage models).",
+    )

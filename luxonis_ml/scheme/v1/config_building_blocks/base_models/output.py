@@ -1,5 +1,7 @@
 from typing import List
 
+from pydantic import Field
+
 from ..enums import DataType
 from .custom_base_model import CustomBaseModel
 
@@ -16,6 +18,10 @@ class Output(CustomBaseModel):
         output can go into multiple heads).
     """
 
-    name: str
-    dtype: DataType
-    head_ids: List[str]
+    name: str = Field(description="Name of the output layer.")
+    dtype: DataType = Field(
+        description="Data type of the output data (e.g., 'float32')."
+    )
+    head_ids: List[str] = Field(
+        description="IDs of heads which accept this output stream (beware that a single output can go into multiple heads)."
+    )

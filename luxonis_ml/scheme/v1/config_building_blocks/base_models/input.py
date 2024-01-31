@@ -21,10 +21,17 @@ class PreprocessingBlock(CustomBaseModel):
     @ivar interleaved_to_planar: If True, format is changed from interleaved to planar.
     """
 
-    mean: Optional[List[float]] = None
-    scale: Optional[List[float]] = None
-    reverse_channels: Optional[bool] = False
-    interleaved_to_planar: Optional[bool] = False
+    mean: Optional[List[float]] = Field(None, description="Mean values in BGR order.")
+    scale: Optional[List[float]] = Field(
+        None, description="Standardization values in BGR order."
+    )
+    reverse_channels: Optional[bool] = Field(
+        False,
+        description="If True, color channels are reversed (e.g. BGR to RGB or vice versa).",
+    )
+    interleaved_to_planar: Optional[bool] = Field(
+        False, description="If True, format is changed from interleaved to planar."
+    )
 
 
 class Input(CustomBaseModel):
@@ -46,8 +53,14 @@ class Input(CustomBaseModel):
     @ivar preprocessing: Preprocessing steps applied to the input data.
     """
 
-    name: str
-    dtype: DataType
-    input_type: InputType
-    shape: Annotated[List[int], Field(min_length=1, max_length=5)]
-    preprocessing: PreprocessingBlock
+    name: str = Field(description="Name of the input layer.")
+    dtype: DataType = Field(
+        description="Data type of the input data (e.g., 'float32')."
+    )
+    input_type: InputType = Field(description="Type of input data (e.g., 'image').")
+    shape: Annotated[List[int], Field(min_length=1, max_length=5)] = Field(
+        description="Shape of the input data as a list of integers (e.g. [H,W], [H,W,C], [BS,H,W,C], ...)."
+    )
+    preprocessing: PreprocessingBlock = Field(
+        description="Preprocessing steps applied to the input data."
+    )

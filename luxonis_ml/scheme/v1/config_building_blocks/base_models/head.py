@@ -18,9 +18,13 @@ class HeadMetadata(BaseModel, ABC):
     @ivar n_classes: Number of object classes recognized by the model.
     """
 
-    family: str
-    classes: List[str]
-    n_classes: int
+    family: str = Field(description="Decoding family.")
+    classes: List[str] = Field(
+        description="Names of object classes recognized by the model."
+    )
+    n_classes: int = Field(
+        description="Number of object classes recognized by the model."
+    )
 
 
 class HeadMetadataClassification(HeadMetadata):
@@ -32,8 +36,8 @@ class HeadMetadataClassification(HeadMetadata):
     @ivar is_softmax: True, if output is already softmaxed.
     """
 
-    family: str = Field("Classification", Literal=True)
-    is_softmax: bool
+    family: str = Field("Classification", Literal=True, description="Decoding family.")
+    is_softmax: bool = Field(description="True, if output is already softmaxed.")
 
     @validator("family")
     def validate_label_type(
@@ -60,10 +64,16 @@ class HeadMetadataObjectDetection(HeadMetadata, ABC):
     @ivar max_det: Maximum detections per image.
     """
 
-    stride: int
-    iou_threshold: float
-    conf_threshold: float
-    max_det: int
+    stride: int = Field(
+        description="Step size at which the filter (or kernel) moves across the input data during convolution."
+    )
+    iou_threshold: float = Field(
+        description="Non-max supression threshold limiting boxes intersection."
+    )
+    conf_threshold: float = Field(
+        description="Confidence score threshold above which a detected object is considered valid."
+    )
+    max_det: int = Field(description="Maximum detections per image.")
 
 
 class HeadMetadataObjectDetectionYOLO(HeadMetadataObjectDetection):
@@ -81,11 +91,21 @@ class HeadMetadataObjectDetectionYOLO(HeadMetadataObjectDetection):
     @ivar prototype_output_name: Output node containing prototype information.
     """
 
-    family: str = Field("ObjectDetectionYOLO", Literal=True)
-    subtype: ObjectDetectionSubtypeYOLO
-    n_keypoints: Optional[int] = None
-    n_prototypes: Optional[int] = None
-    prototype_output_name: Optional[str] = None
+    family: str = Field(
+        "ObjectDetectionYOLO", Literal=True, description="Decoding family."
+    )
+    subtype: ObjectDetectionSubtypeYOLO = Field(
+        description="YOLO family decoding subtype (e.g. v5, v6, v7 etc.)."
+    )
+    n_keypoints: Optional[int] = Field(
+        None, description="Number of keypoints per bbox if provided."
+    )
+    n_prototypes: Optional[int] = Field(
+        None, description="Number of prototypes per bbox if provided."
+    )
+    prototype_output_name: Optional[str] = Field(
+        None, description="Output node containing prototype information."
+    )
 
     @validator("family")
     def validate_label_type(
@@ -106,8 +126,13 @@ class HeadMetadataObjectDetectionSSD(HeadMetadataObjectDetection):
     @ivar anchors: Predefined bounding boxes of different sizes and aspect ratios.
     """
 
-    family: str = Field("ObjectDetectionSSD", Literal=True)
-    anchors: Optional[List[List[int]]] = None
+    family: str = Field(
+        "ObjectDetectionSSD", Literal=True, description="Decoding family."
+    )
+    anchors: Optional[List[List[int]]] = Field(
+        None,
+        description="Predefined bounding boxes of different sizes and aspect ratios.",
+    )
 
     @validator("family")
     def validate_label_type(
@@ -128,8 +153,8 @@ class HeadMetadataSegmentation(HeadMetadata):
     @ivar is_softmax: True, if output is already softmaxed.
     """
 
-    family: str = Field("Segmentation", Literal=True)
-    is_softmax: bool
+    family: str = Field("Segmentation", Literal=True, description="Decoding family.")
+    is_softmax: bool = Field(description="True, if output is already softmaxed.")
 
     @validator("family")
     def validate_label_type(
@@ -157,11 +182,11 @@ class Head(CustomBaseModel):
     @ivar metadata: Parameters required by head to run postprocessing.
     """
 
-    head_id: str
+    head_id: str = Field(description="Unique head identifier.")
     metadata: Union[
         HeadMetadataObjectDetectionYOLO,
         HeadMetadataObjectDetectionSSD,
         HeadMetadataSegmentation,
         HeadMetadataClassification,
         # HeadMetadataKeypointDetection, # TODO
-    ]
+    ] = Field(description="Parameters required by head to run postprocessing.")
