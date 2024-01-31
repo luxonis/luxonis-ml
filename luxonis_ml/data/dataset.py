@@ -133,6 +133,8 @@ class LuxonisDataset:
             )
 
         self.base_path = environ.LUXONISML_BASE_PATH
+        os.makedirs(self.base_path, exist_ok=True)
+
         credentials_cache_file = osp.join(self.base_path, "credentials.json")
         if osp.exists(credentials_cache_file):
             with open(credentials_cache_file) as file:
