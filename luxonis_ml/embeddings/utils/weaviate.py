@@ -250,7 +250,7 @@ class WeaviateAPI(VectorDBAPI):
         )
         
         # Create a dictionary mapping UUIDs to labels
-        uuid_label_map = {result.uuid: result.properties["label"] for result in response.objects}
+        uuid_label_map = {str(result.uuid): result.properties["label"] for result in response.objects}
         # Retrieve labels in the order of the provided UUIDs
         labels = [uuid_label_map[uuid] for uuid in uuids if uuid in uuid_label_map]
 
@@ -265,7 +265,7 @@ class WeaviateAPI(VectorDBAPI):
         """
         uuids = []
         for item in self.collection.iterator():
-            uuids.append(item.uuid)
+            uuids.append(str(item.uuid))
         
         return uuids
         
@@ -284,7 +284,7 @@ class WeaviateAPI(VectorDBAPI):
         for item in self.collection.iterator(
             include_vector=True
         ):
-            uuids.append(item.uuid)
+            uuids.append(str(item.uuid))
             embeddings.append(item.vector)
         
         return uuids, embeddings
