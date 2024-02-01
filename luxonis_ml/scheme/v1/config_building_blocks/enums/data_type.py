@@ -8,3 +8,4 @@ class DataType(Enum):
     UINT8 = "uint8"
     FLOAT32 = "float32"
     FLOAT16 = "float16"
+    NV12 = "NV12"

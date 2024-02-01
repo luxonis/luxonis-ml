@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 from pydantic import Field
 
@@ -15,7 +15,8 @@ class Model(CustomBaseModel):
     @type outputs: list
     @ivar outputs: List of Output objects defining the model outputs.
     @type heads: list
-    @ivar heads: List of Head objects defining the model heads.
+    @ivar heads: List of Head objects defining the model heads. If not defined, we
+        assume a raw output.
     """
 
     metadata: Metadata = Field(
@@ -27,6 +28,6 @@ class Model(CustomBaseModel):
     outputs: List[Output] = Field(
         description="List of Output objects defining the model outputs."
     )
-    heads: List[Head] = Field(
-        description="List of Head objects defining the model heads."
+    heads: Optional[List[Head]] = Field(
+        description="List of Head objects defining the model heads. If not defined, we assume a raw output."
     )

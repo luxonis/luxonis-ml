@@ -11,9 +11,9 @@ class PreprocessingBlock(CustomBaseModel):
     """Represents preprocessing operations applied to the input data.
 
     @type mean: list
-    @ivar mean: Mean values in BGR order.
+    @ivar mean: Mean values in channel order. Typically, this is BGR order.
     @type scale: list
-    @ivar scale: Standardization values in BGR order.
+    @ivar scale: Standardization values in channel order. Typically, this is BGR order.
     @type reverse_channels: bool
     @ivar reverse_channels: If True, color channels are reversed (e.g. BGR to RGB or
         vice versa).
@@ -21,9 +21,12 @@ class PreprocessingBlock(CustomBaseModel):
     @ivar interleaved_to_planar: If True, format is changed from interleaved to planar.
     """
 
-    mean: Optional[List[float]] = Field(None, description="Mean values in BGR order.")
+    mean: Optional[List[float]] = Field(
+        None, description="Mean values in channel order. Typically, this is BGR order."
+    )
     scale: Optional[List[float]] = Field(
-        None, description="Standardization values in BGR order."
+        None,
+        description="Standardization values in channel order. Typically, this is BGR order.",
     )
     reverse_channels: Optional[bool] = Field(
         False,
