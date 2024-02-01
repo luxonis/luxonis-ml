@@ -12,6 +12,14 @@ class BboxBatchProcessor(DataProcessor):
     def __init__(
         self, params: BboxParams, additional_targets: Optional[Dict[str, str]] = None
     ):
+        """Data processor class to process bbox data in batches.
+
+        @param params: Bbox parameters
+        @type params: BboxParams
+        @param additional_targets: Additional targets of the transform. Defaults to
+            None.
+        @type additional_targets: Optional[Dict[str, str]]
+        """
         super().__init__(params, additional_targets)
         item_params = copy.deepcopy(params)
         if item_params.label_fields is not None:
@@ -78,6 +86,14 @@ class KeypointsBatchProcessor(DataProcessor):
         params: KeypointParams,
         additional_targets: Optional[Dict[str, str]] = None,
     ):
+        """Data processor class to process keypoint data in batches.
+
+        @param params: Keypoint parameters
+        @type params: KeypointParams
+        @param additional_targets: Additional targets of the transform. Defaults to
+            None.
+        @type additional_targets: Optional[Dict[str, str]]
+        """
         super().__init__(params, additional_targets)
         item_params = copy.deepcopy(params)
         if item_params.label_fields is not None:

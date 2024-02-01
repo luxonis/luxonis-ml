@@ -12,8 +12,8 @@ from albumentations.core.transforms_interface import (
     KeypointInternalType,
 )
 
-from .batch_transform import BatchBasedTransform
-from .utils import AUGMENTATIONS
+from ..batch_transform import BatchBasedTransform
+from ..utils import AUGMENTATIONS
 
 
 @AUGMENTATIONS.register_module()

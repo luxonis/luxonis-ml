@@ -5,7 +5,7 @@ import numpy as np
 from albumentations import BoxType, DualTransform, KeypointType
 from albumentations.core.bbox_utils import denormalize_bbox, normalize_bbox
 
-from .utils import AUGMENTATIONS
+from ..utils import AUGMENTATIONS
 
 
 @AUGMENTATIONS.register_module()

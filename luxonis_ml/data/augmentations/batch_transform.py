@@ -9,8 +9,6 @@ from albumentations.core.transforms_interface import (
 
 
 class BatchBasedTransform(BasicTransform):
-    """."""
-
     def __init__(self, batch_size: int, **kwargs):
         """Transform for multi-image.
 
@@ -33,7 +31,7 @@ class BatchBasedTransform(BasicTransform):
         }
 
     def update_params(self, params: Dict[str, Any], **kwargs) -> Dict[str, Any]:
-        # This overwrites the `supre().update_params(...)`
+        # This overwrites the `super().update_params(...)`
         return params
 
     def apply_to_image_batch(

@@ -6,8 +6,8 @@ import cv2
 import numpy as np
 from albumentations import BoxType, KeypointType
 
-from .batch_transform import BatchBasedTransform
-from .utils import AUGMENTATIONS
+from ..batch_transform import BatchBasedTransform
+from ..utils import AUGMENTATIONS
 
 
 @AUGMENTATIONS.register_module()
