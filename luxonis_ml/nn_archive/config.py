@@ -1,11 +1,11 @@
-from typing import List
+from typing import List, Literal
 
 from pydantic import Field
 
 from .config_building_blocks import CustomBaseModel
 from .model import Model
 
-CONFIG_VERSION = "1.0"
+CONFIG_VERSION = Literal["1.0"]
 
 
 class Config(CustomBaseModel):
@@ -22,9 +22,8 @@ class Config(CustomBaseModel):
         (empty for single-stage models).
     """
 
-    config_version: str = Field(
-        CONFIG_VERSION,
-        Literal=True,
+    config_version: CONFIG_VERSION = Field(
+        ...,
         description="Static variable representing the version of the config scheme.",
     )
     stages: List[Model] = Field(

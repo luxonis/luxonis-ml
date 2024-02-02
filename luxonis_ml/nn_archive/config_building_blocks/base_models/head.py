@@ -1,7 +1,7 @@
 from abc import ABC
-from typing import List, Optional, Union
+from typing import List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 from ..enums import ObjectDetectionSubtypeYOLO
 from .custom_base_model import CustomBaseModel
@@ -36,10 +36,10 @@ class HeadMetadataClassification(HeadMetadata):
     @ivar is_softmax: True, if output is already softmaxed.
     """
 
-    family: str = Field("Classification", Literal=True, description="Decoding family.")
+    family: Literal["Classification"] = Field(..., description="Decoding family.")
     is_softmax: bool = Field(description="True, if output is already softmaxed.")
 
-    @validator("family")
+    @field_validator("family")
     def validate_label_type(
         cls,
         value,
@@ -91,9 +91,7 @@ class HeadMetadataObjectDetectionYOLO(HeadMetadataObjectDetection):
     @ivar prototype_output_name: Output node containing prototype information.
     """
 
-    family: str = Field(
-        "ObjectDetectionYOLO", Literal=True, description="Decoding family."
-    )
+    family: Literal["ObjectDetectionYOLO"] = Field(..., description="Decoding family.")
     subtype: ObjectDetectionSubtypeYOLO = Field(
         description="YOLO family decoding subtype (e.g. v5, v6, v7 etc.)."
     )
@@ -107,7 +105,7 @@ class HeadMetadataObjectDetectionYOLO(HeadMetadataObjectDetection):
         None, description="Output node containing prototype information."
     )
 
-    @validator("family")
+    @field_validator("family")
     def validate_label_type(
         cls,
         value,
@@ -126,15 +124,13 @@ class HeadMetadataObjectDetectionSSD(HeadMetadataObjectDetection):
     @ivar anchors: Predefined bounding boxes of different sizes and aspect ratios.
     """
 
-    family: str = Field(
-        "ObjectDetectionSSD", Literal=True, description="Decoding family."
-    )
+    family: Literal["ObjectDetectionSSD"] = Field(..., description="Decoding family.")
     anchors: Optional[List[List[int]]] = Field(
         None,
         description="Predefined bounding boxes of different sizes and aspect ratios.",
     )
 
-    @validator("family")
+    @field_validator("family")
     def validate_label_type(
         cls,
         value,
@@ -153,10 +149,10 @@ class HeadMetadataSegmentation(HeadMetadata):
     @ivar is_softmax: True, if output is already softmaxed.
     """
 
-    family: str = Field("Segmentation", Literal=True, description="Decoding family.")
+    family: Literal["Segmentation"] = Field(..., description="Decoding family.")
     is_softmax: bool = Field(description="True, if output is already softmaxed.")
 
-    @validator("family")
+    @field_validator("family")
     def validate_label_type(
         cls,
         value,
