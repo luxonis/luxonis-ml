@@ -34,62 +34,18 @@ Example:
     >>> onnx_model_new = extend_output_onnx_overwrite(onnx_model, "/Flatten_output_0")
 
 Dependencies:
-    - torch
-    - torch.nn
-    - torch.onnx
     - onnx
-    - torchvision.models
-    - torchvision.models.resnet
 """
 
 import onnx
-import torch
-import torch.nn as nn
-import torch.onnx
-import torchvision.models as models
-import torchvision.models.resnet as resnet
-
-
-def load_model_resnet50_minuslastlayer() -> nn.Module:
-    """Load a pre-trained ResNet-50 model with the last fully connected layer
-    removed."""
-    # model = models.resnet50(pretrained=True) # depricated
-    model = models.resnet50(weights=resnet.ResNet50_Weights.IMAGENET1K_V1)
-    model = nn.Sequential(
-        *list(model.children())[:-1]
-    )  # Remove the last fully connected layer
-    model.eval()
-    return model
-
-
-def load_model() -> nn.Module:
-    """Load a pre-trained ResNet-50 model."""
-    model = models.resnet50(weights=resnet.ResNet50_Weights.IMAGENET1K_V1)
-    model.eval()
-    return model
-
-
-def export_model_onnx(model: nn.Module, model_path_out: str = "resnet50.onnx"):
-    """Export the provided model to the ONNX format."""
-    dummy_input = torch.randn(1, 3, 224, 224)
-
-    torch.onnx.export(
-        model,
-        dummy_input,
-        model_path_out,
-        export_params=True,
-        opset_version=11,
-        do_constant_folding=False,
-        input_names=["input"],
-        output_names=["output"],
-        dynamic_axes={"input": {0: "batch_size"}, "output": {0: "batch_size"}},
-    )
-
 
 def load_model_onnx(model_path: str = "resnet50.onnx") -> onnx.ModelProto:
     """Load an ONNX model from the provided path."""
     return onnx.load(model_path)
 
+def save_model_onnx(model: onnx.ModelProto, model_path_out: str = "resnet50.onnx"):
+    """Save an ONNX model to the specified file path."""
+    onnx.save(model, model_path_out)
 
 def extend_output_onnx(
     onnx_model: onnx.ModelProto, intermediate_tensor_name: str
@@ -103,7 +59,6 @@ def extend_output_onnx(
     intermediate_layer_value_info.name = intermediate_tensor_name
     onnx_model.graph.output.extend([intermediate_layer_value_info])
     return onnx_model
-
 
 def extend_output_onnx_overwrite(
     onnx_model: onnx.ModelProto, intermediate_tensor_name: str = "/Flatten_output_0"

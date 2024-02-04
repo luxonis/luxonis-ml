@@ -28,15 +28,12 @@ from typing import Any, Dict, List
 import uuid
 
 import cv2
-import numpy as np
-import torch
-import torch.onnx
-import torchvision.transforms as transforms
-from qdrant_client.http import models
 
 from luxonis_ml.data import LuxonisDataset
+from luxonis_ml.embeddings.utils.embedding import extract_embeddings
+from luxonis_ml.embeddings.utils.vectordb import VectorDBAPI
 
-def _get_sample_payloads_coco(dataset: LuxonisDataset) -> List[Dict[str, Any]]:
+def _get_sample_payloads_LDF(dataset: LuxonisDataset) -> List[Dict[str, Any]]:
     """
     Extract payloads using LuxonisLoader for the COCO dataset format for all views (train, val, test).
     The function assumes that the loader provides images and annotations 
@@ -103,68 +100,11 @@ def _filter_new_samples_by_id(vectordb_api, all_payloads=None):
     return new_payloads
 
 
-def _generate_new_embeddings(
-    ort_session,
-    output_layer_name="/Flatten_output_0",
-    emb_batch_size=64,
-    new_payloads=None,
-    transform=None,
-):
-    """Generate embeddings for new images using a given ONNX runtime session.
-
-    @type ort_session: L{InferenceSession}
-    @param ort_session: ONNX runtime session.
-    @type output_layer_name: str
-    @param output_layer_name: Name of the output layer in the ONNX model.
-    @type emb_batch_size: int
-    @param emb_batch_size: Batch size for generating embeddings.
-    @type new_payloads: List[Dict[str, Any]]
-    @param new_payloads: List of new payloads.
-    @type transform: torchvision.transforms
-    @param transform: Optional torchvision transform for preprocessing images.
-    @rtype: List[Dict[str, Any]]
-    @return: List of generated embeddings.
-    """
-    # Generate embeddings for the new images using batching
-    new_embeddings = []
-    new_payloads = new_payloads or []
-
-    if transform is None:
-        # Define a transformation for resizing and normalizing the images
-        transform = transforms.Compose(
-            [
-                transforms.ToPILImage(),
-                transforms.Resize(
-                    (224, 224)
-                ),  # Resize images to (224, 224) or any desired size
-                transforms.ToTensor(),
-                transforms.Normalize(
-                    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-                ),  # Normalize images
-            ]
-        )
-
-    for i in range(0, len(new_payloads), emb_batch_size):
-        batch = new_payloads[i : i + emb_batch_size]
-        batch_img_paths = [payload["image_path"] for payload in batch]
-
-        # Load, preprocess, and resize a batch of images
-        batch_images = [cv2.imread(img_path) for img_path in batch_img_paths]
-        batch_tensors = [transform(img) for img in batch_images]
-        batch_tensor = torch.stack(batch_tensors).cuda()
-
-        # Run the ONNX model on the batch
-        ort_inputs = {ort_session.get_inputs()[0].name: batch_tensor.cpu().numpy()}
-        ort_outputs = ort_session.run([output_layer_name], ort_inputs)
-
-        # Append the embeddings from the batch to the new_embeddings list
-        batch_embeddings = ort_outputs[0].squeeze()
-        new_embeddings.extend(batch_embeddings.tolist())
-
-    return new_embeddings
-
 def _batch_upsert(
-    vectordb_api, new_embeddings, new_payloads, vectordb_batch_size=64
+    vectordb_api: VectorDBAPI, 
+    new_embeddings, 
+    new_payloads, 
+    vectordb_batch_size=64
 ):
     """Perform batch upserts of embeddings to VectorDB.
 
@@ -191,7 +131,7 @@ def _batch_upsert(
 
 
 def generate_embeddings(
-    luxonis_dataset,
+    luxonis_dataset: LuxonisDataset,
     ort_session,
     vectordb_api,
     output_layer_name,
@@ -209,6 +149,8 @@ def generate_embeddings(
     @param vectordb_api: VectorDBAPI instance.
     @type output_layer_name: str
     @param output_layer_name: Name of the output layer in the ONNX model.
+    @type transform: Callable[[np.ndarray], np.ndarray]
+    @param transform: Preprocessing function for images. If None, default preprocessing is used.
     @type emb_batch_size: int
     @param emb_batch_size: Batch size for generating embeddings.
     @type vectordb_batch_size: int
@@ -217,15 +159,16 @@ def generate_embeddings(
     @return: Dictionary of instance ID to embedding.
     """
 
-    all_payloads = _get_sample_payloads_coco(luxonis_dataset)
+    all_payloads = _get_sample_payloads_LDF(luxonis_dataset)
     # all_payloads = _get_sample_payloads(luxonis_dataset)
 
     new_payloads = _filter_new_samples_by_id(
         vectordb_api, all_payloads
     )
 
-    new_embeddings = _generate_new_embeddings(
-        ort_session, output_layer_name, emb_batch_size, new_payloads, transform=transform
+    new_img_paths = [payload["image_path"] for payload in new_payloads]
+    new_embeddings = extract_embeddings(
+        new_img_paths, ort_session, luxonis_dataset.fs, transform, output_layer_name, emb_batch_size
     )
 
     _batch_upsert(
