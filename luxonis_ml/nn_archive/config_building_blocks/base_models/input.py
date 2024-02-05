@@ -1,7 +1,6 @@
 from typing import List, Optional
 
 from pydantic import Field
-from typing_extensions import Annotated
 
 from ..enums import DataType, InputType
 from .custom_base_model import CustomBaseModel
@@ -61,8 +60,10 @@ class Input(CustomBaseModel):
         description="Data type of the input data (e.g., 'float32')."
     )
     input_type: InputType = Field(description="Type of input data (e.g., 'image').")
-    shape: Annotated[List[int], Field(min_length=1, max_length=5)] = Field(
-        description="Shape of the input data as a list of integers (e.g. [H,W], [H,W,C], [BS,H,W,C], ...)."
+    shape: List[int] = Field(
+        min_length=1,
+        max_length=5,
+        description="Shape of the input data as a list of integers (e.g. [H,W], [H,W,C], [BS,H,W,C], ...).",
     )
     preprocessing: PreprocessingBlock = Field(
         description="Preprocessing steps applied to the input data."

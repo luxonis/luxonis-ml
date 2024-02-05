@@ -1,6 +1,5 @@
-from pydantic import BaseModel, Extra
+from pydantic import BaseModel, ConfigDict
 
 
 class CustomBaseModel(BaseModel):
-    class Config:
-        extra = Extra.forbid  # forbid extra fields
+    model_config = ConfigDict(extra="forbid")
