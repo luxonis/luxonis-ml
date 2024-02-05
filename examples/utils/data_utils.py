@@ -1,8 +1,7 @@
-"""
-MNIST Dataset Loader with Custom Preprocessing
+"""MNIST Dataset Loader with Custom Preprocessing.
 
-This module provides utility functions to load the MNIST dataset with specific 
-transformations applied. The dataset is transformed to be compatible with models 
+This module provides utility functions to load the MNIST dataset with specific
+transformations applied. The dataset is transformed to be compatible with models
 that expect 3-channel RGB images, such as models pre-trained on the ImageNet dataset.
 
 The main transformations applied are:
@@ -14,7 +13,7 @@ The main transformations applied are:
 
 Functions:
     - `mnist_transformations()`: Returns the composed transformations.
-    - `load_mnist_data(save_path='./mnist', num_samples=640, batch_size=64)`: Loads MNIST data with the defined transformations 
+    - `load_mnist_data(save_path='./mnist', num_samples=640, batch_size=64)`: Loads MNIST data with the defined transformations
         and returns a DataLoader. It provides options to specify the number of samples and batch size.
 
 Example usage:
@@ -25,7 +24,7 @@ Example usage:
         ...  # Your processing here
     ```
 
-Note: This loader is particularly useful when you want to use MNIST data with models that were 
+Note: This loader is particularly useful when you want to use MNIST data with models that were
 pre-trained on datasets like ImageNet and expect 3-channel RGB input.
 """
 
@@ -36,8 +35,8 @@ import torchvision.transforms as transforms
 
 
 def mnist_transformations():
-    """
-    Returns composed transformations for the MNIST dataset.
+    """Returns composed transformations for the MNIST dataset.
+
     Transforms the images from 1 channel grayscale to 3 channels RGB and resizes them.
     """
     return transforms.Compose(
@@ -52,8 +51,7 @@ def mnist_transformations():
 
 
 def load_mnist_data(save_path="./mnist", num_samples=640, batch_size=64):
-    """
-    Loads the MNIST dataset with the specified preprocessing.
+    """Loads the MNIST dataset with the specified preprocessing.
 
     Parameters:
     - save_path (str): Directory to save/load the MNIST data.
