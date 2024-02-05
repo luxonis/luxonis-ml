@@ -86,6 +86,11 @@ class LuxonisLoader(BaseLoader):
         if self.sync_mode:
             self.logger.info("Syncing from cloud...")
             self.dataset.sync_from_cloud()
+            classes_file = os.path.join(self.dataset.metadata_path, "classes.json")
+            with open(classes_file) as file:
+                synced_classes = json.load(file)
+            for task in synced_classes:
+                self.dataset.set_classes(classes=synced_classes[task], task=task)
 
         if self.dataset.bucket_storage == BucketStorage.LOCAL or not self.stream:
             self.file_index = self.dataset._get_file_index()
