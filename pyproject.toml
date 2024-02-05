@@ -39,6 +39,7 @@ data = { file = ["luxonis_ml/data/requirements.txt"] }
 utils = { file = ["luxonis_ml/utils/requirements.txt"] }
 tracker = { file = ["luxonis_ml/tracker/requirements.txt"] }
 embedd = { file = ["luxonis_ml/embeddings/requirements.txt"] }
+nn_archive = { file = ["luxonis_ml/nn_archive/requirements.txt"] }
 
 [tool.setuptools.dynamic.optional-dependencies.all]
 file = [
@@ -46,6 +47,7 @@ file = [
     "luxonis_ml/utils/requirements.txt",
     "luxonis_ml/tracker/requirements.txt",
     "luxonis_ml/embeddings/requirements.txt",
+    "luxonis_ml/nn_archive/requirements.txt"
 ]
 
 [tool.setuptools.dynamic.optional-dependencies.dev]
@@ -54,6 +56,7 @@ file = [
     "luxonis_ml/utils/requirements.txt",
     "luxonis_ml/tracker/requirements.txt",
     "luxonis_ml/embeddings/requirements.txt",
+    "luxonis_ml/nn_archive/requirements.txt",
     "requirements-dev.txt"
 ]
 
