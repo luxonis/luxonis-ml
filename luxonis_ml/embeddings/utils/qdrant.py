@@ -33,13 +33,9 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models
 from qdrant_client.models import Distance, PointStruct, SearchRequest, VectorParams
 
-from luxonis_ml.embeddings.utils.vectordb import VectorDBAPI
+from typing import List, Dict, Any, Optional
 
-convert_distance_metric = {
-    "cosine": Distance.COSINE,
-    "dot": Distance.DOT,
-    "euclidean": Distance.EUCLID,
-}
+from luxonis_ml.embeddings.utils.vectordb import VectorDBAPI
 
 class QdrantManager:
     """Class to manage Qdrant Docker container and perform various operations related to
@@ -136,19 +132,27 @@ class QdrantManager:
             container.start()
         else:
             print("Container is already running.")
+    
+    def stop_docker_qdrant(self):
+        """Stop the Qdrant Docker container."""
+        if self.does_container_exist():
+            container = self.client_docker.containers.get(self.container_name)
+            container.stop()
+            print("Stopped container")
+        else:
+            print("Container does not exist")
 
 class QdrantAPI(VectorDBAPI):
     """Class to perform various Qdrant operations related to embeddings."""
 
-    def __init__(
-        self, host="localhost", port=6333, collection_name="mnist"
-    ):
-        """Initialize the QdrantAPI."""
+    def __init__(self, host: str = "localhost", port: int = 6333):
+        """Initialize the QdrantAPI without setting a specific collection."""
         self.client = QdrantClient(host=host, port=port)
+    
+    def create_collection(self, collection_name: str, properties: List[str], vector_size: int = 512):
+        """Create a collection in Qdrant with specified properties."""
         self.collection_name = collection_name
-
-    def create_collection(self, label=None, vector_size=512, distance="cosine"):
-        """Create a collection in Qdrant."""
+        self.properties = properties
         try:
             self.client.get_collection(collection_name=self.collection_name)
             print("Collection already exists")
@@ -157,7 +161,7 @@ class QdrantAPI(VectorDBAPI):
                 collection_name=self.collection_name,
                 vectors_config=VectorParams(
                     size=vector_size, 
-                    distance=convert_distance_metric[distance]
+                    distance=Distance.COSINE
                 ),
             )
             print("Created new collection")
@@ -170,21 +174,26 @@ class QdrantAPI(VectorDBAPI):
         except Exception:
             print("Collection does not exist")
     
-    def insert_embeddings(self, ids, embeddings, labels, batch_size=50):
-        """Batch insert embeddings, labels, and image paths into a Qdrant collection."""
+    def insert_embeddings(
+            self, 
+            ids: List[str], 
+            embeddings: List[List[float]], 
+            payloads: List[Dict[str, Any]], 
+            batch_size: int = 50
+        ):
+        """Batch insert embeddings with IDs and additional metadata into a collection."""
         total_len = len(embeddings)
 
+        # check if payloads key values subset of the self.properties
+        for payload in payloads:
+            if not set(payload.keys()).issubset(set(self.properties)):
+                raise ValueError("Payload keys should be subset of the properties")
+
         for i in range(0, total_len, batch_size):
-            start = i
-            end = min(i + batch_size, total_len)
-
-            batch_ids = ids[start:end]
-            batch_vectors = embeddings[start:end]
-            batch_payloads = [
-                {"label": labels[j]}
-                for j in range(start, end)
-            ]
-
+            batch_ids = ids[i:i + batch_size]
+            batch_vectors = embeddings[i:i + batch_size]
+            batch_payloads = payloads[i:i + batch_size]
+            
             batch = models.Batch(
                 ids=batch_ids, vectors=batch_vectors, payloads=batch_payloads
             )
@@ -366,8 +375,8 @@ class QdrantAPI(VectorDBAPI):
             
         return ids, embeddings
 
-    def retrieve_labels_by_ids(self, ids):
-        """Retrieve labels associated with a list of IDs from a Qdrant collection.
+    def retrieve_payloads_by_ids(self, ids: List[str], properties: Optional[List[str]] = None):
+        """Retrieve specified payload properties for a list of IDs from a collection.
 
         The order of the labels IS preserved.
         """
@@ -379,11 +388,15 @@ class QdrantAPI(VectorDBAPI):
             with_vectors=False,
         )
 
-        # Order the labels according to the given ids
+        # Order the payloads according to the given ids
         id_to_index = {id: index for index, id in enumerate(ids)}
-        labels = [None for _ in range(len(ids))]
+        payloads = [None for _ in range(len(ids))]
         for hit in hits:
             i = id_to_index[hit.id]
-            labels[i] = hit.payload["label"]
+            if properties is not None:
+                payload = {prop: hit.payload[prop] for prop in properties}
+            else:
+                payload = hit.payload
+            payloads[i] = payload
 
-        return labels
+        return payloads

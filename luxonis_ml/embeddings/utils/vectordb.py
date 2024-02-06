@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import List, Dict, Any, Optional
 
 class VectorDBAPI(ABC):
     """
@@ -8,10 +9,9 @@ class VectorDBAPI(ABC):
     """
 
     @abstractmethod
-    def create_collection(self, label: bool, vector_size: int = 512, distance_metric: str = "cosine"):
+    def create_collection(self, collection_name: str, properties: List[str]):
         """
         Create a collection in the vector database.
-        Distance metric can be "cosine", "dot" or "euclidean".
         """
         pass
 
@@ -23,7 +23,7 @@ class VectorDBAPI(ABC):
         pass
 
     @abstractmethod
-    def insert_embeddings(self, ids, embeddings, labels=None, batch_size: int = 100):
+    def insert_embeddings(self, ids: List[str], embeddings: List[List[float]], payloads: List[Dict[str, Any]], batch_size: int = 100):
         """
         Insert embeddings into the collection.
         """
@@ -72,22 +72,8 @@ class VectorDBAPI(ABC):
         pass
 
     @abstractmethod
-    def retrieve_labels_by_ids(self, ids):
+    def retrieve_payloads_by_ids(self, ids: List[str], properties: Optional[List[str]]):
         """
         Retrieve labels associated with a list of IDs.
         """
         pass
-
-    # @abstractmethod
-    # def filter_properties(self, property, value):
-    #     """
-    #     Filter properties from the collection.
-    #     """
-    #     pass
-
-    # @abstractmethod
-    # def update_property(self, id, property, value):
-    #     """
-    #     Update a property for an embedding.
-    #     """
-    #     pass

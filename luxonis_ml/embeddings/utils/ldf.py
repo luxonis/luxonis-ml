@@ -53,14 +53,7 @@ def _get_sample_payloads_LDF(dataset: LuxonisDataset) -> List[Dict[str, Any]]:
 
     for row in df.iterrows():
         if row[1]["type"] == "classification":
-            try:
-                instance_id = row[1]["original_filepath"].split("/")[-1].split(".")[0]
-                # throw if not uuid
-                uuid.UUID(instance_id)
-            except:
-                print(f"Skipping {row[1]['original_filepath']}, not a valid uuid")
-                continue
-            #instance_id = row[1]["instance_id"]
+            instance_id = row[1]["instance_id"]
             img_path = row[1]["original_filepath"]
             class_name = row[1]["class"]
 
@@ -117,12 +110,17 @@ def _batch_upsert(
     @type vectordb_batch_size: int
     @param vectordb_batch_size: Batch size for inserting into VectorDB.
     """
-    uuids = [payload["instance_id"] for payload in new_payloads]
-    embeddings = new_embeddings
-    labels = [payload["class"] for payload in new_payloads]
+    uuids = []
+    qdrant_payloads = []
+    for payload in new_payloads:
+        uuids.append(payload["instance_id"])
+        qdrant_payloads.append({
+            "label": payload["class"],
+            "image_path": payload["image_path"]
+        })
 
     try:
-        vectordb_api.insert_embeddings(uuids, embeddings, labels, vectordb_batch_size)
+        vectordb_api.insert_embeddings(uuids, new_embeddings, qdrant_payloads, vectordb_batch_size)
         print(f"Upserted {len(uuids)} of embeddings to VectorDB.")
         
     except Exception as e:
@@ -167,9 +165,10 @@ def generate_embeddings(
     )
 
     new_img_paths = [payload["image_path"] for payload in new_payloads]
-    new_embeddings = extract_embeddings(
+    new_embeddings, succ_ix = extract_embeddings(
         new_img_paths, ort_session, luxonis_dataset.fs, transform, output_layer_name, emb_batch_size
     )
+    new_payloads = [new_payloads[ix] for ix in succ_ix]
 
     _batch_upsert(
         vectordb_api, new_embeddings, new_payloads, vectordb_batch_size

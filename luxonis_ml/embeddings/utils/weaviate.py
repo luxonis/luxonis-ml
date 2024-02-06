@@ -4,14 +4,8 @@ from weaviate.collections.classes.filters import FilterMetadata
 
 from luxonis_ml.embeddings.utils.vectordb import VectorDBAPI
 
-convert_distance_metric = {
-    "cosine": wvc.VectorDistance.COSINE,
-    "dot": wvc.VectorDistance.DOT,
-    "euclidean": wvc.VectorDistance.L2_SQUARED
-}
-
 class WeaviateAPI(VectorDBAPI):
-    def __init__(self, url="http://localhost:8080", grpc_url="http://localhost:50051", auth_api_key=None, collection_name="mnist"):
+    def __init__(self, url="http://localhost:8080", grpc_url="http://localhost:50051", auth_api_key=None):
         """
         Initializes the Weaviate API.
 
@@ -41,50 +35,54 @@ class WeaviateAPI(VectorDBAPI):
                 auth_credentials=auth_api_key
             )
         
-        self.collection_name = collection_name
-        
-    def create_collection(self, label=False, vector_size: int = 512, distance_metric: str = "cosine"):
+    def create_collection(self, collection_name, properties=None):
         """
         Creates a Weaviate collection.
 
-        @type label: bool
-        @param label: Whether to add a label property to the collection. Defaults to False.
-        @type vector_size: int
-        @param vector_size: Size of the embeddings. Not used in Weaviate. Defaults to 512.
-        @type distance_metric: str
-        @param distance_metric: Distance metric to use for the vector index. Can be "cosine", "dot" or "euclidean".
+        @type collection_name: str
+        @param collection_name: Name of the collection to create.
+        @type properties: List[str]
+        @param properties: List of properties for the collection. Defaults to None.
         """
-        if not self.client.collections.exists(self.collection_name):
-            print(f"Collection {self.collection_name} does not exist. Creating...")
-            
-            properties = None
+        self.collection_name = collection_name
+        self.properties = properties
 
-            if label:
-                properties = [
+        if not self.client.collections.exists(self.collection_name):
+            # print(f"Collection {self.collection_name} does not exist. Creating...")
+            
+            properties = []
+            for prop in self.properties:
+                properties.append(
                     wvc.Property(
-                        name="label",
+                        name=prop,
                         data_type=wvc.DataType.TEXT,
                         skip_vectorization=True
                     )
-                ]
+                )
 
             self.collection = self.client.collections.create(
                 name=self.collection_name,
                 properties=properties,
                 vector_index_config=wvc.Configure.VectorIndex.hnsw(
-                    distance_metric=convert_distance_metric[distance_metric]
+                    distance_metric=wvc.VectorDistance.COSINE
                 ),
             )
+            print(f"Collection {self.collection_name} created.")
         else:
             self.collection = self.client.collections.get(self.collection_name)
+            print(f"Collection {self.collection_name} already exists.")
         
     def delete_collection(self):
         """
         Deletes the Weaviate collection.
         """
-        self.client.collections.delete(self.collection_name)
+        try:
+            self.client.collections.delete(self.collection_name)
+            print(f"Collection {self.collection_name} deleted.")
+        except:
+            print(f"Collection {self.collection_name} does not exist.")
 
-    def insert_embeddings(self, uuids, embeddings, labels=None, batch_size=100):
+    def insert_embeddings(self, uuids, embeddings, payloads, batch_size=100):
         """
         Inserts embeddings into the Weaviate collection.
 
@@ -98,15 +96,10 @@ class WeaviateAPI(VectorDBAPI):
         @param batch_size: Batch size for inserting the embeddings.
         """
         data = []
-        if labels is not None:
-            properties = [{"label": label} for label in labels]
-        else:
-            properties = [{}] * len(uuids)
-
         for i, embedding in enumerate(embeddings):
             data.append(
                 wvc.DataObject(
-                    properties=properties[i],
+                    properties=payloads[i],
                     uuid=uuids[i],
                     vector=embedding
                 )
@@ -142,8 +135,8 @@ class WeaviateAPI(VectorDBAPI):
         uuids = []
         scores = []
         for result in response.objects:
-            uuids.append(result.uuid)
-            scores.append(result.metadata.distance)
+            uuids.append(str(result.uuid))
+            scores.append(1 - result.metadata.distance)
 
         return uuids, scores
     
@@ -172,16 +165,15 @@ class WeaviateAPI(VectorDBAPI):
         # near object gives order by distance result
 
         if sort_distances:
-            ids = []
-            scores = []
+            ids, scores = [], []
             for result in response.objects:
-                ids.append(result.uuid)
-                scores.append(result.metadata.distance)
+                ids.append(str(result.uuid))
+                scores.append(1 - result.metadata.distance)
         else:
             ids = other_ids
             scores = [0] * len(other_ids)
             for result in response.objects:
-                scores[other_ids.index(result.uuid)] = result.metadata.distance
+                scores[other_ids.index(str(result.uuid))] = 1 - result.metadata.distance
 
         return ids, scores
     
@@ -202,7 +194,8 @@ class WeaviateAPI(VectorDBAPI):
 
         sim_matrix = []
         for uuid in uuids:
-            sim_matrix.append(self.get_similarity_scores(uuid, uuids))
+            ids, scores = self.get_similarity_scores(uuid, uuids, sort_distances=False)
+            sim_matrix.append(scores)
 
         return sim_matrix
     
@@ -231,30 +224,32 @@ class WeaviateAPI(VectorDBAPI):
 
         return embeddings
 
-    def retrieve_labels_by_ids(self, uuids):
+    def retrieve_payloads_by_ids(self, uuids, properties):
         """
-        Gets the labels for the specified UUIDs.
+        Gets the payloads for the specified UUIDs.
 
         @type uuids: List[str]
         @param uuids: List of UUIDs of the embeddings to get.
+        @type properties: List[str]
+        @param properties: List of properties to retrieve.
 
-        @rtype labels: List[str]
-        @return labels: List of labels.
+        @rtype payloads: List[Dict[str, Any]]
+        @return payloads: List of payloads.
         """
-        labels = []
+        payloads = []
 
         response = self.collection.query.fetch_objects(
             limit=10000,
             filters=FilterMetadata.ById.contains_any(uuids),
-            return_properties=["label"]
+            return_properties=properties
         )
-        
-        # Create a dictionary mapping UUIDs to labels
-        uuid_label_map = {str(result.uuid): result.properties["label"] for result in response.objects}
-        # Retrieve labels in the order of the provided UUIDs
-        labels = [uuid_label_map[uuid] for uuid in uuids if uuid in uuid_label_map]
 
-        return labels
+        # Create a dictionary mapping UUIDs to payloads
+        uuid_payload_map = {str(result.uuid): result.properties for result in response.objects}
+        # Retrieve payloads in the order of the provided UUIDs
+        payloads = [uuid_payload_map[uuid] for uuid in uuids if uuid in uuid_payload_map]
+
+        return payloads
     
     def retrieve_all_ids(self):
         """
