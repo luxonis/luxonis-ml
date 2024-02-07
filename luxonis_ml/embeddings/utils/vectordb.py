@@ -74,6 +74,6 @@ class VectorDBAPI(ABC):
     @abstractmethod
     def retrieve_payloads_by_ids(self, ids: List[str], properties: Optional[List[str]]):
         """
-        Retrieve labels associated with a list of IDs.
+        Retrieve payloads associated with a list of IDs.
         """
         pass

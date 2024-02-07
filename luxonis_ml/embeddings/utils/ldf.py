@@ -1,33 +1,33 @@
-"""This script provides utilities for generating embeddings from images, filtering new
-samples, and inserting them into a Qdrant database.
+"""
+Utilities for generating image embeddings and inserting them into a VectorDB database.
 
-Modules Used:
-    - cv2: For reading and processing images.
-    - numpy: For numerical operations.
-    - torch: PyTorch library for deep learning.
-    - torch.onnx: PyTorch's ONNX utilities.
-    - onnx: Open Neural Network Exchange.
-    - onnxruntime: Runtime for ONNX models.
-    - torchvision: PyTorch's computer vision library.
-    - qdrant_client: Client for interacting with Qdrant.
+This script provides functions for:
 
-Main Functions:
-    - _get_sample_payloads_coco: Extracts payloads from the LuxonisDataset for the COCO dataset format.
-    - _get_sample_payloads: Extracts payloads from the LuxonisDataset.
-    - _filter_new_samples: Filters out samples that are already in the Qdrant database based on their sample ID.
-    - _filter_new_samples_by_id: Filters out samples that are already in the Qdrant database based on their instance ID.
-    - _generate_new_embeddings: Generates embeddings for new images using a given ONNX runtime session.
-    - _batch_upsert: Performs batch upserts of embeddings to Qdrant.
-    - generate_embeddings: Main function that generates embeddings for a given dataset and inserts them into Qdrant.
+- Extracting payloads from LuxonisDatasets, specifically for classification datasets.
+- Filtering new samples based on their instance IDs to avoid duplicates in the database.
+- Generating embeddings for new images using an ONNX runtime session.
+- Performing batch upserts of embeddings into a VectorDB database.
 
-Note:
-Ensure that the Qdrant server is running and accessible before using these utilities.
+Key modules used:
+
+- `luxonis_ml.data`: For loading and working with LuxonisDatasets.
+- `luxonis_ml.embeddings.utils.embedding`: For extracting embeddings from images.
+- `luxonis_ml.embeddings.utils.vectordb`: For interacting with VectorDB databases.
+
+Main functions:
+
+- `_get_sample_payloads_LDF`: Extracts payloads from a LuxonisDataset for classification datasets.
+- `_filter_new_samples_by_id`: Filters out samples already in the database based on instance IDs.
+- `_batch_upsert`: Performs batch upserts of embeddings into the database.
+- `generate_embeddings`: Main function to generate embeddings for a dataset and insert them into the database.
+
+Important note:
+
+Ensure that a VectorDB server is running and accessible before using these utilities.
 """
 
-from typing import Any, Dict, List
-import uuid
 
-import cv2
+from typing import Any, Dict, List
 
 from luxonis_ml.data import LuxonisDataset
 from luxonis_ml.embeddings.utils.embedding import extract_embeddings
@@ -35,10 +35,8 @@ from luxonis_ml.embeddings.utils.vectordb import VectorDBAPI
 
 def _get_sample_payloads_LDF(dataset: LuxonisDataset) -> List[Dict[str, Any]]:
     """
-    Extract payloads using LuxonisLoader for the COCO dataset format for all views (train, val, test).
-    The function assumes that the loader provides images and annotations 
-    for each sample in the dataset.
-
+    Extract payloads from the LuxonisDataset. Currently supports classification datasets. 
+    
     @type dataset: LuxonisDataset
     @param dataset: An instance of LuxonisDataset.
     @rtype: List[Dict[str, Any]]
@@ -66,8 +64,8 @@ def _get_sample_payloads_LDF(dataset: LuxonisDataset) -> List[Dict[str, Any]]:
     return all_payloads
 
 def _filter_new_samples_by_id(vectordb_api, all_payloads=None):
-    """Filter out samples that are already in the Vector database based on their
-    instance ID.
+    """
+    Filter out samples that are already in the Vector database based on their instance ID.
 
     @type vectordb_api: L{VectorDBAPI}
     @param vectordb_api: Vector database API instance.
@@ -99,7 +97,8 @@ def _batch_upsert(
     new_payloads, 
     vectordb_batch_size=64
 ):
-    """Perform batch upserts of embeddings to VectorDB.
+    """
+    Perform batch upserts of embeddings to VectorDB.
 
     @type vectordb_api: L{VectorDBAPI}
     @param vectordb_api: VectorDBAPI instance.
@@ -137,7 +136,8 @@ def generate_embeddings(
     emb_batch_size=64,
     vectordb_batch_size=64,
 ):
-    """Generate embeddings for a given dataset and insert them into a VectorDB.
+    """
+    Generate embeddings for a given dataset and insert them into a VectorDB.
 
     @type luxonis_dataset: L{LuxonisDataset}
     @param luxonis_dataset: The dataset object.

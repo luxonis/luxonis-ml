@@ -1,17 +1,14 @@
 import cv2
 import onnx
 import onnxruntime as ort
+
 import torch
 import torch.nn as nn
-# import torch.onnx
 import torchvision.models as models
 import torchvision.models.resnet as resnet
 import torchvision.transforms as transforms
 
-from PIL import Image
-from io import BytesIO
 from typing import Tuple, List
-
 
 # PyTorch and ONNX model loading and exporting functions
 def load_model_resnet50_minuslastlayer() -> nn.Module:

@@ -1,39 +1,37 @@
-"""Qdrant Docker Management and Embedding Operations.
+"""
+Qdrant Docker Management and Embedding Operations.
 
-This script provides a set of utility functions to manage Qdrant using Docker and perform various operations related to embeddings.
+This script provides utility functions for managing Qdrant via Docker and performing operations related to embeddings.
 
-Features:
-    - Docker management: Check if Docker is installed, running, and if specific images or containers exist.
-    - Qdrant management: Start a Qdrant container, connect to Qdrant, and create a collection.
-    - Embedding operations: Insert, batch insert, search, and retrieve embeddings from a Qdrant collection.
+Features include:
+- Docker management: Checks for Docker installation, running status, and existence of specific images or containers.
+- Qdrant management: Facilitates starting a Qdrant container, connecting to Qdrant, and creating collections.
+- Embedding operations: Supports inserting, batch inserting, searching, and retrieving embeddings within a Qdrant collection.
 
 Dependencies:
-    - os: For file operations.
-    - docker: For Docker-related operations.
-    - numpy: For numerical operations on embeddings.
-    - qdrant_client: For interacting with Qdrant.
+@type os: Standard library module for interacting with the operating system.
+@type docker: Library to manage Docker containers.
+@type qdrant_client: Client library for interacting with the Qdrant service.
 
-Usage:
-    1. Ensure Docker is installed and running.
-    2. Start a Qdrant container using the QdrantManager class and the start_docker_qdrant() method.
-    3. Connect to Qdrant or create a new collection using the QdrantAPI class.
-    4. Perform various operations on the Qdrant collection using the QdrantAPI class.
+Usage steps:
+1. Ensure Docker is installed and running on your system.
+2. Utilize the QdrantManager class and its start_docker_qdrant() method to initiate a Qdrant container.
+3. Employ the QdrantAPI class to either connect to an existing Qdrant service or create a new collection.
+4. Use the QdrantAPI class to perform various embedding-related operations within the specified Qdrant collection.
 
 Note:
-    - The default collection name is set to "mnist".
-    - Ensure the user has the appropriate permissions to run Docker commands without sudo.
-      See U{https://docs.docker.com/engine/install/linux-postinstall/} for more details.
+- The default collection name is 'mnist'.
+- It is essential that the user has appropriate permissions to execute Docker commands without sudo. 
+For guidance on setting this up, refer to: https://docs.docker.com/engine/install/linux-postinstall/
 """
 
 import os
-
 import docker
-import numpy as np
+from typing import List, Dict, Any, Optional
+
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
-from qdrant_client.models import Distance, PointStruct, SearchRequest, VectorParams
-
-from typing import List, Dict, Any, Optional
+from qdrant_client.models import Distance, SearchRequest, VectorParams
 
 from luxonis_ml.embeddings.utils.vectordb import VectorDBAPI
 
@@ -146,11 +144,27 @@ class QdrantAPI(VectorDBAPI):
     """Class to perform various Qdrant operations related to embeddings."""
 
     def __init__(self, host: str = "localhost", port: int = 6333):
-        """Initialize the QdrantAPI without setting a specific collection."""
+        """
+        Initialize the QdrantAPI without setting a specific collection.
+
+        @type host: str
+        @param host: The host address of the Qdrant server. Default is "localhost".
+        @type port: int
+        @param port: The port number of the Qdrant server. Default is 6333.
+        """
         self.client = QdrantClient(host=host, port=port)
     
     def create_collection(self, collection_name: str, properties: List[str], vector_size: int = 512):
-        """Create a collection in Qdrant with specified properties."""
+        """
+        Create a collection in Qdrant with specified properties.
+        
+        @type collection_name: str
+        @param collection_name: The name of the collection.
+        @type properties: List[str]
+        @param properties: The list of properties for the collection.
+        @type vector_size: int
+        @param vector_size: The size of the embedding vectors. Default is 512.
+        """
         self.collection_name = collection_name
         self.properties = properties
         try:
@@ -181,7 +195,18 @@ class QdrantAPI(VectorDBAPI):
             payloads: List[Dict[str, Any]], 
             batch_size: int = 50
         ):
-        """Batch insert embeddings with IDs and additional metadata into a collection."""
+        """
+        Batch insert embeddings with IDs and additional metadata into a collection.
+        
+        @type ids: List[str]
+        @param ids: The list of instance_ids for the embeddings.
+        @type embeddings: List[List[float]]
+        @param embeddings: The list of embedding vectors.
+        @type payloads: List[Dict[str, Any]]
+        @param payloads: The list of additional metadata for the embeddings.
+        @type batch_size: int
+        @param batch_size: The batch size for inserting embeddings. Default is 50.
+        """
         total_len = len(embeddings)
 
         # check if payloads key values subset of the self.properties
@@ -202,7 +227,17 @@ class QdrantAPI(VectorDBAPI):
             self.client.upsert(collection_name=self.collection_name, points=batch)
 
     def search_similar_embeddings(self, embedding, top_k=5):
-        """Search for the top similar embeddings in a Qdrant collection."""
+        """
+        Search for the top similar embeddings in a Qdrant collection.
+        
+        @type embedding: List[float]
+        @param embedding: The query embedding vector.
+        @type top_k: int
+        @param top_k: The number of similar embeddings to retrieve. Default is 5.
+        @rtype: Tuple[List[str], List[float]]
+        @return: The list of instance_ids of the similar embeddings and the list of
+            similarity scores.
+        """
         search_results = self.client.search(
             collection_name=self.collection_name,
             query_vector=embedding,
@@ -314,9 +349,14 @@ class QdrantAPI(VectorDBAPI):
         return sim_matrix
 
     def retrieve_embeddings_by_ids(self, ids):
-        """Retrieve embeddings associated with a list of IDs from a Qdrant collection.
-
+        """
+        Retrieve embeddings associated with a list of IDs from a Qdrant collection.
         The order of the embeddings IS preserved.
+
+        @type ids: List[str]
+        @param ids: The list of instance_ids of the embeddings to retrieve.
+        @rtype: List[List[float]]
+        @return: The list of embedding vectors.
         """
         # Retrieve the embeddings for the given ids
         hits = self.client.retrieve(
@@ -336,7 +376,11 @@ class QdrantAPI(VectorDBAPI):
         return embeddings
 
     def retrieve_all_ids(self):
-        """Retrieve all IDs from a Qdrant collection."""
+        """
+        Retrieve all IDs from a Qdrant collection.
+        @rtype: List[str]
+        @return: The list of instance_ids of the embeddings.
+        """
         # Get the number of points in the collection
         collection_info = self.client.get_collection(
             collection_name=self.collection_name
@@ -354,7 +398,12 @@ class QdrantAPI(VectorDBAPI):
         return ids
 
     def retrieve_all_embeddings(self):
-        """Retrieve all embeddings and their IDs from a Qdrant collection."""
+        """
+        Retrieve all embeddings and their IDs from a Qdrant collection.
+        
+        @rtype: Tuple[List[str], List[List[float]]]
+        @return: The list of instance_ids of the embeddings and the list of embedding vectors.
+        """
         # Get the number of points in the collection
         collection_info = self.client.get_collection(
             collection_name=self.collection_name
@@ -376,9 +425,16 @@ class QdrantAPI(VectorDBAPI):
         return ids, embeddings
 
     def retrieve_payloads_by_ids(self, ids: List[str], properties: Optional[List[str]] = None):
-        """Retrieve specified payload properties for a list of IDs from a collection.
-
+        """
+        Retrieve specified payload properties for a list of IDs from a collection.
         The order of the labels IS preserved.
+
+        @type ids: List[str]
+        @param ids: The list of instance_ids of the embeddings to retrieve.
+        @type properties: Optional[List[str]]
+        @param properties: The list of payload properties to retrieve. Default is None.
+        @rtype: List[Dict[str, Any]]
+        @return: The list of payload dictionaries.
         """
         # Retrieve the payloads for the given ids
         hits = self.client.retrieve(

@@ -1,52 +1,41 @@
-"""Embeddings Extractor and Storage.
+"""Embeddings Extractor and Storage for ONNX Models.
 
-This module provides utility functions for extracting embeddings from both PyTorch and ONNX models,
-and subsequently storing and retrieving these embeddings from disk.
+This module provides utility functions specifically for extracting embeddings from ONNX models,
+reading images from Luxonis Filesystem (LFS), and storing/retrieving embeddings to/from disk.
 
-Functions:
-    - extract_embeddings(model, data_loader):
-      Extracts embeddings from a given PyTorch model using data from a specified DataLoader.
+Key Functions:
+   - extract_embeddings(image_paths, ort_session, lfs, ...)
+     Extracts embeddings from an ONNX model, reading images from LFS and handling potential errors.
 
-    - extract_embeddings_onnx(ort_session, data_loader, output_layer_name):
-      Extracts embeddings from a specified ONNX model (provided as an ONNX Runtime session)
-      using data from a specified DataLoader. Allows targeting a specific output layer for extraction.
+   - get_image_tensors_from_LFS(image_paths, preprocess_function, lfs)
+     Reads images from LFS, applies preprocessing, and returns a list of tensors.
 
-    - save_embeddings(embeddings, labels, save_path):
-      Saves both embeddings and their associated labels to the disk at a given path.
+   - preprocess_image_cv2(img)
+     Example preprocessing function for resizing, normalization, and channel arrangement.
 
-    - load_embeddings(save_path):
-      Loads embeddings and their associated labels from the disk at a given path.
+Workflow:
+1. Load the ONNX model into an ONNX Runtime session.
+2. Provide a list of image paths (stored on LFS) to the `extract_embeddings` function.
+3. Optionally, specify a custom preprocessing function for image preparation.
+4. The function extracts embeddings in batches, handles errors, and returns the extracted embeddings.
 
-Usage Examples:
-    1. Extract embeddings from a PyTorch model:
-        embeddings, labels = extract_embeddings(pytorch_model, data_loader)
-
-    2. Extract embeddings from an ONNX model:
-        ort_session = ort.InferenceSession('model.onnx')
-        embeddings, labels = extract_embeddings_onnx(ort_session, data_loader, "/Flatten_output_0")
-
-    3. Save embeddings to disk:
-        save_embeddings(embeddings, labels, "./embeddings/")
-
-    4. Load embeddings from disk:
-        loaded_embeddings, loaded_labels = load_embeddings("./embeddings/")
-
-Note:
-Ensure the DataLoader provided to the extraction functions outputs batches
-in the form (data, labels). Make sure to match the output_layer_name in the ONNX extraction
-with the appropriate output layer's name from the ONNX model.
+Additional Features:
+- Saving and loading embeddings to/from disk (functions not yet implemented in this version).
 
 Dependencies:
-    - torch
-    - torchvision
-    - onnxruntime
-    - onnx
+   - onnxruntime
+   - cv2
+   - numpy
+
+Note:
+- Ensure the output_layer_name in `extract_embeddings` matches the appropriate output layer in the ONNX model.
+- This module specifically focuses on ONNX models and reading images from Luxonis Filesystem.
 """
+from typing import List, Tuple, Callable
+
 import cv2
 import numpy as np
-from typing import List, Tuple, Callable
 import onnxruntime as ort
-from io import BytesIO
 
 from luxonis_ml.utils import LuxonisFileSystem
 
