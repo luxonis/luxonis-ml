@@ -2,7 +2,6 @@ from .embedding import extract_embeddings
 from .ldf import generate_embeddings
 from .model import (
     extend_output_onnx,
-    extend_output_onnx_overwrite,
     load_model_onnx,
     save_model_onnx,
 )
@@ -14,7 +13,6 @@ __all__ = [
     "load_model_onnx",
     "save_model_onnx",
     "extend_output_onnx",
-    "extend_output_onnx_overwrite",
     "QdrantManager",
     "QdrantAPI",
     "WeaviateAPI",

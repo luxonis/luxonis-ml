@@ -2,6 +2,8 @@ import weaviate
 import weaviate.classes as wvc
 from weaviate.collections.classes.filters import FilterMetadata
 
+from typing import Any, Dict, List, Optional, Tuple
+
 from luxonis_ml.embeddings.utils.vectordb import VectorDBAPI
 
 class WeaviateAPI(VectorDBAPI):
@@ -10,7 +12,7 @@ class WeaviateAPI(VectorDBAPI):
     creating collections, managing embeddings, and querying for similar embeddings.
     It only supports cosine similarity for now.
     """
-    def __init__(self, url="http://localhost:8080", grpc_url="http://localhost:50051", auth_api_key=None):
+    def __init__(self, url: str="http://localhost:8080", grpc_url: str="http://localhost:50051", auth_api_key: str=None) -> None:
         """
         Initializes the Weaviate API client with connection details.
 
@@ -38,7 +40,7 @@ class WeaviateAPI(VectorDBAPI):
                 auth_credentials=auth_api_key
             )
         
-    def create_collection(self, collection_name, properties=None):
+    def create_collection(self, collection_name: str, properties: List[str]=None) -> None:
         """
         Creates a new collection in the Weaviate database.
 
@@ -75,7 +77,7 @@ class WeaviateAPI(VectorDBAPI):
             self.collection = self.client.collections.get(self.collection_name)
             print(f"Collection {self.collection_name} already exists.")
         
-    def delete_collection(self):
+    def delete_collection(self) -> None:
         """
         Deletes a collection from the Weaviate database.
         """
@@ -85,7 +87,13 @@ class WeaviateAPI(VectorDBAPI):
         except:
             print(f"Collection {self.collection_name} does not exist.")
 
-    def insert_embeddings(self, uuids, embeddings, payloads, batch_size=100):
+    def insert_embeddings(
+            self, 
+            uuids: List[str], 
+            embeddings: List[List[float]], 
+            payloads: List[Dict[str, Any]], 
+            batch_size: int=100
+        ) -> None:
         """
         Inserts embeddings with associated payloads into a collection.
 
@@ -115,7 +123,7 @@ class WeaviateAPI(VectorDBAPI):
         if len(data) > 0:
             self.collection.data.insert_many(data)
 
-    def search_similar_embeddings(self, embedding, top_k=10):
+    def search_similar_embeddings(self, embedding: List[float], top_k: int = 10) -> Tuple[List[str], List[float]]:
         """
         Searches for embeddings similar to a given vector.
 
@@ -143,7 +151,7 @@ class WeaviateAPI(VectorDBAPI):
 
         return uuids, scores
     
-    def get_similarity_scores(self, reference_id, other_ids, sort_distances=False):
+    def get_similarity_scores(self, reference_id: str, other_ids: List[str], sort_distances: bool = False) -> Tuple[List[str], List[float]]:
         """
         Calculates the similarity score between the reference embedding and the specified embeddings.
 
@@ -180,7 +188,7 @@ class WeaviateAPI(VectorDBAPI):
 
         return ids, scores
     
-    def compute_similarity_matrix(self):
+    def compute_similarity_matrix(self) -> List[List[float]]:
         """
         Calculates the similarity matrix for all the embeddings in the collection.
         @note: This is a very inefficient implementation. 
@@ -199,7 +207,7 @@ class WeaviateAPI(VectorDBAPI):
 
         return sim_matrix
     
-    def retrieve_embeddings_by_ids(self, uuids):
+    def retrieve_embeddings_by_ids(self, uuids: List[str]) -> List[List[float]]:
         """
         Gets the embeddings for the specified UUIDs, up to a maximum of 10000.
 
@@ -224,7 +232,7 @@ class WeaviateAPI(VectorDBAPI):
 
         return embeddings
 
-    def retrieve_payloads_by_ids(self, uuids, properties):
+    def retrieve_payloads_by_ids(self, uuids: List[str], properties: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """
         Gets the payloads for the specified UUIDs, up to a maximum of 10000.
 
@@ -251,7 +259,7 @@ class WeaviateAPI(VectorDBAPI):
 
         return payloads
     
-    def retrieve_all_ids(self):
+    def retrieve_all_ids(self) -> List[str]:
         """
         Gets all the UUIDs in the Weaviate collection.
 
@@ -264,7 +272,7 @@ class WeaviateAPI(VectorDBAPI):
         
         return uuids
         
-    def retrieve_all_embeddings(self):
+    def retrieve_all_embeddings(self) -> Tuple[List[str], List[List[float]]]:
         """
         Gets all the embeddings and UUIDs in the Weaviate collection.
 

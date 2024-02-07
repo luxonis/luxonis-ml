@@ -29,8 +29,9 @@ import numpy as np
 import scipy.spatial.distance as distance
 from sklearn.neighbors import KNeighborsClassifier
 
+from typing import Tuple
 
-def find_mismatches_centroids(X, y):
+def find_mismatches_centroids(X: np.array, y: np.array) -> Tuple[np.array, np.array]:
     """Find mismatches in the dataset. A mismatch is defined as a sample that is closer
     to another centroid than to its own centroid.
 
@@ -38,8 +39,8 @@ def find_mismatches_centroids(X, y):
     @param X: The embeddings to use.
     @type y: np.array
     @param y: The targets to use.
-    @rtype: np.array
-    @return: The indices of the mismatches.
+    @rtype: Tuple[np.array, np.array]
+    @return: The indices of the mismatches and the new labels.
     """
     unique_labels = np.unique(y)
     # Create a mapping from string labels to integer indices
@@ -89,7 +90,7 @@ def find_mismatches_centroids(X, y):
     return mismatches, new_labels
 
 
-def find_mismatches_knn(X, y, n_neighbors=5):
+def find_mismatches_knn(X: np.array, y: np.array, n_neighbors: int = 5) -> Tuple[np.array, np.array]:
     """
     Find mismatches in the dataset.
     Single Algorithm Filter (see Figure 1 in Brodley, Carla E., and Mark A. Friedl. "Identifying mislabeled training data.").
@@ -104,8 +105,8 @@ def find_mismatches_knn(X, y, n_neighbors=5):
     @type n_neighbors: int
     @param n_neighbors: The number of neighbors to use for KNN. Default is 5.
 
-    @rtype: np.array
-    @return: The indices of the mismatches.
+    @rtype: Tuple[np.array, np.array]
+    @return: The indices of the mismatches and the new labels.
     """
 
     # Step 1: Fit KNN on the train set with corrupted labels

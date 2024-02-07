@@ -11,24 +11,16 @@ import torchvision.transforms as transforms
 from typing import Tuple, List
 
 # PyTorch and ONNX model loading and exporting functions
-def load_model_resnet50_minuslastlayer() -> nn.Module:
+def load_model_resnet50(discard_last_layer: bool) -> nn.Module:
     """Load a pre-trained ResNet-50 model with the last fully connected layer
     removed."""
-    # model = models.resnet50(pretrained=True) # depricated
     model = models.resnet50(weights=resnet.ResNet50_Weights.IMAGENET1K_V1)
-    model = nn.Sequential(
-        *list(model.children())[:-1]
-    )  # Remove the last fully connected layer
+    if discard_last_layer:
+        model = nn.Sequential(
+            *list(model.children())[:-1]
+        )  # Remove the last fully connected layer
     model.eval()
     return model
-
-
-def load_model_resnet50() -> nn.Module:
-    """Load a pre-trained ResNet-50 model."""
-    model = models.resnet50(weights=resnet.ResNet50_Weights.IMAGENET1K_V1)
-    model.eval()
-    return model
-
 
 def export_model_onnx(model: nn.Module, model_path_out: str = "resnet50.onnx"):
     """Export the provided model to the ONNX format."""

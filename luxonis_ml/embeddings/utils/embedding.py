@@ -39,7 +39,6 @@ import onnxruntime as ort
 
 from luxonis_ml.utils import LuxonisFileSystem
 
-
 def preprocess_image_cv2(img: np.ndarray) -> np.ndarray:
     """Custom preprocessing function provided by the user."""
     # Resize and convert BGR to RGB

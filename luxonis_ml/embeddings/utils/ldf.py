@@ -25,9 +25,10 @@ Important note:
 
 Ensure that a VectorDB server is running and accessible before using these utilities.
 """
+import numpy as np
+import onnxruntime
 
-
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Callable
 
 from luxonis_ml.data import LuxonisDataset
 from luxonis_ml.embeddings.utils.embedding import extract_embeddings
@@ -63,7 +64,7 @@ def _get_sample_payloads_LDF(dataset: LuxonisDataset) -> List[Dict[str, Any]]:
 
     return all_payloads
 
-def _filter_new_samples_by_id(vectordb_api, all_payloads=None):
+def _filter_new_samples_by_id(vectordb_api: VectorDBAPI, all_payloads: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Filter out samples that are already in the Vector database based on their instance ID.
 
@@ -93,16 +94,16 @@ def _filter_new_samples_by_id(vectordb_api, all_payloads=None):
 
 def _batch_upsert(
     vectordb_api: VectorDBAPI, 
-    new_embeddings, 
-    new_payloads, 
-    vectordb_batch_size=64
-):
+    new_embeddings: List[List[float]],
+    new_payloads: List[Dict[str, Any]],
+    vectordb_batch_size: int=64
+) -> None:
     """
     Perform batch upserts of embeddings to VectorDB.
 
     @type vectordb_api: L{VectorDBAPI}
     @param vectordb_api: VectorDBAPI instance.
-    @type new_embeddings: List[Dict[str, Any]]
+    @type new_embeddings: List[List[float]]
     @param new_embeddings: List of new embeddings.
     @type new_payloads: List[Dict[str, Any]]
     @param new_payloads: List of new payloads.
@@ -129,13 +130,13 @@ def _batch_upsert(
 
 def generate_embeddings(
     luxonis_dataset: LuxonisDataset,
-    ort_session,
-    vectordb_api,
-    output_layer_name,
-    transform=None,
-    emb_batch_size=64,
-    vectordb_batch_size=64,
-):
+    ort_session: onnxruntime.InferenceSession,
+    vectordb_api: VectorDBAPI,
+    output_layer_name: str="/Flatten_output_0",
+    transform: Callable[[np.ndarray], np.ndarray]=None,
+    emb_batch_size: int=64,
+    vectordb_batch_size: int=64
+) -> Dict[str, List[float]]:
     """
     Generate embeddings for a given dataset and insert them into a VectorDB.
 

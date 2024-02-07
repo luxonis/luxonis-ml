@@ -61,16 +61,14 @@ This approach is particularly well-suited for handling high-dimensional embeddin
 - Adjust parameters like `k`, `n`, and `kde_bw` based on your dataset and requirements.
 
 """
-
-
 import matplotlib.pyplot as plt
 import numpy as np
 from KDEpy import FFTKDE
-
-# Near-duplicate search
 from scipy.signal import argrelextrema
+from typing import List, Union
+from luxonis_ml.embeddings.utils.vectordb import VectorDBAPI
 
-def _plot_kde(xs, s, density, maxima, minima):
+def _plot_kde(xs: np.ndarray, s: np.ndarray, density: np.ndarray, maxima: np.ndarray, minima: np.ndarray) -> None:
     """Plot a KDE distribution."""
     plt.plot(xs, density, label="KDE")
     plt.plot(xs[maxima], s[maxima], "ro", label="local maxima")
@@ -80,7 +78,7 @@ def _plot_kde(xs, s, density, maxima, minima):
     plt.show()
 
 
-def kde_peaks(data, bandwidth="scott", plot=False):
+def kde_peaks(data: np.ndarray, bandwidth: Union[str, float] = "scott", plot: bool = False) -> tuple[np.ndarray, np.ndarray, int, float]:
     """Find peaks in a KDE distribution using scipy's argrelextrema function."""
     # fit density
     kde = FFTKDE(kernel="gaussian", bw=bandwidth)
@@ -106,27 +104,27 @@ def kde_peaks(data, bandwidth="scott", plot=False):
 
 
 def find_similar(
-    reference_embeddings,
-    vectordb_api,
-    k=100,
-    n=1000,
-    method="first",
-    k_method=None,
-    kde_bw="scott",
-    plot=False,
-):
+    reference_embeddings: Union[str, List[str], List[List[float], np.ndarray]],
+    vectordb_api: VectorDBAPI,
+    k: int = 100,
+    n: int = 1000,
+    method: str = "first",
+    k_method: Union[str, None] = None,
+    kde_bw: Union[str, float] = "scott",
+    plot: bool = False,
+) -> np.ndarray:
     """Find the most similar embeddings to the reference embeddings.
 
-    @type reference_embeddings: Union[np.array, list]
+    @type reference_embeddings: Union[str, List[str], List[List[float], np.ndarray]]
     @param reference_embeddings: The embeddings to compare against. Or a list of of
-        embedding instance_ids that reside in Qdrant.
+        embedding instance_ids that reside in VectorDB.
     @type vectordb_api: VectorDBAPI
     @param vectordb_api: The VectorDBAPI instance to use.
     @type k: int
     @param k: The number of embeddings to return. Default is 100.
     @type n: int
     @param n: The number of embeddings to compare against. Default is 1000. (This is the
-        number of embeddings that are returned by the Qdrant search. It matters for the
+        number of embeddings that are returned by the VectorDB search. It matters for the
         KDE, as it can be slow for large n. Your choice of n depends on the amount of
         duplicates in your dataset, the more duplicates, the larger n should be. If you
         have 2-10 duplicates per image, n=100 should be ok. If you have 50-300
@@ -148,15 +146,14 @@ def find_similar(
     """
 
     # Get the reference embeddings
-    # check if reference_embeddings is a list of instance_ids
-    if isinstance(reference_embeddings, str):
+    if isinstance(reference_embeddings, str): # if it is a single instance_id: string uuid
         reference_embeddings = [reference_embeddings]
-    if isinstance(reference_embeddings[0], str):
+    if isinstance(reference_embeddings[0], str): # if it is a list of instance_ids: list of strings
         reference_embeddings = vectordb_api.retrieve_embeddings_by_ids(reference_embeddings)
 
     # Select the reference embedding
     if method == "first":
-        if isinstance(reference_embeddings, list):
+        if isinstance(reference_embeddings, list): # if it is a list of embeddings: list of lists of floats
             reference_embeddings = np.array(reference_embeddings)
         if len(reference_embeddings.shape) > 1:
             reference_embeddings = reference_embeddings[0]

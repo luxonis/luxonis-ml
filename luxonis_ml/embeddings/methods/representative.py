@@ -46,12 +46,16 @@ import numpy as np
 from kmedoids import KMedoids
 from sklearn.metrics.pairwise import cosine_similarity
 
+from typing import List
 
-def calculate_similarity_matrix(embeddings):
+from luxonis_ml.embeddings.utils.vectordb import VectorDBAPI
+
+def calculate_similarity_matrix(embeddings: np.ndarray) -> np.ndarray:
     return cosine_similarity(embeddings)
 
-
-def find_representative_greedy(distance_matrix, desired_size=1000, seed=0):
+def find_representative_greedy(
+    distance_matrix: np.ndarray, desired_size: int = 1000, seed: int = 0
+) -> List[int]:
     """Find the most representative images using a greedy algorithm. Gready search of
     maximally unique embeddings.
 
@@ -62,7 +66,7 @@ def find_representative_greedy(distance_matrix, desired_size=1000, seed=0):
     @type seed: int
     @param seed: The index of the seed image. Default is 0. Must be in the range [0,
         num_images-1].
-    @rtype: np.array
+    @rtype: List[int]
     @return: The indices of the representative images.
     """
     num_images = distance_matrix.shape[0]
@@ -86,7 +90,9 @@ def find_representative_greedy(distance_matrix, desired_size=1000, seed=0):
 
     return list(selected_images)
 
-def find_representative_greedy_vectordb(vectordb_api, desired_size=1000, seed=None):
+def find_representative_greedy_vectordb(
+    vectordb_api: VectorDBAPI, desired_size: int = 1000, seed: int = None
+) -> List[int]:
     """Find the most representative embeddings using a greedy algorithm with VectorDB.
 
     @note: Due to many requests, this function is very slow. Use
@@ -98,7 +104,7 @@ def find_representative_greedy_vectordb(vectordb_api, desired_size=1000, seed=No
     @type seed: int
     @param seed: The ID of the seed embedding. Default is None, which means a random
         seed is chosen.
-    @rtype: list
+    @rtype: List[int]
     @return: The IDs of the representative embeddings.
     """
     all_ids = vectordb_api.retrieve_all_ids()
@@ -135,8 +141,11 @@ def find_representative_greedy_vectordb(vectordb_api, desired_size=1000, seed=No
     return list(selected_embeddings)
 
 def find_representative_kmedoids(
-    similarity_matrix, desired_size=1000, max_iter=100, seed=None
-):
+    similarity_matrix: np.ndarray,
+    desired_size: int = 1000,
+    max_iter: int = 100,
+    seed: int = None,
+) -> List[int]:
     """Find the most representative images using k-medoids. K-medoids clustering of
     embeddings.
 
@@ -148,7 +157,7 @@ def find_representative_kmedoids(
     @param max_iter: The maximum number of iterations to use. Default is 100.
     @type seed: int
     @param seed: The random seed to use. Default is None.
-    @rtype: np.array
+    @rtype: list
     @return: The indices of the representative images.
     """
     num_images = similarity_matrix.shape[0]
