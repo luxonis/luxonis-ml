@@ -6,13 +6,13 @@ It allows manipulating ONNX models in order to extract intermediate outputs aka 
 Functions:
     - load_model_onnx(model_path: str = "resnet50.onnx") -> onnx.ModelProto:
         Loads an ONNX model from the specified file path.
-    
+
     - save_model_onnx(model: onnx.ModelProto, model_path_out: str = "resnet50.onnx"):
         Saves an ONNX model to the specified file path.
 
     - extend_output_onnx(onnx_model: onnx.ModelProto, intermediate_tensor_name: str = "/Flatten_output_0") -> onnx.ModelProto:
         Sets an intermediate output layer as output of the provided ONNX model.
-        If `overwrite` is set to True, the second to last layer output will be set as output layer and renamed.
+        If C{overwrite} is set to True, the second to last layer output will be set as output layer and renamed.
 
 Dependencies:
     - onnx
@@ -20,20 +20,28 @@ Dependencies:
 
 import onnx
 
+
 def load_model_onnx(model_path: str = "resnet50.onnx") -> onnx.ModelProto:
     """Load an ONNX model from the provided path."""
     return onnx.load(model_path)
 
-def save_model_onnx(model: onnx.ModelProto, model_path_out: str = "resnet50.onnx") -> None:
+
+def save_model_onnx(
+    model: onnx.ModelProto, model_path_out: str = "resnet50.onnx"
+) -> None:
     """Save an ONNX model to the specified file path."""
     onnx.save(model, model_path_out)
 
+
 def extend_output_onnx(
-    onnx_model: onnx.ModelProto, intermediate_tensor_name: str = "/Flatten_output_0", overwrite: bool = False
+    onnx_model: onnx.ModelProto,
+    intermediate_tensor_name: str = "/Flatten_output_0",
+    overwrite: bool = False,
 ) -> onnx.ModelProto:
     """Set an intermediate output layer as output of the provided ONNX model.
 
-    If `overwrite` is set to True, the second to last layer output will be set as output layer and renamed.
+    If C{overwrite} is set to True, the second to last layer output will be set as
+    output layer and renamed.
 
     (You need to know the name of the intermediate layer, which you can find by
     inspecting the ONNX model with Netron.app)
