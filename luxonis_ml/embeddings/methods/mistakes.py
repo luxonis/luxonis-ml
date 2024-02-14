@@ -25,11 +25,12 @@ Usage
         >>> mismatches, new_labels = find_mismatches_knn(X_train, y_train)
 """
 
+from typing import Tuple
+
 import numpy as np
 import scipy.spatial.distance as distance
 from sklearn.neighbors import KNeighborsClassifier
 
-from typing import Tuple
 
 def find_mismatches_centroids(X: np.array, y: np.array) -> Tuple[np.array, np.array]:
     """Find mismatches in the dataset. A mismatch is defined as a sample that is closer
@@ -90,7 +91,9 @@ def find_mismatches_centroids(X: np.array, y: np.array) -> Tuple[np.array, np.ar
     return mismatches, new_labels
 
 
-def find_mismatches_knn(X: np.array, y: np.array, n_neighbors: int = 5) -> Tuple[np.array, np.array]:
+def find_mismatches_knn(
+    X: np.array, y: np.array, n_neighbors: int = 5
+) -> Tuple[np.array, np.array]:
     """
     Find mismatches in the dataset.
     Single Algorithm Filter (see Figure 1 in Brodley, Carla E., and Mark A. Friedl. "Identifying mislabeled training data.").

@@ -1,14 +1,13 @@
-import cv2
-import onnx
-import onnxruntime as ort
+from typing import List, Tuple
 
+import cv2
+import onnxruntime as ort
 import torch
 import torch.nn as nn
 import torchvision.models as models
 import torchvision.models.resnet as resnet
 import torchvision.transforms as transforms
 
-from typing import Tuple, List
 
 # PyTorch and ONNX model loading and exporting functions
 def load_model_resnet50(discard_last_layer: bool) -> nn.Module:
@@ -21,6 +20,7 @@ def load_model_resnet50(discard_last_layer: bool) -> nn.Module:
         )  # Remove the last fully connected layer
     model.eval()
     return model
+
 
 def export_model_onnx(model: nn.Module, model_path_out: str = "resnet50.onnx"):
     """Export the provided model to the ONNX format."""
@@ -37,6 +37,7 @@ def export_model_onnx(model: nn.Module, model_path_out: str = "resnet50.onnx"):
         output_names=["output"],
         dynamic_axes={"input": {0: "batch_size"}, "output": {0: "batch_size"}},
     )
+
 
 # Embedding extraction and saving functions
 def extract_embeddings_torch(
@@ -73,6 +74,7 @@ def extract_embeddings_onnx(
 
     return torch.stack(embeddings), torch.tensor(labels)
 
+
 def save_embeddings(
     embeddings: torch.Tensor, labels: torch.Tensor, save_path: str = "./"
 ):
@@ -93,9 +95,9 @@ def load_embeddings(save_path: str = "./") -> Tuple[torch.Tensor, torch.Tensor]:
 def generate_new_embeddings(
     img_paths: List[str],
     ort_session: ort.InferenceSession,
-    output_layer_name: str="/Flatten_output_0",
-    emb_batch_size: int=64,
-    transform: transforms.Compose=None,
+    output_layer_name: str = "/Flatten_output_0",
+    emb_batch_size: int = 64,
+    transform: transforms.Compose = None,
 ):
     """Generate embeddings for new images using a given ONNX runtime session.
 
@@ -147,5 +149,3 @@ def generate_new_embeddings(
         new_embeddings.extend(batch_embeddings.tolist())
 
     return new_embeddings
-
-

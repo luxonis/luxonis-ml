@@ -14,13 +14,13 @@ with guard_missing_extra("embedd"):
     from .utils import (
         QdrantAPI,
         QdrantManager,
-        WeaviateAPI,
         VectorDBAPI,
+        WeaviateAPI,
         extend_output_onnx,
-        load_model_onnx,
-        save_model_onnx,
         extract_embeddings,
         generate_embeddings,
+        load_model_onnx,
+        save_model_onnx,
     )
 
 __all__ = [

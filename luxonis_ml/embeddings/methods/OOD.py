@@ -23,17 +23,18 @@ Dependencies:
     - numpy
     - scikit-learn
 """
+from typing import Optional, Union
+
 import numpy as np
 from sklearn.ensemble import IsolationForest
 
-from typing import Union, Optional
 
 def isolation_forest_OOD(
-    X: np.array, 
-    contamination: Union[float, str] = "auto", 
-    n_jobs: int = -1, 
-    verbose: int = 1, 
-    random_state: Optional[int] = None
+    X: np.array,
+    contamination: Union[float, str] = "auto",
+    n_jobs: int = -1,
+    verbose: int = 1,
+    random_state: Optional[int] = None,
 ) -> np.array:
     """Out-of-distribution detection using Isolation Forests.
 

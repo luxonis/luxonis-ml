@@ -42,16 +42,18 @@ Example
         selected_image_indices = find_representative_kmedoids(similarity_matrix, desired_size)
 """
 
+from typing import List
+
 import numpy as np
 from kmedoids import KMedoids
 from sklearn.metrics.pairwise import cosine_similarity
 
-from typing import List
-
 from luxonis_ml.embeddings.utils.vectordb import VectorDBAPI
+
 
 def calculate_similarity_matrix(embeddings: np.ndarray) -> np.ndarray:
     return cosine_similarity(embeddings)
+
 
 def find_representative_greedy(
     distance_matrix: np.ndarray, desired_size: int = 1000, seed: int = 0
@@ -89,6 +91,7 @@ def find_representative_greedy(
             selected_images.add(best_image)
 
     return list(selected_images)
+
 
 def find_representative_greedy_vectordb(
     vectordb_api: VectorDBAPI, desired_size: int = 1000, seed: int = None
@@ -139,6 +142,7 @@ def find_representative_greedy_vectordb(
             selected_embeddings.add(best_embedding)
 
     return list(selected_embeddings)
+
 
 def find_representative_kmedoids(
     similarity_matrix: np.ndarray,

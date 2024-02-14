@@ -6,8 +6,8 @@ from .model import (
     save_model_onnx,
 )
 from .qdrant import QdrantAPI, QdrantManager
-from .weaviate import WeaviateAPI
 from .vectordb import VectorDBAPI
+from .weaviate import WeaviateAPI
 
 __all__ = [
     "load_model_onnx",
@@ -18,5 +18,5 @@ __all__ = [
     "WeaviateAPI",
     "VectorDBAPI",
     "extract_embeddings",
-    "generate_embeddings"
+    "generate_embeddings",
 ]

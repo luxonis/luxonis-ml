@@ -31,6 +31,7 @@ import torch
 import torchvision
 import torchvision.transforms as transforms
 
+
 def mnist_transformations() -> transforms.Compose:
     """Returns composed transformations for the MNIST dataset.
 
@@ -46,10 +47,9 @@ def mnist_transformations() -> transforms.Compose:
         ]
     )
 
+
 def load_mnist_data(
-    save_path: str="./mnist", 
-    num_samples: int=640, 
-    batch_size: int=64
+    save_path: str = "./mnist", num_samples: int = 640, batch_size: int = 64
 ) -> torch.utils.data.DataLoader:
     """Loads the MNIST dataset with the specified preprocessing.
 
