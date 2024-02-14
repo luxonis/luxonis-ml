@@ -68,7 +68,7 @@ jobs:
       uses: pavelzw/pytest-action@v2
       with:
         emoji: false
-        custom-arguments: --cov luxonis-ml --cov-report xml --junit-xml pytest.xml
+        custom-arguments: --cov luxonis_ml --cov-report xml --junit-xml pytest.xml
 
     - name: Create Test Report
       uses: EnricoMi/publish-unit-test-result-action@v2
