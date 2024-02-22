@@ -111,7 +111,7 @@ class LuxonisParser:
         dataset_type: DatasetType,
         split: Optional[Literal["train", "val", "test"]] = None,
         random_split: bool = False,
-        split_ratios: Optional[List[float]] = None,
+        split_ratios: Optional[Tuple[float, float, float]] = None,
         **parser_kwargs,
     ) -> LuxonisDataset:
         """Parses data in specific directory, should be used if adding/changing only
@@ -124,7 +124,7 @@ class LuxonisParser:
         @param split: Split under which data will be added.
         @type random_split: bool
         @param random_split: If random splits should be made.
-        @type split_ratios: Optional[List[float]]
+        @type split_ratios: Optional[Tuple[float, float, float]]
         @param split_ratios: Ratios for random splits.
         @type parser_kwargs: Dict[str, Any]
         @param parser_kwargs: Additional kwargs for specific parser function.
@@ -132,7 +132,7 @@ class LuxonisParser:
         @return: Output LDF with all images and annotations parsed.
         """
         if dataset_type == DatasetType.LDF:
-            pass
+            return self.dataset
         elif dataset_type == DatasetType.COCO:
             added_images = self.from_coco_format(**parser_kwargs)
         elif dataset_type == DatasetType.VOC:
@@ -151,11 +151,13 @@ class LuxonisParser:
             added_images = self.from_class_dir_format(**parser_kwargs)
         elif dataset_type == DatasetType.SEGMASK:
             added_images = self.from_seg_mask_format(**parser_kwargs)
+        else:
+            raise ValueError(f"Unknown dataset type: {dataset_type}")
 
         if split:
             self.dataset.make_splits(definitions={split: added_images})
         elif random_split:
-            split_ratios = split_ratios or [0.8, 0.1, 0.1]
+            split_ratios = split_ratios or (0.8, 0.1, 0.1)
             self.dataset.make_splits(split_ratios)
 
         return self.dataset
@@ -168,34 +170,51 @@ class LuxonisParser:
         split_val_to_test: bool = True,
     ) -> None:
         """Parses directory with COCO annotations to LDF.
-        Expected format: "train", "validation" and "test" directories. Each one has "data" dir
-        with images and "labels.json" file with annotations. This is default format returned
-        when using fiftyone package.
+
+        Expected format::
+
+            dataset_dir/
+            ├── train/
+            │   ├── data/
+            │   │   ├── img1.jpg
+            │   │   ├── img2.jpg
+            │   │   └── ...
+            │   └── labels.json
+            ├── validation/
+            │   ├── data/
+            │   └── labels.json
+            └── test/
+                ├── data/
+                └── labels.json
+
+
+        This is default format returned when using FiftyOne package.
 
         @type dataset_dir: str
         @param dataset_dir: Path to dataset directory
 
         @type use_keypoint_ann: bool
-        @param use_keypoint_ann: If keypoint annotations should be used. Defaults to False.
+        @param use_keypoint_ann: If keypoint annotations should be used. Defaults to C{False}.
 
         @type keypoint_ann_paths: Optional[Dict[str, str]]
         @param keypoint_ann_paths: Path to keypoint annotations for each split.
-            Defaults to None.
+            Defaults to C{None}.
 
         @type split_val_to_test: bool
         @param split_val_to_test: If part of validation data should be used as test data.
-            Defaults to True.
+            Defaults to C{True}.
         """
         if use_keypoint_ann and not keypoint_ann_paths:
             keypoint_ann_paths = {
                 "train": "raw/person_keypoints_train2017.json",
                 "val": "raw/person_keypoints_val2017.json",
-                "test": "raw/person_keypoints_test2017.json",  # NOTE: this file is not present by default
+                # NOTE: this file is not present by default
+                "test": "raw/person_keypoints_test2017.json",
             }
 
         train_ann_path = (
             osp.join(dataset_dir, keypoint_ann_paths["train"])
-            if use_keypoint_ann
+            if keypoint_ann_paths and use_keypoint_ann
             else osp.join(dataset_dir, "train", "labels.json")
         )
         added_train_imgs = self.from_coco_format(
@@ -205,7 +224,7 @@ class LuxonisParser:
 
         val_ann_path = (
             osp.join(dataset_dir, keypoint_ann_paths["val"])
-            if use_keypoint_ann
+            if keypoint_ann_paths and use_keypoint_ann
             else osp.join(dataset_dir, "validation", "labels.json")
         )
         _added_val_imgs = self.from_coco_format(
@@ -217,7 +236,7 @@ class LuxonisParser:
             # NOTE: test split annotations are not included by default
             test_ann_path = (
                 osp.join(dataset_dir, keypoint_ann_paths["test"])
-                if use_keypoint_ann
+                if keypoint_ann_paths and use_keypoint_ann
                 else osp.join(dataset_dir, "test", "labels.json")
             )
             added_test_imgs = self.from_coco_format(
@@ -342,8 +361,23 @@ class LuxonisParser:
     def from_voc_dir(self, dataset_dir: str) -> None:
         """Parses directory with VOC annotations to LDF.
 
-        Expected format: "train", "valid" and "test" directories. Each one has images
-        and .xml annotations. This is default format returned when using Roboflow.
+        Expected format::
+
+            dataset_dir/
+            ├── train/
+            │   ├── images/
+            │   │   ├── img1.jpg
+            │   │   ├── img2.jpg
+            │   │   └── ...
+            │   └── annotations/
+            │       ├── img1.xml
+            │       ├── img2.xml
+            │       └── ...
+            ├── valid/
+            └── test/
+
+
+        This is the default format returned when using U{Roboflow <https://roboflow.com/>}.
 
         @type dataset_dir: str
         @param dataset_dir: Path to dataset directory
@@ -453,9 +487,18 @@ class LuxonisParser:
     def from_darknet_dir(self, dataset_dir: str) -> None:
         """Parses directory with DarkNet annotations to LDF.
 
-        Expected format: "train", "valid" and "test" directories. Each one has images,
-        .txt annotations and "darknet.labels" file with all present class names.
-        This is default format returned when using Roboflow.
+        Expected format::
+
+            dataset_dir/
+            ├── train/
+            │   ├── img1.jpg
+            │   ├── img1.txt
+            │   ├── ...
+            │   └── _darknet.labels
+            ├── valid/
+            └── test/
+
+        This is the default format returned when using U{Roboflow <https://roboflow.com/>}.
 
         @type dataset_dir: str
         @param dataset_dir: Path to dataset directory
@@ -537,11 +580,29 @@ class LuxonisParser:
     def from_yolov6_dir(self, dataset_dir: str) -> None:
         """Parses annotations from YoloV6 annotations to LDF.
 
-        Expected format: "images" and "labels" directories on top level and then "train",
-        "valid" and "test" directories in each of them. Images are in directories under
-        "images" and annotations in directories under "labels" as .txt files. On top level
-        there is also "data.yaml" with names of all present classes. This is default
-        format returned when using Roboflow.
+        Expected format::
+
+            dataset_dir/
+            ├── images/
+            │   ├── train/
+            │   │   ├── img1.jpg
+            │   │   ├── img2.jpg
+            │   │   └── ...
+            │   ├── valid/
+            │   └── test/
+            ├── labels/
+            │   ├── train/
+            │   │   ├── img1.txt
+            │   │   ├── img2.txt
+            │   │   └── ...
+            │   ├── valid/
+            │   └── test/
+            └── data.yaml
+
+
+        C{data.yaml} contains names of all present classes.
+
+        This is the default format returned when using U{Roboflow <https://roboflow.com/>}.
 
         @type dataset_dir: str
         @param dataset_dir: Path to dataset directory
@@ -638,9 +699,20 @@ class LuxonisParser:
     def from_yolov4_dir(self, dataset_dir: str) -> None:
         """Parses directory with YoloV4 annotations to LDF.
 
-        Expected format: "train", "valid" and "test" directories. Each one has images,
-        "_annotations.txt" file with annotations and "_classes.txt" file with all present
-        class names. This is default format returned when using Roboflow.
+        Expected format::
+
+            dataset_dir/
+            ├── train/
+            │   ├── img1.jpg
+            │   ├── img1.txt
+            │   ├── ...
+            │   ├── _annotations.txt
+            │   └── _classes.txt
+            ├── valid/
+            └── test/
+
+
+        This is the default format returned when using U{Roboflow <https://roboflow.com/>}.
 
         @type dataset_dir: str
         @param dataset_dir: Path to dataset directory.
@@ -736,9 +808,17 @@ class LuxonisParser:
     def from_create_ml_dir(self, dataset_dir: str) -> None:
         """Parses directory with CreateML annotations to LDF.
 
-        Expected format: "train", "valid" and "test" directories. Each one has images
-        and "_annotations.createml.json" file with annotations. This is default format
-        returned when using Roboflow.
+        Expected format::
+            dataset_dir/
+            ├── train/
+            │   ├── img1.jpg
+            │   ├── img2.jpg
+            │   └── ...
+            │   └── _annotations.createml.json
+            ├── valid/
+            └── test/
+
+        This is the default format returned when using U{Roboflow <https://roboflow.com/>}.
 
         @type dataset_dir: str
         @param dataset_dir: Path to dataset directory
@@ -839,9 +919,18 @@ class LuxonisParser:
     def from_tensorflow_csv_dir(self, dataset_dir: str) -> None:
         """Parses directory with TensorflowCSV annotations to LDF.
 
-        Expected format: "train", "valid" and "test" directories. Each one has images
-        and "_annotations.csv" file with annotations. This is default format
-        returned when using Roboflow.
+        Expected format::
+
+            dataset_dir/
+            ├── train/
+            │   ├── img1.jpg
+            │   ├── img2.jpg
+            │   ├── ...
+            │   └── _annotations.csv
+            ├── valid/
+            └── test/
+
+        This is the default format returned when using U{Roboflow <https://roboflow.com/>}.
 
         @type dataset_dir: str
         @param dataset_dir: Path to dataset directory
@@ -943,9 +1032,21 @@ class LuxonisParser:
 
     def from_class_dir_dir(self, dataset_dir: str) -> None:
         """Parses directory with ClassificationDirectory annotations to LDF.
-        Expected format: "train", "valid" and "test" directories. Each one has
-        subdirectories with class name and images with this class inside. This is
-        default format when using Roboflow.
+
+        Expected format::
+
+            dataset_dir/
+            ├── train/
+            │   ├── class1/
+            │   │   ├── img1.jpg
+            │   │   ├── img2.jpg
+            │   │   └── ...
+            │   ├── class2/
+            │   └── ...
+            ├── valid/
+            └── test/
+
+        This is the default format returned when using U{Roboflow <https://roboflow.com/>}.
 
         @type dataset_dir: str
         @param dataset_dir: Path to dataset directory
@@ -1002,10 +1103,20 @@ class LuxonisParser:
     def from_seg_mask_dir(self, dataset_dir: str) -> None:
         """Parses directory with SegmentationMask annotations to LDF.
 
-        Expected format: "train", "valid" and "test" directories. Each one has
-        images (.jpg), their masks (.png) and "_classes.csv" with mappings between
-        pixel value and class name. This is default format returned when using
-        Roboflow.
+        Expected format::
+
+            dataset_dir/
+            ├── train/
+            │   ├── img1.jpg
+            │   ├── img1_mask.png
+            │   ├── ...
+            │   └── _classes.csv
+            ├── valid/
+            └── test/
+
+        C{_classes.csv} contains mappings between pixel value and class name.
+
+        This is the default format returned when using U{Roboflow <https://roboflow.com/>}.
 
         @type dataset_dir: str
         @param dataset_dir: Path to dataset directory
