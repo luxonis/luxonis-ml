@@ -40,7 +40,10 @@ class COCOParser(BaseParser):
             return None
         data_path = split_path / json_path.stem
         if not data_path.exists():
-            return None
+            dirs = [d for d in split_path.iterdir() if d.is_dir()]
+            if len(dirs) != 1:
+                return None
+            data_path = dirs[0]
         return {"image_dir": data_path, "annotation_path": json_path}
 
     @staticmethod
