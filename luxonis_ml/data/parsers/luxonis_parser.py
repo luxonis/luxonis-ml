@@ -116,9 +116,12 @@ class LuxonisParser:
             )
             return self.dataset
         if self.parser_type == ParserType.DIR:
-            return self._parse_dir(**kwargs)
+            dataset = self._parse_dir(**kwargs)
         else:
-            return self._parse_split(**kwargs)
+            dataset = self._parse_split(**kwargs)
+
+        logger.info("Dataset parsed successfully.")
+        return dataset
 
     def _recognize_dataset(self) -> Tuple[DatasetType, ParserType]:
         """Recognizes the dataset format and parser type.
