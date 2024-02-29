@@ -49,6 +49,24 @@ class LuxonisParser:
         save_dir: Optional[Union[Path, str]] = None,
         **kwargs,
     ):
+        """High-level abstraction over various parsers.
+
+        Automatically recognizes the dataset format and uses the appropriate parser.
+
+        @type dataset_dir: str
+        @param dataset_dir: Path to the dataset directory or zip file. Can also be a
+            remote URL supported by L{LuxonisFileSystem}.
+        @type dataset_name: Optional[str]
+        @param dataset_name: Name of the dataset. If C{None}, the name is derived from
+            the name of the dataset directory.
+        @type delete_existing: bool
+        @param delete_existing: If existing dataset with the same name should be deleted
+            before parsing.
+        @type save_dir: Optional[Union[Path, str]]
+        @param save_dir: If a remote URL is provided in C{dataset_dir}, the dataset will
+            be downloaded to this directory. If C{None}, the dataset will be downloaded
+            to the current working directory.
+        """
         save_dir = Path(save_dir) if save_dir else None
         fs = LuxonisFileSystem(dataset_dir)
         if fs.protocol != "file":
@@ -81,6 +99,16 @@ class LuxonisParser:
         self.parser = self.parsers[self.dataset_type](self.dataset)
 
     def parse(self, **kwargs) -> LuxonisDataset:
+        """Parses the dataset and returns it in LuxonisDataset format.
+
+        If the dataset already exists, parsing will be skipped and the existing dataset
+        will be returned instead.
+
+        @type kwargs: Dict[str, Any]
+        @param kwargs: Additional C{kwargs} for specific parser implementation.
+        @rtype: LuxonisDataset
+        @return: Parsed dataset in L{LuxonisDataset} format.
+        """
         if self.dataset_exists:
             logger.warning(
                 "There already exists an LDF dataset with this name. "
@@ -93,6 +121,11 @@ class LuxonisParser:
             return self._parse_split(**kwargs)
 
     def _recognize_dataset(self) -> Tuple[DatasetType, ParserType]:
+        """Recognizes the dataset format and parser type.
+
+        @rtype: Tuple[DatasetType, ParserType]
+        @return: Tuple of dataset type and parser type.
+        """
         for typ, parser in self.parsers.items():
             if parser.validate(self.dataset_dir):
                 logger.info(
