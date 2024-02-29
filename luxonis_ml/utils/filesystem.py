@@ -225,27 +225,30 @@ class LuxonisFileSystem:
 
     def get_file(
         self,
-        remote_path: str,
+        remote_path: Optional[str],
         local_path: str,
         mlflow_instance: Optional[ModuleType] = None,
     ) -> None:
         """Copy a single file from remote storage.
 
-        @type remote_path: str
-        @param remote_path: Relative path to remote file
+        @type remote_path: Optional[str]
+        @param remote_path: Relative path to remote file. If C{None}, the path is
+            assumed to be the root of the storage.
         @type local_path: str
         @param local_path: Path to local file
         @type mlflow_instance: Optional[L{ModuleType}]
         @param mlflow_instance: MLFlow instance if uploading to active run. Defaults to
-            None.
+            C{None}.
         """
 
         if self.is_mlflow:
             raise NotImplementedError
         elif self.is_fsspec:
-            self.fs.download(
-                os.path.join(self.path, remote_path), local_path, recursive=False
-            )
+            if remote_path is None:
+                remote_path = self.path
+            else:
+                remote_path = os.path.join(self.path, remote_path)
+            self.fs.download(remote_path, local_path, recursive=False)
 
     def delete_file(self, remote_path: str) -> None:
         """Deletes a single file from remote storage.
