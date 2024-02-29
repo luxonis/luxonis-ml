@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
-from luxonis_ml.data import DatasetGenerator, LuxonisDataset
+from luxonis_ml.data import DatasetGenerator
 
 from .base_parser import BaseParser, ParserOutput
 
@@ -67,23 +67,20 @@ class YoloV6Parser(BaseParser):
         return True
 
     def from_dir(
-        self, dataset: LuxonisDataset, dataset_dir: Path
+        self, dataset_dir: Path
     ) -> Tuple[Optional[List[str]], Optional[List[str]], Optional[List[str]]]:
         classes_path = dataset_dir / "data.yaml"
         added_train_imgs = self._parse_split(
-            dataset,
             image_dir=dataset_dir / "images" / "train",
             annotation_dir=dataset_dir / "labels" / "train",
             classes_path=classes_path,
         )
         added_val_imgs = self._parse_split(
-            dataset,
             image_dir=dataset_dir / "images" / "valid",
             annotation_dir=dataset_dir / "labels" / "valid",
             classes_path=classes_path,
         )
         added_test_imgs = self._parse_split(
-            dataset,
             image_dir=dataset_dir / "images" / "test",
             annotation_dir=dataset_dir / "labels" / "test",
             classes_path=classes_path,

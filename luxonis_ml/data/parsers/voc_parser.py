@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from luxonis_ml.data import DatasetGenerator, LuxonisDataset
+from luxonis_ml.data import DatasetGenerator
 
 from .base_parser import BaseParser, ParserOutput
 
@@ -45,21 +45,16 @@ class VOCParser(BaseParser):
                 return False
         return True
 
-    def from_dir(
-        self, dataset: LuxonisDataset, dataset_dir: Path
-    ) -> Tuple[List[str], List[str], List[str]]:
+    def from_dir(self, dataset_dir: Path) -> Tuple[List[str], List[str], List[str]]:
         added_train_imgs = self._parse_split(
-            dataset,
             image_dir=dataset_dir / "train",
             annotation_dir=dataset_dir / "train",
         )
         added_val_imgs = self._parse_split(
-            dataset,
             image_dir=dataset_dir / "valid",
             annotation_dir=dataset_dir / "valid",
         )
         added_test_imgs = self._parse_split(
-            dataset,
             image_dir=dataset_dir / "test",
             annotation_dir=dataset_dir / "test",
         )

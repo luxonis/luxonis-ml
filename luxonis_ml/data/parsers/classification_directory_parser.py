@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from luxonis_ml.data import DatasetGenerator, LuxonisDataset
+from luxonis_ml.data import DatasetGenerator
 
 from .base_parser import BaseParser, ParserOutput
 
@@ -47,21 +47,10 @@ class ClassificationDirectoryParser(BaseParser):
                 return False
         return True
 
-    def from_dir(
-        self, dataset: LuxonisDataset, dataset_dir: Path
-    ) -> Tuple[List[str], List[str], List[str]]:
-        added_train_imgs = self._parse_split(
-            dataset,
-            class_dir=dataset_dir / "train",
-        )
-        added_val_imgs = self._parse_split(
-            dataset,
-            class_dir=dataset_dir / "valid",
-        )
-        added_test_imgs = self._parse_split(
-            dataset,
-            class_dir=dataset_dir / "test",
-        )
+    def from_dir(self, dataset_dir: Path) -> Tuple[List[str], List[str], List[str]]:
+        added_train_imgs = self._parse_split(class_dir=dataset_dir / "train")
+        added_val_imgs = self._parse_split(class_dir=dataset_dir / "valid")
+        added_test_imgs = self._parse_split(class_dir=dataset_dir / "test")
         return added_train_imgs, added_val_imgs, added_test_imgs
 
     def from_split(self, class_dir: Path) -> ParserOutput:

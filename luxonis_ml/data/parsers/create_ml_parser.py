@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from PIL import Image
 
-from luxonis_ml.data import DatasetGenerator, LuxonisDataset
+from luxonis_ml.data import DatasetGenerator
 
 from .base_parser import BaseParser, ParserOutput
 
@@ -47,21 +47,16 @@ class CreateMLParser(BaseParser):
                 return False
         return True
 
-    def from_dir(
-        self, dataset: LuxonisDataset, dataset_dir: Path
-    ) -> Tuple[List[str], List[str], List[str]]:
+    def from_dir(self, dataset_dir: Path) -> Tuple[List[str], List[str], List[str]]:
         added_train_imgs = self._parse_split(
-            dataset,
             image_dir=dataset_dir / "train",
             annotation_path=dataset_dir / "train" / "_annotations.createml.json",
         )
         added_val_imgs = self._parse_split(
-            dataset,
             image_dir=dataset_dir / "valid",
             annotation_path=dataset_dir / "valid" / "_annotations.createml.json",
         )
         added_test_imgs = self._parse_split(
-            dataset,
             image_dir=dataset_dir / "test",
             annotation_path=dataset_dir / "test" / "_annotations.createml.json",
         )

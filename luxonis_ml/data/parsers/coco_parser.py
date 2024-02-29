@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from luxonis_ml.data import DatasetGenerator, LuxonisDataset
+from luxonis_ml.data import DatasetGenerator
 
 from .base_parser import BaseParser, ParserOutput
 
@@ -56,7 +56,6 @@ class COCOParser(BaseParser):
 
     def from_dir(
         self,
-        dataset: LuxonisDataset,
         dataset_dir: Path,
         use_keypoint_ann: bool = False,
         keypoint_ann_paths: Optional[Dict[str, str]] = None,
@@ -76,7 +75,6 @@ class COCOParser(BaseParser):
             else dataset_dir / "train" / "labels.json"
         )
         added_train_imgs = self._parse_split(
-            dataset,
             image_dir=dataset_dir / "train" / "data",
             annotation_path=train_ann_path,
         )
@@ -87,7 +85,6 @@ class COCOParser(BaseParser):
             else dataset_dir / "validation" / "labels.json"
         )
         _added_val_imgs = self._parse_split(
-            dataset,
             image_dir=dataset_dir / "validation" / "data",
             annotation_path=val_ann_path,
         )
@@ -100,7 +97,6 @@ class COCOParser(BaseParser):
                 else dataset_dir / "test" / "labels.json"
             )
             added_test_imgs = self._parse_split(
-                dataset,
                 image_dir=dataset_dir / "test" / "data",
                 annotation_path=test_ann_path,
             )

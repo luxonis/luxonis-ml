@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pycocotools.mask as mask_util
 
-from luxonis_ml.data import DatasetGenerator, LuxonisDataset
+from luxonis_ml.data import DatasetGenerator
 
 from .base_parser import BaseParser, ParserOutput
 
@@ -56,23 +56,18 @@ class SegmentationMaskDirectoryParser(BaseParser):
                 return False
         return True
 
-    def from_dir(
-        self, dataset: LuxonisDataset, dataset_dir: Path
-    ) -> Tuple[List[str], List[str], List[str]]:
+    def from_dir(self, dataset_dir: Path) -> Tuple[List[str], List[str], List[str]]:
         added_train_imgs = self._parse_split(
-            dataset,
             image_dir=dataset_dir / "train",
             seg_dir=dataset_dir / "train",
             classes_path=dataset_dir / "train" / "_classes.csv",
         )
         added_val_imgs = self._parse_split(
-            dataset,
             image_dir=dataset_dir / "valid",
             seg_dir=dataset_dir / "valid",
             classes_path=dataset_dir / "valid" / "_classes.csv",
         )
         added_test_imgs = self._parse_split(
-            dataset,
             image_dir=dataset_dir / "test",
             seg_dir=dataset_dir / "test",
             classes_path=dataset_dir / "test" / "_classes.csv",
