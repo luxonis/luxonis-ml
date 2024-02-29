@@ -113,11 +113,9 @@ class BaseParser(ABC):
         @return: C{LDF} with all the images and annotations parsed.
         """
         added_images = self._parse_split(**kwargs)
-        print(split, random_split, split_ratios)
         if split is not None:
             self.dataset.make_splits(definitions={split: added_images})
         elif random_split:
-            print("here")
             self.dataset.make_splits(split_ratios)
         return self.dataset
 
