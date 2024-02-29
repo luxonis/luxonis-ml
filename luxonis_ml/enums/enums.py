@@ -19,3 +19,9 @@ class DatasetType(Enum):
     TFCSV = "tfcsv"
     CLSDIR = "clsdir"
     SEGMASK = "segmask"
+
+
+class SplitType(Enum):
+    TRAIN = "train"
+    VAL = "val"
+    TEST = "test"

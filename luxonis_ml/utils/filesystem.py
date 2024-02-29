@@ -126,15 +126,16 @@ class LuxonisFileSystem:
     def put_file(
         self,
         local_path: str,
-        remote_path: str,
+        remote_path: Optional[str],
         mlflow_instance: Optional[ModuleType] = None,
     ) -> None:
         """Copy a single file to remote storage.
 
         @type local_path: str
         @param local_path: Path to local file
-        @type remote_path: str
-        @param remote_path: Relative path to remote file
+        @type remote_path: Optional[str]
+        @param remote_path: Relative path to remote file. If C{None}, the path is
+            assumed to be the root of the storage.
         @type mlflow_instance: Optional[L{ModuleType}]
         @param mlflow_instance: MLFlow instance if uploading to active run. Defaults to
             None.
@@ -153,7 +154,12 @@ class LuxonisFileSystem:
                 client.log_artifact(run_id=self.run_id, local_path=local_path)
 
         elif self.is_fsspec:
-            self.fs.put_file(local_path, os.path.join(self.path, remote_path))
+            remote_path = (
+                self.path
+                if remote_path is None
+                else os.path.join(self.path, remote_path)
+            )
+            self.fs.put_file(local_path, remote_path)
 
     def put_dir(
         self,
@@ -250,14 +256,19 @@ class LuxonisFileSystem:
                 remote_path = os.path.join(self.path, remote_path)
             self.fs.download(remote_path, local_path, recursive=False)
 
-    def delete_file(self, remote_path: str) -> None:
+    def delete_file(self, remote_path: Optional[str]) -> None:
         """Deletes a single file from remote storage.
 
-        @type remote_path: str
-        @param remote_path: Relative path to remote file
+        @type remote_path: Optional[str]
+        @param remote_path: Relative path to remote file. If C{None}, the path is
+            assumed to be the root of the storage.
         """
         if self.is_fsspec:
-            full_remote_path = os.path.join(self.path, remote_path)
+            full_remote_path = (
+                self.path
+                if remote_path is None
+                else os.path.join(self.path, remote_path)
+            )
             self.fs.rm(full_remote_path)
         else:
             raise NotImplementedError
@@ -311,11 +322,12 @@ class LuxonisFileSystem:
         else:
             raise NotImplementedError
 
-    def walk_dir(self, remote_dir: str) -> Iterator[str]:
+    def walk_dir(self, remote_dir: Optional[str] = None) -> Iterator[str]:
         """Recursively walks through the individual files in a remote directory.
 
-        @type remote_dir: str
-        @param remote_dir: Relative path to remote directory
+        @type remote_dir: Optional[str]
+        @param remote_dir: Relative path to remote directory. If C{None}, the path is
+            assumed to be the root of the storage.
         @rtype: Iterator[str]
         @return: Iterator over the paths.
         """
@@ -323,7 +335,9 @@ class LuxonisFileSystem:
         if self.is_mlflow:
             raise NotImplementedError
         elif self.is_fsspec:
-            full_path = os.path.join(self.path, remote_dir)
+            full_path = (
+                self.path if remote_dir is None else os.path.join(self.path, remote_dir)
+            )
             for file in self.fs.glob(full_path + "/**", detail=True):
                 if self.fs.info(file)["type"] == "file":
                     assert isinstance(file, str)
