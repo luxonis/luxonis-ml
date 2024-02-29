@@ -2,7 +2,7 @@ import logging
 import zipfile
 from enum import Enum
 from pathlib import Path
-from typing import Dict, Literal, Optional, Tuple, Type
+from typing import Dict, Literal, Optional, Tuple, Type, Union
 
 from luxonis_ml.data import LuxonisDataset
 from luxonis_ml.enums import DatasetType
@@ -46,13 +46,16 @@ class LuxonisParser:
         *,
         dataset_name: Optional[str] = None,
         delete_existing: bool = False,
+        save_dir: Optional[Union[Path, str]] = None,
         **kwargs,
     ):
+        save_dir = Path(save_dir) if save_dir else None
         fs = LuxonisFileSystem(dataset_dir)
         if fs.protocol != "file":
-            local_path = Path(fs.path).name
-            fs.get_file("", local_path)
-            self.dataset_dir = Path(local_path)
+            name = Path(fs.path).name
+            local_path = (save_dir or Path.cwd()) / name
+            fs.get_file(None, str(local_path))
+            self.dataset_dir = local_path
         else:
             self.dataset_dir = Path(dataset_dir)
         if self.dataset_dir.suffix == ".zip":
