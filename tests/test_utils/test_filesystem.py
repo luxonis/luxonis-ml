@@ -1,4 +1,3 @@
-import random
 import shutil
 import tempfile
 from pathlib import Path
@@ -79,11 +78,11 @@ def clean(fs: LuxonisFileSystem, name: str):
 def setup_remote_tests():
     LOCAL_ROOT.mkdir(parents=True, exist_ok=True)
     LOCAL_DIR_PATH.mkdir(parents=True, exist_ok=True)
-    LOCAL_FILE_PATH.write_text(f"test {random.randint(0, 100)}")
+    LOCAL_FILE_PATH.write_text("test 42")
 
     for i in range(5):
         file_path = LOCAL_DIR_PATH / f"file_{i}.txt"
-        file_path.write_text(f"file {random.randint(0, 100)}")
+        file_path.write_text(f"file {i + 21}")
 
     yield
 
