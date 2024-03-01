@@ -518,7 +518,7 @@ class LuxonisFileSystem:
     def download(url: str, dest: Optional[PathType]) -> Path:
         """Downloads file or directory from remote storage.
 
-        Intended for downloading a single remove object, elevating the need to create an
+        Intended for downloading a single remote object, elevating the need to create an
         instance of L{LuxonisFileSystem}.
 
         @type url: str
