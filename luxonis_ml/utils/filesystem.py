@@ -539,10 +539,11 @@ class LuxonisFileSystem:
         fs = LuxonisFileSystem(absolute_path)
 
         if fs.is_directory(remote_path):
-            return fs.get_dir(remote_path, local_path)
-
+            fs.get_dir(remote_path, local_path)
         else:
-            return fs.get_file(remote_path, str(local_path))
+            fs.get_file(remote_path, str(local_path))
+
+        return local_path
 
     @staticmethod
     def upload(local_path: PathType, url: str) -> None:
