@@ -192,7 +192,7 @@ class LuxonisFileSystem:
     ) -> Optional[Dict[str, str]]:
         """Uploads files to remote storage.
 
-        @type local_paths: Union[PathType, List[PathType]]
+        @type local_paths: Union[PathType, Sequence[PathType]]
         @param local_paths: Either a string specifying a directory to walk the files or
             a list of files which can be in different directories
         @type remote_dir: PathType
@@ -359,8 +359,7 @@ class LuxonisFileSystem:
             full_path = str(self.path / remote_dir)
             for file in self.fs.glob(full_path + "/**", detail=True):
                 if self.fs.info(file)["type"] == "file":
-                    assert isinstance(file, str)
-
+                    file = str(file)
                     file_without_path = file.replace(str(self.path), "")
                     if file_without_path.startswith("/"):
                         file_without_path = file_without_path[1:]
@@ -386,7 +385,8 @@ class LuxonisFileSystem:
                 import mlflow
 
                 client = mlflow.MlflowClient(tracking_uri=self.tracking_uri)
-                assert self.run_id is not None
+                if self.run_id is None:
+                    raise RuntimeError("`run_id` cannot be `None` when using `mlflow`")
                 download_path = client.download_artifacts(
                     run_id=self.run_id, path=self.artifact_path, dst_path="."
                 )
