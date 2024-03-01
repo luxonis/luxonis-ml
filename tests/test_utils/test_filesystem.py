@@ -1,4 +1,6 @@
+import platform
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 from typing import List, Optional
@@ -27,9 +29,29 @@ skip_if_no_gcs_credentials = pytest.mark.skipif(
 )
 
 
+# NOTE: needed for tests running in GitHub Actions using the matrix strategy
+#       to avoid race conditions when running tests in parallel
+def get_python_version():
+    version = sys.version_info
+    formatted_version = f"{version.major}{version.minor}"
+    return formatted_version
+
+
+def get_os():
+    os_name = platform.system().lower()
+    if "darwin" in os_name:
+        return "mac"
+    elif "linux" in os_name:
+        return "lin"
+    elif "windows" in os_name:
+        return "win"
+    else:
+        raise ValueError(f"Unsupported operating system: {os_name}")
+
+
 @pytest.fixture
 def fs(request):
-    url_path = f"{request.param}://{URL_PATH}"
+    url_path = f"{request.param}://{URL_PATH}_{get_os()}_{get_python_version()}"
     yield LuxonisFileSystem(url_path)
 
 
