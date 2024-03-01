@@ -1,8 +1,9 @@
 from pathlib import Path
 from typing import Literal, Optional
 
-from pydantic import model_serializer
+from pydantic import Field, model_serializer
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing_extensions import Annotated
 
 __all__ = ["Environ", "environ"]
 
@@ -35,7 +36,9 @@ class Environ(BaseSettings):
     LUXONISML_TEAM_ID: str = "offline"
     LUXONISML_TEAM_NAME: str = "offline"
 
-    GOOGLE_APPLICATION_CREDENTIALS: Optional[str] = None
+    GOOGLE_APPLICATION_CREDENTIALS: Annotated[
+        Optional[str], Field(alias="GCP_CREDENTIALS")
+    ] = None
 
     LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
 
