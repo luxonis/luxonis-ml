@@ -117,9 +117,11 @@ def inspect(
     view: Annotated[
         SplitType,
         typer.Option(
+            ...,
             "--view",
             "-v",
             help="Which split of the dataset to inspect.",
+            case_sensitive=False,
         ),
     ] = "train",  # type: ignore
 ):

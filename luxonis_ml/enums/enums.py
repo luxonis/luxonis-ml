@@ -8,7 +8,7 @@ class LabelType(str, Enum):
     KEYPOINT = "keypoints"
 
 
-class DatasetType(Enum):
+class DatasetType(str, Enum):
     LDF = "ldf"
     COCO = "coco"
     VOC = "voc"
@@ -21,7 +21,7 @@ class DatasetType(Enum):
     SEGMASK = "segmask"
 
 
-class SplitType(Enum):
+class SplitType(str, Enum):
     TRAIN = "train"
     VAL = "val"
     TEST = "test"
