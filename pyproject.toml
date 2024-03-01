@@ -24,7 +24,7 @@ classifiers = [
 repository = "https://github.com/luxonis/luxonis-ml"
 issues = "https://github.com/luxonis/luxonis-ml/issues"
 
-[project.entry_points]
+[project.entry-points]
 dataset_plugins = []
 
 [build-system]
