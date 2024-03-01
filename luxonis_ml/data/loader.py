@@ -16,7 +16,7 @@ from PIL import Image, ImageDraw
 from luxonis_ml.enums import LabelType
 
 from .augmentations import Augmentations
-from .dataset import LuxonisDataset
+from .datasets import LuxonisDataset
 from .utils.enums import BucketStorage
 
 Labels = Dict[LabelType, np.ndarray]
