@@ -1,12 +1,11 @@
 import os
 import os.path as osp
-import platform
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 from io import BytesIO
 from logging import getLogger
-from pathlib import Path
+from pathlib import Path, WindowsPath
 from types import ModuleType
 from typing import Dict, Iterator, List, Optional, Sequence, Tuple, Union, cast
 
@@ -577,8 +576,8 @@ class LuxonisFileSystem:
     def _sanitize_path(path: PathType) -> str:
         if isinstance(path, str):
             return path
-        if platform.system() == "Windows":
-            return path.as_posix().lstrip(path.drive).replace("\\", "/")
+        if isinstance(path, WindowsPath):
+            return path.as_posix().lstrip(path.drive)
         return str(path)
 
 
