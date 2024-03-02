@@ -6,7 +6,7 @@ from luxonis_ml.data import LuxonisLoader, LuxonisParser
 from luxonis_ml.enums import DatasetType, LabelType
 
 URL_PREFIX: Final[str] = "gs://luxonis-test-bucket/luxonis-ml-test-data"
-SAVE_DIR: Final[str] = "tests/test_data/_datasets"
+SAVE_DIR: Final[str] = "tests/data/parser_datasets"
 
 
 @pytest.fixture(scope="module", autouse=True)

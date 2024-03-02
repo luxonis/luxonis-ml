@@ -13,6 +13,7 @@ class CreateMLParser(BaseParser):
     """Parses directory with CreateML annotations to LDF.
 
     Expected format::
+
         dataset_dir/
         ├── train/
         │   ├── img1.jpg

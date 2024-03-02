@@ -68,14 +68,9 @@ class LuxonisParser:
             to the current working directory.
         """
         save_dir = Path(save_dir) if save_dir else None
-        fs = LuxonisFileSystem(dataset_dir)
-        if fs.protocol != "file":
-            name = Path(fs.path).name
-            local_path = (save_dir or Path.cwd()) / name
-            fs.get_file(None, str(local_path))
-            self.dataset_dir = local_path
-        else:
-            self.dataset_dir = Path(dataset_dir)
+        name = Path(dataset_dir).name
+        local_path = (save_dir or Path.cwd()) / name
+        self.dataset_dir = LuxonisFileSystem.download(dataset_dir, local_path)
         if self.dataset_dir.suffix == ".zip":
             with zipfile.ZipFile(self.dataset_dir, "r") as zip_ref:
                 unzip_dir = self.dataset_dir.parent / self.dataset_dir.stem
@@ -85,9 +80,7 @@ class LuxonisParser:
 
         self.dataset_type, self.parser_type = self._recognize_dataset()
 
-        dataset_name = (
-            dataset_name or Path(fs.path).name.replace(" ", "_").split(".")[0]
-        )
+        dataset_name = dataset_name or name.replace(" ", "_").split(".")[0]
         self.dataset_exists = LuxonisDataset.exists(dataset_name=dataset_name)
         if delete_existing and self.dataset_exists:
             logger.warning(f"Deleting existing dataset '{dataset_name}'")
