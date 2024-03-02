@@ -211,7 +211,9 @@ class LuxonisFileSystem:
         elif self.is_fsspec:
             if isinstance(local_paths, Path) and Path(local_paths).is_dir():
                 self.fs.put(
-                    str(local_paths), self._sanitize_path(self.path / remote_dir), recursive=True
+                    str(local_paths),
+                    self._sanitize_path(self.path / remote_dir),
+                    recursive=True,
                 )
             elif isinstance(local_paths, list):
                 upload_dict = {}
