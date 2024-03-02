@@ -573,11 +573,12 @@ class LuxonisFileSystem:
         else:
             fs.put_file(str(local_path), remote_path)
 
-    def _sanitize_path(self, path: PathType) -> str:
+    @staticmethod
+    def _sanitize_path(path: PathType) -> str:
         if isinstance(path, str):
             return path
         if platform.system() == "Windows":
-            return path.as_posix().lstrip(path.drive)
+            return path.as_posix().lstrip(path.drive).replace("\\", "/")
         return str(path)
 
 
