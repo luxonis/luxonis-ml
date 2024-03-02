@@ -1,6 +1,6 @@
 import os
-import platform
 import os.path as osp
+import platform
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
@@ -277,7 +277,9 @@ class LuxonisFileSystem:
             raise NotImplementedError
         elif self.is_fsspec:
             self.fs.download(
-                self._sanitize_path(self.path / remote_path), str(local_path), recursive=False
+                self._sanitize_path(self.path / remote_path),
+                str(local_path),
+                recursive=False,
             )
         return Path(local_path) / Path(remote_path).name
 
@@ -301,7 +303,8 @@ class LuxonisFileSystem:
         """
         if self.is_fsspec:
             full_remote_paths = [
-                self._sanitize_path(self.path / remote_path) for remote_path in remote_paths
+                self._sanitize_path(self.path / remote_path)
+                for remote_path in remote_paths
             ]
             self.fs.rm(full_remote_paths)
         else:
@@ -329,7 +332,9 @@ class LuxonisFileSystem:
             raise NotImplementedError
         elif self.is_fsspec:
             self.fs.download(
-                self._sanitize_path(self.path / remote_dir), str(local_dir), recursive=True
+                self._sanitize_path(self.path / remote_dir),
+                str(local_dir),
+                recursive=True,
             )
         return Path(local_dir) / Path(remote_dir).name
 
