@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 from io import BytesIO
 from logging import getLogger
-from pathlib import Path, WindowsPath
+from pathlib import Path, PurePosixPath
 from types import ModuleType
 from typing import Dict, Iterator, List, Optional, Sequence, Tuple, Union, cast
 
@@ -91,7 +91,7 @@ class LuxonisFileSystem:
         else:
             self.fs_type = FSType.FSSPEC
             self.fs = self.init_fsspec_filesystem()
-        self.path = Path(cast(str, _path))
+        self.path = PurePosixPath(cast(str, _path))
 
     @property
     def is_mlflow(self) -> bool:
@@ -115,7 +115,7 @@ class LuxonisFileSystem:
 
         @type: str
         """
-        return f"{self.protocol}://{self._sanitize_path(self.path)}"
+        return f"{self.protocol}://{self.path}"
 
     def init_fsspec_filesystem(self) -> fsspec.AbstractFileSystem:
         """Initializes L{fsspec} filesystem based on the used protocol.
@@ -180,8 +180,8 @@ class LuxonisFileSystem:
                 client.log_artifact(run_id=self.run_id, local_path=local_path)
 
         elif self.is_fsspec:
-            self.fs.put_file(local_path, self._sanitize_path(self.path / remote_path))
-        return self.protocol + "://" + self._sanitize_path(self.path / remote_path)
+            self.fs.put_file(local_path, str(self.path / remote_path))
+        return self.protocol + "://" + str(self.path / remote_path)
 
     def put_dir(
         self,
@@ -212,7 +212,7 @@ class LuxonisFileSystem:
             if isinstance(local_paths, Path) and Path(local_paths).is_dir():
                 self.fs.put(
                     str(local_paths),
-                    self._sanitize_path(self.path / remote_dir),
+                    str(self.path / remote_dir),
                     recursive=True,
                 )
             elif isinstance(local_paths, list):
@@ -226,7 +226,7 @@ class LuxonisFileSystem:
                             basename = file_uuid + ext
                         else:
                             basename = Path(local_path).name
-                        remote_path = self._sanitize_path(Path(remote_dir) / basename)
+                        remote_path = str(PurePosixPath(remote_dir) / basename)
                         upload_dict[local_path] = remote_path
                         executor.submit(self.put_file, local_path, remote_path)
                 return upload_dict
@@ -250,7 +250,7 @@ class LuxonisFileSystem:
         if self.is_mlflow:
             raise NotImplementedError
         elif self.is_fsspec:
-            full_path = self._sanitize_path(self.path / remote_path)
+            full_path = str(self.path / remote_path)
             with self.fs.open(full_path, "wb") as file:
                 file.write(file_bytes)  # type: ignore
 
@@ -277,7 +277,7 @@ class LuxonisFileSystem:
             raise NotImplementedError
         elif self.is_fsspec:
             self.fs.download(
-                self._sanitize_path(self.path / remote_path),
+                str(self.path / remote_path),
                 str(local_path),
                 recursive=False,
             )
@@ -290,7 +290,7 @@ class LuxonisFileSystem:
         @param remote_path: Relative path to remote file
         """
         if self.is_fsspec:
-            full_remote_path = self._sanitize_path(self.path / remote_path)
+            full_remote_path = str(self.path / remote_path)
             self.fs.rm(full_remote_path)
         else:
             raise NotImplementedError
@@ -303,8 +303,7 @@ class LuxonisFileSystem:
         """
         if self.is_fsspec:
             full_remote_paths = [
-                self._sanitize_path(self.path / remote_path)
-                for remote_path in remote_paths
+                str(self.path / remote_path) for remote_path in remote_paths
             ]
             self.fs.rm(full_remote_paths)
         else:
@@ -332,7 +331,7 @@ class LuxonisFileSystem:
             raise NotImplementedError
         elif self.is_fsspec:
             self.fs.download(
-                self._sanitize_path(self.path / remote_dir),
+                str(self.path / remote_dir),
                 str(local_dir),
                 recursive=True,
             )
@@ -345,7 +344,7 @@ class LuxonisFileSystem:
         @param remote_dir: Relative path to remote directory
         """
         if self.is_fsspec:
-            full_remote_dir = self._sanitize_path(self.path / remote_dir)
+            full_remote_dir = str(self.path / remote_dir)
             self.fs.rm(full_remote_dir, recursive=True)
         else:
             raise NotImplementedError
@@ -362,11 +361,11 @@ class LuxonisFileSystem:
         if self.is_mlflow:
             raise NotImplementedError
         elif self.is_fsspec:
-            full_path = self._sanitize_path(self.path / remote_dir)
+            full_path = str(self.path / remote_dir)
             for file in self.fs.glob(full_path + "/**", detail=True):
                 if self.fs.info(file)["type"] == "file":
                     file = str(file)
-                    yield self._sanitize_path(Path(file).relative_to(self.path))
+                    yield str(PurePosixPath(file).relative_to(self.path))
 
     def read_to_byte_buffer(self, remote_path: Optional[PathType] = None) -> BytesIO:
         """Reads a file into a byte buffer.
@@ -399,9 +398,9 @@ class LuxonisFileSystem:
 
         else:
             if remote_path is not None:
-                download_path = self._sanitize_path(self.path / remote_path)
+                download_path = str(self.path / remote_path)
             else:
-                download_path = self._sanitize_path(self.path)
+                download_path = str(self.path)
             with self.fs.open(download_path, "rb") as f:
                 buffer = BytesIO(cast(bytes, f.read()))
 
@@ -426,7 +425,7 @@ class LuxonisFileSystem:
                 raise NotImplementedError
 
             else:
-                download_path = self._sanitize_path(self.path / path)
+                download_path = str(self.path / path)
                 with self.fs.open(download_path, "rb") as f:
                     file_contents = cast(bytes, f.read())
 
@@ -479,7 +478,7 @@ class LuxonisFileSystem:
         @return: True if the path is a directory.
         """
 
-        full_path = self._sanitize_path(self.path / remote_path)
+        full_path = str(self.path / remote_path)
         file_info = self.fs.info(full_path)
         return file_info["type"] == "directory"
 
@@ -491,7 +490,7 @@ class LuxonisFileSystem:
         @rtype: bool
         @return: True if the path exists.
         """
-        full_path = self._sanitize_path(self.path / remote_path)
+        full_path = str(self.path / remote_path)
         return self.fs.exists(full_path)
 
     @staticmethod
@@ -569,14 +568,6 @@ class LuxonisFileSystem:
             fs.put_dir(local_path, remote_path)
         else:
             fs.put_file(str(local_path), remote_path)
-
-    @staticmethod
-    def _sanitize_path(path: PathType) -> str:
-        if isinstance(path, str):
-            return path
-        if isinstance(path, WindowsPath):
-            return path.as_posix().lstrip(path.drive)
-        return str(path)
 
 
 def _get_protocol_and_path(path: str) -> Tuple[str, Optional[str]]:
