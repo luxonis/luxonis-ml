@@ -532,6 +532,9 @@ class LuxonisFileSystem:
         @return: Path to the downloaded file or directory.
         """
 
+        if LuxonisFileSystem.get_protocol(url) == "file":
+            return Path(url)
+
         dest = Path(dest or ".")
         absolute_path, remote_path = LuxonisFileSystem.split_full_path(url)
         if dest.suffix:
