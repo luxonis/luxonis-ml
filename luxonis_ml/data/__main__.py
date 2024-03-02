@@ -107,8 +107,8 @@ def ls(
             _, classes, tasks = get_dataset_info(name)
             rows.extend(
                 [
-                    ", ".join(classes) if classes else "-",
-                    ", ".join(tasks) if tasks else "-",
+                    ", ".join(classes) if classes else "[red]<empty>[no red]",
+                    ", ".join(tasks) if tasks else "[red]<empty>[no red]",
                 ]
             )
         table.add_row(*rows)

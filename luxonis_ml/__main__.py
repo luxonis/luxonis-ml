@@ -11,14 +11,14 @@ app = typer.Typer(name="Luxonis ML CLI", add_completion=True)
 try:
     from luxonis_ml.data.__main__ import app as data_app
 
-    app.add_typer(data_app, name="data", help="Dataset utilities")
+    app.add_typer(data_app, name="data", help="Dataset utilities.")
 except ImportError:
     pass
 
 try:
     from luxonis_ml.utils.__main__ import app as utils_app
 
-    app.add_typer(utils_app, name="fs", help="Filesystem utilities")
+    app.add_typer(utils_app, name="fs", help="Filesystem utilities.")
 except ImportError:
     pass
 
