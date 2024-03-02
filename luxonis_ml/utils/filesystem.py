@@ -115,7 +115,7 @@ class LuxonisFileSystem:
 
         @type: str
         """
-        return f"{self.protocol}://{self.path}"
+        return f"{self.protocol}://{self._sanitize_path(self.path)}"
 
     def init_fsspec_filesystem(self) -> fsspec.AbstractFileSystem:
         """Initializes L{fsspec} filesystem based on the used protocol.
@@ -181,7 +181,7 @@ class LuxonisFileSystem:
 
         elif self.is_fsspec:
             self.fs.put_file(local_path, self._sanitize_path(self.path / remote_path))
-        return self.protocol + "://" + str(self.path / remote_path)
+        return self.protocol + "://" + self._sanitize_path(self.path / remote_path)
 
     def put_dir(
         self,
@@ -211,7 +211,7 @@ class LuxonisFileSystem:
         elif self.is_fsspec:
             if isinstance(local_paths, Path) and Path(local_paths).is_dir():
                 self.fs.put(
-                    str(local_paths), str(self.path / remote_dir), recursive=True
+                    str(local_paths), self._sanitize_path(self.path / remote_dir), recursive=True
                 )
             elif isinstance(local_paths, list):
                 upload_dict = {}
@@ -224,9 +224,8 @@ class LuxonisFileSystem:
                             basename = file_uuid + ext
                         else:
                             basename = Path(local_path).name
-                        remote_path = str(Path(remote_dir) / basename)
+                        remote_path = self._sanitize_path(Path(remote_dir) / basename)
                         upload_dict[local_path] = remote_path
-                        print(str(local_path), str(remote_path))
                         executor.submit(self.put_file, local_path, remote_path)
                 return upload_dict
 
@@ -249,8 +248,8 @@ class LuxonisFileSystem:
         if self.is_mlflow:
             raise NotImplementedError
         elif self.is_fsspec:
-            full_path = self.path / remote_path
-            with self.fs.open(str(full_path), "wb") as file:
+            full_path = self._sanitize_path(self.path / remote_path)
+            with self.fs.open(full_path, "wb") as file:
                 file.write(file_bytes)  # type: ignore
 
     def get_file(
@@ -289,8 +288,8 @@ class LuxonisFileSystem:
         @param remote_path: Relative path to remote file
         """
         if self.is_fsspec:
-            full_remote_path = self.path / remote_path
-            self.fs.rm(self._sanitize_path(full_remote_path))
+            full_remote_path = self._sanitize_path(self.path / remote_path)
+            self.fs.rm(full_remote_path)
         else:
             raise NotImplementedError
 
@@ -365,10 +364,7 @@ class LuxonisFileSystem:
             for file in self.fs.glob(full_path + "/**", detail=True):
                 if self.fs.info(file)["type"] == "file":
                     file = str(file)
-                    file_without_path = file.replace(str(self.path), "")
-                    if file_without_path.startswith("/"):
-                        file_without_path = file_without_path[1:]
-                    yield str(Path(file).relative_to(self.path))
+                    yield self._sanitize_path(Path(file).relative_to(self.path))
 
     def read_to_byte_buffer(self, remote_path: Optional[PathType] = None) -> BytesIO:
         """Reads a file into a byte buffer.
@@ -428,7 +424,7 @@ class LuxonisFileSystem:
                 raise NotImplementedError
 
             else:
-                download_path = str(self.path / path)
+                download_path = self._sanitize_path(self.path / path)
                 with self.fs.open(download_path, "rb") as f:
                     file_contents = cast(bytes, f.read())
 
@@ -481,7 +477,7 @@ class LuxonisFileSystem:
         @return: True if the path is a directory.
         """
 
-        full_path = self.path / remote_path
+        full_path = self._sanitize_path(self.path / remote_path)
         file_info = self.fs.info(full_path)
         return file_info["type"] == "directory"
 
@@ -493,7 +489,7 @@ class LuxonisFileSystem:
         @rtype: bool
         @return: True if the path exists.
         """
-        full_path = str(self.path / remote_path)
+        full_path = self._sanitize_path(self.path / remote_path)
         return self.fs.exists(full_path)
 
     @staticmethod
