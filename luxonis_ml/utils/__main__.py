@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Optional
 
 import typer
+from rich import print
 from typing_extensions import Annotated
 
 from luxonis_ml.utils import LuxonisFileSystem
@@ -19,8 +20,7 @@ def get(
     ] = None,
 ):
     """Downloads file from remote storage."""
-    fs = LuxonisFileSystem(url)
-    fs.get_file(None, str(save_dir or Path.cwd()))
+    LuxonisFileSystem.download(url, save_dir or Path.cwd())
 
 
 @app.command()
@@ -29,20 +29,24 @@ def put(
     url: UrlArgument,
 ):
     """Uploads file to remote storage."""
-    fs = LuxonisFileSystem(url)
-    fs.put_file(str(file), None)
+    LuxonisFileSystem.upload(file, url)
 
 
 @app.command()
 def delete(url: UrlArgument):
     """Deletes file from remote storage."""
     fs = LuxonisFileSystem(url)
-    fs.delete_file(None)
+    fs.delete_file("")
 
 
 @app.command()
-def ls(url: UrlArgument):
+def ls(
+    url: UrlArgument,
+    recursive: Annotated[
+        bool, typer.Option(..., "--recursive", "-r", help="List files recursively.")
+    ] = False,
+):
     """Lists files in the remote directory."""
     fs = LuxonisFileSystem(url.rstrip("/"))
-    for file in fs.walk_dir():
+    for file in fs.walk_dir("", recursive=recursive):
         print(file)

@@ -105,7 +105,12 @@ def ls(
         rows = [name, str(len(dataset))]
         if full:
             _, classes, tasks = get_dataset_info(name)
-            rows.extend([", ".join(classes), ", ".join(tasks)])
+            rows.extend(
+                [
+                    ", ".join(classes) if classes else "-",
+                    ", ".join(tasks) if tasks else "-",
+                ]
+            )
         table.add_row(*rows)
     console = Console()
     console.print(table)
