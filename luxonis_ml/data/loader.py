@@ -118,9 +118,6 @@ class LuxonisLoader(BaseLoader):
             self.max_nk = 0
         self.augmentations = augmentations
 
-        if self.dataset.online:
-            raise NotImplementedError
-
         if self.view in ["train", "val", "test"]:
             splits_path = os.path.join(dataset.metadata_path, "splits.json")
             if not os.path.exists(splits_path):
