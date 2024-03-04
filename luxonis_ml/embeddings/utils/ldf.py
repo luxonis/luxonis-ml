@@ -1,169 +1,85 @@
-"""This script provides utilities for generating embeddings from images, filtering new
-samples, and inserting them into a Qdrant database.
+"""Utilities for generating image embeddings and inserting them into a VectorDB
+database.
 
-Modules Used:
-    - cv2: For reading and processing images.
-    - numpy: For numerical operations.
-    - torch: PyTorch library for deep learning.
-    - torch.onnx: PyTorch's ONNX utilities.
-    - onnx: Open Neural Network Exchange.
-    - onnxruntime: Runtime for ONNX models.
-    - torchvision: PyTorch's computer vision library.
-    - qdrant_client: Client for interacting with Qdrant.
+This script provides functions for:
 
-Main Functions:
-    - _get_sample_payloads_coco: Extracts payloads from the LuxonisDataset for the COCO dataset format.
-    - _get_sample_payloads: Extracts payloads from the LuxonisDataset.
-    - _filter_new_samples: Filters out samples that are already in the Qdrant database based on their sample ID.
-    - _filter_new_samples_by_id: Filters out samples that are already in the Qdrant database based on their instance ID.
-    - _generate_new_embeddings: Generates embeddings for new images using a given ONNX runtime session.
-    - _batch_upsert: Performs batch upserts of embeddings to Qdrant.
-    - generate_embeddings: Main function that generates embeddings for a given dataset and inserts them into Qdrant.
+    - Extracting payloads from LuxonisDatasets, specifically for classification datasets.
+    - Filtering new samples based on their instance IDs to avoid duplicates in the database.
+    - Generating embeddings for new images using an ONNX runtime session.
+    - Performing batch upserts of embeddings into a VectorDB database.
 
-Note:
-Ensure that the Qdrant server is running and accessible before using these utilities.
+Key modules used:
+
+    - I{luxonis_ml.data}: For loading and working with LuxonisDatasets.
+    - I{luxonis_ml.embeddings.utils.embedding}: For extracting embeddings from images.
+    - I{luxonis_ml.embeddings.utils.vectordb}: For interacting with VectorDB databases.
+
+Main functions:
+
+    - I{_get_sample_payloads_LDF}: Extracts payloads from a LuxonisDataset for classification datasets.
+    - I{_filter_new_samples_by_id}: Filters out samples already in the database based on instance IDs.
+    - I{_batch_upsert}: Performs batch upserts of embeddings into the database.
+    - I{generate_embeddings}: Main function to generate embeddings for a dataset and insert them into the database.
+
+Important note:
+
+Ensure that a VectorDB server is running and accessible before using these utilities.
 """
+from typing import Any, Callable, Dict, List
 
-from typing import Any, Dict, List
-
-import cv2
-import torch
-import torch.onnx
-import torchvision.transforms as transforms
-from qdrant_client.http import models
-from qdrant_client.models import SearchRequest
+import numpy as np
+import onnxruntime
 
 from luxonis_ml.data import LuxonisDataset
+from luxonis_ml.embeddings.utils.embedding import extract_embeddings
+from luxonis_ml.embeddings.utils.vectordb import VectorDBAPI
 
 
-def _get_sample_payloads_coco(luxonis_dataset: LuxonisDataset) -> List[Dict[str, Any]]:
-    """
-    Extract payloads from the LuxonisDataset for the COCO dataset format.
-    (Actually any dataset format that has the following keys: id, instance_id, filepath, path, class, split.
-    And the class key has the following format: {"classifications": [{"label": "class_name"}]} )
+def _get_sample_payloads_LDF(dataset: LuxonisDataset) -> List[Dict[str, Any]]:
+    """Extract payloads from the LuxonisDataset. Currently supports classification
+    datasets.
 
-    @type luxonis_dataset: L{LuxonisDataset}
-    @param luxonis_dataset: The dataset object.
-
+    @type dataset: LuxonisDataset
+    @param dataset: An instance of LuxonisDataset.
     @rtype: List[Dict[str, Any]]
     @return: List of payloads.
     """
-    # Iterate over the samples in the LuxonisDataset to get all img_paths and payloads
+
     all_payloads = []
+    df = dataset._load_df_offline()
+    file_index = dataset._get_file_index()
 
-    for sample in luxonis_dataset.fo_dataset:
-        sample_id = sample["id"]
-        instance_id = sample["instance_id"]
-        # filepath = sample['filepath']
-        class_name = sample["class"]
-        split = sample["split"]
+    df = df.merge(file_index, on="instance_id")
 
-        img_path = (
-            luxonis_dataset.path
-            + sample.filepath.split(luxonis_dataset.path.split("/")[-1])[-1]
-        )
+    for row in df.iterrows():
+        if row[1]["type"] == "classification":
+            instance_id = row[1]["instance_id"]
+            img_path = row[1]["original_filepath"]
+            class_name = row[1]["class"]
 
-        all_payloads.append(
-            {
-                "sample_id": sample_id,
-                "instance_id": instance_id,
-                "image_path": img_path,
-                "class": class_name["classifications"][0]["label"],
-                "split": split,
-            }
-        )
+            all_payloads.append(
+                {
+                    "instance_id": instance_id,
+                    "image_path": img_path,
+                    "class": class_name,
+                }
+            )
 
     return all_payloads
 
 
-def _get_sample_payloads(luxonis_dataset: LuxonisDataset) -> List[Dict[str, Any]]:
-    """Extract payloads from the LuxonisDataset.
-
-    @type luxonis_dataset: L{LuxonisDataset}
-    @param luxonis_dataset: The dataset object.
-    @rtype: List[Dict[str, Any]]
-    @return: List of payloads.
-    """
-    # Iterate over the samples in the LuxonisDataset to get all img_paths and payloads
-    all_payloads = []
-
-    for sample in luxonis_dataset.fo_dataset:
-        instance_id = sample["instance_id"]
-        img_path = (
-            luxonis_dataset.path
-            + sample.filepath.split(luxonis_dataset.path.split("/")[-1])[-1]
-        )
-        sample_id = sample["id"]
-        # class_name = sample['class']['classifications'][0]['label']
-        # split = sample['split']
-
-        all_payloads.append(
-            {
-                "instance_id": instance_id,
-                "image_path": img_path,
-                "sample_id": sample_id,
-                # "class": class_name,
-                # "split": split
-            }
-        )
-
-    return all_payloads
-
-
-def _filter_new_samples(
-    qdrant_client, collection_name, vector_size=2048, all_payloads=None
+def _filter_new_samples_by_id(
+    vectordb_api: VectorDBAPI, all_payloads: List[Dict[str, Any]]
 ) -> List[Dict[str, Any]]:
-    """Filter out samples that are already in the Qdrant database based on their sample
-    ID.
+    """Filter out samples that are already in the Vector database based on their
+    instance ID.
 
-    @type qdrant_client: L{QdrantClient}
-    @param qdrant_client: Qdrant client instance.
-    @type collection_name: str
-    @param collection_name: Name of the Qdrant collection.
-    @type vector_size: int
-    @param vector_size: Size of the vector embeddings.
+    @type vectordb_api: L{VectorDBAPI}
+    @param vectordb_api: Vector database API instance.
     @type all_payloads: List[Dict[str, Any]]
     @param all_payloads: List of all payloads.
     @rtype: List[Dict[str, Any]]
-    @return: List of new payloads that are not in the Qdrant database.
-    """
-
-    all_payloads = all_payloads or []
-
-    # Filter out samples that are already in the Qdrant database
-    search_queries = [
-        SearchRequest(
-            vector=[0] * vector_size,  # Dummy vector
-            filter=models.Filter(
-                must=[
-                    models.FieldCondition(
-                        key="sample_id",
-                        match=models.MatchText(text=payload["sample_id"]),
-                    )
-                ]
-            ),
-            limit=1,
-        )
-        for payload in all_payloads
-    ]
-
-    search_results = qdrant_client.search_batch(
-        collection_name=collection_name, requests=search_queries
-    )
-
-    new_payloads = [all_payloads[i] for i, res in enumerate(search_results) if not res]
-
-    return new_payloads
-
-
-def _filter_new_samples_by_id(qdrant_client, collection_name, all_payloads=None):
-    """Filter out samples that are already in the Qdrant database based on their
-    instance ID.
-
-    @param qdrant_client: Qdrant client instance.
-    @param collection_name: Name of the Qdrant collection.
-    @param all_payloads: List of all payloads.
-    @return: List of new payloads that are not in the Qdrant database.
+    @return: List of new payloads.
     """
     all_payloads = all_payloads or []
     # Filter out samples that are already in the Qdrant database
@@ -171,12 +87,7 @@ def _filter_new_samples_by_id(qdrant_client, collection_name, all_payloads=None)
         print("Payloads list is empty!")
         return all_payloads
 
-    ids = [payload["instance_id"] for payload in all_payloads]
-    search_results = qdrant_client.retrieve(
-        collection_name=collection_name, ids=ids, with_payload=False, with_vectors=False
-    )
-
-    retrieved_ids = [res.id for res in search_results]
+    retrieved_ids = vectordb_api.retrieve_all_ids()
 
     new_payloads = [
         payload
@@ -187,154 +98,96 @@ def _filter_new_samples_by_id(qdrant_client, collection_name, all_payloads=None)
     return new_payloads
 
 
-def _generate_new_embeddings(
-    ort_session,
-    output_layer_name="/Flatten_output_0",
-    emb_batch_size=64,
-    new_payloads=None,
-    transform=None,
-):
-    """Generate embeddings for new images using a given ONNX runtime session.
-
-    @type ort_session: L{InferenceSession}
-    @param ort_session: ONNX runtime session.
-    @type output_layer_name: str
-    @param output_layer_name: Name of the output layer in the ONNX model.
-    @type emb_batch_size: int
-    @param emb_batch_size: Batch size for generating embeddings.
-    @type new_payloads: List[Dict[str, Any]]
-    @param new_payloads: List of new payloads.
-    @type transform: torchvision.transforms
-    @param transform: Optional torchvision transform for preprocessing images.
-    @rtype: List[Dict[str, Any]]
-    @return: List of generated embeddings.
-    """
-    # Generate embeddings for the new images using batching
-    new_embeddings = []
-    new_payloads = new_payloads or []
-
-    if transform is None:
-        # Define a transformation for resizing and normalizing the images
-        transform = transforms.Compose(
-            [
-                transforms.ToPILImage(),
-                transforms.Resize(
-                    (224, 224)
-                ),  # Resize images to (224, 224) or any desired size
-                transforms.ToTensor(),
-                transforms.Normalize(
-                    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-                ),  # Normalize images
-            ]
-        )
-
-    for i in range(0, len(new_payloads), emb_batch_size):
-        batch = new_payloads[i : i + emb_batch_size]
-        batch_img_paths = [payload["image_path"] for payload in batch]
-
-        # Load, preprocess, and resize a batch of images
-        batch_images = [cv2.imread(img_path) for img_path in batch_img_paths]
-        batch_tensors = [transform(img) for img in batch_images]
-        batch_tensor = torch.stack(batch_tensors).cuda()
-
-        # Run the ONNX model on the batch
-        ort_inputs = {ort_session.get_inputs()[0].name: batch_tensor.cpu().numpy()}
-        ort_outputs = ort_session.run([output_layer_name], ort_inputs)
-
-        # Append the embeddings from the batch to the new_embeddings list
-        batch_embeddings = ort_outputs[0].squeeze()
-        new_embeddings.extend(batch_embeddings.tolist())
-
-    return new_embeddings
-
-
 def _batch_upsert(
-    qdrant_client, collection_name, new_embeddings, new_payloads, qdrant_batch_size=64
-):
-    """Perform batch upserts of embeddings to Qdrant.
+    vectordb_api: VectorDBAPI,
+    new_embeddings: List[List[float]],
+    new_payloads: List[Dict[str, Any]],
+    vectordb_batch_size: int = 64,
+) -> None:
+    """Perform batch upserts of embeddings to VectorDB.
 
-    @type qdrant_client: L{QdrantClient}
-    @param qdrant_client: Qdrant client instance.
-    @type collection_name: str
-    @param collection_name: Name of the Qdrant collection.
-    @type new_embeddings: List[Dict[str, Any]]
+    @type vectordb_api: L{VectorDBAPI}
+    @param vectordb_api: VectorDBAPI instance.
+    @type new_embeddings: List[List[float]]
     @param new_embeddings: List of new embeddings.
     @type new_payloads: List[Dict[str, Any]]
     @param new_payloads: List of new payloads.
-    @type qdrant_batch_size: int
-    @param qdrant_batch_size: Batch size for inserting into Qdrant.
+    @type vectordb_batch_size: int
+    @param vectordb_batch_size: Batch size for inserting into VectorDB.
     """
-    # Perform batch upserts to Qdrant
-    for i in range(0, len(new_embeddings), qdrant_batch_size):
-        batch_embeddings = new_embeddings[i : i + qdrant_batch_size]
-        batch_payloads = new_payloads[i : i + qdrant_batch_size]
+    uuids = []
+    qdrant_payloads = []
+    for payload in new_payloads:
+        uuids.append(payload["instance_id"])
+        qdrant_payloads.append(
+            {"label": payload["class"], "image_path": payload["image_path"]}
+        )
 
-        points = [
-            models.PointStruct(
-                id=payload["instance_id"], vector=embedding, payload=payload
-            )
-            for j, (embedding, payload) in enumerate(
-                zip(batch_embeddings, batch_payloads)
-            )
-        ]
+    try:
+        vectordb_api.insert_embeddings(
+            uuids, new_embeddings, qdrant_payloads, vectordb_batch_size
+        )
+        print(f"Upserted {len(uuids)} of embeddings to VectorDB.")
 
-        try:
-            qdrant_client.upsert(collection_name=collection_name, points=points)
-            print(
-                f"Upserted batch {i // qdrant_batch_size + 1} / {len(new_embeddings) // qdrant_batch_size + 1} of size {len(points)} to Qdrant."
-            )
-        except Exception as e:
-            print(e)
-            print(f"Failed to upsert batch {i // qdrant_batch_size + 1} to Qdrant.")
+    except Exception as e:
+        print(e)
+        print("Failed to upsert embeddings to VectorDB.")
 
 
 def generate_embeddings(
-    luxonis_dataset,
-    ort_session,
-    qdrant_api,
-    output_layer_name,
-    emb_batch_size=64,
-    qdrant_batch_size=64,
-):
-    """Generate embeddings for a given dataset and insert them into Qdrant.
+    luxonis_dataset: LuxonisDataset,
+    ort_session: onnxruntime.InferenceSession,
+    vectordb_api: VectorDBAPI,
+    output_layer_name: str = "/Flatten_output_0",
+    transform: Callable[[np.ndarray], np.ndarray] = None,
+    emb_batch_size: int = 64,
+    vectordb_batch_size: int = 64,
+) -> Dict[str, List[float]]:
+    """Generate embeddings for a given dataset and insert them into a VectorDB.
 
     @type luxonis_dataset: L{LuxonisDataset}
     @param luxonis_dataset: The dataset object.
     @type ort_session: L{InferenceSession}
     @param ort_session: ONNX runtime session.
-    @type qdrant_api: L{QdrantAPI}
-    @param qdrant_api: Qdrant client API instance.
+    @type vectordb_api: L{VectorDBAPI}
+    @param vectordb_api: VectorDBAPI instance.
     @type output_layer_name: str
     @param output_layer_name: Name of the output layer in the ONNX model.
+    @type transform: Callable[[np.ndarray], np.ndarray]
+    @param transform: Preprocessing function for images. If None, default preprocessing
+        is used.
     @type emb_batch_size: int
     @param emb_batch_size: Batch size for generating embeddings.
-    @type qdrant_batch_size: int
-    @param qdrant_batch_size: Batch size for inserting into Qdrant.
+    @type vectordb_batch_size: int
+    @param vectordb_batch_size: Batch size for inserting into a vector DB.
+    @type: Dict[str, List[float]]
+    @return: Dictionary of instance ID to embedding.
     """
 
-    all_payloads = _get_sample_payloads_coco(luxonis_dataset)
+    all_payloads = _get_sample_payloads_LDF(luxonis_dataset)
     # all_payloads = _get_sample_payloads(luxonis_dataset)
 
-    qdrant_client, collection_name = qdrant_api.client, qdrant_api.collection_name
+    new_payloads = _filter_new_samples_by_id(vectordb_api, all_payloads)
 
-    new_payloads = _filter_new_samples_by_id(
-        qdrant_client, collection_name, all_payloads
+    new_img_paths = [payload["image_path"] for payload in new_payloads]
+    new_embeddings, succ_ix = extract_embeddings(
+        new_img_paths,
+        ort_session,
+        luxonis_dataset.fs,
+        transform,
+        output_layer_name,
+        emb_batch_size,
     )
+    new_payloads = [new_payloads[ix] for ix in succ_ix]
 
-    new_embeddings = _generate_new_embeddings(
-        ort_session, output_layer_name, emb_batch_size, new_payloads
-    )
+    _batch_upsert(vectordb_api, new_embeddings, new_payloads, vectordb_batch_size)
 
-    _batch_upsert(
-        qdrant_client, collection_name, new_embeddings, new_payloads, qdrant_batch_size
-    )
-
-    # make a sample_id : embedding dictionary
-    sample_id_to_embedding = {
-        payload["sample_id"]: embedding
+    # make a instance_id : embedding dictionary
+    instance_id_to_embedding = {
+        payload["instance_id"]: embedding
         for payload, embedding in zip(new_payloads, new_embeddings)
     }
     print("Embeddings generation and insertion completed!")
 
     # returns only the new embeddings
-    return sample_id_to_embedding
+    return instance_id_to_embedding
