@@ -127,3 +127,16 @@ class BaseDataset(ABC, metaclass=AutoRegisterMeta, register=False):
     # @abstractmethod
     # def create_version(self, note: str) -> None:
     #     pass
+
+    @staticmethod
+    @abstractmethod
+    def exists(dataset_name: str) -> bool:
+        """Checks whether a dataset exists.
+
+        @warning: For offline mode only.
+        @type dataset_name: str
+        @param dataset_name: Name of the dataset
+        @rtype: bool
+        @return: Whether the dataset exists
+        """
+        pass
