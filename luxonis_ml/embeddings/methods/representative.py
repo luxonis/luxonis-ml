@@ -34,24 +34,30 @@ Example
 
     2. K-Medoids:
 
-            # to get all embeddings from qdrant:
-            ids, embeddings = get_all_embeddings(qdrant_client, collection_name="mnist")
-            # Assuming you have 'embeddings' as a numpy array of shape (num_images, embedding_dim)
-            similarity_matrix = calculate_similarity_matrix(embeddings)
-            desired_size = int(len(embeddings) * 0.1)
-            selected_image_indices = find_representative_kmedoids(similarity_matrix, desired_size)
+        # to get all embeddings from qdrant:
+        ids, embeddings = get_all_embeddings(qdrant_client, collection_name="mnist")
+        # Assuming you have 'embeddings' as a numpy array of shape (num_images, embedding_dim)
+        similarity_matrix = calculate_similarity_matrix(embeddings)
+        desired_size = int(len(embeddings) * 0.1)
+        selected_image_indices = find_representative_kmedoids(similarity_matrix, desired_size)
 """
+
+from typing import List
 
 import numpy as np
 from kmedoids import KMedoids
 from sklearn.metrics.pairwise import cosine_similarity
 
+from luxonis_ml.embeddings.utils.vectordb import VectorDBAPI
 
-def calculate_similarity_matrix(embeddings):
+
+def calculate_similarity_matrix(embeddings: np.ndarray) -> np.ndarray:
     return cosine_similarity(embeddings)
 
 
-def find_representative_greedy(distance_matrix, desired_size=1000, seed=0):
+def find_representative_greedy(
+    distance_matrix: np.ndarray, desired_size: int = 1000, seed: int = 0
+) -> List[int]:
     """Find the most representative images using a greedy algorithm. Gready search of
     maximally unique embeddings.
 
@@ -62,7 +68,7 @@ def find_representative_greedy(distance_matrix, desired_size=1000, seed=0):
     @type seed: int
     @param seed: The index of the seed image. Default is 0. Must be in the range [0,
         num_images-1].
-    @rtype: np.array
+    @rtype: List[int]
     @return: The indices of the representative images.
     """
     num_images = distance_matrix.shape[0]
@@ -87,22 +93,24 @@ def find_representative_greedy(distance_matrix, desired_size=1000, seed=0):
     return list(selected_images)
 
 
-def find_representative_greedy_qdrant(qdrant_api, desired_size=1000, seed=None):
-    """Find the most representative embeddings using a greedy algorithm with Qdrant.
+def find_representative_greedy_vectordb(
+    vectordb_api: VectorDBAPI, desired_size: int = 1000, seed: int = None
+) -> List[int]:
+    """Find the most representative embeddings using a greedy algorithm with VectorDB.
 
-    @note: Due to many Qdrant requests, this function is very slow. Use
-        get_all_embeddings() and find_representative_greedy() instead.
-    @type qdrant_api: QdrantAPI
-    @param qdrant_api: The Qdrant client instance to use for searches.
+    @note: Due to many requests, this function is very slow. Use
+        vectordb_api.retrieve_all_embeddings() and find_representative_greedy() instead.
+    @type vectordb_api: VectorDBAPI
+    @param vectordb_api: The Vector database client instance to use for searches.
     @type desired_size: int
     @param desired_size: The desired size of the representative set. Default is 1000.
     @type seed: int
     @param seed: The ID of the seed embedding. Default is None, which means a random
         seed is chosen.
-    @rtype: list
+    @rtype: List[int]
     @return: The IDs of the representative embeddings.
     """
-    all_ids = qdrant_api.get_all_ids()
+    all_ids = vectordb_api.retrieve_all_ids()
 
     if seed is None:
         seed = np.random.choice(all_ids)
@@ -119,7 +127,7 @@ def find_representative_greedy_qdrant(qdrant_api, desired_size=1000, seed=None):
         for embedding_id in all_ids:
             if embedding_id not in selected_embeddings:
                 # Get similarities of the current embedding with the already selected embeddings
-                _, scores = qdrant_api.get_similarities(
+                _, scores = vectordb_api.get_similarity_scores(
                     embedding_id, list(selected_embeddings)
                 )
 
@@ -137,8 +145,11 @@ def find_representative_greedy_qdrant(qdrant_api, desired_size=1000, seed=None):
 
 
 def find_representative_kmedoids(
-    similarity_matrix, desired_size=1000, max_iter=100, seed=None
-):
+    similarity_matrix: np.ndarray,
+    desired_size: int = 1000,
+    max_iter: int = 100,
+    seed: int = None,
+) -> List[int]:
     """Find the most representative images using k-medoids. K-medoids clustering of
     embeddings.
 
@@ -150,7 +161,7 @@ def find_representative_kmedoids(
     @param max_iter: The maximum number of iterations to use. Default is 100.
     @type seed: int
     @param seed: The random seed to use. Default is None.
-    @rtype: np.array
+    @rtype: list
     @return: The indices of the representative images.
     """
     num_images = similarity_matrix.shape[0]

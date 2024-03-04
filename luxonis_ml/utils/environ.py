@@ -35,6 +35,8 @@ class Environ(BaseSettings):
     LUXONISML_TEAM_ID: str = "offline"
     LUXONISML_TEAM_NAME: str = "offline"
 
+    GOOGLE_APPLICATION_CREDENTIALS: Optional[str] = None
+
     LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
 
     @model_serializer(when_used="always", mode="plain", return_type=str)

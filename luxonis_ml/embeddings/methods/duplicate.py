@@ -1,80 +1,83 @@
-"""Near-duplicate Search with Qdrant.
+"""Near-duplicate Search with Qdrant and Weaviate.
 
-This module provides utilities to detect and remove near-duplicate data points
-within a given set of embeddings. The removal process uses Kernel Density
-Estimation (KDE) on embeddings cosine similarity for optimal split, making
-this approach particularly suited for embeddings in high dimensional spaces.
+Overview:
+This module provides utilities to detect and remove near-duplicate data points within a given set of embeddings.
+It leverages vector databases (Qdrant or Weaviate) for efficient search and retrieval,
+and employs Kernel Density Estimation (KDE) for optimal split based on embeddings' cosine similarity.
+This approach is particularly well-suited for handling high-dimensional embeddings.
 
-Functionality Includes:
-    - Using Qdrant for efficient search and retrieval of embeddings.
-    - Applying Kernel Density Estimation (KDE) to detect similarity peaks.
-    - Visualizing KDE results with matplotlib.
-    - Dynamic selection of best candidates for removal based on KDE peaks.
+Key Features:
+    - Vector Database Integration: Supports both Qdrant and Weaviate for flexible deployment options.
+    - KDE-Based Near-Duplicate Detection: Uses KDE to identify clusters of near-duplicates, ensuring accuracy in high-dimensional spaces.
+    - Visualization: Allows plotting KDE results using matplotlib for intuitive understanding.
+    - Dynamic KDE Peak Selection: Automatically determines the best candidates for removal based on KDE peaks, minimizing manual thresholding.
 
 Dependencies:
-    - Requires the KDEpy library for KDE.
-    - Utilizes Qdrant (an open-source vector database) for embedding storage and search.
+    - KDEpy
+    - Qdrant (optional, for Qdrant-specific features)
+    - Weaviate (optional, for Weaviate-specific features)
 
 Functions:
-    - search_qdrant: Search embeddings within Qdrant based on query vectors.
-    - _plot_kde: Utility function to plot a KDE distribution.
-    - kde_peaks: Determine peaks in a KDE distribution.
-    - find_similar_qdrant: Find the most similar embeddings to the given reference embeddings.
+    - search_vectordb(vectordb_api, query_vector, property_name, top_k): Searches for similar embeddings within the specified vector database.
+    - _plot_kde(xs, s, density, maxima, minima): Plots a KDE distribution.
+    - kde_peaks(data, bandwidth="scott", plot=False): Identifies peaks in a KDE distribution.
+    - find_similar(reference_embeddings, vectordb_api, k=100, n=1000, method="first", k_method=None, kde_bw="scott", plot=False): Finds the most similar embeddings to the given reference embeddings.
 
-Examples:
-    1. Initialize a Qdrant client and retrieve all embeddings from a specific collection:
-
+Examples (using Qdrant):
+    1. Initialize a Qdrant client and retrieve embeddings:
         from luxonis_ml.embeddings.utils.qdrant import QdrantAPI
-        qdrant_api = QdrantAPI(host="localhost", port=6333, collection_name="webscraped_real_all")
+        qdrant_api = QdrantAPI(host="localhost", port=6333)
+        qdrant_api.create_collection("images", ["image_path", "embedding"])
         id_X, X = qdrant_api.get_all_embeddings()
-        i = 111
 
-    2. Search for similar embeddings in Qdrant for a specific embedding:
+    2. Find similar embeddings using various methods:
+        # By instance ID:
+        ix, paths = find_similar_qdrant(id_X[i], qdrant_api, "image_path", 5, 100, "first")
 
-        ids, similarites, image_paths = search_qdrant(qdrant_api, X[i], "real", 1000)
-        vals = np.array(similarites)
-        k = len(np.where(vals > 0.961)[0])  # manually selected threshold
-        imgk = image_paths[:k]
+        # Using KDE Peaks method:
+        ix, paths = find_similar_qdrant(X[i], qdrant_api, "image_path", 5, 100, "first", "kde_peaks", "silverman", plot=False)
 
-    3. Find similar embeddings by providing an instance ID:
-
-        ix, paths = find_similar_qdrant(id_X[i], qdrant_api, "real", 5, 100, "first")
-
-    4. Find similar embeddings using the KDE Peaks method:
-
-        ix, paths = find_similar_qdrant(X[i], qdrant_api, "real", 5, 100, "first", "kde_peaks", "silverman", plot=False)
-
-    5. Calculate the average of multiple embeddings and then find similar embeddings:
-
-        dark_ix = np.array([10,123,333,405])
+        # Based on average of multiple embeddings:
+        dark_ix = np.array([10, 123, 333, 405])
         emb_dark = X[dark_ix]
-        remove_dark_ix, paths = find_similar_qdrant(emb_dark, qdrant_api, "real", 25, 5000, "average", "kde_basic", "scott", plot=True)
+        remove_dark_ix, paths = find_similar_qdrant(emb_dark, qdrant_api, "image_path", 25, 5000, "average", "kde_basic", "scott", plot=True)
+
+Additional Notes:
+    - For Weaviate-specific examples, refer to the provided code examples.
+    - The search_vectordb function can be used with either Qdrant or Weaviate, depending on the provided vectordb_api object.
+    - Adjust parameters like k, n, and kde_bw based on your dataset and requirements.
 """
 
+from typing import List, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
 from KDEpy import FFTKDE
-
-# Near-duplicate search
 from scipy.signal import argrelextrema
 
-# Qdrant
+from luxonis_ml.embeddings.utils.vectordb import VectorDBAPI
 
 
-def search_qdrant(qdrant_api, query_vector, data_name, limit=5000):
-    """Search embeddings in Qdrant."""
-    hits = qdrant_api.search_embeddings_by_imagepath(query_vector, data_name, top=limit)
+def _plot_kde(
+    xs: np.ndarray,
+    s: np.ndarray,
+    density: np.ndarray,
+    maxima: np.ndarray,
+    minima: np.ndarray,
+) -> None:
+    """Plot a KDE distribution.
 
-    ix = [h.id for h in hits]
-    vals = [h.score for h in hits]
-    res = [h.payload["image_path"] for h in hits]
-
-    return ix, vals, res
-
-
-def _plot_kde(xs, s, density, maxima, minima):
-    """Plot a KDE distribution."""
+    @type xs: np.ndarray
+    @param xs: The x-axis values.
+    @type s: np.ndarray
+    @param s: The y-axis values.
+    @type density: np.ndarray
+    @param density: The density values.
+    @type maxima: np.ndarray
+    @param maxima: The indices of the local maxima.
+    @type minima: np.ndarray
+    @param minima: The indices of the local minima.
+    """
     plt.plot(xs, density, label="KDE")
     plt.plot(xs[maxima], s[maxima], "ro", label="local maxima")
     plt.plot(xs[minima], s[minima], "bo", label="local minima")
@@ -83,8 +86,21 @@ def _plot_kde(xs, s, density, maxima, minima):
     plt.show()
 
 
-def kde_peaks(data, bandwidth="scott", plot=False):
-    """Find peaks in a KDE distribution using scipy's argrelextrema function."""
+def kde_peaks(
+    data: np.ndarray, bandwidth: Union[str, float] = "scott", plot: bool = False
+) -> Tuple[np.ndarray, np.ndarray, int, float]:
+    """Find peaks in a KDE distribution using scipy's argrelextrema function.
+
+    @type data: np.ndarray
+    @param data: The data to fit the KDE.
+    @type bandwidth: Union[str, float]
+    @param bandwidth: The bandwidth to use for the KDE. Default is 'scott'.
+    @type plot: bool
+    @param plot: Whether to plot the KDE.
+    @rtype: Tuple[np.ndarray, np.ndarray, int, float]
+    @return: The indices of the KDE maxima, the indices of the KDE minima, the index of
+        the global maxima, and the standard deviation of the data.
+    """
     # fit density
     kde = FFTKDE(kernel="gaussian", bw=bandwidth)
     xs = np.linspace(np.min(data) - 0.01, np.max(data) + 0.01, 1000)
@@ -108,36 +124,31 @@ def kde_peaks(data, bandwidth="scott", plot=False):
     return xs[maxima], xs[minima], global_max_ix, std
 
 
-def find_similar_qdrant(
-    reference_embeddings,
-    qdrant_api,
-    dataset,
-    k=100,
-    n=1000,
-    method="first",
-    k_method=None,
-    kde_bw="scott",
-    plot=False,
-):
+def find_similar(
+    reference_embeddings: Union[str, List[str], List[List[float]], np.ndarray],
+    vectordb_api: VectorDBAPI,
+    k: int = 100,
+    n: int = 1000,
+    method: str = "first",
+    k_method: Union[str, None] = None,
+    kde_bw: Union[str, float] = "scott",
+    plot: bool = False,
+) -> np.ndarray:
     """Find the most similar embeddings to the reference embeddings.
 
-    @type reference_embeddings: Union[np.array, list]
+    @type reference_embeddings: Union[str, List[str], List[List[float]], np.ndarray]
     @param reference_embeddings: The embeddings to compare against. Or a list of of
-        embedding instance_ids that reside in Qdrant.
-    @type qdrant_api: QdrantAPI
-    @param qdrant_api: The Qdrant client API instance to use for searches.
-    @type dataset: str
-    @param dataset: The dataset to use. (It actually filters on the image_path field, so
-        it can be any string. It can be helpful if you have different datasets in
-        subfolders for the same collection, like 'real/img1.jpg' and 'synth/img1.jpg'.)
+        embedding instance_ids that reside in VectorDB.
+    @type vectordb_api: VectorDBAPI
+    @param vectordb_api: The VectorDBAPI instance to use.
     @type k: int
     @param k: The number of embeddings to return. Default is 100.
     @type n: int
     @param n: The number of embeddings to compare against. Default is 1000. (This is the
-        number of embeddings that are returned by the Qdrant search. It matters for the
-        KDE, as it can be slow for large n. Your choice of n depends on the amount of
-        duplicates in your dataset, the more duplicates, the larger n should be. If you
-        have 2-10 duplicates per image, n=100 should be ok. If you have 50-300
+        number of embeddings that are returned by the VectorDB search. It matters for
+        the KDE, as it can be slow for large n. Your choice of n depends on the amount
+        of duplicates in your dataset, the more duplicates, the larger n should be. If
+        you have 2-10 duplicates per image, n=100 should be ok. If you have 50-300
         duplicates per image, n=1000 should work good enough.
     @type method: str
     @param method: The method to use to find the most similar embeddings. If 'first' use
@@ -154,16 +165,24 @@ def find_similar_qdrant(
     @rtype: np.array
     @return: The instance_ids of the most similar embeddings.
     """
+
     # Get the reference embeddings
-    # check if reference_embeddings is a list of instance_ids
-    if isinstance(reference_embeddings, str):
+    if isinstance(
+        reference_embeddings, str
+    ):  # if it is a single instance_id: string uuid
         reference_embeddings = [reference_embeddings]
-    if isinstance(reference_embeddings[0], str):
-        reference_embeddings = qdrant_api.get_embeddings_from_ids(reference_embeddings)
+    if isinstance(
+        reference_embeddings[0], str
+    ):  # if it is a list of instance_ids: list of strings
+        reference_embeddings = vectordb_api.retrieve_embeddings_by_ids(
+            reference_embeddings
+        )
 
     # Select the reference embedding
     if method == "first":
-        if isinstance(reference_embeddings, list):
+        if isinstance(
+            reference_embeddings, list
+        ):  # if it is a list of embeddings: list of lists of floats
             reference_embeddings = np.array(reference_embeddings)
         if len(reference_embeddings.shape) > 1:
             reference_embeddings = reference_embeddings[0]
@@ -174,11 +193,10 @@ def find_similar_qdrant(
     else:
         raise ValueError(f"Unknown method: {method}")
 
-    # Search for similar embeddings in Qdrant
-    ix, vals, res = search_qdrant(
-        qdrant_api, reference_embeddings, data_name=dataset, limit=n
+    ix, similarities = vectordb_api.search_similar_embeddings(
+        reference_embeddings, top_k=n
     )
-    ix, similarities, res = np.array(ix), np.array(vals), np.array(res)
+    ix, similarities = np.array(ix), np.array(similarities)
 
     # Select the best k embeddings
     if k_method is None:
@@ -234,4 +252,4 @@ def find_similar_qdrant(
     else:
         raise ValueError(f"Unknown k_method: {k_method}")
 
-    return ix[best_embeddings_ix], res[best_embeddings_ix]
+    return ix[best_embeddings_ix]

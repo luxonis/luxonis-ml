@@ -27,14 +27,12 @@ Example usage:
 Note: This loader is particularly useful when you want to use MNIST data with models that were
 pre-trained on datasets like ImageNet and expect 3-channel RGB input.
 """
-
-
 import torch
 import torchvision
 import torchvision.transforms as transforms
 
 
-def mnist_transformations():
+def mnist_transformations() -> transforms.Compose:
     """Returns composed transformations for the MNIST dataset.
 
     Transforms the images from 1 channel grayscale to 3 channels RGB and resizes them.
@@ -50,7 +48,9 @@ def mnist_transformations():
     )
 
 
-def load_mnist_data(save_path="./mnist", num_samples=640, batch_size=64):
+def load_mnist_data(
+    save_path: str = "./mnist", num_samples: int = 640, batch_size: int = 64
+) -> torch.utils.data.DataLoader:
     """Loads the MNIST dataset with the specified preprocessing.
 
     Parameters:

@@ -677,7 +677,7 @@ class LuxonisDataset(BaseDataset, registry=DATASETS_REGISTRY):
             else:
                 remote_path = "metadata/splits.json"
                 local_path = os.path.join(self.tmp_dir, "splits.json")
-                if self.fs.file_exists(remote_path):
+                if self.fs.exists(remote_path):
                     self.fs.get_file(remote_path, local_path)
                     with open(splits_path, "r") as file:
                         splits = json.load(file)
