@@ -1,4 +1,4 @@
-from typing import List, Literal
+from typing import Literal
 
 from pydantic import Field
 
@@ -14,22 +14,14 @@ class Config(CustomBaseModel):
 
     @type config_version: str
     @ivar config_version: Static variable representing the version of the config scheme.
-    @type stages: list
-    @ivar stages: List of Model objects each representing a stage in the model (list of
-        one element for single-stage models).
-    @type connections: list
-    @ivar connections: List of connections instructing how to connect multi stage models
-        (empty for single-stage models).
+    @type model: Model
+    @ivar model: A Model object representing the neural network used in the archive.
     """
 
     config_version: CONFIG_VERSION = Field(
         ...,
         description="Static variable representing the version of the config scheme.",
     )
-    stages: List[Model] = Field(
-        description="List of Model objects each representing a stage in the model (list of one element for single-stage models)"
-    )
-    connections: List = Field(
-        default=[],
-        description="List of connections instructing how to connect multi stage models (empty for single-stage models).",
+    model: Model = Field(
+        description="A Model object representing the neural network used in the archive."
     )
