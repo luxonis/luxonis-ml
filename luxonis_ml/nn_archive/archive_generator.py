@@ -39,7 +39,7 @@ class ArchiveGenerator:
         self.executables_paths = executables_paths
 
         self.cfg = Config(  # pydantic config check
-            config_version=cfg_dict["config_version"], stages=cfg_dict["stages"]
+            config_version=cfg_dict["config_version"], model=cfg_dict["model"]
         )
 
     def make_archive(self):

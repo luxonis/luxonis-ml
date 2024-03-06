@@ -1,7 +1,7 @@
 from abc import ABC
 from typing import Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ..enums import ObjectDetectionSubtypeYOLO
 from .custom_base_model import CustomBaseModel
@@ -16,8 +16,6 @@ class HeadMetadata(BaseModel, ABC):
     @ivar classes: Names of object classes recognized by the model.
     @type n_classes: int
     @ivar n_classes: Number of object classes recognized by the model.
-    @type outputs: C{Union[List[str], Dict[str, str]]}
-    @ivar outputs: A list of output names from the `outputs` block of the archive or a dictionary mapping DepthAI parser names needed for the head to output names. The referenced outputs will be used by the DepthAI parser.
     """
 
     family: str = Field(description="Decoding family.")
@@ -26,9 +24,6 @@ class HeadMetadata(BaseModel, ABC):
     )
     n_classes: int = Field(
         description="Number of object classes recognized by the model."
-    )
-    outputs: Union[List[str], Dict[str, str]] = Field(
-        description="A list of output names from the `outputs` block of the archive or a dictionary mapping DepthAI parser names needed for the head to output names. The referenced outputs will be used by the DepthAI parser."
     )
 
 
@@ -121,14 +116,18 @@ class HeadMetadataObjectDetectionYOLO(HeadMetadataObjectDetection):
             raise ValueError("Invalid family")
         return value
 
-    @field_validator("anchors")
+    @model_validator(mode="before")
     def validate_anchors(
         cls,
-        value,
+        values,
     ):
-        if cls.subtype == ObjectDetectionSubtypeYOLO.YOLOv6 and value is not None:
+        if (
+            "anchors" in values
+            and values["anchors"] is not None
+            and values["subtype"] == ObjectDetectionSubtypeYOLO.YOLOv6.value
+        ):
             raise ValueError("YOLOv6 does not support anchors.")
-        return value
+        return values
 
 
 class HeadMetadataObjectDetectionSSD(HeadMetadataObjectDetection):
@@ -172,7 +171,7 @@ class HeadMetadataSegmentation(HeadMetadata):
         return value
 
 
-class HeadMetadataSegmentationYOLO(
+class HeadMetadataInstanceSegmentationYOLO(
     HeadMetadataObjectDetectionYOLO, HeadMetadataSegmentation
 ):
     """Metadata for YOLO instance segmentation head.
@@ -197,7 +196,7 @@ class HeadMetadataSegmentationYOLO(
         cls,
         value,
     ):
-        if value != "Segmentation":
+        if value != "InstanceSegmentationYOLO":
             raise ValueError("Invalid family")
         return value
 
@@ -212,17 +211,20 @@ class HeadMetadataKeypointDetection(HeadMetadata):
 class Head(CustomBaseModel):
     """Represents head of a model.
 
-    @type head_id: str
-    @ivar head_id: Unique head identifier.
+    @type outputs: C{Union[List[str], Dict[str, Union[str, List]]]}
+    @ivar outputs: A list of output names from the `outputs` block of the archive or a dictionary mapping DepthAI parser names needed for the head to output names. The referenced outputs will be used by the DepthAI parser.
     @type metadata: HeadMetadata
     @ivar metadata: Parameters required by head to run postprocessing.
     """
 
-    head_id: str = Field(description="Unique head identifier.")
+    outputs: Union[List[str], Dict[str, Union[str, List]]] = Field(
+        description="A list of output names from the `outputs` block of the archive or a dictionary mapping DepthAI parser names needed for the head to output names. The referenced outputs will be used by the DepthAI parser."
+    )
     metadata: Union[
         HeadMetadataObjectDetectionYOLO,
         HeadMetadataObjectDetectionSSD,
         HeadMetadataSegmentation,
         HeadMetadataClassification,
         # HeadMetadataKeypointDetection, # TODO
+        HeadMetadataInstanceSegmentationYOLO,
     ] = Field(description="Parameters required by head to run postprocessing.")
