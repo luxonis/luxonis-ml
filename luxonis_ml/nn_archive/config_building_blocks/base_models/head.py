@@ -1,17 +1,27 @@
 from abc import ABC
-from typing import Dict, List, Literal, Optional, Union
+from typing import List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ..enums import ObjectDetectionSubtypeYOLO
-from .custom_base_model import CustomBaseModel
+from .head_outputs import (
+    Outputs,
+    OutputsClassification,
+    OutputsInstanceSegmentationYOLO,
+    OutputsKeypointDetectionYOLO,
+    OutputsSegmentation,
+    OutputsSSD,
+    OutputsYOLO,
+)
 
 
-class HeadMetadata(BaseModel, ABC):
-    """Head metadata parent class.
+class Head(BaseModel, ABC):
+    """Represents head of a model.
 
     @type family: str
     @ivar family: Decoding family.
+    @type outputs: C{Outputs}
+    @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive feed into the head.
     @type classes: list
     @ivar classes: Names of object classes recognized by the model.
     @type n_classes: int
@@ -19,6 +29,9 @@ class HeadMetadata(BaseModel, ABC):
     """
 
     family: str = Field(description="Decoding family.")
+    outputs: Outputs = Field(
+        description="A configuration specifying which output names from the `outputs` block of the archive feed into the head."
+    )
     classes: List[str] = Field(
         description="Names of object classes recognized by the model."
     )
@@ -27,29 +40,7 @@ class HeadMetadata(BaseModel, ABC):
     )
 
 
-class HeadMetadataClassification(HeadMetadata):
-    """Metadata for classification head.
-
-    @type family: str
-    @ivar family: Decoding family.
-    @type is_softmax: bool
-    @ivar is_softmax: True, if output is already softmaxed.
-    """
-
-    family: Literal["Classification"] = Field(..., description="Decoding family.")
-    is_softmax: bool = Field(description="True, if output is already softmaxed.")
-
-    @field_validator("family")
-    def validate_label_type(
-        cls,
-        value,
-    ):
-        if value != "Classification":
-            raise ValueError("Invalid family")
-        return value
-
-
-class HeadMetadataObjectDetection(HeadMetadata, ABC):
+class HeadObjectDetection(Head, ABC):
     """Metadata for object detection head.
 
     @type iou_threshold: float
@@ -78,11 +69,40 @@ class HeadMetadataObjectDetection(HeadMetadata, ABC):
     )
 
 
-class HeadMetadataObjectDetectionYOLO(HeadMetadataObjectDetection):
+class HeadClassification(Head, ABC):
+    """Metadata for classification head.
+
+    @type family: str
+    @ivar family: Decoding family.
+    @type outputs: C{OutputsClassification}
+    @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive feed into the head.
+    @type is_softmax: bool
+    @ivar is_softmax: True, if output is already softmaxed.
+    """
+
+    family: Literal["Classification"] = Field(..., description="Decoding family.")
+    outputs: OutputsClassification = Field(
+        description="A configuration specifying which output names from the `outputs` block of the archive feed into the head."
+    )
+    is_softmax: bool = Field(description="True, if output is already softmaxed.")
+
+    @field_validator("family")
+    def validate_label_type(
+        cls,
+        value,
+    ):
+        if value != "Classification":
+            raise ValueError("Invalid family")
+        return value
+
+
+class HeadObjectDetectionYOLO(HeadObjectDetection, ABC):
     """Metadata for YOLO object detection head.
 
     @type family: str
     @ivar family: Decoding family.
+    @type outputs: C{ObjectDetectionYOLO}
+    @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive feed into the head.
     @type subtype: ObjectDetectionSubtypeYOLO
     @ivar subtype: YOLO family decoding subtype (e.g. v5, v6, v7 etc.).
     @type n_keypoints: int
@@ -94,6 +114,9 @@ class HeadMetadataObjectDetectionYOLO(HeadMetadataObjectDetection):
     """
 
     family: Literal["ObjectDetectionYOLO"] = Field(..., description="Decoding family.")
+    outputs: OutputsYOLO = Field(
+        description="A configuration specifying which output names from the `outputs` block of the archive feed into the head."
+    )
     subtype: ObjectDetectionSubtypeYOLO = Field(
         description="YOLO family decoding subtype (e.g. v5, v6, v7 etc.)."
     )
@@ -130,14 +153,19 @@ class HeadMetadataObjectDetectionYOLO(HeadMetadataObjectDetection):
         return values
 
 
-class HeadMetadataObjectDetectionSSD(HeadMetadataObjectDetection):
+class HeadObjectDetectionSSD(HeadObjectDetection, ABC):
     """Metadata for SSD object detection head.
 
     @type family: str
     @ivar family: Decoding family.
+    @type outputs: C{OutputsSSD}
+    @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive feed into the head.
     """
 
     family: Literal["ObjectDetectionSSD"] = Field(..., description="Decoding family.")
+    outputs: OutputsSSD = Field(
+        description="A configuration specifying which output names from the `outputs` block of the archive feed into the head."
+    )
 
     @field_validator("family")
     def validate_label_type(
@@ -149,16 +177,21 @@ class HeadMetadataObjectDetectionSSD(HeadMetadataObjectDetection):
         return value
 
 
-class HeadMetadataSegmentation(HeadMetadata):
+class HeadSegmentation(Head, ABC):
     """Metadata for segmentation head.
 
     @type family: str
     @ivar family: Decoding family.
+    @type outputs: C{OutputsSegmentation}
+    @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive feed into the head.
     @type is_softmax: bool
     @ivar is_softmax: True, if output is already softmaxed.
     """
 
     family: Literal["Segmentation"] = Field(..., description="Decoding family.")
+    outputs: OutputsSegmentation = Field(
+        description="A configuration specifying which output names from the `outputs` block of the archive feed into the head."
+    )
     is_softmax: bool = Field(description="True, if output is already softmaxed.")
 
     @field_validator("family")
@@ -171,13 +204,13 @@ class HeadMetadataSegmentation(HeadMetadata):
         return value
 
 
-class HeadMetadataInstanceSegmentationYOLO(
-    HeadMetadataObjectDetectionYOLO, HeadMetadataSegmentation
-):
+class HeadInstanceSegmentationYOLO(HeadObjectDetectionYOLO, HeadSegmentation, ABC):
     """Metadata for YOLO instance segmentation head.
 
     @type family: str
     @ivar family: Decoding family.
+    @type outputs: C{OutputsInstanceSegmentationYOLO}
+    @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive feed into the head.
     @type postprocessor_path: str
     @ivar postprocessor_path: Path to the secondary executable used in YOLO instance
         segmentation.
@@ -185,6 +218,9 @@ class HeadMetadataInstanceSegmentationYOLO(
 
     family: Literal["InstanceSegmentationYOLO"] = Field(
         ..., description="Decoding family."
+    )
+    outputs: OutputsInstanceSegmentationYOLO = Field(
+        description="A configuration specifying which output names from the `outputs` block of the archive feed into the head."
     )
     postprocessor_path: str = Field(
         ...,
@@ -201,30 +237,31 @@ class HeadMetadataInstanceSegmentationYOLO(
         return value
 
 
-class HeadMetadataKeypointDetection(HeadMetadata):
-    """Metadata for keypoint detection head."""
+class HeadKeypointDetectionYOLO(Head, ABC):
+    """Metadata for YOLO keypoint detection head.
 
-    def __init__(self):
-        raise NotImplementedError
-
-
-class Head(CustomBaseModel):
-    """Represents head of a model.
-
-    @type outputs: C{Union[List[str], Dict[str, Union[str, List]]]}
-    @ivar outputs: A list of output names from the `outputs` block of the archive or a dictionary mapping DepthAI parser names needed for the head to output names. The referenced outputs will be used by the DepthAI parser.
-    @type metadata: HeadMetadata
-    @ivar metadata: Parameters required by head to run postprocessing.
+    @type family: str
+    @ivar family: Decoding family.
+    @type outputs: C{OutputsKeypointDetectionYOLO}
+    @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive feed into the head.
     """
 
-    outputs: Union[List[str], Dict[str, Union[str, List]]] = Field(
-        description="A list of output names from the `outputs` block of the archive or a dictionary mapping DepthAI parser names needed for the head to output names. The referenced outputs will be used by the DepthAI parser."
+    # TODO: verify this implementation for YOLOv6 detection+keypoints
+
+    family: Literal["KeypointDetectionYOLO"] = Field(
+        ..., description="Decoding family."
     )
-    metadata: Union[
-        HeadMetadataObjectDetectionYOLO,
-        HeadMetadataObjectDetectionSSD,
-        HeadMetadataSegmentation,
-        HeadMetadataClassification,
-        # HeadMetadataKeypointDetection, # TODO
-        HeadMetadataInstanceSegmentationYOLO,
-    ] = Field(description="Parameters required by head to run postprocessing.")
+    outputs: OutputsKeypointDetectionYOLO = Field(
+        description="A configuration specifying which output names from the `outputs` block of the archive feed into the head."
+    )
+
+
+HeadType = Union[
+    HeadClassification,
+    HeadObjectDetection,
+    HeadObjectDetectionYOLO,
+    HeadObjectDetectionSSD,
+    HeadSegmentation,
+    HeadInstanceSegmentationYOLO,
+    HeadKeypointDetectionYOLO,
+]
