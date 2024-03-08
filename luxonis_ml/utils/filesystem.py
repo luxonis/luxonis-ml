@@ -359,11 +359,13 @@ class LuxonisFileSystem:
         else:
             raise NotImplementedError
 
-    def walk_dir(self, remote_dir: PathType) -> Iterator[str]:
-        """Recursively walks through the individual files in a remote directory.
+    def walk_dir(self, remote_dir: PathType, recursive: bool = True) -> Iterator[str]:
+        """Walks through the individual files in a remote directory.
 
         @type remote_dir: PathType
         @param remote_dir: Relative path to remote directory
+        @type recursive: bool
+        @param recursive: If True, walks through the directory recursively.
         @rtype: Iterator[str]
         @return: Iterator over the paths.
         """
@@ -372,7 +374,9 @@ class LuxonisFileSystem:
             raise NotImplementedError
         elif self.is_fsspec:
             full_path = str(self.path / remote_dir)
-            for file in self.fs.glob(full_path + "/**", detail=True):
+            for file in self.fs.glob(
+                full_path + f"/{'**' if recursive else '*'}", detail=True
+            ):
                 if self.fs.info(file)["type"] == "file":
                     file = str(file)
                     yield str(PurePosixPath(file).relative_to(self.path))

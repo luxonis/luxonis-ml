@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
-from tqdm import tqdm
+import rich.progress
 
 import luxonis_ml.data.utils.data_utils as data_utils
 from luxonis_ml.utils import LuxonisFileSystem, environ
@@ -124,6 +124,13 @@ class LuxonisDataset(BaseDataset, registry=DATASETS_REGISTRY):
             self.fs = LuxonisFileSystem(self.path)
 
         self.logger = logging.getLogger(__name__)
+
+    @property
+    def identifier(self) -> str:
+        if self.dataset_name is not None:
+            return self.dataset_name
+        assert self.dataset_id is not None
+        return self.dataset_id
 
     def __len__(self) -> int:
         """Returns the number of instances in the dataset."""
@@ -368,14 +375,16 @@ class LuxonisDataset(BaseDataset, registry=DATASETS_REGISTRY):
 
                 self.is_synced = True
 
-    def get_classes(self, sync_mode: bool = False) -> Tuple[List[str], Dict]:
+    def get_classes(
+        self, sync_mode: bool = False
+    ) -> Tuple[List[str], Dict[str, List[str]]]:
         """Gets overall classes in the dataset and classes according to computer vision
         task.
 
         @type sync_mode: bool
         @param sync_mode: If C{True}, reads classes from remote storage. If C{False},
             classes are read locally.
-        @rtype: Tuple[List[str], Dict]
+        @rtype: Tuple[List[str], Dict[str, List[str]]
         @return: A combined list of classes for all tasks and a dictionary mapping tasks
             to the classes used in each task.
         """
@@ -470,6 +479,16 @@ class LuxonisDataset(BaseDataset, registry=DATASETS_REGISTRY):
             array_paths = list(
                 set([data["value"] for data in batch_data if data["type"] == "array"])
             )
+            progress = rich.progress.Progress(
+                rich.progress.TextColumn("[progress.description]{task.description}"),
+                rich.progress.BarColumn(),
+                rich.progress.TaskProgressColumn(),
+                rich.progress.MofNCompleteColumn(),
+                rich.progress.TimeRemainingColumn(),
+            )
+            task = progress.add_task(
+                "[magenta]Processing data...", total=len(batch_data)
+            )
             if len(array_paths):
                 self.logger.info("Checking arrays...")
                 self._start_time()
@@ -492,7 +511,8 @@ class LuxonisDataset(BaseDataset, registry=DATASETS_REGISTRY):
                     )
                     self._end_time()
                 self.logger.info("Finalizing paths...")
-                for data in tqdm(batch_data):
+                progress.start()
+                for data in batch_data:
                     if data["type"] == "array":
                         if self.bucket_storage != BucketStorage.LOCAL:
                             remote_path = mask_upload_dict[data["value"]]
@@ -500,10 +520,14 @@ class LuxonisDataset(BaseDataset, registry=DATASETS_REGISTRY):
                             data["value"] = remote_path
                         else:
                             data["value"] = osp.abspath(data["value"])
+                        progress.update(task, advance=1)
+                progress.stop()
 
             self.logger.info("Saving annotations...")
             self._start_time()
-            for data in tqdm(batch_data):
+            progress.reset(task)
+            progress.start()
+            for data in batch_data:
                 filepath = data["file"]
                 file = osp.basename(filepath)
                 instance_id = uuid_dict[filepath]
@@ -535,6 +559,8 @@ class LuxonisDataset(BaseDataset, registry=DATASETS_REGISTRY):
                 data["created_at"] = datetime.utcnow()
 
                 self.pfm.write(data)
+                progress.update(task, advance=1)
+            progress.stop()
             self._end_time()
 
         if self.bucket_storage == BucketStorage.LOCAL:
@@ -665,6 +691,15 @@ class LuxonisDataset(BaseDataset, registry=DATASETS_REGISTRY):
         @rtype: bool
         @return: Whether the dataset exists
         """
+        return dataset_name in LuxonisDataset.list_datasets()
+
+    @staticmethod
+    def list_datasets() -> Dict:
+        """Returns a dictionary of all datasets.
+
+        @rtype: Dict
+        @return: Dictionary of all datasets
+        """
         base_path = environ.LUXONISML_BASE_PATH
         datasets_cache_file = osp.join(base_path, "datasets.json")
         if osp.exists(datasets_cache_file):
@@ -673,7 +708,4 @@ class LuxonisDataset(BaseDataset, registry=DATASETS_REGISTRY):
         else:
             datasets = {}
 
-        if dataset_name in datasets:
-            return True
-        else:
-            return False
+        return datasets
