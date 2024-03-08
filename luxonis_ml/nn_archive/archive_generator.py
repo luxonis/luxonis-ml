@@ -57,7 +57,7 @@ class ArchiveGenerator:
                 tar.add(executable_path, arcname=os.path.basename(executable_path))
 
             # add config JSON
-            tarinfo = tarfile.TarInfo(name=f"{self.archive_name}.json")
+            tarinfo = tarfile.TarInfo(name="config.json")
             tarinfo.size = len(json_data)
             json_buffer.seek(0)  # reset the buffer to the beginning
             tar.addfile(tarinfo, json_buffer)
