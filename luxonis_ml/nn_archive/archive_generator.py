@@ -49,18 +49,18 @@ class ArchiveGenerator:
         json_data, json_buffer = self._make_json()
 
         # construct .tar archive
-        with tarfile.open(
-            os.path.join(self.save_path, self.archive_name), self.mode
-        ) as tar:
+        archive_path = os.path.join(self.save_path, self.archive_name)
+        with tarfile.open(archive_path, self.mode) as tar:
             # add executables
             for executable_path in self.executables_paths:
                 tar.add(executable_path, arcname=os.path.basename(executable_path))
-
             # add config JSON
             tarinfo = tarfile.TarInfo(name="config.json")
             tarinfo.size = len(json_data)
             json_buffer.seek(0)  # reset the buffer to the beginning
             tar.addfile(tarinfo, json_buffer)
+
+        return archive_path
 
     def _make_json(self):
         """Create an in-memory config data file-like object."""
