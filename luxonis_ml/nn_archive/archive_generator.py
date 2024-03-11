@@ -20,7 +20,8 @@ class ArchiveGenerator:
     @type executables_paths: list
     @ivar executables_paths: Paths to relevant model executables.
     @type compression: str
-    @ivar compression: Type of archive file compression ("xz" for LZMA, "gz" for gzip, or "bz2" for bzip2 compression).
+    @ivar compression: Type of archive file compression ("xz" for LZMA, "gz" for gzip,
+        or "bz2" for bzip2 compression).
     """
 
     def __init__(
@@ -31,7 +32,6 @@ class ArchiveGenerator:
         executables_paths: List[str],
         compression: Literal["xz", "gz", "bz2"] = "xz",
     ):
-        
         self.save_path = save_path
         self.executables_paths = executables_paths
 
