@@ -81,5 +81,4 @@ class OutputsInstanceSegmentationYOLO(Outputs):
 
 
 class OutputsKeypointDetectionYOLO(OutputsBasic):
-    # TODO: verify this implementation for YOLOv6 detection+keypoints
     pass

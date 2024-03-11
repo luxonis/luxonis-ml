@@ -21,7 +21,7 @@ class Head(BaseModel, ABC):
     @type family: str
     @ivar family: Decoding family.
     @type outputs: C{Outputs}
-    @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive feed into the head.
+    @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive are fed into the head.
     @type classes: list
     @ivar classes: Names of object classes recognized by the model.
     @type n_classes: int
@@ -30,7 +30,7 @@ class Head(BaseModel, ABC):
 
     family: str = Field(description="Decoding family.")
     outputs: Outputs = Field(
-        description="A configuration specifying which output names from the `outputs` block of the archive feed into the head."
+        description="A configuration specifying which output names from the `outputs` block of the archive are fed into the head."
     )
     classes: List[str] = Field(
         description="Names of object classes recognized by the model."
@@ -75,14 +75,14 @@ class HeadClassification(Head, ABC):
     @type family: str
     @ivar family: Decoding family.
     @type outputs: C{OutputsClassification}
-    @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive feed into the head.
+    @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive are fed into the head.
     @type is_softmax: bool
     @ivar is_softmax: True, if output is already softmaxed.
     """
 
     family: Literal["Classification"] = Field(..., description="Decoding family.")
     outputs: OutputsClassification = Field(
-        description="A configuration specifying which output names from the `outputs` block of the archive feed into the head."
+        description="A configuration specifying which output names from the `outputs` block of the archive are fed into the head."
     )
     is_softmax: bool = Field(description="True, if output is already softmaxed.")
 
@@ -102,7 +102,7 @@ class HeadObjectDetectionYOLO(HeadObjectDetection, ABC):
     @type family: str
     @ivar family: Decoding family.
     @type outputs: C{ObjectDetectionYOLO}
-    @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive feed into the head.
+    @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive are fed into the head.
     @type subtype: ObjectDetectionSubtypeYOLO
     @ivar subtype: YOLO family decoding subtype (e.g. v5, v6, v7 etc.).
     @type n_keypoints: int
@@ -115,7 +115,7 @@ class HeadObjectDetectionYOLO(HeadObjectDetection, ABC):
 
     family: Literal["ObjectDetectionYOLO"] = Field(..., description="Decoding family.")
     outputs: OutputsYOLO = Field(
-        description="A configuration specifying which output names from the `outputs` block of the archive feed into the head."
+        description="A configuration specifying which output names from the `outputs` block of the archive are fed into the head."
     )
     subtype: ObjectDetectionSubtypeYOLO = Field(
         description="YOLO family decoding subtype (e.g. v5, v6, v7 etc.)."
@@ -159,12 +159,12 @@ class HeadObjectDetectionSSD(HeadObjectDetection, ABC):
     @type family: str
     @ivar family: Decoding family.
     @type outputs: C{OutputsSSD}
-    @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive feed into the head.
+    @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive are fed into the head.
     """
 
     family: Literal["ObjectDetectionSSD"] = Field(..., description="Decoding family.")
     outputs: OutputsSSD = Field(
-        description="A configuration specifying which output names from the `outputs` block of the archive feed into the head."
+        description="A configuration specifying which output names from the `outputs` block of the archive are fed into the head."
     )
 
     @field_validator("family")
@@ -183,14 +183,14 @@ class HeadSegmentation(Head, ABC):
     @type family: str
     @ivar family: Decoding family.
     @type outputs: C{OutputsSegmentation}
-    @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive feed into the head.
+    @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive are fed into the head.
     @type is_softmax: bool
     @ivar is_softmax: True, if output is already softmaxed.
     """
 
     family: Literal["Segmentation"] = Field(..., description="Decoding family.")
     outputs: OutputsSegmentation = Field(
-        description="A configuration specifying which output names from the `outputs` block of the archive feed into the head."
+        description="A configuration specifying which output names from the `outputs` block of the archive are fed into the head."
     )
     is_softmax: bool = Field(description="True, if output is already softmaxed.")
 
@@ -210,7 +210,7 @@ class HeadInstanceSegmentationYOLO(HeadObjectDetectionYOLO, HeadSegmentation, AB
     @type family: str
     @ivar family: Decoding family.
     @type outputs: C{OutputsInstanceSegmentationYOLO}
-    @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive feed into the head.
+    @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive are fed into the head.
     @type postprocessor_path: str
     @ivar postprocessor_path: Path to the secondary executable used in YOLO instance
         segmentation.
@@ -220,7 +220,7 @@ class HeadInstanceSegmentationYOLO(HeadObjectDetectionYOLO, HeadSegmentation, AB
         ..., description="Decoding family."
     )
     outputs: OutputsInstanceSegmentationYOLO = Field(
-        description="A configuration specifying which output names from the `outputs` block of the archive feed into the head."
+        description="A configuration specifying which output names from the `outputs` block of the archive are fed into the head."
     )
     postprocessor_path: str = Field(
         ...,
@@ -243,16 +243,14 @@ class HeadKeypointDetectionYOLO(Head, ABC):
     @type family: str
     @ivar family: Decoding family.
     @type outputs: C{OutputsKeypointDetectionYOLO}
-    @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive feed into the head.
+    @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive are fed into the head.
     """
-
-    # TODO: verify this implementation for YOLOv6 detection+keypoints
 
     family: Literal["KeypointDetectionYOLO"] = Field(
         ..., description="Decoding family."
     )
     outputs: OutputsKeypointDetectionYOLO = Field(
-        description="A configuration specifying which output names from the `outputs` block of the archive feed into the head."
+        description="A configuration specifying which output names from the `outputs` block of the archive are fed into the head."
     )
 
 
