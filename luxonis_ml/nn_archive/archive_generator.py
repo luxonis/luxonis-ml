@@ -35,6 +35,10 @@ class ArchiveGenerator:
         self.save_path = save_path
         self.executables_paths = executables_paths
 
+        if compression not in ["xz", "gz", "bz2"]:
+            raise ValueError(
+                "Invalid compression type. Must be one of 'xz', 'gz', 'bz2'."
+            )
         self.compression = compression
 
         self.archive_name = (
