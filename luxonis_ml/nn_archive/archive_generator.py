@@ -2,7 +2,7 @@ import json
 import os
 import tarfile
 from io import BytesIO
-from typing import List
+from typing import List, Literal
 
 from .config import Config
 
@@ -19,6 +19,8 @@ class ArchiveGenerator:
     @ivar cfg_dict: Archive configuration dict.
     @type executables_paths: list
     @ivar executables_paths: Paths to relevant model executables.
+    @type compression: str
+    @ivar compression: Type of archive file compression ("xz" for LZMA, "gz" for gzip, or "bz2" for bzip2 compression).
     """
 
     def __init__(
@@ -27,16 +29,19 @@ class ArchiveGenerator:
         save_path: str,
         cfg_dict: dict,
         executables_paths: List[str],
+        compression: Literal["xz", "gz", "bz2"] = "xz",
     ):
-        self.archive_name = (
-            archive_name
-            if archive_name.endswith(".tar.gz")
-            else f"{archive_name}.tar.gz"
-        )
-        self.mode = "w:gz"
-
+        
         self.save_path = save_path
         self.executables_paths = executables_paths
+
+        self.compression = compression
+
+        self.archive_name = (
+            archive_name
+            if archive_name.endswith(f".tar.{self.compression}")
+            else f"{archive_name}.tar.{self.compression}"
+        )
 
         self.cfg = Config(  # pydantic config check
             config_version=cfg_dict["config_version"], model=cfg_dict["model"]
@@ -50,7 +55,7 @@ class ArchiveGenerator:
 
         # construct .tar archive
         archive_path = os.path.join(self.save_path, self.archive_name)
-        with tarfile.open(archive_path, self.mode) as tar:
+        with tarfile.open(archive_path, f"w:{self.compression}") as tar:
             # add executables
             for executable_path in self.executables_paths:
                 tar.add(executable_path, arcname=os.path.basename(executable_path))
