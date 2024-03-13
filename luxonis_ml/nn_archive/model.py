@@ -2,7 +2,7 @@ from typing import List, Optional
 
 from pydantic import Field
 
-from .config_building_blocks import CustomBaseModel, Head, Input, Metadata, Output
+from .config_building_blocks import CustomBaseModel, HeadType, Input, Metadata, Output
 
 
 class Model(CustomBaseModel):
@@ -28,6 +28,6 @@ class Model(CustomBaseModel):
     outputs: List[Output] = Field(
         description="List of Output objects defining the model outputs."
     )
-    heads: Optional[List[Head]] = Field(
+    heads: Optional[List[HeadType]] = Field(
         description="List of Head objects defining the model heads. If not defined, we assume a raw output."
     )

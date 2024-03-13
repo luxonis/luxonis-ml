@@ -2,7 +2,7 @@ import json
 import os
 import tarfile
 from io import BytesIO
-from typing import List
+from typing import List, Literal
 
 from .config import Config
 
@@ -19,6 +19,9 @@ class ArchiveGenerator:
     @ivar cfg_dict: Archive configuration dict.
     @type executables_paths: list
     @ivar executables_paths: Paths to relevant model executables.
+    @type compression: str
+    @ivar compression: Type of archive file compression ("xz" for LZMA, "gz" for gzip,
+        or "bz2" for bzip2 compression).
     """
 
     def __init__(
@@ -27,19 +30,25 @@ class ArchiveGenerator:
         save_path: str,
         cfg_dict: dict,
         executables_paths: List[str],
+        compression: Literal["xz", "gz", "bz2"] = "xz",
     ):
-        self.archive_name = (
-            archive_name
-            if archive_name.endswith(".tar.gz")
-            else f"{archive_name}.tar.gz"
-        )
-        self.mode = "w:gz"
-
         self.save_path = save_path
         self.executables_paths = executables_paths
 
+        if compression not in ["xz", "gz", "bz2"]:
+            raise ValueError(
+                "Invalid compression type. Must be one of 'xz', 'gz', 'bz2'."
+            )
+        self.compression = compression
+
+        self.archive_name = (
+            archive_name
+            if archive_name.endswith(f".tar.{self.compression}")
+            else f"{archive_name}.tar.{self.compression}"
+        )
+
         self.cfg = Config(  # pydantic config check
-            config_version=cfg_dict["config_version"], stages=cfg_dict["stages"]
+            config_version=cfg_dict["config_version"], model=cfg_dict["model"]
         )
 
     def make_archive(self):
@@ -49,18 +58,18 @@ class ArchiveGenerator:
         json_data, json_buffer = self._make_json()
 
         # construct .tar archive
-        with tarfile.open(
-            os.path.join(self.save_path, self.archive_name), self.mode
-        ) as tar:
+        archive_path = os.path.join(self.save_path, self.archive_name)
+        with tarfile.open(archive_path, f"w:{self.compression}") as tar:
             # add executables
             for executable_path in self.executables_paths:
                 tar.add(executable_path, arcname=os.path.basename(executable_path))
-
             # add config JSON
-            tarinfo = tarfile.TarInfo(name=f"{self.archive_name}.json")
+            tarinfo = tarfile.TarInfo(name="config.json")
             tarinfo.size = len(json_data)
             json_buffer.seek(0)  # reset the buffer to the beginning
             tar.addfile(tarinfo, json_buffer)
+
+        return archive_path
 
     def _make_json(self):
         """Create an in-memory config data file-like object."""

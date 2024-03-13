@@ -1,13 +1,14 @@
 from .custom_base_model import CustomBaseModel
 from .head import (
     Head,
-    HeadMetadata,
-    HeadMetadataClassification,
-    HeadMetadataKeypointDetection,
-    HeadMetadataObjectDetection,
-    HeadMetadataObjectDetectionSSD,
-    HeadMetadataObjectDetectionYOLO,
-    HeadMetadataSegmentation,
+    HeadClassification,
+    HeadInstanceSegmentationYOLO,
+    HeadKeypointDetectionYOLO,
+    HeadObjectDetection,
+    HeadObjectDetectionSSD,
+    HeadObjectDetectionYOLO,
+    HeadSegmentation,
+    HeadType,
 )
 from .input import Input, PreprocessingBlock
 from .metadata import Metadata
@@ -15,15 +16,15 @@ from .output import Output
 
 __all__ = [
     "CustomBaseModel",
-    "HeadMetadataObjectDetectionYOLO",
-    "HeadMetadata",
     "Head",
-    "HeadMetadataSegmentation",
-    "HeadMetadataClassification",
-    "HeadMetadataObjectDetection",
-    "HeadMetadataObjectDetectionSSD",
-    "HeadMetadataObjectDetectionYOLO",
-    "HeadMetadataKeypointDetection",
+    "HeadType",
+    "HeadSegmentation",
+    "HeadClassification",
+    "HeadObjectDetection",
+    "HeadObjectDetectionSSD",
+    "HeadObjectDetectionYOLO",
+    "HeadKeypointDetectionYOLO",
+    "HeadInstanceSegmentationYOLO",
     "Input",
     "PreprocessingBlock",
     "Output",

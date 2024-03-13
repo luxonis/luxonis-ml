@@ -1,8 +1,11 @@
 import os
 import os.path as osp
+import subprocess
+import sys
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
+from importlib.util import find_spec
 from io import BytesIO
 from logging import getLogger
 from pathlib import Path, PurePosixPath
@@ -60,6 +63,8 @@ class LuxonisFileSystem:
             raise ValueError(
                 f"Protocol `{self.protocol}` not supported. Choose from {supported_protocols}."
             )
+
+        _check_package_installed(self.protocol)
 
         self.allow_local = allow_local
         if self.protocol == "file" and not self.allow_local:
@@ -585,6 +590,22 @@ class LuxonisFileSystem:
             fs.put_dir(local_path, remote_path)
         else:
             fs.put_file(str(local_path), remote_path)
+
+
+def _check_package_installed(protocol: str) -> None:
+    def _pip_install(package: str, version: str) -> None:
+        logger.error(f"{package} is necessary for {protocol} protocol.")
+        logger.info(f"Installing {package}...")
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", f"{package}>={version}"]
+        )
+
+    if protocol in ["gs", "gcs"] and find_spec("gcsfs") is None:
+        _pip_install("gcsfs", "2023.1.0")
+    elif protocol == "s3" and find_spec("s3fs") is None:
+        _pip_install("s3fs", "2023.1.0")
+    elif protocol == "mlflow" and find_spec("mlflow") is None:
+        _pip_install("mlflow", "2.10.0")
 
 
 def _get_protocol_and_path(path: str) -> Tuple[str, Optional[str]]:
