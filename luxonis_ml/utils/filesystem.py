@@ -331,7 +331,7 @@ class LuxonisFileSystem:
         if self.is_mlflow:
             raise NotImplementedError
         elif self.is_fsspec:
-            if isinstance(remote_paths, Path):
+            if isinstance(remote_paths, PathType):
                 self.fs.download(
                     str(self.path / remote_paths),
                     str(local_dir),
