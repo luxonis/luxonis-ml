@@ -112,21 +112,10 @@ class BaseDataset(ABC, metaclass=AutoRegisterMeta, register=False):
         """
         pass
 
-    # @abstractmethod
-    # def make_splits(
-    #     self, ratios: List[float] = [0.8, 0.1, 0.1], definitions: Optional[Dict] = None
-    # ) -> None:
-    #     # TODO: consider refactoring for use in plugin dataset
-    #     pass
-
     @abstractmethod
     def delete_dataset(self) -> None:
         """Deletes all local files belonging to the dataset."""
         pass
-
-    # @abstractmethod
-    # def create_version(self, note: str) -> None:
-    #     pass
 
     @staticmethod
     @abstractmethod
