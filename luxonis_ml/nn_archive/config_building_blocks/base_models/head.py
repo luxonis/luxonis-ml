@@ -63,7 +63,7 @@ class HeadObjectDetection(Head, ABC):
         description="Confidence score threshold above which a detected object is considered valid."
     )
     max_det: int = Field(description="Maximum detections per image.")
-    anchors: Optional[List[List[List[int]]]] = Field(
+    anchors: Optional[List[List[List[float]]]] = Field(
         None,
         description="Predefined bounding boxes of different sizes and aspect ratios. The innermost lists are length 2 tuples of box sizes. The middle lists are anchors for each output. The outmost lists go from smallest to largest output.",
     )
