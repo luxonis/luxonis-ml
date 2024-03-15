@@ -177,6 +177,24 @@ def test_dir_download(fs: LuxonisFileSystem):
             assert file_path.exists()
             assert file_path.read_text() == f"file_{i}\n"
 
+    with tempfile.TemporaryDirectory() as tempdir:
+        dir_path = fs.get_dir(
+            [
+                "dir/file_1.txt",
+                "dir/file_2.txt",
+                "dir/file_3.txt",
+                "dir/file_4.txt",
+                "dir/file_5.txt",
+            ],
+            tempdir,
+        )
+
+        assert dir_path.exists()
+        for i in range(1, 6):
+            file_path = Path(dir_path, f"file_{i}.txt")
+            assert file_path.exists()
+            assert file_path.read_text() == f"file_{i}\n"
+
 
 @parametrize_dependent_fixture(depends=["test_dir_download"])
 def test_dir_upload(fs: LuxonisFileSystem):

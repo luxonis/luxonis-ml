@@ -199,7 +199,7 @@ class LuxonisFileSystem:
 
         @type local_paths: Union[PathType, Sequence[PathType]]
         @param local_paths: Either a string specifying a directory to walk the files or
-            a list of files which can be in different directories
+            a list of files which can be in different directories.
         @type remote_dir: PathType
         @param remote_dir: Relative path to remote directory
         @type uuid_dict: Optional[Dict[str, str]]
@@ -316,14 +316,15 @@ class LuxonisFileSystem:
 
     def get_dir(
         self,
-        remote_dir: PathType,
+        remote_paths: Union[PathType, Sequence[PathType]],
         local_dir: PathType,
         mlflow_instance: Optional[ModuleType] = None,
     ) -> Path:
         """Copies many files from remote storage to local storage.
 
-        @type remote_dir: PathType
-        @param remote_dir: Relative path to remote directory
+        @type remote_paths: Union[PathType, Sequence[PathType]]
+        @param remote_paths: Either a string specifying a directory to walk the files or
+            a list of files which can be in different directories.
         @type local_dir: PathType
         @param local_dir: Path to local directory
         @type mlflow_instance: Optional[L{ModuleType}]
@@ -335,12 +336,21 @@ class LuxonisFileSystem:
         if self.is_mlflow:
             raise NotImplementedError
         elif self.is_fsspec:
-            self.fs.download(
-                str(self.path / remote_dir),
-                str(local_dir),
-                recursive=True,
-            )
-        return Path(local_dir) / Path(remote_dir).name
+            if isinstance(remote_paths, Path) or isinstance(remote_paths, str):
+                self.fs.download(
+                    str(self.path / remote_paths),
+                    str(local_dir),
+                    recursive=True,
+                )
+                return Path(local_dir) / Path(remote_paths).name
+
+            elif isinstance(remote_paths, list):
+                with ThreadPoolExecutor() as executor:
+                    for remote_path in remote_paths:
+                        local_path = str(local_dir / Path(Path(remote_path).name))
+                        executor.submit(self.get_file, remote_path, local_path)
+
+        return Path(local_dir)
 
     def delete_dir(self, remote_dir: PathType) -> None:
         """Deletes a directory and all its contents from remote storage.

@@ -4,7 +4,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Dict, Literal, Optional, Tuple, Type, Union
 
-from luxonis_ml.data import LuxonisDataset
+from luxonis_ml.data import DATASETS_REGISTRY, BaseDataset, LuxonisDataset
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.utils import LuxonisFileSystem
 
@@ -47,6 +47,7 @@ class LuxonisParser:
         dataset_name: Optional[str] = None,
         delete_existing: bool = False,
         save_dir: Optional[Union[Path, str]] = None,
+        dataset_plugin: Optional[str] = None,
         **kwargs,
     ):
         """High-level abstraction over various parsers.
@@ -66,6 +67,9 @@ class LuxonisParser:
         @param save_dir: If a remote URL is provided in C{dataset_dir}, the dataset will
             be downloaded to this directory. If C{None}, the dataset will be downloaded
             to the current working directory.
+        @type dataset_plugin: Optional[str]
+        @param dataset_plugin: Name of the dataset plugin to use. If C{None},
+            C{LuxonisDataset} is used.
         """
         save_dir = Path(save_dir) if save_dir else None
         name = Path(dataset_dir).name
@@ -80,27 +84,32 @@ class LuxonisParser:
 
         self.dataset_type, self.parser_type = self._recognize_dataset()
 
+        if dataset_plugin:
+            self.dataset_constructor = DATASETS_REGISTRY.get(dataset_plugin)
+        else:
+            self.dataset_constructor = LuxonisDataset
+
         dataset_name = dataset_name or name.replace(" ", "_").split(".")[0]
-        self.dataset_exists = LuxonisDataset.exists(dataset_name=dataset_name)
+        self.dataset_exists = self.dataset_constructor.exists(dataset_name=dataset_name)
         if delete_existing and self.dataset_exists:
             logger.warning(f"Deleting existing dataset '{dataset_name}'")
-            self.dataset = LuxonisDataset(dataset_name=dataset_name, **kwargs)
+            self.dataset = self.dataset_constructor(dataset_name=dataset_name, **kwargs)
             self.dataset.delete_dataset()
             self.dataset_exists = False
 
-        self.dataset = LuxonisDataset(dataset_name=dataset_name, **kwargs)
+        self.dataset = self.dataset_constructor(dataset_name=dataset_name, **kwargs)
         self.parser = self.parsers[self.dataset_type](self.dataset)
 
-    def parse(self, **kwargs) -> LuxonisDataset:
-        """Parses the dataset and returns it in LuxonisDataset format.
+    def parse(self, **kwargs) -> BaseDataset:
+        """Parses the dataset and returns it in BaseDataset format.
 
         If the dataset already exists, parsing will be skipped and the existing dataset
         will be returned instead.
 
         @type kwargs: Dict[str, Any]
         @param kwargs: Additional C{kwargs} for specific parser implementation.
-        @rtype: LuxonisDataset
-        @return: Parsed dataset in L{LuxonisDataset} format.
+        @rtype: BaseDataset
+        @return: Parsed dataset in L{BaseDataset} format.
         """
         if self.dataset_exists:
             logger.warning(
@@ -139,14 +148,14 @@ class LuxonisParser:
             f"Dataset {self.dataset_dir} is not in expected format for any of the parsers."
         )
 
-    def _parse_dir(self, **kwargs) -> LuxonisDataset:
-        """Parses all present data in LuxonisDataset format.
+    def _parse_dir(self, **kwargs) -> BaseDataset:
+        """Parses all present data in BaseDataset format.
 
         Check under each parser for the expected directory structure.
 
         @type kwargs: Dict[str, Any]
         @param kwargs: Additional C{kwargs} for specific parser function.
-        @rtype: LuxonisDataset
+        @rtype: BaseDataset
         @return: C{LDF} with all the images and annotations parsed.
         """
 
@@ -158,7 +167,7 @@ class LuxonisParser:
         random_split: bool = True,
         split_ratios: Tuple[float, float, float] = (0.8, 0.1, 0.1),
         **kwargs,
-    ) -> LuxonisDataset:
+    ) -> BaseDataset:
         """Parses data from a subdirectory representing a single split.
 
         Should be used if adding/changing only specific split. Check under each parser
@@ -175,7 +184,7 @@ class LuxonisParser:
             C{True}. Defaults to C{(0.8, 0.1, 0.1)}.
         @type kwargs: Dict[str, Any]
         @param kwargs: Additional kwargs for specific parser implementation.
-        @rtype: LuxonisDataset
+        @rtype: BaseDataset
         @return: C{LDF} with all the images and annotations parsed.
         """
         parsed_kwargs = self.parser.validate_split(self.dataset_dir)

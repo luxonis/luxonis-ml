@@ -16,7 +16,7 @@ from PIL import Image, ImageDraw
 from luxonis_ml.enums import LabelType
 
 from .augmentations import Augmentations
-from .dataset import LuxonisDataset
+from .datasets import LuxonisDataset
 from .utils.enums import BucketStorage
 
 Labels = Dict[LabelType, np.ndarray]
@@ -117,9 +117,6 @@ class LuxonisLoader(BaseLoader):
         else:
             self.max_nk = 0
         self.augmentations = augmentations
-
-        if self.dataset.online:
-            raise NotImplementedError
 
         if self.view in ["train", "val", "test"]:
             splits_path = os.path.join(dataset.metadata_path, "splits.json")
