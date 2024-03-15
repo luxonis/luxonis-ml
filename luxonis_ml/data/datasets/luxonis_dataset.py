@@ -19,11 +19,11 @@ from luxonis_ml.utils import LuxonisFileSystem, environ
 from ..utils.constants import LABEL_TYPES, LDF_VERSION
 from ..utils.enums import BucketStorage, BucketType, ImageType, MediaType
 from ..utils.parquet import ParquetFileManager
-from .base_dataset import DATASETS_REGISTRY, BaseDataset, DatasetGeneratorFunction
+from .base_dataset import BaseDataset, DatasetGeneratorFunction
 from .source import LuxonisComponent, LuxonisSource
 
 
-class LuxonisDataset(BaseDataset, registry=DATASETS_REGISTRY):
+class LuxonisDataset(BaseDataset):
     def __init__(
         self,
         dataset_name: Optional[str] = None,

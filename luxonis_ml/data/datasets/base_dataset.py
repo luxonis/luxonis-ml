@@ -11,7 +11,7 @@ DatasetGenerator = Generator[Dict[str, Any], None, None]
 DatasetGeneratorFunction = Callable[[], DatasetGenerator]
 
 
-class BaseDataset(ABC, metaclass=AutoRegisterMeta, register=False):
+class BaseDataset(ABC, metaclass=AutoRegisterMeta, registry=DATASETS_REGISTRY):
     """Base abstract dataset class for managing datasets in the Luxonis MLOps
     ecosystem."""
 
