@@ -14,6 +14,7 @@ from .coco_parser import COCOParser
 from .create_ml_parser import CreateMLParser
 from .darknet_parser import DarknetParser
 from .segmentation_mask_directory_parser import SegmentationMaskDirectoryParser
+from .solo_parser import SOLOParser
 from .tensorflow_csv_parser import TensorflowCSVParser
 from .voc_parser import VOCParser
 from .yolov4_parser import YoloV4Parser
@@ -38,6 +39,7 @@ class LuxonisParser:
         DatasetType.TFCSV: TensorflowCSVParser,
         DatasetType.CLSDIR: ClassificationDirectoryParser,
         DatasetType.SEGMASK: SegmentationMaskDirectoryParser,
+        DatasetType.SOLO: SOLOParser,
     }
 
     def __init__(
