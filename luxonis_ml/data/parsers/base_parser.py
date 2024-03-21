@@ -60,7 +60,7 @@ class BaseParser(ABC):
 
     @abstractmethod
     def from_split(self, **kwargs) -> ParserOutput:
-        """Parses a data in a split subdirectoru to L{LuxonisDataset} format.
+        """Parses a data in a split subdirectory to L{LuxonisDataset} format.
 
         @type kwargs: Dict[str, Any]
         @param kwargs: Additional kwargs for specific parser implementation.
