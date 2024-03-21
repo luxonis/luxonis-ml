@@ -20,14 +20,14 @@ class SOLOParser(BaseParser):
 
         dataset_dir/
         ├── train/
-            ├── metadata.json
-            ├── sensor_definitions.json
-            ├── annotation_definitions.json
-            ├── metric_definitions.json
-            ├── sequence.<SequenceNUM>/
-            │   ├── step<StepNUM>.camera.jpg
-            │   ├── step<StepNUM>.frame_data.json
-            │   ├── (OPTIONAL: step<StepNUM>.camera.semantic segmentation.jpg)
+        │   ├── metadata.json
+        │   ├── sensor_definitions.json
+        │   ├── annotation_definitions.json
+        │   ├── metric_definitions.json
+        │   └── sequence.<SequenceNUM>/
+        │       ├── step<StepNUM>.camera.jpg
+        │       ├── step<StepNUM>.frame_data.json
+        │       └── (OPTIONAL: step<StepNUM>.camera.semantic segmentation.jpg)
         ├── valid/
         └── test/
 
