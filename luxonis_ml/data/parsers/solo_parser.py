@@ -1,11 +1,12 @@
-import os
-import cv2
-import json
 import glob
-import numpy as np
+import json
+import os
 from pathlib import Path
-import pycocotools.mask as mask_util
 from typing import Any, Dict, List, Optional, Tuple
+
+import cv2
+import numpy as np
+import pycocotools.mask as mask_util
 
 from luxonis_ml.data import DatasetGenerator
 
@@ -107,12 +108,14 @@ class SOLOParser(BaseParser):
         self,
         split_path: Path,
     ) -> ParserOutput:
-        """Parses data in a split subdirectory from SOLO format to L{LuxonisDataset} format.
+        """Parses data in a split subdirectory from SOLO format to L{LuxonisDataset}
+        format.
 
         @type split_path: Path
         @param split_path: Path to directory with sequences of images and annotations.
         @rtype: L{ParserOutput}
-        @return: C{LDF} generator, list of class names, skeleton dictionary for keypoints and list of added images.
+        @return: C{LDF} generator, list of class names, skeleton dictionary for
+            keypoints and list of added images.
         """
 
         if not os.path.exists(split_path):
@@ -137,25 +140,24 @@ class SOLOParser(BaseParser):
 
         keypoint_labels = self._get_solo_keypoint_names(annotation_definitions_dict)
 
-        skeletons = {class_name: {"labels": keypoint_labels} for class_name in class_names}
+        skeletons = {
+            class_name: {"labels": keypoint_labels} for class_name in class_names
+        }
         # TODO: setting skeletons by assigning all keypoint names to each class_name. Is this OK?
         # if NOT, set them manually with LuxonisDataset.set_skeletons() as SOLO format does not
         # encode which keypoint_name belongs to which class
 
         def generator() -> DatasetGenerator:
-
             for dir_path, dir_names, _ in os.walk(split_path):
-
                 for dir_name in dir_names:
-
                     if not dir_name.startswith("sequence"):
                         continue
 
                     sequence_path = os.path.join(dir_path, dir_name)
-                    
+
                     for frame_fname in glob.glob(
                         os.path.join(sequence_path, "*.frame_data.json")
-                    ): # single sequence can have multiple steps
+                    ):  # single sequence can have multiple steps
                         frame_path = os.path.join(sequence_path, frame_fname)
                         if not os.path.exists(frame_path):
                             raise FileNotFoundError(f"{frame_path} not existent.")
@@ -221,7 +223,7 @@ class SOLOParser(BaseParser):
                                         curr_rle["size"][1],
                                         curr_rle["counts"],
                                     )
-                                    
+
                                     yield {
                                         "file": img_path,
                                         "class": class_name,
