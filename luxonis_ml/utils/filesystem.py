@@ -83,6 +83,7 @@ class LuxonisFileSystem:
                 ) = self._split_mlflow_path(_path)
             elif _path is None and self.allow_active_mlflow_run:
                 self.is_mlflow_active_run = True
+                _path = ""
             else:
                 raise ValueError(
                     "Using active MLFlow run is not allowed. Specify full MLFlow path."
