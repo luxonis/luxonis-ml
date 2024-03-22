@@ -371,7 +371,7 @@ class LuxonisDataset(BaseDataset):
                 bucket = self.bucket
                 fs_path = f"{protocol}://{bucket}"
                 remote_dir = fs_path.split(fs_path)[1]
-                self.fs.get_dir(remote_dir=remote_dir, local_dir=local_dir)
+                self.fs.get_dir(remote_paths=remote_dir, local_dir=local_dir)
 
                 self.is_synced = True
 
