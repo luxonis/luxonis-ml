@@ -114,7 +114,7 @@ class SOLOParser(BaseParser):
         @type split_path: Path
         @param split_path: Path to directory with sequences of images and annotations.
         @rtype: L{ParserOutput}
-        @return: C{LDF} generator, list of class names, skeleton dictionary for
+        @return: C{LuxonisDataset} generator, list of class names, skeleton dictionary for
             keypoints and list of added images.
         """
 
