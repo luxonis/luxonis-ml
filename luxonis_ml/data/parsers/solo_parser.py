@@ -59,15 +59,15 @@ class SOLOParser(BaseParser):
         with open(os.path.join(split_path, "metadata.json")) as json_file:
             metadata_dict = json.load(json_file)
         # check if all sequences are present
-        totalSequences_expected = metadata_dict["totalSequences"]
-        totalSequences = len(
+        total_sequences_expected = metadata_dict["totalSequences"]
+        total_sequences = len(
             [
                 d
                 for d in glob.glob(os.path.join(split_path, "sequence*"))
                 if os.path.isdir(d)
             ]
         )
-        if not totalSequences == totalSequences_expected:
+        if not total_sequences == total_sequences_expected:
             return None
         return {"split_path": split_path}
 
