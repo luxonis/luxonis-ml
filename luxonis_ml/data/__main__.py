@@ -13,7 +13,7 @@ from rich.table import Table
 from typing_extensions import Annotated
 
 from luxonis_ml.data import LuxonisDataset, LuxonisLoader, LuxonisParser
-from luxonis_ml.enums import LabelType, SplitType
+from luxonis_ml.enums import DatasetType, LabelType, SplitType
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +180,17 @@ def parse(
             "-n",
             autocompletion=complete_dataset_name,
             help="Name of the dataset.",
+            show_default=False,
+        ),
+    ] = None,
+    dataset_type: Annotated[
+        Optional[DatasetType],
+        typer.Option(
+            ...,
+            "--type",
+            "-t",
+            help="Type of the dataset. If not provided, the parser will try to recognize it automatically.",
+            show_default=False,
         ),
     ] = None,
     delete_existing: Annotated[
@@ -201,6 +212,7 @@ def parse(
             help="If a remote URL is provided in 'dataset_dir', the dataset will "
             "be downloaded to this directory. Otherwise, the dataset will be "
             "downloaded to the current working directory.",
+            show_default=False,
         ),
     ] = None,
 ):
@@ -208,6 +220,7 @@ def parse(
     parser = LuxonisParser(
         dataset_dir,
         dataset_name=name,
+        dataset_type=dataset_type,
         delete_existing=delete_existing,
         save_dir=save_dir,
     )

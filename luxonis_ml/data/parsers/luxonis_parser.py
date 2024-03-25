@@ -50,6 +50,7 @@ class LuxonisParser:
         delete_existing: bool = False,
         save_dir: Optional[Union[Path, str]] = None,
         dataset_plugin: Optional[str] = None,
+        dataset_type: Optional[DatasetType] = None,
         **kwargs,
     ):
         """High-level abstraction over various parsers.
@@ -72,6 +73,9 @@ class LuxonisParser:
         @type dataset_plugin: Optional[str]
         @param dataset_plugin: Name of the dataset plugin to use. If C{None},
             C{LuxonisDataset} is used.
+        @type dataset_type: Optional[DatasetType]
+        @param dataset_type: If provided, the parser will use this dataset type instead
+            of trying to recognize it automatically.
         """
         save_dir = Path(save_dir) if save_dir else None
         name = Path(dataset_dir).name
@@ -84,7 +88,15 @@ class LuxonisParser:
                 zip_ref.extractall(unzip_dir)
                 self.dataset_dir = unzip_dir
 
-        self.dataset_type, self.parser_type = self._recognize_dataset()
+        if dataset_type:
+            self.dataset_type = dataset_type
+            self.parser_type = (
+                ParserType.DIR
+                if Path(self.dataset_dir / "train").exists()
+                else ParserType.SPLIT
+            )
+        else:
+            self.dataset_type, self.parser_type = self._recognize_dataset()
 
         if dataset_plugin:
             self.dataset_constructor = DATASETS_REGISTRY.get(dataset_plugin)
@@ -140,12 +152,15 @@ class LuxonisParser:
                     extra={"markup": True},
                 )
                 return typ, ParserType.DIR
+
+        for typ, parser in self.parsers.items():
             if parser.validate_split(self.dataset_dir):
                 logger.info(
                     f"[cyan]Recognized dataset format as a split of [red]<{typ.name}>",
                     extra={"markup": True},
                 )
                 return typ, ParserType.SPLIT
+
         raise ValueError(
             f"Dataset {self.dataset_dir} is not in expected format for any of the parsers."
         )
