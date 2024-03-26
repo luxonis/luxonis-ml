@@ -63,10 +63,7 @@ class LuxonisDataset(BaseDataset):
 
         self.bucket = self._get_config("LUXONISML_BUCKET")
 
-        if self.bucket_storage == BucketStorage.LOCAL:
-            self.base_path = environ.LUXONISML_BASE_PATH
-        else:
-            self.base_path = f"{self.bucket_storage.value}://{self.bucket}/luxonis_ml"
+        self.base_path = environ.LUXONISML_BASE_PATH
         os.makedirs(self.base_path, exist_ok=True)
 
         credentials_cache_file = osp.join(self.base_path, "credentials.json")
@@ -75,6 +72,9 @@ class LuxonisDataset(BaseDataset):
                 self.config = json.load(file)
         else:
             self.config = {}
+
+        if self.bucket_storage != BucketStorage.LOCAL:
+            self.base_path = f"{self.bucket_storage.value}://{self.bucket}/luxonis_ml"
 
         if team_id is None:
             team_id = self._get_config("LUXONISML_TEAM_ID")
