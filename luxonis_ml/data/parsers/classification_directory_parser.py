@@ -37,6 +37,9 @@ class ClassificationDirectoryParser(BaseParser):
         ]
         if not classes:
             return None
+        fnames = [f for f in split_path.iterdir() if f.is_file()]
+        if fnames:
+            return None
         return {"class_dir": split_path}
 
     @staticmethod

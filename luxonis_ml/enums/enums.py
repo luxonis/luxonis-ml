@@ -19,6 +19,7 @@ class DatasetType(str, Enum):
     TFCSV = "tfcsv"
     CLSDIR = "clsdir"
     SEGMASK = "segmask"
+    SOLO = "solo"
 
 
 class SplitType(str, Enum):

@@ -5,6 +5,7 @@ from .create_ml_parser import CreateMLParser
 from .darknet_parser import DarknetParser
 from .luxonis_parser import LuxonisParser
 from .segmentation_mask_directory_parser import SegmentationMaskDirectoryParser
+from .solo_parser import SOLOParser
 from .tensorflow_csv_parser import TensorflowCSVParser
 from .voc_parser import VOCParser
 from .yolov4_parser import YoloV4Parser
@@ -22,4 +23,5 @@ __all__ = [
     "TensorflowCSVParser",
     "ClassificationDirectoryParser",
     "SegmentationMaskDirectoryParser",
+    "SOLOParser",
 ]
