@@ -61,7 +61,10 @@ class LuxonisDataset(BaseDataset):
                 "Must provide either dataset_name or dataset_id when initializing LuxonisDataset"
             )
 
-        self.base_path = environ.LUXONISML_BASE_PATH
+        self.bucket = self._get_config("LUXONISML_BUCKET")
+
+        self.base_path = "/root/luxonis_ml" #environ.LUXONISML_BASE_PATH
+        self.base_path = f"{self.bucket_storage.value}://{self.bucket}/luxonis_ml"
         os.makedirs(self.base_path, exist_ok=True)
 
         credentials_cache_file = osp.join(self.base_path, "credentials.json")
@@ -76,7 +79,7 @@ class LuxonisDataset(BaseDataset):
         if team_name is None:
             team_name = self._get_config("LUXONISML_TEAM_NAME")
 
-        self.bucket = self._get_config("LUXONISML_BUCKET")
+        
 
         self.dataset_name = dataset_name
         self.dataset_id = dataset_id
