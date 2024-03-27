@@ -667,19 +667,19 @@ class LuxonisDataset(BaseDataset):
             with open(os.path.join(self.metadata_path, "splits.json"), "w") as file:
                 json.dump(splits, file, indent=4)
         else:
-            remote_path = "metadata/splits.json"
-            local_path = os.path.join(self.tmp_dir, "splits.json")
-            if self.fs.exists(remote_path):
-                self.fs.get_file(remote_path, local_path)
-                with open(splits_path, "r") as file:
+            remote_splits_path = "metadata/splits.json"
+            local_splits_path = os.path.join(self.tmp_dir, "splits.json")
+            if self.fs.exists(remote_splits_path):
+                self.fs.get_file(remote_splits_path, local_splits_path)
+                with open(local_splits_path, "r") as file:
                     splits = json.load(file)
                 for split in splits_to_update:
                     splits[split] = new_splits[split]
             else:
                 splits = new_splits
-            with open(local_path, "w") as file:
+            with open(local_splits_path, "w") as file:
                 json.dump(splits, file, indent=4)
-            self.fs.put_file(local_path, "metadata/splits.json")
+            self.fs.put_file(local_splits_path, "metadata/splits.json")
             self._remove_temp_dir()
 
     @staticmethod
