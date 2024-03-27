@@ -5,6 +5,7 @@ import os.path as osp
 import shutil
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -361,17 +362,11 @@ class LuxonisDataset(BaseDataset):
             self.logger.warning("This is a local dataset! Cannot sync")
         else:
             if not hasattr(self, "is_synced") or not self.is_synced:
-                local_dir = osp.join(
-                    self.base_path, "data", self.team_id, "datasets", self.dataset_name
-                )
+                local_dir = osp.join(self.base_path, "data", self.team_id, "datasets")
                 if not osp.exists(local_dir):
                     os.makedirs(local_dir, exist_ok=True)
 
-                protocol = self.bucket_storage.value
-                bucket = self.bucket
-                fs_path = f"{protocol}://{bucket}"
-                remote_dir = fs_path.split(fs_path)[1]
-                self.fs.get_dir(remote_dir=remote_dir, local_dir=local_dir)
+                self.fs.get_dir(remote_paths="", local_dir=local_dir)
 
                 self.is_synced = True
 
@@ -591,7 +586,7 @@ class LuxonisDataset(BaseDataset):
         else:
             file_index_path = osp.join(".luxonis_tmp", "file_index.parquet")
             self._write_index(index, new_index, override_path=file_index_path)
-            self.fs.put_dir(annotations_dir, "annotations")
+            self.fs.put_dir(Path(annotations_dir), "annotations")
             self.fs.put_file(file_index_path, "metadata/file_index.parquet")
             self._remove_temp_dir()
 
@@ -666,19 +661,19 @@ class LuxonisDataset(BaseDataset):
             with open(os.path.join(self.metadata_path, "splits.json"), "w") as file:
                 json.dump(splits, file, indent=4)
         else:
-            remote_path = "metadata/splits.json"
-            local_path = os.path.join(self.tmp_dir, "splits.json")
-            if self.fs.exists(remote_path):
-                self.fs.get_file(remote_path, local_path)
-                with open(splits_path, "r") as file:
+            remote_splits_path = "metadata/splits.json"
+            local_splits_path = os.path.join(self.tmp_dir, "splits.json")
+            if self.fs.exists(remote_splits_path):
+                self.fs.get_file(remote_splits_path, local_splits_path)
+                with open(local_splits_path, "r") as file:
                     splits = json.load(file)
                 for split in splits_to_update:
                     splits[split] = new_splits[split]
             else:
                 splits = new_splits
-            with open(local_path, "w") as file:
+            with open(local_splits_path, "w") as file:
                 json.dump(splits, file, indent=4)
-            self.fs.put_file(local_path, "metadata/splits.json")
+            self.fs.put_file(local_splits_path, "metadata/splits.json")
             self._remove_temp_dir()
 
     @staticmethod
