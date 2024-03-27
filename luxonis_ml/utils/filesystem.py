@@ -15,10 +15,13 @@ from typing import Dict, Iterator, List, Optional, Sequence, Tuple, Union, cast
 import fsspec
 
 from .environ import environ
+from .registry import Registry
 
 logger = getLogger(__name__)
 
 PathType = Union[str, Path]
+
+PUT_FILE_REGISTRY = Registry(name="put_file")
 
 
 class FSType(Enum):
@@ -33,6 +36,7 @@ class LuxonisFileSystem:
         allow_active_mlflow_run: Optional[bool] = False,
         allow_local: Optional[bool] = True,
         cache_storage: Optional[str] = None,
+        put_file_plugin: Optional[str] = None,
     ):
         """Abstraction over remote and local sources.
 
@@ -51,6 +55,9 @@ class LuxonisFileSystem:
         @type cache_storage: Optional[str]
         @param cache_storage: Path to cache storage. No cache is used if set to None.
             Defaults to None.
+        @type put_file_plugin: Optional[str]
+        @param put_file_plugin: The name of a registered function under the
+            PUT_FILE_REGISTRY to override C{self.put_file}.
         """
         if path is None:
             raise ValueError("No path provided to LuxonisFileSystem.")
@@ -97,6 +104,9 @@ class LuxonisFileSystem:
             self.fs_type = FSType.FSSPEC
             self.fs = self.init_fsspec_filesystem()
         self.path = PurePosixPath(cast(str, _path))
+
+        if put_file_plugin:
+            self.put_file = PUT_FILE_REGISTRY.get(put_file_plugin)
 
     @property
     def is_mlflow(self) -> bool:
