@@ -362,17 +362,11 @@ class LuxonisDataset(BaseDataset):
             self.logger.warning("This is a local dataset! Cannot sync")
         else:
             if not hasattr(self, "is_synced") or not self.is_synced:
-                local_dir = osp.join(
-                    self.base_path, "data", self.team_id, "datasets", self.dataset_name
-                )
+                local_dir = osp.join(self.base_path, "data", self.team_id, "datasets")
                 if not osp.exists(local_dir):
                     os.makedirs(local_dir, exist_ok=True)
 
-                protocol = self.bucket_storage.value
-                bucket = self.bucket
-                fs_path = f"{protocol}://{bucket}"
-                remote_dir = fs_path.split(fs_path)[1]
-                self.fs.get_dir(remote_paths=remote_dir, local_dir=local_dir)
+                self.fs.get_dir(remote_paths="", local_dir=local_dir)
 
                 self.is_synced = True
 
