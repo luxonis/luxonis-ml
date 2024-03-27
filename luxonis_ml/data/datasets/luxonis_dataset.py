@@ -6,6 +6,7 @@ import shutil
 import time
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -591,7 +592,7 @@ class LuxonisDataset(BaseDataset):
         else:
             file_index_path = osp.join(".luxonis_tmp", "file_index.parquet")
             self._write_index(index, new_index, override_path=file_index_path)
-            self.fs.put_dir(annotations_dir, "annotations")
+            self.fs.put_dir(Path(annotations_dir), "annotations")
             self.fs.put_file(file_index_path, "metadata/file_index.parquet")
             self._remove_temp_dir()
 
