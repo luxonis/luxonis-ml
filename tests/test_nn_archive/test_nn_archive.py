@@ -1,0 +1,88 @@
+import shutil
+from pathlib import Path
+
+import onnx
+import pytest
+from onnx import checker, helper
+from onnx.onnx_pb import TensorProto
+
+from luxonis_ml.nn_archive import ArchiveGenerator
+
+DATA_DIR = Path("tests/data/test_nn_archive")
+
+
+def create_onnx_model():
+    input0 = helper.make_tensor_value_info("input0", TensorProto.FLOAT, [1, 3, 64, 64])
+    input1 = helper.make_tensor_value_info(
+        "input1", TensorProto.FLOAT, [1, 3, 128, 128]
+    )
+
+    output0 = helper.make_tensor_value_info("output0", TensorProto.FLOAT, [1, 10])
+    output1 = helper.make_tensor_value_info("output1", TensorProto.FLOAT, [1, 5, 5, 5])
+    graph = helper.make_graph([], "DummyModel", [input0, input1], [output0, output1])
+
+    model = helper.make_model(graph, producer_name="DummyModelProducer")
+    checker.check_model(model)
+    onnx.save(model, str(DATA_DIR / "test_model.onnx"))
+
+
+@pytest.fixture(autouse=True, scope="session")
+def setup():
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    create_onnx_model()
+
+    yield
+
+    shutil.rmtree(DATA_DIR)
+
+
+def test_archive_generator():
+    generator = ArchiveGenerator(
+        archive_name="test_archive",
+        save_path="tests/data/test_nn_archive",
+        cfg_dict={
+            "config_version": "1.0",
+            "model": {
+                "metadata": {
+                    "name": "test_model",
+                    "path": "test_model.onnx",
+                },
+                "inputs": [
+                    {
+                        "name": "input",
+                        "shape": [1, 3, 224, 224],
+                        "input_type": "image",
+                        "dtype": "float32",
+                        "preprocessing": {
+                            "mean": [0.485, 0.456, 0.406],
+                            "scale": [0.229, 0.224, 0.225],
+                            "reverse_channels": False,
+                            "interleaved_to_planar": False,
+                        },
+                    }
+                ],
+                "outputs": [
+                    {
+                        "name": "output",
+                        "dtype": "float32",
+                    }
+                ],
+                "heads": [
+                    {
+                        "family": "Classification",
+                        "outputs": {"predictions": "191"},
+                        "classes": [
+                            "tench, Tinca tinca",
+                            "goldfish, Carassius auratus",
+                        ],
+                        "n_classes": 2,
+                        "is_softmax": True,
+                    }
+                ],
+            },
+        },
+        executables_paths=[str(DATA_DIR / "test_model.onnx")],
+        compression="xz",
+    )
+    generator.make_archive()
+    assert (DATA_DIR / "test_archive.tar.xz").exists()
