@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from luxonis_ml.data.augmentations.custom.mosaic import (
+    Mosaic4,
     bbox_mosaic4,
     keypoint_mosaic4,
     mosaic4,
@@ -40,3 +41,10 @@ def test_keypoint_mosaic4():
             keypoint, HEIGHT // 2, WIDTH // 2, i, HEIGHT, WIDTH
         )
         assert pytest.approx(mosaic_keypoint, abs=0.25) == (w, h, 0, 0)
+
+
+def test_Mosaic4():
+    img = (np.random.rand(HEIGHT, WIDTH, 3) * 255).astype(np.uint8)
+    mosaic4 = Mosaic4(out_height=HEIGHT, out_width=WIDTH, always_apply=True, p=1.0)
+    m = mosaic4(image_batch=[img, img, img, img], labels={})
+    assert m["image_batch"][0].shape == (HEIGHT, WIDTH, 3)

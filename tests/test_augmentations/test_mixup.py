@@ -15,3 +15,5 @@ def test_mixup():
         image_batch=[img, img], image_shapes=[(HEIGHT, WIDTH), (HEIGHT, WIDTH)]
     )
     assert m[0].shape == (HEIGHT, WIDTH, 3)
+    result = mixup(image_batch=[img, img], labels={})
+    assert result["image_batch"][0].shape == (HEIGHT, WIDTH, 3)
