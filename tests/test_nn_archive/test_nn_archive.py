@@ -1,6 +1,7 @@
 import shutil
 import tarfile
 from pathlib import Path
+from typing import Literal
 
 import onnx
 import pytest
@@ -37,7 +38,8 @@ def setup():
     shutil.rmtree(DATA_DIR)
 
 
-def test_archive_generator():
+@pytest.mark.parametrize("compression", ["xz", "gz", "bz2"])
+def test_archive_generator(compression: Literal["xz", "gz", "bz2"]):
     generator = ArchiveGenerator(
         archive_name="test_archive",
         save_path="tests/data/test_nn_archive",
@@ -83,11 +85,11 @@ def test_archive_generator():
             },
         },
         executables_paths=[str(DATA_DIR / "test_model.onnx")],
-        compression="xz",
+        compression=compression,
     )
     generator.make_archive()
     assert (DATA_DIR / "test_archive.tar.xz").exists()
-    assert tarfile.is_tarfile(DATA_DIR / "test_archive.tar.xz")
-    with tarfile.open(DATA_DIR / "test_archive.tar.xz") as tar:
+    assert tarfile.is_tarfile(DATA_DIR / f"test_archive.tar.{compression}")
+    with tarfile.open(DATA_DIR / f"test_archive.tar.{compression}") as tar:
         assert "test_model.onnx" in tar.getnames()
         assert "config.json" in tar.getnames()
