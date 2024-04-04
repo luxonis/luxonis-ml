@@ -82,3 +82,9 @@ ignore_missing_imports = true
 
 [tool.pyright]
 typeCheckingMode = "basic"
+
+[tool.coverage.run]
+omit = [
+    "luxonis_ml/embeddings/*",
+    "**/__main__.py"
+]
