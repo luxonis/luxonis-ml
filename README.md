@@ -6,7 +6,7 @@
 ![PyPI - Downloads](https://img.shields.io/pypi/dm/luxonis-ml)
 
 ![CI](https://github.com/luxonis/luxonis-ml/actions/workflows/ci.yaml/badge.svg)
-![Coverage](https://github.com/luxonis/luxonis-ml/blob/main/media/coverage_badge.svg)
+![Coverage](https://github.com/luxonis/luxonis-ml/blob/dev/media/coverage_badge.svg)
 
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
