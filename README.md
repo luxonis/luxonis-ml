@@ -2,11 +2,13 @@
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 ![PyBadge](media/pybadge.svg)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+![PyPI](https://img.shields.io/pypi/v/luxonis-ml?label=pypi%20package)
+![PyPI - Downloads](https://img.shields.io/pypi/dm/luxonis-ml)
+
 ![CI](https://github.com/luxonis/luxonis-ml/actions/workflows/ci.yaml/badge.svg)
 ![Coverage](media/coverage_badge.svg)
-[![PyPi version](https://pypip.in/v/luxonis-ml/badge.png)](https://crate.io/packages/luxonis-ml/)
-[![PyPi downloads](https://pypip.in/d/luxonis-ml/badge.png)](https://crate.io/packages/luxonis-ml/)
+
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
 This library includes a collection of helper functions and utilities for the Luxonis MLOps stack. This includes the following submodules:
 
