@@ -1,4 +1,5 @@
 import shutil
+import tarfile
 from pathlib import Path
 
 import onnx
@@ -86,3 +87,7 @@ def test_archive_generator():
     )
     generator.make_archive()
     assert (DATA_DIR / "test_archive.tar.xz").exists()
+    assert tarfile.is_tarfile(DATA_DIR / "test_archive.tar.xz")
+    with tarfile.open(DATA_DIR / "test_archive.tar.xz") as tar:
+        assert "test_model.onnx" in tar.getnames()
+        assert "config.json" in tar.getnames()
