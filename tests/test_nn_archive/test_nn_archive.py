@@ -39,6 +39,7 @@ def setup():
 
 
 @pytest.mark.parametrize("compression", ["xz", "gz", "bz2"])
+@pytest.mark.dependency(name="test_archive_generator")
 def test_archive_generator(compression: Literal["xz", "gz", "bz2"]):
     generator = ArchiveGenerator(
         archive_name="test_archive",
@@ -94,4 +95,9 @@ def test_archive_generator(compression: Literal["xz", "gz", "bz2"]):
         assert "test_model.onnx" in tar.getnames()
         assert "config.json" in tar.getnames()
 
-    assert is_nn_archive(DATA_DIR / f"test_archive.tar.{compression}")
+
+@pytest.mark.dependency(depends=["test_archive_generator"])
+def test_is_nn_archive():
+    assert is_nn_archive(DATA_DIR / "test_archive.tar.xz")
+    assert not is_nn_archive(DATA_DIR)
+    assert not is_nn_archive(DATA_DIR / "test_model.onnx")
