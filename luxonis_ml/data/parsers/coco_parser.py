@@ -89,18 +89,6 @@ class COCOParser(BaseParser):
             annotation_path=val_ann_path,
         )
 
-        if not split_val_to_test:
-            # NOTE: test split annotations are not included by default
-            test_ann_path = (
-                dataset_dir / keypoint_ann_paths["test"]
-                if keypoint_ann_paths and use_keypoint_ann
-                else dataset_dir / "test" / "labels.json"
-            )
-            added_test_imgs = self._parse_split(
-                image_dir=dataset_dir / "test" / "data",
-                annotation_path=test_ann_path,
-            )
-
         if split_val_to_test:
             split_point = round(len(_added_val_imgs) * 0.5)
             added_val_imgs = _added_val_imgs[:split_point]
@@ -108,6 +96,17 @@ class COCOParser(BaseParser):
         else:
             added_val_imgs = _added_val_imgs
             added_test_imgs = []
+             # NOTE: test split annotations are not included by default
+            test_ann_path = (
+                dataset_dir / keypoint_ann_paths["test"]
+                if keypoint_ann_paths and use_keypoint_ann
+                else dataset_dir / "test" / "labels.json"
+            )
+            if test_ann_path.exists():
+                added_test_imgs = self._parse_split(
+                    image_dir=dataset_dir / "test" / "data",
+                    annotation_path=test_ann_path,
+                )
 
         return added_train_imgs, added_val_imgs, added_test_imgs
 
