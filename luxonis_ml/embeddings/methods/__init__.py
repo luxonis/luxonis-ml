@@ -1,4 +1,4 @@
-from .duplicate import find_similar_qdrant
+from .duplicate import find_similar
 from .mistakes import find_mismatches_centroids, find_mismatches_knn
 from .OOD import isolation_forest_OOD, leverage_OOD
 from .representative import (
@@ -8,7 +8,7 @@ from .representative import (
 )
 
 __all__ = [
-    "find_similar_qdrant",
+    "find_similar",
     "find_mismatches_centroids",
     "find_mismatches_knn",
     "isolation_forest_OOD",

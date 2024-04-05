@@ -421,7 +421,7 @@ def keypoint_mosaic4(
     height: int,
     width: int,
 ) -> KeypointInternalType:
-    """Put the given bbox in one of the cells of the 2x2 grid.
+    """Put the given keypoint in one of the cells of the 2x2 grid.
 
     @param keypoint: A keypoint `(x, y, angle, scale)`.
     @type bbox: KeypointInternalType

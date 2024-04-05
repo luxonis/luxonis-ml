@@ -7,12 +7,114 @@ on:
       - 'luxonis_ml/**'
       - 'tests/**'
       - .github/workflows/ci.yaml
-      - .github/workflows/luxonis-ml-ci.yaml
 
 jobs:
-  call-reusable-workflow:
-    uses: luxonis/luxonis-ml/.github/workflows/luxonis-ml-ci.yaml@dev
-    with:
-      os: 'ubuntu-latest,macOS-latest,windows-latest'
-      python-version: "3.8,3.10"
-      src-dir: 'luxonis_ml'
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.head_ref }}
+
+    - name: Run pre-commit
+      uses: pre-commit/action@v3.0.1
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Install dependencies
+        run: |
+          pip install pydoctor
+          curl -L "https://raw.githubusercontent.com/luxonis/python-api-analyzer-to-json/main/gen-docs.py" -o "gen-docs.py"
+
+      - name: Build docs
+        run: |
+          python gen-docs.py luxonis_ml
+
+  tests:
+    needs:
+      - pre-commit
+      - docs
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ['3.8', '3.9', '3.10']
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.head_ref }}
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: pip
+
+    - name: Install package
+      run: pip install -e .[dev]
+
+    - name: Authenticate to Google Cloud
+      id: google-auth
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+        create_credentials_file: true
+        export_environment_variables: true
+        token_format: access_token
+
+    - name: Run pytest
+      uses: pavelzw/pytest-action@v2
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        AWS_S3_ENDPOINT_URL: ${{ secrets.AWS_S3_ENDPOINT_URL }}
+      with:
+        emoji: false
+        custom-arguments: --cov luxonis_ml --cov-report xml --junit-xml pytest.xml
+
+    - name: Create Test Report
+      uses: EnricoMi/publish-unit-test-result-action@v2
+      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8'
+      with:
+        files: pytest.xml
+
+    - name: Generate coverage badge
+      uses: tj-actions/coverage-badge-py@v2
+      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8'
+      with:
+        output: media/coverage_badge.svg
+
+    - name: Generate coverage report
+      uses: orgoro/coverage@v3.1
+      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8'
+      with:
+          coverageFile: coverage.xml
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Commit coverage badge
+      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8'
+      run: |
+        git config --global user.name 'GitHub Actions'
+        git config --global user.email 'actions@github.com'
+        git diff --quiet media/coverage_badge.svg || {
+          git add media/coverage_badge.svg
+          git commit -m "[Automated] Updated coverage badge"
+        }
+
+    - name: Push changes
+      uses: ad-m/github-push-action@master
+      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8'
+      with:
+        branch: ${{ github.head_ref }}
+

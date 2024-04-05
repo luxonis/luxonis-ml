@@ -1,6 +1,6 @@
 [project]
 name = "luxonis-ml"
-version = "0.0.1"
+version = "0.1.0"
 description = "MLOps tools for training models for Luxonis devices"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -19,6 +19,9 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Image Processing",
   "Topic :: Scientific/Engineering :: Image Recognition",
 ]
+
+[project.scripts]
+luxonis_ml = "luxonis_ml.__main__:app"
 
 [project.urls]
 repository = "https://github.com/luxonis/luxonis-ml"
@@ -39,6 +42,7 @@ data = { file = ["luxonis_ml/data/requirements.txt"] }
 utils = { file = ["luxonis_ml/utils/requirements.txt"] }
 tracker = { file = ["luxonis_ml/tracker/requirements.txt"] }
 embedd = { file = ["luxonis_ml/embeddings/requirements.txt"] }
+nn_archive = { file = ["luxonis_ml/nn_archive/requirements.txt"] }
 
 [tool.setuptools.dynamic.optional-dependencies.all]
 file = [
@@ -46,6 +50,7 @@ file = [
     "luxonis_ml/utils/requirements.txt",
     "luxonis_ml/tracker/requirements.txt",
     "luxonis_ml/embeddings/requirements.txt",
+    "luxonis_ml/nn_archive/requirements.txt"
 ]
 
 [tool.setuptools.dynamic.optional-dependencies.dev]
@@ -54,6 +59,7 @@ file = [
     "luxonis_ml/utils/requirements.txt",
     "luxonis_ml/tracker/requirements.txt",
     "luxonis_ml/embeddings/requirements.txt",
+    "luxonis_ml/nn_archive/requirements.txt",
     "requirements-dev.txt"
 ]
 
@@ -76,3 +82,9 @@ ignore_missing_imports = true
 
 [tool.pyright]
 typeCheckingMode = "basic"
+
+[tool.coverage.run]
+omit = [
+    "luxonis_ml/embeddings/*",
+    "**/__main__.py"
+]

@@ -16,7 +16,7 @@ from PIL import Image, ImageDraw
 from luxonis_ml.enums import LabelType
 
 from .augmentations import Augmentations
-from .dataset import LuxonisDataset
+from .datasets import LuxonisDataset
 from .utils.enums import BucketStorage
 
 Labels = Dict[LabelType, np.ndarray]
@@ -86,6 +86,11 @@ class LuxonisLoader(BaseLoader):
         if self.sync_mode:
             self.logger.info("Syncing from cloud...")
             self.dataset.sync_from_cloud()
+            classes_file = os.path.join(self.dataset.metadata_path, "classes.json")
+            with open(classes_file) as file:
+                synced_classes = json.load(file)
+            for task in synced_classes:
+                self.dataset.set_classes(classes=synced_classes[task], task=task)
 
         if self.dataset.bucket_storage == BucketStorage.LOCAL or not self.stream:
             self.file_index = self.dataset._get_file_index()
@@ -112,9 +117,6 @@ class LuxonisLoader(BaseLoader):
         else:
             self.max_nk = 0
         self.augmentations = augmentations
-
-        if self.dataset.online:
-            raise NotImplementedError
 
         if self.view in ["train", "val", "test"]:
             splits_path = os.path.join(dataset.metadata_path, "splits.json")
