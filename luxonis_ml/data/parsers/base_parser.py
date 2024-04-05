@@ -129,7 +129,7 @@ class BaseParser(ABC):
         @rtype: LuxonisDataset
         @return: C{LDF} with all the images and annotations parsed.
         """
-        train, test, val = self.from_dir(dataset_dir, **kwargs)
+        train, val, test = self.from_dir(dataset_dir, **kwargs)
 
         self.dataset.make_splits(
             definitions={
