@@ -8,7 +8,7 @@ import pytest
 from onnx import checker, helper
 from onnx.onnx_pb import TensorProto
 
-from luxonis_ml.nn_archive import ArchiveGenerator
+from luxonis_ml.nn_archive import ArchiveGenerator, is_nn_archive
 
 DATA_DIR = Path("tests/data/test_nn_archive")
 
@@ -93,3 +93,5 @@ def test_archive_generator(compression: Literal["xz", "gz", "bz2"]):
     with tarfile.open(DATA_DIR / f"test_archive.tar.{compression}") as tar:
         assert "test_model.onnx" in tar.getnames()
         assert "config.json" in tar.getnames()
+
+    assert is_nn_archive(DATA_DIR / f"test_archive.tar.{compression}")
