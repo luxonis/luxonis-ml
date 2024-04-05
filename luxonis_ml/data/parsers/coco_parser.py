@@ -96,7 +96,7 @@ class COCOParser(BaseParser):
         else:
             added_val_imgs = _added_val_imgs
             added_test_imgs = []
-             # NOTE: test split annotations are not included by default
+            # NOTE: test split annotations are not included by default
             test_ann_path = (
                 dataset_dir / keypoint_ann_paths["test"]
                 if keypoint_ann_paths and use_keypoint_ann
