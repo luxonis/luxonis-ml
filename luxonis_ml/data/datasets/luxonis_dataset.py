@@ -21,7 +21,7 @@ from luxonis_ml.utils import LuxonisFileSystem, environ
 from ..utils.constants import LABEL_TYPES, LDF_VERSION
 from ..utils.enums import BucketStorage, BucketType, ImageType, MediaType
 from ..utils.parquet import ParquetFileManager
-from .base_dataset import Annotation, BaseDataset, DatasetGenerator
+from .base_dataset import Annotation, BaseDataset, DatasetIterator
 from .source import LuxonisComponent, LuxonisSource
 
 
@@ -424,7 +424,7 @@ class LuxonisDataset(BaseDataset):
 
     def add(
         self,
-        generator: DatasetGenerator,
+        generator: DatasetIterator,
         batch_size: int = 1000000,
     ) -> None:
         """Write annotations to parquet files.

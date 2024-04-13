@@ -2,7 +2,7 @@ import json
 import os.path as osp
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any, Dict, Generator, List, Optional, Tuple, Union, cast
+from typing import Any, Dict, Iterator, List, Optional, Tuple, Union, cast
 
 from pydantic import BaseModel, ConfigDict, model_validator
 from typeguard import TypeCheckError, check_type
@@ -26,7 +26,7 @@ from .source import LuxonisSource
 DATASETS_REGISTRY = Registry(name="datasets")
 
 
-DatasetGenerator: TypeAlias = Generator[dict, None, None]
+DatasetIterator: TypeAlias = Iterator[dict]
 
 
 class Annotation(BaseModel):
@@ -205,7 +205,7 @@ class BaseDataset(
         pass
 
     @abstractmethod
-    def add(self, generator: DatasetGenerator) -> None:
+    def add(self, generator: DatasetIterator) -> None:
         """Write annotations to parquet files.
 
         @type generator: L{DatasetGenerator}

@@ -19,7 +19,7 @@ from .augmentations import Augmentations
 from .datasets import LuxonisDataset
 from .utils.enums import BucketStorage
 
-Labels = Dict[str, Dict[LabelType, np.ndarray]]
+Labels = Dict[LabelType, np.ndarray]
 """C{Labels} is a dictionary of a label type and its annotations as L{numpy
 arrays<np.ndarray>}."""
 

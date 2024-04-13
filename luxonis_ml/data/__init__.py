@@ -7,7 +7,7 @@ with guard_missing_extra("data"):
     from .datasets import (
         DATASETS_REGISTRY,
         BaseDataset,
-        DatasetGenerator,
+        DatasetIterator,
         LuxonisComponent,
         LuxonisDataset,
         LuxonisSource,
@@ -37,7 +37,7 @@ __all__ = [
     "BaseLoader",
     "BucketStorage",
     "BucketType",
-    "DatasetGenerator",
+    "DatasetIterator",
     "DATASETS_REGISTRY",
     "ImageType",
     "LabelType",

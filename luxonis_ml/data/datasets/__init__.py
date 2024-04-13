@@ -1,14 +1,14 @@
 from .base_dataset import (
     DATASETS_REGISTRY,
     BaseDataset,
-    DatasetGenerator,
+    DatasetIterator,
 )
 from .luxonis_dataset import LuxonisDataset
 from .source import LuxonisComponent, LuxonisSource
 
 __all__ = [
     "BaseDataset",
-    "DatasetGenerator",
+    "DatasetIterator",
     "LuxonisDataset",
     "LuxonisComponent",
     "LuxonisSource",
