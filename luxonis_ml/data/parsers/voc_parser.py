@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from luxonis_ml.data import DatasetGenerator
+from luxonis_ml.data import DatasetIterator
 
 from .base_parser import BaseParser, ParserOutput
 
@@ -116,7 +116,7 @@ class VOCParser(BaseParser):
                     curr_annotations["bboxes"].append((class_name, bbox_xywh))
             images_annotations.append(curr_annotations)
 
-        def generator() -> DatasetGenerator:
+        def generator() -> DatasetIterator:
             for curr_annotations in images_annotations:
                 path = str(curr_annotations["path"])
                 for class_name in curr_annotations["classes"]:
@@ -134,9 +134,9 @@ class VOCParser(BaseParser):
                         "value": tuple(bbox),
                     }
 
-        added_images = self._get_added_images(generator)
+        added_images = self._get_added_images(generator())
 
-        return generator, list(class_names), {}, added_images
+        return generator(), list(class_names), {}, added_images
 
     @staticmethod
     def _xml_find(root: ET.Element, tag: str) -> str:

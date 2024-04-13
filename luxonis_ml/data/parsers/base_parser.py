@@ -3,9 +3,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple
 
-from luxonis_ml.data import DatasetGenerator, LuxonisDataset
+from luxonis_ml.data import DatasetIterator, LuxonisDataset
 
-ParserOutput = Tuple[DatasetGenerator, List[str], Dict[str, Dict], List[str]]
+ParserOutput = Tuple[DatasetIterator, List[str], Dict[str, Dict], List[str]]
 """Type alias for parser output.
 
 Contains a function to create the annotation generator, list of classes names, skeleton
@@ -141,7 +141,7 @@ class BaseParser(ABC):
         return self.dataset
 
     @staticmethod
-    def _get_added_images(generator: DatasetGenerator) -> List[str]:
+    def _get_added_images(generator: DatasetIterator) -> List[str]:
         """Returns list of unique images added by the generator function.
 
         @type generator: L{DatasetGenerator}
@@ -149,7 +149,7 @@ class BaseParser(ABC):
         @rtype: List[str]
         @return: List of added images by generator function
         """
-        return list(set(item.file for item in generator))
+        return list(set(item["file"] for item in generator))
 
     @staticmethod
     def _compare_stem_files(list1: Iterable[Path], list2: Iterable[Path]) -> bool:

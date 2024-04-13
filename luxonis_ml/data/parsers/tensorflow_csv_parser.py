@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from luxonis_ml.data import DatasetGenerator
+from luxonis_ml.data import DatasetIterator
 
 from .base_parser import BaseParser, ParserOutput
 
@@ -101,7 +101,7 @@ class TensorflowCSVParser(BaseParser):
             bbox_xywh = bbox_xywh.tolist()
             images_annotations[path]["bboxes"].append((class_name, bbox_xywh))
 
-        def generator() -> DatasetGenerator:
+        def generator() -> DatasetIterator:
             for path in images_annotations:
                 curr_annotations = images_annotations[path]
                 for class_name in curr_annotations["classes"]:
@@ -119,6 +119,6 @@ class TensorflowCSVParser(BaseParser):
                         "value": tuple(bbox),
                     }
 
-        added_images = self._get_added_images(generator)
+        added_images = self._get_added_images(generator())
 
-        return generator, list(class_names), {}, added_images
+        return generator(), list(class_names), {}, added_images

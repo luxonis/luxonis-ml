@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from luxonis_ml.data import DatasetGenerator
+from luxonis_ml.data import DatasetIterator
 
 from .base_parser import BaseParser, ParserOutput
 
@@ -68,7 +68,7 @@ class ClassificationDirectoryParser(BaseParser):
         """
         class_names = [d.name for d in class_dir.iterdir() if d.is_dir()]
 
-        def generator() -> DatasetGenerator:
+        def generator() -> DatasetIterator:
             for class_name in class_names:
                 for img_path in (class_dir / class_name).iterdir():
                     yield {
@@ -78,6 +78,6 @@ class ClassificationDirectoryParser(BaseParser):
                         "value": True,
                     }
 
-        added_images = self._get_added_images(generator)
+        added_images = self._get_added_images(generator())
 
-        return generator, class_names, {}, added_images
+        return generator(), class_names, {}, added_images
