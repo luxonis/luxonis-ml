@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any, Dict, Generator, List, Optional, Tuple, Union, cast
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 from typeguard import TypeCheckError, check_type
 from typing_extensions import TypeAlias
 
@@ -26,10 +26,32 @@ from .source import LuxonisSource
 DATASETS_REGISTRY = Registry(name="datasets")
 
 
-class Annotation(BaseModel):
-    """Base class for annotations in a dataset."""
+class BaseAnnotation(ABC, BaseModel):
+    model_config: ConfigDict = ConfigDict(extra="forbid")
 
     file: str
+    task_group: str = "default"
+
+    @abstractmethod
+    def to_parquet(self, instance_id: str) -> Dict[str, Union[str, datetime, None]]:
+        pass
+
+
+class EmptyAnnotation(BaseAnnotation):
+    """Empty annotation class for creating empty annotations."""
+
+    def to_parquet(self, instance_id: str) -> Dict[str, Union[str, datetime, None]]:
+        return {
+            "instance_id": instance_id,
+            "file": osp.basename(self.file),
+            "task_group": self.task_group,
+            "created_at": datetime.utcnow(),
+        }
+
+
+class Annotation(BaseAnnotation):
+    """Base class for annotations in a dataset."""
+
     class_: str
     type_: AnnotationType
     value: Union[
@@ -41,7 +63,17 @@ class Annotation(BaseModel):
         KeypointsType,
         ArrayType,
     ]
-    task_group: str = "default"
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Annotation":
+        """Creates an annotation from a dictionary.
+
+        @type data: Dict[str, Any]
+        @param data: A dictionary of annotation data.
+        @rtype: L{Annotation}
+        @return: An annotation object.
+        """
+        return cls(**{k.rstrip("_"): v for k, v in data.items()})
 
     def to_parquet(self, instance_id: str) -> Dict[str, Union[str, datetime, None]]:
         """Converts an annotation to a dictionary for writing to a parquet file.
