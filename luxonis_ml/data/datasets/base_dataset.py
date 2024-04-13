@@ -26,32 +26,15 @@ from .source import LuxonisSource
 DATASETS_REGISTRY = Registry(name="datasets")
 
 
-class BaseAnnotation(ABC, BaseModel):
+DatasetGenerator: TypeAlias = Generator[dict, None, None]
+
+
+class Annotation(BaseModel):
+    """Base class for annotations in a dataset."""
+
     model_config: ConfigDict = ConfigDict(extra="forbid")
 
     file: str
-    task_group: str = "default"
-
-    @abstractmethod
-    def to_parquet(self, instance_id: str) -> Dict[str, Union[str, datetime, None]]:
-        pass
-
-
-class EmptyAnnotation(BaseAnnotation):
-    """Empty annotation class for creating empty annotations."""
-
-    def to_parquet(self, instance_id: str) -> Dict[str, Union[str, datetime, None]]:
-        return {
-            "instance_id": instance_id,
-            "file": osp.basename(self.file),
-            "task_group": self.task_group,
-            "created_at": datetime.utcnow(),
-        }
-
-
-class Annotation(BaseAnnotation):
-    """Base class for annotations in a dataset."""
-
     class_: str
     type_: AnnotationType
     value: Union[
@@ -63,6 +46,7 @@ class Annotation(BaseAnnotation):
         KeypointsType,
         ArrayType,
     ]
+    task_group: str = "default"
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Annotation":
@@ -73,7 +57,9 @@ class Annotation(BaseAnnotation):
         @rtype: L{Annotation}
         @return: An annotation object.
         """
-        return cls(**{k.rstrip("_"): v for k, v in data.items()})
+        return cls(
+            **{(f"{k}_" if k in ["class", "type"] else k): v for k, v in data.items()}
+        )
 
     def to_parquet(self, instance_id: str) -> Dict[str, Union[str, datetime, None]]:
         """Converts an annotation to a dictionary for writing to a parquet file.
@@ -143,9 +129,6 @@ class Annotation(BaseAnnotation):
             if typ == annotation_type:
                 _check_value_type(expected_type, value)
                 break
-
-
-DatasetGenerator: TypeAlias = Generator[Annotation, None, None]
 
 
 class BaseDataset(

@@ -554,10 +554,10 @@ class LuxonisDataset(BaseDataset):
         index = self._get_file_index()
         new_index = {"instance_id": [], "file": [], "original_filepath": []}
 
-        batch_data = []
+        batch_data: list[Annotation] = []
 
         for i, data in enumerate(generator):
-            batch_data.append(data)
+            batch_data.append(Annotation.from_dict(data))
             if (i + 1) % batch_size == 0:
                 _add_process_batch(batch_data)
                 batch_data = []
