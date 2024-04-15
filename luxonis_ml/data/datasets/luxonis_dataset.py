@@ -130,7 +130,9 @@ class LuxonisDataset(BaseDataset):
     def identifier(self) -> str:
         if self.dataset_name is not None:
             return self.dataset_name
-        assert self.dataset_id is not None
+        assert (
+            self.dataset_id is not None
+        ), "At least one of dataset_name or dataset_id must be provided."
         return self.dataset_id
 
     def __len__(self) -> int:
@@ -203,7 +205,7 @@ class LuxonisDataset(BaseDataset):
             "data",
             self.team_id,
             "datasets",
-            self.dataset_name,
+            self.identifier,
         )
         self.media_path = osp.join(self.local_path, "media")
         self.annotations_path = osp.join(self.local_path, "annotations")
