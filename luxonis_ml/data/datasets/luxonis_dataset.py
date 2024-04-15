@@ -527,7 +527,7 @@ class LuxonisDataset(BaseDataset):
                 file = osp.basename(filepath)
                 instance_id = uuid_dict[filepath]
                 # check for duplicate instance_ids to get a one-to-one relationship
-                matched_id = self._find_filepath_instance_id(filepath, index)  
+                matched_id = self._find_filepath_instance_id(filepath, index)
                 if matched_id is not None:
                     if matched_id == instance_id:
                         raise Exception(
@@ -644,7 +644,10 @@ class LuxonisDataset(BaseDataset):
                 filepaths = definitions[split]
                 if not isinstance(filepaths, list):
                     raise Exception("Must provide splits as a list of str")
-                ids = [self._find_filepath_instance_id(filepath, index) for filepath in filepaths]
+                ids = [
+                    self._find_filepath_instance_id(filepath, index)
+                    for filepath in filepaths
+                ]
                 new_splits[split] = ids
 
         if self.bucket_storage == BucketStorage.LOCAL:
