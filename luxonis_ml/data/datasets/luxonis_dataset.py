@@ -239,6 +239,7 @@ class LuxonisDataset(BaseDataset):
         if index is None:
             return None
 
+        filepath = osp.abspath(filepath)
         if filepath in list(index["original_filepath"]):
             matched = index[index["original_filepath"] == filepath]
             if len(matched):
