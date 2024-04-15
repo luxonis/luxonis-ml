@@ -130,13 +130,15 @@ class LuxonisDataset(BaseDataset):
     def identifier(self) -> str:
         if self.dataset_name is not None:
             return self.dataset_name
-        assert self.dataset_id is not None
+        assert (
+            self.dataset_id is not None
+        ), "At least one of dataset_name or dataset_id must be provided."
         return self.dataset_id
 
     def __len__(self) -> int:
         """Returns the number of instances in the dataset."""
 
-        df = self._load_df_offline()
+        df = self._load_df_offline(self.bucket_storage != BucketStorage.LOCAL)
         if df is not None:
             return len(set(df["instance_id"]))
         else:
@@ -203,7 +205,7 @@ class LuxonisDataset(BaseDataset):
             "data",
             self.team_id,
             "datasets",
-            self.dataset_name,
+            self.identifier,
         )
         self.media_path = osp.join(self.local_path, "media")
         self.annotations_path = osp.join(self.local_path, "annotations")
@@ -225,6 +227,8 @@ class LuxonisDataset(BaseDataset):
             annotations_path = self.annotations_path
         else:
             annotations_path = osp.join(self.tmp_dir, "annotations")
+        if not osp.exists(annotations_path):
+            return None
         for file in os.listdir(annotations_path):
             if osp.splitext(file)[1] == ".parquet":
                 dfs.append(pd.read_parquet(osp.join(annotations_path, file)))
@@ -361,7 +365,7 @@ class LuxonisDataset(BaseDataset):
         if self.bucket_storage == BucketStorage.LOCAL:
             self.logger.warning("This is a local dataset! Cannot sync")
         else:
-            if not hasattr(self, "is_synced") or not self.is_synced:
+            if not getattr(self, "is_synced", False):
                 local_dir = osp.join(self.base_path, "data", self.team_id, "datasets")
                 if not osp.exists(local_dir):
                     os.makedirs(local_dir, exist_ok=True)
