@@ -74,7 +74,7 @@ def prepare_dir():
         ),
         (
             DatasetType.SOLO,
-            "D1_ParkingSlotTest-solo.zip",
+            "D1_ParkingSlot-solo.zip",
             [LabelType.BOUNDINGBOX, LabelType.SEGMENTATION],
         ),
     ],
