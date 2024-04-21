@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from PIL import Image
 
-from luxonis_ml.data import DatasetGenerator
+from luxonis_ml.data import DatasetIterator
 
 from .base_parser import BaseParser, ParserOutput
 
@@ -86,7 +86,7 @@ class YoloV4Parser(BaseParser):
         with open(classes_path) as f:
             class_names = {i: line.rstrip() for i, line in enumerate(f.readlines())}
 
-        def generator() -> DatasetGenerator:
+        def generator() -> DatasetIterator:
             with open(annotation_path) as f:
                 annotation_data = [line.rstrip() for line in f.readlines()]
 
@@ -127,6 +127,6 @@ class YoloV4Parser(BaseParser):
                         "value": tuple(bbox_xywh),
                     }
 
-        added_images = self._get_added_images(generator)
+        added_images = self._get_added_images(generator())
 
-        return generator, list(class_names.values()), {}, added_images
+        return generator(), list(class_names.values()), {}, added_images

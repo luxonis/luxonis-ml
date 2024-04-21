@@ -92,6 +92,6 @@ def test_dir_parser(
     assert len(dataset) > 0
     loader = LuxonisLoader(dataset)
     _, ann = next(iter(loader))
-    tasks = ann.keys()
+    tasks = ann["default"].keys()
     assert set(tasks) == set(expected_tasks)
     dataset.delete_dataset()

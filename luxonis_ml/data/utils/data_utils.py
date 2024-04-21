@@ -1,86 +1,45 @@
 import json
-import typing
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, List, Tuple, Union
 
-import cv2
 import numpy as np
 import pycocotools.mask as mask_util
-from typeguard import TypeCheckError, check_type
+from typing_extensions import TypeAlias
 
-from .constants import ANNOTATIONS_SCHEMA as schema
+# NOTE: This could be defined elsewhere
+Number: TypeAlias = Union[int, float]
+"""Alias for a number type, which can be either an integer or a float."""
 
+ClassificationType: TypeAlias = bool
+"""Alias for a classification type, which is a boolean."""
 
-def check_annotation(data: Dict) -> None:
-    """Checks whether annotations match the expected format. Throws an exception if
-    there is a formatting error.
+LabelType: TypeAlias = Union[str, int, float, bool]
+"""Alias for a custom label type, which can be a string, integer, float, or boolean."""
 
-    @type data: Dict
-    @param data: A dictionary representing annotations, mapping annotation types to
-        values.
-    @rtype: NoneType
-    @return: None
-    """
+BoxType: TypeAlias = Tuple[Number, Number, Number, Number]
+"""Alias for a bounding box type, which is a tuple of (x, y, width, height)."""
 
-    if len(schema.keys()) != len(data.keys()) or set(schema.keys()) != set(data.keys()):
-        raise Exception(
-            f"Given keys {data.keys()} do not match annotations schema {schema.keys()}"
-        )
+SegmentationType: TypeAlias = Tuple[int, int, Union[List[int], bytes]]
+"""Alias for a segmentation type in the RLE format, which is a tuple of (height, width,
+counts).
 
-    for key in schema:
-        origin = typing.get_origin(schema[key])
-        if origin is not None:
-            if origin == Union:
-                check = False
-                for typ in typing.get_args(schema[key]):
-                    if isinstance(data[key], typ):
-                        check = True
-                if not check:
-                    raise Exception(
-                        f"Found type {type(data[key])} for key '{key}' but expected: {typing.get_args(schema[key])}"
-                    )
-            else:
-                raise NotImplementedError
-        elif not isinstance(data[key], schema[key]):
-            raise Exception(
-                f"Found type {type(data[key])} for key '{key}' but expected: {schema[key]}"
-            )
+`counts` can be encoded bytes or a raw list of integers.
+"""
 
-    typ = data["type"]
-    value = data["value"]
+PolylineType: TypeAlias = List[Tuple[Number, Number]]
+"""Alias for a polyline type, which is a list of (x, y) points."""
 
-    if typ == "classification":
-        _check_value_type(typ, value, bool)
-    elif typ == "label":
-        _check_value_type(typ, value, Union[str, int, float, bool])
-    elif typ == "box":
-        _check_value_type(
-            typ,
-            value,
-            Tuple[
-                Union[int, float],
-                Union[int, float],
-                Union[int, float],
-                Union[int, float],
-            ],
-        )
-    elif typ == "polyline":
-        _check_value_type(
-            typ,
-            value,
-            List[Tuple[Union[int, float], Union[int, float]]],
-        )
-    elif typ == "segmentation":
-        _check_value_type(
-            typ,
-            value,
-            Tuple[int, int, Union[List[int], bytes]],
-        )
-    elif typ == "keypoints":
-        _check_value_type(
-            typ,
-            value,
-            List[Tuple[Union[int, float], Union[int, float], int]],
-        )
+KeypointsType: TypeAlias = List[Tuple[Number, Number, int]]
+"""Alias for a keypoints type, which is a list of (x, y, visibility) points.
+Visibility is an integer value of the following format:
+
+    - 0: Not visible
+    - 1: Occluded
+    - 2: Visible
+
+"""
+
+ArrayType: TypeAlias = str
+"""Alias for an array type, which is a path to a numpy array (.npy)."""
 
 
 def check_arrays(values: List[Any]) -> None:
@@ -93,49 +52,28 @@ def check_arrays(values: List[Any]) -> None:
     @return: None
     """
 
+    def _check_valid_array(path: str) -> bool:
+        try:
+            np.load(path)
+            return True
+        except Exception:
+            return False
+
     for value in values:
-        _check_array(value)
+        if not isinstance(value, str):
+            raise Exception(
+                f"Array value {value} must be a path to a numpy array (.npy)"
+            )
+        if not _check_valid_array(value):
+            raise Exception(f"Array at path {value} is not a valid numpy array (.npy)")
 
 
-def _check_value_type(name: str, value: Any, typ: Any) -> None:
-    """Checks if a value is of a given type, and raises a TypeError if not."""
-    try:
-        check_type(value, typ)
-    except TypeCheckError as e:
-        raise TypeError(f"Value {value} for key {name} is not of type {typ}") from e
-
-
-def _check_array(value: Any) -> None:
-    if not isinstance(value, str):
-        raise Exception(f"Array value {value} must be a path to a numpy array (.npy)")
-    if not _check_valid_array(value):
-        raise Exception(f"Array at path {value} is not a valid numpy array (.npy)")
-
-
-def _check_valid_image(path: str) -> bool:
-    try:
-        image = cv2.imread(path)
-        return image is not None
-    except Exception:
-        return False
-
-
-def _check_valid_array(path: str) -> bool:
-    try:
-        np.load(path)
-        return True
-    except Exception:
-        return False
-
-
-def transform_segmentation_value(
-    value: Tuple[int, int, Union[bytes, List[int]]],
-) -> str:
+def transform_segmentation_value(value: SegmentationType) -> str:
     """Transforms a segmentation in RLE format to the format stored by LuxonisDataset.
     The format recognized by LuxonisDataset is still RLE, but a dumped JSON string of
     height, width, and compressed counts.
 
-    @type value: Tuple[int, int, Union[bytes, List[int]]]
+    @type value: L{SegmentationType}
     @param value: The segmentation value in RLE format of (height, width, counts).
         Counts can be encoded bytes or a raw list.
     @rtype: str

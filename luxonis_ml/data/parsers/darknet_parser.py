@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from luxonis_ml.data import DatasetGenerator
+from luxonis_ml.data import DatasetIterator
 
 from .base_parser import BaseParser, ParserOutput
 
@@ -74,7 +74,7 @@ class DarknetParser(BaseParser):
         with open(classes_path) as f:
             class_names = {i: line.rstrip() for i, line in enumerate(f.readlines())}
 
-        def generator() -> DatasetGenerator:
+        def generator() -> DatasetIterator:
             for img_path in self._list_images(image_dir):
                 ann_path = img_path.with_suffix(".txt")
                 file = str(img_path)
@@ -108,6 +108,6 @@ class DarknetParser(BaseParser):
                         "value": bbox_xywh,
                     }
 
-        added_images = self._get_added_images(generator)
+        added_images = self._get_added_images(generator())
 
-        return generator, list(class_names.values()), {}, added_images
+        return generator(), list(class_names.values()), {}, added_images

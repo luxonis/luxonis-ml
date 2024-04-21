@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from PIL import Image
 
-from luxonis_ml.data import DatasetGenerator
+from luxonis_ml.data import DatasetIterator
 
 from .base_parser import BaseParser, ParserOutput
 
@@ -105,7 +105,7 @@ class CreateMLParser(BaseParser):
                 curr_annotations["bboxes"].append((class_name, bbox_xywh))
             images_annotations.append(curr_annotations)
 
-        def generator() -> DatasetGenerator:
+        def generator() -> DatasetIterator:
             for curr_annotations in images_annotations:
                 path = curr_annotations["path"]
                 for class_name in curr_annotations["classes"]:
@@ -123,6 +123,6 @@ class CreateMLParser(BaseParser):
                         "value": tuple(bbox),
                     }
 
-        added_images = self._get_added_images(generator)
+        added_images = self._get_added_images(generator())
 
-        return generator, list(class_names), {}, added_images
+        return generator(), list(class_names), {}, added_images

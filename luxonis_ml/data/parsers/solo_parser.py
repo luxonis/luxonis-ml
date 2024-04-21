@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 import pycocotools.mask as mask_util
 
-from luxonis_ml.data import DatasetGenerator
+from luxonis_ml.data import DatasetIterator
 
 from .base_parser import BaseParser, ParserOutput
 
@@ -147,7 +147,7 @@ class SOLOParser(BaseParser):
         # if NOT, set them manually with LuxonisDataset.set_skeletons() as SOLO format does not
         # encode which keypoint_name belongs to which class
 
-        def generator() -> DatasetGenerator:
+        def generator() -> DatasetIterator:
             for dir_path, dir_names, _ in os.walk(split_path):
                 for dir_name in dir_names:
                     if not dir_name.startswith("sequence"):
@@ -254,10 +254,10 @@ class SOLOParser(BaseParser):
                                         "value": keypoints,
                                     }
 
-        added_images = self._get_added_images(generator)
+        added_images = self._get_added_images(generator())
 
         return (
-            generator,
+            generator(),
             class_names,
             skeletons,
             added_images,

@@ -468,7 +468,7 @@ class LuxonisFileSystem:
         return file_hash_uuid
 
     def get_file_uuids(
-        self, paths: List[PathType], local: bool = False
+        self, paths: Sequence[PathType], local: bool = False
     ) -> Dict[str, str]:
         """Computes the UUIDs for all files stored in the filesystem.
 
