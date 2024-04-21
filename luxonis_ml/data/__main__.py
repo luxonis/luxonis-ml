@@ -138,7 +138,6 @@ def inspect(
     for image, ann in loader:
         if len(ann) > 1:
             raise NotImplementedError("Only one annotation group is supported.")
-        ann = next(iter(ann.values()))
 
         h, w, _ = image.shape
         if LabelType.BOUNDINGBOX in ann:

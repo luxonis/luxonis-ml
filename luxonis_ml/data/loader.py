@@ -5,13 +5,14 @@ import os
 import random
 import warnings
 from abc import ABC, abstractmethod
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import cv2
 import numpy as np
 import pandas as pd
 import pycocotools.mask as mask_util
 from PIL import Image, ImageDraw
+from typing_extensions import TypeAlias
 
 from luxonis_ml.enums import LabelType
 
@@ -19,12 +20,54 @@ from .augmentations import Augmentations
 from .datasets import LuxonisDataset
 from .utils.enums import BucketStorage
 
-Labels = Dict[LabelType, np.ndarray]
+Labels: TypeAlias = Dict[LabelType, np.ndarray]
 """C{Labels} is a dictionary of a label type and its annotations as L{numpy
 arrays<np.ndarray>}."""
 
-LuxonisLoaderOutput = Tuple[np.ndarray, Dict[str, Labels]]
-"""C{LuxonisLoaderOutput} is a tuple of image and its annotations."""
+
+class Annotations(dict):
+    """A dictionary of task group names and their annotations.
+
+    Inherits from the built-in Python dictionary class.
+
+    Acts like simple dictionary when only one group is present, otherwise acts like a
+    nested dictionary of task group names and their annotations.
+    """
+
+    @property
+    def groups(self) -> List[str]:
+        return list(self.keys())
+
+    def __getitem__(self, key: Union[LabelType, str]) -> Union[np.ndarray, Labels]:
+        if isinstance(key, LabelType):
+            if len(self.groups) == 1:
+                return super().__getitem__(self.groups[0])[key]
+            raise ValueError(
+                "Multiple groups present, please access the specific group first."
+            )
+        elif isinstance(key, str):
+            if key in self.groups:
+                return super().__getitem__(key)
+            raise KeyError(f"Group '{key}' not found in annotations.")
+        else:
+            raise TypeError("Key must be of type LabelType or str.")
+
+    def __contains__(self, key: Union[LabelType, str]) -> bool:
+        if isinstance(key, LabelType):
+            if len(self.groups) == 1:
+                return key in super().__getitem__(self.groups[0])
+            raise ValueError(
+                "Multiple groups present, please access the specific group first."
+            )
+        elif isinstance(key, str):
+            return key in self.groups
+        else:
+            raise TypeError("Key must be of type LabelType or str.")
+
+
+LuxonisLoaderOutput: TypeAlias = Tuple[np.ndarray, Annotations]
+"""C{LuxonisLoaderOutput} is a tuple of an image as a L{numpy array<np.ndarray>} and a
+dictionary of task group names and their annotations as L{Annotations}."""
 
 
 class BaseLoader(ABC):
@@ -69,10 +112,10 @@ class LuxonisLoader(BaseLoader):
         @type view: str
         @param view: View of the dataset. Defaults to "train".
         @type stream: bool
-        @param stream: Flag for data streaming. Defaults to False.
+        @param stream: Flag for data streaming. Defaults to C{False}.
         @type augmentations: Optional[luxonis_ml.loader.Augmentations]
         @param augmentations: Augmentation class that performs augmentations. Defaults
-            to None.
+            to C{None}.
         """
 
         self.logger = logging.getLogger(__name__)
@@ -93,9 +136,10 @@ class LuxonisLoader(BaseLoader):
                 self.dataset.set_classes(classes=synced_classes[task], task=task)
 
         if self.dataset.bucket_storage == BucketStorage.LOCAL or not self.stream:
-            self.file_index = self.dataset._get_file_index()
-            if self.file_index is None:
+            file_index = self.dataset._get_file_index()
+            if file_index is None:
                 raise Exception("Cannot find file index")
+            self.file_index = file_index
         else:
             raise NotImplementedError(
                 "Streaming for remote bucket storage not implemented yet"
@@ -130,7 +174,10 @@ class LuxonisLoader(BaseLoader):
         else:
             raise NotImplementedError
 
-        self.df = dataset._load_df_offline(sync_mode=self.sync_mode)
+        df = dataset._load_df_offline(sync_mode=self.sync_mode)
+        if df is None:
+            raise Exception("Cannot find dataframe")
+        self.df = df
         self.df.set_index(["instance_id"], inplace=True)
 
     def __len__(self) -> int:
@@ -179,7 +226,73 @@ class LuxonisLoader(BaseLoader):
                 )
                 group_annotations[task_group] = annotations
 
-        return img, group_annotations
+        return img, Annotations(group_annotations)
+
+    def _load_classification(self, rows: pd.DataFrame) -> np.ndarray:
+        classes = [row[1]["class"] for row in rows.iterrows() if bool(row[1]["value"])]
+        classify = np.zeros(self.nc)
+        for class_ in classes:
+            class_ = self.classes_by_task[LabelType.CLASSIFICATION].index(class_)
+            classify[class_] = classify[class_] + 1
+        classify[classify > 0] = 1
+        return classify
+
+    def _load_box(self, rows: pd.DataFrame) -> np.ndarray:
+        boxes = np.zeros((0, 5))
+        for row in rows.iterrows():
+            row = row[1]
+            class_ = self.classes_by_task[LabelType.BOUNDINGBOX].index(row["class"])
+            det = json.loads(row["value"])
+            box = np.array([class_, det[0], det[1], det[2], det[3]]).reshape(1, 5)
+            boxes = np.append(boxes, box, axis=0)
+        return boxes
+
+    def _load_polyline(self, rows: pd.DataFrame, height: int, width: int) -> np.ndarray:
+        seg = np.zeros((self.ns, height, width))
+        for row in rows.iterrows():
+            row = row[1]
+            class_ = self.classes_by_task[LabelType.SEGMENTATION].index(row["class"])
+            polyline = json.loads(row["value"])
+            polyline = [
+                (round(coord[0] * width), round(coord[1] * height))
+                for coord in polyline
+            ]
+            mask = Image.new("L", (width, height), 0)
+            draw = ImageDraw.Draw(mask)
+            draw.polygon(polyline, fill=1, outline=1)
+            mask = np.array(mask)
+            seg[class_, ...] = seg[class_, ...] + mask
+        seg[seg > 0] = 1
+        return seg
+
+    def _load_segmentation(
+        self, rows: pd.DataFrame, height: int, width: int
+    ) -> np.ndarray:
+        seg = np.zeros((self.ns, height, width))
+        for row in rows.iterrows():
+            row = row[1]
+            class_ = self.classes_by_task[LabelType.SEGMENTATION].index(row["class"])
+            height, width, counts_str = json.loads(row["value"])
+            mask = mask_util.decode(
+                {"counts": counts_str.encode("utf-8"), "size": [height, width]}
+            )
+            seg[class_, ...] = seg[class_, ...] + mask
+        seg[seg > 0] = 1
+        return seg
+
+    def _load_keypoints(self, rows: pd.DataFrame) -> np.ndarray:
+        keypoints = np.zeros((0, self.max_nk * 3 + 1))
+        for row in rows.iterrows():
+            row = row[1]
+            class_ = self.classes_by_task[LabelType.KEYPOINT].index(row["class"])
+            kps = np.array(json.loads(row["value"])).reshape((-1, 3)).astype(np.float32)
+            kps = kps.flatten()
+            nk = len(kps)
+            kps = np.concatenate([[class_], kps])
+            points = np.zeros((1, self.max_nk * 3 + 1))
+            points[0, : nk + 1] = kps
+            keypoints = np.append(keypoints, points, axis=0)
+        return keypoints
 
     def _load_image_with_annotations(
         self, idx: int
@@ -208,7 +321,7 @@ class LuxonisLoader(BaseLoader):
 
         img = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)
 
-        ih, iw, _ = img.shape
+        height, width, _ = img.shape
         annotations = {}
 
         if sub_df.ndim == 1:
@@ -217,103 +330,34 @@ class LuxonisLoader(BaseLoader):
         task_groups = sub_df["task_group"].unique()
 
         for task_group in task_groups:
+            group_df = sub_df[sub_df["task_group"] == task_group]
             _annotations = {}
-            classification_rows = sub_df[
-                (sub_df["type"] == "classification")
-                & (sub_df["task_group"] == task_group)
-            ]
-            box_rows = sub_df[
-                (sub_df["type"] == "box") & (sub_df["task_group"] == task_group)
-            ]
-            segmentation_rows = sub_df[
-                (sub_df["type"] == "segmentation")
-                & (sub_df["task_group"] == task_group)
-            ]
-            polyline_rows = sub_df[
-                (sub_df["type"] == "polyline") & (sub_df["task_group"] == task_group)
-            ]
-            keypoints_rows = sub_df[
-                (sub_df["type"] == "keypoints") & (sub_df["task_group"] == task_group)
-            ]
+            classification_rows = group_df[sub_df["type"] == "classification"]
+            box_rows = group_df[sub_df["type"] == "box"]
+            segmentation_rows = group_df[sub_df["type"] == "segmentation"]
+            polyline_rows = group_df[sub_df["type"] == "polyline"]
+            keypoints_rows = group_df[sub_df["type"] == "keypoints"]
 
-            seg = np.zeros((self.ns, ih, iw))
+            if not classification_rows.empty:
+                _annotations[LabelType.CLASSIFICATION] = self._load_classification(
+                    classification_rows
+                )
 
-            if len(classification_rows):
-                classes = [
-                    row[1]["class"]
-                    for row in classification_rows.iterrows()
-                    if bool(row[1]["value"])
-                ]
-                classify = np.zeros(self.nc)
-                for cls in classes:
-                    cls = self.classes_by_task[LabelType.CLASSIFICATION].index(cls)
-                    classify[cls] = classify[cls] + 1
-                classify[classify > 0] = 1
-                _annotations[LabelType.CLASSIFICATION] = classify
+            if not box_rows.empty:
+                _annotations[LabelType.BOUNDINGBOX] = self._load_box(box_rows)
 
-            if len(box_rows):
-                boxes = np.zeros((0, 5))
-                for row in box_rows.iterrows():
-                    row = row[1]
-                    cls = self.classes_by_task[LabelType.BOUNDINGBOX].index(
-                        row["class"]
-                    )
-                    det = json.loads(row["value"])
-                    box = np.array([cls, det[0], det[1], det[2], det[3]]).reshape(1, 5)
-                    boxes = np.append(boxes, box, axis=0)
-                _annotations[LabelType.BOUNDINGBOX] = boxes
+            if not polyline_rows.empty:
+                _annotations[LabelType.SEGMENTATION] = self._load_polyline(
+                    polyline_rows, height, width
+                )
 
-            if len(polyline_rows):
-                for row in polyline_rows.iterrows():
-                    row = row[1]
-                    cls = self.classes_by_task[LabelType.SEGMENTATION].index(
-                        row["class"]
-                    )
-                    polyline = json.loads(row["value"])
-                    polyline = [
-                        (round(coord[0] * iw), round(coord[1] * ih))
-                        for coord in polyline
-                    ]
-                    mask = Image.new("L", (iw, ih), 0)
-                    draw = ImageDraw.Draw(mask)
-                    draw.polygon(polyline, fill=1, outline=1)
-                    mask = np.array(mask)
-                    seg[cls, ...] = seg[cls, ...] + mask
-                seg[seg > 0] = 1
-                _annotations[LabelType.SEGMENTATION] = seg
+            if not segmentation_rows.empty:
+                _annotations[LabelType.SEGMENTATION] = self._load_segmentation(
+                    segmentation_rows, height, width
+                )
 
-            if len(segmentation_rows):
-                for row in segmentation_rows.iterrows():
-                    row = row[1]
-                    cls = self.classes_by_task[LabelType.SEGMENTATION].index(
-                        row["class"]
-                    )
-                    height, width, counts_str = json.loads(row["value"])
-                    mask = mask_util.decode(
-                        {"counts": counts_str.encode("utf-8"), "size": [height, width]}
-                    )
-                    seg[cls, ...] = seg[cls, ...] + mask
-                seg[seg > 0] = 1
-                _annotations[LabelType.SEGMENTATION] = seg
-
-            if len(keypoints_rows):
-                # TODO: test with multi-class keypoint instances where nk's are not equal
-                keypoints = np.zeros((0, self.max_nk * 3 + 1))
-                for row in keypoints_rows.iterrows():
-                    row = row[1]
-                    cls = self.classes_by_task[LabelType.KEYPOINT].index(row["class"])
-                    kps = (
-                        np.array(json.loads(row["value"]))
-                        .reshape((-1, 3))
-                        .astype(np.float32)
-                    )
-                    kps = kps.flatten()
-                    nk = len(kps)
-                    kps = np.concatenate([[cls], kps])
-                    points = np.zeros((1, self.max_nk * 3 + 1))
-                    points[0, : nk + 1] = kps
-                    keypoints = np.append(keypoints, points, axis=0)
-                _annotations[LabelType.KEYPOINT] = keypoints
+            if not keypoints_rows.empty:
+                _annotations[LabelType.KEYPOINT] = self._load_keypoints(keypoints_rows)
 
             annotations[task_group] = _annotations
 
