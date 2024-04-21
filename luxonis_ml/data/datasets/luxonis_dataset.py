@@ -130,13 +130,15 @@ class LuxonisDataset(BaseDataset):
     def identifier(self) -> str:
         if self.dataset_name is not None:
             return self.dataset_name
-        assert self.dataset_id is not None
+        assert (
+            self.dataset_id is not None
+        ), "At least one of dataset_name or dataset_id must be provided."
         return self.dataset_id
 
     def __len__(self) -> int:
         """Returns the number of instances in the dataset."""
 
-        df = self._load_df_offline()
+        df = self._load_df_offline(self.bucket_storage != BucketStorage.LOCAL)
         if df is not None:
             return len(set(df["instance_id"]))
         else:
@@ -203,7 +205,7 @@ class LuxonisDataset(BaseDataset):
             "data",
             self.team_id,
             "datasets",
-            self.dataset_name,
+            self.identifier,
         )
         self.media_path = osp.join(self.local_path, "media")
         self.annotations_path = osp.join(self.local_path, "annotations")
@@ -225,6 +227,8 @@ class LuxonisDataset(BaseDataset):
             annotations_path = self.annotations_path
         else:
             annotations_path = osp.join(self.tmp_dir, "annotations")
+        if not osp.exists(annotations_path):
+            return None
         for file in os.listdir(annotations_path):
             if osp.splitext(file)[1] == ".parquet":
                 dfs.append(pd.read_parquet(osp.join(annotations_path, file)))
@@ -233,14 +237,15 @@ class LuxonisDataset(BaseDataset):
         else:
             return None
 
-    def _try_instance_id(
-        self, file: str, index: Optional[pd.DataFrame]
+    def _find_filepath_instance_id(
+        self, filepath: str, index: Optional[pd.DataFrame]
     ) -> Optional[str]:
         if index is None:
             return None
 
-        if file in list(index["file"]):
-            matched = index[index["file"] == file]
+        filepath = osp.abspath(filepath)
+        if filepath in list(index["original_filepath"]):
+            matched = index[index["original_filepath"] == filepath]
             if len(matched):
                 return list(matched["instance_id"])[0]
         else:
@@ -361,7 +366,7 @@ class LuxonisDataset(BaseDataset):
         if self.bucket_storage == BucketStorage.LOCAL:
             self.logger.warning("This is a local dataset! Cannot sync")
         else:
-            if not hasattr(self, "is_synced") or not self.is_synced:
+            if not getattr(self, "is_synced", False):
                 local_dir = osp.join(self.base_path, "data", self.team_id, "datasets")
                 if not osp.exists(local_dir):
                     os.makedirs(local_dir, exist_ok=True)
@@ -526,14 +531,13 @@ class LuxonisDataset(BaseDataset):
                 filepath = data["file"]
                 file = osp.basename(filepath)
                 instance_id = uuid_dict[filepath]
-                matched_id = self._try_instance_id(file, index)
+                # check for duplicate instance_ids to get a one-to-one relationship
+                matched_id = self._find_filepath_instance_id(filepath, index)
                 if matched_id is not None:
-                    if matched_id != instance_id:
-                        # TODO: not sure if this should be an exception or how we should really handle it
+                    if matched_id == instance_id:
                         raise Exception(
-                            f"{filepath} uses a duplicate filename corresponding to different media! Please rename this file."
+                            f"{filepath} already added to the dataset! Please skip or rename the file."
                         )
-                        # TODO: we may also want to check for duplicate instance_ids to get a one-to-one relationship
                 elif instance_id not in new_index["instance_id"]:
                     new_index["instance_id"].append(instance_id)
                     new_index["file"].append(file)
@@ -642,11 +646,13 @@ class LuxonisDataset(BaseDataset):
                 if split not in definitions:
                     continue
                 splits_to_update.append(split)
-                files = definitions[split]
-                if not isinstance(files, list):
+                filepaths = definitions[split]
+                if not isinstance(filepaths, list):
                     raise Exception("Must provide splits as a list of str")
-                files = [osp.basename(file) for file in files]
-                ids = [self._try_instance_id(file, index) for file in files]
+                ids = [
+                    self._find_filepath_instance_id(filepath, index)
+                    for filepath in filepaths
+                ]
                 new_splits[split] = ids
 
         if self.bucket_storage == BucketStorage.LOCAL:

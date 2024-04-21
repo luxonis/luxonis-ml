@@ -72,6 +72,11 @@ def prepare_dir():
             "Flowers_Classification.v2-raw.folder.zip",
             [LabelType.CLASSIFICATION],
         ),
+        (
+            DatasetType.SOLO,
+            "D1_ParkingSlot-solo.zip",
+            [LabelType.BOUNDINGBOX, LabelType.SEGMENTATION],
+        ),
     ],
 )
 def test_dir_parser(
