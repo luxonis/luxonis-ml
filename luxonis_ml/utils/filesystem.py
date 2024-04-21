@@ -148,6 +148,10 @@ class LuxonisFileSystem:
                 endpoint_url=environ.AWS_S3_ENDPOINT_URL,
             )
         elif self.protocol == "gcs":
+            if environ.GOOGLE_APPLICATION_CREDENTIALS is None:
+                raise KeyError(
+                    "There is no 'GOOGLE_APPLICATION_CREDENTIALS' in environment variables"
+                )
             # NOTE: This should automatically read from GOOGLE_APPLICATION_CREDENTIALS
             fs = fsspec.filesystem(self.protocol)
         elif self.protocol == "file":

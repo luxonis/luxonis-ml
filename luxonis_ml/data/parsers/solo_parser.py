@@ -155,10 +155,9 @@ class SOLOParser(BaseParser):
 
                     sequence_path = os.path.join(dir_path, dir_name)
 
-                    for frame_fname in glob.glob(
+                    for frame_path in glob.glob(
                         os.path.join(sequence_path, "*.frame_data.json")
                     ):  # single sequence can have multiple steps
-                        frame_path = os.path.join(sequence_path, frame_fname)
                         if not os.path.exists(frame_path):
                             raise FileNotFoundError(f"{frame_path} not existent.")
                         with open(frame_path) as f:
