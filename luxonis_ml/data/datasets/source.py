@@ -1,40 +1,26 @@
+from dataclasses import dataclass
 from typing import List, Optional
 
 from ..utils.enums import ImageType, MediaType
 
 
+@dataclass
 class LuxonisComponent:
-    def __init__(
-        self,
-        name: str,
-        media_type: MediaType = MediaType.IMAGE,
-        image_type: Optional[ImageType] = ImageType.COLOR,
-    ) -> None:
-        """Abstraction for a piece of media within a source. Most commonly, this
-        abstracts an image sensor.
+    """Abstraction for a piece of media within a source. Most commonly, this abstracts
+    an image sensor.
 
-        @type name: str
-        @param name: A recognizable name for the component.
-        @type media_type: MediaType
-        @param media_type: Enum for the type of media for the component.
-        @type image_type: Optional[ImageType]
-        @param image_type: Enum for the image type if C{media_type==MediaType.IMAGE}.
-            Else this param can be None or default.
-        """
+    @type name: str
+    @param name: A recognizable name for the component.
+    @type media_type: L{MediaType}
+    @param media_type: Enum for the type of media for the component.
+    @type image_type: L{ImageType}
+    @param image_type: Enum for the image type. Only used if
+        C{media_type==MediaType.IMAGE}.
+    """
 
-        if media_type not in MediaType:
-            raise Exception(f"{media_type.value} is not a valid MediaType")
-        if image_type not in ImageType:
-            raise Exception(f"{image_type.value} is not a valid ImageType")
-
-        self.name = name
-        self.media_type = media_type
-        self.image_type = image_type
-
-        if media_type == MediaType.IMAGE:
-            self.image_type = image_type
-        else:
-            self.image_type = None
+    name: str
+    media_type: MediaType = MediaType.IMAGE
+    image_type: ImageType = ImageType.COLOR
 
 
 class LuxonisSource:

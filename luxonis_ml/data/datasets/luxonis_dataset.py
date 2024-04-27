@@ -4,7 +4,7 @@ import os
 import os.path as osp
 import shutil
 import time
-from datetime import datetime
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -15,12 +15,13 @@ import pyarrow.parquet as pq
 import rich.progress
 
 import luxonis_ml.data.utils.data_utils as data_utils
+from luxonis_ml.enums import AnnotationType
 from luxonis_ml.utils import LuxonisFileSystem, environ
 
 from ..utils.constants import LABEL_TYPES, LDF_VERSION
 from ..utils.enums import BucketStorage, BucketType, ImageType, MediaType
 from ..utils.parquet import ParquetFileManager
-from .base_dataset import BaseDataset, DatasetGeneratorFunction
+from .base_dataset import Annotation, BaseDataset, DatasetIterator
 from .source import LuxonisComponent, LuxonisSource
 
 
@@ -281,12 +282,11 @@ class LuxonisDataset(BaseDataset):
         table = pa.Table.from_pandas(df)
         pq.write_table(table, file_index_path)
 
-    def _start_time(self) -> None:
-        self.t0 = time.time()
-
-    def _end_time(self) -> None:
-        self.t1 = time.time()
-        self.logger.info(f"Took {self.t1 - self.t0} seconds")
+    @contextmanager
+    def _log_time(self):
+        t = time.time()
+        yield
+        self.logger.info(f"Took {time.time() - t} seconds")
 
     def _make_temp_dir(self) -> None:
         if osp.exists(self.tmp_dir):
@@ -429,12 +429,12 @@ class LuxonisDataset(BaseDataset):
 
     def add(
         self,
-        generator: DatasetGeneratorFunction,
+        generator: DatasetIterator,
         batch_size: int = 1000000,
     ) -> None:
         """Write annotations to parquet files.
 
-        @type generator: L{DatasetGeneratorFunction}
+        @type generator: L{DatasetGenerator}
         @param generator: A Python iterator that yields dictionaries of data
             with the key described by the C{ANNOTATIONS_SCHEMA} but also listed below:
                 - file (C{str}) : path to file on local disk or object storage
@@ -459,25 +459,28 @@ class LuxonisDataset(BaseDataset):
             This can be set to a lower value to reduce memory usage.
         """
 
-        def _add_process_batch(batch_data: List[Dict]) -> None:
-            paths = list(set([data["file"] for data in batch_data]))
+        def _add_process_batch(batch_data: List[Annotation]) -> None:
+            paths = list(set(data.file for data in batch_data))
             self.logger.info("Generating UUIDs...")
-            self._start_time()
-            uuid_dict = self.fs.get_file_uuids(
-                paths, local=True
-            )  # TODO: support from bucket
-            self._end_time()
+            with self._log_time():
+                uuid_dict = self.fs.get_file_uuids(
+                    paths, local=True
+                )  # TODO: support from bucket
             if self.bucket_storage != BucketStorage.LOCAL:
                 self.logger.info("Uploading media...")
                 # TODO: support from bucket (likely with a self.fs.copy_dir)
-                self._start_time()
-                self.fs.put_dir(
-                    local_paths=paths, remote_dir="media", uuid_dict=uuid_dict
-                )
-                self._end_time()
+
+                with self._log_time():
+                    self.fs.put_dir(
+                        local_paths=paths, remote_dir="media", uuid_dict=uuid_dict
+                    )
 
             array_paths = list(
-                set([data["value"] for data in batch_data if data["type"] == "array"])
+                set(
+                    str(data.value)
+                    for data in batch_data
+                    if data.type_ == AnnotationType.ARRAY
+                )
             )
             progress = rich.progress.Progress(
                 rich.progress.TextColumn("[progress.description]{task.description}"),
@@ -489,78 +492,61 @@ class LuxonisDataset(BaseDataset):
             task = progress.add_task(
                 "[magenta]Processing data...", total=len(batch_data)
             )
-            if len(array_paths):
+            if array_paths:
                 self.logger.info("Checking arrays...")
-                self._start_time()
-                data_utils.check_arrays(array_paths)
-                self._end_time()
+                with self._log_time():
+                    data_utils.check_arrays(array_paths)
                 self.logger.info("Generating array UUIDs...")
-                self._start_time()
-                array_uuid_dict = self.fs.get_file_uuids(
-                    array_paths, local=True
-                )  # TODO: support from bucket
-                self._end_time()
+                with self._log_time():
+                    array_uuid_dict = self.fs.get_file_uuids(
+                        array_paths, local=True
+                    )  # TODO: support from bucket
                 if self.bucket_storage != BucketStorage.LOCAL:
                     self.logger.info("Uploading arrays...")
                     # TODO: support from bucket (likely with a self.fs.copy_dir)
-                    self._start_time()
-                    mask_upload_dict = self.fs.put_dir(
-                        local_paths=array_paths,
-                        remote_dir="arrays",
-                        uuid_dict=array_uuid_dict,
-                    )
-                    self._end_time()
+                    with self._log_time():
+                        mask_upload_dict = self.fs.put_dir(
+                            local_paths=array_paths,
+                            remote_dir="arrays",
+                            uuid_dict=array_uuid_dict,
+                        )
                 self.logger.info("Finalizing paths...")
                 progress.start()
-                for data in batch_data:
-                    if data["type"] == "array":
+                for ann in batch_data:
+                    if ann.type_ == AnnotationType.ARRAY:
                         if self.bucket_storage != BucketStorage.LOCAL:
-                            remote_path = mask_upload_dict[data["value"]]
+                            remote_path = mask_upload_dict[str(ann.value)]
                             remote_path = f"{self.fs.protocol}://{osp.join(self.fs.path, remote_path)}"
-                            data["value"] = remote_path
+                            ann.value = remote_path
                         else:
-                            data["value"] = osp.abspath(data["value"])
+                            ann.value = osp.abspath(str(ann.value))
                         progress.update(task, advance=1)
                 progress.stop()
 
             self.logger.info("Saving annotations...")
-            self._start_time()
-            progress.reset(task)
-            progress.start()
-            for data in batch_data:
-                filepath = data["file"]
-                file = osp.basename(filepath)
-                instance_id = uuid_dict[filepath]
-                # check for duplicate instance_ids to get a one-to-one relationship
-                matched_id = self._find_filepath_instance_id(filepath, index)
-                if matched_id is not None:
-                    if matched_id == instance_id:
-                        raise Exception(
-                            f"{filepath} already added to the dataset! Please skip or rename the file."
-                        )
-                elif instance_id not in new_index["instance_id"]:
-                    new_index["instance_id"].append(instance_id)
-                    new_index["file"].append(file)
-                    new_index["original_filepath"].append(osp.abspath(filepath))
+            with self._log_time():
+                progress.reset(task)
+                progress.start()
+                for ann in batch_data:
+                    filepath = ann.file
+                    file = osp.basename(filepath)
+                    instance_id = uuid_dict[filepath]
+                    matched_id = self._find_filepath_instance_id(filepath, index)
+                    if matched_id is not None:
+                        if matched_id != instance_id:
+                            # TODO: not sure if this should be an exception or how we should really handle it
+                            raise Exception(
+                                f"{filepath} already added to the dataset! Please skip or rename the file."
+                            )
+                            # TODO: we may also want to check for duplicate instance_ids to get a one-to-one relationship
+                    elif instance_id not in new_index["instance_id"]:
+                        new_index["instance_id"].append(instance_id)
+                        new_index["file"].append(file)
+                        new_index["original_filepath"].append(osp.abspath(filepath))
 
-                data_utils.check_annotation(data)
-                data["instance_id"] = instance_id
-                data["file"] = file
-                data["value_type"] = type(data["value"]).__name__
-                if data["type"] == "segmentation":  # handles RLE
-                    data["value"] = data_utils.transform_segmentation_value(
-                        data["value"]
-                    )
-                if isinstance(data["value"], (list, tuple)):
-                    data["value"] = json.dumps(data["value"])  # convert lists to string
-                else:
-                    data["value"] = str(data["value"])
-                data["created_at"] = datetime.utcnow()
-
-                self.pfm.write(data)
-                progress.update(task, advance=1)
-            progress.stop()
-            self._end_time()
+                    self.pfm.write(ann.to_parquet(instance_id))
+                    progress.update(task, advance=1)
+                progress.stop()
 
         if self.bucket_storage == BucketStorage.LOCAL:
             self.pfm = ParquetFileManager(self.annotations_path)
@@ -573,10 +559,10 @@ class LuxonisDataset(BaseDataset):
         index = self._get_file_index()
         new_index = {"instance_id": [], "file": [], "original_filepath": []}
 
-        batch_data = []
+        batch_data: list[Annotation] = []
 
-        for i, data in enumerate(generator()):
-            batch_data.append(data)
+        for i, data in enumerate(generator):
+            batch_data.append(Annotation.from_dict(data))
             if (i + 1) % batch_size == 0:
                 _add_process_batch(batch_data)
                 batch_data = []
@@ -629,6 +615,7 @@ class LuxonisDataset(BaseDataset):
                 self.fs.get_dir("annotations", osp.join(self.tmp_dir, "annotations"))
 
             df = self._load_df_offline()
+            assert df is not None
             ids = list(set(df["instance_id"]))
             np.random.shuffle(ids)
             N = len(ids)

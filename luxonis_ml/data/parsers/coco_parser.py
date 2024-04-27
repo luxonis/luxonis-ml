@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from luxonis_ml.data import DatasetGenerator
+from luxonis_ml.data import DatasetIterator
 
 from .base_parser import BaseParser, ParserOutput
 
@@ -139,7 +139,7 @@ class COCOParser(BaseParser):
                     "edges": (np.array(cat["skeleton"]) - 1).tolist(),
                 }
 
-        def generator() -> DatasetGenerator:
+        def generator() -> DatasetIterator:
             for img in coco_images:
                 img_id = img["id"]
 
@@ -203,6 +203,6 @@ class COCOParser(BaseParser):
                             "value": keypoints,
                         }
 
-        added_images = self._get_added_images(generator)
+        added_images = self._get_added_images(generator())
 
-        return generator, class_names, skeletons, added_images
+        return generator(), class_names, skeletons, added_images

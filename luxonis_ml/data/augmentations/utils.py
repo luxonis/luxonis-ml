@@ -105,7 +105,7 @@ class Augmentations:
 
     def __call__(
         self,
-        data: List[Tuple[np.ndarray, Dict[LabelType, np.ndarray]]],
+        data: List[Tuple[np.ndarray, Dict[str, Dict[LabelType, np.ndarray]]]],
         nc: int = 1,
         ns: int = 1,
         nk: int = 1,

@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pycocotools.mask as mask_util
 
-from luxonis_ml.data import DatasetGenerator
+from luxonis_ml.data import DatasetIterator
 
 from .base_parser import BaseParser, ParserOutput
 
@@ -98,7 +98,7 @@ class SegmentationMaskDirectoryParser(BaseParser):
 
         class_names = pd.Series(df[idx_class].values, index=df[idx_pixel_val]).to_dict()
 
-        def generator() -> DatasetGenerator:
+        def generator() -> DatasetIterator:
             for mask_path in seg_dir.glob("*_mask.*"):
                 image_path = next(image_dir.glob(f"{mask_path.stem[:-5]}.*"))
                 file = str(image_path.absolute())
@@ -132,5 +132,5 @@ class SegmentationMaskDirectoryParser(BaseParser):
                         "value": value,
                     }
 
-        added_images = self._get_added_images(generator)
-        return generator, list(class_names.values()), {}, added_images
+        added_images = self._get_added_images(generator())
+        return generator(), list(class_names.values()), {}, added_images

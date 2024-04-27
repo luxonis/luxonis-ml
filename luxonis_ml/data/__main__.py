@@ -39,27 +39,29 @@ def check_exists(name: str):
         raise typer.Exit()
 
 
-def get_dataset_info(name: str) -> Tuple[int, List[str], List[str]]:
+def get_dataset_info(name: str) -> Tuple[int, List[str], List[str], List[str]]:
     dataset = LuxonisDataset(name)
     size = len(dataset)
     try:
         loader = LuxonisLoader(dataset, view=SplitType.TRAIN.value)
         _, ann = next(iter(loader))
     except Exception:
-        ann = []
+        ann = {}
     classes, _ = dataset.get_classes()
-    tasks = [task.value for task in ann]
-    return size, classes, tasks
+    groups = list(ann.keys())
+    tasks = [task.value for group in groups for task in ann[group]]
+    return size, classes, tasks, groups
 
 
 def print_info(name: str) -> None:
-    size, classes, tasks = get_dataset_info(name)
+    size, classes, tasks, groups = get_dataset_info(name)
     print(
         Panel.fit(
             f"[magenta b]Name: [not b cyan]{name}\n"
             f"[magenta b]Size: [not b cyan]{size}\n"
             f"[magenta b]Classes: [not b cyan]{', '.join(classes)}\n"
-            f"[magenta b]Tasks: [not b cyan]{', '.join(tasks)}",
+            f"[magenta b]Tasks: [not b cyan]{', '.join(tasks)}\n"
+            f"[magenta b]Groups: [not b cyan]{', '.join(groups)}",
             title="Dataset Info",
         )
     )
@@ -104,7 +106,7 @@ def ls(
         dataset = LuxonisDataset(name)
         rows = [name, str(len(dataset))]
         if full:
-            _, classes, tasks = get_dataset_info(name)
+            _, classes, tasks, _ = get_dataset_info(name)
             rows.extend(
                 [
                     ", ".join(classes) if classes else "[red]<empty>[no red]",
@@ -134,7 +136,8 @@ def inspect(
     dataset = LuxonisDataset(name)
     loader = LuxonisLoader(dataset, view=view.value)
     for image, ann in loader:
-        # cls = ann[LabelType.CLASSIFICATION]
+        if len(ann) > 1:
+            raise NotImplementedError("Only one annotation group is supported.")
 
         h, w, _ = image.shape
         if LabelType.BOUNDINGBOX in ann:
