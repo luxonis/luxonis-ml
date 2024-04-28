@@ -90,7 +90,6 @@ class OutputsKeypointDetectionYOLO(Outputs):
     @ivar keypoints: Output name for the keypoints.
     """
 
-    
     yolo_outputs: List[str] = Field(
         description="A list of output names for each of the different YOLO grid sizes."
     )
