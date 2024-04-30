@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field
 
+from ..enums import DataType
+
 
 class Metadata(BaseModel):
     """Represents metadata of a model.
@@ -12,3 +14,6 @@ class Metadata(BaseModel):
 
     name: str = Field(description="Name of the model.")
     path: str = Field(description="Relative path to the model executable.")
+    precision: DataType = Field(
+        DataType.FLOAT32, description="Precision of the model weights."
+    )
