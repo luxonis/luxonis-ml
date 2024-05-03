@@ -355,6 +355,15 @@ class LuxonisDataset(BaseDataset):
         self.datasets[self.dataset_name]["skeletons"] = skeletons
         self._write_datasets()
 
+        if self.bucket_storage != BucketStorage.LOCAL:
+            skeletons_json = self.datasets[self.dataset_name]["skeletons"]
+            self._make_temp_dir()
+            local_file = osp.join(self.tmp_dir, "skeletons.json")
+            with open(local_file, "w") as file:
+                json.dump(skeletons_json, file, indent=4)
+            self.fs.put_file(local_file, "metadata/skeletons.json")
+            self._remove_temp_dir()
+
     def sync_from_cloud(self) -> None:
         """Downloads data from a remote cloud bucket."""
 
