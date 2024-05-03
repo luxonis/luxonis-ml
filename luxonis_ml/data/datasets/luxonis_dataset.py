@@ -413,15 +413,24 @@ class LuxonisDataset(BaseDataset):
 
         return classes, classes_by_task
 
-    def get_skeletons(self) -> Dict[str, Dict]:
-        """Returns the dictionary defining the semantic skeleton for each class using
-        keypoints.
+    def get_skeletons(
+            self, sync_mode: bool = False
+        ) -> Tuple[List[str], Dict[str, List[str]]]:
+            """Returns the dictionary defining the semantic skeleton for each class using
+            keypoints.
 
-        @rtype: Dict[str, Dict]
-        @return: A dictionary mapping classes to their skeleton definitions.
-        """
-
-        return self.datasets[self.dataset_name]["skeletons"]
+            @rtype: Dict[str, Dict]
+            @return: A dictionary mapping classes to their skeleton definitions.
+            """
+            if sync_mode:
+                local_file = osp.join(self.metadata_path, "skeletons.json")
+                self.fs.get_file("metadata/skeletons.json", local_file)
+                with open(local_file) as file:
+                    skeletons = json.load(file)
+            else:
+                skeletons = self.datasets[self.dataset_name]["skeletons"]
+            
+            return skeletons
 
     def delete_dataset(self) -> None:
         """Deletes all local files belonging to the dataset."""
