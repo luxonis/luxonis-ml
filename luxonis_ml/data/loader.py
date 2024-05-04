@@ -283,6 +283,12 @@ class LuxonisLoader(BaseLoader):
                     .reshape((-1, 3))
                     .astype(np.float32)
                 )
+                #### DEBUG ####
+                logging.info(f"keypoints: {kps}")
+                logging.info(f"Shape of keypoints: {kps.shape}")
+                logging.info(f"nk: {nk}")
+                logging.info(f"max_nk: {self.max_nk}")
+                ################
                 kps = kps.flatten()
                 nk = len(kps)
                 kps = np.concatenate([[cls], kps])
