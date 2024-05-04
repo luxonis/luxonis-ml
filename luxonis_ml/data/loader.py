@@ -284,10 +284,10 @@ class LuxonisLoader(BaseLoader):
                     .astype(np.float32)
                 )
                 #### DEBUG ####
-                logging.info(f"keypoints: {kps}")
-                logging.info(f"Shape of keypoints: {kps.shape}")
-                logging.info(f"nk: {nk}")
-                logging.info(f"max_nk: {self.max_nk}")
+                self.logger.info(f"keypoints: {kps}")
+                self.logger.info(f"Shape of keypoints: {kps.shape}")
+                self.logger.info(f"nk: {nk}")
+                self.logger.info(f"max_nk: {self.max_nk}")
                 ################
                 kps = kps.flatten()
                 nk = len(kps)
