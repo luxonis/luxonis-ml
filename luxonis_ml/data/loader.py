@@ -286,12 +286,6 @@ class LuxonisLoader(BaseLoader):
                 kps = kps.flatten()
                 nk = len(kps)
                 kps = np.concatenate([[cls], kps])
-                #### DEBUG ####
-                self.logger.info(f"keypoints: {kps}")
-                self.logger.info(f"Shape of keypoints: {kps.shape}")
-                self.logger.info(f"nk: {nk}")
-                self.logger.info(f"max_nk: {self.max_nk}")
-                ################
                 points = np.zeros((1, self.max_nk * 3 + 1))
                 points[0, : nk + 1] = kps
                 keypoints = np.append(keypoints, points, axis=0)
