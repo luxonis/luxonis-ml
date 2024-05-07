@@ -415,7 +415,7 @@ class LuxonisDataset(BaseDataset):
 
     def get_skeletons(
             self, sync_mode: bool = False
-        ) -> Tuple[List[str], Dict[str, List[str]]]:
+        ) -> Dict[str, Dict]:
             """Returns the dictionary defining the semantic skeleton for each class using
             keypoints.
 
