@@ -114,7 +114,9 @@ class LuxonisLoader(BaseLoader):
         self.ns = len(self.classes_by_task[LabelType.SEGMENTATION])
         self.nk = {
             cls: len(skeleton["labels"])
-            for cls, skeleton in self.dataset.get_skeletons(sync_mode=self.sync_mode).items()
+            for cls, skeleton in self.dataset.get_skeletons(
+                sync_mode=self.sync_mode
+            ).items()
         }
         if len(list(self.nk.values())):
             self.max_nk = max(list(self.nk.values()))
