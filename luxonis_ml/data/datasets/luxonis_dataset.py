@@ -422,10 +422,10 @@ class LuxonisDataset(BaseDataset):
         """
         if sync_mode:
             local_file = osp.join(self.metadata_path, "skeletons.json")
-            self.fs.get_file("metadata/skeletons.json", local_file)
             if not os.path.exists(local_file):
                 self.logger.warning("Skeletons file not found at %s", local_file)
                 return {}
+            self.fs.get_file("metadata/skeletons.json", local_file)
             with open(local_file) as file:
                 skeletons = json.load(file)
         else:
