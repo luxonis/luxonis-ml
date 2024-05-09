@@ -134,6 +134,13 @@ class LuxonisLoader(BaseLoader):
                 synced_classes = json.load(file)
             for task in synced_classes:
                 self.dataset.set_classes(classes=synced_classes[task], task=task)
+            skeletons_file = os.path.join(self.dataset.metadata_path, "skeletons.json")
+            try:
+                with open(skeletons_file, "r") as file:
+                    synced_skeletons = json.load(file)
+                self.dataset.set_skeletons(synced_skeletons)
+            except FileNotFoundError:
+                self.logger.warning("Skeletons file not found at %s", skeletons_file)
 
         if self.dataset.bucket_storage == BucketStorage.LOCAL or not self.stream:
             file_index = self.dataset._get_file_index()
@@ -154,7 +161,9 @@ class LuxonisLoader(BaseLoader):
         self.ns = len(self.classes_by_task[LabelType.SEGMENTATION])
         self.nk = {
             cls: len(skeleton["labels"])
-            for cls, skeleton in self.dataset.get_skeletons().items()
+            for cls, skeleton in self.dataset.get_skeletons(
+                sync_mode=self.sync_mode
+            ).items()
         }
         if len(list(self.nk.values())):
             self.max_nk = max(list(self.nk.values()))
