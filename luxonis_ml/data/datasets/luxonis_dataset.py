@@ -360,6 +360,15 @@ class LuxonisDataset(BaseDataset):
         self.datasets[self.dataset_name]["skeletons"] = skeletons
         self._write_datasets()
 
+        if self.bucket_storage != BucketStorage.LOCAL:
+            skeletons_json = self.datasets[self.dataset_name]["skeletons"]
+            self._make_temp_dir()
+            local_file = osp.join(self.tmp_dir, "skeletons.json")
+            with open(local_file, "w") as file:
+                json.dump(skeletons_json, file, indent=4)
+            self.fs.put_file(local_file, "metadata/skeletons.json")
+            self._remove_temp_dir()
+
     def sync_from_cloud(self) -> None:
         """Downloads data from a remote cloud bucket."""
 
@@ -409,15 +418,30 @@ class LuxonisDataset(BaseDataset):
 
         return classes, classes_by_task
 
-    def get_skeletons(self) -> Dict[str, Dict]:
+    def get_skeletons(self, sync_mode: bool = False) -> Dict[str, Dict]:
         """Returns the dictionary defining the semantic skeleton for each class using
         keypoints.
 
         @rtype: Dict[str, Dict]
         @return: A dictionary mapping classes to their skeleton definitions.
         """
+        if sync_mode:
+            local_file = osp.join(self.metadata_path, "skeletons.json")
+            if not os.path.exists(local_file):
+                self.logger.warning("Skeletons file not found at %s", local_file)
+                return {}
+            self.fs.get_file("metadata/skeletons.json", local_file)
+            with open(local_file) as file:
+                skeletons = json.load(file)
+        else:
+            if "skeletons" not in self.datasets[self.dataset_name]:
+                self.logger.warning(
+                    "No skeletons data available for dataset %s", self.dataset_name
+                )
+                return {}
+            skeletons = self.datasets[self.dataset_name]["skeletons"]
 
-        return self.datasets[self.dataset_name]["skeletons"]
+        return skeletons
 
     def delete_dataset(self) -> None:
         """Deletes all local files belonging to the dataset."""
