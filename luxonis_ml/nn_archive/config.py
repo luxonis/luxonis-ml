@@ -2,13 +2,14 @@ from typing import Literal
 
 from pydantic import Field
 
-from .config_building_blocks import CustomBaseModel
+from luxonis_ml.utils import BaseModelExtraForbid
+
 from .model import Model
 
 CONFIG_VERSION = Literal["1.0"]
 
 
-class Config(CustomBaseModel):
+class Config(BaseModelExtraForbid):
     """The main class of the multi/single-stage model config scheme (multi- stage models
     consists of interconnected single-stage models).
 
