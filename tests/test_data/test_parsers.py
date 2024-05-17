@@ -2,8 +2,8 @@ from typing import Final, List
 
 import pytest
 
-from luxonis_ml.data import LuxonisLoader, LuxonisParser
-from luxonis_ml.enums import DatasetType, LabelType
+from luxonis_ml.data import LabelType, LuxonisLoader, LuxonisParser
+from luxonis_ml.enums import DatasetType
 
 URL_PREFIX: Final[str] = "gs://luxonis-test-bucket/luxonis-ml-test-data"
 SAVE_DIR: Final[str] = "tests/data/parser_datasets"
@@ -20,14 +20,14 @@ def prepare_dir():
 
 
 @pytest.mark.parametrize(
-    ("dataset_type", "url", "expected_tasks"),
+    ("dataset_type", "url", "expected_label_types"),
     [
         (
             DatasetType.COCO,
             "COCO_people_subset.zip",
             [
-                LabelType.BOUNDINGBOX,
-                LabelType.KEYPOINT,
+                LabelType.DETECTION,
+                LabelType.KEYPOINTS,
                 LabelType.SEGMENTATION,
                 LabelType.CLASSIFICATION,
             ],
@@ -35,32 +35,32 @@ def prepare_dir():
         (
             DatasetType.VOC,
             "Thermal_Dogs_and_People.v1-resize-416x416.voc.zip",
-            [LabelType.BOUNDINGBOX, LabelType.CLASSIFICATION],
+            [LabelType.DETECTION, LabelType.CLASSIFICATION],
         ),
         (
             DatasetType.DARKNET,
             "Thermal_Dogs_and_People.v1-resize-416x416.darknet.zip",
-            [LabelType.BOUNDINGBOX, LabelType.CLASSIFICATION],
+            [LabelType.DETECTION, LabelType.CLASSIFICATION],
         ),
         (
             DatasetType.YOLOV4,
             "Thermal_Dogs_and_People.v1-resize-416x416.yolov4pytorch.zip",
-            [LabelType.BOUNDINGBOX, LabelType.CLASSIFICATION],
+            [LabelType.DETECTION, LabelType.CLASSIFICATION],
         ),
         (
             DatasetType.YOLOV6,
             "Thermal_Dogs_and_People.v1-resize-416x416.mt-yolov6.zip",
-            [LabelType.BOUNDINGBOX, LabelType.CLASSIFICATION],
+            [LabelType.DETECTION, LabelType.CLASSIFICATION],
         ),
         (
             DatasetType.CREATEML,
             "Thermal_Dogs_and_People.v1-resize-416x416.createml.zip",
-            [LabelType.BOUNDINGBOX, LabelType.CLASSIFICATION],
+            [LabelType.DETECTION, LabelType.CLASSIFICATION],
         ),
         (
             DatasetType.TFCSV,
             "Thermal_Dogs_and_People.v1-resize-416x416.tensorflow.zip",
-            [LabelType.BOUNDINGBOX, LabelType.CLASSIFICATION],
+            [LabelType.DETECTION, LabelType.CLASSIFICATION],
         ),
         (
             DatasetType.SEGMASK,
@@ -75,12 +75,12 @@ def prepare_dir():
         (
             DatasetType.SOLO,
             "D1_ParkingSlot-solo.zip",
-            [LabelType.BOUNDINGBOX, LabelType.SEGMENTATION],
+            [LabelType.DETECTION, LabelType.SEGMENTATION],
         ),
     ],
 )
 def test_dir_parser(
-    dataset_type: DatasetType, url: str, expected_tasks: List[LabelType]
+    dataset_type: DatasetType, url: str, expected_label_types: List[LabelType]
 ):
     parser = LuxonisParser(
         f"{URL_PREFIX}/{url}",
@@ -92,6 +92,6 @@ def test_dir_parser(
     assert len(dataset) > 0
     loader = LuxonisLoader(dataset)
     _, ann = next(iter(loader))
-    tasks = ann["default"].keys()
-    assert set(tasks) == set(expected_tasks)
+    label_types = {label_type for _, label_type in ann.values()}
+    assert label_types == set(expected_label_types)
     dataset.delete_dataset()

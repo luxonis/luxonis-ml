@@ -124,22 +124,20 @@ class YoloV6Parser(BaseParser):
                     class_name = class_names[int(class_id)]
                     yield {
                         "file": str(img_path),
-                        "class": class_name,
-                        "type": "classification",
-                        "value": True,
+                        "annotation": {
+                            "class": class_name,
+                        },
                     }
 
-                    bbox_xywh = (
-                        float(x_center) - float(width) / 2,
-                        float(y_center) - float(height) / 2,
-                        float(width),
-                        float(height),
-                    )
                     yield {
                         "file": str(img_path),
-                        "class": class_name,
-                        "type": "box",
-                        "value": bbox_xywh,
+                        "annotation": {
+                            "class": class_name,
+                            "x": float(x_center) - float(width) / 2,
+                            "y": float(y_center) - float(height) / 2,
+                            "w": float(width),
+                            "h": float(height),
+                        },
                     }
 
         added_images = self._get_added_images(generator())

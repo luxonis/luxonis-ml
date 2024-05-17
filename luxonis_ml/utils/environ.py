@@ -31,7 +31,7 @@ class Environ(BaseSettings):
     POSTGRES_DB: Optional[str] = None
 
     LUXONISML_BUCKET: Optional[str] = None
-    LUXONISML_BASE_PATH: str = str(Path.home() / "luxonis_ml")
+    LUXONISML_BASE_PATH: Path = Path.home() / "luxonis_ml"
     LUXONISML_TEAM_ID: str = "offline"
     LUXONISML_TEAM_NAME: str = "offline"
 

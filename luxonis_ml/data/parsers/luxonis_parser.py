@@ -4,7 +4,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Dict, Literal, Optional, Tuple, Type, Union
 
-from luxonis_ml.data import DATASETS_REGISTRY, BaseDataset, LuxonisDataset
+from luxonis_ml.data import DATASETS_REGISTRY, LuxonisDataset
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.utils import LuxonisFileSystem
 
@@ -114,16 +114,16 @@ class LuxonisParser:
         self.dataset = self.dataset_constructor(dataset_name=dataset_name, **kwargs)
         self.parser = self.parsers[self.dataset_type](self.dataset)
 
-    def parse(self, **kwargs) -> BaseDataset:
-        """Parses the dataset and returns it in BaseDataset format.
+    def parse(self, **kwargs) -> LuxonisDataset:
+        """Parses the dataset and returns it in LuxonisDataset format.
 
         If the dataset already exists, parsing will be skipped and the existing dataset
         will be returned instead.
 
         @type kwargs: Dict[str, Any]
         @param kwargs: Additional C{kwargs} for specific parser implementation.
-        @rtype: BaseDataset
-        @return: Parsed dataset in L{BaseDataset} format.
+        @rtype: LuxonisDataset
+        @return: Parsed dataset in L{LuxonisDataset} format.
         """
         if self.dataset_exists:
             logger.warning(
@@ -165,14 +165,14 @@ class LuxonisParser:
             f"Dataset {self.dataset_dir} is not in expected format for any of the parsers."
         )
 
-    def _parse_dir(self, **kwargs) -> BaseDataset:
-        """Parses all present data in BaseDataset format.
+    def _parse_dir(self, **kwargs) -> LuxonisDataset:
+        """Parses all present data in LuxonisDataset format.
 
         Check under each parser for the expected directory structure.
 
         @type kwargs: Dict[str, Any]
         @param kwargs: Additional C{kwargs} for specific parser function.
-        @rtype: BaseDataset
+        @rtype: LuxonisDataset
         @return: C{LDF} with all the images and annotations parsed.
         """
 
@@ -184,7 +184,7 @@ class LuxonisParser:
         random_split: bool = True,
         split_ratios: Tuple[float, float, float] = (0.8, 0.1, 0.1),
         **kwargs,
-    ) -> BaseDataset:
+    ) -> LuxonisDataset:
         """Parses data from a subdirectory representing a single split.
 
         Should be used if adding/changing only specific split. Check under each parser
@@ -201,7 +201,7 @@ class LuxonisParser:
             C{True}. Defaults to C{(0.8, 0.1, 0.1)}.
         @type kwargs: Dict[str, Any]
         @param kwargs: Additional kwargs for specific parser implementation.
-        @rtype: BaseDataset
+        @rtype: LuxonisDataset
         @return: C{LDF} with all the images and annotations parsed.
         """
         parsed_kwargs = self.parser.validate_split(self.dataset_dir)
@@ -209,5 +209,6 @@ class LuxonisParser:
             raise ValueError(
                 f"Dataset {self.dataset_dir} is not in the expected format for {self.dataset_type} parser."
             )
-        kwargs = {**parsed_kwargs, **kwargs}
-        return self.parser.parse_split(split, random_split, split_ratios, **kwargs)
+        return self.parser.parse_split(
+            split, random_split, split_ratios, **parsed_kwargs, **kwargs
+        )

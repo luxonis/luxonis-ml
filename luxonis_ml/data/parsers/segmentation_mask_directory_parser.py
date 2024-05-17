@@ -109,9 +109,9 @@ class SegmentationMaskDirectoryParser(BaseParser):
                     class_name = class_names[id]
                     yield {
                         "file": file,
-                        "class": class_name,
-                        "type": "classification",
-                        "value": True,
+                        "annotation": {
+                            "class": class_name,
+                        },
                     }
 
                     curr_seg_mask = np.zeros_like(mask)
@@ -120,16 +120,14 @@ class SegmentationMaskDirectoryParser(BaseParser):
                         curr_seg_mask
                     )  # pycocotools requirement
                     curr_rle = mask_util.encode(curr_seg_mask)
-                    value = (
-                        curr_rle["size"][0],
-                        curr_rle["size"][1],
-                        curr_rle["counts"],
-                    )
                     yield {
                         "file": file,
-                        "class": class_name,
-                        "type": "segmentation",
-                        "value": value,
+                        "annotation": {
+                            "class": class_name,
+                            "width": curr_rle["size"][0],
+                            "height": curr_rle["size"][1],
+                            "counts": curr_rle["counts"],
+                        },
                     }
 
         added_images = self._get_added_images(generator())

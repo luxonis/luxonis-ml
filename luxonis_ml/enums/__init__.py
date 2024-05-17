@@ -1,3 +1,3 @@
-from .enums import AnnotationType, DatasetType, LabelType, SplitType
+from .enums import DatasetType, SplitType
 
-__all__ = ["LabelType", "DatasetType", "SplitType", "AnnotationType"]
+__all__ = ["DatasetType", "SplitType"]

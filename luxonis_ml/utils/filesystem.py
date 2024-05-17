@@ -10,7 +10,17 @@ from io import BytesIO
 from logging import getLogger
 from pathlib import Path, PurePosixPath
 from types import ModuleType
-from typing import Dict, Iterator, List, Optional, Sequence, Tuple, Union, cast
+from typing import (
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+    cast,
+)
 
 import fsspec
 
@@ -205,7 +215,7 @@ class LuxonisFileSystem:
 
     def put_dir(
         self,
-        local_paths: Union[PathType, Sequence[PathType]],
+        local_paths: Union[PathType, Iterable[PathType]],
         remote_dir: PathType,
         uuid_dict: Optional[Dict[str, str]] = None,
         mlflow_instance: Optional[ModuleType] = None,
@@ -468,7 +478,7 @@ class LuxonisFileSystem:
         return file_hash_uuid
 
     def get_file_uuids(
-        self, paths: Sequence[PathType], local: bool = False
+        self, paths: Iterable[PathType], local: bool = False
     ) -> Dict[str, str]:
         """Computes the UUIDs for all files stored in the filesystem.
 

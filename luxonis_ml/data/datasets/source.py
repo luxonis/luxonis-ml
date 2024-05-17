@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, TypedDict
 
 from ..utils.enums import ImageType, MediaType
 
@@ -22,9 +22,39 @@ class LuxonisComponent:
     media_type: MediaType = MediaType.IMAGE
     image_type: ImageType = ImageType.COLOR
 
+    class LuxonisComponentDocument(TypedDict):
+        name: str
+        media_type: str
+        image_type: str
+
+    def to_document(self) -> LuxonisComponentDocument:
+        return {
+            "name": self.name,
+            "media_type": self.media_type.value,
+            "image_type": self.image_type.value,
+        }
+
+    @classmethod
+    def from_document(cls, document: LuxonisComponentDocument) -> "LuxonisComponent":
+        if document["image_type"] is not None:
+            return cls(
+                name=document["name"],
+                media_type=MediaType(document["media_type"]),
+                image_type=ImageType(document["image_type"]),
+            )
+        else:
+            return cls(
+                name=document["name"], media_type=MediaType(document["media_type"])
+            )
+
 
 class LuxonisSource:
     """Abstracts the structure of a dataset and which components/media are included."""
+
+    class LuxonisSourceDocument(TypedDict):
+        name: str
+        main_component: str
+        components: List[LuxonisComponent.LuxonisComponentDocument]
 
     def __init__(
         self,
@@ -58,3 +88,23 @@ class LuxonisSource:
 
         self.components = {component.name: component for component in components}
         self.main_component = main_component or next(iter(self.components))
+
+    def to_document(self) -> LuxonisSourceDocument:
+        return {
+            "name": self.name,
+            "main_component": self.main_component,
+            "components": [
+                component.to_document() for component in self.components.values()
+            ],
+        }
+
+    @classmethod
+    def from_document(cls, document: LuxonisSourceDocument) -> "LuxonisSource":
+        return cls(
+            name=document["name"],
+            main_component=document["main_component"],
+            components=[
+                LuxonisComponent.from_document(component_doc)
+                for component_doc in document["components"]
+            ],
+        )

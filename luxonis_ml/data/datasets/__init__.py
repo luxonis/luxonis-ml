@@ -1,3 +1,12 @@
+from .annotation import (
+    Annotation,
+    ArrayAnnotation,
+    BBoxAnnotation,
+    ClassificationAnnotation,
+    KeypointAnnotation,
+    PolylineSegmentationAnnotation,
+    RLESegmentationAnnotation,
+)
 from .base_dataset import (
     DATASETS_REGISTRY,
     BaseDataset,
@@ -13,4 +22,12 @@ __all__ = [
     "LuxonisComponent",
     "LuxonisSource",
     "DATASETS_REGISTRY",
+    "Annotation",
+    "ClassificationAnnotation",
+    "BBoxAnnotation",
+    "KeypointAnnotation",
+    "RLESegmentationAnnotation",
+    "PolylineSegmentationAnnotation",
+    "ArrayAnnotation",
+    "LabelAnnotation" "load_annotation",
 ]

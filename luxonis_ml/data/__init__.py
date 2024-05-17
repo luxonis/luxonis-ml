@@ -12,12 +12,13 @@ with guard_missing_extra("data"):
         LuxonisDataset,
         LuxonisSource,
     )
-    from .loader import BaseLoader, LabelType, LuxonisLoader, LuxonisLoaderOutput
+    from .loader import BaseLoader, LuxonisLoader, LuxonisLoaderOutput
     from .parsers import LuxonisParser
     from .utils.enums import (
         BucketStorage,
         BucketType,
         ImageType,
+        LabelType,
         MediaType,
     )
 

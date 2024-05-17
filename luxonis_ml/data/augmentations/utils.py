@@ -4,9 +4,9 @@ import albumentations as A
 import cv2
 import numpy as np
 
-from luxonis_ml.enums import LabelType
 from luxonis_ml.utils.registry import Registry
 
+from ..utils.enums import LabelType
 from .batch_compose import BatchCompose, ForEach
 from .batch_transform import BatchBasedTransform
 

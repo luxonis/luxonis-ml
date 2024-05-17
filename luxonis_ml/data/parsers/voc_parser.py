@@ -122,16 +122,20 @@ class VOCParser(BaseParser):
                 for class_name in curr_annotations["classes"]:
                     yield {
                         "file": path,
-                        "class": class_name,
-                        "type": "classification",
-                        "value": True,
+                        "annotation": {
+                            "class": class_name,
+                        },
                     }
                 for bbox_class, bbox in curr_annotations["bboxes"]:
                     yield {
                         "file": path,
-                        "class": bbox_class,
-                        "type": "box",
-                        "value": tuple(bbox),
+                        "annotation": {
+                            "class": bbox_class,
+                            "x": bbox[0],
+                            "y": bbox[1],
+                            "w": bbox[2],
+                            "h": bbox[3],
+                        },
                     }
 
         added_images = self._get_added_images(generator())

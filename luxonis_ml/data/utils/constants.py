@@ -1,8 +1,6 @@
 from typing import Union
 
-from luxonis_ml.enums import LabelType
-
-from .enums import DataLabelType
+from .enums import DataLabelType, LabelType
 
 LDF_VERSION = "1.0.0"
 

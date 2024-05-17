@@ -188,14 +188,13 @@ class SOLOParser(BaseParser):
 
                                     yield {
                                         "file": img_path,
-                                        "class": class_name,
-                                        "type": "box",
-                                        "value": (
-                                            xmin / img_w,
-                                            ymin / img_h,
-                                            bbox_w / img_w,
-                                            bbox_h / img_h,
-                                        ),
+                                        "annotation": {
+                                            "class": class_name,
+                                            "x": xmin / img_w,
+                                            "y": ymin / img_h,
+                                            "w": bbox_w / img_w,
+                                            "h": bbox_h / img_h,
+                                        },
                                     }
 
                             if "SemanticSegmentationAnnotation" in annotation_types:
@@ -217,17 +216,15 @@ class SOLOParser(BaseParser):
                                     curr_mask = np.max(curr_mask, axis=2)  # 3D->2D
                                     curr_mask = np.asfortranarray(curr_mask)
                                     curr_rle = mask_util.encode(curr_mask)
-                                    value = (
-                                        curr_rle["size"][0],
-                                        curr_rle["size"][1],
-                                        curr_rle["counts"],
-                                    )
 
                                     yield {
                                         "file": img_path,
-                                        "class": class_name,
-                                        "type": "segmentation",
-                                        "value": value,
+                                        "annotation": {
+                                            "class": class_name,
+                                            "width": curr_rle["size"][0],
+                                            "height": curr_rle["size"][1],
+                                            "counts": curr_rle["counts"],
+                                        },
                                     }
 
                             if "KeypointAnnotation" in annotation_types:
@@ -249,9 +246,10 @@ class SOLOParser(BaseParser):
 
                                     yield {
                                         "file": img_path,
-                                        "class": class_name,
-                                        "type": "keypoints",
-                                        "value": keypoints,
+                                        "annotation": {
+                                            "class": class_name,
+                                            "keypoints": keypoints,
+                                        },
                                     }
 
         added_images = self._get_added_images(generator())

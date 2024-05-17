@@ -159,9 +159,9 @@ class COCOParser(BaseParser):
                     class_name = categories[ann["category_id"]]
                     yield {
                         "file": path,
-                        "class": class_name,
-                        "type": "classification",
-                        "value": True,
+                        "annotation": {
+                            "class": class_name,
+                        },
                     }
 
                     seg = ann["segmentation"]
@@ -178,17 +178,22 @@ class COCOParser(BaseParser):
                             ]
                         yield {
                             "file": path,
-                            "class": class_name,
-                            "type": "polyline",
-                            "value": poly,
+                            "annotation": {
+                                "class": class_name,
+                                "points": poly,
+                            },
                         }
 
                     x, y, w, h = ann["bbox"]
                     yield {
                         "file": path,
-                        "class": class_name,
-                        "type": "box",
-                        "value": (x / img_w, y / img_h, w / img_w, h / img_h),
+                        "annotation": {
+                            "class": class_name,
+                            "x": x / img_w,
+                            "y": y / img_h,
+                            "w": w / img_w,
+                            "h": h / img_h,
+                        },
                     }
 
                     if "keypoints" in ann.keys():
@@ -198,9 +203,10 @@ class COCOParser(BaseParser):
                             keypoints.append((kp[0] / img_w, kp[1] / img_h, int(kp[2])))
                         yield {
                             "file": path,
-                            "class": class_name,
-                            "type": "keypoints",
-                            "value": keypoints,
+                            "annotation": {
+                                "class": class_name,
+                                "keypoints": keypoints,
+                            },
                         }
 
         added_images = self._get_added_images(generator())
