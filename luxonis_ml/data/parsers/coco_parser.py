@@ -191,7 +191,6 @@ class COCOParser(BaseParser):
                         "file": path,
                         "annotation": {
                             "type": "boundingbox",
-                            "task": "task1" if i % 2 else "task2",
                             "class": class_name,
                             "x": x / img_w,
                             "y": y / img_h,
@@ -209,7 +208,6 @@ class COCOParser(BaseParser):
                             "file": path,
                             "annotation": {
                                 "type": "keypoints",
-                                "task": "task1_kpts" if i % 2 else "task2_kpts",
                                 "class": class_name,
                                 "keypoints": keypoints,
                             },
