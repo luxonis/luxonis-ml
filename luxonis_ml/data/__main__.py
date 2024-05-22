@@ -1,3 +1,5 @@
+import hashlib
+import json
 import logging
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -6,6 +8,7 @@ import cv2
 import numpy as np
 import rich.box
 import typer
+import yaml
 from rich import print
 from rich.console import Console
 from rich.panel import Panel
@@ -13,7 +16,13 @@ from rich.rule import Rule
 from rich.table import Table
 from typing_extensions import Annotated
 
-from luxonis_ml.data import LabelType, LuxonisDataset, LuxonisLoader, LuxonisParser
+from luxonis_ml.data import (
+    Augmentations,
+    LabelType,
+    LuxonisDataset,
+    LuxonisLoader,
+    LuxonisParser,
+)
 from luxonis_ml.enums import DatasetType, SplitType
 
 logger = logging.getLogger(__name__)
@@ -130,20 +139,54 @@ def inspect(
             case_sensitive=False,
         ),
     ] = "train",  # type: ignore
+    aug_config: Annotated[
+        Optional[Path],
+        typer.Option(
+            ...,
+            "--aug-config",
+            "-a",
+            help="Path to a config defining augmentations. "
+            "This can be either a json or a yaml file.",
+        ),
+    ] = None,
 ):
     """Inspects images and annotations in a dataset."""
+
+    def _task_to_rgb(string: str) -> tuple:
+        hash_object = hashlib.sha256(string.encode())
+        hex_dig = hash_object.hexdigest()
+        hash_ints = [int(hex_dig[i : i + 2], 16) for i in range(0, len(hex_dig), 2)]
+
+        r = (hash_ints[0] + hash_ints[1] + hash_ints[2]) % 256
+        g = (hash_ints[3] + hash_ints[4] + hash_ints[5]) % 256
+        b = (hash_ints[6] + hash_ints[7] + hash_ints[8]) % 256
+
+        return (r, g, b)
+
+    augmentations = None
+    if aug_config is not None:
+        with open(aug_config) as file:
+            config = (
+                yaml.safe_load(file)
+                if aug_config.suffix == ".yaml"
+                else json.load(file)
+            )
+        augmentations = Augmentations([512, 512], config)
+
     dataset = LuxonisDataset(name)
-    loader = LuxonisLoader(dataset, view=view.value)
+    loader = LuxonisLoader(dataset, view=view.value, augmentations=augmentations)
     for image, ann in loader:
-        for arr, label_type in ann.values():
+        image = image.astype(np.uint8)
+
+        for task, (arr, label_type) in ann.items():
             h, w, _ = image.shape
-            if label_type == LabelType.DETECTION:
+            if label_type == LabelType.BOUNDINGBOX:
                 for box in arr:
                     cv2.rectangle(
                         image,
                         (int(box[1] * w), int(box[2] * h)),
                         (int(box[1] * w + box[3] * w), int(box[2] * h + box[4] * h)),
-                        (255, 0, 0),
+                        _task_to_rgb(task),
                         2,
                     )
             if label_type == LabelType.SEGMENTATION:
@@ -152,12 +195,16 @@ def inspect(
                     mask_viz[mask == 1] = 255 / len(arr) * (i + 1)
                 image = cv2.addWeighted(image, 0.5, mask_viz, 0.5, 0)
 
-            if label_type == LabelType.KEYPOINTS:
+            if label_type == LabelType.KEYPOINT:
                 for kp in arr:
                     kp = kp[1:].reshape(-1, 3)
                     for k in kp:
                         cv2.circle(
-                            image, (int(k[0] * w), int(k[1] * h)), 2, (0, 255, 0), 2
+                            image,
+                            (int(k[0] * w), int(k[1] * h)),
+                            2,
+                            _task_to_rgb(task),
+                            2,
                         )
 
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)

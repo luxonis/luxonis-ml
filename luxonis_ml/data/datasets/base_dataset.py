@@ -29,6 +29,15 @@ class BaseDataset(
         pass
 
     @abstractmethod
+    def get_tasks(self) -> List[str]:
+        """Returns the list of tasks in the dataset.
+
+        @rtype: List[str]
+        @return: List of task names.
+        """
+        pass
+
+    @abstractmethod
     def update_source(self, source: LuxonisSource) -> None:
         """Updates underlying source of the dataset with a new LuxonisSource.
 

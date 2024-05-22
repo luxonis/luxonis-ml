@@ -125,6 +125,7 @@ class YoloV6Parser(BaseParser):
                     yield {
                         "file": str(img_path),
                         "annotation": {
+                            "type": "classification",
                             "class": class_name,
                         },
                     }
@@ -132,6 +133,7 @@ class YoloV6Parser(BaseParser):
                     yield {
                         "file": str(img_path),
                         "annotation": {
+                            "type": "boundingbox",
                             "class": class_name,
                             "x": float(x_center) - float(width) / 2,
                             "y": float(y_center) - float(height) / 2,

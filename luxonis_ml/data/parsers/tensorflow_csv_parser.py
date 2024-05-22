@@ -108,6 +108,7 @@ class TensorflowCSVParser(BaseParser):
                     yield {
                         "file": path,
                         "annotation": {
+                            "type": "classification",
                             "class": class_name,
                         },
                     }
@@ -115,6 +116,7 @@ class TensorflowCSVParser(BaseParser):
                     yield {
                         "file": path,
                         "annotation": {
+                            "type": "boundingbox",
                             "class": bbox_class,
                             "x": x,
                             "y": y,

@@ -189,6 +189,7 @@ class SOLOParser(BaseParser):
                                     yield {
                                         "file": img_path,
                                         "annotation": {
+                                            "type": "boundingbox",
                                             "class": class_name,
                                             "x": xmin / img_w,
                                             "y": ymin / img_h,
@@ -220,6 +221,7 @@ class SOLOParser(BaseParser):
                                     yield {
                                         "file": img_path,
                                         "annotation": {
+                                            "type": "rle",
                                             "class": class_name,
                                             "width": curr_rle["size"][0],
                                             "height": curr_rle["size"][1],
@@ -247,6 +249,7 @@ class SOLOParser(BaseParser):
                                     yield {
                                         "file": img_path,
                                         "annotation": {
+                                            "type": "keypoints",
                                             "class": class_name,
                                             "keypoints": keypoints,
                                         },

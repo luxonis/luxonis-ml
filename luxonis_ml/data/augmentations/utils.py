@@ -14,7 +14,14 @@ AUGMENTATIONS = Registry(name="augmentations")
 
 
 class Augmentations:
-    def __init__(self, train_rgb: bool = True):
+    def __init__(
+        self,
+        image_size: List[int],
+        augmentations: List[Dict[str, Any]],
+        train_rgb: bool = True,
+        keep_aspect_ratio: bool = True,
+        only_normalize: bool = False,
+    ):
         """Base class for augmentations that are used in LuxonisLoader.
 
         @type train_rgb: bool
@@ -25,6 +32,14 @@ class Augmentations:
 
         self.is_batched = False
         self.aug_batch_size = 1
+
+        self.batch_transform, self.spatial_transform = self._parse_cfg(
+            image_size=image_size,
+            augmentations=[a for a in augmentations if a["name"] == "Normalize"]
+            if only_normalize
+            else augmentations,
+            keep_aspect_ratio=keep_aspect_ratio,
+        )
 
     def _parse_cfg(
         self,
@@ -106,7 +121,6 @@ class Augmentations:
     def __call__(
         self,
         data: List[Tuple[np.ndarray, Dict[str, Dict[LabelType, np.ndarray]]]],
-        nc: int = 1,
         ns: int = 1,
         nk: int = 1,
     ) -> Tuple[np.ndarray, Dict[LabelType, np.ndarray]]:
@@ -377,65 +391,6 @@ class Augmentations:
             if kp[2] == 0:  # per COCO format invisible points have x=y=0
                 kp[0] = kp[1] = 0
         return keypoints
-
-
-class TrainAugmentations(Augmentations):
-    def __init__(
-        self,
-        image_size: List[int],
-        augmentations: List[Dict[str, Any]],
-        train_rgb: bool = True,
-        keep_aspect_ratio: bool = True,
-    ):
-        """Class for train augmentations.
-
-        @type image_size: List[int]
-        @param image_size: Desired image size [H,W].
-        @type augmentations: List[Dict[str, Any]]
-        @param augmentations: List of augmentations to use and their params.
-        @type train_rgb: bool
-        @param train_rgb: Whether should use RGB or BGR images.
-        @type keep_aspect_ratio: bool
-        @param keep_aspect_ratio: Whether should use resize that keeps aspect ratio of
-            original image.
-        """
-        super().__init__(train_rgb=train_rgb)
-
-        self.batch_transform, self.spatial_transform = self._parse_cfg(
-            image_size=image_size,
-            augmentations=augmentations,
-            keep_aspect_ratio=keep_aspect_ratio,
-        )
-
-
-class ValAugmentations(Augmentations):
-    def __init__(
-        self,
-        image_size: List[int],
-        augmentations: List[Dict[str, Any]],
-        train_rgb: bool = True,
-        keep_aspect_ratio: bool = True,
-    ):
-        """Class for validation augmentations which performs only normalization (if
-        present) and resize.
-
-        @type image_size: List[int]
-        @param image_size: Desired image size [H,W].
-        @type augmentations: List[Dict[str, Any]]
-        @param augmentations: List of augmentations to use and their params.
-        @type train_rgb: bool
-        @param train_rgb: Whether should use RGB or BGR images.
-        @type keep_aspect_ratio: bool
-        @param keep_aspect_ratio: Whether should use resize that keeps aspect ratio of
-            original image.
-        """
-        super().__init__(train_rgb=train_rgb)
-
-        self.batch_transform, self.spatial_transform = self._parse_cfg(
-            image_size=image_size,
-            augmentations=[a for a in augmentations if a["name"] == "Normalize"],
-            keep_aspect_ratio=keep_aspect_ratio,
-        )
 
 
 # Registering all supported transforms

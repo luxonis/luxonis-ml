@@ -685,3 +685,6 @@ class LuxonisDataset(BaseDataset):
             datasets = {}
 
         return datasets
+
+    def get_tasks(self) -> List[str]:
+        return list(self.get_classes()[1].keys())

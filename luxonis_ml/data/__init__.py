@@ -3,7 +3,7 @@ import pkg_resources
 from ..guard_extras import guard_missing_extra
 
 with guard_missing_extra("data"):
-    from .augmentations import Augmentations, TrainAugmentations, ValAugmentations
+    from .augmentations import Augmentations
     from .datasets import (
         DATASETS_REGISTRY,
         BaseDataset,
@@ -49,6 +49,4 @@ __all__ = [
     "LuxonisParser",
     "LuxonisSource",
     "MediaType",
-    "TrainAugmentations",
-    "ValAugmentations",
 ]

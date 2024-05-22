@@ -109,6 +109,7 @@ class YoloV4Parser(BaseParser):
                     yield {
                         "file": file,
                         "annotation": {
+                            "type": "classification",
                             "class": class_name,
                         },
                     }
@@ -117,6 +118,7 @@ class YoloV4Parser(BaseParser):
                     yield {
                         "file": file,
                         "annotation": {
+                            "type": "boundingbox",
                             "class": class_name,
                             "x": bbox_xyxy[0] / width,
                             "y": bbox_xyxy[1] / height,

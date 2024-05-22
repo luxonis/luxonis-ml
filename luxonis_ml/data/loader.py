@@ -1,7 +1,6 @@
 import glob
 import json
 import logging
-import os
 import random
 import warnings
 from abc import ABC, abstractmethod
@@ -17,8 +16,8 @@ from .datasets import Annotation, LuxonisDataset, load_annotation
 from .utils.enums import BucketStorage, LabelType
 
 Labels: TypeAlias = Dict[str, Tuple[np.ndarray, LabelType]]
-"""C{Labels} is a dictionary of a label type and its annotations as L{numpy
-arrays<np.ndarray>}."""
+"""C{Labels} is a dictionary mappping task names to their L{LabelType} and annotations
+as L{numpy arrays<np.ndarray>}."""
 
 
 LuxonisLoaderOutput: TypeAlias = Tuple[np.ndarray, Labels]
@@ -85,12 +84,12 @@ class LuxonisLoader(BaseLoader):
         if self.sync_mode:
             self.logger.info("Syncing from cloud...")
             self.dataset.sync_from_cloud()
-            classes_file = os.path.join(self.dataset.metadata_path, "classes.json")
+            classes_file = self.dataset.metadata_path / "classes.json"
             with open(classes_file) as file:
                 synced_classes = json.load(file)
             for task in synced_classes:
                 self.dataset.set_classes(classes=synced_classes[task], task=task)
-            skeletons_file = os.path.join(self.dataset.metadata_path, "skeletons.json")
+            skeletons_file = self.dataset.metadata_path / "skeletons.json"
             try:
                 with open(skeletons_file, "r") as file:
                     synced_skeletons = json.load(file)
@@ -128,8 +127,8 @@ class LuxonisLoader(BaseLoader):
         self.augmentations = augmentations
 
         if self.view in ["train", "val", "test"]:
-            splits_path = os.path.join(dataset.metadata_path, "splits.json")
-            if not os.path.exists(splits_path):
+            splits_path = dataset.metadata_path / "splits.json"
+            if not splits_path.exists():
                 raise Exception(
                     "Cannot find splits! Ensure you call dataset.make_splits()"
                 )
@@ -164,34 +163,47 @@ class LuxonisLoader(BaseLoader):
             annotations.
         """
 
-        img, group_annotations = self._load_image_with_annotations(idx)
+        if self.augmentations is None:
+            return self._load_image_with_annotations(idx)
 
-        for task_group in list(group_annotations.keys()):
-            annotations = group_annotations[task_group]
-            if self.augmentations is not None:
-                aug_input_data = [(img, annotations)]
-                if self.augmentations.is_batched:
-                    other_indices = [i for i in range(len(self)) if i != idx]
-                    if self.augmentations.aug_batch_size > len(self):
-                        warnings.warn(
-                            f"Augmentations batch_size ({self.augmentations.aug_batch_size}) is larger than dataset size ({len(self)}), samples will include repetitions."
-                        )
-                        random_fun = random.choices
-                    else:
-                        random_fun = random.sample
-                    picked_indices = random_fun(
-                        other_indices, k=self.augmentations.aug_batch_size - 1
-                    )
-                    for i in picked_indices:
-                        _img, _group_annotations = self._load_image_with_annotations(i)
-                        aug_input_data.append((_img, _group_annotations[task_group]))
-
-                img, annotations = self.augmentations(
-                    aug_input_data, nc=self.nc, ns=self.ns, nk=self.max_nk
+        indices = [idx]
+        if self.augmentations.is_batched:
+            other_indices = [i for i in range(len(self)) if i != idx]
+            if self.augmentations.aug_batch_size > len(self):
+                warnings.warn(
+                    f"Augmentations batch_size ({self.augmentations.aug_batch_size}) is larger than dataset size ({len(self)}), samples will include repetitions."
                 )
-                group_annotations[task_group] = annotations
+                random_fun = random.choices
+            else:
+                random_fun = random.sample
+            picked_indices = random_fun(
+                other_indices, k=self.augmentations.aug_batch_size - 1
+            )
+            indices.extend(picked_indices)
 
-        return img, group_annotations
+        out_dict: Dict[str, Tuple[np.ndarray, LabelType]] = {}
+        loaded_anns = [self._load_image_with_annotations(i) for i in indices]
+        while loaded_anns[0][1]:
+            aug_input_data = []
+            label_to_task = {}
+            for i in range(len(loaded_anns)):
+                img, annotations = loaded_anns[i]
+
+                label_dict: Dict[LabelType, np.ndarray] = {}
+                for task in list(annotations.keys()):
+                    array, label_type = annotations[task]
+                    if label_type not in label_dict:
+                        label_dict[label_type] = array
+                        label_to_task[label_type] = task
+                        annotations.pop(task)
+
+                aug_input_data.append((img, label_dict))
+
+            img, aug_annotations = self.augmentations(aug_input_data, nk=self.max_nk)
+            for label_type, array in aug_annotations.items():
+                out_dict[label_to_task[label_type]] = (array, label_type)
+
+        return img, out_dict
 
     def _load_image_with_annotations(self, idx: int) -> Tuple[np.ndarray, Labels]:
         """Loads image and its annotations based on index.
@@ -210,7 +222,7 @@ class LuxonisLoader(BaseLoader):
             img_path = list(matched["original_filepath"])[0]
         else:
             if self.dataset.bucket_storage == BucketStorage.LOCAL or not self.stream:
-                img_path = os.path.join(self.dataset.media_path, f"{instance_id}.*")
+                img_path = self.dataset.media_path / f"{instance_id}.*"
                 img_path = glob.glob(img_path)[0]
             else:
                 # TODO: add support for streaming remote storage

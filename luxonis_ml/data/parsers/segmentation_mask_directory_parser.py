@@ -110,6 +110,7 @@ class SegmentationMaskDirectoryParser(BaseParser):
                     yield {
                         "file": file,
                         "annotation": {
+                            "type": "classification",
                             "class": class_name,
                         },
                     }
@@ -123,6 +124,7 @@ class SegmentationMaskDirectoryParser(BaseParser):
                     yield {
                         "file": file,
                         "annotation": {
+                            "type": "rle",
                             "class": class_name,
                             "width": curr_rle["size"][0],
                             "height": curr_rle["size"][1],

@@ -26,7 +26,7 @@ def prepare_dir():
             DatasetType.COCO,
             "COCO_people_subset.zip",
             [
-                LabelType.DETECTION,
+                LabelType.BOUNDINGBOX,
                 LabelType.KEYPOINTS,
                 LabelType.SEGMENTATION,
                 LabelType.CLASSIFICATION,
@@ -35,32 +35,32 @@ def prepare_dir():
         (
             DatasetType.VOC,
             "Thermal_Dogs_and_People.v1-resize-416x416.voc.zip",
-            [LabelType.DETECTION, LabelType.CLASSIFICATION],
+            [LabelType.BOUNDINGBOX, LabelType.CLASSIFICATION],
         ),
         (
             DatasetType.DARKNET,
             "Thermal_Dogs_and_People.v1-resize-416x416.darknet.zip",
-            [LabelType.DETECTION, LabelType.CLASSIFICATION],
+            [LabelType.BOUNDINGBOX, LabelType.CLASSIFICATION],
         ),
         (
             DatasetType.YOLOV4,
             "Thermal_Dogs_and_People.v1-resize-416x416.yolov4pytorch.zip",
-            [LabelType.DETECTION, LabelType.CLASSIFICATION],
+            [LabelType.BOUNDINGBOX, LabelType.CLASSIFICATION],
         ),
         (
             DatasetType.YOLOV6,
             "Thermal_Dogs_and_People.v1-resize-416x416.mt-yolov6.zip",
-            [LabelType.DETECTION, LabelType.CLASSIFICATION],
+            [LabelType.BOUNDINGBOX, LabelType.CLASSIFICATION],
         ),
         (
             DatasetType.CREATEML,
             "Thermal_Dogs_and_People.v1-resize-416x416.createml.zip",
-            [LabelType.DETECTION, LabelType.CLASSIFICATION],
+            [LabelType.BOUNDINGBOX, LabelType.CLASSIFICATION],
         ),
         (
             DatasetType.TFCSV,
             "Thermal_Dogs_and_People.v1-resize-416x416.tensorflow.zip",
-            [LabelType.DETECTION, LabelType.CLASSIFICATION],
+            [LabelType.BOUNDINGBOX, LabelType.CLASSIFICATION],
         ),
         (
             DatasetType.SEGMASK,
@@ -75,7 +75,7 @@ def prepare_dir():
         (
             DatasetType.SOLO,
             "D1_ParkingSlot-solo.zip",
-            [LabelType.DETECTION, LabelType.SEGMENTATION],
+            [LabelType.BOUNDINGBOX, LabelType.SEGMENTATION],
         ),
     ],
 )

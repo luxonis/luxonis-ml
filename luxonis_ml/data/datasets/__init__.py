@@ -4,8 +4,10 @@ from .annotation import (
     BBoxAnnotation,
     ClassificationAnnotation,
     KeypointAnnotation,
+    LabelAnnotation,
     PolylineSegmentationAnnotation,
     RLESegmentationAnnotation,
+    load_annotation,
 )
 from .base_dataset import (
     DATASETS_REGISTRY,
@@ -29,5 +31,6 @@ __all__ = [
     "RLESegmentationAnnotation",
     "PolylineSegmentationAnnotation",
     "ArrayAnnotation",
-    "LabelAnnotation" "load_annotation",
+    "LabelAnnotation",
+    "load_annotation",
 ]

@@ -59,7 +59,10 @@ def setup_logging(
         _console = Console(theme=_theme)
         handlers.append(
             RichHandler(
-                rich_tracebacks=True, console=_console, omit_repeated_times=False
+                rich_tracebacks=True,
+                tracebacks_show_locals=False,
+                console=_console,
+                omit_repeated_times=False,
             )
         )
     else:

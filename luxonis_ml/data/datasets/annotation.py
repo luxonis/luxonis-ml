@@ -50,7 +50,7 @@ class Annotation(ABC, BaseModelExtraForbid):
         return values
 
     def get_value(self) -> Dict[str, Any]:
-        return self.dict(exclude={"class_", "class_id", "instance_id", "task"})
+        return self.dict(exclude={"class_", "class_id", "instance_id", "task", "type_"})
 
     @staticmethod
     @abstractmethod
@@ -65,6 +65,7 @@ class Annotation(ABC, BaseModelExtraForbid):
 
 class ClassificationAnnotation(Annotation):
     _label_type = LabelType.CLASSIFICATION
+    type_: Literal["classification"] = Field("classification", alias="type")
 
     @staticmethod
     def combine_to_numpy(
@@ -78,12 +79,14 @@ class ClassificationAnnotation(Annotation):
 
 
 class BBoxAnnotation(Annotation):
+    type_: Literal["boundingbox"] = Field("boundingbox", alias="type")
+
     x: float
     y: float
     w: float
     h: float
 
-    _label_type = LabelType.DETECTION
+    _label_type = LabelType.BOUNDINGBOX
 
     @staticmethod
     def combine_to_numpy(
@@ -97,6 +100,8 @@ class BBoxAnnotation(Annotation):
 
 
 class KeypointAnnotation(Annotation):
+    type_: Literal["keypoints"] = Field("keypoints", alias="type")
+
     keypoints: List[Tuple[float, float, KeypointVisibility]]
 
     _label_type = LabelType.KEYPOINTS
@@ -118,6 +123,8 @@ class SegmentationAnnotation(Annotation):
 
 
 class RLESegmentationAnnotation(SegmentationAnnotation):
+    type_: Literal["rle"] = Field("rle", alias="type")
+
     height: PositiveInt
     width: PositiveInt
     counts: Union[List[PositiveInt], bytes]
@@ -164,6 +171,8 @@ class RLESegmentationAnnotation(SegmentationAnnotation):
 
 
 class PolylineSegmentationAnnotation(SegmentationAnnotation):
+    type_: Literal["polyline"] = Field("polyline", alias="type")
+
     points: List[Tuple[float, float]] = Field(min_length=3)
 
     @staticmethod
@@ -188,15 +197,19 @@ class PolylineSegmentationAnnotation(SegmentationAnnotation):
 
 
 class ArrayAnnotation(Annotation):
-    _label_type = LabelType.ARRAY
+    type_: Literal["array"] = Field("array", alias="type")
 
     path: FilePath
 
+    _label_type = LabelType.ARRAY
+
 
 class LabelAnnotation(Annotation):
-    _label_type = LabelType.LABEL
+    type_: Literal["label"] = Field("label", alias="type")
 
     value: Union[bool, int, float, str]
+
+    _label_type = LabelType.LABEL
 
 
 class DatasetRecord(BaseModelExtraForbid):
@@ -211,7 +224,7 @@ class DatasetRecord(BaseModelExtraForbid):
             ArrayAnnotation,
             LabelAnnotation,
         ]
-    ] = None
+    ] = Field(None, discriminator="type_")
 
     def to_parquet(self) -> ParquetDict:
         """Converts an annotation to a dictionary for writing to a parquet file.

@@ -155,11 +155,12 @@ class COCOParser(BaseParser):
                 img_h = img["height"]
                 img_w = img["width"]
 
-                for ann in img_anns:
+                for i, ann in enumerate(img_anns):
                     class_name = categories[ann["category_id"]]
                     yield {
                         "file": path,
                         "annotation": {
+                            "type": "classification",
                             "class": class_name,
                         },
                     }
@@ -179,6 +180,7 @@ class COCOParser(BaseParser):
                         yield {
                             "file": path,
                             "annotation": {
+                                "type": "polyline",
                                 "class": class_name,
                                 "points": poly,
                             },
@@ -188,6 +190,8 @@ class COCOParser(BaseParser):
                     yield {
                         "file": path,
                         "annotation": {
+                            "type": "boundingbox",
+                            "task": "task1" if i % 2 else "task2",
                             "class": class_name,
                             "x": x / img_w,
                             "y": y / img_h,
@@ -204,6 +208,8 @@ class COCOParser(BaseParser):
                         yield {
                             "file": path,
                             "annotation": {
+                                "type": "keypoints",
+                                "task": "task1_kpts" if i % 2 else "task2_kpts",
                                 "class": class_name,
                                 "keypoints": keypoints,
                             },

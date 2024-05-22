@@ -123,6 +123,7 @@ class VOCParser(BaseParser):
                     yield {
                         "file": path,
                         "annotation": {
+                            "type": "classification",
                             "class": class_name,
                         },
                     }
@@ -130,6 +131,7 @@ class VOCParser(BaseParser):
                     yield {
                         "file": path,
                         "annotation": {
+                            "type": "boundingbox",
                             "class": bbox_class,
                             "x": bbox[0],
                             "y": bbox[1],
