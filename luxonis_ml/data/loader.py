@@ -112,7 +112,6 @@ class LuxonisLoader(BaseLoader):
             sync_mode=self.sync_mode
         )
         self.augmentations = augmentations
-
         if self.view in ["train", "val", "test"]:
             splits_path = dataset.metadata_path / "splits.json"
             if not splits_path.exists():
@@ -177,8 +176,6 @@ class LuxonisLoader(BaseLoader):
             label_to_task = {}
             nk = 0
             for img, annotations in loaded_anns:
-                # img, annotations = loaded_anns[i]
-
                 label_dict: Dict[LabelType, np.ndarray] = {}
                 for task in sorted(list(annotations.keys())):
                     array, label_type = annotations[task]
@@ -191,15 +188,14 @@ class LuxonisLoader(BaseLoader):
 
                 aug_input_data.append((img, label_dict))
 
-            # to ensure the same augmentation is applied to all samples
+            # NOTE: To ensure the same augmentation is applied to all samples
+            # in case of multiple tasks per LabelType
             random.setstate(random_state)
             np.random.set_state(np_random_state)
 
             img, aug_annotations = self.augmentations(aug_input_data, nk=nk)
             for label_type, array in aug_annotations.items():
                 out_dict[label_to_task[label_type]] = (array, label_type)
-
-        random.randint(0, 100)  # to change the random state
 
         return img, out_dict
 
