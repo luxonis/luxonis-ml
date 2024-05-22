@@ -40,7 +40,7 @@ class Annotation(ABC, BaseModelExtraForbid):
 
     task: str
     class_: str = Field("", alias="class")
-    # instance_id: Optional[int] = None
+    instance_id: int = -1
 
     @model_validator(mode="before")
     @classmethod
@@ -242,9 +242,9 @@ class DatasetRecord(BaseModelExtraForbid):
             "class": self.annotation.class_ or ""
             if self.annotation is not None
             else "",
-            # "instance_id": self.annotation.instance_id or -1
-            # if self.annotation is not None
-            # else -1,
+            "instance_id": self.annotation.instance_id or -1
+            if self.annotation is not None
+            else -1,
             "task": self.annotation.task if self.annotation is not None else "",
             "annotation": json_value,
         }

@@ -128,7 +128,7 @@ class LuxonisLoader(BaseLoader):
         if df is None:
             raise Exception("Cannot find dataframe")
         self.df = df
-        self.df.set_index(["instance_id"], inplace=True)
+        self.df.set_index(["uuid"], inplace=True)
 
     def __len__(self) -> int:
         """Returns length of the dataset.
@@ -209,14 +209,14 @@ class LuxonisLoader(BaseLoader):
             present annotations
         """
 
-        instance_id = self.instances[idx]
-        df = self.df.loc[instance_id]
+        uuid = self.instances[idx]
+        df = self.df.loc[uuid]
         if self.dataset.bucket_storage == BucketStorage.LOCAL:
-            matched = self.file_index[self.file_index["instance_id"] == instance_id]
+            matched = self.file_index[self.file_index["uuid"] == uuid]
             img_path = list(matched["original_filepath"])[0]
         else:
             if not self.stream:
-                img_path = next(self.dataset.media_path.glob(f"{instance_id}.*"))
+                img_path = next(self.dataset.media_path.glob(f"{uuid}.*"))
             else:
                 # TODO: add support for streaming remote storage
                 raise NotImplementedError(
@@ -237,14 +237,19 @@ class LuxonisLoader(BaseLoader):
             class_mapping = {
                 class_: i for i, class_ in enumerate(self.classes_by_task[task])
             }
-            for _, row in sub_df.iterrows():
+            for i, (_, row) in enumerate(sub_df.iterrows()):
                 type_ = row["type"]
                 class_ = row["class"]
+                instance_id = row["instance_id"]
+                instance_id = instance_id if instance_id > 0 else i
                 annotation = load_annotation(
-                    type_, row["annotation"], {"class": class_, "task": task}
+                    type_,
+                    row["annotation"],
+                    {"class": class_, "task": task, "instance_id": instance_id},
                 )
                 annotations.append(annotation)
             assert annotations, f"No annotations found for task {task}"
+            annotations.sort(key=lambda x: x.instance_id)
             array = annotations[0].combine_to_numpy(
                 annotations, class_mapping, width=width, height=height
             )

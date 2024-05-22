@@ -134,7 +134,7 @@ class LuxonisDataset(BaseDataset):
 
         df = self._load_df_offline(self.bucket_storage != BucketStorage.LOCAL)
         if df is not None:
-            return len(set(df["instance_id"]))
+            return len(set(df["uuid"]))
         else:
             return 0
 
@@ -193,7 +193,7 @@ class LuxonisDataset(BaseDataset):
         else:
             return None
 
-    def _find_filepath_instance_id(
+    def _find_filepath_uuid(
         self, filepath: Path, index: Optional[pd.DataFrame]
     ) -> Optional[str]:
         if index is None:
@@ -203,7 +203,7 @@ class LuxonisDataset(BaseDataset):
         if abs_path in list(index["original_filepath"]):
             matched = index[index["original_filepath"] == abs_path]
             if len(matched):
-                return list(matched["instance_id"])[0]
+                return list(matched["uuid"])[0]
         else:
             return None
 
@@ -447,20 +447,20 @@ class LuxonisDataset(BaseDataset):
                     filepath = ann.file
                     file = filepath.name
                     uuid = uuid_dict[str(filepath)]
-                    matched_id = self._find_filepath_instance_id(filepath, index)
+                    matched_id = self._find_filepath_uuid(filepath, index)
                     if matched_id is not None:
                         if matched_id != uuid:
                             # TODO: not sure if this should be an exception or how we should really handle it
                             raise Exception(
                                 f"{filepath} already added to the dataset! Please skip or rename the file."
                             )
-                            # TODO: we may also want to check for duplicate instance_ids to get a one-to-one relationship
-                    elif uuid not in new_index["instance_id"]:
-                        new_index["instance_id"].append(uuid)
+                            # TODO: we may also want to check for duplicate uuids to get a one-to-one relationship
+                    elif uuid not in new_index["uuid"]:
+                        new_index["uuid"].append(uuid)
                         new_index["file"].append(file)
                         new_index["original_filepath"].append(str(filepath.absolute()))
 
-                    self.pfm.write({"instance_id": uuid, **ann.to_parquet()})
+                    self.pfm.write({"uuid": uuid, **ann.to_parquet()})
                     self.progress.update(task, advance=1)
                 self.progress.stop()
 
@@ -473,7 +473,7 @@ class LuxonisDataset(BaseDataset):
             self.pfm = ParquetFileManager(str(annotations_dir))
 
         index = self._get_file_index()
-        new_index = {"instance_id": [], "file": [], "original_filepath": []}
+        new_index = {"uuid": [], "file": [], "original_filepath": []}
 
         batch_data: list[DatasetRecord] = []
 
@@ -550,7 +550,7 @@ class LuxonisDataset(BaseDataset):
 
             df = self._load_df_offline()
             assert df is not None
-            ids: list[str] = list(set(df["instance_id"]))
+            ids: list[str] = list(set(df["uuid"]))
             np.random.shuffle(ids)
             N = len(ids)
             b1 = round(N * ratios[0])
@@ -571,7 +571,7 @@ class LuxonisDataset(BaseDataset):
                 if not isinstance(filepaths, list):
                     raise Exception("Must provide splits as a list of str")
                 ids = [
-                    self._find_filepath_instance_id(Path(filepath), index)
+                    self._find_filepath_uuid(Path(filepath), index)
                     for filepath in filepaths
                 ]
                 new_splits[split] = ids
