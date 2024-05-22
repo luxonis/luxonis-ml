@@ -97,7 +97,6 @@ class LuxonisDataset(BaseDataset):
                 "source": self.source.to_document(),
                 "ldf_version": LDF_VERSION,
                 "classes": {},
-                "skeletons": {},
             }
             self._write_datasets()
 
@@ -291,40 +290,6 @@ class LuxonisDataset(BaseDataset):
             self.fs.put_file(local_file, "metadata/classes.json")
             self._remove_temp_dir()
 
-    # TODO: method to auto-set classes per-task using pandas
-
-    def set_skeletons(self, skeletons: Dict[str, Dict]) -> None:
-        """Sets the semantic structure of keypoint skeletons for the classes that use
-        keypoints.
-
-        @type skeletons: Dict[str, Dict]
-        @param skeletons: A dict mapping class name to keypoint "labels" and "edges"
-            between keypoints.
-            The length of the "labels" determines the official number of keypoints.
-            The inclusion of "edges" is optional.
-
-            Example::
-
-                {
-                    "person": {
-                        "labels": ["right hand", "right shoulder", ...]
-                        "edges" [[0, 1], [4, 5], ...]
-                    }
-                }
-        """
-
-        self.datasets[self.dataset_name]["skeletons"] = skeletons
-        self._write_datasets()
-
-        if self.bucket_storage != BucketStorage.LOCAL:
-            skeletons_json = self.datasets[self.dataset_name]["skeletons"]
-            self._make_temp_dir()
-            local_file = self.tmp_dir / "skeletons.json"
-            with open(local_file, "w") as file:
-                json.dump(skeletons_json, file, indent=4)
-            self.fs.put_file(local_file, "metadata/skeletons.json")
-            self._remove_temp_dir()
-
     def sync_from_cloud(self) -> None:
         """Downloads data from a remote cloud bucket."""
 
@@ -367,37 +332,11 @@ class LuxonisDataset(BaseDataset):
             task_classes = classes_json[task]
             if len(task_classes):
                 classes_by_task[task] = task_classes
-                for cls in task_classes:
-                    classes.add(cls)
-        classes = list(classes)
-        classes.sort()
+                for cls_ in task_classes:
+                    classes.add(cls_)
+        classes = sorted(list(classes))
 
         return classes, classes_by_task
-
-    def get_skeletons(self, sync_mode: bool = False) -> Dict[str, Dict]:
-        """Returns the dictionary defining the semantic skeleton for each class using
-        keypoints.
-
-        @rtype: Dict[str, Dict]
-        @return: A dictionary mapping classes to their skeleton definitions.
-        """
-        if sync_mode:
-            local_file = self.metadata_path / "skeletons.json"
-            if not os.path.exists(local_file):
-                self.logger.warning("Skeletons file not found at %s", local_file)
-                return {}
-            self.fs.get_file("metadata/skeletons.json", local_file)
-            with open(local_file) as file:
-                skeletons = json.load(file)
-        else:
-            if "skeletons" not in self.datasets[self.dataset_name]:
-                self.logger.warning(
-                    "No skeletons data available for dataset %s", self.dataset_name
-                )
-                return {}
-            skeletons = self.datasets[self.dataset_name]["skeletons"]
-
-        return skeletons
 
     def delete_dataset(self) -> None:
         """Deletes all local files belonging to the dataset."""
@@ -538,12 +477,17 @@ class LuxonisDataset(BaseDataset):
 
         batch_data: list[DatasetRecord] = []
 
-        classes_per_tasks: Dict[str, Set[str]] = defaultdict(set)
+        classes_per_task: Dict[str, Set[str]] = defaultdict(set)
+        num_kpts_per_task: Dict[str, int] = {}
 
         for i, data in enumerate(generator, start=1):
             record = data if isinstance(data, DatasetRecord) else DatasetRecord(**data)
             if record.annotation is not None:
-                classes_per_tasks[record.annotation.task].add(record.annotation.class_)
+                classes_per_task[record.annotation.task].add(record.annotation.class_)
+                if record.annotation.type_ == "keypoints":
+                    num_kpts_per_task[record.annotation.task] = len(
+                        record.annotation.keypoints
+                    )
 
             batch_data.append(record)
             if i % batch_size == 0:
@@ -553,8 +497,10 @@ class LuxonisDataset(BaseDataset):
         _add_process_batch(batch_data)
 
         _, curr_classes = self.get_classes()
+        # print(num_kpts_per_task)
+        # exit()
         if not curr_classes:
-            for task, classes in classes_per_tasks.items():
+            for task, classes in classes_per_task.items():
                 self.set_classes(list(classes), task)
                 self.logger.info(f"Detected classes for task {task}: {list(classes)}")
 

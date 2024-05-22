@@ -82,9 +82,8 @@ class BaseParser(ABC):
         @rtype: List[str]
         @return: List of added images.
         """
-        generator, _, skeletons, added_images = self.from_split(**kwargs)
+        generator, _, _, added_images = self.from_split(**kwargs)
         self.dataset.add(generator)
-        self.dataset.set_skeletons(skeletons)
 
         return added_images
 

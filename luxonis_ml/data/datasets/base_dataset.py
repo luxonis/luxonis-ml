@@ -16,6 +16,19 @@ KeypointVisibility: TypeAlias = Literal[0, 1, 2]
 ParquetDict: TypeAlias = Dict[str, Any]
 
 
+# class Metadata(BaseModel):
+#     """Metadata for a dataset."""
+#
+#     classes: Dict[str, List[str]]
+#     n_keypoints: Dict[str, int]
+#     # keypoint_names: Dict[str, List[str]]
+#     # keypoint_skeletons: Dict[str, List[Tuple[int, int]]]
+#
+#     @property
+#     def all_classes(self) -> List[str]:
+#         return list(set(c for classes in self.classes.values() for c in classes))
+
+
 class BaseDataset(
     ABC, metaclass=AutoRegisterMeta, registry=DATASETS_REGISTRY, register=False
 ):
@@ -59,29 +72,7 @@ class BaseDataset(
         pass
 
     @abstractmethod
-    def set_skeletons(self, skeletons: Dict[str, Dict]) -> None:
-        """Sets the semantic structure of keypoint skeletons for the classes that use
-        keypoints.
-
-        @type skeletons: Dict[str, Dict]
-        @param skeletons: A dict mapping class name to keypoint "labels" and "edges"
-            between keypoints.
-            The length of the "labels" determines the official number of keypoints.
-            The inclusion of "edges" is optional.
-
-            Example::
-
-                {
-                    "person": {
-                        "labels": ["right hand", "right shoulder", ...]
-                        "edges" [[0, 1], [4, 5], ...]
-                    }
-                }
-        """
-        pass
-
-    @abstractmethod
-    def get_classes(self) -> Tuple[List[str], Dict]:
+    def get_classes(self) -> Tuple[List[str], Dict[str, List[str]]]:
         """Gets overall classes in the dataset and classes according to computer vision
         task.
 
@@ -91,16 +82,6 @@ class BaseDataset(
         @rtype: Tuple[List[str], Dict]
         @return: A combined list of classes for all tasks and a dictionary mapping tasks
             to the classes used in each task.
-        """
-        pass
-
-    @abstractmethod
-    def get_skeletons(self) -> Dict[str, Dict]:
-        """Returns the dictionary defining the semantic skeleton for each class using
-        keypoints.
-
-        @rtype: Dict[str, Dict]
-        @return: A dictionary mapping classes to their skeleton definitions.
         """
         pass
 
