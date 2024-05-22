@@ -153,13 +153,10 @@ def inspect(
     """Inspects images and annotations in a dataset."""
 
     def _task_to_rgb(string: str) -> tuple:
-        hash_object = hashlib.sha256(string.encode())
-        hex_dig = hash_object.hexdigest()
-        hash_ints = [int(hex_dig[i : i + 2], 16) for i in range(0, len(hex_dig), 2)]
-
-        r = (hash_ints[0] + hash_ints[1] + hash_ints[2]) % 256
-        g = (hash_ints[3] + hash_ints[4] + hash_ints[5]) % 256
-        b = (hash_ints[6] + hash_ints[7] + hash_ints[8]) % 256
+        h = int(hashlib.md5(string.encode()).hexdigest(), 16)
+        r = (h & 0xFF0000) >> 16
+        g = (h & 0x00FF00) >> 8
+        b = h & 0x0000FF
 
         return (r, g, b)
 
@@ -178,8 +175,17 @@ def inspect(
     for image, ann in loader:
         image = image.astype(np.uint8)
 
+        h, w, _ = image.shape
+
+        # Ensure masks are drawn first to not occlude the other annotations
         for task, (arr, label_type) in ann.items():
-            h, w, _ = image.shape
+            if label_type == LabelType.SEGMENTATION:
+                mask_viz = np.zeros((h, w, 3)).astype(np.uint8)
+                for i, mask in enumerate(arr):
+                    mask_viz[mask == 1] = _task_to_rgb(f"{task}_{i}")
+                image = cv2.addWeighted(image, 0.5, mask_viz, 0.5, 0)
+
+        for task, (arr, label_type) in ann.items():
             if label_type == LabelType.BOUNDINGBOX:
                 for box in arr:
                     cv2.rectangle(
@@ -189,13 +195,8 @@ def inspect(
                         _task_to_rgb(task),
                         2,
                     )
-            if label_type == LabelType.SEGMENTATION:
-                mask_viz = np.zeros((h, w, 3)).astype(np.uint8)
-                for i, mask in enumerate(arr):
-                    mask_viz[mask == 1] = 255 / len(arr) * (i + 1)
-                image = cv2.addWeighted(image, 0.5, mask_viz, 0.5, 0)
 
-            if label_type == LabelType.KEYPOINT:
+            if label_type == LabelType.KEYPOINTS:
                 for kp in arr:
                     kp = kp[1:].reshape(-1, 3)
                     for k in kp:
