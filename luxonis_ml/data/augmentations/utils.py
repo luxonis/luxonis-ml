@@ -120,7 +120,7 @@ class Augmentations:
 
     def __call__(
         self,
-        data: List[Tuple[np.ndarray, Dict[str, Dict[LabelType, np.ndarray]]]],
+        data: List[Tuple[np.ndarray, Dict[LabelType, np.ndarray]]],
         ns: int = 1,
         nk: int = 1,
     ) -> Tuple[np.ndarray, Dict[LabelType, np.ndarray]]:
@@ -159,7 +159,7 @@ class Augmentations:
                 keypoints_points,
                 keypoints_visibility,
                 keypoints_classes,
-            ) = self.prepare_img_annotations(annotations, *img.shape[:-1])
+            ) = self.prepare_img_annotations(annotations, *img.shape[:-1], nk=nk)
 
             image_batch.append(img)
             mask_batch.append(mask)
@@ -208,7 +208,7 @@ class Augmentations:
             ns=ns,
             nk=nk,
             filter_kpts_by_bbox=(LabelType.BOUNDINGBOX in present_annotations)
-            and (LabelType.KEYPOINT in present_annotations),
+            and (LabelType.KEYPOINTS in present_annotations),
         )
 
         out_annotations = {}
@@ -219,13 +219,13 @@ class Augmentations:
                 out_annotations[LabelType.SEGMENTATION] = out_mask
             elif key == LabelType.BOUNDINGBOX:
                 out_annotations[LabelType.BOUNDINGBOX] = out_bboxes
-            elif key == LabelType.KEYPOINT:
-                out_annotations[LabelType.KEYPOINT] = out_keypoints
+            elif key == LabelType.KEYPOINTS:
+                out_annotations[LabelType.KEYPOINTS] = out_keypoints
 
         return out_image, out_annotations
 
     def prepare_img_annotations(
-        self, annotations: Dict[LabelType, np.ndarray], ih: int, iw: int
+        self, annotations: Dict[LabelType, np.ndarray], ih: int, iw: int, nk: int
     ) -> Tuple[
         np.ndarray,
         np.ndarray,
@@ -263,7 +263,8 @@ class Augmentations:
         bboxes_classes = bboxes[:, 0]
 
         # albumentations expects list of keypoints e.g. [(x,y),(x,y),(x,y),(x,y)]
-        keypoints = annotations.get(LabelType.KEYPOINT, np.zeros((1, 3 + 1)))
+        keypoints = annotations.get(LabelType.KEYPOINTS, np.zeros((1, nk * 3 + 1)))
+        # print(f"{keypoints.shape=}")
         keypoints_unflat = np.reshape(keypoints[:, 1:], (-1, 3))
         keypoints_points = keypoints_unflat[:, :2]
         keypoints_points[:, 0] *= iw
@@ -271,7 +272,6 @@ class Augmentations:
         keypoints_visibility = keypoints_unflat[:, 2]
         # albumentations expects classes to be same length as keypoints
         # (use case: each kpt separate class - not supported in LuxonisDataset)
-        nk = int((keypoints.shape[1] - 1) / 3)
         keypoints_classes = np.repeat(keypoints[:, 0], nk)
 
         return (
@@ -318,7 +318,7 @@ class Augmentations:
                 out_mask[int(key) - 1, ...] = transformed_mask == key
         out_mask[out_mask > 0] = 1
 
-        if len(transformed_data["bboxes"]):
+        if transformed_data["bboxes"]:
             transformed_bboxes_classes = np.expand_dims(
                 transformed_data["bboxes_classes"], axis=-1
             )
@@ -333,17 +333,21 @@ class Augmentations:
         transformed_keypoints_vis = np.expand_dims(
             transformed_data["keypoints_visibility"], axis=-1
         )
-        out_keypoints = np.concatenate(
-            (transformed_data["keypoints"], transformed_keypoints_vis), axis=1
-        )
+
+        if nk == 0:
+            nk = 1  # done for easier postprocessing
+        if transformed_data["keypoints"]:
+            out_keypoints = np.concatenate(
+                (transformed_data["keypoints"], transformed_keypoints_vis), axis=1
+            )
+        else:
+            out_keypoints = np.zeros((0, nk * 3 + 1))
+
         out_keypoints = self.mark_invisible_keypoints(out_keypoints, ih, iw)
         out_keypoints[..., 0] /= iw
         out_keypoints[..., 1] /= ih
-        if nk == 0:
-            nk = 1  # done for easier postprocessing
         out_keypoints = np.reshape(out_keypoints, (-1, nk * 3))
         keypoints_classes = transformed_data["keypoints_classes"]
-        # keypoints classes are repeated so take one per instance
         keypoints_classes = keypoints_classes[0::nk]
         keypoints_classes = np.expand_dims(keypoints_classes, axis=-1)
         out_keypoints = np.concatenate((keypoints_classes, out_keypoints), axis=1)
