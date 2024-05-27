@@ -1,8 +1,8 @@
-from typing import List, Optional, Literal, Union
+from typing import List, Optional
 
 from pydantic import Field, model_validator
 
-from ..enums import DataType, InputType, ImageLayout
+from ..enums import DataType, ImageLayout, InputType
 from .custom_base_model import CustomBaseModel
 
 

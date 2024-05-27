@@ -8,4 +8,3 @@ class ImageLayout(Enum):
     NHWC = "nhwc"
     CHW = "chw"
     NCHW = "nchw"
-
