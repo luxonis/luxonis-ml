@@ -88,14 +88,17 @@ class BBoxAnnotation(Annotation):
 
     _label_type = LabelType.BOUNDINGBOX
 
+    def to_numpy(self, class_mapping: Dict[str, int]) -> np.ndarray:
+        class_ = class_mapping.get(self.class_, 0)
+        return np.array([class_, self.x, self.y, self.w, self.h])
+
     @staticmethod
     def combine_to_numpy(
         annotations: List["BBoxAnnotation"], class_mapping: Dict[str, int], **_
     ) -> np.ndarray:
         boxes = np.zeros((len(annotations), 5))
         for i, ann in enumerate(annotations):
-            class_ = class_mapping.get(ann.class_, 0)
-            boxes[i] = np.array([class_, ann.x, ann.y, ann.w, ann.h])
+            boxes[i] = ann.to_numpy(class_mapping)
         return boxes
 
 
@@ -106,15 +109,18 @@ class KeypointAnnotation(Annotation):
 
     _label_type = LabelType.KEYPOINTS
 
+    def to_numpy(self, class_mapping: Dict[str, int]) -> np.ndarray:
+        class_ = class_mapping.get(self.class_, 0)
+        kps = np.array(self.keypoints).reshape((-1, 3)).astype(np.float32)
+        return np.concatenate([[class_], kps.flatten()])
+
     @staticmethod
     def combine_to_numpy(
         annotations: List["KeypointAnnotation"], class_mapping: Dict[str, int], **_
     ) -> np.ndarray:
         keypoints = np.zeros((len(annotations), len(annotations[0].keypoints) * 3 + 1))
         for i, ann in enumerate(annotations):
-            class_ = class_mapping.get(ann.class_, 0)
-            kps = np.array(ann.keypoints).reshape((-1, 3)).astype(np.float32)
-            keypoints[i] = np.concatenate([[class_], kps.flatten()])
+            keypoints[i] = ann.to_numpy(class_mapping)
         return keypoints
 
 
@@ -152,6 +158,10 @@ class RLESegmentationAnnotation(SegmentationAnnotation):
             "counts": rle["counts"].decode("utf-8"),
         }
 
+    def to_numpy(self, _: Dict[str, int], width: int, height: int) -> np.ndarray:
+        assert isinstance(self.counts, bytes)
+        return mask_util.decode({"counts": self.counts, "size": [height, width]})
+
     @staticmethod
     def combine_to_numpy(
         annotations: List["RLESegmentationAnnotation"],
@@ -163,7 +173,7 @@ class RLESegmentationAnnotation(SegmentationAnnotation):
         for ann in annotations:
             assert isinstance(ann.counts, bytes)
             class_ = class_mapping.get(ann.class_, 0)
-            mask = mask_util.decode({"counts": ann.counts, "size": [height, width]})
+            mask = ann.to_numpy(class_mapping, width, height)
             seg[class_, ...] += mask
 
         seg = np.clip(seg, 0, 1)
@@ -175,6 +185,13 @@ class PolylineSegmentationAnnotation(SegmentationAnnotation):
 
     points: List[Tuple[float, float]] = Field(min_length=3)
 
+    def to_numpy(self, _: Dict[str, int], width: int, height: int) -> np.ndarray:
+        polyline = [(round(x * width), round(y * height)) for x, y in self.points]
+        mask = Image.new("L", (width, height), 0)
+        draw = ImageDraw.Draw(mask)
+        draw.polygon(polyline, fill=1, outline=1)
+        return np.array(mask)
+
     @staticmethod
     def combine_to_numpy(
         annotations: List["PolylineSegmentationAnnotation"],
@@ -185,12 +202,7 @@ class PolylineSegmentationAnnotation(SegmentationAnnotation):
         seg = np.zeros((len(class_mapping), height, width))
         for ann in annotations:
             class_ = class_mapping.get(ann.class_, 0)
-            polyline = [(round(x * width), round(y * height)) for x, y in ann.points]
-            mask = Image.new("L", (width, height), 0)
-            draw = ImageDraw.Draw(mask)
-            draw.polygon(polyline, fill=1, outline=1)
-            mask = np.array(mask)
-            seg[class_, ...] += mask
+            seg[class_, ...] += ann.to_numpy(class_mapping, width, height)
 
         seg = np.clip(seg, 0, 1)
         return seg
@@ -203,6 +215,18 @@ class ArrayAnnotation(Annotation):
 
     _label_type = LabelType.ARRAY
 
+    @staticmethod
+    def combine_to_numpy(
+        annotations: List["ArrayAnnotation"], class_mapping: Dict[str, int], **_
+    ) -> np.ndarray:
+        out_arr = np.zeros(
+            (len(annotations), len(class_mapping), *np.load(annotations[0].path).shape)
+        )
+        for i, ann in enumerate(annotations):
+            class_ = class_mapping.get(ann.class_, 0)
+            out_arr[i, class_] = np.load(ann.path)
+        return out_arr
+
 
 class LabelAnnotation(Annotation):
     type_: Literal["label"] = Field("label", alias="type")
@@ -210,6 +234,18 @@ class LabelAnnotation(Annotation):
     value: Union[bool, int, float, str]
 
     _label_type = LabelType.LABEL
+
+    @staticmethod
+    def combine_to_numpy(
+        annotations: List["LabelAnnotation"], class_mapping: Dict[str, int], **_
+    ) -> np.ndarray:
+        out_arr = np.zeros((len(annotations), len(class_mapping))).astype(
+            type(annotations[0].value)
+        )
+        for i, ann in enumerate(annotations):
+            class_ = class_mapping.get(ann.class_, 0)
+            out_arr[i, class_] = ann.value
+        return out_arr
 
 
 class DatasetRecord(BaseModelExtraForbid):
