@@ -56,6 +56,7 @@ def test_archive_generator(compression: Literal["xz", "gz", "bz2"]):
                         "name": "input",
                         "shape": [1, 3, 224, 224],
                         "input_type": "image",
+                        "image_layout": "hwc",
                         "dtype": "float32",
                         "preprocessing": {
                             "mean": [0.485, 0.456, 0.406],
