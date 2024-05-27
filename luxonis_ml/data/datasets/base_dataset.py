@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Iterator, List, Literal, Optional, Tuple, Union
+from typing import Dict, Iterator, List, Optional, Tuple, Union
 
 from typing_extensions import TypeAlias
 
@@ -12,21 +12,6 @@ DATASETS_REGISTRY = Registry(name="datasets")
 
 
 DatasetIterator: TypeAlias = Iterator[Union[dict, DatasetRecord]]
-KeypointVisibility: TypeAlias = Literal[0, 1, 2]
-ParquetDict: TypeAlias = Dict[str, Any]
-
-
-# class Metadata(BaseModel):
-#     """Metadata for a dataset."""
-#
-#     classes: Dict[str, List[str]]
-#     n_keypoints: Dict[str, int]
-#     # keypoint_names: Dict[str, List[str]]
-#     # keypoint_skeletons: Dict[str, List[Tuple[int, int]]]
-#
-#     @property
-#     def all_classes(self) -> List[str]:
-#         return list(set(c for classes in self.classes.values() for c in classes))
 
 
 class BaseDataset(
