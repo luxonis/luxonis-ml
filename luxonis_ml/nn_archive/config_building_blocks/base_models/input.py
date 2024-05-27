@@ -85,6 +85,6 @@ class Input(CustomBaseModel):
             and "image_layout" not in values.keys()
         ):
             raise ValueError(
-                "It's obligatory to specify input_image_layout for image input type."
+                "It's obligatory to specify image_layout for image input type."
             )
         return values
