@@ -232,7 +232,7 @@ class LuxonisLoader(BaseLoader):
             df = pd.DataFrame([df])
 
         for task in df["task"].unique():
-            if task == "":
+            if not task:
                 continue
             sub_df = df[df["task"] == task]
             annotations: List[Annotation] = []
