@@ -185,6 +185,17 @@ class COCOParser(BaseParser):
                                 "points": poly,
                             },
                         }
+                    else:
+                        yield {
+                            "file": path,
+                            "annotation": {
+                                "type": "rle",
+                                "class": "person",
+                                "height": seg["size"][0],
+                                "width": seg["size"][1],
+                                "counts": seg["counts"],
+                            },
+                        }
 
                     x, y, w, h = ann["bbox"]
                     yield {
@@ -192,6 +203,7 @@ class COCOParser(BaseParser):
                         "annotation": {
                             "type": "boundingbox",
                             "class": class_name,
+                            "instance_id": i,
                             "x": x / img_w,
                             "y": y / img_h,
                             "w": w / img_w,
@@ -209,6 +221,7 @@ class COCOParser(BaseParser):
                             "annotation": {
                                 "type": "keypoints",
                                 "class": class_name,
+                                "instance_id": i,
                                 "keypoints": keypoints,
                             },
                         }
