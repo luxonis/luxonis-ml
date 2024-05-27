@@ -267,14 +267,6 @@ class LuxonisDataset(BaseDataset):
         self.source = source
 
     def set_classes(self, classes: List[str], task: Optional[str] = None) -> None:
-        """Sets the names of classes for the dataset. This can be across all CV tasks or
-        certain tasks.
-
-        @type classes: List[str]
-        @param classes: List of class names to set.
-        @type task: Optional[str]
-        @param task: Optionally specify the task where these classes apply.
-        """
         if task is not None:
             self.datasets[self.dataset_name]["classes"][task] = classes
         else:
@@ -294,35 +286,9 @@ class LuxonisDataset(BaseDataset):
             self.fs.put_file(local_file, "metadata/classes.json")
             self._remove_temp_dir()
 
-    def sync_from_cloud(self) -> None:
-        """Downloads data from a remote cloud bucket."""
-
-        if self.bucket_storage == BucketStorage.LOCAL:
-            self.logger.warning("This is a local dataset! Cannot sync")
-        else:
-            if not getattr(self, "is_synced", False):
-                local_dir = self.base_path / "data" / self.team_id / "datasets"
-                if not local_dir.exists():
-                    os.makedirs(local_dir, exist_ok=True)
-
-                self.fs.get_dir(remote_paths="", local_dir=local_dir)
-
-                self.is_synced = True
-
     def get_classes(
         self, sync_mode: bool = False
     ) -> Tuple[List[str], Dict[str, List[str]]]:
-        """Gets overall classes in the dataset and classes according to computer vision
-        task.
-
-        @type sync_mode: bool
-        @param sync_mode: If C{True}, reads classes from remote storage. If C{False},
-            classes are read locally.
-        @rtype: Tuple[List[str], Dict[str, List[str]]
-        @return: A combined list of classes for all tasks and a dictionary mapping tasks
-            to the classes used in each task.
-        """
-
         classes = set()
         classes_by_task = {}
         if sync_mode:
@@ -342,6 +308,35 @@ class LuxonisDataset(BaseDataset):
 
         return classes, classes_by_task
 
+    def set_skeletons(
+        self, skeletons: Dict[str, Dict], task: Optional[str] = None
+    ) -> None:
+        if task is None:
+            raise NotImplementedError("Skeletons must be set for a specific task")
+
+        if "skeletons" not in self.datasets[self.dataset_name]:
+            self.datasets[self.dataset_name]["skeletons"] = {}
+        self.datasets[self.dataset_name]["skeletons"][task] = skeletons
+        self._write_datasets()
+
+    def get_skeletons(self) -> Dict[str, Dict]:
+        return self.datasets[self.dataset_name]["skeletons"]
+
+    def sync_from_cloud(self) -> None:
+        """Downloads data from a remote cloud bucket."""
+
+        if self.bucket_storage == BucketStorage.LOCAL:
+            self.logger.warning("This is a local dataset! Cannot sync")
+        else:
+            if not getattr(self, "is_synced", False):
+                local_dir = self.base_path / "data" / self.team_id / "datasets"
+                if not local_dir.exists():
+                    os.makedirs(local_dir, exist_ok=True)
+
+                self.fs.get_dir(remote_paths="", local_dir=local_dir)
+
+                self.is_synced = True
+
     def delete_dataset(self) -> None:
         """Deletes all local files belonging to the dataset."""
 
@@ -355,33 +350,6 @@ class LuxonisDataset(BaseDataset):
         generator: DatasetIterator,
         batch_size: int = 1_000_000,
     ) -> None:
-        """Write annotations to parquet files.
-
-        @type generator: L{DatasetGenerator}
-        @param generator: A Python iterator that yields dictionaries of data
-            with the key described by the C{ANNOTATIONS_SCHEMA} but also listed below:
-                - file (C{str}) : path to file on local disk or object storage
-                - class (C{str}): string specifying the class name or label name
-                - type (C{str}) : the type of label or annotation
-                - value (C{Union[str, list, int, float, bool]}): the actual annotation value.
-                The function will check to ensure `value` matches this for each annotation type
-
-                    - value (classification) [bool] : Marks whether the class is present or not
-                        (e.g. True/False)
-                    - value (box) [List[float]] : the normalized (0-1) x, y, w, and h of a bounding box
-                        (e.g. [0.5, 0.4, 0.1, 0.2])
-                    - value (polyline) [List[List[float]]] : an ordered list of [x, y] polyline points
-                        (e.g. [[0.2, 0.3], [0.4, 0.5], ...])
-                    - value (segmentation) [Tuple[int, int, List[int]]]: an RLE representation of (height, width, counts) based on the COCO convention
-                    - value (keypoints) [List[List[float]]] : an ordered list of [x, y, visibility] keypoints for a keypoint skeleton instance
-                        (e.g. [[0.2, 0.3, 2], [0.4, 0.5, 2], ...])
-                    - value (array) [str]: path to a numpy .npy file
-
-        @type batch_size: int
-        @param batch_size: The number of annotations generated before processing.
-            This can be set to a lower value to reduce memory usage.
-        """
-
         def _process_arrays(batch_data: List[DatasetRecord]) -> None:
             array_paths = set(
                 ann.path for ann in batch_data if isinstance(ann, ArrayAnnotation)
@@ -501,8 +469,6 @@ class LuxonisDataset(BaseDataset):
         _add_process_batch(batch_data)
 
         _, curr_classes = self.get_classes()
-        # print(num_kpts_per_task)
-        # exit()
         if not curr_classes:
             for task, classes in classes_per_task.items():
                 self.set_classes(list(classes), task)

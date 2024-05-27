@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Iterator, List, Optional, Tuple, Union
+from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
 
 from typing_extensions import TypeAlias
 
@@ -71,32 +71,48 @@ class BaseDataset(
         pass
 
     @abstractmethod
-    def add(self, generator: DatasetIterator) -> None:
+    def set_skeletons(
+        self, skeletons: Dict[str, Dict[str, Any]], task: Optional[str] = None
+    ) -> None:
+        """Sets the semantic structure of keypoint skeletons for the classes that use
+        keypoints.
+
+        @type skeletons: Dict[str, Dict]
+        @param skeletons: A dict mapping class name to keypoint "labels" and "edges"
+            between keypoints.
+            The inclusion of "edges" is optional.
+
+            Example::
+
+                {
+                    "person": {
+                        "labels": ["right hand", "right shoulder", ...]
+                        "edges" [[0, 1], [4, 5], ...]
+                    }
+                }
+        """
+        pass
+
+    @abstractmethod
+    def get_skeletons(self) -> Dict[str, Dict]:
+        """Returns the dictionary defining the semantic skeleton for each class using
+        keypoints.
+
+        @rtype: Dict[str, Dict]
+        @return: A dictionary mapping classes to their skeleton definitions.
+        """
+        pass
+
+    @abstractmethod
+    def add(self, generator: DatasetIterator, batch_size: int = 1_000_000) -> None:
         """Write annotations to parquet files.
 
         @type generator: L{DatasetGenerator}
-        @param generator: A Python iterator that yields dictionaries of data
-            with the key described by the C{ANNOTATIONS_SCHEMA} but also listed below:
-                - file (C{str}) : path to file on local disk or object storage
-                - class (C{str}): string specifying the class name or label name
-                - type (C{str}) : the type of label or annotation
-                - value (C{Union[str, list, int, float, bool]}): the actual annotation value.
-                The function will check to ensure `value` matches this for each annotation type
-
-                    - value (classification) [bool] : Marks whether the class is present or not
-                        (e.g. True/False)
-                    - value (box) [List[float]] : the normalized (0-1) x, y, w, and h of a bounding box
-                        (e.g. [0.5, 0.4, 0.1, 0.2])
-                    - value (polyline) [List[List[float]]] : an ordered list of [x, y] polyline points
-                        (e.g. [[0.2, 0.3], [0.4, 0.5], ...])
-                    - value (segmentation) [Tuple[int, int, List[int]]]: an RLE representation of (height, width, counts) based on the COCO convention
-                    - value (keypoints) [List[List[float]]] : an ordered list of [x, y, visibility] keypoints for a keypoint skeleton instance
-                        (e.g. [[0.2, 0.3, 2], [0.4, 0.5, 2], ...])
-                    - value (array) [str]: path to a numpy .npy file
-
+        @param generator: A Python iterator that yields either instances of
+            L{DatasetRecord} or a dictionary that can be converted to L{DatasetRecord}.
         @type batch_size: int
-        @param batch_size: The number of annotations generated before processing.
-            This can be set to a lower value to reduce memory usage.
+        @param batch_size: The number of annotations generated before processing. This
+            can be set to a lower value to reduce memory usage.
         """
         pass
 
