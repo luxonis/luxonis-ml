@@ -1,8 +1,8 @@
 from typing import List, Optional
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
-from ..enums import DataType, InputType
+from ..enums import DataType, InputType, InputImageLayout
 from .custom_base_model import CustomBaseModel
 
 
@@ -48,6 +48,9 @@ class Input(CustomBaseModel):
     @type input_type: InputType
     @ivar input_type: Type of input data (e.g., 'image').
 
+    @type input_image_layout: InputLayout
+    @ivar input_image_layout: Layout of the input image data (e.g., 'hwc').
+
     @type shape: list
     @ivar shape: Shape of the input data as a list of integers (e.g. [H,W], [H,W,C], [BS,H,W,C], ...).
 
@@ -60,6 +63,9 @@ class Input(CustomBaseModel):
         description="Data type of the input data (e.g., 'float32')."
     )
     input_type: InputType = Field(description="Type of input data (e.g., 'image').")
+    input_image_layout: InputImageLayout = Field(
+        description="Layout of the input image data (e.g., 'hwc').", default=None
+    )
     shape: List[int] = Field(
         min_length=1,
         max_length=5,
@@ -68,3 +74,17 @@ class Input(CustomBaseModel):
     preprocessing: PreprocessingBlock = Field(
         description="Preprocessing steps applied to the input data."
     )
+
+    @model_validator(mode="before")
+    def validate_anchors(
+        cls,
+        values,
+    ):
+        if (
+            values["input_type"] == InputType.IMAGE.value
+            and "input_image_layout" not in values.keys()
+        ):
+            raise ValueError(
+                "It's obligatory to specify input_image_layout for image input type."
+            )
+        return values
