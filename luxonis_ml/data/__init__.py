@@ -12,7 +12,7 @@ with guard_missing_extra("data"):
         LuxonisDataset,
         LuxonisSource,
     )
-    from .loader import BaseLoader, LuxonisLoader, LuxonisLoaderOutput
+    from .loaders import BaseLoader, LuxonisLoader, LuxonisLoaderOutput
     from .parsers import LuxonisParser
     from .utils.enums import (
         BucketStorage,
