@@ -1,14 +1,14 @@
 import json
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple, TypedDict, Union
 
 import numpy as np
 import pycocotools.mask as mask_util
 from PIL import Image, ImageDraw
 from pydantic import Field, model_validator
 from pydantic.types import FilePath, PositiveInt
-from typing_extensions import TypeAlias
+from typing_extensions import Annotated, TypeAlias
 
 from luxonis_ml.utils import BaseModelExtraForbid, Registry
 
@@ -18,7 +18,21 @@ DATASETS_REGISTRY = Registry(name="datasets")
 
 
 KeypointVisibility: TypeAlias = Literal[0, 1, 2]
-ParquetDict: TypeAlias = Dict[str, Any]
+NormalizedFloat: TypeAlias = Annotated[float, Field(ge=0, le=1)]
+"""C{NormalizedFloat} is a float that is restricted to the range [0, 1]."""
+
+ParquetDict = TypedDict(
+    "ParquetDict",
+    {
+        "file": str,
+        "type": str,
+        "created_at": datetime,
+        "class": str,
+        "instance_id": int,
+        "task": str,
+        "annotation": str,
+    },
+)
 
 
 def load_annotation(name: str, js: str, data: Dict[str, Any]) -> "Annotation":
@@ -34,7 +48,19 @@ def load_annotation(name: str, js: str, data: Dict[str, Any]) -> "Annotation":
 
 
 class Annotation(ABC, BaseModelExtraForbid):
-    """Base class for an annotation."""
+    """Base class for an annotation.
+
+    @type task: str
+    @ivar task: The task name. By default it is the string representation of the
+        L{LabelType}.
+    @type class_: str
+    @ivar class_: The class name for the annotation.
+    @type instance_id: int
+    @ivar instance_id: The instance id of the annotation. This determines the order in
+        which individual instances are loaded in L{LuxonisLoader}.
+    @type _label_type: ClassVar[L{LabelType}]
+    @ivar _label_type: The label type of the annotation.
+    """
 
     _label_type: ClassVar[LabelType]
 
@@ -50,6 +76,8 @@ class Annotation(ABC, BaseModelExtraForbid):
         return values
 
     def get_value(self) -> Dict[str, Any]:
+        """Converts the annotation to a dictionary that can be saved to a parquet
+        file."""
         return self.dict(exclude={"class_", "class_id", "instance_id", "task", "type_"})
 
     @staticmethod
@@ -60,6 +88,7 @@ class Annotation(ABC, BaseModelExtraForbid):
         height: int,
         width: int,
     ) -> np.ndarray:
+        """Combines multiple instance annotations into a single numpy array."""
         pass
 
 
@@ -79,12 +108,24 @@ class ClassificationAnnotation(Annotation):
 
 
 class BBoxAnnotation(Annotation):
+    """Bounding box annotation.
+
+    @type x: float
+    @ivar x: The center x-coordinate of the bounding box. Normalized to [0, 1].
+    @type y: float
+    @ivar y: The center y-coordinate of the bounding box. Normalized to [0, 1].
+    @type w: float
+    @ivar w: The width of the bounding box. Normalized to [0, 1].
+    @type h: float
+    @ivar h: The height of the bounding box. Normalized to [0, 1].
+    """
+
     type_: Literal["boundingbox"] = Field("boundingbox", alias="type")
 
-    x: float
-    y: float
-    w: float
-    h: float
+    x: NormalizedFloat
+    y: NormalizedFloat
+    w: NormalizedFloat
+    h: NormalizedFloat
 
     _label_type = LabelType.BOUNDINGBOX
 
@@ -103,9 +144,19 @@ class BBoxAnnotation(Annotation):
 
 
 class KeypointAnnotation(Annotation):
+    """Keypoint annotation.
+
+    @type keypoints: List[Tuple[float, float, L{KeypointVisibility}]]
+    @ivar keypoints: List of keypoints. Each keypoint is a tuple of (x, y, visibility).
+        x and y are normalized to [0, 1]. visibility is one of {0, 1, 2} where:
+            - 0: Not visible / not labeled
+            - 1: Occluded
+            - 2: Visible
+    """
+
     type_: Literal["keypoints"] = Field("keypoints", alias="type")
 
-    keypoints: List[Tuple[float, float, KeypointVisibility]]
+    keypoints: List[Tuple[NormalizedFloat, NormalizedFloat, KeypointVisibility]]
 
     _label_type = LabelType.KEYPOINTS
 
@@ -125,10 +176,26 @@ class KeypointAnnotation(Annotation):
 
 
 class SegmentationAnnotation(Annotation):
+    """Base class for segmentation annotations."""
+
     _label_type = LabelType.SEGMENTATION
 
 
 class RLESegmentationAnnotation(SegmentationAnnotation):
+    """U{Run-length encoded<https://en.wikipedia.org/wiki/Run-length_encoding>}
+        segmentation mask.
+
+    @type height: int
+    @ivar height: The height of the segmentation mask.
+
+    @type width: int
+    @ivar width: The width of the segmentation mask.
+
+    @type counts: Union[List[int], bytes]
+    @ivar counts: The run-length encoded mask.
+        This can be a list of integers or a byte string.
+    """
+
     type_: Literal["rle"] = Field("rle", alias="type")
 
     height: PositiveInt
@@ -181,9 +248,16 @@ class RLESegmentationAnnotation(SegmentationAnnotation):
 
 
 class PolylineSegmentationAnnotation(SegmentationAnnotation):
+    """Polyline segmentation mask.
+
+    @type points: List[Tuple[float, float]]
+    @ivar points: List of points that define the polyline. Each point is a tuple of (x,
+        y). x and y are normalized to [0, 1].
+    """
+
     type_: Literal["polyline"] = Field("polyline", alias="type")
 
-    points: List[Tuple[float, float]] = Field(min_length=3)
+    points: List[Tuple[NormalizedFloat, NormalizedFloat]] = Field(min_length=3)
 
     def to_numpy(self, _: Dict[str, int], width: int, height: int) -> np.ndarray:
         polyline = [(round(x * width), round(y * height)) for x, y in self.points]
@@ -209,6 +283,14 @@ class PolylineSegmentationAnnotation(SegmentationAnnotation):
 
 
 class ArrayAnnotation(Annotation):
+    """A custom unspecified annotation that is an arbitrary numpy array.
+
+    All instances of this annotation must have the same shape.
+
+    @type path: L{FilePath}
+    @ivar path: The path to the numpy array saved as a C{.npy} file.
+    """
+
     type_: Literal["array"] = Field("array", alias="type")
 
     path: FilePath
@@ -229,6 +311,12 @@ class ArrayAnnotation(Annotation):
 
 
 class LabelAnnotation(Annotation):
+    """A custom unspecified annotation with a single primitive value.
+
+    @type value: Union[bool, int, float, str]
+    @ivar value: The value of the annotation.
+    """
+
     type_: Literal["label"] = Field("label", alias="type")
 
     value: Union[bool, int, float, str]
@@ -249,6 +337,14 @@ class LabelAnnotation(Annotation):
 
 
 class DatasetRecord(BaseModelExtraForbid):
+    """A record of an image and its annotation.
+
+    @type file: L{FilePath}
+    @ivar file: A path to the image.
+    @type annotation: Optional[Annotation]
+    @ivar annotation: The annotation for the image.
+    """
+
     file: FilePath
     annotation: Optional[
         Union[
