@@ -370,7 +370,7 @@ class LuxonisDataset(BaseDataset):
                     self.logger.info("Uploading arrays...")
                     # TODO: support from bucket (likely with a self.fs.copy_dir)
                     with self._log_time():
-                        mask_upload_dict = self.fs.put_dir(
+                        arrays_upload_dict = self.fs.put_dir(
                             local_paths=array_paths,
                             remote_dir="arrays",
                             uuid_dict=array_uuid_dict,
@@ -380,11 +380,11 @@ class LuxonisDataset(BaseDataset):
                 for ann in batch_data:
                     if isinstance(ann, ArrayAnnotation):
                         if self.bucket_storage != BucketStorage.LOCAL:
-                            remote_path = mask_upload_dict[str(ann.path)]
+                            remote_path = arrays_upload_dict[str(ann.path)]  # type: ignore
                             remote_path = (
                                 f"{self.fs.protocol}://{self.fs.path / remote_path}"
                             )
-                            ann.path = remote_path
+                            ann.path = remote_path  # type: ignore
                         else:
                             ann.path = ann.path.absolute()
                         self.progress.update(task, advance=1)
