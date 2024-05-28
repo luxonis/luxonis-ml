@@ -64,7 +64,8 @@ class Input(CustomBaseModel):
     )
     input_type: InputType = Field(description="Type of input data (e.g., 'image').")
     image_layout: ImageLayout = Field(
-        description="Layout of the input image data (e.g., 'hwc').", default=None
+        description="Layout of the input image data (e.g., 'hwc').",
+        default=ImageLayout.CHW,
     )
     shape: List[int] = Field(
         min_length=1,
