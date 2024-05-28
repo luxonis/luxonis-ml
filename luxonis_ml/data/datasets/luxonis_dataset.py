@@ -16,6 +16,7 @@ import rich.progress
 
 import luxonis_ml.data.utils.data_utils as data_utils
 from luxonis_ml.utils import LuxonisFileSystem, environ
+from luxonis_ml.utils.filesystem import PathType
 
 from ..utils.constants import LDF_VERSION
 from ..utils.enums import BucketStorage, BucketType
@@ -53,6 +54,10 @@ class LuxonisDataset(BaseDataset):
         @raise ValueError: If C{dataset_name} is not a string or if neither
             C{dataset_name} nor C{dataset_id} are provided.
         """
+        if dataset_name is None and dataset_id is None:
+            raise ValueError(
+                "Must provide either dataset_name or dataset_id when initializing LuxonisDataset"
+            )
 
         self.base_path = environ.LUXONISML_BASE_PATH
         self.base_path.mkdir(exist_ok=True)
@@ -198,7 +203,11 @@ class LuxonisDataset(BaseDataset):
             return None
 
     def _find_filepath_uuid(
-        self, filepath: Path, index: Optional[pd.DataFrame]
+        self,
+        filepath: Path,
+        index: Optional[pd.DataFrame],
+        *,
+        raise_on_missing: bool = False,
     ) -> Optional[str]:
         if index is None:
             return None
@@ -208,8 +217,9 @@ class LuxonisDataset(BaseDataset):
             matched = index[index["original_filepath"] == abs_path]
             if len(matched):
                 return list(matched["uuid"])[0]
-        else:
-            return None
+        elif raise_on_missing:
+            raise ValueError(f"File {abs_path} not found in index")
+        return None
 
     def _get_file_index(self) -> Optional[pd.DataFrame]:
         index = None
@@ -338,8 +348,6 @@ class LuxonisDataset(BaseDataset):
                 self.is_synced = True
 
     def delete_dataset(self) -> None:
-        """Deletes all local files belonging to the dataset."""
-
         del self.datasets[self.dataset_name]
         self._write_datasets()
         if self.bucket_storage == BucketStorage.LOCAL:
@@ -389,6 +397,7 @@ class LuxonisDataset(BaseDataset):
                             ann.path = ann.path.absolute()
                         self.progress.update(task, advance=1)
                 self.progress.stop()
+                self.progress.remove_task(task)
 
         def _add_process_batch(batch_data: List[DatasetRecord]) -> None:
             paths = list(set(data.file for data in batch_data))
@@ -432,9 +441,10 @@ class LuxonisDataset(BaseDataset):
                         new_index["file"].append(file)
                         new_index["original_filepath"].append(str(filepath.absolute()))
 
-                    self.pfm.write({"uuid": uuid, **ann.to_parquet()})
+                    self.pfm.write({"uuid": uuid, **ann.to_parquet_dict()})
                     self.progress.update(task, advance=1)
                 self.progress.stop()
+                self.progress.remove_task(task)
 
         if self.bucket_storage == BucketStorage.LOCAL:
             self.pfm = ParquetFileManager(str(self.annotations_path))
@@ -469,10 +479,11 @@ class LuxonisDataset(BaseDataset):
         _add_process_batch(batch_data)
 
         _, curr_classes = self.get_classes()
-        if not curr_classes:
-            for task, classes in classes_per_task.items():
-                self.set_classes(list(classes), task)
-                self.logger.info(f"Detected classes for task {task}: {list(classes)}")
+        for task, classes in classes_per_task.items():
+            old_classes = set(curr_classes.get(task, []))
+            new_classes = list(classes - old_classes)
+            self.logger.info(f"Detected new classes for task {task}: {new_classes}")
+            self.set_classes(list(classes | old_classes), task)
 
         self.pfm.close()
 
@@ -481,35 +492,15 @@ class LuxonisDataset(BaseDataset):
         else:
             file_index_path = str(self.tmp_dir / "file_index.parquet")
             self._write_index(index, new_index, override_path=file_index_path)
-            self.fs.put_dir(Path(annotations_dir), "annotations")
+            self.fs.put_dir(Path(annotations_dir), "annotations")  # type: ignore
             self.fs.put_file(file_index_path, "metadata/file_index.parquet")
             self._remove_temp_dir()
 
     def make_splits(
         self,
         ratios: Tuple[float, float, float] = (0.8, 0.1, 0.1),
-        definitions: Optional[Dict] = None,
+        definitions: Optional[Dict[str, List[PathType]]] = None,
     ) -> None:
-        """Saves a splits json file that specified the train/val/test split. For use in
-        I{OFFLINE} mode only.
-
-        @type ratios: Tuple[float, float, float]
-            Defaults to (0.8, 0.1, 0.1).
-
-        @type definitions: Optional[Dict]
-        @param definitions [Optional[Dict]]: Dictionary specifying split keys to lists
-            of filepath values. Note that this assumes unique filenames.
-            Example::
-
-                {
-                    "train": ["/path/to/cat.jpg", "/path/to/dog.jpg"],
-                    "val": [...],
-                    "test": [...]
-                }
-
-            Only overrides splits that are present in the dictionary.
-        """
-
         new_splits = {"train": [], "val": [], "test": []}
         splits_to_update = []
 
@@ -520,7 +511,7 @@ class LuxonisDataset(BaseDataset):
 
             df = self._load_df_offline()
             assert df is not None
-            ids: list[str] = list(set(df["uuid"]))
+            ids = list(set(df["uuid"]))
             np.random.shuffle(ids)
             N = len(ids)
             b1 = round(N * ratios[0])
@@ -541,7 +532,9 @@ class LuxonisDataset(BaseDataset):
                 if not isinstance(filepaths, list):
                     raise Exception("Must provide splits as a list of str")
                 ids = [
-                    self._find_filepath_uuid(Path(filepath), index)
+                    self._find_filepath_uuid(
+                        Path(filepath), index, raise_on_missing=True
+                    )
                     for filepath in filepaths
                 ]
                 new_splits[split] = ids
@@ -575,14 +568,6 @@ class LuxonisDataset(BaseDataset):
 
     @staticmethod
     def exists(dataset_name: str) -> bool:
-        """Checks whether a dataset exists.
-
-        @warning: For offline mode only.
-        @type dataset_name: str
-        @param dataset_name: Name of the dataset
-        @rtype: bool
-        @return: Whether the dataset exists
-        """
         return dataset_name in LuxonisDataset.list_datasets()
 
     @staticmethod

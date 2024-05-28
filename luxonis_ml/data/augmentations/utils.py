@@ -264,7 +264,6 @@ class Augmentations:
 
         # albumentations expects list of keypoints e.g. [(x,y),(x,y),(x,y),(x,y)]
         keypoints = annotations.get(LabelType.KEYPOINTS, np.zeros((1, nk * 3 + 1)))
-        # print(f"{keypoints.shape=}")
         keypoints_unflat = np.reshape(keypoints[:, 1:], (-1, 3))
         keypoints_points = keypoints_unflat[:, :2]
         keypoints_points[:, 0] *= iw

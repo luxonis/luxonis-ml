@@ -1,9 +1,10 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple, Union
 
 from typing_extensions import TypeAlias
 
 from luxonis_ml.utils import AutoRegisterMeta, Registry
+from luxonis_ml.utils.filesystem import PathType
 
 from .annotation import DatasetRecord
 from .source import LuxonisSource
@@ -113,6 +114,34 @@ class BaseDataset(
         @type batch_size: int
         @param batch_size: The number of annotations generated before processing. This
             can be set to a lower value to reduce memory usage.
+        """
+        pass
+
+    # TODO: Support arbitrary named splits
+    @abstractmethod
+    def make_splits(
+        self,
+        ratios: Tuple[float, float, float] = (0.8, 0.1, 0.1),
+        definitions: Optional[Dict[str, Sequence[PathType]]] = None,
+    ) -> None:
+        """Saves a splits json file that specified the train/val/test split. For use in
+        I{OFFLINE} mode only.
+
+        @type ratios: Tuple[float, float, float]
+            Defaults to (0.8, 0.1, 0.1).
+
+        @type definitions: Optional[Dict]
+        @param definitions [Optional[Dict]]: Dictionary specifying split keys to lists
+            of filepath values. Note that this assumes unique filenames.
+            Example::
+
+                {
+                    "train": ["/path/to/cat.jpg", "/path/to/dog.jpg"],
+                    "val": [...],
+                    "test": [...]
+                }
+
+            Only overrides splits that are present in the dictionary.
         """
         pass
 

@@ -110,6 +110,8 @@ class ClassificationAnnotation(Annotation):
 class BBoxAnnotation(Annotation):
     """Bounding box annotation.
 
+    Values are normalized based on the image size.
+
     @type x: float
     @ivar x: The center x-coordinate of the bounding box. Normalized to [0, 1].
     @type y: float
@@ -145,6 +147,8 @@ class BBoxAnnotation(Annotation):
 
 class KeypointAnnotation(Annotation):
     """Keypoint annotation.
+
+    Values are normalized to [0, 1] based on the image size.
 
     @type keypoints: List[Tuple[float, float, L{KeypointVisibility}]]
     @ivar keypoints: List of keypoints. Each keypoint is a tuple of (x, y, visibility).
@@ -238,7 +242,6 @@ class RLESegmentationAnnotation(SegmentationAnnotation):
     ) -> np.ndarray:
         seg = np.zeros((len(class_mapping), height, width))
         for ann in annotations:
-            assert isinstance(ann.counts, bytes)
             class_ = class_mapping.get(ann.class_, 0)
             mask = ann.to_numpy(class_mapping, width, height)
             seg[class_, ...] += mask
@@ -252,7 +255,7 @@ class PolylineSegmentationAnnotation(SegmentationAnnotation):
 
     @type points: List[Tuple[float, float]]
     @ivar points: List of points that define the polyline. Each point is a tuple of (x,
-        y). x and y are normalized to [0, 1].
+        y). x and y are normalized to [0, 1] based on the image size.
     """
 
     type_: Literal["polyline"] = Field("polyline", alias="type")
@@ -358,7 +361,7 @@ class DatasetRecord(BaseModelExtraForbid):
         ]
     ] = Field(None, discriminator="type_")
 
-    def to_parquet(self) -> ParquetDict:
+    def to_parquet_dict(self) -> ParquetDict:
         """Converts an annotation to a dictionary for writing to a parquet file.
 
         @rtype: L{ParquetDict}

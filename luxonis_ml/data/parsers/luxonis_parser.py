@@ -4,7 +4,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Dict, Literal, Optional, Tuple, Type, Union
 
-from luxonis_ml.data import DATASETS_REGISTRY, LuxonisDataset
+from luxonis_ml.data import DATASETS_REGISTRY, BaseDataset, LuxonisDataset
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.utils import LuxonisFileSystem
 
@@ -99,7 +99,9 @@ class LuxonisParser:
             self.dataset_type, self.parser_type = self._recognize_dataset()
 
         if dataset_plugin:
-            self.dataset_constructor = DATASETS_REGISTRY.get(dataset_plugin)
+            self.dataset_constructor: Type[BaseDataset] = DATASETS_REGISTRY.get(
+                dataset_plugin
+            )
         else:
             self.dataset_constructor = LuxonisDataset
 
@@ -114,7 +116,7 @@ class LuxonisParser:
         self.dataset = self.dataset_constructor(dataset_name=dataset_name, **kwargs)
         self.parser = self.parsers[self.dataset_type](self.dataset)
 
-    def parse(self, **kwargs) -> LuxonisDataset:
+    def parse(self, **kwargs) -> BaseDataset:
         """Parses the dataset and returns it in LuxonisDataset format.
 
         If the dataset already exists, parsing will be skipped and the existing dataset
