@@ -2,7 +2,7 @@ import json
 import os
 import tarfile
 from io import BytesIO
-from typing import List, Literal
+from typing import List, Literal, Tuple
 
 from .config import Config
 
@@ -51,7 +51,7 @@ class ArchiveGenerator:
             config_version=cfg_dict["config_version"], model=cfg_dict["model"]
         )
 
-    def make_archive(self):
+    def make_archive(self) -> str:
         """Run NN archive (.tar) file generation."""
 
         # create an in-memory file-like config object
@@ -71,7 +71,7 @@ class ArchiveGenerator:
 
         return archive_path
 
-    def _make_json(self):
+    def _make_json(self) -> Tuple[bytes, BytesIO]:
         """Create an in-memory config data file-like object."""
 
         # read-in config data as dict

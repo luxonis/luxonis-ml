@@ -22,6 +22,13 @@ try:
 except ImportError:
     pass
 
+try:
+    from luxonis_ml.nn_archive.__main__ import app as utils_app
+
+    app.add_typer(utils_app, name="archive", help="NN Archive utilities.")
+except ImportError:
+    pass
+
 
 def version_callback(value: bool):
     if value:
