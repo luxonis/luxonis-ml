@@ -77,7 +77,7 @@ class Input(CustomBaseModel):
     )
 
     @model_validator(mode="before")
-    def validate_anchors(
+    def validate_layout(
         cls,
         values,
     ):
