@@ -48,11 +48,11 @@ class Input(CustomBaseModel):
     @type input_type: InputType
     @ivar input_type: Type of input data (e.g., 'image').
 
-    @type image_layout: InputLayout
-    @ivar image_layout: Layout of the input image data (e.g., 'hwc').
-
     @type shape: list
     @ivar shape: Shape of the input data as a list of integers (e.g. [H,W], [H,W,C], [BS,H,W,C], ...).
+
+    @type layout: str
+    @ivar layout: Lettercode interpretation of the input data dimensions (e.g., 'HCHW').
 
     @type preprocessing: PreprocessingBlock
     @ivar preprocessing: Preprocessing steps applied to the input data.
@@ -63,29 +63,15 @@ class Input(CustomBaseModel):
         description="Data type of the input data (e.g., 'float32')."
     )
     input_type: InputType = Field(description="Type of input data (e.g., 'image').")
-    image_layout: ImageLayout = Field(
-        description="Layout of the input image data (e.g., 'hwc').",
-        default=ImageLayout.CHW,
-    )
     shape: List[int] = Field(
         min_length=1,
         max_length=5,
         description="Shape of the input data as a list of integers (e.g. [H,W], [H,W,C], [BS,H,W,C], ...).",
     )
+    layout: str = Field(
+        description="Lettercode interpretation of the input layout (e.g., 'HCHW').",
+        default="NCHW",
+    )
     preprocessing: PreprocessingBlock = Field(
         description="Preprocessing steps applied to the input data."
     )
-
-    @model_validator(mode="before")
-    def validate_layout(
-        cls,
-        values,
-    ):
-        if (
-            values["input_type"] == InputType.IMAGE.value
-            and "image_layout" not in values.keys()
-        ):
-            raise ValueError(
-                "It's obligatory to specify image_layout for image input type."
-            )
-        return values
