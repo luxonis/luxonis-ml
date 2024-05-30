@@ -83,13 +83,15 @@ class Input(CustomBaseModel):
     ):
         if "layout" in values.keys():
             values["layout"] = values["layout"].upper()
+            idx_c = values["layout"].find("C")
+            idx_n = values["layout"].find("N")
 
             if len(values["layout"]) != len(values["shape"]):
                 raise ValueError("Layout and shape must have the same length.")
 
-            if values["layout"][0] != "N":
+            if idx_n not in [-1, 0]:
                 raise ValueError(
-                    "First letter of layout must always be N (batch size)."
+                    "N (batch size) must be the first letter if included."
                 )
 
             if values["input_type"] == InputType.IMAGE.value:
@@ -97,7 +99,7 @@ class Input(CustomBaseModel):
                     raise ValueError(
                         "C letter must be present in layout for image input type."
                     )
-                idx_c = values["layout"].find("C")
+                
                 if values["shape"][idx_c] not in [1, 3]:
                     raise ValueError(
                         "Color dimension for image input type must either be 1 (grayscale) or 3 (color)."
