@@ -2,7 +2,7 @@ from typing import List, Optional
 
 from pydantic import Field, model_validator
 
-from ..enums import DataType, ImageLayout, InputType
+from ..enums import DataType, InputType
 from .custom_base_model import CustomBaseModel
 
 
@@ -75,3 +75,33 @@ class Input(CustomBaseModel):
     preprocessing: PreprocessingBlock = Field(
         description="Preprocessing steps applied to the input data."
     )
+
+    @model_validator(mode="before")
+    def validate_layout(
+        cls,
+        values,
+    ):
+        if "layout" in values.keys():
+            values["layout"] = values["layout"].upper()
+
+            if len(values["layout"]) != len(values["shape"]):
+                raise ValueError("Layout and shape must have the same length.")
+
+            if values["layout"][0] != "N":
+                raise ValueError("First letter of layout must always be N (batch size).")
+
+            if values["input_type"] == InputType.IMAGE.value:
+                if "C" not in values["layout"]:
+                    raise ValueError(
+                        "C letter must be present in layout for image input type."
+                    )
+                idx_c = values["layout"].find("C")
+                if values["shape"][idx_c] not in [1, 3]:
+                    raise ValueError(
+                        "Color dimension for image input type must either be 1 (grayscale) or 3 (color)."
+                    )
+
+            if len(values["layout"]) != len(set(values["layout"])):
+                raise ValueError("Layout must not contain any duplicate letters.")
+
+        return values
