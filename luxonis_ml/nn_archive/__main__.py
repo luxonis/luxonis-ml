@@ -16,13 +16,13 @@ app = typer.Typer()
 
 
 PathArgument: TypeAlias = Annotated[
-    Path, typer.Argument(..., help="Path to the NN Archive.")
+    str, typer.Argument(..., help="Path to the NN Archive.")
 ]
 
 
 @app.command()
 def inspect(
-    path: Annotated[Path, typer.Argument(..., help="Path to the NN Archive.")],
+    path: PathArgument,
     inputs: Annotated[
         bool, typer.Option(..., "-i", "--inputs", help="Print inputs info.")
     ] = False,
@@ -64,11 +64,11 @@ def inspect(
 
 @app.command()
 def extract(
-    path: Annotated[Path, typer.Argument(..., help="Path to the NN Archive.")],
+    path: PathArgument,
     destination: Annotated[
-        Path,
+        str,
         typer.Option("-d", "--dest", help="Path where to extract the Archive."),
-    ] = Path("."),
+    ] = ".",
 ):
     """Extracts NN Archive.
 
@@ -76,7 +76,7 @@ def extract(
     extracted to the current working directory.
     """
 
-    extract_path = destination / (path.name.split(".")[0])
+    extract_path = Path(destination) / (Path(path).name.split(".")[0])
     extract_path.mkdir(exist_ok=True, parents=True)
 
     with tarfile.open(path) as tar:
