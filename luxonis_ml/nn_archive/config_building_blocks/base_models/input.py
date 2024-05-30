@@ -88,7 +88,9 @@ class Input(CustomBaseModel):
                 raise ValueError("Layout and shape must have the same length.")
 
             if values["layout"][0] != "N":
-                raise ValueError("First letter of layout must always be N (batch size).")
+                raise ValueError(
+                    "First letter of layout must always be N (batch size)."
+                )
 
             if values["input_type"] == InputType.IMAGE.value:
                 if "C" not in values["layout"]:
