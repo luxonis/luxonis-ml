@@ -49,10 +49,10 @@ class Input(CustomBaseModel):
     @ivar input_type: Type of input data (e.g., 'image').
 
     @type shape: list
-    @ivar shape: Shape of the input data as a list of integers (e.g. [H,W], [H,W,C], [BS,H,W,C], ...).
+    @ivar shape: Shape of the input data as a list of integers (e.g. [H,W], [H,W,C], [N,H,W,C], ...).
 
     @type layout: str
-    @ivar layout: Lettercode interpretation of the input data dimensions (e.g., 'HCHW').
+    @ivar layout: Lettercode interpretation of the input data dimensions (e.g., 'NCHW').
 
     @type preprocessing: PreprocessingBlock
     @ivar preprocessing: Preprocessing steps applied to the input data.
@@ -66,10 +66,10 @@ class Input(CustomBaseModel):
     shape: List[int] = Field(
         min_length=1,
         max_length=5,
-        description="Shape of the input data as a list of integers (e.g. [H,W], [H,W,C], [BS,H,W,C], ...).",
+        description="Shape of the input data as a list of integers (e.g. [H,W], [H,W,C], [N,H,W,C], ...).",
     )
     layout: str = Field(
-        description="Lettercode interpretation of the input layout (e.g., 'HCHW').",
+        description="Lettercode interpretation of the input layout (e.g., 'NCHW').",
         default="NCHW",
     )
     preprocessing: PreprocessingBlock = Field(
