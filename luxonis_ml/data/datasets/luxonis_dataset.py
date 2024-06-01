@@ -330,6 +330,8 @@ class LuxonisDataset(BaseDataset):
         self._write_datasets()
 
     def get_skeletons(self) -> Dict[str, Dict]:
+        if "skeletons" not in self.datasets[self.dataset_name]:
+            self.datasets[self.dataset_name]["skeletons"] = {}
         return self.datasets[self.dataset_name]["skeletons"]
 
     def sync_from_cloud(self) -> None:
