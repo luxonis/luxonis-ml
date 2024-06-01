@@ -98,7 +98,9 @@ class ClassificationAnnotation(Annotation):
 
     @staticmethod
     def combine_to_numpy(
-        annotations: List["ClassificationAnnotation"], class_mapping: Dict[str, int], **_
+        annotations: List["ClassificationAnnotation"],
+        class_mapping: Dict[str, int],
+        **_,
     ) -> np.ndarray:
         classify_vector = np.zeros(len(class_mapping))
         for ann in annotations:
