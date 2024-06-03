@@ -97,48 +97,6 @@ class HeadClassification(Head, ABC):
         return value
 
 
-class HeadObjectDetectionYOLO(HeadObjectDetection, ABC):
-    """Metadata for YOLO object detection head.
-
-    @type family: str
-    @ivar family: Decoding family.
-    @type outputs: C{ObjectDetectionYOLO}
-    @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive are fed into the head.
-    @type subtype: ObjectDetectionSubtypeYOLO
-    @ivar subtype: YOLO family decoding subtype (e.g. v5, v6, v7 etc.).
-    """
-
-    family: Literal["ObjectDetectionYOLO"] = Field(..., description="Decoding family.")
-    outputs: OutputsYOLO = Field(
-        description="A configuration specifying which output names from the `outputs` block of the archive are fed into the head."
-    )
-    subtype: ObjectDetectionSubtypeYOLO = Field(
-        description="YOLO family decoding subtype (e.g. v5, v6, v7 etc.)."
-    )
-
-    @field_validator("family")
-    def validate_label_type(
-        cls,
-        value,
-    ):
-        if value != "ObjectDetectionYOLO":
-            raise ValueError("Invalid family")
-        return value
-
-    @model_validator(mode="before")
-    def validate_anchors(
-        cls,
-        values,
-    ):
-        if (
-            "anchors" in values
-            and values["anchors"] is not None
-            and values["subtype"] == ObjectDetectionSubtypeYOLO.YOLOv6.value
-        ):
-            raise ValueError("YOLOv6 does not support anchors.")
-        return values
-
-
 class HeadObjectDetectionSSD(HeadObjectDetection, ABC):
     """Metadata for SSD object detection head.
 
@@ -190,83 +148,55 @@ class HeadSegmentation(Head, ABC):
         return value
 
 
-class HeadInstanceSegmentationYOLO(HeadObjectDetectionYOLO, HeadSegmentation, ABC):
-    """Metadata for YOLO instance segmentation head.
+class HeadObjectDetectionYOLO(HeadObjectDetection, HeadSegmentation, ABC):
+    """Metadata for YOLO object detection head.
 
     @type family: str
     @ivar family: Decoding family.
-    @type outputs: C{OutputsInstanceSegmentationYOLO}
+    @type outputs: Union[C{OutputsYOLO}, C{OutputsInstanceSegmentationYOLO}, C{OutputsKeypointDetectionYOLO}, C{OutputsOBBDetectionYOLO}]
     @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive are fed into the head.
-    @type postprocessor_path: str
-    @ivar postprocessor_path: Path to the secondary executable used in YOLO instance
-        segmentation.
-    @type n_prototypes: int
-    @ivar n_prototypes: Number of prototypes per bbox.
+    @type subtype: ObjectDetectionSubtypeYOLO
+    @ivar subtype: YOLO family decoding subtype (e.g. v5, v6, v7 etc.).
+    @type postprocessor_path: str | None
+    @ivar postprocessor_path: Path to the secondary executable used in YOLO instance segmentation.
+    @type n_prototypes: int | None
+    @ivar n_prototypes: Number of prototypes per bbox in YOLO instance segmnetation.
+    @type n_keypoints: int | None
+    @ivar n_keypoints: Number of keypoints per bbox in YOLO keypoint detection.
+    @type is_softmax: bool | None
+    @ivar is_softmax: True, if output is already softmaxed in YOLO instance segmentation.
     """
 
-    family: Literal["InstanceSegmentationYOLO"] = Field(
-        ..., description="Decoding family."
-    )
-    outputs: OutputsInstanceSegmentationYOLO = Field(
+    family: Literal[
+        "ObjectDetectionYOLO",
+        "InstanceSegmentationYOLO",
+        "KeypointDetectionYOLO",
+        "OBBDetectionYOLO",
+    ] = Field(..., description="Decoding family.")
+    outputs: Union[
+        OutputsYOLO,
+        OutputsInstanceSegmentationYOLO,
+        OutputsKeypointDetectionYOLO,
+        OutputsOBBDetectionYOLO,
+    ] = Field(
         description="A configuration specifying which output names from the `outputs` block of the archive are fed into the head."
     )
-    postprocessor_path: str = Field(
-        ...,
+    subtype: ObjectDetectionSubtypeYOLO = Field(
+        description="YOLO family decoding subtype (e.g. v5, v6, v7 etc.)."
+    )
+    postprocessor_path: Optional[str] = Field(
+        None,
         description="Path to the secondary executable used in YOLO instance segmentation.",
     )
-    n_prototypes: int = Field(description="Number of prototypes per bbox.")
-
-    @field_validator("family")
-    def validate_label_type(
-        cls,
-        value,
-    ):
-        if value != "InstanceSegmentationYOLO":
-            raise ValueError("Invalid family")
-        return value
-
-
-class HeadKeypointDetectionYOLO(HeadObjectDetectionYOLO, ABC):
-    """Metadata for YOLO keypoint detection head.
-
-    @type family: str
-    @ivar family: Decoding family.
-    @type outputs: C{OutputsKeypointDetectionYOLO}
-    @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive are fed into the head.
-    @type n_keypoints: int
-    @ivar n_keypoints: Number of keypoints per bbox.
-    """
-
-    family: Literal["KeypointDetectionYOLO"] = Field(
-        ..., description="Decoding family."
+    n_prototypes: Optional[int] = Field(
+        None, description="Number of prototypes per bbox in YOLO instance segmnetation."
     )
-    outputs: OutputsKeypointDetectionYOLO = Field(
-        description="A configuration specifying which output names from the `outputs` block of the archive are fed into the head."
+    n_keypoints: Optional[int] = Field(
+        None, description="Number of keypoints per bbox in YOLO keypoint detection."
     )
-    n_keypoints: int = Field(description="Number of keypoints per bbox.")
-
-    @field_validator("family")
-    def validate_label_type(
-        cls,
-        value,
-    ):
-        if value != "KeypointDetectionYOLO":
-            raise ValueError("Invalid family")
-        return value
-
-
-class HeadOBBDetectionYOLO(HeadObjectDetectionYOLO, ABC):
-    """Metadata for YOLO OBB head.
-
-    @type family: str
-    @ivar family: Decoding family.
-    @type outputs: C{OutputsOBBDetectionYOLO}
-    @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive are fed into the head.
-    """
-
-    family: Literal["OBBDetectionYOLO"] = Field(..., description="Decoding family.")
-    outputs: OutputsOBBDetectionYOLO = Field(
-        description="A configuration specifying which output names from the `outputs` block of the archive are fed into the head."
+    is_softmax: Optional[bool] = Field(
+        None,
+        description="True, if output is already softmaxed in YOLO instance segmentation.",
     )
 
     @field_validator("family")
@@ -274,9 +204,90 @@ class HeadOBBDetectionYOLO(HeadObjectDetectionYOLO, ABC):
         cls,
         value,
     ):
-        if value != "OBBDetectionYOLO":
+        if value not in [
+            "ObjectDetectionYOLO",
+            "InstanceSegmentationYOLO",
+            "KeypointDetectionYOLO",
+            "OBBDetectionYOLO",
+        ]:
             raise ValueError("Invalid family")
         return value
+
+    @model_validator(mode="before")
+    def validate_task_specific_fields(
+        cls,
+        values,
+    ):
+        family = values.get("family")
+
+        required_fields = {
+            "InstanceSegmentationYOLO": [
+                "postprocessor_path",
+                "n_prototypes",
+                "is_softmax",
+            ],
+            "KeypointDetectionYOLO": ["n_keypoints"],
+        }
+
+        unsupported_fields = {
+            "ObjectDetectionYOLO": [
+                "postprocessor_path",
+                "n_prototypes",
+                "n_keypoints",
+                "is_softmax",
+            ],
+            "OBBDetectionYOLO": [
+                "postprocessor_path",
+                "n_prototypes",
+                "n_keypoints",
+                "is_softmax",
+            ],
+            "InstanceSegmentationYOLO": ["n_keypoints"],
+            "KeypointDetectionYOLO": [
+                "postprocessor_path",
+                "n_prototypes",
+                "is_softmax",
+            ],
+        }
+
+        for field in required_fields.get(family, []):
+            if field not in values or values[field] is None:
+                raise ValueError(f"{family} requires {field}.")
+
+        for field in unsupported_fields.get(family, []):
+            if field in values and values[field] is not None:
+                raise ValueError(f"{family} does not support {field}.")
+
+        return values
+
+    @model_validator(mode="before")
+    def validate_anchors(cls, values):
+        if (
+            "anchors" in values
+            and values["anchors"] is not None
+            and values["subtype"] == ObjectDetectionSubtypeYOLO.YOLOv6
+        ):
+            raise ValueError("YOLOv6 does not support anchors.")
+        return values
+
+    @model_validator(mode="before")
+    def validate_outputs(cls, values):
+        family = values.get("family")
+        outputs = values.get("outputs")
+
+        if family == "ObjectDetectionYOLO":
+            if not isinstance(outputs, OutputsYOLO):
+                raise ValueError("Invalid outputs for ObjectDetectionYOLO.")
+        elif family == "InstanceSegmentationYOLO":
+            if not isinstance(outputs, OutputsInstanceSegmentationYOLO):
+                raise ValueError("Invalid outputs for InstanceSegmentationYOLO.")
+        elif family == "KeypointDetectionYOLO":
+            if not isinstance(outputs, OutputsKeypointDetectionYOLO):
+                raise ValueError("Invalid outputs for KeypointDetectionYOLO.")
+        elif family == "OBBDetectionYOLO":
+            if not isinstance(outputs, OutputsOBBDetectionYOLO):
+                raise ValueError("Invalid outputs for OBBDetectionYOLO.")
+        return values
 
 
 HeadType = Union[
@@ -285,7 +296,4 @@ HeadType = Union[
     HeadObjectDetectionYOLO,
     HeadObjectDetectionSSD,
     HeadSegmentation,
-    HeadInstanceSegmentationYOLO,
-    HeadKeypointDetectionYOLO,
-    HeadOBBDetectionYOLO,
 ]
