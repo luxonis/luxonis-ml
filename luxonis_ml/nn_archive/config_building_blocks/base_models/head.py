@@ -9,6 +9,7 @@ from .head_outputs import (
     OutputsClassification,
     OutputsInstanceSegmentationYOLO,
     OutputsKeypointDetectionYOLO,
+    OutputsOBBDetectionYOLO,
     OutputsSegmentation,
     OutputsSSD,
     OutputsYOLO,
@@ -254,6 +255,30 @@ class HeadKeypointDetectionYOLO(HeadObjectDetectionYOLO, ABC):
         return value
 
 
+class HeadOBBDetectionYOLO(HeadObjectDetectionYOLO, ABC):
+    """Metadata for YOLO OBB head.
+
+    @type family: str
+    @ivar family: Decoding family.
+    @type outputs: C{OutputsOBBDetectionYOLO}
+    @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive are fed into the head.
+    """
+
+    family: Literal["OBBDetectionYOLO"] = Field(..., description="Decoding family.")
+    outputs: OutputsOBBDetectionYOLO = Field(
+        description="A configuration specifying which output names from the `outputs` block of the archive are fed into the head."
+    )
+
+    @field_validator("family")
+    def validate_label_type(
+        cls,
+        value,
+    ):
+        if value != "OBBDetectionYOLO":
+            raise ValueError("Invalid family")
+        return value
+
+
 HeadType = Union[
     HeadClassification,
     HeadObjectDetection,
@@ -262,4 +287,5 @@ HeadType = Union[
     HeadSegmentation,
     HeadInstanceSegmentationYOLO,
     HeadKeypointDetectionYOLO,
+    HeadOBBDetectionYOLO,
 ]

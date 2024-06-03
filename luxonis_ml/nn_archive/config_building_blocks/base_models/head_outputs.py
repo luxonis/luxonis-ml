@@ -94,3 +94,19 @@ class OutputsKeypointDetectionYOLO(Outputs):
         description="A list of output names for each of the different YOLO grid sizes."
     )
     keypoints: str = Field(description="Output name for the keypoints.")
+
+
+class OutputsOBBDetectionYOLO(Outputs):
+    """Represents outputs of a basic YOLO OBB model.
+
+    @type yolo_outputs: C{List[str]}
+    @ivar yolo_outputs: A list of output names for each of the different YOLO grid
+        sizes.
+    @type angles: str
+    @ivar angles: Output name for the angles.
+    """
+
+    yolo_outputs: List[str] = Field(
+        description="A list of output names for each of the different YOLO grid sizes."
+    )
+    angles: str = Field(description="Output name for the angles.")
