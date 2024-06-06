@@ -139,11 +139,7 @@ class LuxonisDataset(BaseDataset):
 
         df = self._load_df_offline(self.bucket_storage != BucketStorage.LOCAL)
         if df is not None:
-            if "uuid" in df.columns:
-                return len(set(df["uuid"]))
-            else:
-                # NOTE: backwards compatibility, to remove in future version
-                return len(set(df["instance_id"]))
+            return len(set(df["uuid"]))
         else:
             return 0
 

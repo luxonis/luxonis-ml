@@ -51,7 +51,11 @@ def check_exists(name: str):
 
 def get_dataset_info(name: str) -> Tuple[int, List[str], List[str]]:
     dataset = LuxonisDataset(name)
-    size = len(dataset)
+    try:
+        size = len(dataset)
+    except KeyError:
+        size = -1
+
     try:
         loader = LuxonisLoader(dataset, view=SplitType.TRAIN.value)
         _, ann = next(iter(loader))
@@ -112,7 +116,12 @@ def ls(
         table.add_column("Tasks", header_style="magenta i")
     for name in datasets:
         dataset = LuxonisDataset(name)
-        rows = [name, str(len(dataset))]
+        rows = [name]
+        try:
+            size = len(dataset)
+        except KeyError:
+            size = -1
+        rows.append(str(size))
         if full:
             _, classes, tasks = get_dataset_info(name)
             rows.extend(
