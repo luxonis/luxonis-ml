@@ -2,10 +2,12 @@ from typing import List, Optional
 
 from pydantic import Field
 
-from .config_building_blocks import CustomBaseModel, HeadType, Input, Metadata, Output
+from luxonis_ml.utils import BaseModelExtraForbid
+
+from .config_building_blocks import HeadType, Input, Metadata, Output
 
 
-class Model(CustomBaseModel):
+class Model(BaseModelExtraForbid):
     """Class defining a single-stage model config scheme.
 
     @type metadata: Metadata

@@ -1,15 +1,17 @@
 from abc import ABCMeta
-from typing import Callable, Dict, Optional, Tuple, Union
+from typing import Callable, Dict, Generic, Optional, Tuple, TypeVar, Union
+
+T = TypeVar("T")
 
 
-class Registry:
+class Registry(Generic[T]):
     def __init__(self, name: str):
         """A Registry class to store and retrieve modules.
 
         @type name: str
         @param name: Name of the registry
         """
-        self._module_dict: Dict[str, type] = dict()
+        self._module_dict: Dict[str, T] = {}
         self._name = name
 
     def __str__(self):
@@ -29,7 +31,7 @@ class Registry:
     def module_dict(self):
         return self._module_dict
 
-    def get(self, key: str) -> type:
+    def get(self, key: str) -> T:
         """Retrieves the registry record for the key.
 
         @type key: str
@@ -53,7 +55,7 @@ class Registry:
     ) -> Union[type, Callable[[type], type]]:
         """Registers a module.
 
-        Can be used as a decorator or as a normal method.
+        Can be used as a decorator or as a normal method:
 
             >>> registry = Registry(name="modules")
             >>> @registry.register_module()

@@ -89,23 +89,22 @@ class DarknetParser(BaseParser):
 
                     yield {
                         "file": file,
-                        "class": class_name,
-                        "type": "classification",
-                        "value": True,
+                        "annotation": {
+                            "type": "classification",
+                            "class": class_name,
+                        },
                     }
-
-                    bbox_xywh = (
-                        float(x_center) - float(width) / 2,
-                        float(y_center) - float(height) / 2,
-                        float(width),
-                        float(height),
-                    )
 
                     yield {
                         "file": file,
-                        "class": class_name,
-                        "type": "box",
-                        "value": bbox_xywh,
+                        "annotation": {
+                            "type": "boundingbox",
+                            "class": class_name,
+                            "x": float(x_center) - float(width) / 2,
+                            "y": float(y_center) - float(height) / 2,
+                            "w": float(width),
+                            "h": float(height),
+                        },
                     }
 
         added_images = self._get_added_images(generator())

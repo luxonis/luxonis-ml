@@ -2,10 +2,10 @@ from typing import List
 
 from pydantic import Field
 
-from .custom_base_model import CustomBaseModel
+from luxonis_ml.utils import BaseModelExtraForbid
 
 
-class Outputs(CustomBaseModel):
+class Outputs(BaseModelExtraForbid):
     """Parent class for all outputs."""
 
     pass

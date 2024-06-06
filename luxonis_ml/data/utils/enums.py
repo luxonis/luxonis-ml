@@ -1,6 +1,17 @@
 from enum import Enum
 
 
+class LabelType(str, Enum):
+    """Supported computer vision label types."""
+
+    CLASSIFICATION = "classification"
+    SEGMENTATION = "segmentation"
+    BOUNDINGBOX = "boundingbox"
+    KEYPOINTS = "keypoints"
+    LABEL = "label"
+    ARRAY = "array"
+
+
 class DataLabelType(Enum):
     """Supported computer vision label types.
 

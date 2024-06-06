@@ -2,14 +2,14 @@ import ast
 from typing import Any, Dict, List, Optional, Type, TypeVar, Union
 
 import yaml
-from pydantic import BaseModel, ConfigDict
 
 from .filesystem import LuxonisFileSystem
+from .pydantic_utils import BaseModelExtraForbid
 
 T = TypeVar("T", bound="LuxonisConfig")
 
 
-class LuxonisConfig(BaseModel):
+class LuxonisConfig(BaseModelExtraForbid):
     """Class for storing configuration.
 
     Singleton class which checks and merges user config with a default one and provides
@@ -18,8 +18,6 @@ class LuxonisConfig(BaseModel):
     @warning: Only the L{get_config} method can be used to instantiate this class. Using
         C{__init__} directly will raise a L{NotImplementedError}.
     """
-
-    model_config = ConfigDict(extra="forbid")
 
     @classmethod
     def get_config(

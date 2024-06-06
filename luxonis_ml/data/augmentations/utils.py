@@ -4,9 +4,9 @@ import albumentations as A
 import cv2
 import numpy as np
 
-from luxonis_ml.enums import LabelType
 from luxonis_ml.utils.registry import Registry
 
+from ..utils.enums import LabelType
 from .batch_compose import BatchCompose, ForEach
 from .batch_transform import BatchBasedTransform
 
@@ -14,7 +14,14 @@ AUGMENTATIONS = Registry(name="augmentations")
 
 
 class Augmentations:
-    def __init__(self, train_rgb: bool = True):
+    def __init__(
+        self,
+        image_size: List[int],
+        augmentations: List[Dict[str, Any]],
+        train_rgb: bool = True,
+        keep_aspect_ratio: bool = True,
+        only_normalize: bool = False,
+    ):
         """Base class for augmentations that are used in LuxonisLoader.
 
         @type train_rgb: bool
@@ -25,6 +32,14 @@ class Augmentations:
 
         self.is_batched = False
         self.aug_batch_size = 1
+
+        self.batch_transform, self.spatial_transform = self._parse_cfg(
+            image_size=image_size,
+            augmentations=[a for a in augmentations if a["name"] == "Normalize"]
+            if only_normalize
+            else augmentations,
+            keep_aspect_ratio=keep_aspect_ratio,
+        )
 
     def _parse_cfg(
         self,
@@ -105,8 +120,7 @@ class Augmentations:
 
     def __call__(
         self,
-        data: List[Tuple[np.ndarray, Dict[str, Dict[LabelType, np.ndarray]]]],
-        nc: int = 1,
+        data: List[Tuple[np.ndarray, Dict[LabelType, np.ndarray]]],
         ns: int = 1,
         nk: int = 1,
     ) -> Tuple[np.ndarray, Dict[LabelType, np.ndarray]]:
@@ -145,7 +159,7 @@ class Augmentations:
                 keypoints_points,
                 keypoints_visibility,
                 keypoints_classes,
-            ) = self.prepare_img_annotations(annotations, *img.shape[:-1])
+            ) = self.prepare_img_annotations(annotations, *img.shape[:-1], nk=nk)
 
             image_batch.append(img)
             mask_batch.append(mask)
@@ -194,7 +208,7 @@ class Augmentations:
             ns=ns,
             nk=nk,
             filter_kpts_by_bbox=(LabelType.BOUNDINGBOX in present_annotations)
-            and (LabelType.KEYPOINT in present_annotations),
+            and (LabelType.KEYPOINTS in present_annotations),
         )
 
         out_annotations = {}
@@ -205,13 +219,13 @@ class Augmentations:
                 out_annotations[LabelType.SEGMENTATION] = out_mask
             elif key == LabelType.BOUNDINGBOX:
                 out_annotations[LabelType.BOUNDINGBOX] = out_bboxes
-            elif key == LabelType.KEYPOINT:
-                out_annotations[LabelType.KEYPOINT] = out_keypoints
+            elif key == LabelType.KEYPOINTS:
+                out_annotations[LabelType.KEYPOINTS] = out_keypoints
 
         return out_image, out_annotations
 
     def prepare_img_annotations(
-        self, annotations: Dict[LabelType, np.ndarray], ih: int, iw: int
+        self, annotations: Dict[LabelType, np.ndarray], ih: int, iw: int, nk: int
     ) -> Tuple[
         np.ndarray,
         np.ndarray,
@@ -249,7 +263,7 @@ class Augmentations:
         bboxes_classes = bboxes[:, 0]
 
         # albumentations expects list of keypoints e.g. [(x,y),(x,y),(x,y),(x,y)]
-        keypoints = annotations.get(LabelType.KEYPOINT, np.zeros((1, 3 + 1)))
+        keypoints = annotations.get(LabelType.KEYPOINTS, np.zeros((1, nk * 3 + 1)))
         keypoints_unflat = np.reshape(keypoints[:, 1:], (-1, 3))
         keypoints_points = keypoints_unflat[:, :2]
         keypoints_points[:, 0] *= iw
@@ -257,7 +271,6 @@ class Augmentations:
         keypoints_visibility = keypoints_unflat[:, 2]
         # albumentations expects classes to be same length as keypoints
         # (use case: each kpt separate class - not supported in LuxonisDataset)
-        nk = int((keypoints.shape[1] - 1) / 3)
         keypoints_classes = np.repeat(keypoints[:, 0], nk)
 
         return (
@@ -304,7 +317,7 @@ class Augmentations:
                 out_mask[int(key) - 1, ...] = transformed_mask == key
         out_mask[out_mask > 0] = 1
 
-        if len(transformed_data["bboxes"]):
+        if transformed_data["bboxes"]:
             transformed_bboxes_classes = np.expand_dims(
                 transformed_data["bboxes_classes"], axis=-1
             )
@@ -319,17 +332,21 @@ class Augmentations:
         transformed_keypoints_vis = np.expand_dims(
             transformed_data["keypoints_visibility"], axis=-1
         )
-        out_keypoints = np.concatenate(
-            (transformed_data["keypoints"], transformed_keypoints_vis), axis=1
-        )
+
+        if nk == 0:
+            nk = 1  # done for easier postprocessing
+        if transformed_data["keypoints"]:
+            out_keypoints = np.concatenate(
+                (transformed_data["keypoints"], transformed_keypoints_vis), axis=1
+            )
+        else:
+            out_keypoints = np.zeros((0, nk * 3 + 1))
+
         out_keypoints = self.mark_invisible_keypoints(out_keypoints, ih, iw)
         out_keypoints[..., 0] /= iw
         out_keypoints[..., 1] /= ih
-        if nk == 0:
-            nk = 1  # done for easier postprocessing
         out_keypoints = np.reshape(out_keypoints, (-1, nk * 3))
         keypoints_classes = transformed_data["keypoints_classes"]
-        # keypoints classes are repeated so take one per instance
         keypoints_classes = keypoints_classes[0::nk]
         keypoints_classes = np.expand_dims(keypoints_classes, axis=-1)
         out_keypoints = np.concatenate((keypoints_classes, out_keypoints), axis=1)
@@ -377,65 +394,6 @@ class Augmentations:
             if kp[2] == 0:  # per COCO format invisible points have x=y=0
                 kp[0] = kp[1] = 0
         return keypoints
-
-
-class TrainAugmentations(Augmentations):
-    def __init__(
-        self,
-        image_size: List[int],
-        augmentations: List[Dict[str, Any]],
-        train_rgb: bool = True,
-        keep_aspect_ratio: bool = True,
-    ):
-        """Class for train augmentations.
-
-        @type image_size: List[int]
-        @param image_size: Desired image size [H,W].
-        @type augmentations: List[Dict[str, Any]]
-        @param augmentations: List of augmentations to use and their params.
-        @type train_rgb: bool
-        @param train_rgb: Whether should use RGB or BGR images.
-        @type keep_aspect_ratio: bool
-        @param keep_aspect_ratio: Whether should use resize that keeps aspect ratio of
-            original image.
-        """
-        super().__init__(train_rgb=train_rgb)
-
-        self.batch_transform, self.spatial_transform = self._parse_cfg(
-            image_size=image_size,
-            augmentations=augmentations,
-            keep_aspect_ratio=keep_aspect_ratio,
-        )
-
-
-class ValAugmentations(Augmentations):
-    def __init__(
-        self,
-        image_size: List[int],
-        augmentations: List[Dict[str, Any]],
-        train_rgb: bool = True,
-        keep_aspect_ratio: bool = True,
-    ):
-        """Class for validation augmentations which performs only normalization (if
-        present) and resize.
-
-        @type image_size: List[int]
-        @param image_size: Desired image size [H,W].
-        @type augmentations: List[Dict[str, Any]]
-        @param augmentations: List of augmentations to use and their params.
-        @type train_rgb: bool
-        @param train_rgb: Whether should use RGB or BGR images.
-        @type keep_aspect_ratio: bool
-        @param keep_aspect_ratio: Whether should use resize that keeps aspect ratio of
-            original image.
-        """
-        super().__init__(train_rgb=train_rgb)
-
-        self.batch_transform, self.spatial_transform = self._parse_cfg(
-            image_size=image_size,
-            augmentations=[a for a in augmentations if a["name"] == "Normalize"],
-            keep_aspect_ratio=keep_aspect_ratio,
-        )
 
 
 # Registering all supported transforms

@@ -1,5 +1,4 @@
 from .base_models import (
-    CustomBaseModel,
     Head,
     HeadClassification,
     HeadInstanceSegmentationYOLO,
@@ -23,7 +22,6 @@ from .enums import (
 )
 
 __all__ = [
-    "CustomBaseModel",
     "Head",
     "HeadType",
     "HeadSegmentation",

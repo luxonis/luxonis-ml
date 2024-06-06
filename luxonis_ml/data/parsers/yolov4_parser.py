@@ -108,23 +108,23 @@ class YoloV4Parser(BaseParser):
                     class_name = class_names[int(curr_ann_data[4])]
                     yield {
                         "file": file,
-                        "class": class_name,
-                        "type": "classification",
-                        "value": True,
+                        "annotation": {
+                            "type": "classification",
+                            "class": class_name,
+                        },
                     }
 
                     bbox_xyxy = [float(i) for i in curr_ann_data[:4]]
-                    bbox_xywh = [
-                        bbox_xyxy[0] / width,
-                        bbox_xyxy[1] / height,
-                        (bbox_xyxy[2] - bbox_xyxy[0]) / width,
-                        (bbox_xyxy[3] - bbox_xyxy[1]) / height,
-                    ]
                     yield {
                         "file": file,
-                        "class": class_name,
-                        "type": "box",
-                        "value": tuple(bbox_xywh),
+                        "annotation": {
+                            "type": "boundingbox",
+                            "class": class_name,
+                            "x": bbox_xyxy[0] / width,
+                            "y": bbox_xyxy[1] / height,
+                            "w": (bbox_xyxy[2] - bbox_xyxy[0]) / width,
+                            "h": (bbox_xyxy[3] - bbox_xyxy[1]) / height,
+                        },
                     }
 
         added_images = self._get_added_images(generator())

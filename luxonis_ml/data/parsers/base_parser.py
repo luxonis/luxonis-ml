@@ -3,7 +3,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple
 
-from luxonis_ml.data import DatasetIterator, LuxonisDataset
+from luxonis_ml.data import BaseDataset, DatasetIterator
+from luxonis_ml.utils.filesystem import PathType
 
 ParserOutput = Tuple[DatasetIterator, List[str], Dict[str, Dict], List[str]]
 """Type alias for parser output.
@@ -15,7 +16,7 @@ dictionary for keypoints and list of added images.
 
 @dataclass
 class BaseParser(ABC):
-    dataset: LuxonisDataset
+    dataset: BaseDataset
 
     @staticmethod
     @abstractmethod
@@ -82,10 +83,10 @@ class BaseParser(ABC):
         @rtype: List[str]
         @return: List of added images.
         """
-        generator, class_names, skeletons, added_images = self.from_split(**kwargs)
-        self.dataset.set_classes(class_names)
-        self.dataset.set_skeletons(skeletons)
+        generator, _, skeleton, added_images = self.from_split(**kwargs)
         self.dataset.add(generator)
+        if skeleton:
+            self.dataset.set_skeletons(skeleton, "keypoints")
 
         return added_images
 
@@ -95,7 +96,7 @@ class BaseParser(ABC):
         random_split: bool = False,
         split_ratios: Tuple[float, float, float] = (0.8, 0.1, 0.1),
         **kwargs,
-    ) -> LuxonisDataset:
+    ) -> BaseDataset:
         """Parses data in a split subdirectory to L{LuxonisDataset} format.
 
         @type split: Optional[Literal["train", "val", "test"]]
@@ -119,7 +120,7 @@ class BaseParser(ABC):
             self.dataset.make_splits(split_ratios)
         return self.dataset
 
-    def parse_dir(self, dataset_dir: Path, **kwargs) -> LuxonisDataset:
+    def parse_dir(self, dataset_dir: Path, **kwargs) -> BaseDataset:
         """Parses entire dataset directory to L{LuxonisDataset} format.
 
         @type dataset_dir: str
@@ -141,7 +142,7 @@ class BaseParser(ABC):
         return self.dataset
 
     @staticmethod
-    def _get_added_images(generator: DatasetIterator) -> List[str]:
+    def _get_added_images(generator: DatasetIterator) -> List[PathType]:
         """Returns list of unique images added by the generator function.
 
         @type generator: L{DatasetGenerator}
@@ -149,7 +150,12 @@ class BaseParser(ABC):
         @rtype: List[str]
         @return: List of added images by generator function
         """
-        return list(set(item["file"] for item in generator))
+        return list(
+            set(
+                item["file"] if isinstance(item, dict) else item.file
+                for item in generator
+            )
+        )
 
     @staticmethod
     def _compare_stem_files(list1: Iterable[Path], list2: Iterable[Path]) -> bool:

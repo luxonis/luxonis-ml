@@ -47,7 +47,7 @@ class Compose(BaseCompose):
         in your data consistency). Defaults to True.
         @type is_check_shapes: bool
         """
-        super(Compose, self).__init__(transforms, p)
+        super().__init__(transforms, p)
 
         self.processors: Dict[str, DataProcessor] = {}
 
@@ -271,7 +271,7 @@ class BatchCompose(Compose):
         in your data consistency). Defaults to True.
         @type is_check_shapes: bool
         """
-        super(BatchCompose, self).__init__(
+        super().__init__(
             transforms=transforms,
             bbox_params=bbox_params,
             keypoint_params=keypoint_params,

@@ -107,16 +107,22 @@ class TensorflowCSVParser(BaseParser):
                 for class_name in curr_annotations["classes"]:
                     yield {
                         "file": path,
-                        "class": class_name,
-                        "type": "classification",
-                        "value": True,
+                        "annotation": {
+                            "type": "classification",
+                            "class": class_name,
+                        },
                     }
-                for bbox_class, bbox in curr_annotations["bboxes"]:
+                for bbox_class, (x, y, w, h) in curr_annotations["bboxes"]:
                     yield {
                         "file": path,
-                        "class": bbox_class,
-                        "type": "box",
-                        "value": tuple(bbox),
+                        "annotation": {
+                            "type": "boundingbox",
+                            "class": bbox_class,
+                            "x": x,
+                            "y": y,
+                            "w": w,
+                            "h": h,
+                        },
                     }
 
         added_images = self._get_added_images(generator())

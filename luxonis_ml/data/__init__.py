@@ -3,7 +3,7 @@ import pkg_resources
 from ..guard_extras import guard_missing_extra
 
 with guard_missing_extra("data"):
-    from .augmentations import Augmentations, TrainAugmentations, ValAugmentations
+    from .augmentations import Augmentations
     from .datasets import (
         DATASETS_REGISTRY,
         BaseDataset,
@@ -12,12 +12,13 @@ with guard_missing_extra("data"):
         LuxonisDataset,
         LuxonisSource,
     )
-    from .loader import BaseLoader, LabelType, LuxonisLoader, LuxonisLoaderOutput
+    from .loaders import BaseLoader, LuxonisLoader, LuxonisLoaderOutput
     from .parsers import LuxonisParser
     from .utils.enums import (
         BucketStorage,
         BucketType,
         ImageType,
+        LabelType,
         MediaType,
     )
 
@@ -48,6 +49,4 @@ __all__ = [
     "LuxonisParser",
     "LuxonisSource",
     "MediaType",
-    "TrainAugmentations",
-    "ValAugmentations",
 ]

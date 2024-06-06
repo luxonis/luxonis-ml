@@ -2,11 +2,12 @@ from typing import List, Optional
 
 from pydantic import Field, model_validator
 
+from luxonis_ml.utils import BaseModelExtraForbid
+
 from ..enums import DataType, InputType
-from .custom_base_model import CustomBaseModel
 
 
-class PreprocessingBlock(CustomBaseModel):
+class PreprocessingBlock(BaseModelExtraForbid):
     """Represents preprocessing operations applied to the input data.
 
     @type mean: list
@@ -36,7 +37,7 @@ class PreprocessingBlock(CustomBaseModel):
     )
 
 
-class Input(CustomBaseModel):
+class Input(BaseModelExtraForbid):
     """Represents input stream of a model.
 
     @type name: str

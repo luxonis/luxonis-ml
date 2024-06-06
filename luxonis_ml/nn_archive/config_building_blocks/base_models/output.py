@@ -1,10 +1,11 @@
 from pydantic import Field
 
+from luxonis_ml.utils import BaseModelExtraForbid
+
 from ..enums import DataType
-from .custom_base_model import CustomBaseModel
 
 
-class Output(CustomBaseModel):
+class Output(BaseModelExtraForbid):
     """Represents output stream of a model.
 
     @type name: str

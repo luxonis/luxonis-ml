@@ -4,9 +4,12 @@ import typer
 
 from luxonis_ml.utils import setup_logging
 
+app = typer.Typer(
+    name="Luxonis ML CLI",
+    add_completion=True,
+    pretty_exceptions_show_locals=False,
+)
 setup_logging(use_rich=True)
-
-app = typer.Typer(name="Luxonis ML CLI", add_completion=True)
 
 try:
     from luxonis_ml.data.__main__ import app as data_app
