@@ -10,6 +10,7 @@ class LabelType(str, Enum):
     KEYPOINTS = "keypoints"
     LABEL = "label"
     ARRAY = "array"
+    TEXT = "text"
 
 
 class DataLabelType(Enum):
@@ -28,6 +29,7 @@ class DataLabelType(Enum):
     KEYPOINTS = "keypoints"  # keypoint skeleton instances
     LABEL = "label"  # an arbitrary label of string, bool, or number
     ARRAY = "array"  # a path to a numpy (.npy) array
+    TEXT = "text"  # a str value that is expected to be encoded into OCR label: List[int] with a fixed len of max_len
 
 
 class MediaType(Enum):

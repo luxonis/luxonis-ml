@@ -174,6 +174,7 @@ class LuxonisLoader(BaseLoader):
 
         uuid = self.instances[idx]
         df = self.df.loc[uuid]
+        print(df)
         if self.dataset.bucket_storage == BucketStorage.LOCAL:
             matched = self.file_index[self.file_index["uuid"] == uuid]
             img_path = list(matched["original_filepath"])[0]

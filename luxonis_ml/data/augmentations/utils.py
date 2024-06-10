@@ -146,6 +146,7 @@ class Augmentations:
         keypoints_batch = []
         keypoints_visibility_batch = []
         keypoints_classes_batch = []
+        text_batch = []
 
         present_annotations = set()
         bbox_counter = 0
@@ -159,10 +160,12 @@ class Augmentations:
                 keypoints_points,
                 keypoints_visibility,
                 keypoints_classes,
+                text
             ) = self.prepare_img_annotations(annotations, *img.shape[:-1], nk=nk)
 
             image_batch.append(img)
             mask_batch.append(mask)
+            text_batch.append(text)
 
             bboxes_batch.append(bboxes_points)
             bboxes_visibility_batch.append(
@@ -221,12 +224,15 @@ class Augmentations:
                 out_annotations[LabelType.BOUNDINGBOX] = out_bboxes
             elif key == LabelType.KEYPOINTS:
                 out_annotations[LabelType.KEYPOINTS] = out_keypoints
+            elif key == LabelType.TEXT:
+                out_annotations[LabelType.TEXT] = text_batch
 
         return out_image, out_annotations
 
     def prepare_img_annotations(
         self, annotations: Dict[LabelType, np.ndarray], ih: int, iw: int, nk: int
     ) -> Tuple[
+        np.ndarray,
         np.ndarray,
         np.ndarray,
         np.ndarray,
@@ -249,6 +255,7 @@ class Augmentations:
         """
 
         classes = annotations.get(LabelType.CLASSIFICATION, np.zeros(1))
+        texts = annotations.get(LabelType.TEXT, np.zeros(1))
 
         seg = annotations.get(LabelType.SEGMENTATION, np.zeros((1, ih, iw)))
         mask = np.argmax(seg, axis=0) + 1
@@ -281,6 +288,7 @@ class Augmentations:
             keypoints_points,
             keypoints_visibility,
             keypoints_classes,
+            texts
         )
 
     def post_transform_process(

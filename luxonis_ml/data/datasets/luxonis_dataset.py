@@ -6,7 +6,7 @@ import time
 from collections import defaultdict
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 import pandas as pd
@@ -124,6 +124,7 @@ class LuxonisDataset(BaseDataset):
             rich.progress.MofNCompleteColumn(),
             rich.progress.TimeRemainingColumn(),
         )
+        self.global_metadata = {}
 
     @property
     def identifier(self) -> str:
@@ -291,6 +292,9 @@ class LuxonisDataset(BaseDataset):
                 json.dump(classes_json, file, indent=4)
             self.fs.put_file(local_file, "metadata/classes.json")
             self._remove_temp_dir()
+
+    def set_global_metadata(self, metadata: Dict[str, Any]) -> None:
+        self.global_metadata = metadata
 
     def get_classes(
         self, sync_mode: bool = False
