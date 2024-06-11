@@ -7,9 +7,6 @@ from ..enums import ObjectDetectionSubtypeYOLO
 from .head_outputs import (
     Outputs,
     OutputsClassification,
-    OutputsInstanceSegmentationYOLO,
-    OutputsKeypointDetectionYOLO,
-    OutputsOBBDetectionYOLO,
     OutputsSegmentation,
     OutputsSSD,
     OutputsYOLO,
@@ -148,12 +145,12 @@ class HeadSegmentation(Head, ABC):
         return value
 
 
-class HeadObjectDetectionYOLO(HeadObjectDetection, HeadSegmentation, ABC):
-    """Metadata for YOLO object detection head.
+class HeadYOLO(HeadObjectDetection, HeadSegmentation, ABC):
+    """Metadata for YOLO head.
 
     @type family: str
     @ivar family: Decoding family.
-    @type outputs: Union[C{OutputsYOLO}, C{OutputsInstanceSegmentationYOLO}, C{OutputsKeypointDetectionYOLO}, C{OutputsOBBDetectionYOLO}]
+    @type outputs: C{OutputsYOLO}
     @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive are fed into the head.
     @type subtype: ObjectDetectionSubtypeYOLO
     @ivar subtype: YOLO family decoding subtype (e.g. v5, v6, v7 etc.).
@@ -167,18 +164,8 @@ class HeadObjectDetectionYOLO(HeadObjectDetection, HeadSegmentation, ABC):
     @ivar is_softmax: True, if output is already softmaxed in YOLO instance segmentation.
     """
 
-    family: Literal[
-        "ObjectDetectionYOLO",
-        "InstanceSegmentationYOLO",
-        "KeypointDetectionYOLO",
-        "OBBDetectionYOLO",
-    ] = Field(..., description="Decoding family.")
-    outputs: Union[
-        OutputsYOLO,
-        OutputsInstanceSegmentationYOLO,
-        OutputsKeypointDetectionYOLO,
-        OutputsOBBDetectionYOLO,
-    ] = Field(
+    family: Literal["YOLO",] = Field(..., description="Decoding family.")
+    outputs: OutputsYOLO = Field(
         description="A configuration specifying which output names from the `outputs` block of the archive are fed into the head."
     )
     subtype: ObjectDetectionSubtypeYOLO = Field(
@@ -204,12 +191,7 @@ class HeadObjectDetectionYOLO(HeadObjectDetection, HeadSegmentation, ABC):
         cls,
         value,
     ):
-        if value not in [
-            "ObjectDetectionYOLO",
-            "InstanceSegmentationYOLO",
-            "KeypointDetectionYOLO",
-            "OBBDetectionYOLO",
-        ]:
+        if value != "YOLO":
             raise ValueError("Invalid family")
         return value
 
@@ -218,46 +200,96 @@ class HeadObjectDetectionYOLO(HeadObjectDetection, HeadSegmentation, ABC):
         cls,
         values,
     ):
-        family = values.get("family")
+        defined_params = {k for k, v in values.items() if v is not None}
+
+        common_fields = ["family", "outputs", "subtype"]
+        defined_params = defined_params.difference(common_fields)
 
         required_fields = {
-            "InstanceSegmentationYOLO": [
+            "instance_segmentation": [
                 "postprocessor_path",
                 "n_prototypes",
                 "is_softmax",
             ],
-            "KeypointDetectionYOLO": ["n_keypoints"],
+            "keypoint_detection": ["n_keypoints"],
         }
 
         unsupported_fields = {
-            "ObjectDetectionYOLO": [
+            "object_detection": [
                 "postprocessor_path",
                 "n_prototypes",
                 "n_keypoints",
                 "is_softmax",
             ],
-            "OBBDetectionYOLO": [
-                "postprocessor_path",
-                "n_prototypes",
-                "n_keypoints",
-                "is_softmax",
-            ],
-            "InstanceSegmentationYOLO": ["n_keypoints"],
-            "KeypointDetectionYOLO": [
+            "instance_segmentation": ["n_keypoints"],
+            "keypoint_detection": [
                 "postprocessor_path",
                 "n_prototypes",
                 "is_softmax",
             ],
         }
 
-        for field in required_fields.get(family, []):
-            if field not in values or values[field] is None:
-                raise ValueError(f"{family} requires {field}.")
+        # Extract the task type
+        if all(
+            [
+                field in defined_params
+                for field in required_fields.get("instance_segmentation", [])
+            ]
+        ) and all(
+            [
+                field not in defined_params
+                for field in unsupported_fields.get("instance_segmentation", [])
+            ]
+        ):
+            task = "instance_segmentation"
+        elif all(
+            [
+                field in defined_params
+                for field in required_fields.get("keypoint_detection", [])
+            ]
+        ) and all(
+            [
+                field not in defined_params
+                for field in unsupported_fields.get("keypoint_detection", [])
+            ]
+        ):
+            task = "keypoint_detection"
+        elif all(
+            [
+                field not in defined_params
+                for field in unsupported_fields.get("object_detection", [])
+            ]
+        ):
+            task = "object_detection"
+        else:
+            task = None
 
-        for field in unsupported_fields.get(family, []):
-            if field in values and values[field] is not None:
-                raise ValueError(f"{family} does not support {field}.")
+        if task is None:
+            raise ValueError("Invalid combination of parameters.")
 
+        # Validate Outputs
+        outputs = values.get("outputs", {})
+        defined_params = {k for k, v in outputs.dict().items() if v is not None}
+
+        supported_output_params = {
+            "instance_segmentation": ["yolo_outputs", "mask_outputs", "protos"],
+            "keypoint_detection": ["yolo_outputs", "keypoints"],
+        }
+        unsupported_output_params = {
+            "object_detection": ["mask_outputs", "protos", "keypoints"],
+        }
+        if task == "object_detection":
+            if any(
+                [field in defined_params for field in unsupported_output_params[task]]
+            ):
+                raise ValueError("Invalid outputs for the task type.")
+        if task != "object_detection":
+            if not all(
+                [field in supported_output_params[task] for field in defined_params]
+            ) or not all(
+                [field in defined_params for field in supported_output_params[task]]
+            ):
+                raise ValueError("Invalid outputs for the task type.")
         return values
 
     @model_validator(mode="before")
@@ -265,35 +297,19 @@ class HeadObjectDetectionYOLO(HeadObjectDetection, HeadSegmentation, ABC):
         if (
             "anchors" in values
             and values["anchors"] is not None
-            and values["subtype"] == ObjectDetectionSubtypeYOLO.YOLOv6
+            and (
+                values["subtype"] == ObjectDetectionSubtypeYOLO.YOLOv6
+                or values["subtype"] == ObjectDetectionSubtypeYOLO.YOLOv8
+            )
         ):
-            raise ValueError("YOLOv6 does not support anchors.")
-        return values
-
-    @model_validator(mode="before")
-    def validate_outputs(cls, values):
-        family = values.get("family")
-        outputs = values.get("outputs")
-
-        if family == "ObjectDetectionYOLO":
-            if not isinstance(outputs, OutputsYOLO):
-                raise ValueError("Invalid outputs for ObjectDetectionYOLO.")
-        elif family == "InstanceSegmentationYOLO":
-            if not isinstance(outputs, OutputsInstanceSegmentationYOLO):
-                raise ValueError("Invalid outputs for InstanceSegmentationYOLO.")
-        elif family == "KeypointDetectionYOLO":
-            if not isinstance(outputs, OutputsKeypointDetectionYOLO):
-                raise ValueError("Invalid outputs for KeypointDetectionYOLO.")
-        elif family == "OBBDetectionYOLO":
-            if not isinstance(outputs, OutputsOBBDetectionYOLO):
-                raise ValueError("Invalid outputs for OBBDetectionYOLO.")
+            raise ValueError("YOLOv6 and YOLOv8 do not support anchors.")
         return values
 
 
 HeadType = Union[
     HeadClassification,
     HeadObjectDetection,
-    HeadObjectDetectionYOLO,
     HeadObjectDetectionSSD,
     HeadSegmentation,
+    HeadYOLO,
 ]

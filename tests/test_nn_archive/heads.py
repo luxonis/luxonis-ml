@@ -1,13 +1,10 @@
 from luxonis_ml.nn_archive.config_building_blocks import (
     HeadClassification,
     HeadObjectDetectionSSD,
-    HeadObjectDetectionYOLO,
+    HeadYOLO,
 )
 from luxonis_ml.nn_archive.config_building_blocks.base_models.head_outputs import (
     OutputsClassification,
-    OutputsInstanceSegmentationYOLO,
-    OutputsKeypointDetectionYOLO,
-    OutputsOBBDetectionYOLO,
     OutputsSSD,
     OutputsYOLO,
 )
@@ -22,17 +19,37 @@ output_ssd = OutputsSSD(
     scores="scores",
 )
 
-output = OutputsYOLO(yolo_outputs=["feats"])
-
-output_instance_segmentation = OutputsInstanceSegmentationYOLO(
-    yolo_outputs=["feats"], mask_outputs=["mask"], protos="protos"
+output_detection = OutputsYOLO(
+    yolo_outputs=["feats"],
+    mask_outputs=None,
+    protos=None,
+    keypoints=None,
+    angles=None,
 )
 
-output_keypoint_detection = OutputsKeypointDetectionYOLO(
-    yolo_outputs=["feats"], keypoints="keypoints"
+output_instance_segmentation = OutputsYOLO(
+    yolo_outputs=["feats"],
+    mask_outputs=["mask"],
+    protos="protos",
+    keypoints=None,
+    angles=None,
 )
 
-output_obb = OutputsOBBDetectionYOLO(yolo_outputs=["feats"], angles="angles")
+output_keypoint_detection = OutputsYOLO(
+    yolo_outputs=["feats"],
+    mask_outputs=None,
+    protos=None,
+    keypoints="keypoints",
+    angles=None,
+)
+
+output_obb = OutputsYOLO(
+    yolo_outputs=["feats"],
+    mask_outputs=None,
+    protos=None,
+    keypoints=None,
+    angles="angles",
+)
 
 classification_head = dict(
     HeadClassification(
@@ -64,9 +81,9 @@ ssd_object_detection_head = dict(
 )
 
 yolo_object_detection_head = dict(
-    HeadObjectDetectionYOLO(
-        family="ObjectDetectionYOLO",
-        outputs=output,
+    HeadYOLO(
+        family="YOLO",
+        outputs=output_detection,
         subtype=ObjectDetectionSubtypeYOLO.YOLOv6,
         classes=["person", "car"],
         n_classes=2,
@@ -82,8 +99,8 @@ yolo_object_detection_head = dict(
 )
 
 yolo_instance_segmentation_head = dict(
-    HeadObjectDetectionYOLO(
-        family="InstanceSegmentationYOLO",
+    HeadYOLO(
+        family="YOLO",
         outputs=output_instance_segmentation,
         subtype=ObjectDetectionSubtypeYOLO.YOLOv6,
         classes=["person", "car"],
@@ -100,8 +117,8 @@ yolo_instance_segmentation_head = dict(
 )
 
 yolo_keypoint_detection_head = dict(
-    HeadObjectDetectionYOLO(
-        family="KeypointDetectionYOLO",
+    HeadYOLO(
+        family="YOLO",
         outputs=output_keypoint_detection,
         subtype=ObjectDetectionSubtypeYOLO.YOLOv6,
         classes=["person", "car"],
@@ -118,8 +135,8 @@ yolo_keypoint_detection_head = dict(
 )
 
 yolo_obb_detection_head = dict(
-    HeadObjectDetectionYOLO(
-        family="OBBDetectionYOLO",
+    HeadYOLO(
+        family="YOLO",
         outputs=output_obb,
         subtype=ObjectDetectionSubtypeYOLO.YOLOv6,
         classes=["person", "car"],
