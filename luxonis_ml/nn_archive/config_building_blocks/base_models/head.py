@@ -283,7 +283,7 @@ class HeadYOLO(HeadObjectDetection, HeadSegmentation, ABC):
                 [field in defined_params for field in unsupported_output_params[task]]
             ):
                 raise ValueError("Invalid outputs for the task type.")
-        if task != "object_detection":
+        else:
             if not all(
                 [field in supported_output_params[task] for field in defined_params]
             ) or not all(
