@@ -192,7 +192,7 @@ class LuxonisDataset(BaseDataset):
             return None
         for file in annotations_path.iterdir():
             if file.suffix == ".parquet":
-                dfs.append(pd.read_parquet(annotations_path / file))
+                dfs.append(pd.read_parquet(file))
         if len(dfs):
             return pd.concat(dfs)
         else:
@@ -253,10 +253,10 @@ class LuxonisDataset(BaseDataset):
         yield
         self.logger.info(f"Took {time.time() - t} seconds")
 
-    def _make_temp_dir(self) -> None:
-        if self.tmp_dir.exists():
+    def _make_temp_dir(self, remove_previous: bool = True) -> None:
+        if self.tmp_dir.exists() and remove_previous:
             self._remove_temp_dir()
-        os.makedirs(self.tmp_dir, exist_ok=False)
+        self.tmp_dir.mkdir(exist_ok=True)
 
     def _remove_temp_dir(self) -> None:
         shutil.rmtree(self.tmp_dir)
@@ -272,7 +272,13 @@ class LuxonisDataset(BaseDataset):
         self._write_datasets()
         self.source = source
 
-    def set_classes(self, classes: List[str], task: Optional[str] = None) -> None:
+    def set_classes(
+        self,
+        classes: List[str],
+        task: Optional[str] = None,
+        *,
+        _remove_tmp_dir: bool = True,
+    ) -> None:
         if task is not None:
             self.datasets[self.dataset_name]["classes"][task] = classes
         else:
@@ -285,12 +291,13 @@ class LuxonisDataset(BaseDataset):
 
         if self.bucket_storage != BucketStorage.LOCAL:
             classes_json = self.datasets[self.dataset_name]["classes"]
-            self._make_temp_dir()
+            self._make_temp_dir(remove_previous=_remove_tmp_dir)
             local_file = self.tmp_dir / "classes.json"
             with open(local_file, "w") as file:
                 json.dump(classes_json, file, indent=4)
             self.fs.put_file(local_file, "metadata/classes.json")
-            self._remove_temp_dir()
+            if _remove_tmp_dir:
+                self._remove_temp_dir()
 
     def get_classes(
         self, sync_mode: bool = False
@@ -481,7 +488,7 @@ class LuxonisDataset(BaseDataset):
             old_classes = set(curr_classes.get(task, []))
             new_classes = list(classes - old_classes)
             self.logger.info(f"Detected new classes for task {task}: {new_classes}")
-            self.set_classes(list(classes | old_classes), task)
+            self.set_classes(list(classes | old_classes), task, _remove_tmp_dir=False)
 
         self.pfm.close()
 
