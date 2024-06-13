@@ -6,7 +6,7 @@ from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
-import pandas as pd
+import polars as pl
 
 from ..augmentations import Augmentations
 from ..datasets import Annotation, LuxonisDataset, load_annotation
@@ -91,7 +91,7 @@ class LuxonisLoader(BaseLoader):
         if df is None:
             raise Exception("Cannot find dataframe")
         self.df = df
-        self.df.set_index(["uuid"], inplace=True)
+        # self.df.set_index(["uuid"], inplace=True)
 
     def __len__(self) -> int:
         """Returns length of the dataset.
@@ -160,7 +160,7 @@ class LuxonisLoader(BaseLoader):
             for label_type, array in aug_annotations.items():
                 out_dict[label_to_task[label_type]] = (array, label_type)
 
-        return img, out_dict
+        return img, out_dict  # type: ignore
 
     def _load_image_with_annotations(self, idx: int) -> Tuple[np.ndarray, Labels]:
         """Loads image and its annotations based on index.
@@ -173,7 +173,7 @@ class LuxonisLoader(BaseLoader):
         """
 
         uuid = self.instances[idx]
-        df = self.df.loc[uuid]
+        df = self.df.filter(pl.col("uuid") == uuid)
         if self.dataset.bucket_storage == BucketStorage.LOCAL:
             matched = self.file_index[self.file_index["uuid"] == uuid]
             img_path = list(matched["original_filepath"])[0]
@@ -191,18 +191,18 @@ class LuxonisLoader(BaseLoader):
         height, width, _ = img.shape
         labels: Labels = {}
 
-        if df.ndim == 1:
-            df = pd.DataFrame([df])
+        # if df.ndim == 1:
+        #     df = pl.DataFrame([df])
 
         for task in df["task"].unique():
             if not task:
                 continue
-            sub_df = df[df["task"] == task]
+            sub_df = df.filter(pl.col("task") == task)
             annotations: List[Annotation] = []
             class_mapping = {
                 class_: i for i, class_ in enumerate(self.classes_by_task[task])
             }
-            for i, (_, row) in enumerate(sub_df.iterrows()):
+            for i, row in enumerate(sub_df.rows(named=True)):
                 type_ = row["type"]
                 class_ = row["class"]
                 instance_id = row["instance_id"]

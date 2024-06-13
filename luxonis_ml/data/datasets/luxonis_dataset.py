@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 import numpy as np
 import pandas as pd
+import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
 import rich.progress
@@ -182,7 +183,7 @@ class LuxonisDataset(BaseDataset):
                 f"{self.team_id}/datasets/{self.dataset_name}"
             )
 
-    def _load_df_offline(self, sync_mode: bool = False) -> Optional[pd.DataFrame]:
+    def _load_df_offline(self, sync_mode: bool = False) -> Optional[pl.DataFrame]:
         dfs = []
         if self.bucket_storage == BucketStorage.LOCAL or sync_mode:
             annotations_path = self.annotations_path
@@ -192,9 +193,9 @@ class LuxonisDataset(BaseDataset):
             return None
         for file in annotations_path.iterdir():
             if file.suffix == ".parquet":
-                dfs.append(pd.read_parquet(annotations_path / file))
+                dfs.append(pl.read_parquet(annotations_path / file))
         if len(dfs):
-            return pd.concat(dfs)
+            return pl.concat(dfs)
         else:
             return None
 
