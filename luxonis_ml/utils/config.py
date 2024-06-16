@@ -1,5 +1,5 @@
 import ast
-from typing import Any, Dict, List, Optional, Type, TypeVar, Union
+from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
 import yaml
 
@@ -23,7 +23,7 @@ class LuxonisConfig(BaseModelExtraForbid):
     def get_config(
         cls: Type[T],
         cfg: Optional[Union[str, Dict[str, Any]]] = None,
-        overrides: Optional[Dict[str, Any]] = None,
+        overrides: Optional[Union[Dict[str, Any], List[str], Tuple[str, ...]]] = None,
     ) -> T:
         """Loads config from a yaml file or a dictionary.
 
@@ -39,6 +39,17 @@ class LuxonisConfig(BaseModelExtraForbid):
         @raise ValueError: If the config is instantiated for the first time and neither
             C{cfg} nor C{overrides} are provided.
         """
+        if isinstance(overrides, (list, tuple)):
+            if len(overrides) % 2 != 0:
+                raise ValueError(
+                    "Override options should be a list of key-value pairs "
+                    "but it's length is not divisible by 2."
+                )
+
+            overrides = {
+                key: value for key, value in zip(overrides[::2], overrides[1::2])
+            }
+
         if getattr(cls, "_instance", None) is None:
             if cfg is None and overrides is None:
                 raise ValueError(
@@ -47,7 +58,7 @@ class LuxonisConfig(BaseModelExtraForbid):
                 )
             cls._from_get_config = True
             cls._instance = cls(cfg, overrides)
-        return cls._instance
+        return cls._instance  # type: ignore
 
     def __init__(
         self,
