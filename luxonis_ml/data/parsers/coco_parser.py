@@ -140,18 +140,21 @@ class COCOParser(BaseParser):
                 }
 
         def generator() -> DatasetIterator:
-            for img in coco_images:
-                img_id = img["id"]
+            img_dict = {img["id"]: img for img in coco_images}
+            ann_dict = {}
+            for ann in coco_annotations:
+                img_id = ann["image_id"]
+                if img_id not in ann_dict:
+                    ann_dict[img_id] = []
+                ann_dict[img_id].append(ann)
 
+            for img_id, img in img_dict.items():
                 path = image_dir.absolute() / img["file_name"]
                 if not path.exists():
                     continue
                 path = str(path)
 
-                img_anns = [
-                    ann for ann in coco_annotations if ann["image_id"] == img_id
-                ]
-
+                img_anns = ann_dict.get(img_id, [])
                 img_h = img["height"]
                 img_w = img["width"]
 
