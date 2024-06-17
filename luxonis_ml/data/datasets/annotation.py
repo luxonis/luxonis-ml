@@ -44,6 +44,7 @@ def load_annotation(name: str, js: str, data: Dict[str, Any]) -> "Annotation":
         "PolylineSegmentationAnnotation": PolylineSegmentationAnnotation,
         "ArrayAnnotation": ArrayAnnotation,
         "LabelAnnotation": LabelAnnotation,
+        "TextAnnotation": TextAnnotation,
     }[name](**json.loads(js), **data)
 
 
@@ -90,6 +91,39 @@ class Annotation(ABC, BaseModelExtraForbid):
     ) -> np.ndarray:
         """Combines multiple instance annotations into a single numpy array."""
         pass
+
+
+class TextAnnotation(Annotation):
+    _label_type = LabelType.TEXT
+    type_: Literal["text"] = Field("text", alias="type")
+
+    text: str
+    max_len: int
+
+    def to_numpy(
+        self,
+        class_mapping: Dict[str, int],
+        **_,
+    ) -> np.ndarray:
+        text_label = np.zeros(self.max_len)
+        for idx, char in enumerate(self.text):
+            class_ = class_mapping.get(char, 0)
+            text_label[idx] = class_
+        return text_label
+
+    @staticmethod
+    def combine_to_numpy(
+        annotations: List["TextAnnotation"],
+        class_mapping: Dict[str, int],
+        **_,
+    ) -> np.ndarray:
+        text_labels = None
+        for idx, ann in enumerate(annotations):
+            if text_labels is None:
+                text_labels = np.zeros((len(annotations), ann.max_len))
+            text_labels[idx] = ann.to_numpy(class_mapping=class_mapping, max_len=ann.max_len)
+
+        return text_labels
 
 
 class ClassificationAnnotation(Annotation):
@@ -360,6 +394,7 @@ class DatasetRecord(BaseModelExtraForbid):
             PolylineSegmentationAnnotation,
             ArrayAnnotation,
             LabelAnnotation,
+            TextAnnotation
         ]
     ] = Field(None, discriminator="type_")
 
