@@ -175,7 +175,7 @@ class LuxonisLoader(BaseLoader):
         df = self.df.filter(pl.col("uuid") == uuid)
         if self.dataset.bucket_storage == BucketStorage.LOCAL:
             matched = self.file_index.filter(pl.col("uuid") == uuid)
-            img_path = list(matched["original_filepath"])[0]
+            img_path = list(matched.select("original_filepath"))[0][0]
         else:
             if not self.stream:
                 img_path = next(self.dataset.media_path.glob(f"{uuid}.*"))
@@ -198,14 +198,13 @@ class LuxonisLoader(BaseLoader):
             class_mapping = {
                 class_: i for i, class_ in enumerate(self.classes_by_task[task])
             }
-            for i, row in enumerate(sub_df.rows(named=True)):
-                type_ = row["type"]
-                class_ = row["class"]
-                instance_id = row["instance_id"]
+            for i, (*_, type_, _, class_, instance_id, _, ann_str) in enumerate(
+                sub_df.rows(named=False)
+            ):
                 instance_id = instance_id if instance_id > 0 else i
                 annotation = load_annotation(
                     type_,
-                    row["annotation"],
+                    ann_str,
                     {"class": class_, "task": task, "instance_id": instance_id},
                 )
                 annotations.append(annotation)

@@ -137,10 +137,7 @@ class LuxonisDataset(BaseDataset):
         """Returns the number of instances in the dataset."""
 
         df = self._load_df_offline(self.bucket_storage != BucketStorage.LOCAL)
-        if df is not None:
-            return len(set(df["uuid"]))
-        else:
-            return 0
+        return len(df) if df is not None else 0
 
     def _write_datasets(self) -> None:
         with open(self.datasets_cache_file, "w") as file:
@@ -192,7 +189,7 @@ class LuxonisDataset(BaseDataset):
         for file in annotations_path.iterdir():
             if file.suffix == ".parquet":
                 dfs.append(pl.read_parquet(annotations_path / file))
-        if len(dfs):
+        if dfs:
             return pl.concat(dfs)
         else:
             return None
@@ -211,7 +208,7 @@ class LuxonisDataset(BaseDataset):
         matched = index.filter(pl.col("original_filepath") == abs_path)
 
         if len(matched):
-            return list(matched["uuid"])[0]
+            return list(matched.select("uuid"))[0][0]
         elif raise_on_missing:
             raise ValueError(f"File {abs_path} not found in index")
         return None
@@ -433,10 +430,11 @@ class LuxonisDataset(BaseDataset):
                                 f"{filepath} already added to the dataset! Please skip or rename the file."
                             )
                             # TODO: we may also want to check for duplicate uuids to get a one-to-one relationship
-                    elif uuid not in new_index["uuid"]:
+                    elif uuid not in processed_uuids:
                         new_index["uuid"].append(uuid)
                         new_index["file"].append(file)
                         new_index["original_filepath"].append(str(filepath.absolute()))
+                        processed_uuids.add(uuid)
 
                     self.pfm.write({"uuid": uuid, **ann.to_parquet_dict()})
                     self.progress.update(task, advance=1, refresh=False)
@@ -453,6 +451,7 @@ class LuxonisDataset(BaseDataset):
 
         index = self._get_file_index()
         new_index = {"uuid": [], "file": [], "original_filepath": []}
+        processed_uuids = set()
 
         batch_data: list[DatasetRecord] = []
 
