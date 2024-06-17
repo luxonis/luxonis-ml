@@ -91,7 +91,6 @@ class LuxonisLoader(BaseLoader):
         if df is None:
             raise Exception("Cannot find dataframe")
         self.df = df
-        # self.df.set_index(["uuid"], inplace=True)
 
     def __len__(self) -> int:
         """Returns length of the dataset.
@@ -175,7 +174,7 @@ class LuxonisLoader(BaseLoader):
         uuid = self.instances[idx]
         df = self.df.filter(pl.col("uuid") == uuid)
         if self.dataset.bucket_storage == BucketStorage.LOCAL:
-            matched = self.file_index[self.file_index["uuid"] == uuid]
+            matched = self.file_index.filter(pl.col("uuid") == uuid)
             img_path = list(matched["original_filepath"])[0]
         else:
             if not self.stream:
@@ -190,9 +189,6 @@ class LuxonisLoader(BaseLoader):
 
         height, width, _ = img.shape
         labels: Labels = {}
-
-        # if df.ndim == 1:
-        #     df = pl.DataFrame([df])
 
         for task in df["task"].unique():
             if not task:

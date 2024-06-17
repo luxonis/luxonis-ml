@@ -9,9 +9,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 import numpy as np
-import pandas as pd
 import polars as pl
-import pyarrow as pa
 import pyarrow.parquet as pq
 import rich.progress
 
@@ -202,7 +200,7 @@ class LuxonisDataset(BaseDataset):
     def _find_filepath_uuid(
         self,
         filepath: Path,
-        index: Optional[pd.DataFrame],
+        index: Optional[pl.DataFrame],
         *,
         raise_on_missing: bool = False,
     ) -> Optional[str]:
@@ -218,7 +216,7 @@ class LuxonisDataset(BaseDataset):
             raise ValueError(f"File {abs_path} not found in index")
         return None
 
-    def _get_file_index(self) -> Optional[pd.DataFrame]:
+    def _get_file_index(self) -> Optional[pl.DataFrame]:
         index = None
         if self.bucket_storage == BucketStorage.LOCAL:
             file_index_path = self.metadata_path / "file_index.parquet"
@@ -229,12 +227,12 @@ class LuxonisDataset(BaseDataset):
             except Exception:
                 pass
         if file_index_path.exists():
-            index = pd.read_parquet(file_index_path)
+            index = pl.read_parquet(file_index_path)
         return index
 
     def _write_index(
         self,
-        index: Optional[pd.DataFrame],
+        index: Optional[pl.DataFrame],
         new_index: Dict,
         override_path: Optional[str] = None,
     ) -> None:
@@ -242,10 +240,10 @@ class LuxonisDataset(BaseDataset):
             file_index_path = override_path
         else:
             file_index_path = self.metadata_path / "file_index.parquet"
-        df = pd.DataFrame(new_index)
+        df = pl.DataFrame(new_index)
         if index is not None:
-            df = pd.concat([index, df])
-        table = pa.Table.from_pandas(df)
+            df = pl.concat([index, df])
+        table = df.to_arrow()
         pq.write_table(table, file_index_path)
 
     @contextmanager
