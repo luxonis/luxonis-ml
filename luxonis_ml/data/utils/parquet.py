@@ -1,8 +1,7 @@
 import os
 from typing import Dict
 
-import pandas as pd
-import pyarrow as pa
+import polars as pl
 import pyarrow.parquet as pq
 
 
@@ -43,10 +42,10 @@ class ParquetFileManager:
         path = os.path.join(self.dir, filename)
         return path
 
-    def _read(self) -> Dict:
+    def _read(self) -> None:
         if os.path.exists(self.current_file):
-            df = pd.read_parquet(self.current_file)
-            self.data = df.to_dict()
+            df = pl.read_parquet(self.current_file)
+            self.data = df.to_dict(as_series=False)
             self.data = {k: list(v.values()) for k, v in self.data.items()}
             self.row_count = len(df)
         else:
@@ -82,6 +81,6 @@ class ParquetFileManager:
     def close(self) -> None:
         """Ensures all data is written to parquet."""
 
-        df = pd.DataFrame(self.data)
-        table = pa.Table.from_pandas(df)
+        df = pl.DataFrame(self.data)
+        table = df.to_arrow()
         pq.write_table(table, self.current_file)
