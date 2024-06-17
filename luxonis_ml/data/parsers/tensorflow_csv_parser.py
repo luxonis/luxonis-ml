@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
-import pandas as pd
+import polars as pl
 
 from luxonis_ml.data import DatasetIterator
 
@@ -74,11 +74,11 @@ class TensorflowCSVParser(BaseParser):
         @rtype: L{ParserOutput}
         @return: Annotation generator, list of classes names, skeleton dictionary for
         """
-        df = pd.read_csv(annotation_path)
+        df = pl.read_csv(annotation_path).filter(pl.col("filename").is_not_null())
         images_annotations = {}
 
         class_names = set(df["class"])
-        for _, row in df.iterrows():
+        for row in df.rows(named=True):
             path = str(image_dir / str(row["filename"]))
             if path not in images_annotations:
                 images_annotations[path] = {

@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
-import pandas as pd
+import polars as pl
 import pycocotools.mask as mask_util
 
 from luxonis_ml.data import DatasetIterator
@@ -91,12 +91,11 @@ class SegmentationMaskDirectoryParser(BaseParser):
         @return: Annotation generator, list of classes names, skeleton dictionary for
             keypoints and list of added images
         """
-        df = pd.read_csv(classes_path)
 
-        idx_pixel_val = "Pixel Value"
         idx_class = " Class"  # NOTE: space prefix included
 
-        class_names = pd.Series(df[idx_class].values, index=df[idx_pixel_val]).to_dict()
+        df = pl.read_csv(classes_path).filter(pl.col(idx_class).is_not_null())
+        class_names = df[idx_class].to_list()
 
         def generator() -> DatasetIterator:
             for mask_path in seg_dir.glob("*_mask.*"):
@@ -133,4 +132,4 @@ class SegmentationMaskDirectoryParser(BaseParser):
                     }
 
         added_images = self._get_added_images(generator())
-        return generator(), list(class_names.values()), {}, added_images
+        return generator(), class_names, {}, added_images
