@@ -46,7 +46,6 @@ class ParquetFileManager:
         if os.path.exists(self.current_file):
             df = pl.read_parquet(self.current_file)
             self.data = df.to_dict(as_series=False)
-            self.data = {k: list(v.values()) for k, v in self.data.items()}
             self.row_count = len(df)
         else:
             self.row_count = 0
