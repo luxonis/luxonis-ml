@@ -208,10 +208,10 @@ class LuxonisDataset(BaseDataset):
             return None
 
         abs_path = str(filepath.absolute())
-        if abs_path in list(index["original_filepath"]):
-            matched = index[index["original_filepath"] == abs_path]
-            if len(matched):
-                return list(matched["uuid"])[0]
+        matched = index.filter(pl.col("original_filepath") == abs_path)
+
+        if len(matched):
+            return list(matched["uuid"])[0]
         elif raise_on_missing:
             raise ValueError(f"File {abs_path} not found in index")
         return None
@@ -439,7 +439,7 @@ class LuxonisDataset(BaseDataset):
                         new_index["original_filepath"].append(str(filepath.absolute()))
 
                     self.pfm.write({"uuid": uuid, **ann.to_parquet_dict()})
-                    self.progress.update(task, advance=1)
+                    self.progress.update(task, advance=1, refresh=True)
                 self.progress.stop()
                 self.progress.remove_task(task)
 
