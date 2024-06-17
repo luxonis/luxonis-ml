@@ -1,5 +1,5 @@
 import os
-from typing import Dict, Tuple
+from typing import Dict
 
 import pandas as pd
 import pyarrow as pa
@@ -38,7 +38,7 @@ class ParquetFileManager:
         ]
         return max(nums)
 
-    def _generate_filename(self, num: int) -> Tuple[str, str]:
+    def _generate_filename(self, num: int) -> str:
         filename = f"{str(num).zfill(10)}.parquet"
         path = os.path.join(self.dir, filename)
         return path
