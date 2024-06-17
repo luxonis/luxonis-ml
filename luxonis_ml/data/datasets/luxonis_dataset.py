@@ -439,7 +439,7 @@ class LuxonisDataset(BaseDataset):
                         new_index["original_filepath"].append(str(filepath.absolute()))
 
                     self.pfm.write({"uuid": uuid, **ann.to_parquet_dict()})
-                    self.progress.update(task, advance=1, refresh=True)
+                    self.progress.update(task, advance=1, refresh=False)
                 self.progress.stop()
                 self.progress.remove_task(task)
 
