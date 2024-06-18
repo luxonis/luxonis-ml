@@ -81,5 +81,4 @@ class ParquetFileManager:
         """Ensures all data is written to parquet."""
 
         df = pl.DataFrame(self.data)
-        table = df.to_arrow()
-        pq.write_table(table, self.current_file)
+        pq.write_table(df.to_arrow(), self.current_file)

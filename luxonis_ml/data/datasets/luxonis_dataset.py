@@ -240,8 +240,7 @@ class LuxonisDataset(BaseDataset):
         df = pl.DataFrame(new_index)
         if index is not None:
             df = pl.concat([index, df])
-        table = df.to_arrow()
-        pq.write_table(table, file_index_path)
+        pq.write_table(df.to_arrow(), file_index_path)
 
     @contextmanager
     def _log_time(self):
@@ -444,7 +443,7 @@ class LuxonisDataset(BaseDataset):
                         processed_uuids.add(uuid)
 
                     self.pfm.write({"uuid": uuid, **ann.to_parquet_dict()})
-                    self.progress.update(task, advance=1, refresh=False)
+                    self.progress.update(task, advance=1)
                 self.progress.stop()
                 self.progress.remove_task(task)
 
