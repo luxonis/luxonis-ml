@@ -59,16 +59,6 @@ class LuxonisLoader(BaseLoader):
             except FileNotFoundError:
                 self.logger.warning("Skeletons file not found at %s", skeletons_file)
 
-        if self.dataset.bucket_storage == BucketStorage.LOCAL or not self.stream:
-            file_index = self.dataset._get_file_index()
-            if file_index is None:
-                raise Exception("Cannot find file index")
-            self.file_index = file_index
-        else:
-            raise NotImplementedError(
-                "Streaming for remote bucket storage not implemented yet"
-            )
-
         self.view = view
 
         self.classes, self.classes_by_task = self.dataset.get_classes(
@@ -89,8 +79,18 @@ class LuxonisLoader(BaseLoader):
 
         df = dataset._load_df_offline(sync_mode=self.sync_mode)
         if df is None:
-            raise Exception("Cannot find dataframe")
+            raise FileNotFoundError("Cannot find dataframe")
         self.df = df
+
+        if self.dataset.bucket_storage == BucketStorage.LOCAL or not self.stream:
+            file_index = self.dataset._get_file_index()
+            if file_index is None:
+                raise FileNotFoundError("Cannot find file index")
+            self.df = self.df.join(file_index, on="uuid").drop("file_right")
+        else:
+            raise NotImplementedError(
+                "Streaming for remote bucket storage not implemented yet"
+            )
 
     def __len__(self) -> int:
         """Returns length of the dataset.
@@ -174,16 +174,14 @@ class LuxonisLoader(BaseLoader):
         uuid = self.instances[idx]
         df = self.df.filter(pl.col("uuid") == uuid)
         if self.dataset.bucket_storage == BucketStorage.LOCAL:
-            matched = self.file_index.filter(pl.col("uuid") == uuid)
-            img_path = list(matched.select("original_filepath"))[0][0]
+            img_path = list(df.select("original_filepath"))[0][0]
+        elif not self.stream:
+            img_path = next(self.dataset.media_path.glob(f"{uuid}.*"))
         else:
-            if not self.stream:
-                img_path = next(self.dataset.media_path.glob(f"{uuid}.*"))
-            else:
-                # TODO: add support for streaming remote storage
-                raise NotImplementedError(
-                    "Streaming for remote bucket storage not implemented yet"
-                )
+            # TODO: add support for streaming remote storage
+            raise NotImplementedError(
+                "Streaming for remote bucket storage not implemented yet"
+            )
 
         img = cv2.cvtColor(cv2.imread(str(img_path)), cv2.COLOR_BGR2RGB)
 
@@ -198,7 +196,7 @@ class LuxonisLoader(BaseLoader):
             class_mapping = {
                 class_: i for i, class_ in enumerate(self.classes_by_task[task])
             }
-            for i, (*_, type_, _, class_, instance_id, _, ann_str) in enumerate(
+            for i, (*_, type_, _, class_, instance_id, _, ann_str, _) in enumerate(
                 sub_df.rows(named=False)
             ):
                 instance_id = instance_id if instance_id > 0 else i

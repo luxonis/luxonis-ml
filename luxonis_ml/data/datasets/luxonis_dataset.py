@@ -137,7 +137,7 @@ class LuxonisDataset(BaseDataset):
         """Returns the number of instances in the dataset."""
 
         df = self._load_df_offline(self.bucket_storage != BucketStorage.LOCAL)
-        return len(df) if df is not None else 0
+        return len(df.select("uuid").unique()) if df is not None else 0
 
     def _write_datasets(self) -> None:
         with open(self.datasets_cache_file, "w") as file:
@@ -353,107 +353,109 @@ class LuxonisDataset(BaseDataset):
         if self.bucket_storage == BucketStorage.LOCAL:
             shutil.rmtree(self.path)
 
-    def add(
-        self,
-        generator: DatasetIterator,
-        batch_size: int = 1_000_000,
-    ) -> None:
-        def _process_arrays(batch_data: List[DatasetRecord]) -> None:
-            array_paths = set(
-                ann.path for ann in batch_data if isinstance(ann, ArrayAnnotation)
+    def _process_arrays(self, batch_data: List[DatasetRecord]) -> None:
+        array_paths = set(
+            ann.path for ann in batch_data if isinstance(ann, ArrayAnnotation)
+        )
+        if array_paths:
+            task = self.progress.add_task(
+                "[magenta]Processing arrays...", total=len(batch_data)
             )
-            if array_paths:
-                task = self.progress.add_task(
-                    "[magenta]Processing arrays...", total=len(batch_data)
-                )
-                self.logger.info("Checking arrays...")
-                with self._log_time():
-                    data_utils.check_arrays(array_paths)
-                self.logger.info("Generating array UUIDs...")
-                with self._log_time():
-                    array_uuid_dict = self.fs.get_file_uuids(
-                        array_paths, local=True
-                    )  # TODO: support from bucket
-                if self.bucket_storage != BucketStorage.LOCAL:
-                    self.logger.info("Uploading arrays...")
-                    # TODO: support from bucket (likely with a self.fs.copy_dir)
-                    with self._log_time():
-                        arrays_upload_dict = self.fs.put_dir(
-                            local_paths=array_paths,
-                            remote_dir="arrays",
-                            uuid_dict=array_uuid_dict,
-                        )
-                self.logger.info("Finalizing paths...")
-                self.progress.start()
-                for ann in batch_data:
-                    if isinstance(ann, ArrayAnnotation):
-                        if self.bucket_storage != BucketStorage.LOCAL:
-                            remote_path = arrays_upload_dict[str(ann.path)]  # type: ignore
-                            remote_path = (
-                                f"{self.fs.protocol}://{self.fs.path / remote_path}"
-                            )
-                            ann.path = remote_path  # type: ignore
-                        else:
-                            ann.path = ann.path.absolute()
-                        self.progress.update(task, advance=1)
-                self.progress.stop()
-                self.progress.remove_task(task)
-
-        def _add_process_batch(batch_data: List[DatasetRecord]) -> None:
-            paths = list(set(data.file for data in batch_data))
-            self.logger.info("Generating UUIDs...")
+            self.logger.info("Checking arrays...")
             with self._log_time():
-                uuid_dict = self.fs.get_file_uuids(
-                    paths, local=True
+                data_utils.check_arrays(array_paths)
+            self.logger.info("Generating array UUIDs...")
+            with self._log_time():
+                array_uuid_dict = self.fs.get_file_uuids(
+                    array_paths, local=True
                 )  # TODO: support from bucket
             if self.bucket_storage != BucketStorage.LOCAL:
-                self.logger.info("Uploading media...")
+                self.logger.info("Uploading arrays...")
                 # TODO: support from bucket (likely with a self.fs.copy_dir)
-
                 with self._log_time():
-                    self.fs.put_dir(
-                        local_paths=paths, remote_dir="media", uuid_dict=uuid_dict
+                    arrays_upload_dict = self.fs.put_dir(
+                        local_paths=array_paths,
+                        remote_dir="arrays",
+                        uuid_dict=array_uuid_dict,
                     )
-
-            task = self.progress.add_task(
-                "[magenta]Processing data...", total=len(batch_data)
-            )
-
-            _process_arrays(batch_data)
-
-            self.logger.info("Saving annotations...")
-            with self._log_time():
-                self.progress.start()
-                for ann in batch_data:
-                    filepath = ann.file
-                    file = filepath.name
-                    uuid = uuid_dict[str(filepath)]
-                    matched_id = self._find_filepath_uuid(filepath, index)
-                    if matched_id is not None:
-                        if matched_id != uuid:
-                            # TODO: not sure if this should be an exception or how we should really handle it
-                            raise Exception(
-                                f"{filepath} already added to the dataset! Please skip or rename the file."
-                            )
-                            # TODO: we may also want to check for duplicate uuids to get a one-to-one relationship
-                    elif uuid not in processed_uuids:
-                        new_index["uuid"].append(uuid)
-                        new_index["file"].append(file)
-                        new_index["original_filepath"].append(str(filepath.absolute()))
-                        processed_uuids.add(uuid)
-
-                    self.pfm.write({"uuid": uuid, **ann.to_parquet_dict()})
+            self.logger.info("Finalizing paths...")
+            self.progress.start()
+            for ann in batch_data:
+                if isinstance(ann, ArrayAnnotation):
+                    if self.bucket_storage != BucketStorage.LOCAL:
+                        remote_path = arrays_upload_dict[str(ann.path)]  # type: ignore
+                        remote_path = (
+                            f"{self.fs.protocol}://{self.fs.path / remote_path}"
+                        )
+                        ann.path = remote_path  # type: ignore
+                    else:
+                        ann.path = ann.path.absolute()
                     self.progress.update(task, advance=1)
-                self.progress.stop()
-                self.progress.remove_task(task)
+            self.progress.stop()
+            self.progress.remove_task(task)
 
+    def _add_process_batch(
+        self,
+        batch_data: List[DatasetRecord],
+        pfm: ParquetFileManager,
+        index: Optional[pl.DataFrame],
+        new_index: Dict[str, List[str]],
+        processed_uuids: Set[str],
+    ) -> None:
+        paths = list(set(data.file for data in batch_data))
+        self.logger.info("Generating UUIDs...")
+        with self._log_time():
+            uuid_dict = self.fs.get_file_uuids(
+                paths, local=True
+            )  # TODO: support from bucket
+        if self.bucket_storage != BucketStorage.LOCAL:
+            self.logger.info("Uploading media...")
+            # TODO: support from bucket (likely with a self.fs.copy_dir)
+
+            with self._log_time():
+                self.fs.put_dir(
+                    local_paths=paths, remote_dir="media", uuid_dict=uuid_dict
+                )
+
+        task = self.progress.add_task(
+            "[magenta]Processing data...", total=len(batch_data)
+        )
+
+        self._process_arrays(batch_data)
+
+        self.logger.info("Saving annotations...")
+        with self._log_time():
+            self.progress.start()
+            for ann in batch_data:
+                filepath = ann.file
+                file = filepath.name
+                uuid = uuid_dict[str(filepath)]
+                matched_id = self._find_filepath_uuid(filepath, index)
+                if matched_id is not None:
+                    if matched_id != uuid:
+                        # TODO: not sure if this should be an exception or how we should really handle it
+                        raise Exception(
+                            f"{filepath} already added to the dataset! Please skip or rename the file."
+                        )
+                        # TODO: we may also want to check for duplicate uuids to get a one-to-one relationship
+                elif uuid not in processed_uuids:
+                    new_index["uuid"].append(uuid)
+                    new_index["file"].append(file)
+                    new_index["original_filepath"].append(str(filepath.absolute()))
+                    processed_uuids.add(uuid)
+
+                pfm.write({"uuid": uuid, **ann.to_parquet_dict()})
+                self.progress.update(task, advance=1)
+            self.progress.stop()
+            self.progress.remove_task(task)
+
+    def add(self, generator: DatasetIterator, batch_size: int = 1_000_000) -> None:
         if self.bucket_storage == BucketStorage.LOCAL:
-            self.pfm = ParquetFileManager(str(self.annotations_path))
+            annotations_dir = self.annotations_path
         else:
             self._make_temp_dir()
             annotations_dir = self.tmp_dir / "annotations"
             annotations_dir.mkdir(exist_ok=True, parents=True)
-            self.pfm = ParquetFileManager(str(annotations_dir))
 
         index = self._get_file_index()
         new_index = {"uuid": [], "file": [], "original_filepath": []}
@@ -464,21 +466,28 @@ class LuxonisDataset(BaseDataset):
         classes_per_task: Dict[str, Set[str]] = defaultdict(set)
         num_kpts_per_task: Dict[str, int] = {}
 
-        for i, data in enumerate(generator, start=1):
-            record = data if isinstance(data, DatasetRecord) else DatasetRecord(**data)
-            if record.annotation is not None:
-                classes_per_task[record.annotation.task].add(record.annotation.class_)
-                if record.annotation.type_ == "keypoints":
-                    num_kpts_per_task[record.annotation.task] = len(
-                        record.annotation.keypoints
+        with ParquetFileManager(annotations_dir) as pfm:
+            for i, data in enumerate(generator, start=1):
+                record = (
+                    data if isinstance(data, DatasetRecord) else DatasetRecord(**data)
+                )
+                if record.annotation is not None:
+                    classes_per_task[record.annotation.task].add(
+                        record.annotation.class_
                     )
+                    if record.annotation.type_ == "keypoints":
+                        num_kpts_per_task[record.annotation.task] = len(
+                            record.annotation.keypoints
+                        )
 
-            batch_data.append(record)
-            if i % batch_size == 0:
-                _add_process_batch(batch_data)
-                batch_data = []
+                batch_data.append(record)
+                if i % batch_size == 0:
+                    self._add_process_batch(
+                        batch_data, pfm, index, new_index, processed_uuids
+                    )
+                    batch_data = []
 
-        _add_process_batch(batch_data)
+            self._add_process_batch(batch_data, pfm, index, new_index, processed_uuids)
 
         _, curr_classes = self.get_classes()
         for task, classes in classes_per_task.items():
@@ -486,8 +495,6 @@ class LuxonisDataset(BaseDataset):
             new_classes = list(classes - old_classes)
             self.logger.info(f"Detected new classes for task {task}: {new_classes}")
             self.set_classes(list(classes | old_classes), task, _remove_tmp_dir=False)
-
-        self.pfm.close()
 
         if self.bucket_storage == BucketStorage.LOCAL:
             self._write_index(index, new_index)
@@ -513,7 +520,7 @@ class LuxonisDataset(BaseDataset):
 
             df = self._load_df_offline()
             assert df is not None
-            ids = list(set(df["uuid"]))
+            ids = df.select("uuid").unique().get_column("uuid").to_list()
             np.random.shuffle(ids)
             N = len(ids)
             b1 = round(N * ratios[0])
