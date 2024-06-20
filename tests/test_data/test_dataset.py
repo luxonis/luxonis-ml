@@ -93,6 +93,9 @@ def test_dataset(bucket_storage: BucketStorage, subtests):
         assert set(dataset.get_tasks()) == TASKS
         assert dataset.get_skeletons() == SKELETONS
 
+    if "dataset" not in locals():
+        pytest.exit("Dataset creation failed")
+
     with subtests.test("test_load", bucket_storage=bucket_storage):
         loader = LuxonisLoader(dataset)
         for img, labels in loader:
