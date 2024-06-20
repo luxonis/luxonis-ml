@@ -92,6 +92,7 @@ def test_dataset(bucket_storage: BucketStorage, subtests):
         assert dataset.get_classes()[0] == ["person"]
         assert set(dataset.get_tasks()) == TASKS
         assert dataset.get_skeletons() == SKELETONS
+
     with subtests.test("test_load", bucket_storage=bucket_storage):
         loader = LuxonisLoader(dataset)
         for img, labels in loader:
