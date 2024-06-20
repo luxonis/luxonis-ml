@@ -1,4 +1,4 @@
-from typing import Final, cast
+from typing import Final, Set, cast
 
 import pytest
 
@@ -11,9 +11,56 @@ from luxonis_ml.data import (
 )
 from luxonis_ml.enums import DatasetType
 
+SKELETONS: Final[dict] = {
+    "keypoints": {
+        "person": {
+            "labels": [
+                "nose",
+                "left_eye",
+                "right_eye",
+                "left_ear",
+                "right_ear",
+                "left_shoulder",
+                "right_shoulder",
+                "left_elbow",
+                "right_elbow",
+                "left_wrist",
+                "right_wrist",
+                "left_hip",
+                "right_hip",
+                "left_knee",
+                "right_knee",
+                "left_ankle",
+                "right_ankle",
+            ],
+            "edges": [
+                [15, 13],
+                [13, 11],
+                [16, 14],
+                [14, 12],
+                [11, 12],
+                [5, 11],
+                [6, 12],
+                [5, 6],
+                [5, 7],
+                [6, 8],
+                [7, 9],
+                [8, 10],
+                [1, 2],
+                [0, 1],
+                [0, 2],
+                [1, 3],
+                [2, 4],
+                [3, 5],
+                [4, 6],
+            ],
+        }
+    }
+}
 URL_PREFIX: Final[str] = "gs://luxonis-test-bucket/luxonis-ml-test-data"
 WORK_DIR: Final[str] = "tests/data/parser_datasets"
 DATASET_NAME: Final[str] = "__test_coco"
+TASKS: Final[Set[str]] = {"segmentation", "classification", "keypoints", "boundingbox"}
 
 
 @pytest.fixture(scope="function", autouse=True)
@@ -42,15 +89,15 @@ def test_dataset(bucket_storage: BucketStorage, subtests):
         )
         dataset = cast(LuxonisDataset, parser.parse())
         assert LuxonisDataset.exists(DATASET_NAME)
-
+        assert dataset.get_classes()[0] == ["person"]
+        assert set(dataset.get_tasks()) == TASKS
+        assert dataset.get_skeletons() == SKELETONS
     with subtests.test("test_load", bucket_storage=bucket_storage):
         loader = LuxonisLoader(dataset)
         for img, labels in loader:
             assert img is not None
-            assert "segmentation" in labels
-            assert "classification" in labels
-            assert "keypoints" in labels
-            assert "boundingbox" in labels
+            for task in TASKS:
+                assert task in labels
 
     with subtests.test("test_load_aug", bucket_storage=bucket_storage):
         aug_config = [
@@ -67,10 +114,8 @@ def test_dataset(bucket_storage: BucketStorage, subtests):
         loader = LuxonisLoader(dataset, augmentations=augmentations)
         for img, labels in loader:
             assert img is not None
-            assert "segmentation" in labels
-            assert "classification" in labels
-            assert "keypoints" in labels
-            assert "boundingbox" in labels
+            for task in TASKS:
+                assert task in labels
 
     with subtests.test("test_delete", bucket_storage=bucket_storage):
         dataset.delete_dataset()
