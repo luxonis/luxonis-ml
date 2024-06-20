@@ -224,13 +224,15 @@ class LuxonisDataset(BaseDataset):
             except Exception:
                 pass
         if file_index_path.exists():
-            index = pl.read_parquet(file_index_path)
+            index = pl.read_parquet(file_index_path).select(
+                pl.all().exclude("^__index_level_.*$")
+            )
         return index
 
     def _write_index(
         self,
         index: Optional[pl.DataFrame],
-        new_index: Dict,
+        new_index: Dict[str, List[str]],
         override_path: Optional[str] = None,
     ) -> None:
         if override_path:
