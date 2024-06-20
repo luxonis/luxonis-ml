@@ -76,6 +76,9 @@ class LuxonisParser:
         @type dataset_type: Optional[DatasetType]
         @param dataset_type: If provided, the parser will use this dataset type instead
             of trying to recognize it automatically.
+        @type kwargs: Dict[str, Any]
+        @param kwargs: Additional C{kwargs} to be passed to the constructor of specific
+            L{BaseDataset} implementation.
         """
         save_dir = Path(save_dir) if save_dir else None
         name = Path(dataset_dir).name
