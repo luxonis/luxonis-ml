@@ -76,6 +76,9 @@ class LuxonisParser:
         @type dataset_type: Optional[DatasetType]
         @param dataset_type: If provided, the parser will use this dataset type instead
             of trying to recognize it automatically.
+        @type kwargs: Dict[str, Any]
+        @param kwargs: Additional C{kwargs} to be passed to the constructor of specific
+            L{BaseDataset} implementation.
         """
         save_dir = Path(save_dir) if save_dir else None
         name = Path(dataset_dir).name
@@ -167,7 +170,7 @@ class LuxonisParser:
             f"Dataset {self.dataset_dir} is not in expected format for any of the parsers."
         )
 
-    def _parse_dir(self, **kwargs) -> LuxonisDataset:
+    def _parse_dir(self, **kwargs) -> BaseDataset:
         """Parses all present data in LuxonisDataset format.
 
         Check under each parser for the expected directory structure.
@@ -186,7 +189,7 @@ class LuxonisParser:
         random_split: bool = True,
         split_ratios: Tuple[float, float, float] = (0.8, 0.1, 0.1),
         **kwargs,
-    ) -> LuxonisDataset:
+    ) -> BaseDataset:
         """Parses data from a subdirectory representing a single split.
 
         Should be used if adding/changing only specific split. Check under each parser
