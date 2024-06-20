@@ -170,7 +170,7 @@ class LuxonisParser:
             f"Dataset {self.dataset_dir} is not in expected format for any of the parsers."
         )
 
-    def _parse_dir(self, **kwargs) -> LuxonisDataset:
+    def _parse_dir(self, **kwargs) -> BaseDataset:
         """Parses all present data in LuxonisDataset format.
 
         Check under each parser for the expected directory structure.
@@ -189,7 +189,7 @@ class LuxonisParser:
         random_split: bool = True,
         split_ratios: Tuple[float, float, float] = (0.8, 0.1, 0.1),
         **kwargs,
-    ) -> LuxonisDataset:
+    ) -> BaseDataset:
         """Parses data from a subdirectory representing a single split.
 
         Should be used if adding/changing only specific split. Check under each parser
