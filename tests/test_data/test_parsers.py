@@ -1,12 +1,12 @@
-from typing import Final, List
+from typing import Final, List, cast
 
 import pytest
 
-from luxonis_ml.data import LabelType, LuxonisLoader, LuxonisParser
+from luxonis_ml.data import LabelType, LuxonisDataset, LuxonisLoader, LuxonisParser
 from luxonis_ml.enums import DatasetType
 
 URL_PREFIX: Final[str] = "gs://luxonis-test-bucket/luxonis-ml-test-data"
-SAVE_DIR: Final[str] = "tests/data/parser_datasets"
+WORK_DIR: Final[str] = "tests/data/parser_datasets"
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -14,9 +14,9 @@ def prepare_dir():
     import os
     import shutil
 
-    os.makedirs(SAVE_DIR, exist_ok=True)
+    os.makedirs(WORK_DIR, exist_ok=True)
     yield
-    shutil.rmtree(SAVE_DIR)
+    shutil.rmtree(WORK_DIR)
 
 
 @pytest.mark.parametrize(
@@ -86,9 +86,9 @@ def test_dir_parser(
         f"{URL_PREFIX}/{url}",
         dataset_name=f"test-{dataset_type}",
         delete_existing=True,
-        save_dir=SAVE_DIR,
+        save_dir=WORK_DIR,
     )
-    dataset = parser.parse()
+    dataset = cast(LuxonisDataset, parser.parse())
     assert len(dataset) > 0
     loader = LuxonisLoader(dataset)
     _, ann = next(iter(loader))
