@@ -8,6 +8,7 @@ import pytest
 from heads import (
     classification_head,
     ssd_object_detection_head,
+    yolo_instance_seg_kpts_head,
     yolo_instance_segmentation_head,
     yolo_keypoint_detection_head,
     yolo_obb_detection_head,
@@ -56,6 +57,7 @@ def setup():
         (yolo_instance_segmentation_head, "yolo_instance_segmentation"),
         (yolo_keypoint_detection_head, "yolo_keypoint_detection"),
         (yolo_obb_detection_head, "yolo_obb_detection"),
+        (yolo_instance_seg_kpts_head, "yolo_instance_seg_kpts"),
     ],
 )
 @pytest.mark.dependency(name="test_archive_generator")
@@ -69,6 +71,7 @@ def test_archive_generator(
         "yolo_instance_segmentation",
         "yolo_keypoint_detection",
         "yolo_obb_detection",
+        "yolo_instance_seg_kpts",
     ],
 ):
     generator = ArchiveGenerator(
@@ -124,6 +127,7 @@ def test_archive_generator(
         "yolo_instance_segmentation",
         "yolo_keypoint_detection",
         "yolo_obb_detection",
+        "yolo_instance_seg_kpts",
     ],
 )
 @pytest.mark.dependency(depends=["test_archive_generator"])
@@ -135,6 +139,7 @@ def test_is_nn_archive(
         "yolo_instance_segmentation",
         "yolo_keypoint_detection",
         "yolo_obb_detection",
+        "yolo_instance_seg_kpts",
     ],
 ):
     assert is_nn_archive(DATA_DIR / f"{archive_name}.tar.xz")

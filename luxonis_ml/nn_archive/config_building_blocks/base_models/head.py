@@ -202,7 +202,17 @@ class HeadYOLO(HeadObjectDetection, HeadSegmentation, ABC):
     ):
         defined_params = {k for k, v in values.items() if v is not None}
 
-        common_fields = ["family", "outputs", "subtype"]
+        common_fields = [
+            "family",
+            "outputs",
+            "subtype",
+            "iou_threshold",
+            "conf_threshold",
+            "max_det",
+            "classes",
+            "n_classes",
+            "anchors",
+        ]
         defined_params = defined_params.difference(common_fields)
 
         required_fields = {
@@ -229,43 +239,40 @@ class HeadYOLO(HeadObjectDetection, HeadSegmentation, ABC):
             ],
         }
 
+        tasks = []
         # Extract the task type
         if all(
             [
                 field in defined_params
                 for field in required_fields.get("instance_segmentation", [])
             ]
-        ) and all(
-            [
-                field not in defined_params
-                for field in unsupported_fields.get("instance_segmentation", [])
-            ]
         ):
-            task = "instance_segmentation"
-        elif all(
+            tasks.append("instance_segmentation")
+        if all(
             [
                 field in defined_params
                 for field in required_fields.get("keypoint_detection", [])
             ]
-        ) and all(
-            [
-                field not in defined_params
-                for field in unsupported_fields.get("keypoint_detection", [])
-            ]
         ):
-            task = "keypoint_detection"
-        elif all(
+            tasks.append("keypoint_detection")
+        if all(
             [
                 field not in defined_params
                 for field in unsupported_fields.get("object_detection", [])
             ]
         ):
-            task = "object_detection"
-        else:
-            task = None
+            tasks.append("object_detection")
 
-        if task is None:
-            raise ValueError("Invalid combination of parameters.")
+        if len(tasks) == 0:
+            raise ValueError(
+                "Invalid combination of parameters. No specific task can be inferred."
+            )
+
+        for param in defined_params:
+            if not any(param in required_fields[task] for task in tasks):
+                raise ValueError(
+                    f"Invalid combination of parameters. Field {param} is not supported for the tasks {tasks}."
+                )
 
         # Validate Outputs
         outputs = values.get("outputs", {})
@@ -274,22 +281,28 @@ class HeadYOLO(HeadObjectDetection, HeadSegmentation, ABC):
         supported_output_params = {
             "instance_segmentation": ["yolo_outputs", "mask_outputs", "protos"],
             "keypoint_detection": ["yolo_outputs", "keypoints"],
+            "object_detection": ["yolo_outputs"],
         }
-        unsupported_output_params = {
-            "object_detection": ["mask_outputs", "protos", "keypoints"],
-        }
-        if task == "object_detection":
-            if any(
-                [field in defined_params for field in unsupported_output_params[task]]
-            ):
-                raise ValueError("Invalid outputs for the task type.")
-        else:
-            if not all(
-                [field in supported_output_params[task] for field in defined_params]
-            ) or not all(
-                [field in defined_params for field in supported_output_params[task]]
-            ):
-                raise ValueError("Invalid outputs for the task type.")
+
+        # Check if all required output fields are present
+        if not all(
+            [
+                field in defined_params
+                for task in tasks
+                for field in supported_output_params[task]
+            ]
+        ):
+            raise ValueError(f"Invalid output fields for tasks {tasks}")
+
+        # Check if all defined fields are supported
+        for param in defined_params:
+            if param == "angles" and "object_detection" in tasks:
+                continue
+            if not any(param in supported_output_params[task] for task in tasks):
+                raise ValueError(
+                    f"Invalid combination of output parameters. Field {param} is not supported for the tasks {tasks}."
+                )
+
         return values
 
     @model_validator(mode="before")

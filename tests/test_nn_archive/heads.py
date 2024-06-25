@@ -51,6 +51,14 @@ output_obb = OutputsYOLO(
     angles="angles",
 )
 
+outputs_instance_seg_kpts = OutputsYOLO(
+    yolo_outputs=["feats"],
+    mask_outputs=["mask"],
+    protos="protos",
+    keypoints="keypoints",
+    angles=None,
+)
+
 classification_head = dict(
     HeadClassification(
         family="Classification",
@@ -149,5 +157,23 @@ yolo_obb_detection_head = dict(
         postprocessor_path=None,
         n_prototypes=None,
         n_keypoints=None,
+    )
+)
+
+yolo_instance_seg_kpts_head = dict(
+    HeadYOLO(
+        family="YOLO",
+        outputs=outputs_instance_seg_kpts,
+        subtype=ObjectDetectionSubtypeYOLO.YOLOv6,
+        classes=["person", "car"],
+        n_classes=2,
+        iou_threshold=0.5,
+        conf_threshold=0.5,
+        max_det=1000,
+        is_softmax=False,
+        anchors=None,
+        postprocessor_path="postprocessor.onnx",
+        n_prototypes=10,
+        n_keypoints=21,
     )
 )
