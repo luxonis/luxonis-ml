@@ -1,10 +1,19 @@
 import shutil
 import tarfile
 from pathlib import Path
-from typing import Literal
+from typing import Any, Dict, Literal
 
 import onnx
 import pytest
+from heads import (
+    classification_head,
+    ssd_object_detection_head,
+    yolo_instance_seg_kpts_head,
+    yolo_instance_segmentation_head,
+    yolo_keypoint_detection_head,
+    yolo_obb_detection_head,
+    yolo_object_detection_head,
+)
 from onnx import checker, helper
 from onnx.onnx_pb import TensorProto
 
@@ -39,10 +48,34 @@ def setup():
 
 
 @pytest.mark.parametrize("compression", ["xz", "gz", "bz2"])
+@pytest.mark.parametrize(
+    "head, archive_name",
+    [
+        (classification_head, "classification"),
+        (ssd_object_detection_head, "ssd_detection"),
+        (yolo_object_detection_head, "yolo_detection"),
+        (yolo_instance_segmentation_head, "yolo_instance_segmentation"),
+        (yolo_keypoint_detection_head, "yolo_keypoint_detection"),
+        (yolo_obb_detection_head, "yolo_obb_detection"),
+        (yolo_instance_seg_kpts_head, "yolo_instance_seg_kpts"),
+    ],
+)
 @pytest.mark.dependency(name="test_archive_generator")
-def test_archive_generator(compression: Literal["xz", "gz", "bz2"]):
+def test_archive_generator(
+    compression: Literal["xz", "gz", "bz2"],
+    head: Dict[str, Any],
+    archive_name: Literal[
+        "classification",
+        "ssd_detection",
+        "yolo_detection",
+        "yolo_instance_segmentation",
+        "yolo_keypoint_detection",
+        "yolo_obb_detection",
+        "yolo_instance_seg_kpts",
+    ],
+):
     generator = ArchiveGenerator(
-        archive_name="test_archive",
+        archive_name=archive_name,
         save_path="tests/data/test_nn_archive",
         cfg_dict={
             "config_version": "1.0",
@@ -72,33 +105,44 @@ def test_archive_generator(compression: Literal["xz", "gz", "bz2"]):
                         "dtype": "float32",
                     }
                 ],
-                "heads": [
-                    {
-                        "family": "Classification",
-                        "outputs": {"predictions": "191"},
-                        "classes": [
-                            "tench, Tinca tinca",
-                            "goldfish, Carassius auratus",
-                        ],
-                        "n_classes": 2,
-                        "is_softmax": True,
-                    }
-                ],
+                "heads": [head],
             },
         },
         executables_paths=[str(DATA_DIR / "test_model.onnx")],
         compression=compression,
     )
     generator.make_archive()
-    assert (DATA_DIR / "test_archive.tar.xz").exists()
-    assert tarfile.is_tarfile(DATA_DIR / f"test_archive.tar.{compression}")
-    with tarfile.open(DATA_DIR / f"test_archive.tar.{compression}") as tar:
+    assert (DATA_DIR / "{}.tar.xz".format(archive_name)).exists()
+    assert tarfile.is_tarfile(DATA_DIR / f"{archive_name}.tar.{compression}")
+    with tarfile.open(DATA_DIR / f"{archive_name}.tar.{compression}") as tar:
         assert "test_model.onnx" in tar.getnames()
         assert "config.json" in tar.getnames()
 
 
+@pytest.mark.parametrize(
+    "archive_name",
+    [
+        "classification",
+        "ssd_detection",
+        "yolo_detection",
+        "yolo_instance_segmentation",
+        "yolo_keypoint_detection",
+        "yolo_obb_detection",
+        "yolo_instance_seg_kpts",
+    ],
+)
 @pytest.mark.dependency(depends=["test_archive_generator"])
-def test_is_nn_archive():
-    assert is_nn_archive(DATA_DIR / "test_archive.tar.xz")
+def test_is_nn_archive(
+    archive_name: Literal[
+        "classification",
+        "ssd_detection",
+        "yolo_detection",
+        "yolo_instance_segmentation",
+        "yolo_keypoint_detection",
+        "yolo_obb_detection",
+        "yolo_instance_seg_kpts",
+    ],
+):
+    assert is_nn_archive(DATA_DIR / f"{archive_name}.tar.xz")
     assert not is_nn_archive(DATA_DIR)
     assert not is_nn_archive(DATA_DIR / "test_model.onnx")

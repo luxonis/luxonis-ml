@@ -1,14 +1,11 @@
 from .head import (
     Head,
     HeadClassification,
-    HeadInstanceSegmentationYOLO,
-    HeadKeypointDetectionYOLO,
-    HeadOBBDetectionYOLO,
     HeadObjectDetection,
     HeadObjectDetectionSSD,
-    HeadObjectDetectionYOLO,
     HeadSegmentation,
     HeadType,
+    HeadYOLO,
 )
 from .input import Input, PreprocessingBlock
 from .metadata import Metadata
@@ -21,10 +18,7 @@ __all__ = [
     "HeadClassification",
     "HeadObjectDetection",
     "HeadObjectDetectionSSD",
-    "HeadObjectDetectionYOLO",
-    "HeadKeypointDetectionYOLO",
-    "HeadInstanceSegmentationYOLO",
-    "HeadOBBDetectionYOLO",
+    "HeadYOLO",
     "Input",
     "PreprocessingBlock",
     "Output",

@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 from pydantic import Field
 
@@ -30,16 +30,36 @@ class OutputsSegmentation(OutputsBasic):
 
 
 class OutputsYOLO(Outputs):
-    """Represents outputs of a basic YOLO object detection model.
+    """Represents outputs of a YOLO model.
 
     @type yolo_outputs: C{List[str]}
     @ivar yolo_outputs: A list of output names for each of the different YOLO grid
         sizes.
+    @type mask_outputs: C{List[str]} | None
+    @ivar mask_outputs: A list of output names for each mask output.
+    @type protos: str | None
+    @ivar protos: Output name for the protos.
+    @type keypoints: str | None
+    @ivar keypoints: Output name for the keypoints.
+    @type angles: str | None
+    @ivar angles: Output name for the angles.
     """
 
     yolo_outputs: List[str] = Field(
         description="A list of output names for each of the different YOLO grid sizes."
     )
+
+    # Instance segmentation
+    mask_outputs: Optional[List[str]] = Field(
+        description="A list of output names for each mask output."
+    )
+    protos: Optional[str] = Field(description="Output name for the protos.")
+
+    # Keypoint detection
+    keypoints: Optional[str] = Field(description="Output name for the keypoints.")
+
+    # OBB detection
+    angles: Optional[str] = Field(description="Output name for the angles.")
 
 
 class OutputsSSD(Outputs):
@@ -57,56 +77,3 @@ class OutputsSSD(Outputs):
     scores: str = Field(
         description="Output name corresponding to predicted bounding box confidence scores."
     )
-
-
-class OutputsInstanceSegmentationYOLO(Outputs):
-    """Represents outputs of a basic YOLO instance segmentation model.
-
-    @type yolo_outputs: C{List[str]}
-    @ivar yolo_outputs: A list of output names for each of the different YOLO grid
-        sizes.
-    @type mask_outputs: C{List[str]}
-    @ivar mask_outputs: A list of output names for each mask output.
-    @type protos: str
-    @ivar protos: Output name for the protos.
-    """
-
-    yolo_outputs: List[str] = Field(
-        description="A list of output names for each of the different YOLO grid sizes."
-    )
-    mask_outputs: List[str] = Field(
-        description="A list of output names for each mask output."
-    )
-    protos: str = Field(description="Output name for the protos.")
-
-
-class OutputsKeypointDetectionYOLO(Outputs):
-    """Represents outputs of a basic YOLO pose estimation model.
-
-    @type yolo_outputs: C{List[str]}
-    @ivar yolo_outputs: A list of output names for each of the different YOLO grid
-        sizes.
-    @type keypoints: str
-    @ivar keypoints: Output name for the keypoints.
-    """
-
-    yolo_outputs: List[str] = Field(
-        description="A list of output names for each of the different YOLO grid sizes."
-    )
-    keypoints: str = Field(description="Output name for the keypoints.")
-
-
-class OutputsOBBDetectionYOLO(Outputs):
-    """Represents outputs of a basic YOLO OBB model.
-
-    @type yolo_outputs: C{List[str]}
-    @ivar yolo_outputs: A list of output names for each of the different YOLO grid
-        sizes.
-    @type angles: str
-    @ivar angles: Output name for the angles.
-    """
-
-    yolo_outputs: List[str] = Field(
-        description="A list of output names for each of the different YOLO grid sizes."
-    )
-    angles: str = Field(description="Output name for the angles.")
