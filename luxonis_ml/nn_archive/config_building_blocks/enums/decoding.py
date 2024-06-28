@@ -11,6 +11,7 @@ class ObjectDetectionSubtypeYOLO(Enum):
     YOLOv6 = "yolov6"
     YOLOv7 = "yolov7"
     YOLOv8 = "yolov8"
+    YOLOv10 = "yolov10"
 
 
 class ObjectDetectionSubtypeSSD(Enum):
