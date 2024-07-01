@@ -6,12 +6,13 @@ import time
 from collections import defaultdict
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 import polars as pl
 import pyarrow.parquet as pq
 import rich.progress
+from typing_extensions import Self
 
 import luxonis_ml.data.utils.data_utils as data_utils
 from luxonis_ml.utils import LuxonisFileSystem, environ
@@ -20,7 +21,7 @@ from luxonis_ml.utils.filesystem import PathType
 from ..utils.constants import LDF_VERSION
 from ..utils.enums import BucketStorage, BucketType
 from ..utils.parquet import ParquetFileManager
-from .annotation import ArrayAnnotation, DatasetRecord
+from .annotation import Annotation, ArrayAnnotation, DatasetRecord
 from .base_dataset import BaseDataset, DatasetIterator
 from .source import LuxonisSource
 
@@ -123,6 +124,12 @@ class LuxonisDataset(BaseDataset):
             rich.progress.MofNCompleteColumn(),
             rich.progress.TimeRemainingColumn(),
         )
+
+    @classmethod
+    def delete_and_create(cls, name: str, **kwargs: Any) -> "LuxonisDataset":
+        if LuxonisDataset.exists(name):
+            LuxonisDataset(name, **kwargs).delete_dataset()
+        return LuxonisDataset(name, **kwargs)
 
     @property
     def identifier(self) -> str:
@@ -259,7 +266,7 @@ class LuxonisDataset(BaseDataset):
         shutil.rmtree(self.tmp_dir)
 
     def update_source(self, source: LuxonisSource) -> None:
-        """Updates underlying source of the dataset with a new LuxonisSource.
+        """Updates underlying source of the dataset with a new L{LuxonisSource}.
 
         @type source: L{LuxonisSource}
         @param source: The new L{LuxonisSource} to replace the old one.
@@ -268,6 +275,28 @@ class LuxonisDataset(BaseDataset):
         self.datasets[self.dataset_name]["source"] = source.to_document()
         self._write_datasets()
         self.source = source
+
+    def _write_metadata(self, *, _remove_tmp_dir: bool) -> None:
+        self._write_datasets()
+
+        if self.bucket_storage != BucketStorage.LOCAL:
+            metadata = self.datasets[self.dataset_name]
+            self._make_temp_dir(remove_previous=_remove_tmp_dir)
+            local_file = self.tmp_dir / "classes.json"
+            with open(local_file, "w") as file:
+                json.dump(metadata, file, indent=4)
+            self.fs.put_file(local_file, "metadata/classes.json")
+            if _remove_tmp_dir:
+                self._remove_temp_dir()
+
+    def _read_metadata(self, sync_mode: bool) -> Dict[str, Any]:
+        if sync_mode:
+            local_file = self.metadata_path / "classes.json"
+            self.fs.get_file("metadata/classes.json", local_file)
+            with open(local_file) as file:
+                return defaultdict(dict, json.load(file))
+
+        return self.datasets[self.dataset_name]
 
     def set_classes(
         self,
@@ -283,31 +312,14 @@ class LuxonisDataset(BaseDataset):
                 "Setting classes for all tasks not yet supported. "
                 "Set classes individually for each task"
             )
-
-        self._write_datasets()
-
-        if self.bucket_storage != BucketStorage.LOCAL:
-            classes_json = self.datasets[self.dataset_name]["classes"]
-            self._make_temp_dir(remove_previous=_remove_tmp_dir)
-            local_file = self.tmp_dir / "classes.json"
-            with open(local_file, "w") as file:
-                json.dump(classes_json, file, indent=4)
-            self.fs.put_file(local_file, "metadata/classes.json")
-            if _remove_tmp_dir:
-                self._remove_temp_dir()
+        self._write_metadata(_remove_tmp_dir=_remove_tmp_dir)
 
     def get_classes(
         self, sync_mode: bool = False
     ) -> Tuple[List[str], Dict[str, List[str]]]:
         classes = set()
         classes_by_task = {}
-        if sync_mode:
-            local_file = self.metadata_path / "classes.json"
-            self.fs.get_file("metadata/classes.json", local_file)
-            with open(local_file) as file:
-                classes_json = json.load(file)
-        else:
-            classes_json = self.datasets[self.dataset_name]["classes"]
+        classes_json = self._read_metadata(sync_mode)["classes"]
         for task in classes_json:
             task_classes = classes_json[task]
             if len(task_classes):
@@ -436,7 +448,7 @@ class LuxonisDataset(BaseDataset):
                 if matched_id is not None:
                     if matched_id != uuid:
                         # TODO: not sure if this should be an exception or how we should really handle it
-                        raise Exception(
+                        raise ValueError(
                             f"{filepath} already added to the dataset! Please skip or rename the file."
                         )
                         # TODO: we may also want to check for duplicate uuids to get a one-to-one relationship
@@ -451,7 +463,47 @@ class LuxonisDataset(BaseDataset):
             self.progress.stop()
             self.progress.remove_task(task)
 
-    def add(self, generator: DatasetIterator, batch_size: int = 1_000_000) -> None:
+    def _infer_task(self, ann: Annotation) -> str:
+        if not hasattr(LuxonisDataset._infer_task, "_logged_infered_classes"):
+            LuxonisDataset._infer_task._logged_infered_classes = defaultdict(bool)
+
+        def _log_once(cls_: str, message: str, level: str = "info"):
+            if not LuxonisDataset._infer_task._logged_infered_classes[cls_]:
+                LuxonisDataset._infer_task._logged_infered_classes[cls_] = True
+                getattr(self.logger, level)(message, extra={"markup": True})
+
+        cls_ = ann.class_
+        _, current_classes = self.get_classes()
+        infered_task = None
+
+        for task, classes in current_classes.items():
+            if cls_ in classes:
+                if infered_task is not None:
+                    _log_once(
+                        cls_,
+                        f"Class [red italic]{cls_}[reset] is ambiguous between tasks [magenta italic]{infered_task}[reset] and [magenta italic]{task}[reset]. Task inference failed.",
+                        "warning",
+                    )
+                    infered_task = None
+                    break
+                infered_task = task
+        if infered_task is None:
+            _log_once(
+                cls_,
+                f"Task inference for class [red italic]{cls_}[reset] failed. "
+                f"Autogenerated task [magenta italic]{ann.task}[reset] will be used.",
+                "warning",
+            )
+        else:
+            _log_once(
+                cls_,
+                f"Class [red italic]{cls_}[reset] infered to belong to task [magenta italic]{infered_task}[reset]",
+            )
+            return infered_task
+
+        return ann.task
+
+    def add(self, generator: DatasetIterator, batch_size: int = 1_000_000) -> Self:
         if self.bucket_storage == BucketStorage.LOCAL:
             annotations_dir = self.annotations_path
         else:
@@ -473,14 +525,17 @@ class LuxonisDataset(BaseDataset):
                 record = (
                     data if isinstance(data, DatasetRecord) else DatasetRecord(**data)
                 )
-                if record.annotation is not None:
-                    classes_per_task[record.annotation.task].add(
-                        record.annotation.class_
-                    )
-                    if record.annotation.type_ == "keypoints":
-                        num_kpts_per_task[record.annotation.task] = len(
-                            record.annotation.keypoints
-                        )
+                ann = record.annotation
+                if ann is not None:
+                    if ann.task == ann._label_type.value and (
+                        isinstance(data, DatasetRecord)
+                        or "task" not in data.get("annotation", {})
+                    ):
+                        ann.task = self._infer_task(ann)
+
+                    classes_per_task[ann.task].add(ann.class_)
+                    if ann.type_ == "keypoints":
+                        num_kpts_per_task[ann.task] = len(ann.keypoints)
 
                 batch_data.append(record)
                 if i % batch_size == 0:
@@ -495,8 +550,11 @@ class LuxonisDataset(BaseDataset):
         for task, classes in classes_per_task.items():
             old_classes = set(curr_classes.get(task, []))
             new_classes = list(classes - old_classes)
-            self.logger.info(f"Detected new classes for task {task}: {new_classes}")
-            self.set_classes(list(classes | old_classes), task, _remove_tmp_dir=False)
+            if new_classes:
+                self.logger.info(f"Detected new classes for task {task}: {new_classes}")
+                self.set_classes(
+                    list(classes | old_classes), task, _remove_tmp_dir=False
+                )
 
         if self.bucket_storage == BucketStorage.LOCAL:
             self._write_index(index, new_index)
@@ -506,6 +564,8 @@ class LuxonisDataset(BaseDataset):
             self.fs.put_dir(Path(annotations_dir), "annotations")  # type: ignore
             self.fs.put_file(file_index_path, "metadata/file_index.parquet")
             self._remove_temp_dir()
+
+        return self
 
     def make_splits(
         self,
