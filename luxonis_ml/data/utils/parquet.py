@@ -1,17 +1,13 @@
-import os
-from typing import Dict, Tuple
+from pathlib import Path
+from typing import Any, Dict
 
-import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
+import polars as pl
+
+from luxonis_ml.utils.filesystem import PathType
 
 
 class ParquetFileManager:
-    def __init__(
-        self,
-        directory: str,
-        num_rows: int = 100000,
-    ) -> None:
+    def __init__(self, directory: PathType, num_rows: int = 100_000) -> None:
         """Manages the insertion of data into parquet files.
 
         @type directory: str
@@ -21,43 +17,35 @@ class ParquetFileManager:
             another file is created.
         """
 
-        self.dir = directory
-        self.files = os.listdir(self.dir)
+        self.dir = Path(directory)
+        self.parquet_files = list(self.dir.glob("*.parquet"))
         self.num_rows = num_rows
 
-        self.num = self._find_num() if len(self.files) else 0
+        self.num = self._find_num() if self.parquet_files else 0
         self.current_file = self._generate_filename(self.num)
 
         self._read()
 
     def _find_num(self) -> int:
-        nums = [
-            int(os.path.splitext(file)[0])
-            for file in self.files
-            if os.path.splitext(file)[1] == ".parquet"
-        ]
-        return max(nums)
+        return max(int(file.stem) for file in self.parquet_files)
 
-    def _generate_filename(self, num: int) -> Tuple[str, str]:
-        filename = f"{str(num).zfill(10)}.parquet"
-        path = os.path.join(self.dir, filename)
-        return path
+    def _generate_filename(self, num: int) -> Path:
+        return self.dir / f"{num:010d}.parquet"
 
-    def _read(self) -> Dict:
-        if os.path.exists(self.current_file):
-            df = pd.read_parquet(self.current_file)
-            self.data = df.to_dict()
-            self.data = {k: list(v.values()) for k, v in self.data.items()}
+    def _read(self) -> None:
+        if self.current_file.exists():
+            df = pl.read_parquet(self.current_file)
+            self.buffer = df.to_dict(as_series=False)
             self.row_count = len(df)
         else:
             self.row_count = 0
-            self.data = {}
+            self.buffer = {}
 
     def _initialize_data(self, data: Dict) -> None:
         for key in data:
-            self.data[key] = []
+            self.buffer[key] = []
 
-    def write(self, add_data: Dict) -> None:
+    def write(self, add_data: Dict[str, Any]) -> None:
         """Writes a row to the current working parquet file.
 
         @type add_data: Dict
@@ -65,23 +53,30 @@ class ParquetFileManager:
             to values.
         """
 
-        if len(self.data) == 0:
+        if not self.buffer:
             self._initialize_data(add_data)
+
         for key in add_data:
-            if key not in self.data:
-                raise Exception(f"Key {key} Not Found")
-            self.data[key].append(add_data[key])
+            if key not in self.buffer:
+                raise KeyError(f"Key {key} Not Found")
+            self.buffer[key].append(add_data[key])
 
         self.row_count += 1
         if self.row_count % self.num_rows == 0:
-            self.close()
+            self._flush()
             self.num += 1
             self.current_file = self._generate_filename(self.num)
             self._read()
 
-    def close(self) -> None:
-        """Ensures all data is written to parquet."""
+    def _flush(self) -> None:
+        """Writes buffered data to parquet."""
 
-        df = pd.DataFrame(self.data)
-        table = pa.Table.from_pandas(df)
-        pq.write_table(table, self.current_file)
+        if self.buffer:
+            df = pl.DataFrame(self.buffer).cast({"instance_id": pl.Int16})
+            df.write_parquet(self.current_file)
+
+    def __enter__(self) -> "ParquetFileManager":
+        return self
+
+    def __exit__(self, *_) -> None:
+        self._flush()
