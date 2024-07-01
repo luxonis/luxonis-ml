@@ -265,7 +265,7 @@ class HeadYOLO(HeadObjectDetection, HeadSegmentation, ABC):
 
         if len(tasks) == 0:
             raise ValueError(
-                "Invalid combination of parameters. No specific task can be inferred."
+                "Invalid combination of parameters. No specific task can be infered."
             )
 
         for param in defined_params:
