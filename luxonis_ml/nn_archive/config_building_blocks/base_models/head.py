@@ -169,7 +169,7 @@ class HeadYOLO(HeadObjectDetection, HeadSegmentation, ABC):
         description="A configuration specifying which output names from the `outputs` block of the archive are fed into the head."
     )
     subtype: ObjectDetectionSubtypeYOLO = Field(
-        description="YOLO family decoding subtype (e.g. v5, v6, v7 etc.)."
+        description="YOLO family decoding subtype (e.g. yolov5, yolov6, yolov7 etc.)."
     )
     postprocessor_path: Optional[str] = Field(
         None,
@@ -276,7 +276,13 @@ class HeadYOLO(HeadObjectDetection, HeadSegmentation, ABC):
 
         # Validate Outputs
         outputs = values.get("outputs", {})
-        defined_params = {k for k, v in outputs.dict().items() if v is not None}
+        defined_params = {
+            k
+            for k, v in (
+                outputs.model_dump() if isinstance(outputs, BaseModel) else outputs
+            ).items()
+            if v is not None
+        }
 
         supported_output_params = {
             "instance_segmentation": ["yolo_outputs", "mask_outputs", "protos"],
