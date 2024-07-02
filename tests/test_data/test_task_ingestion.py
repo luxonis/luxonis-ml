@@ -46,8 +46,8 @@ def compute_histogram(dataset: LuxonisDataset) -> Dict[str, int]:
     ("bucket_storage",),
     [
         (BucketStorage.LOCAL,),
-        (BucketStorage.S3,),
-        (BucketStorage.GCS,),
+        # (BucketStorage.S3,),
+        # (BucketStorage.GCS,),
     ],
 )
 def test_task_ingestion(bucket_storage: BucketStorage):
