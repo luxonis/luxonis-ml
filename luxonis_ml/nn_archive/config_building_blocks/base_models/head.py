@@ -276,7 +276,13 @@ class HeadYOLO(HeadObjectDetection, HeadSegmentation, ABC):
 
         # Validate Outputs
         outputs = values.get("outputs", {})
-        defined_params = {k for k, v in outputs.dict().items() if v is not None}
+        defined_params = {
+            k
+            for k, v in (
+                outputs.model_dump() if isinstance(outputs, BaseModel) else outputs
+            ).items()
+            if v is not None
+        }
 
         supported_output_params = {
             "instance_segmentation": ["yolo_outputs", "mask_outputs", "protos"],
