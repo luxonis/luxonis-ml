@@ -169,7 +169,7 @@ class HeadYOLO(HeadObjectDetection, HeadSegmentation, ABC):
         description="A configuration specifying which output names from the `outputs` block of the archive are fed into the head."
     )
     subtype: ObjectDetectionSubtypeYOLO = Field(
-        description="YOLO family decoding subtype (e.g. v5, v6, v7 etc.)."
+        description="YOLO family decoding subtype (e.g. yolov5, yolov6, yolov7 etc.)."
     )
     postprocessor_path: Optional[str] = Field(
         None,
