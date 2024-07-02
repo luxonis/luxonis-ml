@@ -20,7 +20,7 @@ from luxonis_ml.utils.filesystem import PathType
 from ..utils.constants import LDF_VERSION
 from ..utils.enums import BucketStorage, BucketType
 from ..utils.parquet import ParquetFileManager
-from .annotation import ArrayAnnotation, DatasetRecord
+from .annotation import ArrayAnnotation, DatasetRecord, DetectionAnnotation
 from .base_dataset import BaseDataset, DatasetIterator
 from .source import LuxonisSource
 
@@ -445,8 +445,15 @@ class LuxonisDataset(BaseDataset):
                     new_index["file"].append(file)
                     new_index["original_filepath"].append(str(filepath.absolute()))
                     processed_uuids.add(uuid)
-
-                pfm.write({"uuid": uuid, **ann.to_parquet_dict()})
+                if isinstance(ann.annotation, DetectionAnnotation):
+                    pfm.write(
+                        {
+                            "uuid": [uuid] * ann.annotation.sub_annotation_count,
+                            **ann.to_parquet_dict(),
+                        }
+                    )
+                else:
+                    pfm.write({"uuid": [uuid], **ann.to_parquet_dict()})
                 self.progress.update(task, advance=1)
             self.progress.stop()
             self.progress.remove_task(task)
@@ -474,13 +481,30 @@ class LuxonisDataset(BaseDataset):
                     data if isinstance(data, DatasetRecord) else DatasetRecord(**data)
                 )
                 if record.annotation is not None:
-                    classes_per_task[record.annotation.task].add(
-                        record.annotation.class_
-                    )
-                    if record.annotation.type_ == "keypoints":
-                        num_kpts_per_task[record.annotation.task] = len(
-                            record.annotation.keypoints
+                    if record.annotation.type_ == "detection":
+                        if record.annotation.bounding_box is not None:
+                            classes_per_task[record.annotation.bounding_box.task].add(
+                                record.annotation.class_
+                            )
+                        if record.annotation.keypoints is not None:
+                            num_kpts_per_task[record.annotation.keypoints.task] = len(
+                                record.annotation.keypoints.keypoints
+                            )
+                            classes_per_task[record.annotation.keypoints.task].add(
+                                record.annotation.class_
+                            )
+                        if record.annotation.segmentation is not None:
+                            classes_per_task[record.annotation.segmentation.task].add(
+                                record.annotation.class_
+                            )
+                    else:
+                        classes_per_task[record.annotation.task].add(
+                            record.annotation.class_
                         )
+                        if record.annotation.type_ == "keypoints":
+                            num_kpts_per_task[record.annotation.task] = len(
+                                record.annotation.keypoints
+                            )
 
                 batch_data.append(record)
                 if i % batch_size == 0:

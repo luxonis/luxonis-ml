@@ -59,7 +59,10 @@ class ParquetFileManager:
         for key in add_data:
             if key not in self.buffer:
                 raise KeyError(f"Key {key} Not Found")
-            self.buffer[key].append(add_data[key])
+            if isinstance(add_data[key], list):
+                self.buffer[key].extend(add_data[key])
+            else:
+                self.buffer[key].append(add_data[key])
 
         self.row_count += 1
         if self.row_count % self.num_rows == 0:
