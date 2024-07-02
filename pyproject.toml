@@ -1,6 +1,6 @@
 [project]
 name = "luxonis-ml"
-version = "0.2.0"
+version = "0.2.1"
 description = "MLOps tools for training models for Luxonis devices"
 readme = "README.md"
 requires-python = ">=3.8"
