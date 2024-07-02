@@ -135,6 +135,8 @@ class LuxonisDataset(BaseDataset):
         team_id: Optional[str] = None,
         **kwargs,
     ) -> "LuxonisDataset":
+        if remote and bucket_storage == BucketStorage.LOCAL:
+            raise ValueError("Cannot create a remote dataset with local storage")
         if LuxonisDataset.exists(
             name,
             remote=remote,
@@ -301,15 +303,15 @@ class LuxonisDataset(BaseDataset):
         self._write_datasets()
         self.source = source
 
-    def _write_metadata(self, *, _remove_tmp_dir: bool) -> None:
+    def _write_classes(self, *, _remove_tmp_dir: bool) -> None:
         self._write_datasets()
 
         if self.bucket_storage != BucketStorage.LOCAL:
-            metadata = self.datasets[self.dataset_name]
+            classes = self.datasets[self.dataset_name]["classes"]
             self._make_temp_dir(remove_previous=_remove_tmp_dir)
             local_file = self.tmp_dir / "classes.json"
             with open(local_file, "w") as file:
-                json.dump(metadata, file, indent=4)
+                json.dump(classes, file, indent=4)
             self.fs.put_file(local_file, "metadata/classes.json")
             if _remove_tmp_dir:
                 self._remove_temp_dir()
@@ -319,7 +321,7 @@ class LuxonisDataset(BaseDataset):
             local_file = self.metadata_path / "classes.json"
             self.fs.get_file("metadata/classes.json", local_file)
             with open(local_file) as file:
-                return defaultdict(dict, json.load(file))
+                return json.load(file)
 
         return self.datasets[self.dataset_name]["classes"]
 
@@ -337,7 +339,7 @@ class LuxonisDataset(BaseDataset):
                 "Setting classes for all tasks not yet supported. "
                 "Set classes individually for each task"
             )
-        self._write_metadata(_remove_tmp_dir=_remove_tmp_dir)
+        self._write_classes(_remove_tmp_dir=_remove_tmp_dir)
 
     def get_classes(
         self, sync_mode: bool = False
