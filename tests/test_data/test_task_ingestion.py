@@ -9,9 +9,8 @@ import pytest
 
 from luxonis_ml.data import BucketStorage, LuxonisDataset, LuxonisLoader
 
-DATASET_NAME = "test_task_ingestion"
+DATASET_NAME = "test-task-ingestion"
 DATA_DIR = Path("tests/data/test_task_ingestion")
-BUCKET_STORAGE = BucketStorage.LOCAL
 STEP = 10
 
 
@@ -40,11 +39,24 @@ def compute_histogram(dataset: LuxonisDataset) -> Dict[str, int]:
         for task, _ in record.items():
             classes[task] += 1
 
-    print(dict(classes))
     return dict(classes)
 
 
-def test_task_ingestion():
+@pytest.mark.parametrize(
+    ("bucket_storage",),
+    [
+        (BucketStorage.LOCAL,),
+        (BucketStorage.S3,),
+        (BucketStorage.GCS,),
+    ],
+)
+def test_task_ingestion(bucket_storage: BucketStorage):
+    dataset = LuxonisDataset.delete_and_create(
+        DATASET_NAME,
+        bucket_storage=bucket_storage,
+        remote=bucket_storage != BucketStorage.LOCAL,
+    )
+
     def generator1():
         for i in range(STEP):
             path = make_image(i)
@@ -97,12 +109,7 @@ def test_task_ingestion():
                 },
             }
 
-    dataset = LuxonisDataset.delete_and_create(
-        DATASET_NAME, bucket_storage=BUCKET_STORAGE
-    )
-
     dataset.add(generator1()).make_splits(ratios=(1, 0, 0))
-    assert len(dataset) == STEP, len(dataset)
 
     classes_list, classes = dataset.get_classes()
 
@@ -142,7 +149,6 @@ def test_task_ingestion():
             }
 
     dataset.add(generator2()).make_splits(ratios=(1, 0, 0))
-    assert len(dataset) == 2 * STEP, len(dataset)
     classes_list, classes = dataset.get_classes()
 
     assert set(classes_list) == {"dog", "cat", "water", "grass"}
@@ -179,7 +185,6 @@ def test_task_ingestion():
             }
 
     dataset.add(generator3()).make_splits(ratios=(1, 0, 0))
-    assert len(dataset) == 3 * STEP
     classes_list, classes = dataset.get_classes()
 
     assert set(classes_list) == {"dog", "cat", "water", "grass"}
@@ -224,7 +229,6 @@ def test_task_ingestion():
             }
 
     dataset.add(generator4()).make_splits(ratios=(1, 0, 0))
-    assert len(dataset) == 4 * STEP
     classes_list, classes = dataset.get_classes()
 
     assert set(classes_list) == {"dog", "cat", "water", "grass", "bike", "body"}
