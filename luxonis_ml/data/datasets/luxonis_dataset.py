@@ -289,14 +289,14 @@ class LuxonisDataset(BaseDataset):
             if _remove_tmp_dir:
                 self._remove_temp_dir()
 
-    def _read_metadata(self, sync_mode: bool) -> Dict[str, Any]:
+    def _read_classes(self, sync_mode: bool) -> Dict[str, Any]:
         if sync_mode:
             local_file = self.metadata_path / "classes.json"
             self.fs.get_file("metadata/classes.json", local_file)
             with open(local_file) as file:
                 return defaultdict(dict, json.load(file))
 
-        return self.datasets[self.dataset_name]
+        return self.datasets[self.dataset_name]["classes"]
 
     def set_classes(
         self,
@@ -319,7 +319,7 @@ class LuxonisDataset(BaseDataset):
     ) -> Tuple[List[str], Dict[str, List[str]]]:
         classes = set()
         classes_by_task = {}
-        classes_json = self._read_metadata(sync_mode)["classes"]
+        classes_json = self._read_classes(sync_mode)
         for task in classes_json:
             task_classes = classes_json[task]
             if len(task_classes):
