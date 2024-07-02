@@ -51,15 +51,15 @@ class OutputsYOLO(Outputs):
 
     # Instance segmentation
     mask_outputs: Optional[List[str]] = Field(
-        description="A list of output names for each mask output."
+        None, description="A list of output names for each mask output."
     )
-    protos: Optional[str] = Field(description="Output name for the protos.")
+    protos: Optional[str] = Field(None, description="Output name for the protos.")
 
     # Keypoint detection
-    keypoints: Optional[str] = Field(description="Output name for the keypoints.")
+    keypoints: Optional[str] = Field(None, description="Output name for the keypoints.")
 
     # OBB detection
-    angles: Optional[str] = Field(description="Output name for the angles.")
+    angles: Optional[str] = Field(None, description="Output name for the angles.")
 
 
 class OutputsSSD(Outputs):
