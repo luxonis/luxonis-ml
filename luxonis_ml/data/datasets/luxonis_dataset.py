@@ -112,7 +112,7 @@ class LuxonisDataset(BaseDataset):
         elif self.bucket_storage == BucketStorage.AZURE_BLOB:
             raise NotImplementedError
         else:
-            self.tmp_dir = Path(".luxonis_tmp")
+            self.tmp_dir = environ.LUXONISML_TMP_DIR
             self.fs = LuxonisFileSystem(self.path)
 
         self.logger = logging.getLogger(__name__)
@@ -126,10 +126,28 @@ class LuxonisDataset(BaseDataset):
         )
 
     @classmethod
-    def delete_and_create(cls, name: str, **kwargs: Any) -> "LuxonisDataset":
-        if LuxonisDataset.exists(name):
-            LuxonisDataset(name, **kwargs).delete_dataset()
-        return LuxonisDataset(name, **kwargs)
+    def delete_and_create(
+        cls,
+        name: str,
+        remote: bool = False,
+        bucket_storage: BucketStorage = BucketStorage.LOCAL,
+        bucket: Optional[str] = None,
+        team_id: Optional[str] = None,
+        **kwargs,
+    ) -> "LuxonisDataset":
+        if LuxonisDataset.exists(
+            name,
+            remote=remote,
+            bucket_storage=bucket_storage,
+            bucket=bucket,
+            team_id=team_id,
+        ):
+            LuxonisDataset(
+                name, bucket_storage=bucket_storage, team_id=team_id, **kwargs
+            ).delete_dataset(delete_remote=remote)
+        return LuxonisDataset(
+            name, bucket_storage=bucket_storage, team_id=team_id, **kwargs
+        )
 
     @property
     def identifier(self) -> str:
@@ -180,10 +198,17 @@ class LuxonisDataset(BaseDataset):
             ]:
                 path.mkdir(exist_ok=True, parents=True)
         else:
-            self.path = (
-                f"{self.bucket_storage.value}://{self.bucket}/"
-                f"{self.team_id}/datasets/{self.dataset_name}"
+            assert self.dataset_name
+            self.path = self._construct_url(
+                self.bucket_storage, self.bucket, self.team_id, self.dataset_name
             )
+
+    @staticmethod
+    def _construct_url(
+        bucket_storage: BucketStorage, bucket: str, team_id: str, dataset_name: str
+    ) -> str:
+        """Constructs a URL for a remote dataset."""
+        return f"{bucket_storage.value}://{bucket}/{team_id}/datasets/{dataset_name}"
 
     def _load_df_offline(self, sync_mode: bool = False) -> Optional[pl.DataFrame]:
         dfs = []
@@ -361,11 +386,22 @@ class LuxonisDataset(BaseDataset):
 
                 self.is_synced = True
 
-    def delete_dataset(self) -> None:
+    def delete_dataset(self, *, delete_remote: bool = False) -> None:
+        """Deletes the dataset from local storage and optionally from the cloud.
+
+        @type delete_remote: bool
+        @param delete_remote: Whether to delete the dataset from the cloud.
+        """
         del self.datasets[self.dataset_name]
         self._write_datasets()
+        self.logger.info(f"Deleted dataset {self.dataset_name}")
         if self.bucket_storage == BucketStorage.LOCAL:
             shutil.rmtree(self.path)
+        elif delete_remote:
+            self.logger.info(f"Deleting dataset {self.dataset_name} from cloud")
+            assert self.path
+            assert self.dataset_name
+            self.fs.delete_dir(allow_delete_parent=True)
 
     def _process_arrays(self, batch_data: List[DatasetRecord]) -> None:
         array_paths = set(
@@ -638,8 +674,33 @@ class LuxonisDataset(BaseDataset):
             self._remove_temp_dir()
 
     @staticmethod
-    def exists(dataset_name: str) -> bool:
-        return dataset_name in LuxonisDataset.list_datasets()
+    def exists(
+        dataset_name: str,
+        *,
+        remote: bool = False,
+        bucket_storage: BucketStorage = BucketStorage.LOCAL,
+        bucket: Optional[str] = None,
+        team_id: Optional[str] = None,
+    ) -> bool:
+        """Checks if a dataset exists.
+
+        @type dataset_name: str
+        @param dataset_name: Name of the dataset to check
+        @type remote: bool
+        @param remote: Whether to check if the dataset exists in the cloud
+        """
+        if not remote:
+            return dataset_name in LuxonisDataset.list_datasets()
+
+        bucket = bucket or environ.LUXONISML_BUCKET
+        if bucket is None:
+            raise ValueError("Must provide a bucket name for remote `exists` check")
+        team_id = team_id or environ.LUXONISML_TEAM_ID
+
+        url = LuxonisDataset._construct_url(
+            bucket_storage, bucket, team_id, dataset_name
+        )
+        return LuxonisFileSystem(url).exists()
 
     @staticmethod
     def list_datasets() -> Dict:
