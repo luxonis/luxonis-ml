@@ -67,22 +67,24 @@ TASKS: Final[Set[str]] = {"segmentation", "classification", "keypoints", "boundi
     ("bucket_storage",),
     [
         (BucketStorage.LOCAL,),
-        (BucketStorage.S3,),
         (BucketStorage.GCS,),
+        (BucketStorage.S3,),
     ],
 )
 def test_dataset(bucket_storage: BucketStorage, subtests):
+    dataset_name = f"{DATASET_NAME}-{bucket_storage.value}"
     with subtests.test("test_create", bucket_storage=bucket_storage):
         parser = LuxonisParser(
             f"{URL_PREFIX}/COCO_people_subset.zip",
-            dataset_name=DATASET_NAME,
-            delete_existing=True,
+            dataset_name=dataset_name,
             save_dir=WORK_DIR,
             dataset_type=DatasetType.COCO,
             bucket_storage=bucket_storage,
+            delete_existing=True,
+            delete_remote=True,
         )
         dataset = cast(LuxonisDataset, parser.parse())
-        assert LuxonisDataset.exists(DATASET_NAME)
+        assert LuxonisDataset.exists(dataset_name, bucket_storage=bucket_storage)
         assert dataset.get_classes()[0] == ["person"]
         assert set(dataset.get_tasks()) == TASKS
         assert dataset.get_skeletons() == SKELETONS
@@ -116,5 +118,5 @@ def test_dataset(bucket_storage: BucketStorage, subtests):
                 assert task in labels
 
     with subtests.test("test_delete", bucket_storage=bucket_storage):
-        dataset.delete_dataset()
-        assert not LuxonisDataset.exists(DATASET_NAME)
+        dataset.delete_dataset(delete_remote=True)
+        assert not LuxonisDataset.exists(dataset_name, bucket_storage=bucket_storage)

@@ -34,7 +34,7 @@ def make_image(i) -> Path:
 
 def compute_histogram(dataset: LuxonisDataset) -> Dict[str, int]:
     classes = defaultdict(int)
-    loader = LuxonisLoader(dataset)
+    loader = LuxonisLoader(dataset, force_resync=True)
     for _, record in loader:
         for task, _ in record.items():
             classes[task] += 1
@@ -46,15 +46,16 @@ def compute_histogram(dataset: LuxonisDataset) -> Dict[str, int]:
     ("bucket_storage",),
     [
         (BucketStorage.LOCAL,),
-        # (BucketStorage.S3,),
-        # (BucketStorage.GCS,),
+        (BucketStorage.S3,),
+        (BucketStorage.GCS,),
     ],
 )
 def test_task_ingestion(bucket_storage: BucketStorage):
-    dataset = LuxonisDataset.delete_and_create(
-        DATASET_NAME,
+    dataset = LuxonisDataset(
+        f"{DATASET_NAME}-{bucket_storage.value}",
         bucket_storage=bucket_storage,
-        remote=bucket_storage != BucketStorage.LOCAL,
+        delete_existing=True,
+        delete_remote=True,
     )
 
     def generator1():
