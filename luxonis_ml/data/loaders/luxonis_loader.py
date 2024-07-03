@@ -10,7 +10,7 @@ import polars as pl
 
 from ..augmentations import Augmentations
 from ..datasets import Annotation, LuxonisDataset, load_annotation
-from ..utils.enums import BucketStorage, LabelType
+from ..utils.enums import LabelType
 from .base_loader import BaseLoader, Labels, LuxonisLoaderOutput
 
 
@@ -39,9 +39,7 @@ class LuxonisLoader(BaseLoader):
 
         self.dataset = dataset
         self.stream = stream
-        self.sync_mode = (
-            self.dataset.bucket_storage != BucketStorage.LOCAL and not self.stream
-        )
+        self.sync_mode = self.dataset.is_remote and not self.stream
 
         if self.sync_mode:
             self.logger.info("Syncing from cloud...")
@@ -61,28 +59,12 @@ class LuxonisLoader(BaseLoader):
 
         self.view = view
 
-        self.classes, self.classes_by_task = self.dataset.get_classes(
-            sync_mode=self.sync_mode
-        )
-        self.augmentations = augmentations
-        if self.view in ["train", "val", "test"]:
-            splits_path = dataset.metadata_path / "splits.json"
-            if not splits_path.exists():
-                raise Exception(
-                    "Cannot find splits! Ensure you call dataset.make_splits()"
-                )
-            with open(splits_path, "r") as file:
-                splits = json.load(file)
-            self.instances = splits[self.view]
-        else:
-            raise NotImplementedError
-
-        df = dataset._load_df_offline(sync_mode=self.sync_mode)
+        df = self.dataset._load_df_offline()
         if df is None:
             raise FileNotFoundError("Cannot find dataframe")
         self.df = df
 
-        if self.dataset.bucket_storage == BucketStorage.LOCAL or not self.stream:
+        if not self.dataset.is_remote or not self.stream:
             file_index = self.dataset._get_file_index()
             if file_index is None:
                 raise FileNotFoundError("Cannot find file index")
@@ -91,6 +73,20 @@ class LuxonisLoader(BaseLoader):
             raise NotImplementedError(
                 "Streaming for remote bucket storage not implemented yet"
             )
+
+        self.classes, self.classes_by_task = self.dataset.get_classes()
+        self.augmentations = augmentations
+        if self.view in ["train", "val", "test"]:
+            splits_path = self.dataset.metadata_path / "splits.json"
+            if not splits_path.exists():
+                raise RuntimeError(
+                    "Cannot find splits! Ensure you call dataset.make_splits()"
+                )
+            with open(splits_path, "r") as file:
+                splits = json.load(file)
+            self.instances = splits[self.view]
+        else:
+            raise NotImplementedError
 
     def __len__(self) -> int:
         """Returns length of the dataset.
@@ -173,7 +169,7 @@ class LuxonisLoader(BaseLoader):
 
         uuid = self.instances[idx]
         df = self.df.filter(pl.col("uuid") == uuid)
-        if self.dataset.bucket_storage == BucketStorage.LOCAL:
+        if not self.dataset.is_remote:
             img_path = list(df.select("original_filepath"))[0][0]
         elif not self.stream:
             img_path = next(self.dataset.media_path.glob(f"{uuid}.*"))
