@@ -5,12 +5,12 @@ import tempfile
 from collections import defaultdict
 from contextlib import suppress
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 import polars as pl
 import pyarrow.parquet as pq
-from typing_extensions import Self, overload
+from typing_extensions import Self
 
 import luxonis_ml.data.utils.data_utils as data_utils
 from luxonis_ml.utils import LuxonisFileSystem, environ, make_progress_bar
@@ -449,6 +449,7 @@ class LuxonisDataset(BaseDataset):
         annotations_path = self._get_dir(
             "annotations", self.local_path, default=self.annotations_path
         )
+        assert annotations_path is not None
 
         with ParquetFileManager(annotations_path) as pfm:
             for i, data in enumerate(generator, start=1):
@@ -539,6 +540,7 @@ class LuxonisDataset(BaseDataset):
             self.local_path,
             default=self.metadata_path / "splits.json",
         )
+        assert splits_path is not None
 
         if splits_path.exists():
             with open(splits_path, "r") as file:
@@ -601,26 +603,6 @@ class LuxonisDataset(BaseDataset):
         )
         return list(fs.walk_dir("", recursive=False, typ="directory"))
 
-    @overload
-    def _get_dir(
-        self,
-        remote_path: PathType,
-        local_dir: PathType,
-        mlflow_instance: ModuleType = ...,
-        default: Literal[None] = ...,
-    ) -> Optional[Path]:
-        ...
-
-    @overload
-    def _get_dir(
-        self,
-        remote_path: PathType,
-        local_dir: PathType,
-        mlflow_instance: ModuleType = ...,
-        default: PathType = ...,
-    ) -> Path:
-        ...
-
     def _get_dir(
         self,
         remote_path: PathType,
@@ -634,26 +616,6 @@ class LuxonisDataset(BaseDataset):
             return Path(local_dir, Path(remote_path).name)
         except Exception:
             return Path(default) if default is not None else None
-
-    @overload
-    def _get_file(
-        self,
-        remote_path: PathType,
-        local_path: PathType,
-        mlflow_instance: ModuleType = ...,
-        default: Literal[None] = ...,
-    ) -> Optional[Path]:
-        ...
-
-    @overload
-    def _get_file(
-        self,
-        remote_path: PathType,
-        local_path: PathType,
-        mlflow_instance: ModuleType = ...,
-        default: PathType = ...,
-    ) -> Path:
-        ...
 
     def _get_file(
         self,
