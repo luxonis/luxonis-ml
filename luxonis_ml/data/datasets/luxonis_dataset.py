@@ -6,12 +6,13 @@ import time
 from collections import defaultdict
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 import polars as pl
 import pyarrow.parquet as pq
 import rich.progress
+from typing_extensions import Self
 
 import luxonis_ml.data.utils.data_utils as data_utils
 from luxonis_ml.utils import LuxonisFileSystem, environ
@@ -20,7 +21,7 @@ from luxonis_ml.utils.filesystem import PathType
 from ..utils.constants import LDF_VERSION
 from ..utils.enums import BucketStorage, BucketType
 from ..utils.parquet import ParquetFileManager
-from .annotation import ArrayAnnotation, DatasetRecord
+from .annotation import Annotation, ArrayAnnotation, DatasetRecord
 from .base_dataset import BaseDataset, DatasetIterator
 from .source import LuxonisSource
 
@@ -111,7 +112,7 @@ class LuxonisDataset(BaseDataset):
         elif self.bucket_storage == BucketStorage.AZURE_BLOB:
             raise NotImplementedError
         else:
-            self.tmp_dir = Path(".luxonis_tmp")
+            self.tmp_dir = environ.LUXONISML_TMP_DIR
             self.fs = LuxonisFileSystem(self.path)
 
         self.logger = logging.getLogger(__name__)
@@ -122,6 +123,32 @@ class LuxonisDataset(BaseDataset):
             rich.progress.TaskProgressColumn(),
             rich.progress.MofNCompleteColumn(),
             rich.progress.TimeRemainingColumn(),
+        )
+
+    @classmethod
+    def delete_and_create(
+        cls,
+        name: str,
+        remote: bool = False,
+        bucket_storage: BucketStorage = BucketStorage.LOCAL,
+        bucket: Optional[str] = None,
+        team_id: Optional[str] = None,
+        **kwargs,
+    ) -> "LuxonisDataset":
+        if remote and bucket_storage == BucketStorage.LOCAL:
+            raise ValueError("Cannot create a remote dataset with local storage")
+        if LuxonisDataset.exists(
+            name,
+            remote=remote,
+            bucket_storage=bucket_storage,
+            bucket=bucket,
+            team_id=team_id,
+        ):
+            LuxonisDataset(
+                name, bucket_storage=bucket_storage, team_id=team_id, **kwargs
+            ).delete_dataset(delete_remote=remote)
+        return LuxonisDataset(
+            name, bucket_storage=bucket_storage, team_id=team_id, **kwargs
         )
 
     @property
@@ -173,10 +200,17 @@ class LuxonisDataset(BaseDataset):
             ]:
                 path.mkdir(exist_ok=True, parents=True)
         else:
-            self.path = (
-                f"{self.bucket_storage.value}://{self.bucket}/"
-                f"{self.team_id}/datasets/{self.dataset_name}"
+            assert self.dataset_name
+            self.path = self._construct_url(
+                self.bucket_storage, self.bucket, self.team_id, self.dataset_name
             )
+
+    @staticmethod
+    def _construct_url(
+        bucket_storage: BucketStorage, bucket: str, team_id: str, dataset_name: str
+    ) -> str:
+        """Constructs a URL for a remote dataset."""
+        return f"{bucket_storage.value}://{bucket}/{team_id}/datasets/{dataset_name}"
 
     def _load_df_offline(self, sync_mode: bool = False) -> Optional[pl.DataFrame]:
         dfs = []
@@ -259,7 +293,7 @@ class LuxonisDataset(BaseDataset):
         shutil.rmtree(self.tmp_dir)
 
     def update_source(self, source: LuxonisSource) -> None:
-        """Updates underlying source of the dataset with a new LuxonisSource.
+        """Updates underlying source of the dataset with a new L{LuxonisSource}.
 
         @type source: L{LuxonisSource}
         @param source: The new L{LuxonisSource} to replace the old one.
@@ -268,6 +302,28 @@ class LuxonisDataset(BaseDataset):
         self.datasets[self.dataset_name]["source"] = source.to_document()
         self._write_datasets()
         self.source = source
+
+    def _write_classes(self, *, _remove_tmp_dir: bool) -> None:
+        self._write_datasets()
+
+        if self.bucket_storage != BucketStorage.LOCAL:
+            classes = self.datasets[self.dataset_name]["classes"]
+            self._make_temp_dir(remove_previous=_remove_tmp_dir)
+            local_file = self.tmp_dir / "classes.json"
+            with open(local_file, "w") as file:
+                json.dump(classes, file, indent=4)
+            self.fs.put_file(local_file, "metadata/classes.json")
+            if _remove_tmp_dir:
+                self._remove_temp_dir()
+
+    def _read_classes(self, sync_mode: bool) -> Dict[str, Any]:
+        if sync_mode:
+            local_file = self.metadata_path / "classes.json"
+            self.fs.get_file("metadata/classes.json", local_file)
+            with open(local_file) as file:
+                return json.load(file)
+
+        return self.datasets[self.dataset_name]["classes"]
 
     def set_classes(
         self,
@@ -283,31 +339,14 @@ class LuxonisDataset(BaseDataset):
                 "Setting classes for all tasks not yet supported. "
                 "Set classes individually for each task"
             )
-
-        self._write_datasets()
-
-        if self.bucket_storage != BucketStorage.LOCAL:
-            classes_json = self.datasets[self.dataset_name]["classes"]
-            self._make_temp_dir(remove_previous=_remove_tmp_dir)
-            local_file = self.tmp_dir / "classes.json"
-            with open(local_file, "w") as file:
-                json.dump(classes_json, file, indent=4)
-            self.fs.put_file(local_file, "metadata/classes.json")
-            if _remove_tmp_dir:
-                self._remove_temp_dir()
+        self._write_classes(_remove_tmp_dir=_remove_tmp_dir)
 
     def get_classes(
         self, sync_mode: bool = False
     ) -> Tuple[List[str], Dict[str, List[str]]]:
         classes = set()
         classes_by_task = {}
-        if sync_mode:
-            local_file = self.metadata_path / "classes.json"
-            self.fs.get_file("metadata/classes.json", local_file)
-            with open(local_file) as file:
-                classes_json = json.load(file)
-        else:
-            classes_json = self.datasets[self.dataset_name]["classes"]
+        classes_json = self._read_classes(sync_mode)
         for task in classes_json:
             task_classes = classes_json[task]
             if len(task_classes):
@@ -349,11 +388,22 @@ class LuxonisDataset(BaseDataset):
 
                 self.is_synced = True
 
-    def delete_dataset(self) -> None:
+    def delete_dataset(self, *, delete_remote: bool = False) -> None:
+        """Deletes the dataset from local storage and optionally from the cloud.
+
+        @type delete_remote: bool
+        @param delete_remote: Whether to delete the dataset from the cloud.
+        """
         del self.datasets[self.dataset_name]
         self._write_datasets()
+        self.logger.info(f"Deleted dataset {self.dataset_name}")
         if self.bucket_storage == BucketStorage.LOCAL:
             shutil.rmtree(self.path)
+        elif delete_remote:
+            self.logger.info(f"Deleting dataset {self.dataset_name} from cloud")
+            assert self.path
+            assert self.dataset_name
+            self.fs.delete_dir(allow_delete_parent=True)
 
     def _process_arrays(self, batch_data: List[DatasetRecord]) -> None:
         array_paths = set(
@@ -436,7 +486,7 @@ class LuxonisDataset(BaseDataset):
                 if matched_id is not None:
                     if matched_id != uuid:
                         # TODO: not sure if this should be an exception or how we should really handle it
-                        raise Exception(
+                        raise ValueError(
                             f"{filepath} already added to the dataset! Please skip or rename the file."
                         )
                         # TODO: we may also want to check for duplicate uuids to get a one-to-one relationship
@@ -451,7 +501,47 @@ class LuxonisDataset(BaseDataset):
             self.progress.stop()
             self.progress.remove_task(task)
 
-    def add(self, generator: DatasetIterator, batch_size: int = 1_000_000) -> None:
+    def _infer_task(self, ann: Annotation) -> str:
+        if not hasattr(LuxonisDataset._infer_task, "_logged_inferred_classes"):
+            LuxonisDataset._infer_task._logged_inferred_classes = defaultdict(bool)
+
+        def _log_once(cls_: str, message: str, level: str = "info"):
+            if not LuxonisDataset._infer_task._logged_inferred_classes[cls_]:
+                LuxonisDataset._infer_task._logged_inferred_classes[cls_] = True
+                getattr(self.logger, level)(message, extra={"markup": True})
+
+        cls_ = ann.class_
+        _, current_classes = self.get_classes()
+        inferred_task = None
+
+        for task, classes in current_classes.items():
+            if cls_ in classes:
+                if inferred_task is not None:
+                    _log_once(
+                        cls_,
+                        f"Class [red italic]{cls_}[reset] is ambiguous between tasks [magenta italic]{inferred_task}[reset] and [magenta italic]{task}[reset]. Task inference failed.",
+                        "warning",
+                    )
+                    inferred_task = None
+                    break
+                inferred_task = task
+        if inferred_task is None:
+            _log_once(
+                cls_,
+                f"Task inference for class [red italic]{cls_}[reset] failed. "
+                f"Autogenerated task [magenta italic]{ann.task}[reset] will be used.",
+                "warning",
+            )
+        else:
+            _log_once(
+                cls_,
+                f"Class [red italic]{cls_}[reset] inferred to belong to task [magenta italic]{inferred_task}[reset]",
+            )
+            return inferred_task
+
+        return ann.task
+
+    def add(self, generator: DatasetIterator, batch_size: int = 1_000_000) -> Self:
         if self.bucket_storage == BucketStorage.LOCAL:
             annotations_dir = self.annotations_path
         else:
@@ -473,14 +563,17 @@ class LuxonisDataset(BaseDataset):
                 record = (
                     data if isinstance(data, DatasetRecord) else DatasetRecord(**data)
                 )
-                if record.annotation is not None:
-                    classes_per_task[record.annotation.task].add(
-                        record.annotation.class_
-                    )
-                    if record.annotation.type_ == "keypoints":
-                        num_kpts_per_task[record.annotation.task] = len(
-                            record.annotation.keypoints
-                        )
+                ann = record.annotation
+                if ann is not None:
+                    if ann.task == ann._label_type.value and (
+                        isinstance(data, DatasetRecord)
+                        or "task" not in data.get("annotation", {})
+                    ):
+                        ann.task = self._infer_task(ann)
+
+                    classes_per_task[ann.task].add(ann.class_)
+                    if ann.type_ == "keypoints":
+                        num_kpts_per_task[ann.task] = len(ann.keypoints)
 
                 batch_data.append(record)
                 if i % batch_size == 0:
@@ -495,8 +588,11 @@ class LuxonisDataset(BaseDataset):
         for task, classes in classes_per_task.items():
             old_classes = set(curr_classes.get(task, []))
             new_classes = list(classes - old_classes)
-            self.logger.info(f"Detected new classes for task {task}: {new_classes}")
-            self.set_classes(list(classes | old_classes), task, _remove_tmp_dir=False)
+            if new_classes:
+                self.logger.info(f"Detected new classes for task {task}: {new_classes}")
+                self.set_classes(
+                    list(classes | old_classes), task, _remove_tmp_dir=False
+                )
 
         if self.bucket_storage == BucketStorage.LOCAL:
             self._write_index(index, new_index)
@@ -506,6 +602,8 @@ class LuxonisDataset(BaseDataset):
             self.fs.put_dir(Path(annotations_dir), "annotations")  # type: ignore
             self.fs.put_file(file_index_path, "metadata/file_index.parquet")
             self._remove_temp_dir()
+
+        return self
 
     def make_splits(
         self,
@@ -578,8 +676,33 @@ class LuxonisDataset(BaseDataset):
             self._remove_temp_dir()
 
     @staticmethod
-    def exists(dataset_name: str) -> bool:
-        return dataset_name in LuxonisDataset.list_datasets()
+    def exists(
+        dataset_name: str,
+        *,
+        remote: bool = False,
+        bucket_storage: BucketStorage = BucketStorage.LOCAL,
+        bucket: Optional[str] = None,
+        team_id: Optional[str] = None,
+    ) -> bool:
+        """Checks if a dataset exists.
+
+        @type dataset_name: str
+        @param dataset_name: Name of the dataset to check
+        @type remote: bool
+        @param remote: Whether to check if the dataset exists in the cloud
+        """
+        if not remote:
+            return dataset_name in LuxonisDataset.list_datasets()
+
+        bucket = bucket or environ.LUXONISML_BUCKET
+        if bucket is None:
+            raise ValueError("Must provide a bucket name for remote `exists` check")
+        team_id = team_id or environ.LUXONISML_TEAM_ID
+
+        url = LuxonisDataset._construct_url(
+            bucket_storage, bucket, team_id, dataset_name
+        )
+        return LuxonisFileSystem(url).exists()
 
     @staticmethod
     def list_datasets() -> Dict:

@@ -112,3 +112,6 @@ data/*
 
 # vscode settings
 .vscode
+.luxonis_tmp
+tests/data
+*.zip

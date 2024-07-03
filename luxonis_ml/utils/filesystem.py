@@ -377,12 +377,25 @@ class LuxonisFileSystem:
 
         return Path(local_dir)
 
-    def delete_dir(self, remote_dir: PathType) -> None:
+    def delete_dir(
+        self, remote_dir: PathType = "", allow_delete_parent: bool = False
+    ) -> None:
         """Deletes a directory and all its contents from remote storage.
 
         @type remote_dir: PathType
-        @param remote_dir: Relative path to remote directory
+        @param remote_dir: Relative path to remote directory.
+        @type allow_delete_parent: bool
+        @param allow_delete_parent: If True, allows deletion of the parent directory.
         """
+        if not remote_dir and not allow_delete_parent:
+            raise ValueError(
+                f"No directory specified, this would the parent directory at `{self.path}`."
+                "If this is your intention, you must pass `allow_delete_parent=True`."
+            )
+
+        elif remote_dir is None:
+            remote_dir = ""
+
         if self.is_fsspec:
             full_remote_dir = str(self.path / remote_dir)
             self.fs.rm(full_remote_dir, recursive=True)
@@ -526,11 +539,11 @@ class LuxonisFileSystem:
         file_info = self.fs.info(full_path)
         return file_info["type"] == "directory"
 
-    def exists(self, remote_path: PathType) -> bool:
+    def exists(self, remote_path: PathType = "") -> bool:
         """Checks whether the given remote path exists.
 
         @type remote_path: PathType
-        @param remote_path: Relative path to remote file.
+        @param remote_path: Relative path to remote file. Defaults to "" (root).
         @rtype: bool
         @return: True if the path exists.
         """
