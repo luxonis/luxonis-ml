@@ -1,6 +1,5 @@
 import json
 import logging
-import os
 import shutil
 import tempfile
 from collections import defaultdict
@@ -33,7 +32,9 @@ class LuxonisDataset(BaseDataset):
         team_name: Optional[str] = None,
         bucket_type: BucketType = BucketType.INTERNAL,
         bucket_storage: BucketStorage = BucketStorage.LOCAL,
+        *,
         delete_existing: bool = False,
+        delete_remote: bool = False,
     ) -> None:
         """Luxonis Dataset Format (LDF) is used to define datasets in the Luxonis MLOps
         ecosystem.
@@ -48,6 +49,11 @@ class LuxonisDataset(BaseDataset):
         @param bucket_type: Whether to use external cloud buckets
         @type bucket_storage: BucketStorage
         @param bucket_storage: Underlying bucket storage from local, S3, or GCS
+        @type delete_existing: bool
+        @param delete_existing: Whether to delete a dataset with the same name if it
+            exists
+        @type delete_remote: bool
+        @param delete_remote: Whether to delete the dataset from the cloud as well
         """
 
         self.base_path = environ.LUXONISML_BASE_PATH
@@ -77,7 +83,7 @@ class LuxonisDataset(BaseDataset):
             ):
                 LuxonisDataset(
                     dataset_name, team_id, team_name, bucket_type, bucket_storage
-                ).delete_dataset()
+                ).delete_dataset(delete_remote=delete_remote)
 
         self._init_paths()
 
@@ -152,7 +158,7 @@ class LuxonisDataset(BaseDataset):
         fs = LuxonisFileSystem(
             LuxonisDataset._construct_url(bucket_storage, bucket, team_id, "")
         )
-        return list(fs.walk_dir("", recursive=False))
+        return list(fs.walk_dir("", recursive=False, typ="directory"))
 
     def __len__(self) -> int:
         """Returns the number of instances in the dataset."""
@@ -168,7 +174,7 @@ class LuxonisDataset(BaseDataset):
         return f"{bucket_storage.value}://{bucket}/{team_id}/datasets/{dataset_name}"
 
     def _load_df_offline(self) -> Optional[pl.DataFrame]:
-        path = self._get_file("annotations", self.annotations_path)
+        path = self._get_dir("annotations", self.local_path)
 
         if path is None or not path.exists():
             return None
@@ -196,6 +202,12 @@ class LuxonisDataset(BaseDataset):
                 "classes": {},
             }
 
+    def _write_metadata(self) -> None:
+        path = self.metadata_path / "metadata.json"
+        path.write_text(json.dumps(self.metadata, indent=4))
+        with suppress(shutil.SameFileError):
+            self.fs.put_file(path, "metadata/metadata.json")
+
     def _get_credential(self, key: str) -> str:
         """Gets secret credentials from credentials file or ENV variables."""
 
@@ -217,10 +229,11 @@ class LuxonisDataset(BaseDataset):
         self.metadata_path = self.local_path / "metadata"
         self.masks_path = self.local_path / "masks"
 
+        for path in [self.media_path, self.annotations_path, self.metadata_path]:
+            path.mkdir(exist_ok=True, parents=True)
+
         if not self.is_remote:
             self.path = str(self.local_path)
-            for path in [self.media_path, self.annotations_path, self.metadata_path]:
-                path.mkdir(exist_ok=True, parents=True)
         else:
             self.path = self._construct_url(
                 self.bucket_storage, self.bucket, self.team_id, self.dataset_name
@@ -271,6 +284,7 @@ class LuxonisDataset(BaseDataset):
         """
 
         self.metadata["source"] = source.to_document()
+        self._write_metadata()
 
     def set_classes(
         self,
@@ -284,6 +298,7 @@ class LuxonisDataset(BaseDataset):
                 "Setting classes for all tasks not yet supported. "
                 "Set classes individually for each task"
             )
+        self._write_metadata()
 
     def get_classes(self) -> Tuple[List[str], Dict[str, List[str]]]:
         all_classes = list(
@@ -299,6 +314,7 @@ class LuxonisDataset(BaseDataset):
             raise NotImplementedError("Skeletons must be set for a specific task")
 
         self.metadata["skeletons"][task] = skeletons
+        self._write_metadata()
 
     def get_skeletons(self) -> Dict[str, Dict]:
         return self.metadata["skeletons"]
@@ -306,20 +322,22 @@ class LuxonisDataset(BaseDataset):
     def get_tasks(self) -> List[str]:
         return list(self.get_classes()[1].keys())
 
-    def sync_from_cloud(self) -> None:
+    def sync_from_cloud(self, force: bool = False) -> None:
         """Downloads data from a remote cloud bucket."""
 
         if not self.is_remote:
             self.logger.warning("This is a local dataset! Cannot sync")
         else:
-            if not self._is_synced:
+            if not self._is_synced or force:
+                self.logger.info("Syncing from cloud...")
                 local_dir = self.base_path / "data" / self.team_id / "datasets"
-                if not local_dir.exists():
-                    os.makedirs(local_dir, exist_ok=True)
+                local_dir.mkdir(exist_ok=True, parents=True)
 
                 self.fs.get_dir(remote_paths="", local_dir=local_dir)
 
                 self._is_synced = True
+            else:
+                self.logger.warning("Already synced. Use force=True to resync")
 
     def delete_dataset(self, *, delete_remote: bool = False) -> None:
         """Deletes the dataset from local storage and optionally from the cloud.
@@ -348,7 +366,11 @@ class LuxonisDataset(BaseDataset):
         classes_per_task: Dict[str, Set[str]] = defaultdict(set)
         num_kpts_per_task: Dict[str, int] = {}
 
-        with ParquetFileManager(self.annotations_path) as pfm:
+        annotations_path = self._get_dir(
+            "annotations", self.local_path, default=self.annotations_path
+        )
+
+        with ParquetFileManager(annotations_path) as pfm:
             for i, data in enumerate(generator, start=1):
                 record = (
                     data if isinstance(data, DatasetRecord) else DatasetRecord(**data)
@@ -374,6 +396,9 @@ class LuxonisDataset(BaseDataset):
 
             self._add_process_batch(batch_data, pfm, index, new_index, processed_uuids)
 
+        with suppress(shutil.SameFileError):
+            self.fs.put_dir(annotations_path, "")
+
         _, curr_classes = self.get_classes()
         for task, classes in classes_per_task.items():
             old_classes = set(curr_classes.get(task, []))
@@ -382,11 +407,10 @@ class LuxonisDataset(BaseDataset):
                 self.logger.info(f"Detected new classes for task {task}: {new_classes}")
                 self.set_classes(list(classes | old_classes), task)
 
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            index_path = Path(tmp_dir, "file_index.parquet")
-            self._write_index(index, new_index, path=index_path)
-            self.fs.put_dir(self.annotations_path, "annotations")
-            self.fs.put_file(index_path, "metadata/file_index.parquet")
+        with tempfile.NamedTemporaryFile() as tmp_file:
+            self._write_index(index, new_index, path=tmp_file.name)
+            self.fs.put_file(tmp_file.name, "metadata/file_index.parquet")
+        self._write_metadata()
 
         return self
 
@@ -399,8 +423,6 @@ class LuxonisDataset(BaseDataset):
         splits_to_update = []
 
         if definitions is None:
-            self.fs.get_dir("annotations", self.annotations_path)
-
             df = self._load_df_offline()
             assert df is not None
             ids = df.select("uuid").unique().get_column("uuid").to_list()
@@ -434,7 +456,7 @@ class LuxonisDataset(BaseDataset):
 
         splits_path = self._get_file(
             "metadata/splits.json",
-            self.metadata_path,
+            self.local_path,
             default=self.metadata_path / "splits.json",
         )
 
@@ -580,6 +602,40 @@ class LuxonisDataset(BaseDataset):
         return ann.task
 
     @overload
+    def _get_dir(
+        self,
+        remote_path: PathType,
+        local_dir: PathType,
+        mlflow_instance: ModuleType = ...,
+        default: Literal[None] = ...,
+    ) -> Optional[Path]:
+        ...
+
+    @overload
+    def _get_dir(
+        self,
+        remote_path: PathType,
+        local_dir: PathType,
+        mlflow_instance: ModuleType = ...,
+        default: PathType = ...,
+    ) -> Path:
+        ...
+
+    def _get_dir(
+        self,
+        remote_path: PathType,
+        local_dir: PathType,
+        mlflow_instance: Optional[ModuleType] = None,
+        default: Optional[PathType] = None,
+    ) -> Optional[Path]:
+        try:
+            return self.fs.get_dir(remote_path, local_dir, mlflow_instance)
+        except shutil.SameFileError:
+            return Path(local_dir, Path(remote_path).name)
+        except Exception:
+            return Path(default) if default is not None else None
+
+    @overload
     def _get_file(
         self,
         remote_path: PathType,
@@ -608,5 +664,7 @@ class LuxonisDataset(BaseDataset):
     ) -> Optional[Path]:
         try:
             return self.fs.get_file(remote_path, local_path, mlflow_instance)
+        except shutil.SameFileError:
+            return Path(local_path, Path(remote_path).name)
         except Exception:
             return Path(default) if default is not None else None

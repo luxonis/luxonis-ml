@@ -21,6 +21,8 @@ class LuxonisLoader(BaseLoader):
         view: str = "train",
         stream: bool = False,
         augmentations: Optional[Augmentations] = None,
+        *,
+        force_resync: bool = False,
     ) -> None:
         """A loader class used for loading data from L{LuxonisDataset}.
 
@@ -33,6 +35,8 @@ class LuxonisLoader(BaseLoader):
         @type augmentations: Optional[luxonis_ml.loader.Augmentations]
         @param augmentations: Augmentation class that performs augmentations. Defaults
             to C{None}.
+        @type force_resync: bool
+        @param force_resync: Flag to force resync from cloud. Defaults to C{False}.
         """
 
         self.logger = logging.getLogger(__name__)
@@ -42,20 +46,7 @@ class LuxonisLoader(BaseLoader):
         self.sync_mode = self.dataset.is_remote and not self.stream
 
         if self.sync_mode:
-            self.logger.info("Syncing from cloud...")
-            self.dataset.sync_from_cloud()
-            classes_file = self.dataset.metadata_path / "classes.json"
-            with open(classes_file) as file:
-                synced_classes = json.load(file)
-            for task in synced_classes:
-                self.dataset.set_classes(classes=synced_classes[task], task=task)
-            skeletons_file = self.dataset.metadata_path / "skeletons.json"
-            try:
-                with open(skeletons_file, "r") as file:
-                    synced_skeletons = json.load(file)
-                self.dataset.set_skeletons(synced_skeletons)
-            except FileNotFoundError:
-                self.logger.warning("Skeletons file not found at %s", skeletons_file)
+            self.dataset.sync_from_cloud(force=force_resync)
 
         self.view = view
 
