@@ -536,7 +536,7 @@ class LuxonisDataset(BaseDataset):
 
         with tempfile.NamedTemporaryFile() as tmp_file:
             self._write_index(index, new_index, path=tmp_file.name)
-            self.fs.put_file(tmp_file.name, "metadata/file_index.parquet")
+        self.fs.put_file(tmp_file.name, "metadata/file_index.parquet")
         self._write_metadata()
 
         return self
