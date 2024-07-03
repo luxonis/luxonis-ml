@@ -67,8 +67,8 @@ TASKS: Final[Set[str]] = {"segmentation", "classification", "keypoints", "boundi
     ("bucket_storage",),
     [
         (BucketStorage.LOCAL,),
-        (BucketStorage.GCS,),
         (BucketStorage.S3,),
+        (BucketStorage.GCS,),
     ],
 )
 def test_dataset(bucket_storage: BucketStorage, subtests):
