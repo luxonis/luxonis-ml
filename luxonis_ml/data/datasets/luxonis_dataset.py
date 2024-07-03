@@ -482,7 +482,6 @@ class LuxonisDataset(BaseDataset):
                 self.progress.update(task, advance=1)
         self.progress.remove_task(task)
 
-
     def add(self, generator: DatasetIterator, batch_size: int = 1_000_000) -> Self:
         index = self._get_file_index()
         new_index = {"uuid": [], "file": [], "original_filepath": []}
