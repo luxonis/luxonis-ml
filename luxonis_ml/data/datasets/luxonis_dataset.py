@@ -6,7 +6,7 @@ import time
 from collections import defaultdict
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, Generator, List, Optional, Set, Tuple, Union
 
 import numpy as np
 import polars as pl
@@ -20,7 +20,7 @@ from luxonis_ml.utils.filesystem import PathType
 from ..utils.constants import LDF_VERSION
 from ..utils.enums import BucketStorage, BucketType
 from ..utils.parquet import ParquetFileManager
-from .annotation import ArrayAnnotation, DatasetRecord, DetectionAnnotation
+from .annotation import ArrayAnnotation, DatasetRecord
 from .base_dataset import BaseDataset, DatasetIterator
 from .source import LuxonisSource
 
@@ -445,20 +445,14 @@ class LuxonisDataset(BaseDataset):
                     new_index["file"].append(file)
                     new_index["original_filepath"].append(str(filepath.absolute()))
                     processed_uuids.add(uuid)
-                if isinstance(ann.annotation, DetectionAnnotation):
-                    pfm.write(
-                        {
-                            "uuid": [uuid] * ann.annotation.sub_annotation_count,
-                            **ann.to_parquet_dict(),
-                        }
-                    )
-                else:
-                    pfm.write({"uuid": [uuid], **ann.to_parquet_dict()})
+
+                pfm.write({"uuid": uuid, **ann.to_parquet_dict()})
                 self.progress.update(task, advance=1)
             self.progress.stop()
             self.progress.remove_task(task)
 
     def add(self, generator: DatasetIterator, batch_size: int = 1_000_000) -> None:
+        generator = _add_generator_wrapper(generator)
         if self.bucket_storage == BucketStorage.LOCAL:
             annotations_dir = self.annotations_path
         else:
@@ -481,30 +475,13 @@ class LuxonisDataset(BaseDataset):
                     data if isinstance(data, DatasetRecord) else DatasetRecord(**data)
                 )
                 if record.annotation is not None:
-                    if record.annotation.type_ == "detection":
-                        if record.annotation.bounding_box is not None:
-                            classes_per_task[record.annotation.bounding_box.task].add(
-                                record.annotation.class_
-                            )
-                        if record.annotation.keypoints is not None:
-                            num_kpts_per_task[record.annotation.keypoints.task] = len(
-                                record.annotation.keypoints.keypoints
-                            )
-                            classes_per_task[record.annotation.keypoints.task].add(
-                                record.annotation.class_
-                            )
-                        if record.annotation.segmentation is not None:
-                            classes_per_task[record.annotation.segmentation.task].add(
-                                record.annotation.class_
-                            )
-                    else:
-                        classes_per_task[record.annotation.task].add(
-                            record.annotation.class_
+                    classes_per_task[record.annotation.task].add(
+                        record.annotation.class_
+                    )
+                    if record.annotation.type_ == "keypoints":
+                        num_kpts_per_task[record.annotation.task] = len(
+                            record.annotation.keypoints
                         )
-                        if record.annotation.type_ == "keypoints":
-                            num_kpts_per_task[record.annotation.task] = len(
-                                record.annotation.keypoints
-                            )
 
                 batch_data.append(record)
                 if i % batch_size == 0:
@@ -624,3 +601,109 @@ class LuxonisDataset(BaseDataset):
 
     def get_tasks(self) -> List[str]:
         return list(self.get_classes()[1].keys())
+
+
+def rescale_values(
+    bbox: Dict[str, float], ann: Union[List, Dict], sub_ann_key: str
+) -> Optional[
+    Union[
+        List[Tuple[float, float, int]],
+        List[Tuple[float, float]],
+        Dict[str, Union[int, List[int]]],
+    ]
+]:
+    """Rescale annotation values based on the bounding box coordinates."""
+    x, y, w, h = bbox["x"], bbox["y"], bbox["w"], bbox["h"]
+
+    if sub_ann_key == "keypoints":
+        return [(float(kp[0] * w + x), float(kp[1] * h + y), int(kp[2])) for kp in ann]
+
+    if sub_ann_key == "segmentation":
+        if isinstance(ann, list):  # polyline format
+            return [
+                (poly_arr[i, 0] * w + x, poly_arr[i, 1] * h + y)
+                for s in ann
+                for poly_arr in [np.array(s).reshape(-1, 2)]
+                for i in range(len(poly_arr))
+            ]
+
+        if isinstance(ann, dict) and "counts" in ann:  # RLE format
+            height, width = ann["size"]
+            rle_counts = ann["counts"]
+            decoded_counts = np.array(rle_counts, dtype=np.uint8)
+            reshaped_counts = np.unpackbits(decoded_counts).reshape((height, width))
+            cropped_counts = reshaped_counts[
+                int(y * height) : int((y + h) * height),
+                int(x * width) : int((x + w) * width),
+            ]
+            flattened_counts = cropped_counts.flatten()
+            encoded_cropped_counts = np.packbits(flattened_counts).tolist()
+            return {
+                "height": int(h * height),
+                "width": int(w * width),
+                "counts": encoded_cropped_counts,
+            }
+
+    return None
+
+
+def _add_generator_wrapper(
+    generator: Generator[Dict[str, Union[str, Dict]], None, None],
+) -> Generator[Dict[str, Union[str, Dict]], None, None]:
+    """Generator wrapper to rescale and reformat annotations for each record in the
+    input generator."""
+
+    def create_new_record(
+        record: Dict[str, Union[str, Dict]],
+        annotation: Dict[str, Union[str, int, float, List, Dict]],
+    ) -> Dict[str, Union[str, Dict]]:
+        """Create a new record with the updated annotation."""
+        return {
+            "file": record["file"],
+            "annotation": annotation,
+        }
+
+    for record in generator:
+        ann = record["annotation"]
+        if ann["type"] != "detection":
+            yield record
+            continue
+
+        bbox = ann.get("boundingbox", None)
+        for sub_ann_key in ["boundingbox", "segmentation", "keypoints"]:
+            if sub_ann_key not in ann:
+                continue
+
+            sub_ann = ann[sub_ann_key]
+            if sub_ann_key == "boundingbox":
+                bbox = sub_ann
+
+            if ann.get("scaled_to_boxes", False):
+                sub_ann = rescale_values(bbox, sub_ann, sub_ann_key)
+
+            new_ann = {
+                "type": sub_ann_key,
+                "class": ann["class"],
+                "task": f"{ann['type']}-{sub_ann_key}",
+            }
+
+            if sub_ann_key == "boundingbox":
+                new_ann.update({"instance_id": ann["instance_id"], **bbox})
+            elif sub_ann_key == "segmentation":
+                if isinstance(sub_ann, list):
+                    new_ann.update({"points": sub_ann, "type": "polyline"})
+                elif isinstance(sub_ann, dict) and "counts" in sub_ann:
+                    new_ann.update(
+                        {
+                            "height": sub_ann["height"],
+                            "width": sub_ann["width"],
+                            "counts": sub_ann["counts"],
+                            "type": "rle",
+                        }
+                    )
+            elif sub_ann_key == "keypoints":
+                new_ann.update(
+                    {"instance_id": ann["instance_id"], "keypoints": sub_ann}
+                )
+
+            yield create_new_record(record, new_ann)

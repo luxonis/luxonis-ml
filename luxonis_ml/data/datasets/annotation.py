@@ -42,7 +42,6 @@ def load_annotation(name: str, js: str, data: Dict[str, Any]) -> "Annotation":
         "KeypointAnnotation": KeypointAnnotation,
         "RLESegmentationAnnotation": RLESegmentationAnnotation,
         "PolylineSegmentationAnnotation": PolylineSegmentationAnnotation,
-        "DetectionAnnotation": DetectionAnnotation,
         "ArrayAnnotation": ArrayAnnotation,
         "LabelAnnotation": LabelAnnotation,
     }[name](**json.loads(js), **data)
@@ -288,82 +287,6 @@ class PolylineSegmentationAnnotation(SegmentationAnnotation):
         return seg
 
 
-class DetectionAnnotation(Annotation):
-    """Detection annotation containing bounding box, keypoints, and segmentation.
-
-    @type bounding_box: Optional[BBoxAnnotation]
-    @ivar bounding_box: The bounding box annotation.
-    @type keypoints: Optional[KeypointAnnotation]
-    @ivar keypoints: The keypoints annotation.
-    @type segmentation: Optional[Union[RLESegmentationAnnotation,
-        PolylineSegmentationAnnotation]]
-    @ivar segmentation: The segmentation annotation.
-    """
-
-    type_: Literal["detection"] = Field("detection", alias="type")
-
-    bounding_box: Optional[BBoxAnnotation] = None
-    keypoints: Optional[KeypointAnnotation] = None
-    segmentation: Optional[
-        Union[RLESegmentationAnnotation, PolylineSegmentationAnnotation]
-    ] = None
-
-    _label_type = LabelType.DETECTION
-
-    def get_value(self) -> Dict[str, Any]:
-        value = {}
-        if self.bounding_box:
-            value["bounding_box"] = self.bounding_box.get_value()
-        if self.keypoints:
-            value["keypoints"] = self.keypoints.get_value()
-        if self.segmentation:
-            value["segmentation"] = self.segmentation.get_value()
-        return value
-
-    @staticmethod
-    def combine_to_numpy(
-        annotations: List["DetectionAnnotation"],
-        class_mapping: Dict[str, int],
-        height: int,
-        width: int,
-    ) -> Dict[str, np.ndarray]:
-        bbox_arr = np.zeros((len(annotations), 5))
-        keypoints_arr = np.zeros(
-            (len(annotations), len(annotations[0].keypoints.keypoints) * 3 + 1)
-        )
-        seg_arr = np.zeros((len(class_mapping), height, width))
-
-        for i, ann in enumerate(annotations):
-            if ann.bounding_box:
-                bbox_arr[i] = ann.bounding_box.to_numpy(class_mapping)
-            if ann.keypoints:
-                keypoints_arr[i] = ann.keypoints.to_numpy(class_mapping)
-            if ann.segmentation:
-                seg_mask = ann.segmentation.to_numpy(class_mapping, width, height)
-                class_ = class_mapping.get(ann.class_, 0)
-                seg_arr[class_, ...] += seg_mask
-
-        seg_arr = np.clip(seg_arr, 0, 1)
-
-        return {
-            "bounding_boxes": bbox_arr,
-            "keypoints": keypoints_arr,
-            "segmentation": seg_arr,
-        }
-
-    @property
-    def sub_annotation_count(self) -> int:
-        """Returns the number of sub-annotations."""
-        count = 0
-        if self.bounding_box is not None:
-            count += 1
-        if self.keypoints is not None:
-            count += 1
-        if self.segmentation is not None:
-            count += 1
-        return count
-
-
 class ArrayAnnotation(Annotation):
     """A custom unspecified annotation that is an arbitrary numpy array.
 
@@ -435,7 +358,6 @@ class DatasetRecord(BaseModelExtraForbid):
             KeypointAnnotation,
             RLESegmentationAnnotation,
             PolylineSegmentationAnnotation,
-            DetectionAnnotation,
             ArrayAnnotation,
             LabelAnnotation,
         ]
@@ -448,44 +370,18 @@ class DatasetRecord(BaseModelExtraForbid):
         @return: A dictionary of annotation data.
         """
 
-        files, types, created_ats, classes, instance_ids, tasks, annotations = (
-            [] for _ in range(7)
-        )
-
-        def append_annotation_data(annotation, annotation_type):
-            """Helper function to append annotation data."""
-            value = annotation.get_value()
-            json_value = json.dumps(value)
-            files.append(self.file.name)
-            types.append(annotation_type.__name__)
-            created_ats.append(datetime.utcnow())
-            classes.append(self.annotation.class_ or "")
-            instance_ids.append(annotation.instance_id or -1)
-            tasks.append(annotation.task or "")
-            annotations.append(json_value)
-
-        if isinstance(self.annotation, DetectionAnnotation):
-            if self.annotation.bounding_box is not None:
-                append_annotation_data(
-                    self.annotation.bounding_box, type(self.annotation.bounding_box)
-                )
-            if self.annotation.keypoints is not None:
-                append_annotation_data(
-                    self.annotation.keypoints, type(self.annotation.keypoints)
-                )
-            if self.annotation.segmentation is not None:
-                append_annotation_data(
-                    self.annotation.segmentation, type(self.annotation.segmentation)
-                )
-        else:
-            append_annotation_data(self.annotation, type(self.annotation))
-
+        value = self.annotation.get_value() if self.annotation is not None else {}
+        json_value = json.dumps(value)
         return {
-            "file": files,
-            "type": types,
-            "created_at": created_ats,
-            "class": classes,
-            "instance_id": instance_ids,
-            "task": tasks,
-            "annotation": annotations,
+            "file": self.file.name,
+            "type": self.annotation.__class__.__name__,
+            "created_at": datetime.utcnow(),
+            "class": self.annotation.class_ or ""
+            if self.annotation is not None
+            else "",
+            "instance_id": self.annotation.instance_id or -1
+            if self.annotation is not None
+            else -1,
+            "task": self.annotation.task if self.annotation is not None else "",
+            "annotation": json_value,
         }

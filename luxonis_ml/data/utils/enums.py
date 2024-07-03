@@ -10,7 +10,6 @@ class LabelType(str, Enum):
     KEYPOINTS = "keypoints"
     LABEL = "label"
     ARRAY = "array"
-    DETECTION = "detection"
 
 
 class DataLabelType(Enum):
