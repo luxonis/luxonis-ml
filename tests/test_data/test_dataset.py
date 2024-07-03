@@ -1,3 +1,4 @@
+import platform
 from typing import Final, Set, cast
 
 import pytest
@@ -72,7 +73,8 @@ TASKS: Final[Set[str]] = {"segmentation", "classification", "keypoints", "boundi
     ],
 )
 def test_dataset(bucket_storage: BucketStorage, subtests):
-    dataset_name = f"{DATASET_NAME}-{bucket_storage.value}"
+    os_name = platform.system().lower()
+    dataset_name = f"{DATASET_NAME}-{bucket_storage.value}-{os_name}"
     with subtests.test("test_create", bucket_storage=bucket_storage):
         parser = LuxonisParser(
             f"{URL_PREFIX}/COCO_people_subset.zip",
