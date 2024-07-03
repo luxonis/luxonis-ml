@@ -1,4 +1,3 @@
-import platform
 from typing import Final, Set, cast
 
 import pytest
@@ -60,7 +59,7 @@ SKELETONS: Final[dict] = {
 }
 URL_PREFIX: Final[str] = "gs://luxonis-test-bucket/luxonis-ml-test-data"
 WORK_DIR: Final[str] = "tests/data/parser_datasets"
-DATASET_NAME: Final[str] = "__test_coco"
+DATASET_NAME: Final[str] = "test-dataset"
 TASKS: Final[Set[str]] = {"segmentation", "classification", "keypoints", "boundingbox"}
 
 
@@ -72,9 +71,12 @@ TASKS: Final[Set[str]] = {"segmentation", "classification", "keypoints", "boundi
         (BucketStorage.GCS,),
     ],
 )
-def test_dataset(bucket_storage: BucketStorage, subtests):
-    os_name = platform.system().lower()
-    dataset_name = f"{DATASET_NAME}-{bucket_storage.value}-{os_name}"
+def test_dataset(
+    bucket_storage: BucketStorage, platform_name: str, python_version: str, subtests
+):
+    dataset_name = (
+        f"{DATASET_NAME}-{bucket_storage.value}-{platform_name}-{python_version}"
+    )
     with subtests.test("test_create", bucket_storage=bucket_storage):
         parser = LuxonisParser(
             f"{URL_PREFIX}/COCO_people_subset.zip",

@@ -1,4 +1,3 @@
-import platform
 import shutil
 from collections import defaultdict
 from pathlib import Path
@@ -51,10 +50,11 @@ def compute_histogram(dataset: LuxonisDataset) -> Dict[str, int]:
         (BucketStorage.GCS,),
     ],
 )
-def test_task_ingestion(bucket_storage: BucketStorage):
-    os_name = platform.system().lower()
+def test_task_ingestion(
+    bucket_storage: BucketStorage, platform_name: str, python_version: str
+):
     dataset = LuxonisDataset(
-        f"{DATASET_NAME}-{bucket_storage.value}-{os_name}",
+        f"{DATASET_NAME}-{bucket_storage.value}-{platform_name}-{python_version}",
         bucket_storage=bucket_storage,
         delete_existing=True,
         delete_remote=True,
