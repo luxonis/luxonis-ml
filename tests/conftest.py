@@ -14,7 +14,3 @@ def set_paths():
     environ.LUXONISML_BASE_PATH = Path.cwd() / "tests/data/luxonisml_base_path"
     if environ.LUXONISML_BASE_PATH.exists():
         shutil.rmtree(environ.LUXONISML_BASE_PATH)
-
-    environ.LUXONISML_TMP_DIR = Path.cwd() / "tests/data/luxonisml_tmp_dir"
-    if environ.LUXONISML_TMP_DIR.exists():
-        shutil.rmtree(environ.LUXONISML_TMP_DIR)
