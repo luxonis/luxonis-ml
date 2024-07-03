@@ -4,7 +4,11 @@ from enum import Enum
 from pathlib import Path
 from typing import Dict, Literal, Optional, Tuple, Type, Union
 
-from luxonis_ml.data import DATASETS_REGISTRY, BaseDataset, LuxonisDataset
+from luxonis_ml.data import (
+    DATASETS_REGISTRY,
+    BaseDataset,
+    LuxonisDataset,
+)
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.utils import LuxonisFileSystem
 
@@ -47,7 +51,6 @@ class LuxonisParser:
         dataset_dir: str,
         *,
         dataset_name: Optional[str] = None,
-        delete_existing: bool = False,
         save_dir: Optional[Union[Path, str]] = None,
         dataset_plugin: Optional[str] = None,
         dataset_type: Optional[DatasetType] = None,
@@ -63,9 +66,6 @@ class LuxonisParser:
         @type dataset_name: Optional[str]
         @param dataset_name: Name of the dataset. If C{None}, the name is derived from
             the name of the dataset directory.
-        @type delete_existing: bool
-        @param delete_existing: If existing dataset with the same name should be deleted
-            before parsing.
         @type save_dir: Optional[Union[Path, str]]
         @param save_dir: If a remote URL is provided in C{dataset_dir}, the dataset will
             be downloaded to this directory. If C{None}, the dataset will be downloaded
@@ -109,12 +109,6 @@ class LuxonisParser:
             self.dataset_constructor = LuxonisDataset
 
         dataset_name = dataset_name or name.replace(" ", "_").split(".")[0]
-        self.dataset_exists = self.dataset_constructor.exists(dataset_name=dataset_name)
-        if delete_existing and self.dataset_exists:
-            logger.warning(f"Deleting existing dataset '{dataset_name}'")
-            self.dataset = self.dataset_constructor(dataset_name=dataset_name, **kwargs)
-            self.dataset.delete_dataset()
-            self.dataset_exists = False
 
         self.dataset = self.dataset_constructor(dataset_name=dataset_name, **kwargs)
         self.parser = self.parsers[self.dataset_type](self.dataset)
@@ -130,12 +124,6 @@ class LuxonisParser:
         @rtype: LuxonisDataset
         @return: Parsed dataset in L{LuxonisDataset} format.
         """
-        if self.dataset_exists:
-            logger.warning(
-                "There already exists an LDF dataset with this name. "
-                "Parsing will be skipped and existing dataset will be used instead."
-            )
-            return self.dataset
         if self.parser_type == ParserType.DIR:
             dataset = self._parse_dir(**kwargs)
         else:
