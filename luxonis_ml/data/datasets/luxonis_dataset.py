@@ -12,6 +12,7 @@ import numpy as np
 import polars as pl
 import pyarrow.parquet as pq
 import rich.progress
+from pycocotools import mask as mask_utils
 
 import luxonis_ml.data.utils.data_utils as data_utils
 from luxonis_ml.utils import LuxonisFileSystem, environ
@@ -626,22 +627,31 @@ def rescale_values(
                 for poly_arr in [np.array(s).reshape(-1, 2)]
                 for i in range(len(poly_arr))
             ]
-
         if isinstance(ann, dict) and "counts" in ann:  # RLE format
             height, width = ann["size"]
-            rle_counts = ann["counts"]
-            decoded_counts = np.array(rle_counts, dtype=np.uint8)
-            reshaped_counts = np.unpackbits(decoded_counts).reshape((height, width))
-            cropped_counts = reshaped_counts[
+
+            if isinstance(ann["counts"], list):
+                ann["counts"] = "".join(map(str, ann["counts"]))
+
+            decoded_mask = mask_utils.decode(ann)
+
+            cropped_mask = decoded_mask[
                 int(y * height) : int((y + h) * height),
                 int(x * width) : int((x + w) * width),
             ]
-            flattened_counts = cropped_counts.flatten()
-            encoded_cropped_counts = np.packbits(flattened_counts).tolist()
+
+            bbox_height = int(h * height)
+            bbox_width = int(w * width)
+
+            norm_mask = cropped_mask.astype(np.uint8)
+            encoded_norm_mask = mask_utils.encode(np.asfortranarray(norm_mask))
+
             return {
-                "height": int(h * height),
-                "width": int(w * width),
-                "counts": encoded_cropped_counts,
+                "height": bbox_height,
+                "width": bbox_width,
+                "counts": encoded_norm_mask["counts"].decode("utf-8")
+                if isinstance(encoded_norm_mask["counts"], bytes)
+                else encoded_norm_mask["counts"],
             }
 
     return None
