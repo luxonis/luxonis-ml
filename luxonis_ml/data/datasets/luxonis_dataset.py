@@ -486,7 +486,7 @@ class LuxonisDataset(BaseDataset):
                 self.logger.info(f"Detected new classes for task {task}: {new_classes}")
                 self.set_classes(list(classes | old_classes), task)
 
-        with tempfile.NamedTemporaryFile() as tmp_file:
+        with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
             self._write_index(index, new_index, path=tmp_file.name)
         self.fs.put_file(tmp_file.name, "metadata/file_index.parquet")
         self._write_metadata()
