@@ -1,7 +1,9 @@
+import builtins
 import logging
 import warnings
 from typing import Optional
 
+from rich import print as rprint
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.theme import Theme
@@ -15,6 +17,7 @@ def setup_logging(
     use_rich: bool = False,
     level: Optional[str] = None,
     configure_warnings: bool = True,
+    rich_print: bool = False,
 ) -> None:
     """Globally configures logging.
 
@@ -32,7 +35,14 @@ def setup_logging(
         environment variable.
     @type configure_warnings: bool
     @param configure_warnings: If True, warnings will be logged. Defaults to True.
+    @type rich_print: bool
+    @param rich_print: If True, builtins.print will be replaced with rich.print.
+        Defaults to False.
     """
+
+    if rich_print:
+        builtins.print = rprint
+
     # NOTE: So we can simply run e.g. `LOG_LEVEL=DEBUG python ...`
     level = level or environ.LOG_LEVEL
 
