@@ -502,30 +502,30 @@ class LuxonisDataset(BaseDataset):
             self.progress.remove_task(task)
 
     def _infer_task(self, ann: Annotation) -> str:
-        if not hasattr(LuxonisDataset._infer_task, "_logged_infered_classes"):
-            LuxonisDataset._infer_task._logged_infered_classes = defaultdict(bool)
+        if not hasattr(LuxonisDataset._infer_task, "_logged_inferred_classes"):
+            LuxonisDataset._infer_task._logged_inferred_classes = defaultdict(bool)
 
         def _log_once(cls_: str, message: str, level: str = "info"):
-            if not LuxonisDataset._infer_task._logged_infered_classes[cls_]:
-                LuxonisDataset._infer_task._logged_infered_classes[cls_] = True
+            if not LuxonisDataset._infer_task._logged_inferred_classes[cls_]:
+                LuxonisDataset._infer_task._logged_inferred_classes[cls_] = True
                 getattr(self.logger, level)(message, extra={"markup": True})
 
         cls_ = ann.class_
         _, current_classes = self.get_classes()
-        infered_task = None
+        inferred_task = None
 
         for task, classes in current_classes.items():
             if cls_ in classes:
-                if infered_task is not None:
+                if inferred_task is not None:
                     _log_once(
                         cls_,
-                        f"Class [red italic]{cls_}[reset] is ambiguous between tasks [magenta italic]{infered_task}[reset] and [magenta italic]{task}[reset]. Task inference failed.",
+                        f"Class [red italic]{cls_}[reset] is ambiguous between tasks [magenta italic]{inferred_task}[reset] and [magenta italic]{task}[reset]. Task inference failed.",
                         "warning",
                     )
-                    infered_task = None
+                    inferred_task = None
                     break
-                infered_task = task
-        if infered_task is None:
+                inferred_task = task
+        if inferred_task is None:
             _log_once(
                 cls_,
                 f"Task inference for class [red italic]{cls_}[reset] failed. "
@@ -535,9 +535,9 @@ class LuxonisDataset(BaseDataset):
         else:
             _log_once(
                 cls_,
-                f"Class [red italic]{cls_}[reset] infered to belong to task [magenta italic]{infered_task}[reset]",
+                f"Class [red italic]{cls_}[reset] inferred to belong to task [magenta italic]{inferred_task}[reset]",
             )
-            return infered_task
+            return inferred_task
 
         return ann.task
 
