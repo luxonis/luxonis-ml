@@ -15,6 +15,7 @@ from typing import (
     Iterable,
     Iterator,
     List,
+    Literal,
     Optional,
     Sequence,
     Tuple,
@@ -402,13 +403,20 @@ class LuxonisFileSystem:
         else:
             raise NotImplementedError
 
-    def walk_dir(self, remote_dir: PathType, recursive: bool = True) -> Iterator[str]:
+    def walk_dir(
+        self,
+        remote_dir: PathType,
+        recursive: bool = True,
+        typ: Literal["file", "directory", "all"] = "file",
+    ) -> Iterator[str]:
         """Walks through the individual files in a remote directory.
 
         @type remote_dir: PathType
         @param remote_dir: Relative path to remote directory
         @type recursive: bool
         @param recursive: If True, walks through the directory recursively.
+        @type list_all: bool
+        @param list_all: If True, lists all files including directories.
         @rtype: Iterator[str]
         @return: Iterator over the paths.
         """
@@ -420,9 +428,8 @@ class LuxonisFileSystem:
             for file in self.fs.glob(
                 full_path + f"/{'**' if recursive else '*'}", detail=True
             ):
-                if self.fs.info(file)["type"] == "file":
-                    file = str(file)
-                    yield str(PurePosixPath(file).relative_to(self.path))
+                if typ == "all" or self.fs.info(file)["type"] == typ:
+                    yield str(PurePosixPath(str(file)).relative_to(self.path))
 
     def read_to_byte_buffer(self, remote_path: Optional[PathType] = None) -> BytesIO:
         """Reads a file into a byte buffer.
