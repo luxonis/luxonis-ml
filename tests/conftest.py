@@ -6,12 +6,7 @@ import pytest
 from luxonis_ml.utils import setup_logging
 from luxonis_ml.utils.environ import environ
 
-setup_logging(
-    use_rich=True,
-    rich_print=True,
-    # level="DEBUG",
-    configure_warnings=True,
-)
+setup_logging(use_rich=True, rich_print=True, configure_warnings=True)
 
 
 @pytest.fixture(autouse=True, scope="module")

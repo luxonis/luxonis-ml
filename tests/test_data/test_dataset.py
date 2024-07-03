@@ -63,12 +63,6 @@ DATASET_NAME: Final[str] = "__test_coco"
 TASKS: Final[Set[str]] = {"segmentation", "classification", "keypoints", "boundingbox"}
 
 
-@pytest.fixture(scope="function", autouse=True)
-def delete_dataset():
-    yield
-    LuxonisDataset(DATASET_NAME).delete_dataset()
-
-
 @pytest.mark.parametrize(
     ("bucket_storage",),
     [
