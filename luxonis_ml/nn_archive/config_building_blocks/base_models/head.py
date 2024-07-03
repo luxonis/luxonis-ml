@@ -38,13 +38,6 @@ class Head(BaseModel, ABC):
         description="A configuration specifying which output names from the `outputs` block of the archive are fed into the head."
     )
 
-    @field_validator("metadata")
-    def validate_metadata(cls, value):
-        if not isinstance(value, HeadMetadata):
-            raise ValueError("Incorrect metadata type. Must be of type Metadata.")
-
-        return value
-
 
 class HeadObjectDetection(Head, ABC):
     """Metadata for object detection head.
@@ -54,15 +47,6 @@ class HeadObjectDetection(Head, ABC):
     """
 
     metadata: HeadObjectDetectionMetadata = Field(description="Metadata of the parser.")
-
-    @field_validator("metadata")
-    def validate_metadata(cls, value):
-        if not isinstance(value, HeadObjectDetectionMetadata):
-            raise ValueError(
-                "Incorrect metadata type. Must be of type HeadObjectDetectionMetadata."
-            )
-
-        return value
 
 
 class HeadClassification(Head, ABC):
@@ -89,15 +73,6 @@ class HeadClassification(Head, ABC):
     ):
         if value != "Classification":
             raise ValueError("Invalid family")
-        return value
-
-    @field_validator("metadata")
-    def validate_metadata(cls, value):
-        if not isinstance(value, HeadClassificationMetadata):
-            raise ValueError(
-                "Incorrect metadata type. Must be of type HeadClassificationMetadata."
-            )
-
         return value
 
 
@@ -127,15 +102,6 @@ class HeadObjectDetectionSSD(HeadObjectDetection, ABC):
             raise ValueError("Invalid family")
         return value
 
-    @field_validator("metadata")
-    def validate_metadata(cls, value):
-        if not isinstance(value, HeadObjectDetectionMetadata):
-            raise ValueError(
-                "Incorrect metadata type. Must be of type HeadObjectDetectionMetadata."
-            )
-
-        return value
-
 
 class HeadSegmentation(Head, ABC):
     """Metadata for segmentation head.
@@ -163,15 +129,6 @@ class HeadSegmentation(Head, ABC):
             raise ValueError("Invalid family")
         return value
 
-    @field_validator("metadata")
-    def validate_metadata(cls, value):
-        if not isinstance(value, HeadSegmentationMetadata):
-            raise ValueError(
-                "Incorrect metadata type. Must be of type HeadSegmentationMetadata."
-            )
-
-        return value
-
 
 class HeadYOLO(HeadObjectDetection, HeadSegmentation, ABC):
     """Metadata for YOLO head.
@@ -197,15 +154,6 @@ class HeadYOLO(HeadObjectDetection, HeadSegmentation, ABC):
     ):
         if value != "YOLO":
             raise ValueError("Invalid family")
-        return value
-
-    @field_validator("metadata")
-    def validate_metadata(cls, value):
-        if not isinstance(value, HeadYOLOMetadata):
-            raise ValueError(
-                "Incorrect metadata type. Must be of type HeadYOLOMetadata."
-            )
-
         return value
 
     @model_validator(mode="before")
