@@ -1,9 +1,16 @@
 from abc import ABC
-from typing import List, Literal, Optional, Union
+from typing import Literal, Union
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ..enums import ObjectDetectionSubtypeYOLO
+from .head_metadata import (
+    HeadClassificationMetadata,
+    HeadMetadata,
+    HeadObjectDetectionMetadata,
+    HeadSegmentationMetadata,
+    HeadYOLOMetadata,
+)
 from .head_outputs import (
     Outputs,
     OutputsClassification,
@@ -20,51 +27,42 @@ class Head(BaseModel, ABC):
     @ivar family: Decoding family.
     @type outputs: C{Outputs}
     @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive are fed into the head.
-    @type classes: list
-    @ivar classes: Names of object classes recognized by the model.
-    @type n_classes: int
-    @ivar n_classes: Number of object classes recognized by the model.
+    @type metadata: C{HeadMetadata}
+    @ivar metadata: Metadata of the parser.
     """
 
     family: str = Field(description="Decoding family.")
+    parser_name: str = Field(description="Name of the parser.")
+    metadata: HeadMetadata = Field(description="Metadata of the parser.")
     outputs: Outputs = Field(
         description="A configuration specifying which output names from the `outputs` block of the archive are fed into the head."
     )
-    classes: List[str] = Field(
-        description="Names of object classes recognized by the model."
-    )
-    n_classes: int = Field(
-        description="Number of object classes recognized by the model."
-    )
+
+    @field_validator("metadata")
+    def validate_metadata(cls, value):
+        if not isinstance(value, HeadMetadata):
+            raise ValueError("Incorrect metadata type. Must be of type Metadata.")
+
+        return value
 
 
 class HeadObjectDetection(Head, ABC):
     """Metadata for object detection head.
 
-    @type iou_threshold: float
-    @ivar iou_threshold: Non-max supression threshold limiting boxes intersection.
-    @type conf_threshold: float
-    @ivar conf_threshold: Confidence score threshold above which a detected object is
-        considered valid.
-    @type max_det: int
-    @ivar max_det: Maximum detections per image.
-    @type anchors: C{Optional[List[List[List[int]]]]}
-    @ivar anchors: Predefined bounding boxes of different sizes and aspect ratios. The
-        innermost lists are length 2 tuples of box sizes. The middle lists are anchors
-        for each output. The outmost lists go from smallest to largest output.
+    @type metadata: HeadObjectDetectionMetadata
+    @ivar metadata: Metadata of the parser.
     """
 
-    iou_threshold: float = Field(
-        description="Non-max supression threshold limiting boxes intersection."
-    )
-    conf_threshold: float = Field(
-        description="Confidence score threshold above which a detected object is considered valid."
-    )
-    max_det: int = Field(description="Maximum detections per image.")
-    anchors: Optional[List[List[List[float]]]] = Field(
-        None,
-        description="Predefined bounding boxes of different sizes and aspect ratios. The innermost lists are length 2 tuples of box sizes. The middle lists are anchors for each output. The outmost lists go from smallest to largest output.",
-    )
+    metadata: HeadObjectDetectionMetadata = Field(description="Metadata of the parser.")
+
+    @field_validator("metadata")
+    def validate_metadata(cls, value):
+        if not isinstance(value, HeadObjectDetectionMetadata):
+            raise ValueError(
+                "Incorrect metadata type. Must be of type HeadObjectDetectionMetadata."
+            )
+
+        return value
 
 
 class HeadClassification(Head, ABC):
@@ -74,15 +72,15 @@ class HeadClassification(Head, ABC):
     @ivar family: Decoding family.
     @type outputs: C{OutputsClassification}
     @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive are fed into the head.
-    @type is_softmax: bool
-    @ivar is_softmax: True, if output is already softmaxed.
+    @type metadata: C{HeadClassificationMetadata}
+    @ivar metadata: Metadata of the parser.
     """
 
     family: Literal["Classification"] = Field(..., description="Decoding family.")
     outputs: OutputsClassification = Field(
         description="A configuration specifying which output names from the `outputs` block of the archive are fed into the head."
     )
-    is_softmax: bool = Field(description="True, if output is already softmaxed.")
+    metadata: HeadClassificationMetadata = Field(description="Metadata of the parser.")
 
     @field_validator("family")
     def validate_label_type(
@@ -93,6 +91,15 @@ class HeadClassification(Head, ABC):
             raise ValueError("Invalid family")
         return value
 
+    @field_validator("metadata")
+    def validate_metadata(cls, value):
+        if not isinstance(value, HeadClassificationMetadata):
+            raise ValueError(
+                "Incorrect metadata type. Must be of type HeadClassificationMetadata."
+            )
+
+        return value
+
 
 class HeadObjectDetectionSSD(HeadObjectDetection, ABC):
     """Metadata for SSD object detection head.
@@ -101,12 +108,15 @@ class HeadObjectDetectionSSD(HeadObjectDetection, ABC):
     @ivar family: Decoding family.
     @type outputs: C{OutputsSSD}
     @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive are fed into the head.
+    @type metadata: C{HeadObjectDetectionMetadata}
+    @ivar metadata: Metadata of the parser.
     """
 
     family: Literal["ObjectDetectionSSD"] = Field(..., description="Decoding family.")
     outputs: OutputsSSD = Field(
         description="A configuration specifying which output names from the `outputs` block of the archive are fed into the head."
     )
+    metadata: HeadObjectDetectionMetadata = Field(description="Metadata of the parser.")
 
     @field_validator("family")
     def validate_label_type(
@@ -117,6 +127,15 @@ class HeadObjectDetectionSSD(HeadObjectDetection, ABC):
             raise ValueError("Invalid family")
         return value
 
+    @field_validator("metadata")
+    def validate_metadata(cls, value):
+        if not isinstance(value, HeadObjectDetectionMetadata):
+            raise ValueError(
+                "Incorrect metadata type. Must be of type HeadObjectDetectionMetadata."
+            )
+
+        return value
+
 
 class HeadSegmentation(Head, ABC):
     """Metadata for segmentation head.
@@ -125,15 +144,15 @@ class HeadSegmentation(Head, ABC):
     @ivar family: Decoding family.
     @type outputs: C{OutputsSegmentation}
     @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive are fed into the head.
-    @type is_softmax: bool
-    @ivar is_softmax: True, if output is already softmaxed.
+    @type metadata: C{HeadSegmentationMetadata}
+    @ivar metadata: Metadata of the parser.
     """
 
     family: Literal["Segmentation"] = Field(..., description="Decoding family.")
     outputs: OutputsSegmentation = Field(
         description="A configuration specifying which output names from the `outputs` block of the archive are fed into the head."
     )
-    is_softmax: bool = Field(description="True, if output is already softmaxed.")
+    metadata: HeadSegmentationMetadata = Field(description="Metadata of the parser.")
 
     @field_validator("family")
     def validate_label_type(
@@ -144,6 +163,15 @@ class HeadSegmentation(Head, ABC):
             raise ValueError("Invalid family")
         return value
 
+    @field_validator("metadata")
+    def validate_metadata(cls, value):
+        if not isinstance(value, HeadSegmentationMetadata):
+            raise ValueError(
+                "Incorrect metadata type. Must be of type HeadSegmentationMetadata."
+            )
+
+        return value
+
 
 class HeadYOLO(HeadObjectDetection, HeadSegmentation, ABC):
     """Metadata for YOLO head.
@@ -152,39 +180,15 @@ class HeadYOLO(HeadObjectDetection, HeadSegmentation, ABC):
     @ivar family: Decoding family.
     @type outputs: C{OutputsYOLO}
     @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive are fed into the head.
-    @type subtype: ObjectDetectionSubtypeYOLO
-    @ivar subtype: YOLO family decoding subtype (e.g. v5, v6, v7 etc.).
-    @type postprocessor_path: str | None
-    @ivar postprocessor_path: Path to the secondary executable used in YOLO instance segmentation.
-    @type n_prototypes: int | None
-    @ivar n_prototypes: Number of prototypes per bbox in YOLO instance segmnetation.
-    @type n_keypoints: int | None
-    @ivar n_keypoints: Number of keypoints per bbox in YOLO keypoint detection.
-    @type is_softmax: bool | None
-    @ivar is_softmax: True, if output is already softmaxed in YOLO instance segmentation.
+    @type metadata: C{HeadYOLOMetadata}
+    @ivar metadata: Metadata of the parser.
     """
 
     family: Literal["YOLO",] = Field(..., description="Decoding family.")
     outputs: OutputsYOLO = Field(
         description="A configuration specifying which output names from the `outputs` block of the archive are fed into the head."
     )
-    subtype: ObjectDetectionSubtypeYOLO = Field(
-        description="YOLO family decoding subtype (e.g. yolov5, yolov6, yolov7 etc.)."
-    )
-    postprocessor_path: Optional[str] = Field(
-        None,
-        description="Path to the secondary executable used in YOLO instance segmentation.",
-    )
-    n_prototypes: Optional[int] = Field(
-        None, description="Number of prototypes per bbox in YOLO instance segmnetation."
-    )
-    n_keypoints: Optional[int] = Field(
-        None, description="Number of keypoints per bbox in YOLO keypoint detection."
-    )
-    is_softmax: Optional[bool] = Field(
-        None,
-        description="True, if output is already softmaxed in YOLO instance segmentation.",
-    )
+    metadata: HeadYOLOMetadata = Field(description="Metadata of the parser.")
 
     @field_validator("family")
     def validate_label_type(
@@ -195,12 +199,23 @@ class HeadYOLO(HeadObjectDetection, HeadSegmentation, ABC):
             raise ValueError("Invalid family")
         return value
 
+    @field_validator("metadata")
+    def validate_metadata(cls, value):
+        if not isinstance(value, HeadYOLOMetadata):
+            raise ValueError(
+                "Incorrect metadata type. Must be of type HeadYOLOMetadata."
+            )
+
+        return value
+
     @model_validator(mode="before")
     def validate_task_specific_fields(
         cls,
         values,
     ):
-        defined_params = {k for k, v in values.items() if v is not None}
+        defined_params = {
+            k for k, v in (values["metadata"].model_dump()).items() if v is not None
+        }
 
         common_fields = [
             "family",
