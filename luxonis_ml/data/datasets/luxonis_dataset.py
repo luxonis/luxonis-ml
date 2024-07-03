@@ -104,32 +104,6 @@ class LuxonisDataset(BaseDataset):
             raise ValueError("Source not found in metadata")
         return LuxonisSource.from_document(self.metadata["source"])
 
-    @classmethod
-    def delete_and_create(
-        cls,
-        name: str,
-        remote: bool = False,
-        bucket_storage: BucketStorage = BucketStorage.LOCAL,
-        bucket: Optional[str] = None,
-        team_id: Optional[str] = None,
-        **kwargs,
-    ) -> "LuxonisDataset":
-        if remote and bucket_storage == BucketStorage.LOCAL:
-            raise ValueError("Cannot create a remote dataset with local storage")
-        if LuxonisDataset.exists(
-            name,
-            remote=remote,
-            bucket_storage=bucket_storage,
-            bucket=bucket,
-            team_id=team_id,
-        ):
-            LuxonisDataset(
-                name, bucket_storage=bucket_storage, team_id=team_id, **kwargs
-            ).delete_dataset(delete_remote=remote)
-        return LuxonisDataset(
-            name, bucket_storage=bucket_storage, team_id=team_id, **kwargs
-        )
-
     @property
     def identifier(self) -> str:
         return self.dataset_name
@@ -263,28 +237,6 @@ class LuxonisDataset(BaseDataset):
 
         self.metadata["source"] = source.to_document()
         self._write_metadata()
-
-    def _write_classes(self, *, _remove_tmp_dir: bool) -> None:
-        self._write_datasets()
-
-        if self.bucket_storage != BucketStorage.LOCAL:
-            classes = self.datasets[self.dataset_name]["classes"]
-            self._make_temp_dir(remove_previous=_remove_tmp_dir)
-            local_file = self.tmp_dir / "classes.json"
-            with open(local_file, "w") as file:
-                json.dump(classes, file, indent=4)
-            self.fs.put_file(local_file, "metadata/classes.json")
-            if _remove_tmp_dir:
-                self._remove_temp_dir()
-
-    def _read_classes(self, sync_mode: bool) -> Dict[str, Any]:
-        if sync_mode:
-            local_file = self.metadata_path / "classes.json"
-            self.fs.get_file("metadata/classes.json", local_file)
-            with open(local_file) as file:
-                return json.load(file)
-
-        return self.datasets[self.dataset_name]["classes"]
 
     def set_classes(
         self,
@@ -538,8 +490,6 @@ class LuxonisDataset(BaseDataset):
             self._write_index(index, new_index, path=tmp_file.name)
         self.fs.put_file(tmp_file.name, "metadata/file_index.parquet")
         self._write_metadata()
-
-        return self
 
         return self
 
