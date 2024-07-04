@@ -34,7 +34,7 @@ def get_os_python_specific_url(protocol: str, platform: str, python_version: str
 
 
 @pytest.fixture
-def fs(request, python_version, platform_name):
+def fs(request, python_version: str, platform_name: str):
     url_path = get_os_python_specific_url(request.param, platform_name, python_version)
     yield LuxonisFileSystem(url_path)
 

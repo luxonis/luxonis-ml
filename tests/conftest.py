@@ -27,4 +27,12 @@ def python_version():
 
 @pytest.fixture(scope="session")
 def platform_name():
-    return platform.system().lower()
+    os_name = platform.system().lower()
+    if "darwin" in os_name:
+        return "mac"
+    elif "linux" in os_name:
+        return "lin"
+    elif "windows" in os_name:
+        return "win"
+    else:
+        raise ValueError(f"Unsupported operating system: {os_name}")
