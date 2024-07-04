@@ -1,13 +1,9 @@
-from luxonis_ml.nn_archive.config_building_blocks import (
-    HeadClassification,
-    HeadObjectDetectionSSD,
-    HeadSegmentation,
-    HeadYOLO,
-)
+from luxonis_ml.nn_archive.config_building_blocks import Head
 from luxonis_ml.nn_archive.config_building_blocks.base_models.head_metadata import (
     HeadClassificationMetadata,
     HeadMetadata,
     HeadObjectDetectionMetadata,
+    HeadObjectDetectionSSDMetadata,
     HeadSegmentationMetadata,
     HeadYOLOMetadata,
 )
@@ -73,8 +69,7 @@ segmentation_output = OutputsSegmentation(
 )
 
 head_metadata = HeadMetadata(
-    classes=["person", "car"],
-    n_classes=2,
+    postprocessor_path="postprocessor.onnx",
 )
 
 head_object_detection_metadata = HeadObjectDetectionMetadata(
@@ -84,18 +79,32 @@ head_object_detection_metadata = HeadObjectDetectionMetadata(
     conf_threshold=0.5,
     max_det=1000,
     anchors=None,
+    postprocessor_path=None,
 )
 
 head_classification_metadata = HeadClassificationMetadata(
     classes=["person", "car"],
     n_classes=2,
     is_softmax=True,
+    postprocessor_path="postprocessor.onnx",
 )
 
 head_segmentation_metadata = HeadSegmentationMetadata(
     classes=["person", "car"],
     n_classes=2,
     is_softmax=True,
+    postprocessor_path=None,
+)
+
+head_object_detection_ssd_metadata = HeadObjectDetectionSSDMetadata(
+    classes=["person", "car"],
+    n_classes=2,
+    iou_threshold=0.5,
+    conf_threshold=0.5,
+    max_det=1000,
+    anchors=None,
+    postprocessor_path=None,
+    outputs=output_ssd,
 )
 
 head_yolo_obj_det_metadata = HeadYOLOMetadata(
@@ -109,6 +118,8 @@ head_yolo_obj_det_metadata = HeadYOLOMetadata(
     n_keypoints=None,
     is_softmax=None,
     subtype=ObjectDetectionSubtypeYOLO.YOLOv6,
+    postprocessor_path=None,
+    outputs=output_detection,
 )
 
 head_yolo_instance_seg_metadata = HeadYOLOMetadata(
@@ -122,6 +133,8 @@ head_yolo_instance_seg_metadata = HeadYOLOMetadata(
     n_keypoints=None,
     is_softmax=True,
     subtype=ObjectDetectionSubtypeYOLO.YOLOv6,
+    postprocessor_path="postprocessor.onnx",
+    outputs=output_instance_segmentation,
 )
 
 head_yolo_keypoint_det_metadata = HeadYOLOMetadata(
@@ -135,6 +148,8 @@ head_yolo_keypoint_det_metadata = HeadYOLOMetadata(
     n_keypoints=21,
     is_softmax=None,
     subtype=ObjectDetectionSubtypeYOLO.YOLOv6,
+    postprocessor_path=None,
+    outputs=output_keypoint_detection,
 )
 
 head_yolo_obb_det_metadata = HeadYOLOMetadata(
@@ -148,6 +163,8 @@ head_yolo_obb_det_metadata = HeadYOLOMetadata(
     n_keypoints=None,
     is_softmax=None,
     subtype=ObjectDetectionSubtypeYOLO.YOLOv6,
+    postprocessor_path="postprocessor.onnx",
+    outputs=output_obb,
 )
 
 head_yolo_instance_seg_kpts_metadata = HeadYOLOMetadata(
@@ -161,6 +178,8 @@ head_yolo_instance_seg_kpts_metadata = HeadYOLOMetadata(
     n_keypoints=21,
     is_softmax=False,
     subtype=ObjectDetectionSubtypeYOLO.YOLOv6,
+    postprocessor_path="postprocessor.onnx",
+    outputs=outputs_instance_seg_kpts,
 )
 
 head_segmentation_metadata = HeadSegmentationMetadata(
@@ -168,76 +187,69 @@ head_segmentation_metadata = HeadSegmentationMetadata(
     n_classes=2,
     is_softmax=False,
     custom_field="custom_field",  # type: ignore
+    postprocessor_path="postprocessor.onnx",
 )
 
 classification_head = dict(
-    HeadClassification(
+    Head(
         parser="Classification",
-        outputs=output_classification,
+        outputs=["output"],
         metadata=head_classification_metadata,
-        postprocessor_path="postprocessor.onnx",
     )
 )
 
 ssd_object_detection_head = dict(
-    HeadObjectDetectionSSD(
+    Head(
         parser="ObjectDetectionSSD",
-        outputs=output_ssd,
-        metadata=head_object_detection_metadata,
-        postprocessor_path=None,
+        outputs=["boxes"],
+        metadata=head_object_detection_ssd_metadata,
     )
 )
 
 yolo_object_detection_head = dict(
-    HeadYOLO(
+    Head(
         parser="YOLO",
-        outputs=output_detection,
+        outputs=["output"],
         metadata=head_yolo_obb_det_metadata,
-        postprocessor_path=None,
     )
 )
 
 yolo_instance_segmentation_head = dict(
-    HeadYOLO(
+    Head(
         parser="YOLO",
-        outputs=output_instance_segmentation,
+        outputs=["output"],
         metadata=head_yolo_instance_seg_metadata,
-        postprocessor_path="postprocessor.onnx",
     )
 )
 
 yolo_keypoint_detection_head = dict(
-    HeadYOLO(
+    Head(
         parser="YOLO",
-        outputs=output_keypoint_detection,
+        outputs=["output"],
         metadata=head_yolo_keypoint_det_metadata,
-        postprocessor_path=None,
     )
 )
 
 yolo_obb_detection_head = dict(
-    HeadYOLO(
+    Head(
         parser="YOLO",
-        outputs=output_obb,
+        outputs=["output"],
         metadata=head_yolo_obb_det_metadata,
-        postprocessor_path="postprocessor.onnx",
     )
 )
 
 yolo_instance_seg_kpts_head = dict(
-    HeadYOLO(
+    Head(
         parser="YOLO",
-        outputs=outputs_instance_seg_kpts,
+        outputs=["outputs"],
         metadata=head_yolo_instance_seg_kpts_metadata,
-        postprocessor_path="postprocessor.onnx",
     )
 )
 
 custom_segmentation_head = dict(
-    HeadSegmentation(
+    Head(
         parser="Segmentation",
-        outputs=segmentation_output,
+        outputs=["output"],
         metadata=head_segmentation_metadata,
-        postprocessor_path="postprocessor.onnx",
     )
 )
