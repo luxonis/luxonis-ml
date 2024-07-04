@@ -77,9 +77,6 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
 
     @type subtype: C{ObjectDetectionSubtypeYOLO}
     @ivar subtype: YOLO family decoding subtype (e.g. yolov5, yolov6, yolov7 etc.)
-    @type postprocessor_path: str | None
-    @ivar postprocessor_path: Path to the secondary executable used in YOLO instance
-        segmentation.
     @type n_prototypes: int | None
     @ivar n_prototypes: Number of prototypes per bbox in YOLO instance segmnetation.
     @type n_keypoints: int | None
@@ -90,10 +87,6 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
 
     subtype: ObjectDetectionSubtypeYOLO = Field(
         description="YOLO family decoding subtype (e.g. yolov5, yolov6, yolov7 etc.)."
-    )
-    postprocessor_path: Optional[str] = Field(
-        None,
-        description="Path to the secondary executable used in YOLO instance segmentation.",
     )
     n_prototypes: Optional[int] = Field(
         None, description="Number of prototypes per bbox in YOLO instance segmnetation."

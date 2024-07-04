@@ -1,7 +1,7 @@
 from abc import ABC
-from typing import Literal, Union
+from typing import Optional, Union
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from ..enums import ObjectDetectionSubtypeYOLO
 from .head_metadata import (
@@ -23,16 +23,20 @@ from .head_outputs import (
 class Head(BaseModel, ABC):
     """Represents head of a model.
 
-    @type family: str
-    @ivar family: Decoding family.
+    @type parser: str
+    @ivar parser: Name of the parser responsible for processing the models output.
+    @type postprocessor_path: str | None
+    @ivar postprocessor_path: Path to the postprocessor.
     @type outputs: C{Outputs}
     @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive are fed into the head.
     @type metadata: C{HeadMetadata}
     @ivar metadata: Metadata of the parser.
     """
 
-    family: str = Field(description="Decoding family.")
-    parser_name: str = Field(description="Name of the parser.")
+    parser: str = Field(
+        description="Name of the parser responsible for processing the models output."
+    )
+    postprocessor_path: Optional[str] = Field(description="Path to the postprocessor.")
     metadata: HeadMetadata = Field(description="Metadata of the parser.")
     outputs: Outputs = Field(
         description="A configuration specifying which output names from the `outputs` block of the archive are fed into the head."
@@ -52,109 +56,61 @@ class HeadObjectDetection(Head, ABC):
 class HeadClassification(Head, ABC):
     """Metadata for classification head.
 
-    @type family: str
-    @ivar family: Decoding family.
     @type outputs: C{OutputsClassification}
     @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive are fed into the head.
     @type metadata: C{HeadClassificationMetadata}
     @ivar metadata: Metadata of the parser.
     """
 
-    family: Literal["Classification"] = Field(..., description="Decoding family.")
     outputs: OutputsClassification = Field(
         description="A configuration specifying which output names from the `outputs` block of the archive are fed into the head."
     )
     metadata: HeadClassificationMetadata = Field(description="Metadata of the parser.")
 
-    @field_validator("family")
-    def validate_label_type(
-        cls,
-        value,
-    ):
-        if value != "Classification":
-            raise ValueError("Invalid family")
-        return value
-
 
 class HeadObjectDetectionSSD(HeadObjectDetection, ABC):
     """Metadata for SSD object detection head.
 
-    @type family: str
-    @ivar family: Decoding family.
     @type outputs: C{OutputsSSD}
     @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive are fed into the head.
     @type metadata: C{HeadObjectDetectionMetadata}
     @ivar metadata: Metadata of the parser.
     """
 
-    family: Literal["ObjectDetectionSSD"] = Field(..., description="Decoding family.")
     outputs: OutputsSSD = Field(
         description="A configuration specifying which output names from the `outputs` block of the archive are fed into the head."
     )
     metadata: HeadObjectDetectionMetadata = Field(description="Metadata of the parser.")
 
-    @field_validator("family")
-    def validate_label_type(
-        cls,
-        value,
-    ):
-        if value != "ObjectDetectionSSD":
-            raise ValueError("Invalid family")
-        return value
-
 
 class HeadSegmentation(Head, ABC):
     """Metadata for segmentation head.
 
-    @type family: str
-    @ivar family: Decoding family.
     @type outputs: C{OutputsSegmentation}
     @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive are fed into the head.
     @type metadata: C{HeadSegmentationMetadata}
     @ivar metadata: Metadata of the parser.
     """
 
-    family: Literal["Segmentation"] = Field(..., description="Decoding family.")
     outputs: OutputsSegmentation = Field(
         description="A configuration specifying which output names from the `outputs` block of the archive are fed into the head."
     )
     metadata: HeadSegmentationMetadata = Field(description="Metadata of the parser.")
 
-    @field_validator("family")
-    def validate_label_type(
-        cls,
-        value,
-    ):
-        if value != "Segmentation":
-            raise ValueError("Invalid family")
-        return value
-
 
 class HeadYOLO(HeadObjectDetection, HeadSegmentation, ABC):
     """Metadata for YOLO head.
 
-    @type family: str
-    @ivar family: Decoding family.
     @type outputs: C{OutputsYOLO}
     @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive are fed into the head.
     @type metadata: C{HeadYOLOMetadata}
     @ivar metadata: Metadata of the parser.
     """
 
-    family: Literal["YOLO",] = Field(..., description="Decoding family.")
     outputs: OutputsYOLO = Field(
         description="A configuration specifying which output names from the `outputs` block of the archive are fed into the head."
     )
     metadata: HeadYOLOMetadata = Field(description="Metadata of the parser.")
-
-    @field_validator("family")
-    def validate_label_type(
-        cls,
-        value,
-    ):
-        if value != "YOLO":
-            raise ValueError("Invalid family")
-        return value
 
     @model_validator(mode="before")
     def validate_task_specific_fields(
@@ -166,8 +122,6 @@ class HeadYOLO(HeadObjectDetection, HeadSegmentation, ABC):
         }
 
         common_fields = [
-            "family",
-            "outputs",
             "subtype",
             "iou_threshold",
             "conf_threshold",
@@ -180,7 +134,6 @@ class HeadYOLO(HeadObjectDetection, HeadSegmentation, ABC):
 
         required_fields = {
             "instance_segmentation": [
-                "postprocessor_path",
                 "n_prototypes",
                 "is_softmax",
             ],
@@ -189,14 +142,12 @@ class HeadYOLO(HeadObjectDetection, HeadSegmentation, ABC):
 
         unsupported_fields = {
             "object_detection": [
-                "postprocessor_path",
                 "n_prototypes",
                 "n_keypoints",
                 "is_softmax",
             ],
             "instance_segmentation": ["n_keypoints"],
             "keypoint_detection": [
-                "postprocessor_path",
                 "n_prototypes",
                 "is_softmax",
             ],
