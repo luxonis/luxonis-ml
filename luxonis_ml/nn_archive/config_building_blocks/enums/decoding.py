@@ -9,6 +9,7 @@ class ObjectDetectionSubtypeYOLO(Enum):
 
     YOLOv5 = "yolov5"
     YOLOv6 = "yolov6"
+    YOLOv6r2 = "yolov6r2"
     YOLOv7 = "yolov7"
     YOLOv8 = "yolov8"
     YOLOv10 = "yolov10"

@@ -308,8 +308,9 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
             and values["anchors"] is not None
             and (
                 values["subtype"] == ObjectDetectionSubtypeYOLO.YOLOv6
+                or values["subtype"] == ObjectDetectionSubtypeYOLO.YOLOv6r2
                 or values["subtype"] == ObjectDetectionSubtypeYOLO.YOLOv8
             )
         ):
-            raise ValueError("YOLOv6 and YOLOv8 do not support anchors.")
+            raise ValueError("YOLOv6, YOLOv6r2, and YOLOv8 do not support anchors.")
         return values
