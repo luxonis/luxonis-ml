@@ -1,11 +1,6 @@
 from .base_models import (
     Head,
-    HeadClassification,
-    HeadObjectDetection,
-    HeadObjectDetectionSSD,
-    HeadSegmentation,
     HeadType,
-    HeadYOLO,
     Input,
     Metadata,
     Output,
@@ -21,11 +16,6 @@ from .enums import (
 __all__ = [
     "Head",
     "HeadType",
-    "HeadSegmentation",
-    "HeadClassification",
-    "HeadObjectDetectionSSD",
-    "HeadObjectDetection",
-    "HeadYOLO",
     "Input",
     "PreprocessingBlock",
     "Output",
