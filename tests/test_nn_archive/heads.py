@@ -7,65 +7,8 @@ from luxonis_ml.nn_archive.config_building_blocks.base_models.head_metadata impo
     HeadSegmentationMetadata,
     HeadYOLOMetadata,
 )
-from luxonis_ml.nn_archive.config_building_blocks.base_models.head_outputs import (
-    OutputsClassification,
-    OutputsSegmentation,
-    OutputsSSD,
-    OutputsYOLO,
-)
 from luxonis_ml.nn_archive.config_building_blocks.enums import (
     ObjectDetectionSubtypeYOLO,
-)
-
-output_classification = OutputsClassification(predictions="191")
-
-output_ssd = OutputsSSD(
-    boxes="boxes",
-    scores="scores",
-)
-
-output_detection = OutputsYOLO(
-    yolo_outputs=["feats"],
-    mask_outputs=None,
-    protos=None,
-    keypoints=None,
-    angles=None,
-)
-
-output_instance_segmentation = OutputsYOLO(
-    yolo_outputs=["feats"],
-    mask_outputs=["mask"],
-    protos="protos",
-    keypoints=None,
-    angles=None,
-)
-
-output_keypoint_detection = OutputsYOLO(
-    yolo_outputs=["feats"],
-    mask_outputs=None,
-    protos=None,
-    keypoints="keypoints",
-    angles=None,
-)
-
-output_obb = OutputsYOLO(
-    yolo_outputs=["feats"],
-    mask_outputs=None,
-    protos=None,
-    keypoints=None,
-    angles="angles",
-)
-
-outputs_instance_seg_kpts = OutputsYOLO(
-    yolo_outputs=["feats"],
-    mask_outputs=["mask"],
-    protos="protos",
-    keypoints="keypoints",
-    angles=None,
-)
-
-segmentation_output = OutputsSegmentation(
-    predictions="output",
 )
 
 head_metadata = HeadMetadata(
@@ -104,7 +47,8 @@ head_object_detection_ssd_metadata = HeadObjectDetectionSSDMetadata(
     max_det=1000,
     anchors=None,
     postprocessor_path=None,
-    outputs=output_ssd,
+    boxes_outputs="boxes",
+    scores_outputs="scores",
 )
 
 head_yolo_obj_det_metadata = HeadYOLOMetadata(
@@ -119,7 +63,11 @@ head_yolo_obj_det_metadata = HeadYOLOMetadata(
     is_softmax=None,
     subtype=ObjectDetectionSubtypeYOLO.YOLOv6,
     postprocessor_path=None,
-    outputs=output_detection,
+    yolo_outputs=["feats"],
+    mask_outputs=None,
+    protos_outputs=None,
+    keypoints_outputs=None,
+    angles_outputs=None,
 )
 
 head_yolo_instance_seg_metadata = HeadYOLOMetadata(
@@ -134,7 +82,11 @@ head_yolo_instance_seg_metadata = HeadYOLOMetadata(
     is_softmax=True,
     subtype=ObjectDetectionSubtypeYOLO.YOLOv6,
     postprocessor_path="postprocessor.onnx",
-    outputs=output_instance_segmentation,
+    yolo_outputs=["feats"],
+    mask_outputs=["mask"],
+    protos_outputs="protos",
+    keypoints_outputs=None,
+    angles_outputs=None,
 )
 
 head_yolo_keypoint_det_metadata = HeadYOLOMetadata(
@@ -149,7 +101,11 @@ head_yolo_keypoint_det_metadata = HeadYOLOMetadata(
     is_softmax=None,
     subtype=ObjectDetectionSubtypeYOLO.YOLOv6,
     postprocessor_path=None,
-    outputs=output_keypoint_detection,
+    yolo_outputs=["feats"],
+    mask_outputs=None,
+    protos_outputs=None,
+    keypoints_outputs="keypoints",
+    angles_outputs=None,
 )
 
 head_yolo_obb_det_metadata = HeadYOLOMetadata(
@@ -164,7 +120,11 @@ head_yolo_obb_det_metadata = HeadYOLOMetadata(
     is_softmax=None,
     subtype=ObjectDetectionSubtypeYOLO.YOLOv6,
     postprocessor_path="postprocessor.onnx",
-    outputs=output_obb,
+    yolo_outputs=["feats"],
+    mask_outputs=None,
+    protos_outputs=None,
+    keypoints_outputs=None,
+    angles_outputs="angles",
 )
 
 head_yolo_instance_seg_kpts_metadata = HeadYOLOMetadata(
@@ -179,7 +139,11 @@ head_yolo_instance_seg_kpts_metadata = HeadYOLOMetadata(
     is_softmax=False,
     subtype=ObjectDetectionSubtypeYOLO.YOLOv6,
     postprocessor_path="postprocessor.onnx",
-    outputs=outputs_instance_seg_kpts,
+    yolo_outputs=["feats"],
+    mask_outputs=["mask"],
+    protos_outputs="protos",
+    keypoints_outputs="keypoints",
+    angles_outputs=None,
 )
 
 head_segmentation_metadata = HeadSegmentationMetadata(

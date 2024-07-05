@@ -3,7 +3,6 @@ from typing import List, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..enums import ObjectDetectionSubtypeYOLO
-from .head_outputs import OutputsSSD, OutputsYOLO
 
 
 class HeadMetadata(BaseModel):
@@ -62,12 +61,19 @@ class HeadObjectDetectionMetadata(HeadMetadata):
 class HeadObjectDetectionSSDMetadata(HeadObjectDetectionMetadata):
     """Metadata for the SSD object detection head.
 
-    @type outputs: C{OutputsSSD}
-    @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive are fed into the head.
+    @type boxes_outputs: str
+    @ivar boxes_outputs: Output name corresponding to predicted bounding box
+        coordinates.
+    @type scores_outputs: str
+    @ivar scores_outputs: Output name corresponding to predicted bounding box confidence
+        scores.
     """
 
-    outputs: OutputsSSD = Field(
-        description="A configuration specifying which output names from the `outputs` block of the archive are fed into the head."
+    boxes_outputs: str = Field(
+        description="Output name corresponding to predicted bounding box coordinates."
+    )
+    scores_outputs: str = Field(
+        description="Output name corresponding to predicted bounding box confidence scores."
     )
 
 
@@ -114,8 +120,17 @@ class HeadSegmentationMetadata(HeadMetadata):
 class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
     """Metadata for the YOLO head.
 
-    @type outputs: C{OutputsYOLO}
-    @ivar outputs: A configuration specifying which output names from the `outputs` block of the archive are fed into the head.
+    @type yolo_outputs: list
+    @ivar yolo_outputs: A list of output names for each of the different YOLO grid
+        sizes.
+    @type mask_outputs: list | None
+    @ivar mask_outputs: A list of output names for each mask output.
+    @type protos_outputs: str | None
+    @ivar protos_outputs: Output name for the protos.
+    @type keypoints_outputs: str | None
+    @ivar keypoints_outputs: Output name for the keypoints.
+    @type angles_outputs: str | None
+    @ivar angles_outputs: Output name for the angles.
     @type subtype: C{ObjectDetectionSubtypeYOLO}
     @ivar subtype: YOLO family decoding subtype (e.g. yolov5, yolov6, yolov7 etc.)
     @type n_prototypes: int | None
@@ -126,9 +141,28 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
     @ivar is_softmax: True, if output is already softmaxed in YOLO instance segmentation
     """
 
-    outputs: OutputsYOLO = Field(
-        description="A configuration specifying which output names from the `outputs` block of the archive are fed into the head."
+    yolo_outputs: List[str] = Field(
+        description="A list of output names for each of the different YOLO grid sizes."
     )
+
+    # Instance segmentation
+    mask_outputs: Optional[List[str]] = Field(
+        None, description="A list of output names for each mask output."
+    )
+    protos_outputs: Optional[str] = Field(
+        None, description="Output name for the protos."
+    )
+
+    # Keypoint detection
+    keypoints_outputs: Optional[str] = Field(
+        None, description="Output name for the keypoints."
+    )
+
+    # OBB detection
+    angles_outputs: Optional[str] = Field(
+        None, description="Output name for the angles."
+    )
+
     subtype: ObjectDetectionSubtypeYOLO = Field(
         description="YOLO family decoding subtype (e.g. yolov5, yolov6, yolov7 etc.)."
     )
@@ -151,8 +185,12 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
         defined_params = {k for k, v in dict(values).items() if v is not None}
 
         common_fields = [
-            "outputs",
             "postprocessor_path",
+            "yolo_outputs",
+            "mask_outputs",
+            "protos_outputs",
+            "keypoints_outputs",
+            "angles_outputs",
             "subtype",
             "iou_threshold",
             "conf_threshold",
@@ -162,8 +200,6 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
             "anchors",
         ]
         defined_params = defined_params.difference(common_fields)
-
-        print(defined_params)
 
         required_fields = {
             "instance_segmentation": [
@@ -222,18 +258,25 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
                 )
 
         # Validate Outputs
-        outputs = dict(values).get("outputs", {})
-        defined_params = {
-            k
-            for k, v in (
-                outputs.model_dump() if isinstance(outputs, BaseModel) else outputs
-            ).items()
-            if v is not None
-        }
+        defined_params = {k for k, v in dict(values).items() if v is not None}
+        common_fields = [
+            "postprocessor_path",
+            "subtype",
+            "iou_threshold",
+            "conf_threshold",
+            "max_det",
+            "classes",
+            "n_classes",
+            "anchors",
+            "n_prototypes",
+            "n_keypoints",
+            "is_softmax",
+        ]
+        defined_params = defined_params.difference(common_fields)
 
         supported_output_params = {
-            "instance_segmentation": ["yolo_outputs", "mask_outputs", "protos"],
-            "keypoint_detection": ["yolo_outputs", "keypoints"],
+            "instance_segmentation": ["yolo_outputs", "mask_outputs", "protos_outputs"],
+            "keypoint_detection": ["yolo_outputs", "keypoints_outputs"],
             "object_detection": ["yolo_outputs"],
         }
 
@@ -249,7 +292,7 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
 
         # Check if all defined fields are supported
         for param in defined_params:
-            if param == "angles" and "object_detection" in tasks:
+            if param == "angles_outputs" and "object_detection" in tasks:
                 continue
             if not any(param in supported_output_params[task] for task in tasks):
                 raise ValueError(
