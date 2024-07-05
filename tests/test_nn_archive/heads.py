@@ -1,179 +1,219 @@
-from luxonis_ml.nn_archive.config_building_blocks import (
-    HeadClassification,
-    HeadObjectDetectionSSD,
-    HeadYOLO,
-)
-from luxonis_ml.nn_archive.config_building_blocks.base_models.head_outputs import (
-    OutputsClassification,
-    OutputsSSD,
-    OutputsYOLO,
+from luxonis_ml.nn_archive.config_building_blocks import Head
+from luxonis_ml.nn_archive.config_building_blocks.base_models.head_metadata import (
+    HeadClassificationMetadata,
+    HeadMetadata,
+    HeadObjectDetectionMetadata,
+    HeadObjectDetectionSSDMetadata,
+    HeadSegmentationMetadata,
+    HeadYOLOMetadata,
 )
 from luxonis_ml.nn_archive.config_building_blocks.enums import (
     ObjectDetectionSubtypeYOLO,
 )
 
-output_classification = OutputsClassification(predictions="191")
-
-output_ssd = OutputsSSD(
-    boxes="boxes",
-    scores="scores",
+head_metadata = HeadMetadata(
+    postprocessor_path="postprocessor.onnx",
 )
 
-output_detection = OutputsYOLO(
+head_object_detection_metadata = HeadObjectDetectionMetadata(
+    classes=["person", "car"],
+    n_classes=2,
+    iou_threshold=0.5,
+    conf_threshold=0.5,
+    max_det=1000,
+    anchors=None,
+    postprocessor_path=None,
+)
+
+head_classification_metadata = HeadClassificationMetadata(
+    classes=["person", "car"],
+    n_classes=2,
+    is_softmax=True,
+    postprocessor_path="postprocessor.onnx",
+)
+
+head_segmentation_metadata = HeadSegmentationMetadata(
+    classes=["person", "car"],
+    n_classes=2,
+    is_softmax=True,
+    postprocessor_path=None,
+)
+
+head_object_detection_ssd_metadata = HeadObjectDetectionSSDMetadata(
+    classes=["person", "car"],
+    n_classes=2,
+    iou_threshold=0.5,
+    conf_threshold=0.5,
+    max_det=1000,
+    anchors=None,
+    postprocessor_path=None,
+    boxes_outputs="boxes",
+    scores_outputs="scores",
+)
+
+head_yolo_obj_det_metadata = HeadYOLOMetadata(
+    classes=["person", "car"],
+    n_classes=2,
+    iou_threshold=0.5,
+    conf_threshold=0.5,
+    max_det=1000,
+    anchors=None,
+    n_prototypes=None,
+    n_keypoints=None,
+    is_softmax=None,
+    subtype=ObjectDetectionSubtypeYOLO.YOLOv6,
+    postprocessor_path=None,
     yolo_outputs=["feats"],
     mask_outputs=None,
-    protos=None,
-    keypoints=None,
-    angles=None,
+    protos_outputs=None,
+    keypoints_outputs=None,
+    angles_outputs=None,
 )
 
-output_instance_segmentation = OutputsYOLO(
+head_yolo_instance_seg_metadata = HeadYOLOMetadata(
+    classes=["person", "car"],
+    n_classes=2,
+    iou_threshold=0.5,
+    conf_threshold=0.5,
+    max_det=1000,
+    anchors=None,
+    n_prototypes=10,
+    n_keypoints=None,
+    is_softmax=True,
+    subtype=ObjectDetectionSubtypeYOLO.YOLOv6,
+    postprocessor_path="postprocessor.onnx",
     yolo_outputs=["feats"],
     mask_outputs=["mask"],
-    protos="protos",
-    keypoints=None,
-    angles=None,
+    protos_outputs="protos",
+    keypoints_outputs=None,
+    angles_outputs=None,
 )
 
-output_keypoint_detection = OutputsYOLO(
+head_yolo_keypoint_det_metadata = HeadYOLOMetadata(
+    classes=["person", "car"],
+    n_classes=2,
+    iou_threshold=0.5,
+    conf_threshold=0.5,
+    max_det=1000,
+    anchors=None,
+    n_prototypes=None,
+    n_keypoints=21,
+    is_softmax=None,
+    subtype=ObjectDetectionSubtypeYOLO.YOLOv6,
+    postprocessor_path=None,
     yolo_outputs=["feats"],
     mask_outputs=None,
-    protos=None,
-    keypoints="keypoints",
-    angles=None,
+    protos_outputs=None,
+    keypoints_outputs=["keypoints"],
+    angles_outputs=None,
 )
 
-output_obb = OutputsYOLO(
+head_yolo_obb_det_metadata = HeadYOLOMetadata(
+    classes=["person", "car"],
+    n_classes=2,
+    iou_threshold=0.5,
+    conf_threshold=0.5,
+    max_det=1000,
+    anchors=None,
+    n_prototypes=None,
+    n_keypoints=None,
+    is_softmax=None,
+    subtype=ObjectDetectionSubtypeYOLO.YOLOv6,
+    postprocessor_path="postprocessor.onnx",
     yolo_outputs=["feats"],
     mask_outputs=None,
-    protos=None,
-    keypoints=None,
-    angles="angles",
+    protos_outputs=None,
+    keypoints_outputs=None,
+    angles_outputs=["angles"],
 )
 
-outputs_instance_seg_kpts = OutputsYOLO(
+head_yolo_instance_seg_kpts_metadata = HeadYOLOMetadata(
+    classes=["person", "car"],
+    n_classes=2,
+    iou_threshold=0.5,
+    conf_threshold=0.5,
+    max_det=1000,
+    anchors=None,
+    n_prototypes=10,
+    n_keypoints=21,
+    is_softmax=False,
+    subtype=ObjectDetectionSubtypeYOLO.YOLOv6,
+    postprocessor_path="postprocessor.onnx",
     yolo_outputs=["feats"],
     mask_outputs=["mask"],
-    protos="protos",
-    keypoints="keypoints",
-    angles=None,
+    protos_outputs="protos",
+    keypoints_outputs=["keypoints"],
+    angles_outputs=None,
+)
+
+head_segmentation_metadata = HeadSegmentationMetadata(
+    classes=["person", "car"],
+    n_classes=2,
+    is_softmax=False,
+    custom_field="custom_field",  # type: ignore
+    postprocessor_path="postprocessor.onnx",
 )
 
 classification_head = dict(
-    HeadClassification(
-        family="Classification",
-        outputs=output_classification,
-        classes=[
-            "tench, Tinca tinca",
-            "goldfish, Carassius auratus",
-        ],
-        n_classes=2,
-        is_softmax=True,
+    Head(
+        parser="Classification",
+        outputs=["output"],
+        metadata=head_classification_metadata,
     )
 )
 
 ssd_object_detection_head = dict(
-    HeadObjectDetectionSSD(
-        family="ObjectDetectionSSD",
-        outputs=output_ssd,
-        classes=[
-            "tench, Tinca tinca",
-            "goldfish, Carassius auratus",
-        ],
-        n_classes=2,
-        iou_threshold=0.5,
-        conf_threshold=0.5,
-        max_det=1000,
-        anchors=None,
+    Head(
+        parser="ObjectDetectionSSD",
+        outputs=["boxes"],
+        metadata=head_object_detection_ssd_metadata,
     )
 )
 
 yolo_object_detection_head = dict(
-    HeadYOLO(
-        family="YOLO",
-        outputs=output_detection,
-        subtype=ObjectDetectionSubtypeYOLO.YOLOv6,
-        classes=["person", "car"],
-        n_classes=2,
-        iou_threshold=0.5,
-        conf_threshold=0.5,
-        max_det=1000,
-        is_softmax=None,
-        anchors=None,
-        postprocessor_path=None,
-        n_prototypes=None,
-        n_keypoints=None,
+    Head(
+        parser="YOLO",
+        outputs=["output"],
+        metadata=head_yolo_obb_det_metadata,
     )
 )
 
 yolo_instance_segmentation_head = dict(
-    HeadYOLO(
-        family="YOLO",
-        outputs=output_instance_segmentation,
-        subtype=ObjectDetectionSubtypeYOLO.YOLOv6,
-        classes=["person", "car"],
-        n_classes=2,
-        iou_threshold=0.5,
-        conf_threshold=0.5,
-        max_det=1000,
-        is_softmax=True,
-        anchors=None,
-        postprocessor_path="postprocessor.onnx",
-        n_prototypes=10,
-        n_keypoints=None,
+    Head(
+        parser="YOLO",
+        outputs=["output"],
+        metadata=head_yolo_instance_seg_metadata,
     )
 )
 
 yolo_keypoint_detection_head = dict(
-    HeadYOLO(
-        family="YOLO",
-        outputs=output_keypoint_detection,
-        subtype=ObjectDetectionSubtypeYOLO.YOLOv6,
-        classes=["person", "car"],
-        n_classes=2,
-        iou_threshold=0.5,
-        conf_threshold=0.5,
-        max_det=1000,
-        is_softmax=None,
-        anchors=None,
-        postprocessor_path=None,
-        n_prototypes=None,
-        n_keypoints=21,
+    Head(
+        parser="YOLO",
+        outputs=["output"],
+        metadata=head_yolo_keypoint_det_metadata,
     )
 )
 
 yolo_obb_detection_head = dict(
-    HeadYOLO(
-        family="YOLO",
-        outputs=output_obb,
-        subtype=ObjectDetectionSubtypeYOLO.YOLOv6,
-        classes=["person", "car"],
-        n_classes=2,
-        iou_threshold=0.5,
-        conf_threshold=0.5,
-        max_det=1000,
-        is_softmax=None,
-        anchors=None,
-        postprocessor_path=None,
-        n_prototypes=None,
-        n_keypoints=None,
+    Head(
+        parser="YOLO",
+        outputs=["output"],
+        metadata=head_yolo_obb_det_metadata,
     )
 )
 
 yolo_instance_seg_kpts_head = dict(
-    HeadYOLO(
-        family="YOLO",
-        outputs=outputs_instance_seg_kpts,
-        subtype=ObjectDetectionSubtypeYOLO.YOLOv6,
-        classes=["person", "car"],
-        n_classes=2,
-        iou_threshold=0.5,
-        conf_threshold=0.5,
-        max_det=1000,
-        is_softmax=False,
-        anchors=None,
-        postprocessor_path="postprocessor.onnx",
-        n_prototypes=10,
-        n_keypoints=21,
+    Head(
+        parser="YOLO",
+        outputs=["outputs"],
+        metadata=head_yolo_instance_seg_kpts_metadata,
+    )
+)
+
+custom_segmentation_head = dict(
+    Head(
+        parser="Segmentation",
+        outputs=["output"],
+        metadata=head_segmentation_metadata,
     )
 )
