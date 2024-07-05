@@ -127,10 +127,10 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
     @ivar mask_outputs: A list of output names for each mask output.
     @type protos_outputs: str | None
     @ivar protos_outputs: Output name for the protos.
-    @type keypoints_outputs: str | None
-    @ivar keypoints_outputs: Output name for the keypoints.
-    @type angles_outputs: str | None
-    @ivar angles_outputs: Output name for the angles.
+    @type keypoints_outputs: list | None
+    @ivar keypoints_outputs: A list of output names for the keypoints.
+    @type angles_outputs: list | None
+    @ivar angles_outputs: A list of output names for the angles.
     @type subtype: C{ObjectDetectionSubtypeYOLO}
     @ivar subtype: YOLO family decoding subtype (e.g. yolov5, yolov6, yolov7 etc.)
     @type n_prototypes: int | None
@@ -154,13 +154,13 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
     )
 
     # Keypoint detection
-    keypoints_outputs: Optional[str] = Field(
-        None, description="Output name for the keypoints."
+    keypoints_outputs: Optional[List[str]] = Field(
+        None, description="A list of output names for the keypoints."
     )
 
     # OBB detection
-    angles_outputs: Optional[str] = Field(
-        None, description="Output name for the angles."
+    angles_outputs: Optional[List[str]] = Field(
+        None, description="A list of output names for the angles."
     )
 
     subtype: ObjectDetectionSubtypeYOLO = Field(

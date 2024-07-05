@@ -104,7 +104,7 @@ head_yolo_keypoint_det_metadata = HeadYOLOMetadata(
     yolo_outputs=["feats"],
     mask_outputs=None,
     protos_outputs=None,
-    keypoints_outputs="keypoints",
+    keypoints_outputs=["keypoints"],
     angles_outputs=None,
 )
 
@@ -124,7 +124,7 @@ head_yolo_obb_det_metadata = HeadYOLOMetadata(
     mask_outputs=None,
     protos_outputs=None,
     keypoints_outputs=None,
-    angles_outputs="angles",
+    angles_outputs=["angles"],
 )
 
 head_yolo_instance_seg_kpts_metadata = HeadYOLOMetadata(
@@ -142,7 +142,7 @@ head_yolo_instance_seg_kpts_metadata = HeadYOLOMetadata(
     yolo_outputs=["feats"],
     mask_outputs=["mask"],
     protos_outputs="protos",
-    keypoints_outputs="keypoints",
+    keypoints_outputs=["keypoints"],
     angles_outputs=None,
 )
 
