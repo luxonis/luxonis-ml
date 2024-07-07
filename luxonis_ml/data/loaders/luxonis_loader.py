@@ -137,6 +137,7 @@ class LuxonisLoader(BaseLoader):
             aug_input_data = []
             label_to_task = {}
             nk = 0
+            ns = 0
             for img, annotations in loaded_anns:
                 label_dict: Dict[LabelType, np.ndarray] = {}
                 for task in sorted(list(annotations.keys())):
@@ -147,6 +148,8 @@ class LuxonisLoader(BaseLoader):
                         annotations.pop(task)
                         if label_type == LabelType.KEYPOINTS:
                             nk = (array.shape[1] - 1) // 3
+                        if label_type == LabelType.SEGMENTATION:
+                            ns = array.shape[0]
 
                 aug_input_data.append((img, label_dict))
 
@@ -155,7 +158,7 @@ class LuxonisLoader(BaseLoader):
             random.setstate(random_state)
             np.random.set_state(np_random_state)
 
-            img, aug_annotations = self.augmentations(aug_input_data, nk=nk)
+            img, aug_annotations = self.augmentations(aug_input_data, nk=nk, ns=ns)
             for label_type, array in aug_annotations.items():
                 out_dict[label_to_task[label_type]] = (array, label_type)
 
