@@ -14,10 +14,10 @@ class PreprocessingBlock(BaseModelExtraForbid):
     @ivar mean: Mean values in channel order. Typically, this is BGR order.
     @type scale: list
     @ivar scale: Standardization values in channel order. Typically, this is BGR order.
-    @type reverse_channels: bool
+    @type reverse_channels: bool | None
     @ivar reverse_channels: If True, color channels are reversed (e.g. BGR to RGB or
         vice versa).
-    @type interleaved_to_planar: bool
+    @type interleaved_to_planar: bool | None
     @ivar interleaved_to_planar: If True, format is changed from interleaved to planar.
     """
 
@@ -29,11 +29,11 @@ class PreprocessingBlock(BaseModelExtraForbid):
         description="Standardization values in channel order. Typically, this is BGR order.",
     )
     reverse_channels: Optional[bool] = Field(
-        False,
+        None,
         description="If True, color channels are reversed (e.g. BGR to RGB or vice versa).",
     )
     interleaved_to_planar: Optional[bool] = Field(
-        False, description="If True, format is changed from interleaved to planar."
+        None, description="If True, format is changed from interleaved to planar."
     )
 
 
