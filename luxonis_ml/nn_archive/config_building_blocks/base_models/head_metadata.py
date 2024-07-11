@@ -1,22 +1,32 @@
+from abc import ABC
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import ConfigDict, Field, model_validator
+
+from luxonis_ml.utils import BaseModelExtraForbid
 
 from ..enums import ObjectDetectionSubtypeYOLO
 
 
-class HeadMetadata(BaseModel):
-    """Metadata for the basic head. It allows you to specify additional fields.
+class HeadMetadata(BaseModelExtraForbid, ABC):
+    """Abstract class defining general metadata for heads.
 
     @type postprocessor_path: str | None
     @ivar postprocessor_path: Path to the postprocessor.
     """
 
-    model_config = ConfigDict(extra="allow")
-
     postprocessor_path: Optional[str] = Field(
         None, description="Path to the postprocessor."
     )
+
+
+class HeadCustomMetadata(HeadMetadata):
+    """Metadata for the custom head.
+
+    It allows you to specify additional fields.
+    """
+
+    model_config: ConfigDict = ConfigDict(extra="allow")
 
 
 class HeadObjectDetectionMetadata(HeadMetadata):
