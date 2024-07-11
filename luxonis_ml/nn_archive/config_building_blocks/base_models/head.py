@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 from .head_metadata import (
     HeadClassificationMetadata,
-    HeadCustomMetadata,
+    HeadMetadata,
     HeadObjectDetectionMetadata,
     HeadObjectDetectionSSDMetadata,
     HeadSegmentationMetadata,
@@ -36,7 +36,7 @@ class Head(BaseModel, ABC):
         HeadObjectDetectionSSDMetadata,
         HeadSegmentationMetadata,
         HeadYOLOMetadata,
-        HeadCustomMetadata,
+        HeadMetadata,
     ] = Field(description="Metadata of the parser.")
     outputs: Optional[List[str]] = Field(
         None,
