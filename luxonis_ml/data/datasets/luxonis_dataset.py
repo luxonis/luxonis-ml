@@ -6,13 +6,14 @@ import time
 from collections import defaultdict
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Set, Tuple, Union
 
 import numpy as np
 import polars as pl
 import pyarrow.parquet as pq
 import rich.progress
 from pycocotools import mask as mask_utils
+from typing_extensions import Self
 
 import luxonis_ml.data.utils.data_utils as data_utils
 from luxonis_ml.utils import LuxonisFileSystem, environ
@@ -541,7 +542,7 @@ class LuxonisDataset(BaseDataset):
 
         return ann.task
 
-    def add(self, generator: DatasetIterator, batch_size: int = 1_000_000) -> None:
+    def add(self, generator: DatasetIterator, batch_size: int = 1_000_000) -> Self:
         generator = _add_generator_wrapper(generator)
         if self.bucket_storage == BucketStorage.LOCAL:
             annotations_dir = self.annotations_path
@@ -726,8 +727,38 @@ class LuxonisDataset(BaseDataset):
         return list(self.get_classes()[1].keys())
 
 
+def _rescale_rle(rle: dict, x: float, y: float, w: float, h: float) -> dict:
+    height, width = rle["size"]
+
+    if isinstance(rle["counts"], list):
+        rle["counts"] = "".join(map(str, rle["counts"]))
+
+    decoded_mask = mask_utils.decode(rle)  # type: ignore
+
+    cropped_mask = decoded_mask[
+        int(y * height) : int((y + h) * height),
+        int(x * width) : int((x + w) * width),
+    ]
+
+    bbox_height = int(h * height)
+    bbox_width = int(w * width)
+
+    norm_mask = cropped_mask.astype(np.uint8)
+    encoded_norm_mask = mask_utils.encode(np.asfortranarray(norm_mask))
+
+    return {
+        "height": bbox_height,
+        "width": bbox_width,
+        "counts": encoded_norm_mask["counts"].decode("utf-8")
+        if isinstance(encoded_norm_mask["counts"], bytes)
+        else encoded_norm_mask["counts"],
+    }
+
+
 def rescale_values(
-    bbox: Dict[str, float], ann: Union[List, Dict], sub_ann_key: str
+    bbox: Dict[str, float],
+    ann: Union[List, Dict],
+    sub_ann_key: Literal["keypoints", "segmentation"],
 ) -> Optional[
     Union[
         List[Tuple[float, float, int]],
@@ -739,49 +770,31 @@ def rescale_values(
     x, y, w, h = bbox["x"], bbox["y"], bbox["w"], bbox["h"]
 
     if sub_ann_key == "keypoints":
-        return [(float(kp[0] * w + x), float(kp[1] * h + y), int(kp[2])) for kp in ann]
+        return [
+            (
+                float(kp[0] * w + x),
+                float(kp[1] * h + y),
+                int(kp[2]),
+            )
+            for kp in ann
+        ]
 
     if sub_ann_key == "segmentation":
-        if isinstance(ann, list):  # polyline format
-            return [
-                (poly_arr[i, 0] * w + x, poly_arr[i, 1] * h + y)
-                for s in ann
-                for poly_arr in [np.array(s).reshape(-1, 2)]
-                for i in range(len(poly_arr))
-            ]
-        if isinstance(ann, dict) and "counts" in ann:  # RLE format
-            height, width = ann["size"]
+        assert isinstance(ann, dict)
+        if "polylines" in ann:
+            return [(poly[0] * w + x, poly[1] * h + y) for poly in ann["polylines"]]
 
-            if isinstance(ann["counts"], list):
-                ann["counts"] = "".join(map(str, ann["counts"]))
+        if "rle" in ann:
+            return _rescale_rle(ann["rle"], x, y, w, h)
 
-            decoded_mask = mask_utils.decode(ann)
-
-            cropped_mask = decoded_mask[
-                int(y * height) : int((y + h) * height),
-                int(x * width) : int((x + w) * width),
-            ]
-
-            bbox_height = int(h * height)
-            bbox_width = int(w * width)
-
-            norm_mask = cropped_mask.astype(np.uint8)
-            encoded_norm_mask = mask_utils.encode(np.asfortranarray(norm_mask))
-
-            return {
-                "height": bbox_height,
-                "width": bbox_width,
-                "counts": encoded_norm_mask["counts"].decode("utf-8")
-                if isinstance(encoded_norm_mask["counts"], bytes)
-                else encoded_norm_mask["counts"],
-            }
+        raise ValueError(
+            "Invalid segmentation format. Must be either 'polylines' or 'rle'"
+        )
 
     return None
 
 
-def _add_generator_wrapper(
-    generator: Generator[Dict[str, Union[str, Dict]], None, None],
-) -> Generator[Dict[str, Union[str, Dict]], None, None]:
+def _add_generator_wrapper(generator: DatasetIterator) -> DatasetIterator:
     """Generator wrapper to rescale and reformat annotations for each record in the
     input generator."""
 
@@ -796,6 +809,10 @@ def _add_generator_wrapper(
         }
 
     for record in generator:
+        if isinstance(record, DatasetRecord):
+            yield record
+            continue
+
         ann = record["annotation"]
         if ann["type"] != "detection":
             yield record
@@ -811,12 +828,14 @@ def _add_generator_wrapper(
                 bbox = sub_ann
 
             if ann.get("scaled_to_boxes", False):
-                sub_ann = rescale_values(bbox, sub_ann, sub_ann_key)
+                sub_ann = rescale_values(bbox, sub_ann, sub_ann_key)  # type: ignore
+
+            task = ann.get("task", "detection")
 
             new_ann = {
                 "type": sub_ann_key,
                 "class": ann["class"],
-                "task": f"{ann['type']}-{sub_ann_key}",
+                "task": f"{task}-{sub_ann_key}",
             }
 
             if sub_ann_key == "boundingbox":
