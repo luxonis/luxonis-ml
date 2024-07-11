@@ -29,7 +29,6 @@ class LuxonisDataset(BaseDataset):
         self,
         dataset_name: str,
         team_id: Optional[str] = None,
-        team_name: Optional[str] = None,
         bucket_type: BucketType = BucketType.INTERNAL,
         bucket_storage: BucketStorage = BucketStorage.LOCAL,
         *,
@@ -43,8 +42,6 @@ class LuxonisDataset(BaseDataset):
         @param dataset_name: Name of the dataset
         @type team_id: Optional[str]
         @param team_id: Optional unique team identifier for the cloud
-        @type team_name: Optional[str]
-        @param team_name: Optional team name for the cloud
         @type bucket_type: BucketType
         @param bucket_type: Whether to use external cloud buckets
         @type bucket_storage: BucketStorage
@@ -75,14 +72,13 @@ class LuxonisDataset(BaseDataset):
 
         self.dataset_name = dataset_name
         self.team_id = team_id or self._get_credential("LUXONISML_TEAM_ID")
-        self.team_name = team_name or self._get_credential("LUXONISML_TEAM_NAME")
 
         if delete_existing:
             if LuxonisDataset.exists(
                 dataset_name, team_id, bucket_storage, self.bucket
             ):
                 LuxonisDataset(
-                    dataset_name, team_id, team_name, bucket_type, bucket_storage
+                    dataset_name, team_id, bucket_type, bucket_storage
                 ).delete_dataset(delete_remote=delete_remote)
 
         self._init_paths()
