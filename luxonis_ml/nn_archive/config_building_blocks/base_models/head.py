@@ -31,12 +31,12 @@ class Head(BaseModel, ABC):
         description="Name of the parser responsible for processing the models output."
     )
     metadata: Union[
-        HeadMetadata,
         HeadObjectDetectionMetadata,
         HeadClassificationMetadata,
         HeadObjectDetectionSSDMetadata,
         HeadSegmentationMetadata,
         HeadYOLOMetadata,
+        HeadMetadata,
     ] = Field(description="Metadata of the parser.")
     outputs: Optional[List[str]] = Field(
         None,
