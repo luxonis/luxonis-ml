@@ -202,6 +202,7 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
         defined_params = defined_params.difference(common_fields)
 
         required_fields = {
+            "object_detection": [],
             "instance_segmentation": [
                 "n_prototypes",
                 "is_softmax",
