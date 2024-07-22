@@ -24,11 +24,11 @@ class Output(BaseModelExtraForbid):
     )
     shape: Optional[List[int]] = Field(
         None,
-        description="Shape of the input data as a list of integers (e.g. [H,W], [H,W,C], [N,H,W,C], ...).",
+        description="Shape of the output as a list of integers (e.g. [H,W], [H,W,C], [N,H,W,C], ...).",
     )
     layout: Optional[List[str]] = Field(
         None,
-        description="List of letters describing the input layout (e.g., ['N', 'C', 'H', 'W']).",
+        description="List of letters describing the output layout (e.g., ['N', 'C', 'H', 'W']).",
     )
 
     @field_validator("layout", mode="before")
