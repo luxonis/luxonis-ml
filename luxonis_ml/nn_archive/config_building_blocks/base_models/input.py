@@ -71,9 +71,9 @@ class Input(BaseModelExtraForbid):
         description="Shape of the input data as a list of integers (e.g. [H,W], [H,W,C], [N,H,W,C], ...).",
     )
     layout: List[str] = Field(
+        list("NCHW"),
         description="List of letters describing the input layout (e.g., ['N', 'C', 'H', 'W']).",
         min_length=1,
-        default=list("NCHW"),
     )
     preprocessing: PreprocessingBlock = Field(
         description="Preprocessing steps applied to the input data."
