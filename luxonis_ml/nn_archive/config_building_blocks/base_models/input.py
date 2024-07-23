@@ -1,6 +1,7 @@
 from typing import List, Optional
 
 from pydantic import Field, model_validator
+from typing_extensions import Self
 
 from luxonis_ml.utils import BaseModelExtraForbid
 
@@ -66,39 +67,33 @@ class Input(BaseModelExtraForbid):
     input_type: InputType = Field(description="Type of input data (e.g., 'image').")
     shape: List[int] = Field(
         min_length=1,
-        max_length=5,
         description="Shape of the input data as a list of integers (e.g. [H,W], [H,W,C], [N,H,W,C], ...).",
     )
     layout: str = Field(
-        description="Lettercode interpretation of the input layout (e.g., 'NCHW').",
-        default="NCHW",
+        "NCHW",
+        description="Lettercode interpretation of the input data dimensions (e.g., 'NCHW')",
+        min_length=1,
     )
     preprocessing: PreprocessingBlock = Field(
         description="Preprocessing steps applied to the input data."
     )
 
-    @model_validator(mode="before")
-    def validate_layout(
-        cls,
-        values,
-    ):
-        if "layout" in values.keys():
-            values["layout"] = values["layout"].upper()
-            idx_n = values["layout"].find("N")
+    @model_validator(mode="after")
+    def validate_layout(self) -> Self:
+        self.layout = self.layout.upper()
 
-            if len(values["layout"]) != len(values["shape"]):
-                raise ValueError("Layout and shape must have the same length.")
+        if len(self.layout) != len(self.shape):
+            raise ValueError("Layout and shape must have the same length.")
 
-            if idx_n not in [-1, 0]:
-                raise ValueError("N (batch size) must be the first letter if included.")
+        if "N" in self.layout and self.layout[0] != "N":
+            raise ValueError(
+                "If N (batch size) is included in the layout, it must be first"
+            )
 
-            if values["input_type"] == InputType.IMAGE.value:
-                if "C" not in values["layout"]:
-                    raise ValueError(
-                        "C letter must be present in layout for image input type."
-                    )
+        if self.input_type == InputType.IMAGE:
+            if "C" not in self.layout:
+                raise ValueError(
+                    "C letter must be present in layout for image input type."
+                )
 
-            if len(values["layout"]) != len(set(values["layout"])):
-                raise ValueError("Layout must not contain any duplicate letters.")
-
-        return values
+        return self
