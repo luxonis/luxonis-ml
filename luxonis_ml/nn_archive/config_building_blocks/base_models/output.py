@@ -35,11 +35,17 @@ class Output(BaseModelExtraForbid):
         if self.layout is None:
             return self
 
+        self.layout = self.layout.upper()
+
+        if "N" in self.layout and self.layout[0] != "N":
+            raise ValueError(
+                "If N (batch size) is included in the layout, it must be first"
+            )
+
         if self.shape is None:
             raise ValueError("Shape must be defined if layout is defined.")
 
         if len(self.layout) != len(self.shape):
             raise ValueError("Layout and shape must have the same length.")
-        self.layout = self.layout.upper()
 
         return self
