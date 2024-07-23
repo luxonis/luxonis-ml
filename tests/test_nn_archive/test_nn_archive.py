@@ -138,27 +138,19 @@ def test_layout():
             "layout": "nchw",
         }
     )
-    assert inp.layout == ["N", "C", "H", "W"]
+    assert inp.layout == "NCHW"
     inp = Input(
         **{
             **default,
             "shape": [3, 256, 256, 16],
-            "layout": "chwc2",
+            "layout": "chwd",
         }
     )
-    assert inp.layout == ["C", "H", "W", "C2"]
-    inp = Input(
-        **{
-            **default,
-            "shape": [3, 256, 256, 16, 4, 4],
-            "layout": ["C", "H", "W", "C2", "C3", "c4"],
-        }
-    )
-    assert inp.layout == ["C", "H", "W", "C2", "C3", "C4"]
+    assert inp.layout == "CHWD"
     out = Output(
         **{"name": "output", "dtype": "float32", "shape": [1, 10], "layout": "nc"}
     )
-    assert out.layout == ["N", "C"]
+    assert out.layout == "NC"
 
     with pytest.raises(ValidationError):
         Input(

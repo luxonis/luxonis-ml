@@ -1,11 +1,10 @@
-from typing import Any, List, Optional
+from typing import List, Optional
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, model_validator
 from typing_extensions import Self
 
 from luxonis_ml.utils import BaseModelExtraForbid
 
-from ...utils import parse_layout
 from ..enums import DataType
 
 
@@ -24,21 +23,12 @@ class Output(BaseModelExtraForbid):
     )
     shape: Optional[List[int]] = Field(
         None,
-        description="Shape of the output as a list of integers (e.g. [H,W], [H,W,C], [N,H,W,C], ...).",
+        description="Shape of the output as a list of integers (e.g. [1, 1000]).",
     )
-    layout: Optional[List[str]] = Field(
+    layout: Optional[str] = Field(
         None,
-        description="List of letters describing the output layout (e.g., ['N', 'C', 'H', 'W']).",
+        description="List of letters describing the output layout (e.g. 'NC').",
     )
-
-    @field_validator("layout", mode="before")
-    @classmethod
-    def parse_layout(cls, layout: Any) -> Optional[List[str]]:
-        if layout is None:
-            return None
-        if not isinstance(layout, (list, str)):
-            raise ValueError("Layout must be a list of strings or a string.")
-        return parse_layout(layout)
 
     @model_validator(mode="after")
     def validate_layout(self) -> Self:
@@ -50,5 +40,6 @@ class Output(BaseModelExtraForbid):
 
         if len(self.layout) != len(self.shape):
             raise ValueError("Layout and shape must have the same length.")
+        self.layout = self.layout.upper()
 
         return self

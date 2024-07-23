@@ -1,11 +1,10 @@
-from typing import Any, List, Optional
+from typing import List, Optional
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, model_validator
 from typing_extensions import Self
 
 from luxonis_ml.utils import BaseModelExtraForbid
 
-from ...utils import parse_layout
 from ..enums import DataType, InputType
 
 
@@ -70,24 +69,19 @@ class Input(BaseModelExtraForbid):
         min_length=1,
         description="Shape of the input data as a list of integers (e.g. [H,W], [H,W,C], [N,H,W,C], ...).",
     )
-    layout: List[str] = Field(
-        list("NCHW"),
-        description="List of letters describing the input layout (e.g., ['N', 'C', 'H', 'W']).",
+    layout: str = Field(
+        "NCHW",
+        description="Lettercode interpretation of the input data dimensions (e.g., 'NCHW')",
         min_length=1,
     )
     preprocessing: PreprocessingBlock = Field(
         description="Preprocessing steps applied to the input data."
     )
 
-    @field_validator("layout", mode="before")
-    @classmethod
-    def parse_layout(cls, layout: Any) -> List[str]:
-        if not isinstance(layout, (list, str)):
-            raise ValueError("Layout must be a list of strings or a string.")
-        return parse_layout(layout)
-
     @model_validator(mode="after")
     def validate_layout(self) -> Self:
+        self.layout = self.layout.upper()
+
         if len(self.layout) != len(self.shape):
             raise ValueError("Layout and shape must have the same length.")
 
