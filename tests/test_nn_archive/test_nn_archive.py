@@ -17,8 +17,10 @@ from heads import (
 )
 from onnx import checker, helper
 from onnx.onnx_pb import TensorProto
+from pydantic import ValidationError
 
 from luxonis_ml.nn_archive import ArchiveGenerator, is_nn_archive
+from luxonis_ml.nn_archive.model import Input, Output
 
 DATA_DIR = Path("tests/data/test_nn_archive")
 
@@ -120,6 +122,73 @@ def test_archive_generator(
     with tarfile.open(DATA_DIR / f"{archive_name}.tar.{compression}") as tar:
         assert "test_model.onnx" in tar.getnames()
         assert "config.json" in tar.getnames()
+
+
+def test_layout():
+    default = {
+        "name": "input",
+        "dtype": "float32",
+        "input_type": "image",
+        "preprocessing": {},
+    }
+    inp = Input(
+        **{
+            **default,
+            "shape": [1, 3, 224, 224],
+            "layout": "nchw",
+        }
+    )
+    assert inp.layout == "NCHW"
+    inp = Input(
+        **{
+            **default,
+            "shape": [3, 256, 256, 16],
+            "layout": "chwd",
+        }
+    )
+    assert inp.layout == "CHWD"
+    out = Output(
+        **{"name": "output", "dtype": "float32", "shape": [1, 10], "layout": "nc"}
+    )
+    assert out.layout == "NC"
+
+    with pytest.raises(ValidationError):
+        Input(
+            **{
+                **default,
+                "shape": [3, 256, 256, 16],
+                "layout": "1chwc2",
+            }
+        )
+        Input(
+            **{
+                **default,
+                "shape": [1, 3, 256, 256],
+                "layout": "nch",
+            }
+        )
+        Input(
+            **{
+                **default,
+                "shape": [1, 3, 256, 256],
+                "layout": "nchh",
+            }
+        )
+        Output(
+            **{
+                "name": "output",
+                "dtype": "float32",
+                "shape": [1, 10],
+                "layout": "ncn",
+            }
+        )
+        Output(
+            **{
+                "name": "output",
+                "dtype": "float32",
+                "layout": list("nc"),
+            }
+        )
 
 
 @pytest.mark.parametrize(
