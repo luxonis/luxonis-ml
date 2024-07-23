@@ -110,34 +110,9 @@ class LuxonisLoader(BaseLoader):
         @return: The loader ouput consisting of the image and a dictionary defining its
             annotations.
         """
-
-        ############################################## DUMMY ANOTATIONS
         
-        image_shape = (416, 416, 3)
-        dummy_image = np.random.rand(*image_shape).astype(np.float32)
-        fixed_annotation = {
-            'boundingbox': (
-                np.array([
-                    [46, 0.2104375, 0.212889355, 0.2089375, 0.615866739],
-                    [46, 0.0, 0.24195084, 0.2891875, 0.58977993],
-                    [46, 0.07146875, 0.192160076, 0.254640625, 0.41410279],
-                    [46, 0.17371875, 0.290931744, 0.053921875, 0.136741603],
-                    [46, 0.595453125, 0.204821912, 0.2746875, 0.616692172],
-                    [20, 0.56953125, 0.517022616, 0.038203125, 0.0931026544],
-                    [20, 0.22865625, 0.411304848, 0.07759375, 0.154667524],
-                    [20, 0.3678125, 0.401072589, 0.038828125, 0.0912337486],
-                    [46, 0.0, 0.536521533, 0.18696875, 0.287749187],
-                    [20, 0.000046875, 0.433747291, 0.105546875, 0.19807286],
-                    [46, 0.5403125, 0.282116739, 0.077953125, 0.274542254],
-                    [21, 0.681625, 0.538733072, 0.020453125, 0.0203866468],
-                    [11, 0.431625, 0.266604821, 0.136890625, 0.116121343]
-                ]),
-                LabelType.BOUNDINGBOX
-            )
-        }
-        return dummy_image, fixed_annotation
+        return self._load_image_with_annotations(idx)
 
-        ##############################################
         if self.augmentations is None:
             return self._load_image_with_annotations(idx)
 
@@ -213,9 +188,17 @@ class LuxonisLoader(BaseLoader):
                 "Streaming for remote bucket storage not implemented yet"
             )
 
-        img = cv2.cvtColor(cv2.imread(str(img_path)), cv2.COLOR_BGR2RGB)
 
-        height, width, _ = img.shape
+        
+        ############################################## DUMMY IMAGE
+        image_shape = (416, 416, 3)
+        height = image_shape[0]
+        width = image_shape[1]
+        img = np.random.rand(*image_shape).astype(np.float32)
+        ##############################################
+
+        # img = cv2.cvtColor(cv2.imread(str(img_path)), cv2.COLOR_BGR2RGB)
+        # height, width, _ = img.shape
         labels: Labels = {}
 
         for task in df["task"].unique():
