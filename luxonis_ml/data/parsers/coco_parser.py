@@ -170,24 +170,25 @@ class COCOParser(BaseParser):
 
                     seg = ann["segmentation"]
                     if isinstance(seg, list):
-                        poly = []
-                        for s in seg:
-                            poly_arr = np.array(s).reshape(-1, 2)
-                            poly += [
-                                (
-                                    poly_arr[i, 0] / img_w,
-                                    poly_arr[i, 1] / img_h,
-                                )
-                                for i in range(len(poly_arr))
-                            ]
-                        yield {
-                            "file": path,
-                            "annotation": {
-                                "type": "polyline",
-                                "class": class_name,
-                                "points": poly,
-                            },
-                        }
+                        if len(seg) > 0:
+                            poly = []
+                            for s in seg:
+                                poly_arr = np.array(s).reshape(-1, 2)
+                                poly += [
+                                    (
+                                        poly_arr[i, 0] / img_w,
+                                        poly_arr[i, 1] / img_h,
+                                    )
+                                    for i in range(len(poly_arr))
+                                ]
+                            yield {
+                                "file": path,
+                                "annotation": {
+                                    "type": "polyline",
+                                    "class": class_name,
+                                    "points": poly,
+                                },
+                            }
                     else:
                         yield {
                             "file": path,

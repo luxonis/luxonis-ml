@@ -4,6 +4,7 @@ from enum import Enum
 class DatasetType(str, Enum):
     LDF = "ldf"
     COCO = "coco"
+    COCOIMGWITHANN = "cocoimgwithann"
     VOC = "voc"
     DARKNET = "darknet"
     YOLOV6 = "yolov6"
