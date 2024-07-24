@@ -217,6 +217,10 @@ class COCOParser(BaseParser):
 
                     if "keypoints" in ann.keys():
                         kpts = np.array(ann["keypoints"]).reshape(-1, 3)
+                        # clip values inplace
+                        np.clip(kpts[:, 0], 0, img_w, out=kpts[:, 0])
+                        np.clip(kpts[:, 1], 0, img_h, out=kpts[:, 1])
+
                         keypoints = []
                         for kp in kpts:
                             keypoints.append((kp[0] / img_w, kp[1] / img_h, int(kp[2])))
