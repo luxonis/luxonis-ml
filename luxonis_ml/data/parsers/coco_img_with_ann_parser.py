@@ -34,7 +34,7 @@ class COCOImgWithAnnParser(COCOParser):
             return None
         return {
             "image_dir": split_path,
-            "annotation_path": split_path / "_annotations.createml.json",
+            "annotation_path": split_path / "_annotations.coco.json",
         }
 
     @staticmethod
