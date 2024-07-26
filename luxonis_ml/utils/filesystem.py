@@ -415,8 +415,8 @@ class LuxonisFileSystem:
         @param remote_dir: Relative path to remote directory
         @type recursive: bool
         @param recursive: If True, walks through the directory recursively.
-        @type list_all: bool
-        @param list_all: If True, lists all files including directories.
+        @type typ: Literal["file", "directory", "all"]
+        @param typ: Specifies the type of files to walk through. Defaults to "file".
         @rtype: Iterator[str]
         @return: Iterator over the paths.
         """
