@@ -58,7 +58,7 @@ class LuxonisSource:
 
     def __init__(
         self,
-        name: str,
+        name: str = "default",
         components: Optional[List[LuxonisComponent]] = None,
         main_component: Optional[str] = None,
     ) -> None:
@@ -69,7 +69,7 @@ class LuxonisSource:
         components: rgb (color), left (mono), right (mono), and depth.
 
         @type name: str
-        @param name: A recognizable name for the source.
+        @param name: A recognizable name for the source. Defaults to "default".
 
         @type components: Optional[List[LuxonisComponent]]
         @param components: If not using the default configuration, a list of
@@ -101,10 +101,12 @@ class LuxonisSource:
     @classmethod
     def from_document(cls, document: LuxonisSourceDocument) -> "LuxonisSource":
         return cls(
-            name=document["name"],
-            main_component=document["main_component"],
+            name=document.get("name", "default"),
+            main_component=document.get("main_component"),
             components=[
                 LuxonisComponent.from_document(component_doc)
                 for component_doc in document["components"]
-            ],
+            ]
+            if "components" in document
+            else None,
         )

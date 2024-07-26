@@ -59,14 +59,8 @@ SKELETONS: Final[dict] = {
 }
 URL_PREFIX: Final[str] = "gs://luxonis-test-bucket/luxonis-ml-test-data"
 WORK_DIR: Final[str] = "tests/data/parser_datasets"
-DATASET_NAME: Final[str] = "__test_coco"
+DATASET_NAME: Final[str] = "test-dataset"
 TASKS: Final[Set[str]] = {"segmentation", "classification", "keypoints", "boundingbox"}
-
-
-@pytest.fixture(scope="function", autouse=True)
-def delete_dataset():
-    yield
-    LuxonisDataset(DATASET_NAME).delete_dataset()
 
 
 @pytest.mark.parametrize(
@@ -77,18 +71,24 @@ def delete_dataset():
         (BucketStorage.GCS,),
     ],
 )
-def test_dataset(bucket_storage: BucketStorage, subtests):
+def test_dataset(
+    bucket_storage: BucketStorage, platform_name: str, python_version: str, subtests
+):
+    dataset_name = (
+        f"{DATASET_NAME}-{bucket_storage.value}-{platform_name}-{python_version}"
+    )
     with subtests.test("test_create", bucket_storage=bucket_storage):
         parser = LuxonisParser(
             f"{URL_PREFIX}/COCO_people_subset.zip",
-            dataset_name=DATASET_NAME,
-            delete_existing=True,
+            dataset_name=dataset_name,
             save_dir=WORK_DIR,
             dataset_type=DatasetType.COCO,
             bucket_storage=bucket_storage,
+            delete_existing=True,
+            delete_remote=True,
         )
         dataset = cast(LuxonisDataset, parser.parse())
-        assert LuxonisDataset.exists(DATASET_NAME)
+        assert LuxonisDataset.exists(dataset_name, bucket_storage=bucket_storage)
         assert dataset.get_classes()[0] == ["person"]
         assert set(dataset.get_tasks()) == TASKS
         assert dataset.get_skeletons() == SKELETONS
@@ -122,5 +122,5 @@ def test_dataset(bucket_storage: BucketStorage, subtests):
                 assert task in labels
 
     with subtests.test("test_delete", bucket_storage=bucket_storage):
-        dataset.delete_dataset()
-        assert not LuxonisDataset.exists(DATASET_NAME)
+        dataset.delete_dataset(delete_remote=True)
+        assert not LuxonisDataset.exists(dataset_name, bucket_storage=bucket_storage)
