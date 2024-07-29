@@ -6,7 +6,7 @@ from .coco_parser import COCOParser
 
 
 class COCOImgWithAnnParser(COCOParser):
-    """Parses directory with COCO annotations to LDF. Unlike COCOParser here images and
+    """Parses directory with COCO annotations to LDF. Unlike COCOParser, images and
     their annotations are in same directory.
 
     Expected format::
