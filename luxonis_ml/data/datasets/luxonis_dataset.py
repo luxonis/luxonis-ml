@@ -209,9 +209,9 @@ class LuxonisDataset(BaseDataset):
         return {}
 
     def _get_metadata(self) -> Dict[str, Any]:
-        if self.fs.exists("metadata.json"):
+        if self.fs.exists("metadata/metadata.json"):
             with tempfile.TemporaryDirectory() as tmp_dir:
-                self.fs.get_file("metadata.json", tmp_dir)
+                self.fs.get_file("metadata/metadata.json", tmp_dir)
                 with open(Path(tmp_dir, "metadata.json")) as file:
                     return json.load(file)
         else:
