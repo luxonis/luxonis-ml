@@ -2,14 +2,14 @@ import json
 import logging
 import random
 import warnings
-from typing import Dict, List, Optional, Tuple
+from collections import defaultdict
+from typing import Dict, Optional, Tuple
 
 import cv2
 import numpy as np
-import polars as pl
 
 from ..augmentations import Augmentations
-from ..datasets import Annotation, LuxonisDataset, load_annotation
+from ..datasets import LuxonisDataset, load_annotation
 from ..utils.enums import LabelType
 from .base_loader import BaseLoader, Labels, LuxonisLoaderOutput
 
@@ -78,6 +78,19 @@ class LuxonisLoader(BaseLoader):
             self.instances = splits[self.view]
         else:
             raise NotImplementedError
+
+        self.idx_to_df_row = []
+        for uuid in self.instances:
+            boolean_mask = df["uuid"] == uuid
+            row_indexes = boolean_mask.arg_true().to_list()
+            self.idx_to_df_row.append(row_indexes)
+
+        self.class_mappings = {}
+        for task in df["task"].unique():
+            class_mapping = {
+                class_: i for i, class_ in enumerate(self.classes_by_task[task])
+            }
+            self.class_mappings[task] = class_mapping
 
     def __len__(self) -> int:
         """Returns length of the dataset.
@@ -161,11 +174,12 @@ class LuxonisLoader(BaseLoader):
             present annotations
         """
 
-        uuid = self.instances[idx]
-        df = self.df.filter(pl.col("uuid") == uuid)
+        ann_indices = self.idx_to_df_row[idx]
+        ann_rows = [self.df.row(row) for row in ann_indices]
         if not self.dataset.is_remote:
-            img_path = list(df.select("original_filepath"))[0][0]
+            img_path = ann_rows[0][8]
         elif not self.stream:
+            uuid = ann_rows[0][0]
             img_path = next(self.dataset.media_path.glob(f"{uuid}.*"))
         else:
             # TODO: add support for streaming remote storage
@@ -174,33 +188,29 @@ class LuxonisLoader(BaseLoader):
             )
 
         img = cv2.cvtColor(cv2.imread(str(img_path)), cv2.COLOR_BGR2RGB)
-
         height, width, _ = img.shape
-        labels: Labels = {}
 
-        for task in df["task"].unique():
-            if not task:
-                continue
-            sub_df = df.filter(pl.col("task") == task)
-            annotations: List[Annotation] = []
-            class_mapping = {
-                class_: i for i, class_ in enumerate(self.classes_by_task[task])
-            }
-            for i, (*_, type_, _, class_, instance_id, _, ann_str, _) in enumerate(
-                sub_df.rows(named=False)
-            ):
-                instance_id = instance_id if instance_id > 0 else i
-                annotation = load_annotation(
-                    type_,
-                    ann_str,
-                    {"class": class_, "task": task, "instance_id": instance_id},
-                )
-                annotations.append(annotation)
-            assert annotations, f"No annotations found for task {task}"
-            annotations.sort(key=lambda x: x.instance_id)
-            array = annotations[0].combine_to_numpy(
-                annotations, class_mapping, width=width, height=height
+        labels_by_task = defaultdict(list)
+        instance_counters = defaultdict(int)
+        for annotation_data in ann_rows:
+            _, _, type_, _, class_, instance_id, task, ann_str, _ = annotation_data
+            if instance_id < 0:
+                instance_counters[task] += 1
+                instance_id = instance_counters[task]
+            annotation = load_annotation(
+                type_,
+                ann_str,
+                {"class": class_, "task": task, "instance_id": instance_id},
             )
-            labels[task] = (array, annotations[0]._label_type)
+            labels_by_task[task].append(annotation)
+
+        labels: Labels = {}
+        for task, anns in labels_by_task.items():
+            assert anns, f"No annotations found for task {task}"
+            anns.sort(key=lambda x: x.instance_id)
+            array = anns[0].combine_to_numpy(
+                anns, self.class_mappings[task], width=width, height=height
+            )
+            labels[task] = (array, anns[0]._label_type)
 
         return img, labels
