@@ -1,4 +1,4 @@
-from typing import Final, Set, cast
+from typing import Final, Set
 
 import pytest
 
@@ -87,7 +87,8 @@ def test_dataset(
             delete_existing=True,
             delete_remote=True,
         )
-        dataset = cast(LuxonisDataset, parser.parse())
+        parser.parse()
+        dataset = LuxonisDataset(dataset_name, bucket_storage=bucket_storage)
         assert LuxonisDataset.exists(dataset_name, bucket_storage=bucket_storage)
         assert dataset.get_classes()[0] == ["person"]
         assert set(dataset.get_tasks()) == TASKS
