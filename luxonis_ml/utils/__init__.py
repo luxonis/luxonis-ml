@@ -7,6 +7,7 @@ with guard_missing_extra("utils"):
     from .logging import reset_logging, setup_logging
     from .pydantic_utils import BaseModelExtraForbid
     from .registry import AutoRegisterMeta, Registry
+    from .rich_utils import make_progress_bar
 
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "environ",
     "Environ",
     "BaseModelExtraForbid",
+    "make_progress_bar",
 ]

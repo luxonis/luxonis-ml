@@ -32,9 +32,7 @@ class Environ(BaseSettings):
 
     LUXONISML_BUCKET: Optional[str] = None
     LUXONISML_BASE_PATH: Path = Path.home() / "luxonis_ml"
-    LUXONISML_TMP_DIR: Path = Path.cwd() / ".luxonis_tmp"
     LUXONISML_TEAM_ID: str = "offline"
-    LUXONISML_TEAM_NAME: str = "offline"
 
     GOOGLE_APPLICATION_CREDENTIALS: Optional[str] = None
 

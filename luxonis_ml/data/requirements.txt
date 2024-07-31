@@ -1,7 +1,7 @@
 numpy>=1.22
 tqdm>=4.64.1
-opencv-python==4.7.0.68
-opencv-python-headless==4.7.0.68
+opencv-python>=4.10.0
+opencv-python-headless>=4.10.0
 PyYAML>=6.0
 label-studio-sdk>=0.0.28
 # boto3>=1.17.39
