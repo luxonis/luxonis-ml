@@ -75,20 +75,17 @@ class COCOParser(BaseParser):
         json_path = next(split_path.glob("*.json"), None)
         if not json_path:
             return None
-        json_name = json_path.name
-        if json_name == "labels.json":
-            # FiftyOne format
-            image_dir = split_path / "data"
-            if image_dir.exists():
-                return {"image_dir": image_dir, "annotation_path": json_path}
-            else:
-                return None
-        elif json_name == "_annotations.coco.json":
+        if json_path.name == "_annotations.coco.json":
             # Roboflow format
             image_dir = split_path
             return {"image_dir": image_dir, "annotation_path": json_path}
         else:
-            return None
+            # FiftyOne format
+            dirs = [d for d in split_path.iterdir() if d.is_dir()]
+            if len(dirs) != 1:
+                return None
+            image_dir = dirs[0]
+            return {"image_dir": image_dir, "annotation_path": json_path}
 
     @staticmethod
     def validate(dataset_dir: Path) -> bool:
