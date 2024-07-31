@@ -1,6 +1,5 @@
 from .base_parser import BaseParser
 from .classification_directory_parser import ClassificationDirectoryParser
-from .coco_img_with_ann_parser import COCOImgWithAnnParser
 from .coco_parser import COCOParser
 from .create_ml_parser import CreateMLParser
 from .darknet_parser import DarknetParser
@@ -15,7 +14,6 @@ from .yolov6_parser import YoloV6Parser
 __all__ = [
     "LuxonisParser",
     "BaseParser",
-    "COCOImgWithAnnParser",
     "COCOParser",
     "VOCParser",
     "YoloV4Parser",

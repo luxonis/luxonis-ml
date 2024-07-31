@@ -10,7 +10,6 @@ from luxonis_ml.utils import LuxonisFileSystem
 
 from .base_parser import BaseParser
 from .classification_directory_parser import ClassificationDirectoryParser
-from .coco_img_with_ann_parser import COCOImgWithAnnParser
 from .coco_parser import COCOParser
 from .create_ml_parser import CreateMLParser
 from .darknet_parser import DarknetParser
@@ -32,7 +31,6 @@ class ParserType(Enum):
 class LuxonisParser:
     parsers: Dict[DatasetType, Type[BaseParser]] = {
         DatasetType.COCO: COCOParser,
-        DatasetType.COCOIMGWITHANN: COCOImgWithAnnParser,
         DatasetType.VOC: VOCParser,
         DatasetType.DARKNET: DarknetParser,
         DatasetType.YOLOV6: YoloV6Parser,
