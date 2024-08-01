@@ -223,6 +223,22 @@ def inspect(
             break
 
 
+def _parse_tasks(values: Optional[List[str]]) -> List[Tuple[LabelType, str]]:
+    if not values:
+        return []
+    result = {}
+    for value in values:
+        if "=" not in value:
+            raise ValueError(
+                f"Invalid task format: {value}. Expected 'label_type=task_name'."
+            )
+        k, v = value.split("=")
+        if k not in LabelType.__members__.values():
+            raise ValueError(f"Invalid task type: {k}")
+        result[LabelType(k.strip())] = v.strip()
+    return list(result.items())
+
+
 @app.command()
 def parse(
     dataset_dir: Annotated[
@@ -271,14 +287,26 @@ def parse(
             show_default=False,
         ),
     ] = None,
+    task: Annotated[
+        Optional[List[str]],
+        typer.Option(
+            ...,
+            show_default=False,
+            callback=_parse_tasks,
+            help="Custom task names to override the default ones. "
+            "Format: 'label_type=task_name'. E.g. 'boundingbox=detection-task'.",
+        ),
+    ] = None,
 ):
     """Parses a directory with data and creates Luxonis dataset."""
+    task = task or []
     parser = LuxonisParser(
         dataset_dir,
         dataset_name=name,
         dataset_type=dataset_type,
         delete_existing=delete_existing,
         save_dir=save_dir,
+        task_mapping=dict(task),  # type: ignore
     )
     dataset = parser.parse()
 
