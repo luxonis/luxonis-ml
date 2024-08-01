@@ -33,6 +33,11 @@ def prepare_dir():
             ],
         ),
         (
+            DatasetType.COCO,
+            "Thermal_Dogs_and_People.v1-resize-416x416.coco.zip",
+            [LabelType.BOUNDINGBOX, LabelType.CLASSIFICATION],
+        ),
+        (
             DatasetType.VOC,
             "Thermal_Dogs_and_People.v1-resize-416x416.voc.zip",
             [LabelType.BOUNDINGBOX, LabelType.CLASSIFICATION],
