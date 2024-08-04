@@ -287,7 +287,7 @@ def parse(
             show_default=False,
         ),
     ] = None,
-    task: Annotated[
+    task_name: Annotated[
         Optional[List[str]],
         typer.Option(
             ...,
@@ -299,14 +299,14 @@ def parse(
     ] = None,
 ):
     """Parses a directory with data and creates Luxonis dataset."""
-    task = task or []
+    task_name = task_name or []
     parser = LuxonisParser(
         dataset_dir,
         dataset_name=name,
         dataset_type=dataset_type,
         delete_existing=delete_existing,
         save_dir=save_dir,
-        task_mapping=dict(task),  # type: ignore
+        task_mapping=dict(task_name),  # type: ignore
     )
     dataset = parser.parse()
 
