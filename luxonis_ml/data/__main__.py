@@ -291,6 +291,8 @@ def parse(
         Optional[List[str]],
         typer.Option(
             ...,
+            "--task-name",
+            "-tn",
             show_default=False,
             callback=_parse_tasks,
             help="Custom task names to override the default ones. "
