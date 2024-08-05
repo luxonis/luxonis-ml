@@ -4,11 +4,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Dict, Literal, Optional, Tuple, Type, Union
 
-from luxonis_ml.data import (
-    DATASETS_REGISTRY,
-    BaseDataset,
-    LuxonisDataset,
-)
+from luxonis_ml.data import DATASETS_REGISTRY, BaseDataset, LuxonisDataset
+from luxonis_ml.data.utils.enums import LabelType
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.utils import LuxonisFileSystem
 
@@ -54,6 +51,7 @@ class LuxonisParser:
         save_dir: Optional[Union[Path, str]] = None,
         dataset_plugin: Optional[str] = None,
         dataset_type: Optional[DatasetType] = None,
+        task_mapping: Optional[Dict[LabelType, str]] = None,
         **kwargs,
     ):
         """High-level abstraction over various parsers.
@@ -79,6 +77,8 @@ class LuxonisParser:
         @type kwargs: Dict[str, Any]
         @param kwargs: Additional C{kwargs} to be passed to the constructor of specific
             L{BaseDataset} implementation.
+        @type task_mapping: Optional[Dict[LabelType, str]]
+        @param task_mapping: Dictionary mapping label types to task names.
         """
         save_dir = Path(save_dir) if save_dir else None
         name = Path(dataset_dir).name
@@ -111,7 +111,7 @@ class LuxonisParser:
         dataset_name = dataset_name or name.replace(" ", "_").split(".")[0]
 
         self.dataset = self.dataset_constructor(dataset_name=dataset_name, **kwargs)
-        self.parser = self.parsers[self.dataset_type](self.dataset)
+        self.parser = self.parsers[self.dataset_type](self.dataset, task_mapping or {})
 
     def parse(self, **kwargs) -> BaseDataset:
         """Parses the dataset and returns it in LuxonisDataset format.
