@@ -100,3 +100,17 @@ def test_dir_parser(
     label_types = {label_type for _, label_type in ann.values()}
     assert label_types == set(expected_label_types)
     dataset.delete_dataset()
+
+
+def test_custom_tasks():
+    parser = LuxonisParser(
+        f"{URL_PREFIX}/Thermal_Dogs_and_People.v1-resize-416x416.coco.zip",
+        dataset_name="test-custom-tasks",
+        delete_existing=True,
+        save_dir=WORK_DIR,
+        task_mapping={LabelType.BOUNDINGBOX: "object_detection"},
+    )
+    dataset = cast(LuxonisDataset, parser.parse())
+    assert len(dataset) > 0
+    tasks = dataset.get_tasks()
+    assert set(tasks) == {"object_detection", "classification"}
