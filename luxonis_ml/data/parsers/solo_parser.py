@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
-import pycocotools.mask as mask_util
 
 from luxonis_ml.data import DatasetIterator
 
@@ -215,17 +214,13 @@ class SOLOParser(BaseParser):
                                     curr_mask = np.zeros_like(mask)
                                     curr_mask[np.all(mask == [b, g, r], axis=2)] = 1
                                     curr_mask = np.max(curr_mask, axis=2)  # 3D->2D
-                                    curr_mask = np.asfortranarray(curr_mask)
-                                    curr_rle = mask_util.encode(curr_mask)
 
                                     yield {
                                         "file": img_path,
                                         "annotation": {
-                                            "type": "rle",
+                                            "type": "mask",
                                             "class": class_name,
-                                            "width": curr_rle["size"][0],
-                                            "height": curr_rle["size"][1],
-                                            "counts": curr_rle["counts"],
+                                            "mask": curr_mask,
                                         },
                                     }
 

@@ -4,9 +4,10 @@ from datetime import datetime
 from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple, TypedDict, Union
 
 import numpy as np
+import numpy.typing as npt
 import pycocotools.mask as mask_util
 from PIL import Image, ImageDraw
-from pydantic import Field, model_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 from pydantic.types import FilePath, PositiveInt
 from typing_extensions import Annotated, TypeAlias
 
@@ -42,6 +43,7 @@ def load_annotation(name: str, js: str, data: Dict[str, Any]) -> "Annotation":
         "KeypointAnnotation": KeypointAnnotation,
         "RLESegmentationAnnotation": RLESegmentationAnnotation,
         "PolylineSegmentationAnnotation": PolylineSegmentationAnnotation,
+        "MaskSegmentationAnnotation": MaskSegmentationAnnotation,
         "ArrayAnnotation": ArrayAnnotation,
         "LabelAnnotation": LabelAnnotation,
     }[name](**json.loads(js), **data)
@@ -186,6 +188,27 @@ class SegmentationAnnotation(Annotation):
 
     _label_type = LabelType.SEGMENTATION
 
+    @abstractmethod
+    def to_numpy(
+        self, class_mapping: Dict[str, int], width: int, height: int
+    ) -> npt.NDArray[np.bool_]:
+        """Converts the annotation to a numpy array."""
+        pass
+
+    @staticmethod
+    def combine_to_numpy(
+        annotations: List["SegmentationAnnotation"],
+        class_mapping: Dict[str, int],
+        height: int,
+        width: int,
+    ) -> np.ndarray:
+        seg = np.zeros((len(class_mapping), height, width), dtype=np.bool_)
+        for ann in annotations:
+            class_ = class_mapping.get(ann.class_, 0)
+            seg[class_, ...] |= ann.to_numpy(class_mapping, width, height)
+
+        return seg.astype(np.uint8)
+
 
 class RLESegmentationAnnotation(SegmentationAnnotation):
     """U{Run-length encoded<https://en.wikipedia.org/wiki/Run-length_encoding>}
@@ -231,25 +254,64 @@ class RLESegmentationAnnotation(SegmentationAnnotation):
             "counts": rle["counts"].decode("utf-8"),
         }
 
-    def to_numpy(self, _: Dict[str, int], width: int, height: int) -> np.ndarray:
+    def to_numpy(
+        self, _: Dict[str, int], width: int, height: int
+    ) -> npt.NDArray[np.bool_]:
         assert isinstance(self.counts, bytes)
-        return mask_util.decode({"counts": self.counts, "size": [height, width]})
+        return mask_util.decode(
+            {"counts": self.counts, "size": [height, width]}
+        ).astype(np.bool_)
 
+
+class MaskSegmentationAnnotation(SegmentationAnnotation):
+    """Pixel-wise binary segmentation mask."""
+
+    type_: Literal["mask"] = Field("mask", alias="type")
+    mask: np.ndarray
+
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _convert_rle(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        if "mask" in values:
+            return values
+
+        if "width" not in values or "height" not in values or "counts" not in values:
+            raise ValueError(
+                "MaskSegmentationAnnotation must have either "
+                "'mask' or 'width', 'height', and 'counts'"
+            )
+
+        width: int = values.pop("width")
+        height: int = values.pop("height")
+        counts: str = values.pop("counts")
+
+        values["mask"] = mask_util.decode(
+            {
+                "counts": counts.encode("utf-8"),
+                "size": [height, width],
+            }
+        ).astype(np.bool_)
+        return values
+
+    @field_validator("mask", mode="after")
     @staticmethod
-    def combine_to_numpy(
-        annotations: List["RLESegmentationAnnotation"],
-        class_mapping: Dict[str, int],
-        height: int,
-        width: int,
-    ) -> np.ndarray:
-        seg = np.zeros((len(class_mapping), height, width))
-        for ann in annotations:
-            class_ = class_mapping.get(ann.class_, 0)
-            mask = ann.to_numpy(class_mapping, width, height)
-            seg[class_, ...] += mask
+    def _cast_mask(mask: np.ndarray) -> npt.NDArray[np.bool_]:
+        return mask.astype(np.bool_)
 
-        seg = np.clip(seg, 0, 1)
-        return seg
+    def get_value(self) -> Dict[str, Any]:
+        mask = np.asfortranarray(self.mask.astype(np.uint8))
+        rle = mask_util.encode(mask)
+
+        return {
+            "width": rle["size"][0],
+            "height": rle["size"][1],
+            "counts": rle["counts"].decode("utf-8"),  # type: ignore
+        }
+
+    def to_numpy(self, *_) -> npt.NDArray[np.bool_]:
+        return self.mask
 
 
 class PolylineSegmentationAnnotation(SegmentationAnnotation):
@@ -269,22 +331,7 @@ class PolylineSegmentationAnnotation(SegmentationAnnotation):
         mask = Image.new("L", (width, height), 0)
         draw = ImageDraw.Draw(mask)
         draw.polygon(polyline, fill=1, outline=1)
-        return np.array(mask)
-
-    @staticmethod
-    def combine_to_numpy(
-        annotations: List["PolylineSegmentationAnnotation"],
-        class_mapping: Dict[str, int],
-        height: int,
-        width: int,
-    ) -> np.ndarray:
-        seg = np.zeros((len(class_mapping), height, width))
-        for ann in annotations:
-            class_ = class_mapping.get(ann.class_, 0)
-            seg[class_, ...] += ann.to_numpy(class_mapping, width, height)
-
-        seg = np.clip(seg, 0, 1)
-        return seg
+        return np.array(mask).astype(np.bool_)
 
 
 class ArrayAnnotation(Annotation):
@@ -358,6 +405,7 @@ class DatasetRecord(BaseModelExtraForbid):
             KeypointAnnotation,
             RLESegmentationAnnotation,
             PolylineSegmentationAnnotation,
+            MaskSegmentationAnnotation,
             ArrayAnnotation,
             LabelAnnotation,
         ]
