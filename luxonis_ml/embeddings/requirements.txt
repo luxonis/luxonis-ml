@@ -3,7 +3,8 @@ KDEpy>=1.1.5
 kmedoids>=0.4.3
 matplotlib>=3.7.2
 numpy>=1.22
-onnx>=1.14.0
+onnx>=1.14.0,<1.16.2; sys_platform == "win32"
+onnx>=1.14.0; sys_platform != "win32"
 onnxruntime-gpu>=1.15.1; sys_platform == 'linux'
 onnxruntime>=1.15.1; sys_platform != 'linux'
 opencv-python>=4.7.0.68

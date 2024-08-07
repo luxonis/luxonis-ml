@@ -20,7 +20,11 @@ from luxonis_ml.utils.filesystem import ModuleType, PathType
 from ..utils.constants import LDF_VERSION
 from ..utils.enums import BucketStorage, BucketType
 from ..utils.parquet import ParquetFileManager
-from .annotation import Annotation, ArrayAnnotation, DatasetRecord
+from .annotation import (
+    Annotation,
+    ArrayAnnotation,
+    DatasetRecord,
+)
 from .base_dataset import BaseDataset, DatasetIterator
 from .source import LuxonisSource
 
@@ -628,6 +632,15 @@ class LuxonisDataset(BaseDataset):
             return Path(default) if default is not None else None
 
 
+def _rescale_mask(
+    mask: np.ndarray, mask_w: int, mask_h: int, x: float, y: float, w: float, h: float
+) -> np.ndarray:
+    return mask[
+        int(y * mask_h) : int((y + h) * mask_h),
+        int(x * mask_w) : int((x + w) * mask_w),
+    ].astype(np.uint8)
+
+
 def _rescale_rle(rle: dict, x: float, y: float, w: float, h: float) -> dict:
     height, width = rle["size"]
 
@@ -636,10 +649,7 @@ def _rescale_rle(rle: dict, x: float, y: float, w: float, h: float) -> dict:
 
     decoded_mask = mask_utils.decode(rle)  # type: ignore
 
-    cropped_mask = decoded_mask[
-        int(y * height) : int((y + h) * height),
-        int(x * width) : int((x + w) * width),
-    ]
+    cropped_mask = _rescale_mask(decoded_mask, width, height, x, y, w, h)
 
     bbox_height = int(h * height)
     bbox_width = int(w * width)
@@ -665,6 +675,7 @@ def rescale_values(
         List[Tuple[float, float, int]],
         List[Tuple[float, float]],
         Dict[str, Union[int, List[int]]],
+        np.ndarray,
     ]
 ]:
     """Rescale annotation values based on the bounding box coordinates."""
@@ -688,8 +699,13 @@ def rescale_values(
         if "rle" in ann:
             return _rescale_rle(ann["rle"], x, y, w, h)
 
+        if "mask" in ann:
+            mask = ann["mask"]
+            width, height = mask.shape
+            return _rescale_mask(ann["mask"], width, height, x, y, w, h)
+
         raise ValueError(
-            "Invalid segmentation format. Must be either 'polylines' or 'rle'"
+            "Invalid segmentation format. Must be either 'polylines', 'rle', or 'mask'"
         )
 
     return None
