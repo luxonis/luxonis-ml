@@ -51,19 +51,9 @@ def check_exists(name: str):
 
 def get_dataset_info(name: str) -> Tuple[int, List[str], List[str]]:
     dataset = LuxonisDataset(name)
-    try:
-        size = len(dataset)
-    except KeyError:
-        size = -1
-
-    try:
-        loader = LuxonisLoader(dataset, view=SplitType.TRAIN.value)
-        _, ann = next(iter(loader))
-    except Exception:
-        ann = {}
+    size = len(dataset)
     classes, _ = dataset.get_classes()
-    tasks = list(ann.keys())
-    return size, classes, tasks
+    return size, classes, dataset.get_tasks()
 
 
 def print_info(name: str) -> None:
