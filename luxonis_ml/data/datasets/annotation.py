@@ -264,10 +264,15 @@ class RLESegmentationAnnotation(SegmentationAnnotation):
 
 
 class MaskSegmentationAnnotation(SegmentationAnnotation):
-    """Pixel-wise binary segmentation mask."""
+    """Pixel-wise binary segmentation mask.
+
+    @type mask: npt.NDArray[np.bool_]
+    @ivar mask: The segmentation mask as a numpy array. The mask must be 2D and must be
+        castable to a boolean array.
+    """
 
     type_: Literal["mask"] = Field("mask", alias="type")
-    mask: np.ndarray
+    mask: npt.NDArray[np.bool_]
 
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
@@ -294,6 +299,13 @@ class MaskSegmentationAnnotation(SegmentationAnnotation):
             }
         ).astype(np.bool_)
         return values
+
+    @field_validator("mask", mode="after")
+    @staticmethod
+    def _validate_shape(mask: np.ndarray) -> np.ndarray:
+        if mask.ndim != 2:
+            raise ValueError("Mask must be a 2D array")
+        return mask
 
     @field_validator("mask", mode="after")
     @staticmethod
@@ -326,7 +338,9 @@ class PolylineSegmentationAnnotation(SegmentationAnnotation):
 
     points: List[Tuple[NormalizedFloat, NormalizedFloat]] = Field(min_length=3)
 
-    def to_numpy(self, _: Dict[str, int], width: int, height: int) -> np.ndarray:
+    def to_numpy(
+        self, _: Dict[str, int], width: int, height: int
+    ) -> npt.NDArray[np.bool_]:
         polyline = [(round(x * width), round(y * height)) for x, y in self.points]
         mask = Image.new("L", (width, height), 0)
         draw = ImageDraw.Draw(mask)
