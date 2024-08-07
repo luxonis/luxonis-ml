@@ -317,8 +317,8 @@ class MaskSegmentationAnnotation(SegmentationAnnotation):
         rle = mask_util.encode(mask)
 
         return {
-            "width": rle["size"][0],
-            "height": rle["size"][1],
+            "height": rle["size"][0],
+            "width": rle["size"][1],
             "counts": rle["counts"].decode("utf-8"),  # type: ignore
         }
 
