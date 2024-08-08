@@ -1,8 +1,9 @@
 import hashlib
 import json
 import logging
+import math
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -67,6 +68,68 @@ def print_info(name: str) -> None:
             title="Dataset Info",
         )
     )
+
+
+def create_text_image(
+    text: str,
+    width: int,
+    height: int,
+    font_size: float = 0.7,
+    bg_color: Tuple[int, int, int] = (255, 255, 255),
+    text_color: Tuple[int, int, int] = (0, 0, 0),
+):
+    img = np.full((height, width, 3), bg_color, dtype=np.uint8)
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+
+    text_size = cv2.getTextSize(text, font, font_size, 1)[0]
+
+    text_x = (width - text_size[0]) // 2
+    text_y = (height + text_size[1]) // 2
+
+    cv2.putText(
+        img, text, (text_x, text_y), font, font_size, text_color, 1, cv2.LINE_AA
+    )
+
+    return img
+
+
+def concat_images(
+    image_dict: Dict[str, np.ndarray], padding: int = 10, label_height: int = 30
+):
+    image_dict = dict(
+        sorted(image_dict.items(), key=lambda x: x[0] if x[0] != "image" else "a")
+    )
+    n_images = len(image_dict)
+    n_cols = math.ceil(math.sqrt(n_images))
+    n_rows = math.ceil(n_images / n_cols)
+
+    max_h = max(img.shape[0] for img in image_dict.values())
+    max_w = max(img.shape[1] for img in image_dict.values())
+
+    cell_height = max_h + 2 * padding + label_height
+    cell_width = max_w + 2 * padding
+
+    output = np.full(
+        (cell_height * n_rows, cell_width * n_cols, 3), 255, dtype=np.uint8
+    )
+
+    for idx, (name, img) in enumerate(image_dict.items()):
+        i = idx // n_cols
+        j = idx % n_cols
+
+        y_start = i * cell_height
+        x_start = j * cell_width
+
+        label = create_text_image(name, cell_width, label_height)
+        output[y_start : y_start + label_height, x_start : x_start + cell_width] = label
+
+        h, w = img.shape[:2]
+        y_img = y_start + label_height + padding
+        x_img = x_start + padding
+        output[y_img : y_img + h, x_img : x_img + w] = img
+
+    return output
 
 
 @app.command()
@@ -148,6 +211,19 @@ def inspect(
             "This can be either a json or a yaml file.",
         ),
     ] = None,
+    size_multiplier: Annotated[
+        float,
+        typer.Option(
+            ...,
+            "--size-multiplier",
+            "-s",
+            help=(
+                "Multiplier for the image size. "
+                "By default the images are shown in their original size."
+            ),
+            show_default=False,
+        ),
+    ] = 1.0,
 ):
     """Inspects images and annotations in a dataset."""
 
@@ -167,22 +243,33 @@ def inspect(
                 if aug_config.suffix == ".yaml"
                 else json.load(file)
             )
-        augmentations = Augmentations([512, 512], config)
+        augmentations = Augmentations([720, 1280], config)
 
     dataset = LuxonisDataset(name)
     loader = LuxonisLoader(dataset, view=view.value, augmentations=augmentations)
+    classes = dataset.get_classes()[1]
     for image, ann in loader:
         image = image.astype(np.uint8)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
         h, w, _ = image.shape
+        new_h, new_w = int(h * size_multiplier), int(w * size_multiplier)
+        image = cv2.resize(image, (new_w, new_h))
+        images = {"image": image}
 
-        # Ensure masks are drawn first to not occlude the other annotations
         for task, (arr, label_type) in ann.items():
             if label_type == LabelType.SEGMENTATION:
                 mask_viz = np.zeros((h, w, 3)).astype(np.uint8)
                 for i, mask in enumerate(arr):
-                    mask_viz[mask == 1] = _task_to_rgb(f"{task}_{i}")
-                image = cv2.addWeighted(image, 0.5, mask_viz, 0.5, 0)
+                    mask_viz[mask == 1] = (
+                        _task_to_rgb(f"{task}_{i}")
+                        if (i != 0 or len(arr) == 1)
+                        else (0, 0, 0)
+                    )
+                mask_viz = cv2.resize(mask_viz, (new_w, new_h))
+                images[task] = mask_viz
+
+        h, w, _ = image.shape
 
         for task, (arr, label_type) in ann.items():
             if label_type == LabelType.BOUNDINGBOX:
@@ -191,7 +278,7 @@ def inspect(
                         image,
                         (int(box[1] * w), int(box[2] * h)),
                         (int(box[1] * w + box[3] * w), int(box[2] * h + box[4] * h)),
-                        _task_to_rgb(task),
+                        _task_to_rgb(classes[task][int(box[0])]),
                         2,
                     )
 
@@ -207,7 +294,7 @@ def inspect(
                             2,
                         )
 
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        image = concat_images(images)
         cv2.imshow("image", image)
         if cv2.waitKey() == ord("q"):
             break
