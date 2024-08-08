@@ -99,13 +99,13 @@ class BaseDataset(
         pass
 
     @abstractmethod
-    def get_skeletons(self) -> Tuple[List[str], List[Tuple[int, int]]]:
+    def get_skeletons(self) -> Dict[str, Tuple[List[str], List[Tuple[int, int]]]]:
         """Returns the dictionary defining the semantic skeleton for each class using
         keypoints.
 
-        @rtype: Tuple[List[str], List[Tuple[int, int]]]
-        @return: A tuple containing a list of keypoint names and a list of edges between
-            the keypoints.
+        @rtype: Dict[str, Tuple[List[str], List[Tuple[int, int]]]]
+        @return: For each task, a tuple containing a list of keypoint names and a list
+            of edges between the keypoints.
         """
         pass
 
