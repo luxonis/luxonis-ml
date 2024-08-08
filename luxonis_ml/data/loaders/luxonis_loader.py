@@ -2,6 +2,7 @@ import json
 import logging
 import random
 import warnings
+from operator import itemgetter
 from typing import Dict, List, Optional, Tuple
 
 import cv2
@@ -127,11 +128,34 @@ class LuxonisLoader(BaseLoader):
             ns = 0
             for img, annotations in loaded_anns:
                 label_dict: Dict[LabelType, np.ndarray] = {}
+                task_dict: Dict[LabelType, str] = {}
                 for task in sorted(list(annotations.keys())):
                     array, label_type = annotations[task]
                     if label_type not in label_dict:
+                        # ensure that bounding box annotations are added to the
+                        # `label_dict` before keypoints
+                        if label_type == LabelType.KEYPOINTS:
+                            if (
+                                LabelType.BOUNDINGBOX
+                                in map(itemgetter(1), list(annotations.values()))
+                                and LabelType.BOUNDINGBOX not in label_dict
+                            ):
+                                continue
+
+                            if (
+                                LabelType.BOUNDINGBOX in label_dict
+                                and LabelType.BOUNDINGBOX
+                                in map(itemgetter(1), list(annotations.values()))
+                            ):
+                                bbox_task = task_dict[LabelType.BOUNDINGBOX]
+                                *_, bbox_suffix = bbox_task.split("-", 1)
+                                *_, kp_suffix = task.split("-", 1)
+                                if bbox_suffix != kp_suffix:
+                                    continue
+
                         label_dict[label_type] = array
                         label_to_task[label_type] = task
+                        task_dict[label_type] = task
                         annotations.pop(task)
                         if label_type == LabelType.KEYPOINTS:
                             nk = (array.shape[1] - 1) // 3
@@ -184,7 +208,13 @@ class LuxonisLoader(BaseLoader):
             sub_df = df.filter(pl.col("task") == task)
             annotations: List[Annotation] = []
             class_mapping = {
-                class_: i for i, class_ in enumerate(self.classes_by_task[task])
+                class_: i
+                for i, class_ in enumerate(
+                    sorted(
+                        self.classes_by_task[task],
+                        key=lambda x: {"background": -1}.get(x, 0),
+                    )
+                )
             }
             for i, (*_, type_, _, class_, instance_id, _, ann_str, _) in enumerate(
                 sub_df.rows(named=False)
