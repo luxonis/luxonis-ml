@@ -12,50 +12,48 @@ from luxonis_ml.data import (
 from luxonis_ml.enums import DatasetType
 
 SKELETONS: Final[dict] = {
-    "keypoints": {
-        "person": {
-            "labels": [
-                "nose",
-                "left_eye",
-                "right_eye",
-                "left_ear",
-                "right_ear",
-                "left_shoulder",
-                "right_shoulder",
-                "left_elbow",
-                "right_elbow",
-                "left_wrist",
-                "right_wrist",
-                "left_hip",
-                "right_hip",
-                "left_knee",
-                "right_knee",
-                "left_ankle",
-                "right_ankle",
-            ],
-            "edges": [
-                [15, 13],
-                [13, 11],
-                [16, 14],
-                [14, 12],
-                [11, 12],
-                [5, 11],
-                [6, 12],
-                [5, 6],
-                [5, 7],
-                [6, 8],
-                [7, 9],
-                [8, 10],
-                [1, 2],
-                [0, 1],
-                [0, 2],
-                [1, 3],
-                [2, 4],
-                [3, 5],
-                [4, 6],
-            ],
-        }
-    }
+    "keypoints": (
+        [
+            "nose",
+            "left_eye",
+            "right_eye",
+            "left_ear",
+            "right_ear",
+            "left_shoulder",
+            "right_shoulder",
+            "left_elbow",
+            "right_elbow",
+            "left_wrist",
+            "right_wrist",
+            "left_hip",
+            "right_hip",
+            "left_knee",
+            "right_knee",
+            "left_ankle",
+            "right_ankle",
+        ],
+        [
+            [15, 13],
+            [13, 11],
+            [16, 14],
+            [14, 12],
+            [11, 12],
+            [5, 11],
+            [6, 12],
+            [5, 6],
+            [5, 7],
+            [6, 8],
+            [7, 9],
+            [8, 10],
+            [1, 2],
+            [0, 1],
+            [0, 2],
+            [1, 3],
+            [2, 4],
+            [3, 5],
+            [4, 6],
+        ],
+    ),
 }
 URL_PREFIX: Final[str] = "gs://luxonis-test-bucket/luxonis-ml-test-data"
 WORK_DIR: Final[str] = "tests/data/parser_datasets"
@@ -92,6 +90,7 @@ def test_dataset(
         assert LuxonisDataset.exists(dataset_name, bucket_storage=bucket_storage)
         assert dataset.get_classes()[0] == ["person"]
         assert set(dataset.get_tasks()) == TASKS
+        # print(dataset.get_skeletons())
         assert dataset.get_skeletons() == SKELETONS
 
     if "dataset" not in locals():
