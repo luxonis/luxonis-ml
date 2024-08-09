@@ -90,7 +90,6 @@ def test_dataset(
         assert LuxonisDataset.exists(dataset_name, bucket_storage=bucket_storage)
         assert dataset.get_classes()[0] == ["person"]
         assert set(dataset.get_tasks()) == TASKS
-        # print(dataset.get_skeletons())
         assert dataset.get_skeletons() == SKELETONS
 
     if "dataset" not in locals():
