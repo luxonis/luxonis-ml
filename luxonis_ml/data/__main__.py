@@ -9,7 +9,7 @@ import rich.box
 import typer
 import yaml
 from rich import print
-from rich.console import Console
+from rich.console import Console, group
 from rich.panel import Panel
 from rich.rule import Rule
 from rich.table import Table
@@ -57,13 +57,24 @@ def get_dataset_info(name: str) -> Tuple[int, List[str], List[str]]:
 
 
 def print_info(name: str) -> None:
-    size, classes, tasks = get_dataset_info(name)
+    dataset = LuxonisDataset(name)
+    size = len(dataset)
+    _, classes = dataset.get_classes()
+    table = Table(title="Classes", box=rich.box.ROUNDED, row_styles=["yellow", "cyan"])
+    table.add_column("Task", header_style="magenta i")
+    table.add_column("Classes", header_style="magenta i")
+    for task, c in classes.items():
+        table.add_row(task, ", ".join(c))
+
+    @group()
+    def get_panels():
+        yield f"[magenta b]Name: [not b cyan]{name}"
+        yield f"[magenta b]Size: [not b cyan]{size}"
+        yield table
+
     print(
         Panel.fit(
-            f"[magenta b]Name: [not b cyan]{name}\n"
-            f"[magenta b]Size: [not b cyan]{size}\n"
-            f"[magenta b]Classes: [not b cyan]{', '.join(classes)}\n"
-            f"[magenta b]Tasks: [not b cyan]{', '.join(tasks)}",
+            get_panels(),
             title="Dataset Info",
         )
     )
