@@ -81,6 +81,13 @@ class BaseDataset(
         """Sets the semantic structure of keypoint skeletons for the classes that use
         keypoints.
 
+        Example::
+
+            dataset.set_skeletons(
+                labels=["right hand", "right shoulder", ...],
+                edges=[[0, 1], [4, 5], ...]
+            )
+
         @type labels: Optional[List[str]]
         @param labels: List of keypoint names.
         @type edges: Optional[List[Tuple[int, int]]]
@@ -88,13 +95,6 @@ class BaseDataset(
         @type task: Optional[str]
         @param task: Optionally specify the task where these skeletons apply.
             If not specified, the skeletons are set for all tasks that use keypoints.
-
-        Example::
-
-            dataset.set_skeletons(
-                labels=["right hand", "right shoulder", ...],
-                edges=[[0, 1], [4, 5], ...]
-            )
         """
         pass
 
