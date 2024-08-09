@@ -1,5 +1,9 @@
-from typing import Final, Set
+import json
+from collections import defaultdict
+from pathlib import Path
+from typing import Dict, Final, Set
 
+import cv2
 import pytest
 
 from luxonis_ml.data import (
@@ -9,7 +13,9 @@ from luxonis_ml.data import (
     LuxonisLoader,
     LuxonisParser,
 )
+from luxonis_ml.data.utils.data_utils import rgb_to_bool_masks
 from luxonis_ml.enums import DatasetType
+from luxonis_ml.utils import LuxonisFileSystem
 
 SKELETONS: Final[dict] = {
     "keypoints": (
@@ -123,3 +129,189 @@ def test_dataset(
     with subtests.test("test_delete", bucket_storage=bucket_storage):
         dataset.delete_dataset(delete_remote=True)
         assert not LuxonisDataset.exists(dataset_name, bucket_storage=bucket_storage)
+
+
+def test_complex_dataset():
+    url = f"{URL_PREFIX}/D1_ParkingSlotTest"
+    base_path = LuxonisFileSystem.download(url, WORK_DIR)
+    mask_brand_path = base_path / "mask_brand"
+    mask_color_path = base_path / "mask_color"
+    kpt_mask_path = base_path / "keypoints_mask_vehicle"
+
+    def generator():
+        filenames: Dict[int, Path] = {}
+        for base_path in [kpt_mask_path, mask_brand_path, mask_color_path]:
+            for sequence_path in base_path.glob("sequence.*"):
+                frame_data = sequence_path / "step0.frame_data.json"
+                with open(frame_data) as f:
+                    data = json.load(f)["captures"][0]
+                    frame_data = data["annotations"]
+                    sequence_num = int(sequence_path.suffix[1:])
+                    filename = data["filename"]
+                    if filename is not None:
+                        filename = sequence_path / filename
+                        filenames[sequence_num] = filename
+                    else:
+                        filename = filenames[sequence_num]
+                    W, H = data["dimension"]
+
+                annotations = {
+                    anno["@type"].split(".")[-1]: anno for anno in frame_data
+                }
+
+                bbox_classes = {}
+                bboxes = {}
+
+                for bbox_annotation in annotations.get(
+                    "BoundingBox2DAnnotation", defaultdict(list)
+                )["values"]:
+                    class_ = bbox_annotation["labelName"].split("-")[-1].lower()
+                    if class_ == "motorbiek":
+                        class_ = "motorbike"
+                    x, y = bbox_annotation["origin"]
+                    w, h = bbox_annotation["dimension"]
+                    instance_id = bbox_annotation["instanceId"]
+                    bbox_classes[instance_id] = class_
+                    bboxes[instance_id] = [x / W, y / H, w / W, h / H]
+                    yield {
+                        "file": filename,
+                        "annotation": {
+                            "type": "boundingbox",
+                            "class": class_,
+                            "x": x / W,
+                            "y": y / H,
+                            "w": w / W,
+                            "h": h / H,
+                            "instance_id": instance_id,
+                        },
+                    }
+
+                for kpt_annotation in annotations.get(
+                    "KeypointAnnotation", defaultdict(list)
+                )["values"]:
+                    keypoints = kpt_annotation["keypoints"]
+                    instance_id = kpt_annotation["instanceId"]
+                    class_ = bbox_classes[instance_id]
+                    bbox = bboxes[instance_id]
+                    kpts = []
+
+                    if class_ == "motorbike":
+                        keypoints = keypoints[:3]
+                    else:
+                        keypoints = keypoints[3:]
+
+                    for kp in keypoints:
+                        x, y = kp["location"]
+                        kpts.append([x / W, y / H, kp["state"]])
+
+                    yield {
+                        "file": filename,
+                        "annotation": {
+                            "type": "detection",
+                            "class": class_,
+                            "task": class_,
+                            "keypoints": kpts,
+                            "instance_id": instance_id,
+                            "boundingbox": {
+                                "x": bbox[0],
+                                "y": bbox[1],
+                                "w": bbox[2],
+                                "h": bbox[3],
+                            },
+                        },
+                    }
+
+                vehicle_type_segmentation = annotations[
+                    "SemanticSegmentationAnnotation"
+                ]
+                mask = cv2.cvtColor(
+                    cv2.imread(
+                        str(sequence_path / vehicle_type_segmentation["filename"])
+                    ),
+                    cv2.COLOR_BGR2RGB,
+                )
+                classes = {
+                    inst["labelName"]: inst["pixelValue"][:3]
+                    for inst in vehicle_type_segmentation["instances"]
+                }
+                if base_path == kpt_mask_path:
+                    task = "vehicle_type_segmentation"
+                elif base_path == mask_brand_path:
+                    task = "brand_segmentation"
+                else:
+                    task = "color_segmentation"
+                for class_, mask_ in rgb_to_bool_masks(
+                    mask, classes, add_background_class=True
+                ):
+                    yield {
+                        "file": filename,
+                        "annotation": {
+                            "type": "mask",
+                            "class": class_,
+                            "task": task,
+                            "mask": mask_,
+                        },
+                    }
+                if base_path == mask_color_path:
+                    yield {
+                        "file": filename,
+                        "annotation": {
+                            "type": "mask",
+                            "class": "vehicle",
+                            "task": "vehicle_segmentation",
+                            "mask": mask.astype(bool)[..., 0]
+                            | mask.astype(bool)[..., 1]
+                            | mask.astype(bool)[..., 2],
+                        },
+                    }
+
+    dataset = LuxonisDataset("__D1ParkingSLot-test", delete_existing=True)
+    dataset.add(generator())
+    dataset.make_splits()
+    assert len(dataset) == 200
+    assert set(dataset.get_tasks()) == {
+        "boundingbox",
+        "motorbike-boundingbox",
+        "motorbike-keypoints",
+        "car-boundingbox",
+        "car-keypoints",
+        "vehicle_type_segmentation",
+        "brand_segmentation",
+        "color_segmentation",
+        "vehicle_segmentation",
+    }
+    assert dataset.get_classes()[1] == {
+        "boundingbox": ["motorbike", "car"],
+        "motorbike-boundingbox": ["motorbike"],
+        "motorbike-keypoints": ["motorbike"],
+        "car-boundingbox": ["car"],
+        "car-keypoints": ["car"],
+        "vehicle_type_segmentation": ["background", "car", "motorbike"],
+        "brand_segmentation": [
+            "background",
+            "alfa-romeo",
+            "chrysler",
+            "bmw",
+            "harley",
+            "ferrari",
+            "honda",
+            "infiniti",
+            "land-rover",
+            "roll-royce",
+            "Kawasaki",
+            "moto",
+            "piaggio",
+            "ducati",
+            "isuzu",
+            "jeep",
+            "truimph",
+            "yamaha",
+            "dodge",
+            "saab",
+            "aprilia",
+            "pontiac",
+            "buick",
+        ],
+        "color_segmentation": ["background", "blue", "green", "red"],
+        "vehicle_segmentation": ["vehicle"],
+    }
