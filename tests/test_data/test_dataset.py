@@ -141,7 +141,7 @@ def test_complex_dataset():
     def generator():
         filenames: Dict[int, Path] = {}
         for base_path in [kpt_mask_path, mask_brand_path, mask_color_path]:
-            for sequence_path in base_path.glob("sequence.*"):
+            for sequence_path in list(sorted(base_path.glob("sequence.*"))):
                 frame_data = sequence_path / "step0.frame_data.json"
                 with open(frame_data) as f:
                     data = json.load(f)["captures"][0]
@@ -289,28 +289,28 @@ def test_complex_dataset():
         "vehicle_type_segmentation": ["background", "car", "motorbike"],
         "brand_segmentation": [
             "background",
-            "alfa-romeo",
             "chrysler",
             "bmw",
-            "harley",
+            "ducati",
+            "dodge",
             "ferrari",
-            "honda",
             "infiniti",
             "land-rover",
             "roll-royce",
+            "saab",
             "Kawasaki",
             "moto",
-            "piaggio",
-            "ducati",
-            "isuzu",
-            "jeep",
             "truimph",
-            "yamaha",
-            "dodge",
-            "saab",
+            "alfa-romeo",
+            "harley",
+            "honda",
+            "jeep",
             "aprilia",
-            "pontiac",
+            "piaggio",
+            "yamaha",
             "buick",
+            "pontiac",
+            "isuzu",
         ],
         "color_segmentation": ["background", "blue", "green", "red"],
         "vehicle_segmentation": ["vehicle"],
