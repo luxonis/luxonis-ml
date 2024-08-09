@@ -139,13 +139,14 @@ def inspect(
         ),
     ] = "train",  # type: ignore
     aug_config: Annotated[
-        Optional[Path],
+        Optional[str],
         typer.Option(
             ...,
             "--aug-config",
             "-a",
             help="Path to a config defining augmentations. "
             "This can be either a json or a yaml file.",
+            metavar="PATH",
         ),
     ] = None,
     size_multiplier: Annotated[
@@ -172,7 +173,7 @@ def inspect(
         with open(aug_config) as file:
             config = (
                 yaml.safe_load(file)
-                if aug_config.suffix == ".yaml"
+                if Path(aug_config).suffix == ".yaml"
                 else json.load(file)
             )
         augmentations = Augmentations([h, w], config)
