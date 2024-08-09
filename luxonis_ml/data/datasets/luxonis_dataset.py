@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Literal, Optional, Set, Tuple, Union
 import numpy as np
 import polars as pl
 import pyarrow.parquet as pq
+from ordered_set import OrderedSet
 from pycocotools import mask as mask_utils
 from typing_extensions import Self
 
@@ -458,7 +459,7 @@ class LuxonisDataset(BaseDataset):
 
         batch_data: list[DatasetRecord] = []
 
-        classes_per_task: Dict[str, Set[str]] = defaultdict(set)
+        classes_per_task: Dict[str, OrderedSet[str]] = defaultdict(OrderedSet)
         num_kpts_per_task: Dict[str, int] = {}
 
         annotations_path = self._get_dir(

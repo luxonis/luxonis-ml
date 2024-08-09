@@ -42,14 +42,16 @@ def rgb_to_bool_masks(
         >>> segmentation_mask = np.array([[[0, 0, 0], [255, 0, 0], [0, 255, 0]],
         ...                                [[0, 0, 0], [0, 255, 0], [0, 0, 255]]], dtype=np.uint8)
         >>> class_colors = {"red": (255, 0, 0), "green": (0, 255, 0), "blue": (0, 0, 255)}
-        >>> for class_name, mask in rgb_to_bool_masks(segmentation_mask, class_colors):
+        >>> for class_name, mask in rgb_to_bool_masks(segmentation_mask, class_colors, add_background_class=True):
         ...     print(class_name, mask)
-        red [[False  True False],
-             [False False False]]
-        green [[False False  True],
-               [False True False]]
-        blue [[False False False],
-              [False False  True]]
+        background [[ True False False],
+                    [ True False False]]
+        red        [[False  True False],
+                    [False False False]]
+        green      [[False False  True],
+                    [False True False]]
+        blue       [[False False False],
+                    [False False  True]]
 
     @type segmentation_mask: npt.NDArray[np.uint8]
     @param segmentation_mask: An RGB segmentation mask where each pixel is colored according to the class it belongs to.
@@ -57,7 +59,8 @@ def rgb_to_bool_masks(
     @param class_colors: A dictionary mapping class names to RGB colors.
     @type add_background_class: bool
     @param add_background_class: Whether to add a background class with a mask for all pixels
-        that do not belong to any class. The class name will be set to "background". Default is False.
+        that do not belong to any class. The class name will be set to "background".
+        The background class will be yielded first. Default is False.
     @rtype: Iterator[Tuple[str, npt.NDArray[np.bool_]]]
     @return: An iterator of tuples where the first element is the class name and
         the second element is a boolean mask for that class.
@@ -74,10 +77,10 @@ def rgb_to_bool_masks(
         segmentation_mask[:, :, 2],
     ]
 
-    for class_name, color in class_colors.items():
-        class_id = color_to_id[tuple(color)] + 1
-        yield class_name, segmentation_ids == class_id
-
     if add_background_class:
         background_mask = segmentation_ids == 0
         yield "background", background_mask
+
+    for class_name, color in class_colors.items():
+        class_id = color_to_id[tuple(color)] + 1
+        yield class_name, segmentation_ids == class_id
