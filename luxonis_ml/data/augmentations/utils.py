@@ -61,8 +61,6 @@ class Augmentations:
         @return: Objects for batched and spatial transforms
         """
 
-        image_size = image_size
-
         # NOTE: Always perform Resize
         if keep_aspect_ratio:
             resize = AUGMENTATIONS.get("LetterboxResize")(

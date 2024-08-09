@@ -235,7 +235,10 @@ def inspect(
 
         return (r, g, b)
 
+    dataset = LuxonisDataset(name)
+    h, w, _ = LuxonisLoader(dataset, view=view.value)[0][0].shape
     augmentations = None
+
     if aug_config is not None:
         with open(aug_config) as file:
             config = (
@@ -243,9 +246,11 @@ def inspect(
                 if aug_config.suffix == ".yaml"
                 else json.load(file)
             )
-        augmentations = Augmentations([720, 1280], config)
+        augmentations = Augmentations([h, w], config)
 
-    dataset = LuxonisDataset(name)
+    if len(dataset) == 0:
+        raise ValueError(f"Dataset '{name}' is empty.")
+
     loader = LuxonisLoader(dataset, view=view.value, augmentations=augmentations)
     classes = dataset.get_classes()[1]
     for image, ann in loader:
