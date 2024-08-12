@@ -8,7 +8,7 @@ import numpy.typing as npt
 import pycocotools.mask as mask_util
 from PIL import Image, ImageDraw
 from pydantic import ConfigDict, Field, field_validator, model_validator
-from pydantic.types import FilePath, PositiveInt
+from pydantic.types import FilePath, NonNegativeInt, PositiveInt
 from typing_extensions import Annotated, TypeAlias
 
 from luxonis_ml.utils import BaseModelExtraForbid, Registry
@@ -229,7 +229,7 @@ class RLESegmentationAnnotation(SegmentationAnnotation):
 
     height: PositiveInt
     width: PositiveInt
-    counts: Union[List[PositiveInt], bytes]
+    counts: Union[List[NonNegativeInt], bytes]
 
     def get_value(self) -> Dict[str, Any]:
         if isinstance(self.counts, bytes):
@@ -438,12 +438,12 @@ class DatasetRecord(BaseModelExtraForbid):
             "file": self.file.name,
             "type": self.annotation.__class__.__name__,
             "created_at": datetime.utcnow(),
-            "class": self.annotation.class_ or ""
-            if self.annotation is not None
-            else "",
-            "instance_id": self.annotation.instance_id or -1
-            if self.annotation is not None
-            else -1,
+            "class": (
+                self.annotation.class_ or "" if self.annotation is not None else ""
+            ),
+            "instance_id": (
+                self.annotation.instance_id or -1 if self.annotation is not None else -1
+            ),
             "task": self.annotation.task if self.annotation is not None else "",
             "annotation": json_value,
         }
