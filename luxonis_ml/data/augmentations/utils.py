@@ -71,26 +71,22 @@ class Augmentations:
         else:
             resize = A.Resize(image_size[0], image_size[1])
 
-        pixel_augs = []
         spatial_augs = []
         batched_augs = []
         if augmentations:
             for aug in augmentations:
                 curr_aug = AUGMENTATIONS.get(aug["name"])(**aug.get("params", {}))
-                if isinstance(curr_aug, A.ImageOnlyTransform):
-                    pixel_augs.append(curr_aug)
-                elif isinstance(curr_aug, A.DualTransform):
-                    spatial_augs.append(curr_aug)
-                elif isinstance(curr_aug, BatchBasedTransform):
+                if isinstance(curr_aug, BatchBasedTransform):
                     self.is_batched = True
                     self.aug_batch_size = max(self.aug_batch_size, curr_aug.batch_size)
                     batched_augs.append(curr_aug)
+                else:
+                    spatial_augs.append(curr_aug)
         # NOTE: always perform resize last
         spatial_augs.append(resize)
 
         batch_transform = BatchCompose(
             [
-                ForEach(pixel_augs),
                 *batched_augs,
             ],
             bbox_params=A.BboxParams(
@@ -177,6 +173,7 @@ class Augmentations:
 
         # Apply transforms
         # NOTE: All keys (including label_fields) must have _batch suffix when using BatchCompose
+        # print(len(image_batch))
         transformed = self.batch_transform(
             image_batch=image_batch,
             mask_batch=mask_batch,
