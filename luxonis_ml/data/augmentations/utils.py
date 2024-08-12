@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import albumentations as A
 import cv2
@@ -134,6 +134,10 @@ class Augmentations:
         @return: Output image and its annotations
         """
 
+        present_annotations = {
+            key for _, annotations in data for key in annotations.keys()
+        }
+        return_mask = LabelType.SEGMENTATION in present_annotations
         image_batch = []
         mask_batch = []
         bboxes_batch = []
@@ -143,10 +147,8 @@ class Augmentations:
         keypoints_visibility_batch = []
         keypoints_classes_batch = []
 
-        present_annotations = set()
         bbox_counter = 0
         for img, annotations in data:
-            present_annotations.update(annotations.keys())
             (
                 classes,
                 mask,
@@ -155,10 +157,13 @@ class Augmentations:
                 keypoints_points,
                 keypoints_visibility,
                 keypoints_classes,
-            ) = self.prepare_img_annotations(annotations, *img.shape[:-1], nk=nk)
+            ) = self.prepare_img_annotations(
+                annotations, *img.shape[:-1], nk=nk, return_mask=return_mask
+            )
 
             image_batch.append(img)
-            mask_batch.append(mask)
+            if return_mask:
+                mask_batch.append(mask)
 
             bboxes_batch.append(bboxes_points)
             bboxes_visibility_batch.append(
@@ -171,34 +176,36 @@ class Augmentations:
             keypoints_visibility_batch.append(keypoints_visibility)
             keypoints_classes_batch.append(keypoints_classes)
 
+        transform_args = {
+            "image_batch": image_batch,
+            "bboxes_batch": bboxes_batch,
+            "bboxes_visibility_batch": bboxes_visibility_batch,
+            "bboxes_classes_batch": bboxes_classes_batch,
+            "keypoints_batch": keypoints_batch,
+            "keypoints_visibility_batch": keypoints_visibility_batch,
+            "keypoints_classes_batch": keypoints_classes_batch,
+        }
+        if return_mask:
+            transform_args["mask_batch"] = mask_batch
+
         # Apply transforms
-        # NOTE: All keys (including label_fields) must have _batch suffix when using BatchCompose
-        # print(len(image_batch))
-        transformed = self.batch_transform(
-            image_batch=image_batch,
-            mask_batch=mask_batch,
-            bboxes_batch=bboxes_batch,
-            bboxes_visibility_batch=bboxes_visibility_batch,
-            bboxes_classes_batch=bboxes_classes_batch,
-            keypoints_batch=keypoints_batch,
-            keypoints_visibility_batch=keypoints_visibility_batch,
-            keypoints_classes_batch=keypoints_classes_batch,
-        )
+        transformed = self.batch_transform(**transform_args)
+        transformed = {key: np.array(value[0]) for key, value in transformed.items()}
 
-        # convert to numpy arrays
-        for key in transformed:
-            transformed[key] = np.array(transformed[key][0])
+        # Prepare the spatial transform arguments
+        spatial_transform_args = {
+            "image": transformed["image_batch"],
+            "bboxes": transformed["bboxes_batch"],
+            "bboxes_visibility": transformed["bboxes_visibility_batch"],
+            "bboxes_classes": transformed["bboxes_classes_batch"],
+            "keypoints": transformed["keypoints_batch"],
+            "keypoints_visibility": transformed["keypoints_visibility_batch"],
+            "keypoints_classes": transformed["keypoints_classes_batch"],
+        }
+        if return_mask:
+            spatial_transform_args["mask"] = transformed["mask_batch"]
 
-        transformed = self.spatial_transform(
-            image=transformed["image_batch"],
-            mask=transformed["mask_batch"],
-            bboxes=transformed["bboxes_batch"],
-            bboxes_visibility=transformed["bboxes_visibility_batch"],
-            bboxes_classes=transformed["bboxes_classes_batch"],
-            keypoints=transformed["keypoints_batch"],
-            keypoints_visibility=transformed["keypoints_visibility_batch"],
-            keypoints_classes=transformed["keypoints_classes_batch"],
-        )
+        transformed = self.spatial_transform(**spatial_transform_args)
 
         out_image, out_mask, out_bboxes, out_keypoints = self.post_transform_process(
             transformed,
@@ -206,6 +213,7 @@ class Augmentations:
             nk=nk,
             filter_kpts_by_bbox=(LabelType.BOUNDINGBOX in present_annotations)
             and (LabelType.KEYPOINTS in present_annotations),
+            return_mask=return_mask,
         )
 
         out_annotations = {}
@@ -222,10 +230,15 @@ class Augmentations:
         return out_image, out_annotations
 
     def prepare_img_annotations(
-        self, annotations: Dict[LabelType, np.ndarray], ih: int, iw: int, nk: int
+        self,
+        annotations: Dict[LabelType, np.ndarray],
+        ih: int,
+        iw: int,
+        nk: int,
+        return_mask: bool = True,
     ) -> Tuple[
         np.ndarray,
-        np.ndarray,
+        Optional[np.ndarray],
         np.ndarray,
         np.ndarray,
         np.ndarray,
@@ -240,16 +253,20 @@ class Augmentations:
         @param ih: Input image height
         @type iw: int
         @param iw: Input image width
-        @rtype: Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray,
-            np.ndarray, np.ndarray]
+        @type return_mask: bool
+        @param return_mask: Whether to compute and return mask
+        @rtype: Tuple[np.ndarray, Optional[np.ndarray], np.ndarray, np.ndarray,
+            np.ndarray, np.ndarray, np.ndarray]
         @return: Annotations in albumentations format
         """
 
         classes = annotations.get(LabelType.CLASSIFICATION, np.zeros(1))
 
-        seg = annotations.get(LabelType.SEGMENTATION, np.zeros((1, ih, iw)))
-        mask = np.argmax(seg, axis=0) + 1
-        mask[np.sum(seg, axis=0) == 0] = 0  # only background has value 0
+        mask = None
+        if return_mask:
+            seg = annotations.get(LabelType.SEGMENTATION, np.zeros((1, ih, iw)))
+            mask = np.argmax(seg, axis=0) + 1
+            mask[np.sum(seg, axis=0) == 0] = 0  # only background has value 0
 
         # COCO format in albumentations is [x,y,w,h] non-normalized
         bboxes = annotations.get(LabelType.BOUNDINGBOX, np.zeros((0, 5)))
@@ -286,7 +303,8 @@ class Augmentations:
         ns: int,
         nk: int,
         filter_kpts_by_bbox: bool,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        return_mask: bool = True,
+    ) -> Tuple[np.ndarray, Optional[np.ndarray], np.ndarray, np.ndarray]:
         """Postprocessing of albumentations output to LuxonisLoader format.
 
         @type transformed_data: Dict[str, np.ndarray]
@@ -298,7 +316,7 @@ class Augmentations:
         @type filter_kpts_by_bbox: bool
         @param filter_kpts_by_bbox: If True removes keypoint instances if its bounding
             box was removed.
-        @rtype: Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
+        @rtype: Tuple[np.ndarray, Optional[np.ndarray], np.ndarray, np.ndarray]
         @return: Postprocessed annotations
         """
 
@@ -307,12 +325,19 @@ class Augmentations:
         if not self.train_rgb:
             out_image = cv2.cvtColor(out_image, cv2.COLOR_RGB2BGR)
 
-        transformed_mask = transformed_data["mask"]
-        out_mask = np.zeros((ns, *transformed_mask.shape))
-        for key in np.unique(transformed_mask):
-            if key != 0:
-                out_mask[int(key) - 1, ...] = transformed_mask == key
-        out_mask[out_mask > 0] = 1
+        out_mask = None
+        if return_mask:
+            transformed_mask = transformed_data.get("mask")
+            out_mask = (
+                np.zeros((ns, *transformed_mask.shape))
+                if transformed_mask is not None
+                else None
+            )
+            if transformed_mask is not None:
+                for key in np.unique(transformed_mask):
+                    if key != 0:
+                        out_mask[int(key) - 1, ...] = transformed_mask == key
+                out_mask[out_mask > 0] = 1
 
         if transformed_data["bboxes"]:
             transformed_bboxes_classes = np.expand_dims(
