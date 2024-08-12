@@ -12,3 +12,4 @@ pyarrow>=13.0.0
 pycocotools>=2.0.7
 typeguard>=4.1.0
 polars>=0.20.31
+pillow>=10.0.0

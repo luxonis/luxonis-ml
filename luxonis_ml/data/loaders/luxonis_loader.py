@@ -7,6 +7,7 @@ from typing import Dict, Optional, Tuple
 
 import cv2
 import numpy as np
+from PIL import Image
 
 from ..augmentations import Augmentations
 from ..datasets import LuxonisDataset, load_annotation
@@ -187,7 +188,7 @@ class LuxonisLoader(BaseLoader):
                 "Streaming for remote bucket storage not implemented yet"
             )
 
-        img = cv2.cvtColor(cv2.imread(str(img_path)), cv2.COLOR_BGR2RGB)
+        img = np.array(Image.open(img_path).convert("RGB"))
         height, width, _ = img.shape
 
         labels_by_task = defaultdict(list)
