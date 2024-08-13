@@ -272,7 +272,7 @@ class MaskSegmentationAnnotation(SegmentationAnnotation):
     """
 
     type_: Literal["mask"] = Field("mask", alias="type")
-    mask: npt.NDArray[np.bool_]
+    mask: np.ndarray
 
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
@@ -307,9 +307,11 @@ class MaskSegmentationAnnotation(SegmentationAnnotation):
             raise ValueError("Mask must be a 2D array")
         return mask
 
-    @field_validator("mask", mode="after")
+    @field_validator("mask", mode="before")
     @staticmethod
-    def _cast_mask(mask: np.ndarray) -> npt.NDArray[np.bool_]:
+    def _validate_mask(mask: Any) -> npt.NDArray[np.bool_]:
+        if not isinstance(mask, np.ndarray):
+            raise ValueError("Mask must be a numpy array")
         return mask.astype(np.bool_)
 
     def get_value(self) -> Dict[str, Any]:
