@@ -7,6 +7,8 @@ from typing import Any, Callable, Dict, Optional, Union
 import numpy as np
 from unique_names_generator import get_random_name
 
+from luxonis_ml.utils.filesystem import LuxonisFileSystem, PathType
+
 
 class LuxonisTracker:
     def __init__(
@@ -279,15 +281,39 @@ class LuxonisTracker:
             self.experiment["tensorboard"].add_image(name, img, step, dataformats="HWC")
 
         if self.is_wandb:
-            wandb_image = self._experiment["wandb"].Image(img, caption=name)
+            wandb_image = self.experiment["wandb"].Image(img, caption=name)
             # if step is added here it doesn't work correctly with wandb
-            self._experiment["wandb"].log({name: wandb_image})
+            self.experiment["wandb"].log({name: wandb_image})
 
         if self.is_mlflow:
             # split images into separate directories based on step
             base_path, img_caption = name.rsplit("/", 1)
-            self._experiment["mlflow"].log_image(
+            self.experiment["mlflow"].log_image(
                 img, f"{base_path}/{step}/{img_caption}.png"
+            )
+
+    @rank_zero_only
+    def upload_artifact(
+        self, path: PathType, name: Optional[str] = None, typ: str = "artifact"
+    ) -> None:
+        path = Path(path)
+        if self.is_wandb:
+            import wandb
+
+            artifact = wandb.Artifact(name=name or path.stem, type=typ)
+            artifact.add_file(local_path=str(path))
+            artifact.save()
+
+        if self.is_mlflow:
+            fs = LuxonisFileSystem(
+                "mlflow://",
+                allow_active_mlflow_run=True,
+                allow_local=False,
+            )
+            fs.put_file(
+                local_path=path,
+                remote_path=name or path.name,
+                mlflow_instance=self.experiment.get("mlflow"),
             )
 
     @rank_zero_only
