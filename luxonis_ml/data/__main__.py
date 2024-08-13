@@ -58,18 +58,32 @@ def get_dataset_info(name: str) -> Tuple[int, List[str], List[str]]:
 
 def print_info(name: str) -> None:
     dataset = LuxonisDataset(name)
-    size = len(dataset)
     _, classes = dataset.get_classes()
-    table = Table(title="Classes", box=rich.box.ROUNDED, row_styles=["yellow", "cyan"])
+    table = Table(
+        title="Classes", box=rich.box.ROUNDED, row_styles=["yellow", "cyan"], width=88
+    )
     table.add_column("Task", header_style="magenta i")
-    table.add_column("Classes", header_style="magenta i")
+    table.add_column("Class Names", header_style="magenta i")
     for task, c in classes.items():
         table.add_row(task, ", ".join(c))
+
+    splits = dataset.get_splits()
+
+    @group()
+    def get_sizes_panel():
+        if splits is not None:
+            for split, files in splits.items():
+                yield f"[magenta b]{split.capitalize()}: [not b cyan]{len(files)}"
+        else:
+            yield "[red]No splits found"
+        yield Rule()
+        yield f"[magenta b]Total: [not b cyan]{len(dataset)}"
 
     @group()
     def get_panels():
         yield f"[magenta b]Name: [not b cyan]{name}"
-        yield f"[magenta b]Size: [not b cyan]{size}"
+        yield ""
+        yield Panel.fit(get_sizes_panel(), title="Split Sizes")
         yield table
 
     print(

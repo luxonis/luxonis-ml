@@ -518,6 +518,17 @@ class LuxonisDataset(BaseDataset):
 
         return self
 
+    def get_splits(self) -> Optional[Dict[str, List[str]]]:
+        splits_path = self._get_file(
+            "metadata/splits.json",
+            self.local_path,
+        )
+        if splits_path is None:
+            return None
+
+        with open(splits_path, "r") as file:
+            return json.load(file)
+
     def make_splits(
         self,
         ratios: Tuple[float, float, float] = (0.8, 0.1, 0.1),
