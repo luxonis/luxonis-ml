@@ -15,6 +15,7 @@ with guard_missing_extra("data"):
     from .loaders import (
         LOADERS_REGISTRY,
         BaseLoader,
+        Labels,
         LuxonisLoader,
         LuxonisLoaderOutput,
     )
@@ -56,6 +57,7 @@ __all__ = [
     "LOADERS_REGISTRY",
     "ImageType",
     "LabelType",
+    "Labels",
     "LuxonisComponent",
     "LuxonisDataset",
     "LuxonisLoader",

@@ -33,7 +33,7 @@ class Mosaic4(BatchBasedTransform):
         will always be in top left. The input images should have the same number of
         channels but can have different widths and heights. The output is cropped around
         the intersection point of the four images with the size (out_with x out_height).
-        If the mosaic image is smaller than with x height, the gap is filled by the
+        If the mosaic image is smaller than width x height, the gap is filled by the
         fill_value.
 
         @param out_height: Output image height. The mosaic image is cropped by this height around the mosaic center.

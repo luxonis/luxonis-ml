@@ -1,4 +1,3 @@
-import hashlib
 import json
 import logging
 from pathlib import Path
@@ -10,7 +9,7 @@ import rich.box
 import typer
 import yaml
 from rich import print
-from rich.console import Console
+from rich.console import Console, group
 from rich.panel import Panel
 from rich.rule import Rule
 from rich.table import Table
@@ -23,6 +22,7 @@ from luxonis_ml.data import (
     LuxonisLoader,
     LuxonisParser,
 )
+from luxonis_ml.data.utils.visualizations import visualize
 from luxonis_ml.enums import DatasetType, SplitType
 
 logger = logging.getLogger(__name__)
@@ -57,13 +57,38 @@ def get_dataset_info(name: str) -> Tuple[int, List[str], List[str]]:
 
 
 def print_info(name: str) -> None:
-    size, classes, tasks = get_dataset_info(name)
+    dataset = LuxonisDataset(name)
+    _, classes = dataset.get_classes()
+    table = Table(
+        title="Classes", box=rich.box.ROUNDED, row_styles=["yellow", "cyan"], width=88
+    )
+    table.add_column("Task", header_style="magenta i")
+    table.add_column("Class Names", header_style="magenta i")
+    for task, c in classes.items():
+        table.add_row(task, ", ".join(c))
+
+    splits = dataset.get_splits()
+
+    @group()
+    def get_sizes_panel():
+        if splits is not None:
+            for split, files in splits.items():
+                yield f"[magenta b]{split.capitalize()}: [not b cyan]{len(files)}"
+        else:
+            yield "[red]No splits found"
+        yield Rule()
+        yield f"[magenta b]Total: [not b cyan]{len(dataset)}"
+
+    @group()
+    def get_panels():
+        yield f"[magenta b]Name: [not b cyan]{name}"
+        yield ""
+        yield Panel.fit(get_sizes_panel(), title="Split Sizes")
+        yield table
+
     print(
         Panel.fit(
-            f"[magenta b]Name: [not b cyan]{name}\n"
-            f"[magenta b]Size: [not b cyan]{size}\n"
-            f"[magenta b]Classes: [not b cyan]{', '.join(classes)}\n"
-            f"[magenta b]Tasks: [not b cyan]{', '.join(tasks)}",
+            get_panels(),
             title="Dataset Info",
         )
     )
@@ -139,75 +164,58 @@ def inspect(
         ),
     ] = "train",  # type: ignore
     aug_config: Annotated[
-        Optional[Path],
+        Optional[str],
         typer.Option(
             ...,
             "--aug-config",
             "-a",
             help="Path to a config defining augmentations. "
             "This can be either a json or a yaml file.",
+            metavar="PATH",
         ),
     ] = None,
+    size_multiplier: Annotated[
+        float,
+        typer.Option(
+            ...,
+            "--size-multiplier",
+            "-s",
+            help=(
+                "Multiplier for the image size. "
+                "By default the images are shown in their original size."
+            ),
+            show_default=False,
+        ),
+    ] = 1.0,
 ):
     """Inspects images and annotations in a dataset."""
 
-    def _task_to_rgb(string: str) -> tuple:
-        h = int(hashlib.md5(string.encode()).hexdigest(), 16)
-        r = (h & 0xFF0000) >> 16
-        g = (h & 0x00FF00) >> 8
-        b = h & 0x0000FF
-
-        return (r, g, b)
-
+    dataset = LuxonisDataset(name)
+    h, w, _ = LuxonisLoader(dataset, view=view.value)[0][0].shape
     augmentations = None
+
     if aug_config is not None:
         with open(aug_config) as file:
             config = (
                 yaml.safe_load(file)
-                if aug_config.suffix == ".yaml"
+                if Path(aug_config).suffix == ".yaml"
                 else json.load(file)
             )
-        augmentations = Augmentations([512, 512], config)
+        augmentations = Augmentations([h, w], config)
 
-    dataset = LuxonisDataset(name)
+    if len(dataset) == 0:
+        raise ValueError(f"Dataset '{name}' is empty.")
+
     loader = LuxonisLoader(dataset, view=view.value, augmentations=augmentations)
-    for image, ann in loader:
+    class_names = dataset.get_classes()[1]
+    for image, labels in loader:
         image = image.astype(np.uint8)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
         h, w, _ = image.shape
-
-        # Ensure masks are drawn first to not occlude the other annotations
-        for task, (arr, label_type) in ann.items():
-            if label_type == LabelType.SEGMENTATION:
-                mask_viz = np.zeros((h, w, 3)).astype(np.uint8)
-                for i, mask in enumerate(arr):
-                    mask_viz[mask == 1] = _task_to_rgb(f"{task}_{i}")
-                image = cv2.addWeighted(image, 0.5, mask_viz, 0.5, 0)
-
-        for task, (arr, label_type) in ann.items():
-            if label_type == LabelType.BOUNDINGBOX:
-                for box in arr:
-                    cv2.rectangle(
-                        image,
-                        (int(box[1] * w), int(box[2] * h)),
-                        (int(box[1] * w + box[3] * w), int(box[2] * h + box[4] * h)),
-                        _task_to_rgb(task),
-                        2,
-                    )
-
-            if label_type == LabelType.KEYPOINTS:
-                for kp in arr:
-                    kp = kp[1:].reshape(-1, 3)
-                    for k in kp:
-                        cv2.circle(
-                            image,
-                            (int(k[0] * w), int(k[1] * h)),
-                            2,
-                            _task_to_rgb(task),
-                            2,
-                        )
-
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        new_h, new_w = int(h * size_multiplier), int(w * size_multiplier)
+        image = cv2.resize(image, (new_w, new_h))
+        image = visualize(image, labels, class_names)
         cv2.imshow("image", image)
         if cv2.waitKey() == ord("q"):
             break
