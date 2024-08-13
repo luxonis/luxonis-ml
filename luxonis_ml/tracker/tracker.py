@@ -296,6 +296,15 @@ class LuxonisTracker:
     def upload_artifact(
         self, path: PathType, name: Optional[str] = None, typ: str = "artifact"
     ) -> None:
+        """Uploads artifact to the logging service.
+
+        @type path: PathType
+        @param path: Path to the artifact
+        @type name: Optional[str]
+        @param name: Name of the artifact, if None then use the name of the file
+        @type typ: str
+        @param typ: Type of the artifact, defaults to "artifact". Only used for WandB.
+        """
         path = Path(path)
         if self.is_wandb:
             import wandb
