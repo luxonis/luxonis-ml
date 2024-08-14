@@ -164,9 +164,12 @@ def test_make_splits(
 ):
     definitions: Dict[str, List[str]] = defaultdict(list)
 
-    def generator(start_index: int = 0):
+    _start_index: int = 0
+
+    def generator(step=15):
+        nonlocal _start_index
         definitions.clear()
-        for i in range(start_index, start_index + 15):
+        for i in range(_start_index, _start_index + step):
             path = make_image(i)
             yield {
                 "file": str(path),
@@ -176,6 +179,7 @@ def test_make_splits(
                 },
             }
             definitions[["train", "val", "test"][i % 3]].append(str(path))
+        _start_index += step
 
     dataset = LuxonisDataset(
         f"_test_split-{bucket_storage.value}-{platform_name}-{python_version}",
@@ -188,10 +192,11 @@ def test_make_splits(
     dataset.make_splits(definitions=definitions)
     splits = dataset.get_splits()
     assert splits is not None
+    assert set(splits.keys()) == {"train", "val", "test"}
     for split, split_data in splits.items():
         assert len(split_data) == 5, f"Split {split} has {len(split_data)} samples"
 
-    dataset.add(generator(15))
+    dataset.add(generator())
     splits = dataset.get_splits()
     assert splits is not None
     for split, split_data in splits.items():
@@ -202,7 +207,7 @@ def test_make_splits(
     for split, split_data in splits.items():
         assert len(split_data) == 10, f"Split {split} has {len(split_data)} samples"
 
-    dataset.add(generator(30))
+    dataset.add(generator())
     dataset.make_splits((1, 0, 0))
     splits = dataset.get_splits()
     assert splits is not None
@@ -220,11 +225,22 @@ def test_make_splits(
             definitions={split: defs * 2 for split, defs in definitions.items()}
         )
 
+    dataset.add(generator(10))
+    dataset.make_splits({"custom_split": 1.0})
+    splits = dataset.get_splits()
+    assert splits is not None
+    assert set(splits.keys()) == {"train", "val", "test", "custom_split"}
+    for split, split_data in splits.items():
+        expected_length = 25 if split == "train" else 10
+        assert (
+            len(split_data) == expected_length
+        ), f"Split {split} has {len(split_data)} samples"
+
     dataset.make_splits(replace_old_splits=True)
     splits = dataset.get_splits()
     assert splits is not None
     for split, split_data in splits.items():
-        expected_length = {"train": 36, "val": 5, "test": 4}
+        expected_length = {"train": 44, "val": 6, "test": 5}
         assert (
             len(split_data) == expected_length[split]
         ), f"Split {split} has {len(split_data)} samples"
