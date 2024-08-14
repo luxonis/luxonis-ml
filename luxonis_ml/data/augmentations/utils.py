@@ -73,6 +73,7 @@ class Augmentations:
 
         spatial_augs = []
         batched_augs = []
+        spatial_augs.append(resize)
         if augmentations:
             for aug in augmentations:
                 curr_aug = AUGMENTATIONS.get(aug["name"])(**aug.get("params", {}))
@@ -82,8 +83,6 @@ class Augmentations:
                     batched_augs.append(curr_aug)
                 else:
                     spatial_augs.append(curr_aug)
-        # NOTE: always perform resize last
-        spatial_augs.append(resize)
 
         batch_transform = BatchCompose(
             [
