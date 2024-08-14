@@ -624,12 +624,13 @@ class LuxonisDataset(BaseDataset):
                     )
                 else:
                     ids = df.select("uuid").unique().get_column("uuid").to_list()
+                    old_splits = defaultdict(list)
 
             np.random.shuffle(ids)
             N = len(ids)
             lower_bound = 0
             for split, ratio in ratios.items():
-                upper_bound = lower_bound + round(N * ratio)
+                upper_bound = lower_bound + math.ceil(N * ratio)
                 new_splits[split] = ids[lower_bound:upper_bound]
                 splits_to_update.append(split)
                 lower_bound = upper_bound

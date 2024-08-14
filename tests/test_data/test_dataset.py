@@ -224,9 +224,9 @@ def test_make_splits(
     splits = dataset.get_splits()
     assert splits is not None
     for split, split_data in splits.items():
-        expected_length = 61 if split == "train" else 14
+        expected_length = {"train": 36, "val": 5, "test": 4}
         assert (
-            len(split_data) == expected_length
+            len(split_data) == expected_length[split]
         ), f"Split {split} has {len(split_data)} samples"
 
 
