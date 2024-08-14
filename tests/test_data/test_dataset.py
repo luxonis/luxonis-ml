@@ -93,7 +93,7 @@ def make_image(i) -> Path:
     [
         (BucketStorage.LOCAL,),
         (BucketStorage.S3,),
-        # (BucketStorage.GCS,),
+        (BucketStorage.GCS,),
     ],
 )
 def test_dataset(
