@@ -3,7 +3,7 @@ import logging
 import random
 import warnings
 from operator import itemgetter
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import cv2
 import numpy as np
@@ -19,7 +19,7 @@ class LuxonisLoader(BaseLoader):
     def __init__(
         self,
         dataset: LuxonisDataset,
-        view: str = "train",
+        view: Union[str, List[str]] = "train",
         stream: bool = False,
         augmentations: Optional[Augmentations] = None,
         *,
@@ -29,8 +29,9 @@ class LuxonisLoader(BaseLoader):
 
         @type dataset: LuxonisDataset
         @param dataset: LuxonisDataset to use
-        @type view: str
-        @param view: View of the dataset. Defaults to "train".
+        @type view: Union[str, List[str]]
+        @param view: What splits to use. Can be either a single split or a list of
+            splits. Defaults to "train".
         @type stream: bool
         @param stream: Flag for data streaming. Defaults to C{False}.
         @type augmentations: Optional[luxonis_ml.loader.Augmentations]
@@ -49,6 +50,8 @@ class LuxonisLoader(BaseLoader):
         if self.sync_mode:
             self.dataset.sync_from_cloud(force=force_resync)
 
+        if isinstance(view, str):
+            view = [view]
         self.view = view
 
         df = self.dataset._load_df_offline()
@@ -68,17 +71,17 @@ class LuxonisLoader(BaseLoader):
 
         self.classes, self.classes_by_task = self.dataset.get_classes()
         self.augmentations = augmentations
-        if self.view in ["train", "val", "test"]:
-            splits_path = self.dataset.metadata_path / "splits.json"
-            if not splits_path.exists():
-                raise RuntimeError(
-                    "Cannot find splits! Ensure you call dataset.make_splits()"
-                )
-            with open(splits_path, "r") as file:
-                splits = json.load(file)
-            self.instances = splits[self.view]
-        else:
-            raise NotImplementedError
+        self.instances = []
+        splits_path = self.dataset.metadata_path / "splits.json"
+        if not splits_path.exists():
+            raise RuntimeError(
+                "Cannot find splits! Ensure you call dataset.make_splits()"
+            )
+        with open(splits_path, "r") as file:
+            splits = json.load(file)
+
+        for view in self.view:
+            self.instances.extend(splits[view])
 
     def __len__(self) -> int:
         """Returns length of the dataset.

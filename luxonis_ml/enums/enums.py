@@ -13,9 +13,3 @@ class DatasetType(str, Enum):
     CLSDIR = "clsdir"
     SEGMASK = "segmask"
     SOLO = "solo"
-
-
-class SplitType(str, Enum):
-    TRAIN = "train"
-    VAL = "val"
-    TEST = "test"
