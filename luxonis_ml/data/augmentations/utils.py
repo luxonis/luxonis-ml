@@ -186,7 +186,7 @@ class Augmentations:
             transform_args["mask_batch"] = mask_batch
 
         # Apply transforms
-        transformed = self.batch_transform(**transform_args)
+        transformed = self.batch_transform(force_apply=False, **transform_args)
         transformed = {key: np.array(value[0]) for key, value in transformed.items()}
 
         # Prepare the spatial transform arguments
@@ -202,7 +202,9 @@ class Augmentations:
         if return_mask:
             spatial_transform_args["mask"] = transformed["mask_batch"]
 
-        transformed = self.spatial_transform(**spatial_transform_args)
+        transformed = self.spatial_transform(
+            force_apply=False, **spatial_transform_args
+        )
 
         out_image, out_mask, out_bboxes, out_keypoints = self.post_transform_process(
             transformed,
@@ -216,7 +218,7 @@ class Augmentations:
         out_annotations = {}
         for key in present_annotations:
             if key == LabelType.CLASSIFICATION:
-                out_annotations[LabelType.CLASSIFICATION] = classes
+                out_annotations[LabelType.CLASSIFICATION] = classes  # type: ignore
             elif key == LabelType.SEGMENTATION:
                 out_annotations[LabelType.SEGMENTATION] = out_mask
             elif key == LabelType.BOUNDINGBOX:
@@ -317,10 +319,11 @@ class Augmentations:
         @return: Postprocessed annotations
         """
 
-        out_image = transformed_data["image"].astype(np.float32)
+        out_image = transformed_data["image"]
         ih, iw, _ = out_image.shape
         if not self.train_rgb:
             out_image = cv2.cvtColor(out_image, cv2.COLOR_RGB2BGR)
+        out_image = out_image.astype(np.float32)
 
         out_mask = None
         if return_mask:
@@ -331,6 +334,7 @@ class Augmentations:
                 else None
             )
             if transformed_mask is not None:
+                assert out_mask is not None
                 for key in np.unique(transformed_mask):
                     if key != 0:
                         out_mask[int(key) - 1, ...] = transformed_mask == key
