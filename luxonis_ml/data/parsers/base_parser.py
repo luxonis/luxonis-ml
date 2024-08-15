@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from luxonis_ml.data import BaseDataset, DatasetIterator
 from luxonis_ml.data.datasets import DatasetRecord
@@ -98,14 +98,14 @@ class BaseParser(ABC):
 
     def parse_split(
         self,
-        split: Optional[Literal["train", "val", "test"]] = None,
+        split: Optional[str] = None,
         random_split: bool = False,
-        split_ratios: Tuple[float, float, float] = (0.8, 0.1, 0.1),
+        split_ratios: Optional[Dict[str, float]] = None,
         **kwargs,
     ) -> BaseDataset:
         """Parses data in a split subdirectory to L{LuxonisDataset} format.
 
-        @type split: Optional[Literal["train", "val", "test"]]
+        @type split: Optional[str]
         @param split: As what split the data will be added to LDF. If set,
             C{split_ratios} and C{random_split} are ignored.
         @type random_split: bool
@@ -123,7 +123,7 @@ class BaseParser(ABC):
         if split is not None:
             self.dataset.make_splits(definitions={split: added_images})
         elif random_split:
-            self.dataset.make_splits(split_ratios)
+            self.dataset.make_splits(ratios=split_ratios)
         return self.dataset
 
     def parse_dir(self, dataset_dir: Path, **kwargs) -> BaseDataset:
