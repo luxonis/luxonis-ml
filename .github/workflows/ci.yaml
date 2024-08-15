@@ -7,6 +7,7 @@ on:
       - 'luxonis_ml/**'
       - 'tests/**'
       - .github/workflows/ci.yaml
+  workflow_dispatch:
 
 jobs:
   pre-commit:
@@ -82,7 +83,7 @@ jobs:
         LUXONISML_BUCKET: luxonis-test-bucket
       with:
         emoji: false
-        custom-arguments: --cov luxonis_ml --cov-report xml --junit-xml pytest.xml
+        custom-arguments: --cov luxonis_ml --cov-report xml --junit-xml pytest.xml -s
 
     - name: Create Test Report
       uses: EnricoMi/publish-unit-test-result-action@v2
