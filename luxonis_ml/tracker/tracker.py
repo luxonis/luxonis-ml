@@ -189,16 +189,15 @@ class LuxonisTracker:
 
             if find_spec("psutil") is not None:
                 mlflow.enable_system_metrics_logging()
+                if find_spec("pynvml") is None:
+                    logger.warning(
+                        "pynvml not found, GPU stats will not be monitored. "
+                        "To enable GPU monitoring, install it using 'pip install pynvml'"
+                    )
             else:
                 logger.warning(
                     "`psutil` not found. To enable system metric logging, "
                     "install it using 'pip install psutil'"
-                )
-
-            if find_spec("pynvml") is None:
-                logger.warning(
-                    "pynvml not found, GPU stats will not be monitored. "
-                    "To enable GPU monitoring, install it using 'pip install pynvml'"
                 )
 
             self._experiment["mlflow"] = mlflow
