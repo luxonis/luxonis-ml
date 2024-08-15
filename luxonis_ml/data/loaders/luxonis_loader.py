@@ -3,6 +3,7 @@ import logging
 import random
 import warnings
 from collections import defaultdict
+from operator import itemgetter
 from typing import Dict, Optional, Tuple
 
 import cv2
@@ -88,7 +89,13 @@ class LuxonisLoader(BaseLoader):
         self.class_mappings = {}
         for task in df["task"].unique():
             class_mapping = {
-                class_: i for i, class_ in enumerate(self.classes_by_task[task])
+                class_: i
+                for i, class_ in enumerate(
+                    sorted(
+                        self.classes_by_task[task],
+                        key=lambda x: {"background": -1}.get(x, 0),
+                    )
+                )
             }
             self.class_mappings[task] = class_mapping
 
@@ -140,11 +147,34 @@ class LuxonisLoader(BaseLoader):
             ns = 0
             for img, annotations in loaded_anns:
                 label_dict: Dict[LabelType, np.ndarray] = {}
+                task_dict: Dict[LabelType, str] = {}
                 for task in sorted(list(annotations.keys())):
                     array, label_type = annotations[task]
                     if label_type not in label_dict:
+                        # ensure that bounding box annotations are added to the
+                        # `label_dict` before keypoints
+                        if label_type == LabelType.KEYPOINTS:
+                            if (
+                                LabelType.BOUNDINGBOX
+                                in map(itemgetter(1), list(annotations.values()))
+                                and LabelType.BOUNDINGBOX not in label_dict  # type: ignore
+                            ):
+                                continue
+
+                            if (
+                                LabelType.BOUNDINGBOX in label_dict  # type: ignore
+                                and LabelType.BOUNDINGBOX
+                                in map(itemgetter(1), list(annotations.values()))
+                            ):
+                                bbox_task = task_dict[LabelType.BOUNDINGBOX]
+                                *_, bbox_suffix = bbox_task.split("-", 1)
+                                *_, kp_suffix = task.split("-", 1)
+                                if bbox_suffix != kp_suffix:
+                                    continue
+
                         label_dict[label_type] = array
                         label_to_task[label_type] = task
+                        task_dict[label_type] = task
                         annotations.pop(task)
                         if label_type == LabelType.KEYPOINTS:
                             nk = (array.shape[1] - 1) // 3
