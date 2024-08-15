@@ -61,8 +61,6 @@ class Augmentations:
         @return: Objects for batched and spatial transforms
         """
 
-        image_size = image_size
-
         # NOTE: Always perform Resize
         if keep_aspect_ratio:
             resize = AUGMENTATIONS.get("LetterboxResize")(
@@ -372,6 +370,18 @@ class Augmentations:
         keypoints_classes = np.expand_dims(keypoints_classes, axis=-1)
         out_keypoints = np.concatenate((keypoints_classes, out_keypoints), axis=1)
         if filter_kpts_by_bbox:
+            transformed_visibility = transformed_data["bboxes_visibility"]
+            if (
+                len(transformed_visibility) != len(out_keypoints)
+                and not self.batch_transform.transforms
+            ):
+                raise ValueError(
+                    "Number of keypoints and bounding boxes are not equal. "
+                    "This can happen when using a dataset with multiple keypoint and boundingbox "
+                    "tasks. To avoid this, use the 'detection' type when generating the dataset "
+                    "instead of 'keypoints' and 'boundingbox' separately, or use the following "
+                    "naming convention for task names: 'task_name-keypoints' and 'task_name-boundingbox."
+                )
             out_keypoints = out_keypoints[
                 transformed_data["bboxes_visibility"]
             ]  # keep only keypoints of visible instances

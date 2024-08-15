@@ -86,10 +86,13 @@ class BaseParser(ABC):
         @rtype: List[str]
         @return: List of added images.
         """
-        generator, _, skeleton, added_images = self.from_split(**kwargs)
+        generator, _, skeletons, added_images = self.from_split(**kwargs)
         self.dataset.add(self.task_wrapper(generator))
-        if skeleton:
-            self.dataset.set_skeletons(skeleton, "keypoints")
+        if skeletons:
+            for skeleton in skeletons.values():
+                self.dataset.set_skeletons(
+                    skeleton.get("labels"), skeleton.get("edges"), "keypoints"
+                )
 
         return added_images
 
