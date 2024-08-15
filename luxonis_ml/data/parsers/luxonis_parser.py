@@ -2,7 +2,7 @@ import logging
 import zipfile
 from enum import Enum
 from pathlib import Path
-from typing import Dict, Literal, Optional, Tuple, Type, Union
+from typing import Dict, Optional, Tuple, Type, Union
 
 from luxonis_ml.data import DATASETS_REGISTRY, BaseDataset, LuxonisDataset
 from luxonis_ml.data.utils.enums import LabelType
@@ -173,9 +173,9 @@ class LuxonisParser:
 
     def _parse_split(
         self,
-        split: Optional[Literal["train", "val", "test"]] = None,
+        split: Optional[str] = None,
         random_split: bool = True,
-        split_ratios: Tuple[float, float, float] = (0.8, 0.1, 0.1),
+        split_ratios: Optional[Dict[str, float]] = None,
         **kwargs,
     ) -> BaseDataset:
         """Parses data from a subdirectory representing a single split.
@@ -189,9 +189,9 @@ class LuxonisParser:
         @type random_split: bool
         @param random_split: If random splits should be made. If C{True},
             C{split_ratios} are used.
-        @type split_ratios: Optional[Tuple[float, float, float]]
+        @type split_ratios: Optional[Dict[str, float]]
         @param split_ratios: Ratios for random splits. Only used if C{random_split} is
-            C{True}. Defaults to C{(0.8, 0.1, 0.1)}.
+            C{True}. Defaults to C{{"train": 0.8, "val": 0.1, "test": 0.1}}.
         @type kwargs: Dict[str, Any]
         @param kwargs: Additional kwargs for specific parser implementation.
         @rtype: LuxonisDataset

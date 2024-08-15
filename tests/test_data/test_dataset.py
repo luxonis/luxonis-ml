@@ -1,9 +1,11 @@
 import json
+import shutil
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, Final, Set
+from typing import Dict, Final, List, Set
 
 import cv2
+import numpy as np
 import pytest
 
 from luxonis_ml.data import (
@@ -65,6 +67,25 @@ URL_PREFIX: Final[str] = "gs://luxonis-test-bucket/luxonis-ml-test-data"
 WORK_DIR: Final[str] = "tests/data/parser_datasets"
 DATASET_NAME: Final[str] = "test-dataset"
 TASKS: Final[Set[str]] = {"segmentation", "classification", "keypoints", "boundingbox"}
+DATA_DIR = Path("tests/data/test_dataset")
+
+
+@pytest.fixture(autouse=True, scope="module")
+def prepare_dir():
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    yield
+
+    shutil.rmtree(DATA_DIR)
+
+
+def make_image(i) -> Path:
+    path = DATA_DIR / f"img_{i}.jpg"
+    if not path.exists():
+        img = np.zeros((512, 512, 3), dtype=np.uint8)
+        img[0:10, 0:10] = np.random.randint(0, 255, (10, 10, 3), dtype=np.uint8)
+        cv2.imwrite(str(path), img)
+    return path
 
 
 @pytest.mark.parametrize(
@@ -129,6 +150,100 @@ def test_dataset(
     with subtests.test("test_delete", bucket_storage=bucket_storage):
         dataset.delete_dataset(delete_remote=True)
         assert not LuxonisDataset.exists(dataset_name, bucket_storage=bucket_storage)
+
+
+@pytest.mark.parametrize(
+    ("bucket_storage",),
+    [
+        (BucketStorage.LOCAL,),
+        (BucketStorage.GCS,),
+    ],
+)
+def test_make_splits(
+    bucket_storage: BucketStorage, platform_name: str, python_version: str
+):
+    definitions: Dict[str, List[str]] = defaultdict(list)
+
+    _start_index: int = 0
+
+    def generator(step=15):
+        nonlocal _start_index
+        definitions.clear()
+        for i in range(_start_index, _start_index + step):
+            path = make_image(i)
+            yield {
+                "file": str(path),
+                "annotation": {
+                    "type": "classification",
+                    "class": ["dog", "cat"][i % 2],
+                },
+            }
+            definitions[["train", "val", "test"][i % 3]].append(str(path))
+        _start_index += step
+
+    dataset = LuxonisDataset(
+        f"_test_split-{bucket_storage.value}-{platform_name}-{python_version}",
+        delete_existing=True,
+        delete_remote=True,
+        bucket_storage=bucket_storage,
+    )
+    dataset.add(generator())
+    assert dataset.get_splits() is None
+    dataset.make_splits(definitions=definitions)
+    splits = dataset.get_splits()
+    assert splits is not None
+    assert set(splits.keys()) == {"train", "val", "test"}
+    for split, split_data in splits.items():
+        assert len(split_data) == 5, f"Split {split} has {len(split_data)} samples"
+
+    dataset.add(generator())
+    splits = dataset.get_splits()
+    assert splits is not None
+    for split, split_data in splits.items():
+        assert len(split_data) == 5, f"Split {split} has {len(split_data)} samples"
+    dataset.make_splits(definitions=definitions)
+    splits = dataset.get_splits()
+    assert splits is not None
+    for split, split_data in splits.items():
+        assert len(split_data) == 10, f"Split {split} has {len(split_data)} samples"
+
+    dataset.add(generator())
+    dataset.make_splits((1, 0, 0))
+    splits = dataset.get_splits()
+    assert splits is not None
+    for split, split_data in splits.items():
+        expected_length = 25 if split == "train" else 10
+        assert (
+            len(split_data) == expected_length
+        ), f"Split {split} has {len(split_data)} samples"
+
+    with pytest.raises(ValueError):
+        dataset.make_splits()
+        dataset.make_splits((0.7, 0.1, 1))
+        dataset.make_splits({"train": 1.5})
+        dataset.make_splits(
+            definitions={split: defs * 2 for split, defs in definitions.items()}
+        )
+
+    dataset.add(generator(10))
+    dataset.make_splits({"custom_split": 1.0})
+    splits = dataset.get_splits()
+    assert splits is not None
+    assert set(splits.keys()) == {"train", "val", "test", "custom_split"}
+    for split, split_data in splits.items():
+        expected_length = 25 if split == "train" else 10
+        assert (
+            len(split_data) == expected_length
+        ), f"Split {split} has {len(split_data)} samples"
+
+    dataset.make_splits(replace_old_splits=True)
+    splits = dataset.get_splits()
+    assert splits is not None
+    for split, split_data in splits.items():
+        expected_length = {"train": 44, "val": 6, "test": 5}
+        assert (
+            len(split_data) == expected_length[split]
+        ), f"Split {split} has {len(split_data)} samples"
 
 
 def test_complex_dataset():

@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Iterator, List, Optional, Sequence, Tuple, Union
+from typing import Dict, Iterator, List, Mapping, Optional, Sequence, Tuple, Union
 
 from typing_extensions import TypeAlias
 
@@ -122,21 +122,22 @@ class BaseDataset(
         """
         pass
 
-    # TODO: Support arbitrary named splits
     @abstractmethod
     def make_splits(
         self,
-        ratios: Tuple[float, float, float] = (0.8, 0.1, 0.1),
-        definitions: Optional[Dict[str, Sequence[PathType]]] = None,
+        ratios: Optional[Union[Dict[str, float], Tuple[float, float, float]]] = None,
+        definitions: Optional[Mapping[str, Sequence[PathType]]] = None,
     ) -> None:
-        """Saves a splits json file that specified the train/val/test split. For use in
-        I{OFFLINE} mode only.
+        """Saves a splits json file that specified the train/val/test splis.
 
-        @type ratios: Tuple[float, float, float]
-            Defaults to (0.8, 0.1, 0.1).
+        @type ratios: Optional[Union[Dict[str, float], Tuple[float, float, float]]]
+        @param ratios: Dictionary specifying the ratios of the splits. Can be a tuple
+            of floats for "train", "val", and "test" respectively, or a dictionary
+            specifying the ratios for each split.
+            Defaults to C{{"train": 0.8, "val": 0.1, "test": 0.1}}.
 
-        @type definitions: Optional[Dict]
-        @param definitions [Optional[Dict]]: Dictionary specifying split keys to lists
+        @type definitions: Optional[Mapping[str, Sequence[PathType]]
+        @param definitions: Dictionary specifying split keys to lists
             of filepath values. Note that this assumes unique filenames.
             Example::
 

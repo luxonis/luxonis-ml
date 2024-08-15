@@ -23,7 +23,7 @@ from luxonis_ml.data import (
     LuxonisParser,
 )
 from luxonis_ml.data.utils.visualizations import visualize
-from luxonis_ml.enums import DatasetType, SplitType
+from luxonis_ml.enums import DatasetType
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +73,7 @@ def print_info(name: str) -> None:
     def get_sizes_panel():
         if splits is not None:
             for split, files in splits.items():
-                yield f"[magenta b]{split.capitalize()}: [not b cyan]{len(files)}"
+                yield f"[magenta b]{split}: [not b cyan]{len(files)}"
         else:
             yield "[red]No splits found"
         yield Rule()
@@ -154,15 +154,15 @@ def ls(
 def inspect(
     name: DatasetNameArgument,
     view: Annotated[
-        SplitType,
+        Optional[List[str]],
         typer.Option(
             ...,
             "--view",
             "-v",
-            help="Which split of the dataset to inspect.",
+            help="Which splits of the dataset to inspect.",
             case_sensitive=False,
         ),
-    ] = "train",  # type: ignore
+    ] = None,
     aug_config: Annotated[
         Optional[str],
         typer.Option(
@@ -190,8 +190,9 @@ def inspect(
 ):
     """Inspects images and annotations in a dataset."""
 
+    view = view or ["train"]
     dataset = LuxonisDataset(name)
-    h, w, _ = LuxonisLoader(dataset, view=view.value)[0][0].shape
+    h, w, _ = LuxonisLoader(dataset, view=view)[0][0].shape
     augmentations = None
 
     if aug_config is not None:
@@ -206,7 +207,7 @@ def inspect(
     if len(dataset) == 0:
         raise ValueError(f"Dataset '{name}' is empty.")
 
-    loader = LuxonisLoader(dataset, view=view.value, augmentations=augmentations)
+    loader = LuxonisLoader(dataset, view=view, augmentations=augmentations)
     class_names = dataset.get_classes()[1]
     for image, labels in loader:
         image = image.astype(np.uint8)
