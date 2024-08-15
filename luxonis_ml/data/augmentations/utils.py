@@ -7,7 +7,7 @@ import numpy as np
 from luxonis_ml.utils.registry import Registry
 
 from ..utils.enums import LabelType
-from .batch_compose import BatchCompose, ForEach
+from .batch_compose import BatchCompose
 from .batch_transform import BatchBasedTransform
 
 AUGMENTATIONS = Registry(name="augmentations")
