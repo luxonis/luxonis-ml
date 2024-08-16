@@ -425,11 +425,12 @@ class LuxonisFileSystem:
             raise NotImplementedError
         elif self.is_fsspec:
             full_path = str(self.path / remote_dir)
-            for file in self.fs.glob(
-                full_path + f"/{'**' if recursive else '*'}", detail=True
-            ):
-                if typ == "all" or self.fs.info(file)["type"] == typ:
-                    yield str(PurePosixPath(str(file)).relative_to(self.path))
+            for file in self.fs.ls(full_path, detail=True):
+                name = str(PurePosixPath(str(file["name"])).relative_to(self.path))
+                if typ == "all" or file["type"] == typ:
+                    yield name
+                if recursive and file["type"] == "directory":
+                    yield from self.walk_dir(name, recursive, typ)
 
     def read_to_byte_buffer(self, remote_path: Optional[PathType] = None) -> BytesIO:
         """Reads a file into a byte buffer.
