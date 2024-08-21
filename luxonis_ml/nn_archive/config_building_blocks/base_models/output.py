@@ -1,3 +1,4 @@
+from contextlib import suppress
 from typing import List, Optional
 
 from pydantic import Field, model_validator
@@ -5,6 +6,7 @@ from typing_extensions import Self
 
 from luxonis_ml.utils import BaseModelExtraForbid
 
+from ...utils import infer_layout
 from ..enums import DataType
 
 
@@ -47,5 +49,13 @@ class Output(BaseModelExtraForbid):
 
         if len(self.layout) != len(self.shape):
             raise ValueError("Layout and shape must have the same length.")
+
+        return self
+
+    @model_validator(mode="after")
+    def infer_layout(self) -> Self:
+        if self.layout is None and self.shape is not None:
+            with suppress(Exception):
+                self.layout = infer_layout(self.shape)
 
         return self

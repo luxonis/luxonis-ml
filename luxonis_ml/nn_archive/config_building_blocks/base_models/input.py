@@ -1,10 +1,12 @@
-from typing import List, Optional
+from contextlib import suppress
+from typing import Any, Dict, List, Optional
 
 from pydantic import Field, model_validator
 from typing_extensions import Self
 
 from luxonis_ml.utils import BaseModelExtraForbid
 
+from ...utils import infer_layout
 from ..enums import DataType, InputType
 
 
@@ -97,3 +99,11 @@ class Input(BaseModelExtraForbid):
                 )
 
         return self
+
+    @model_validator(mode="before")
+    @staticmethod
+    def infer_layout(data: Dict[str, Any]) -> Dict[str, Any]:
+        if "shape" in data and "layout" not in data:
+            with suppress(Exception):
+                data["layout"] = infer_layout(data["shape"])
+        return data
