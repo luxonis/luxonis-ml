@@ -53,7 +53,12 @@ def infer_layout(shape: List[int]) -> str:
     i = 0
     while len(layout) < len(shape):
         # Starting with "C" for more sensible defaults
-        letter = chr(ord("A") + (i + 2) % 26)
+        letter = chr(ord("A") + i + 2)
+        if ord(letter) > ord("Z"):
+            raise ValueError(
+                f"Too many dimensions ({len(shape)}) for automatic layout."
+            )
+
         if letter not in layout:
             layout.append(letter)
         i += 1
