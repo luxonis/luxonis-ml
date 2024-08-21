@@ -16,9 +16,7 @@ from typing_extensions import overload
 
 from luxonis_ml.utils.filesystem import LuxonisFileSystem, ModuleType, PathType
 
-from .annotation import (
-    DatasetRecord,
-)
+from .annotation import DatasetRecord
 from .base_dataset import DatasetIterator
 
 

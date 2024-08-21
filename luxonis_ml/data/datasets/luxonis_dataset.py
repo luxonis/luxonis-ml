@@ -31,19 +31,10 @@ from luxonis_ml.utils.filesystem import PathType
 from ..utils.constants import LDF_VERSION
 from ..utils.enums import BucketStorage, BucketType
 from ..utils.parquet import ParquetFileManager
-from .annotation import (
-    Annotation,
-    ArrayAnnotation,
-    DatasetRecord,
-)
+from .annotation import Annotation, ArrayAnnotation, DatasetRecord
 from .base_dataset import BaseDataset, DatasetIterator
 from .source import LuxonisSource
-from .utils import (
-    add_generator_wrapper,
-    find_filepath_uuid,
-    get_dir,
-    get_file,
-)
+from .utils import add_generator_wrapper, find_filepath_uuid, get_dir, get_file
 
 
 class LuxonisDataset(BaseDataset):
