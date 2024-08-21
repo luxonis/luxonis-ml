@@ -109,7 +109,6 @@ def test_protocol():
 
 def test_fail():
     with pytest.raises(ValueError):
-        LuxonisFileSystem(None)  # type: ignore
         LuxonisFileSystem(str(LOCAL_FILE_PATH), allow_local=False)
 
 
