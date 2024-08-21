@@ -247,10 +247,8 @@ class LuxonisDataset(BaseDataset):
 
     def _get_metadata(self) -> Dict[str, Any]:
         if self.fs.exists("metadata/metadata.json"):
-            with tempfile.TemporaryDirectory() as tmp_dir:
-                self.fs.get_file("metadata/metadata.json", tmp_dir)
-                with open(Path(tmp_dir, "metadata.json")) as file:
-                    return json.load(file)
+            path = self.fs.get_file("metadata/metadata.json", self.metadata_path)
+            return json.loads(path.read_text())
         else:
             return {
                 "source": LuxonisSource().to_document(),
@@ -553,7 +551,7 @@ class LuxonisDataset(BaseDataset):
     def get_splits(self) -> Optional[Dict[str, List[str]]]:
         splits_path = self._get_file(
             "metadata/splits.json",
-            self.local_path,
+            self.metadata_path,
         )
         if splits_path is None:
             return None
