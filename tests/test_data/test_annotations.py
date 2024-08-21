@@ -1,9 +1,6 @@
 import pytest
 
-from luxonis_ml.data.datasets.luxonis_dataset import (
-    _add_generator_wrapper,
-    rescale_values,
-)
+from luxonis_ml.data.datasets.utils import add_generator_wrapper, rescale_values
 
 
 def test_rescale_values_keypoints():
@@ -56,7 +53,7 @@ def test_add_generator_wrapper_non_detection():
             },
         }
 
-    wrapped_gen = _add_generator_wrapper(dummy_generator())
+    wrapped_gen = add_generator_wrapper(dummy_generator())
     result = next(wrapped_gen)
     assert isinstance(result, dict)
     assert "file" in result
@@ -78,7 +75,7 @@ def test_add_generator_wrapper_missing_scaled_to_boxes():
             },
         }
 
-    wrapped_gen = _add_generator_wrapper(dummy_generator())
+    wrapped_gen = add_generator_wrapper(dummy_generator())
 
     tasks = []
     for record in wrapped_gen:

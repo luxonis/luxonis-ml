@@ -17,6 +17,7 @@ from typing import (
     List,
     Literal,
     Optional,
+    Protocol,
     Sequence,
     Tuple,
     Union,
@@ -24,6 +25,7 @@ from typing import (
 )
 
 import fsspec
+from typeguard import typechecked
 
 from .environ import environ
 from .registry import Registry
@@ -32,7 +34,18 @@ logger = getLogger(__name__)
 
 PathType = Union[str, Path]
 
-PUT_FILE_REGISTRY = Registry(name="put_file")
+
+class PutFile(Protocol):
+    def __call__(
+        self,
+        local_path: PathType,
+        remote_path: PathType,
+        mlflow_instance: Optional[ModuleType] = None,
+    ) -> str:
+        ...
+
+
+PUT_FILE_REGISTRY: Registry[PutFile] = Registry(name="put_file")
 
 
 class FSType(Enum):
@@ -41,6 +54,7 @@ class FSType(Enum):
 
 
 class LuxonisFileSystem:
+    @typechecked
     def __init__(
         self,
         path: str,
@@ -70,9 +84,6 @@ class LuxonisFileSystem:
         @param put_file_plugin: The name of a registered function under the
             PUT_FILE_REGISTRY to override C{self.put_file}.
         """
-        if path is None:
-            raise ValueError("No path provided to LuxonisFileSystem.")
-
         self.cache_storage = cache_storage
 
         self.protocol, _path = _get_protocol_and_path(path)

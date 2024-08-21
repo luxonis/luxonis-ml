@@ -10,7 +10,6 @@ from typing import (
     Any,
     Dict,
     List,
-    Literal,
     Mapping,
     Optional,
     Sequence,
@@ -23,12 +22,11 @@ import numpy as np
 import polars as pl
 import pyarrow.parquet as pq
 from ordered_set import OrderedSet
-from pycocotools import mask as mask_utils
-from typing_extensions import Self, overload
+from typing_extensions import Self
 
 import luxonis_ml.data.utils.data_utils as data_utils
 from luxonis_ml.utils import LuxonisFileSystem, environ, make_progress_bar
-from luxonis_ml.utils.filesystem import ModuleType, PathType
+from luxonis_ml.utils.filesystem import PathType
 
 from ..utils.constants import LDF_VERSION
 from ..utils.enums import BucketStorage, BucketType
@@ -40,6 +38,12 @@ from .annotation import (
 )
 from .base_dataset import BaseDataset, DatasetIterator
 from .source import LuxonisSource
+from .utils import (
+    add_generator_wrapper,
+    find_filepath_uuid,
+    get_dir,
+    get_file,
+)
 
 
 class LuxonisDataset(BaseDataset):
@@ -160,7 +164,7 @@ class LuxonisDataset(BaseDataset):
             )
 
     def _load_df_offline(self) -> Optional[pl.DataFrame]:
-        path = self._get_dir("annotations", self.local_path)
+        path = get_dir(self.fs, "annotations", self.local_path)
 
         if path is None or not path.exists():
             return None
@@ -169,47 +173,8 @@ class LuxonisDataset(BaseDataset):
 
         return pl.concat(dfs) if dfs else None
 
-    @overload
-    def _find_filepath_uuid(
-        self,
-        filepath: Path,
-        index: Optional[pl.DataFrame],
-        *,
-        raise_on_missing: Literal[False] = False,
-    ) -> Optional[str]:
-        pass
-
-    @overload
-    def _find_filepath_uuid(
-        self,
-        filepath: Path,
-        index: Optional[pl.DataFrame],
-        *,
-        raise_on_missing: Literal[True] = True,
-    ) -> str:
-        pass
-
-    def _find_filepath_uuid(
-        self,
-        filepath: Path,
-        index: Optional[pl.DataFrame],
-        *,
-        raise_on_missing: bool = False,
-    ) -> Optional[str]:
-        if index is None:
-            return None
-
-        abs_path = str(filepath.absolute())
-        matched = index.filter(pl.col("original_filepath") == abs_path)
-
-        if len(matched):
-            return list(matched.select("uuid"))[0][0]
-        elif raise_on_missing:
-            raise ValueError(f"File {abs_path} not found in index")
-        return None
-
     def _get_file_index(self) -> Optional[pl.DataFrame]:
-        path = self._get_file("metadata/file_index.parquet", self.media_path)
+        path = get_file(self.fs, "metadata/file_index.parquet", self.media_path)
         if path is not None and path.exists():
             return pl.read_parquet(path).select(pl.all().exclude("^__index_level_.*$"))
         return None
@@ -247,7 +212,12 @@ class LuxonisDataset(BaseDataset):
 
     def _get_metadata(self) -> Dict[str, Any]:
         if self.fs.exists("metadata/metadata.json"):
-            path = self.fs.get_file("metadata/metadata.json", self.metadata_path)
+            path = get_file(
+                self.fs,
+                "metadata/metadata.json",
+                self.metadata_path,
+                default=self.metadata_path / "metadata.json",
+            )
             return json.loads(path.read_text())
         else:
             return {
@@ -463,7 +433,7 @@ class LuxonisDataset(BaseDataset):
                 filepath = ann.file
                 file = filepath.name
                 uuid = uuid_dict[str(filepath)]
-                matched_id = self._find_filepath_uuid(Path(filepath), index)
+                matched_id = find_filepath_uuid(Path(filepath), index)
                 if matched_id is not None:
                     if matched_id != uuid:
                         # TODO: not sure if this should be an exception or how we should really handle it
@@ -482,7 +452,7 @@ class LuxonisDataset(BaseDataset):
         self.progress.remove_task(task)
 
     def add(self, generator: DatasetIterator, batch_size: int = 1_000_000) -> Self:
-        generator = _add_generator_wrapper(generator)
+        generator = add_generator_wrapper(generator)
         index = self._get_file_index()
         new_index = {"uuid": [], "file": [], "original_filepath": []}
         processed_uuids = set()
@@ -492,8 +462,8 @@ class LuxonisDataset(BaseDataset):
         classes_per_task: Dict[str, OrderedSet[str]] = defaultdict(OrderedSet)
         num_kpts_per_task: Dict[str, int] = {}
 
-        annotations_path = self._get_dir(
-            "annotations", self.local_path, default=self.annotations_path
+        annotations_path = get_dir(
+            self.fs, "annotations", self.local_path, default=self.annotations_path
         )
         assert annotations_path is not None
 
@@ -549,7 +519,8 @@ class LuxonisDataset(BaseDataset):
         return self
 
     def get_splits(self) -> Optional[Dict[str, List[str]]]:
-        splits_path = self._get_file(
+        splits_path = get_file(
+            self.fs,
             "metadata/splits.json",
             self.metadata_path,
         )
@@ -591,12 +562,12 @@ class LuxonisDataset(BaseDataset):
         new_splits: Dict[str, List[str]] = {}
         old_splits: Dict[str, List[str]] = defaultdict(list)
 
-        splits_path = self._get_file(
+        splits_path = get_file(
+            self.fs,
             "metadata/splits.json",
-            self.local_path,
+            self.metadata_path,
             default=self.metadata_path / "splits.json",
         )
-        assert splits_path is not None
         if splits_path.exists():
             with open(splits_path, "r") as file:
                 old_splits = defaultdict(list, json.load(file))
@@ -642,9 +613,7 @@ class LuxonisDataset(BaseDataset):
                 if not isinstance(filepaths, list):
                     raise ValueError("Must provide splits as a list of filepaths")
                 ids = [
-                    self._find_filepath_uuid(
-                        Path(filepath), index, raise_on_missing=True
-                    )
+                    find_filepath_uuid(Path(filepath), index, raise_on_missing=True)
                     for filepath in filepaths
                 ]
                 new_splits[split] = ids
@@ -704,176 +673,3 @@ class LuxonisDataset(BaseDataset):
             LuxonisDataset._construct_url(bucket_storage, bucket, team_id, "")
         )
         return list(fs.walk_dir("", recursive=False, typ="directory"))
-
-    def _get_dir(
-        self,
-        remote_path: PathType,
-        local_dir: PathType,
-        mlflow_instance: Optional[ModuleType] = None,
-        default: Optional[PathType] = None,
-    ) -> Optional[Path]:
-        try:
-            return self.fs.get_dir(remote_path, local_dir, mlflow_instance)
-        except shutil.SameFileError:
-            return Path(local_dir, Path(remote_path).name)
-        except Exception:
-            return Path(default) if default is not None else None
-
-    def _get_file(
-        self,
-        remote_path: PathType,
-        local_path: PathType,
-        mlflow_instance: Optional[ModuleType] = None,
-        default: Optional[PathType] = None,
-    ) -> Optional[Path]:
-        try:
-            return self.fs.get_file(remote_path, local_path, mlflow_instance)
-        except shutil.SameFileError:
-            return Path(local_path, Path(remote_path).name)
-        except Exception:
-            return Path(default) if default is not None else None
-
-
-def _rescale_mask(
-    mask: np.ndarray, mask_w: int, mask_h: int, x: float, y: float, w: float, h: float
-) -> np.ndarray:
-    return mask[
-        int(y * mask_h) : int((y + h) * mask_h),
-        int(x * mask_w) : int((x + w) * mask_w),
-    ].astype(np.uint8)
-
-
-def _rescale_rle(rle: dict, x: float, y: float, w: float, h: float) -> dict:
-    height, width = rle["size"]
-
-    if isinstance(rle["counts"], list):
-        rle["counts"] = "".join(map(str, rle["counts"]))
-
-    decoded_mask = mask_utils.decode(rle)  # type: ignore
-
-    cropped_mask = _rescale_mask(decoded_mask, width, height, x, y, w, h)
-
-    bbox_height = int(h * height)
-    bbox_width = int(w * width)
-
-    norm_mask = cropped_mask.astype(np.uint8)
-    encoded_norm_mask = mask_utils.encode(np.asfortranarray(norm_mask))
-
-    return {
-        "height": bbox_height,
-        "width": bbox_width,
-        "counts": encoded_norm_mask["counts"].decode("utf-8")
-        if isinstance(encoded_norm_mask["counts"], bytes)
-        else encoded_norm_mask["counts"],
-    }
-
-
-def rescale_values(
-    bbox: Dict[str, float],
-    ann: Union[List, Dict],
-    sub_ann_key: Literal["keypoints", "segmentation"],
-) -> Optional[
-    Union[
-        List[Tuple[float, float, int]],
-        List[Tuple[float, float]],
-        Dict[str, Union[int, List[int]]],
-        np.ndarray,
-    ]
-]:
-    """Rescale annotation values based on the bounding box coordinates."""
-    x, y, w, h = bbox["x"], bbox["y"], bbox["w"], bbox["h"]
-
-    if sub_ann_key == "keypoints":
-        return [
-            (
-                float(kp[0] * w + x),
-                float(kp[1] * h + y),
-                int(kp[2]),
-            )
-            for kp in ann
-        ]
-
-    if sub_ann_key == "segmentation":
-        assert isinstance(ann, dict)
-        if "polylines" in ann:
-            return [(poly[0] * w + x, poly[1] * h + y) for poly in ann["polylines"]]
-
-        if "rle" in ann:
-            return _rescale_rle(ann["rle"], x, y, w, h)
-
-        if "mask" in ann:
-            mask = ann["mask"]
-            width, height = mask.shape
-            return _rescale_mask(ann["mask"], width, height, x, y, w, h)
-
-        raise ValueError(
-            "Invalid segmentation format. Must be either 'polylines', 'rle', or 'mask'"
-        )
-
-    return None
-
-
-def _add_generator_wrapper(generator: DatasetIterator) -> DatasetIterator:
-    """Generator wrapper to rescale and reformat annotations for each record in the
-    input generator."""
-
-    def create_new_record(
-        record: Dict[str, Union[str, Dict]],
-        annotation: Dict[str, Union[str, int, float, List, Dict]],
-    ) -> Dict[str, Union[str, Dict]]:
-        """Create a new record with the updated annotation."""
-        return {
-            "file": record["file"],
-            "annotation": annotation,
-        }
-
-    for record in generator:
-        if isinstance(record, DatasetRecord):
-            yield record
-            continue
-
-        ann = record["annotation"]
-        if ann["type"] != "detection":
-            yield record
-            continue
-
-        bbox = ann.get("boundingbox", None)
-        for sub_ann_key in ["boundingbox", "segmentation", "keypoints"]:
-            if sub_ann_key not in ann:
-                continue
-
-            sub_ann = ann[sub_ann_key]
-            if sub_ann_key == "boundingbox":
-                bbox = sub_ann
-
-            if ann.get("scaled_to_boxes", False):
-                sub_ann = rescale_values(bbox, sub_ann, sub_ann_key)  # type: ignore
-
-            task = ann.get("task", "detection")
-
-            new_ann = {
-                "type": sub_ann_key,
-                "class": ann["class"],
-                "task": f"{task}-{sub_ann_key}",
-            }
-
-            if sub_ann_key == "boundingbox":
-                new_ann.update({"instance_id": ann["instance_id"], **bbox})
-            elif sub_ann_key == "segmentation":
-                if isinstance(sub_ann, list):
-                    new_ann.update({"points": sub_ann, "type": "polyline"})
-                elif isinstance(sub_ann, dict) and "counts" in sub_ann:
-                    new_ann.update(
-                        {
-                            "height": sub_ann["height"],
-                            "width": sub_ann["width"],
-                            "counts": sub_ann["counts"],
-                            "type": "rle",
-                        }
-                    )
-            elif sub_ann_key == "keypoints":
-                new_ann.update(
-                    {"instance_id": ann["instance_id"], "keypoints": sub_ann}
-                )
-
-            yield create_new_record(record, new_ann)
