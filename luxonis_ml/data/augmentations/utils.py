@@ -52,7 +52,7 @@ class Augmentations:
         image_size: List[int],
         augmentations: List[Dict[str, Any]],
         keep_aspect_ratio: bool = True,
-    ) -> Tuple[BatchCompose, A.Compose]:
+    ) -> Tuple[BatchCompose, A.Compose, A.Compose]:
         """Parses provided config and returns Albumentations BatchedCompose object and
         Compose object for default transforms.
 
@@ -63,8 +63,8 @@ class Augmentations:
         @type keep_aspect_ratio: bool
         @param keep_aspect_ratio: Whether should use resize that keeps aspect ratio of
             original image.
-        @rtype: Tuple[BatchCompose, A.Compose]
-        @return: Objects for batched and spatial transforms
+        @rtype: Tuple[BatchCompose, A.Compose, A.Compose]
+        @return: Objects for batched, spatial and resize transforms
         """
 
         # NOTE: Always perform Resize
