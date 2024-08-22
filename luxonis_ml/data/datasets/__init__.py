@@ -10,11 +10,7 @@ from .annotation import (
     RLESegmentationAnnotation,
     load_annotation,
 )
-from .base_dataset import (
-    DATASETS_REGISTRY,
-    BaseDataset,
-    DatasetIterator,
-)
+from .base_dataset import DATASETS_REGISTRY, BaseDataset, DatasetIterator
 from .luxonis_dataset import LuxonisDataset
 from .source import LuxonisComponent, LuxonisSource
 

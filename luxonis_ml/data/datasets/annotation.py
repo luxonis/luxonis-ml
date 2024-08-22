@@ -11,12 +11,9 @@ from pydantic import ConfigDict, Field, field_validator, model_validator
 from pydantic.types import FilePath, NonNegativeInt, PositiveInt
 from typing_extensions import Annotated, TypeAlias
 
-from luxonis_ml.utils import BaseModelExtraForbid, Registry
+from luxonis_ml.utils import BaseModelExtraForbid
 
 from ..utils.enums import LabelType
-
-DATASETS_REGISTRY = Registry(name="datasets")
-
 
 KeypointVisibility: TypeAlias = Literal[0, 1, 2]
 NormalizedFloat: TypeAlias = Annotated[float, Field(ge=0, le=1)]
