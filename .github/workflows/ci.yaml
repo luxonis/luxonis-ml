@@ -27,6 +27,8 @@ jobs:
 
       - name: Labeler
         uses: actions/labeler@v5
+        with:
+          configuration-path: .github/labeler.yaml
 
   pre-commit:
     runs-on: ubuntu-latest
