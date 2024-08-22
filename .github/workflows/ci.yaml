@@ -15,7 +15,8 @@ jobs:
   assigner:
     runs-on: ubuntu-latest
     steps:
-      - uses: toshimaru/auto-author-assign@v2.1.1
+      - name: Auto-assign
+        uses: toshimaru/auto-author-assign@v2.1.1
 
   labeler:
     runs-on: ubuntu-latest
