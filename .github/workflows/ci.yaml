@@ -8,6 +8,9 @@ on:
       - 'tests/**'
       - .github/workflows/ci.yaml
 
+permissions:
+  pull-requests: write
+
 jobs:
   assigner:
     runs-on: ubuntu-latest
