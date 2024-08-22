@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Tuple, Type
+from typing import Dict, Iterator, Tuple, Type
 
 import numpy as np
 from typing_extensions import TypeAlias
@@ -47,3 +47,12 @@ class BaseLoader(
         @return: Sample's data in L{LuxonisLoaderOutput} format.
         """
         pass
+
+    def __iter__(self) -> Iterator[LuxonisLoaderOutput]:
+        """Iterates over the dataset.
+
+        @rtype: Iterator
+        @return: Iterator over the dataset.
+        """
+        for i in range(len(self)):
+            yield self[i]
