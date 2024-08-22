@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Tuple
+from typing import Dict, Iterator, Tuple, Type
 
 import numpy as np
 from typing_extensions import TypeAlias
@@ -17,7 +17,7 @@ LuxonisLoaderOutput: TypeAlias = Tuple[np.ndarray, Labels]
 """C{LuxonisLoaderOutput} is a tuple of an image as a L{numpy array<np.ndarray>} and a
 dictionary of task group names and their annotations as L{Annotations}."""
 
-LOADERS_REGISTRY = Registry(name="loaders")
+LOADERS_REGISTRY: Registry[Type["BaseLoader"]] = Registry(name="loaders")
 
 
 class BaseLoader(
@@ -47,3 +47,12 @@ class BaseLoader(
         @return: Sample's data in L{LuxonisLoaderOutput} format.
         """
         pass
+
+    def __iter__(self) -> Iterator[LuxonisLoaderOutput]:
+        """Iterates over the dataset.
+
+        @rtype: Iterator
+        @return: Iterator over the dataset.
+        """
+        for i in range(len(self)):
+            yield self[i]

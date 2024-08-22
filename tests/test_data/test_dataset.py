@@ -152,6 +152,26 @@ def test_dataset(
         assert not LuxonisDataset.exists(dataset_name, bucket_storage=bucket_storage)
 
 
+@pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
+def test_loader_iterator():
+    dataset = LuxonisParser(
+        f"{URL_PREFIX}/COCO_people_subset.zip",
+        dataset_name="_iterator_test",
+        save_dir=WORK_DIR,
+        dataset_type=DatasetType.COCO,
+        delete_existing=True,
+    ).parse()
+    loader = LuxonisLoader(dataset)
+
+    def _raise(*_):
+        raise IndexError
+
+    loader._load_image_with_annotations = _raise
+    with pytest.raises(IndexError):
+        for _ in loader:
+            pass
+
+
 @pytest.mark.parametrize(
     ("bucket_storage",),
     [

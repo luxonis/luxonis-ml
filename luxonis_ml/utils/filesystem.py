@@ -17,6 +17,7 @@ from typing import (
     List,
     Literal,
     Optional,
+    Protocol,
     Sequence,
     Tuple,
     Union,
@@ -24,6 +25,7 @@ from typing import (
 )
 
 import fsspec
+from typeguard import typechecked
 
 from .environ import environ
 from .registry import Registry
@@ -32,7 +34,18 @@ logger = getLogger(__name__)
 
 PathType = Union[str, Path]
 
-PUT_FILE_REGISTRY = Registry(name="put_file")
+
+class PutFile(Protocol):
+    def __call__(
+        self,
+        local_path: PathType,
+        remote_path: PathType,
+        mlflow_instance: Optional[ModuleType] = None,
+    ) -> str:
+        ...
+
+
+PUT_FILE_REGISTRY: Registry[PutFile] = Registry(name="put_file")
 
 
 class FSType(Enum):
@@ -41,6 +54,7 @@ class FSType(Enum):
 
 
 class LuxonisFileSystem:
+    @typechecked
     def __init__(
         self,
         path: str,
@@ -70,9 +84,6 @@ class LuxonisFileSystem:
         @param put_file_plugin: The name of a registered function under the
             PUT_FILE_REGISTRY to override C{self.put_file}.
         """
-        if path is None:
-            raise ValueError("No path provided to LuxonisFileSystem.")
-
         self.cache_storage = cache_storage
 
         self.protocol, _path = _get_protocol_and_path(path)
@@ -647,9 +658,9 @@ def _check_package_installed(protocol: str) -> None:
         )
 
     if protocol in ["gs", "gcs"] and find_spec("gcsfs") is None:
-        _pip_install("gcsfs", "2023.1.0")
+        _pip_install("gcsfs", "2023.3.0")
     elif protocol == "s3" and find_spec("s3fs") is None:
-        _pip_install("s3fs", "2023.1.0")
+        _pip_install("s3fs", "2023.3.0")
     elif protocol == "mlflow" and find_spec("mlflow") is None:
         _pip_install("mlflow", "2.10.0")
 
