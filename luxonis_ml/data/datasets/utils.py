@@ -59,7 +59,7 @@ def get_file(
 
 @overload
 def find_filepath_uuid(
-    filepath: Path,
+    filepath: PathType,
     index: Optional[pl.DataFrame],
     *,
     raise_on_missing: Literal[False] = ...,
@@ -69,7 +69,7 @@ def find_filepath_uuid(
 
 @overload
 def find_filepath_uuid(
-    filepath: Path,
+    filepath: PathType,
     index: Optional[pl.DataFrame],
     *,
     raise_on_missing: Literal[True] = ...,
@@ -78,7 +78,7 @@ def find_filepath_uuid(
 
 
 def find_filepath_uuid(
-    filepath: Path,
+    filepath: PathType,
     index: Optional[pl.DataFrame],
     *,
     raise_on_missing: bool = False,
@@ -86,7 +86,7 @@ def find_filepath_uuid(
     if index is None:
         return None
 
-    abs_path = str(filepath.absolute())
+    abs_path = str(Path(filepath).absolute())
     matched = index.filter(pl.col("original_filepath") == abs_path)
 
     if len(matched):

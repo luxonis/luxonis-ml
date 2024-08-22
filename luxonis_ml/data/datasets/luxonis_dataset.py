@@ -424,7 +424,7 @@ class LuxonisDataset(BaseDataset):
                 filepath = ann.file
                 file = filepath.name
                 uuid = uuid_dict[str(filepath)]
-                matched_id = find_filepath_uuid(Path(filepath), index)
+                matched_id = find_filepath_uuid(filepath, index)
                 if matched_id is not None:
                     if matched_id != uuid:
                         # TODO: not sure if this should be an exception or how we should really handle it
@@ -604,7 +604,7 @@ class LuxonisDataset(BaseDataset):
                 if not isinstance(filepaths, list):
                     raise ValueError("Must provide splits as a list of filepaths")
                 ids = [
-                    find_filepath_uuid(Path(filepath), index, raise_on_missing=True)
+                    find_filepath_uuid(filepath, index, raise_on_missing=True)
                     for filepath in filepaths
                 ]
                 new_splits[split] = ids
