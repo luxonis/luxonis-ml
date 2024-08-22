@@ -1,3 +1,4 @@
+from enum import Enum
 from pathlib import Path
 from typing import Optional
 
@@ -10,6 +11,12 @@ from luxonis_ml.utils import LuxonisFileSystem
 app = typer.Typer()
 
 UrlArgument = Annotated[str, typer.Argument(..., help="URL of the file.")]
+
+
+class TypeEnum(str, Enum):
+    FILE = "file"
+    DIR = "directory"
+    ALL = "all"
 
 
 @app.command()
@@ -45,8 +52,17 @@ def ls(
     recursive: Annotated[
         bool, typer.Option(..., "--recursive", "-r", help="List files recursively.")
     ] = False,
+    typ: Annotated[
+        TypeEnum,
+        typer.Option(
+            ...,
+            "--type",
+            "-t",
+            help="Type of the files to list. If not provided, all files will be listed.",
+        ),
+    ] = TypeEnum.ALL,
 ):
     """Lists files in the remote directory."""
     fs = LuxonisFileSystem(url.rstrip("/"))
-    for file in fs.walk_dir("", recursive=recursive):
+    for file in fs.walk_dir("", recursive=recursive, typ=typ.value):
         print(file)

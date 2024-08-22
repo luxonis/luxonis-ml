@@ -74,6 +74,7 @@ Successful tests are required for merging a PR.
 1. Commit (pre-commit hook will run).
 1. Push to your branch and create a pull request. Always request a review from:
    - [Martin Kozlovský](https://github.com/kozlov721)
+   - [Klemen Skrlj](https://github.com/klemen1999)
    - [Matija Teršek](https://github.com/tersekmatija)
    - [Conor Simmons](https://github.com/conorsim)
 1. Any other relevant team members can be added as reviewers as well.

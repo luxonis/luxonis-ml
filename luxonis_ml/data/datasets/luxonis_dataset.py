@@ -1,18 +1,30 @@
 import json
 import logging
+import math
 import shutil
 import tempfile
 from collections import defaultdict
 from contextlib import suppress
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Set, Tuple, Union
+from typing import (
+    Any,
+    Dict,
+    List,
+    Literal,
+    Mapping,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+    Union,
+)
 
 import numpy as np
 import polars as pl
 import pyarrow.parquet as pq
 from ordered_set import OrderedSet
 from pycocotools import mask as mask_utils
-from typing_extensions import Self
+from typing_extensions import Self, overload
 
 import luxonis_ml.data.utils.data_utils as data_utils
 from luxonis_ml.utils import LuxonisFileSystem, environ, make_progress_bar
@@ -156,6 +168,26 @@ class LuxonisDataset(BaseDataset):
         dfs = [pl.read_parquet(file) for file in path.glob("*.parquet")]
 
         return pl.concat(dfs) if dfs else None
+
+    @overload
+    def _find_filepath_uuid(
+        self,
+        filepath: Path,
+        index: Optional[pl.DataFrame],
+        *,
+        raise_on_missing: Literal[False] = False,
+    ) -> Optional[str]:
+        pass
+
+    @overload
+    def _find_filepath_uuid(
+        self,
+        filepath: Path,
+        index: Optional[pl.DataFrame],
+        *,
+        raise_on_missing: Literal[True] = True,
+    ) -> str:
+        pass
 
     def _find_filepath_uuid(
         self,
@@ -433,7 +465,7 @@ class LuxonisDataset(BaseDataset):
                 filepath = ann.file
                 file = filepath.name
                 uuid = uuid_dict[str(filepath)]
-                matched_id = self._find_filepath_uuid(filepath, index)
+                matched_id = self._find_filepath_uuid(Path(filepath), index)
                 if matched_id is not None:
                     if matched_id != uuid:
                         # TODO: not sure if this should be an exception or how we should really handle it
@@ -531,36 +563,86 @@ class LuxonisDataset(BaseDataset):
 
     def make_splits(
         self,
-        ratios: Tuple[float, float, float] = (0.8, 0.1, 0.1),
-        definitions: Optional[Dict[str, List[PathType]]] = None,
+        ratios: Optional[Union[Dict[str, float], Tuple[float, float, float]]] = None,
+        definitions: Optional[Mapping[str, Sequence[PathType]]] = None,
+        replace_old_splits: bool = False,
     ) -> None:
-        new_splits = {"train": [], "val": [], "test": []}
-        splits_to_update = []
+        if ratios is not None and definitions is not None:
+            raise ValueError("Cannot provide both ratios and definitions")
+
+        if ratios is not None:
+            if isinstance(ratios, tuple):
+                if not len(ratios) == 3:
+                    raise ValueError(
+                        "Ratios must be a tuple of 3 floats for train, val, and test splits"
+                    )
+                ratios = {"train": ratios[0], "val": ratios[1], "test": ratios[2]}
+            sum_ = sum(ratios.values())
+            if not math.isclose(sum_, 1.0):
+                raise ValueError(f"Ratios must sum to 1.0, got {sum_:0.4f}")
+
+        if definitions is not None:
+            n_files = sum(map(len, definitions.values()))
+            if n_files > len(self):
+                raise ValueError(
+                    "Dataset size is smaller than the total number of files in the definitions. "
+                    f"Dataset size: {len(self)}, Definitions: {n_files}."
+                )
+
+        splits_to_update: List[str] = []
+        new_splits: Dict[str, List[str]] = {}
+        old_splits: Dict[str, List[str]] = defaultdict(list)
+
+        splits_path = self._get_file(
+            "metadata/splits.json",
+            self.local_path,
+            default=self.metadata_path / "splits.json",
+        )
+        assert splits_path is not None
+        if splits_path.exists():
+            with open(splits_path, "r") as file:
+                old_splits = defaultdict(list, json.load(file))
+
+        defined_uuids = set(uuid for uuids in old_splits.values() for uuid in uuids)
 
         if definitions is None:
+            ratios = ratios or {"train": 0.8, "val": 0.1, "test": 0.1}
             df = self._load_df_offline()
             assert df is not None
-            ids = df.select("uuid").unique().get_column("uuid").to_list()
+            ids = (
+                df.filter(~pl.col("uuid").is_in(defined_uuids))
+                .select("uuid")
+                .unique()
+                .get_column("uuid")
+                .to_list()
+            )
+            if not ids:
+                if not replace_old_splits:
+                    raise ValueError(
+                        "No new files to add to splits. "
+                        "If you want to generate new splits, set `replace_old_splits=True`"
+                    )
+                else:
+                    ids = df.select("uuid").unique().get_column("uuid").to_list()
+                    old_splits = defaultdict(list)
+
             np.random.shuffle(ids)
             N = len(ids)
-            b1 = round(N * ratios[0])
-            b2 = round(N * ratios[0]) + round(N * ratios[1])
-            new_splits["train"] = ids[:b1]
-            new_splits["val"] = ids[b1:b2]
-            new_splits["test"] = ids[b2:]
-            splits_to_update = ["train", "val", "test"]
+            lower_bound = 0
+            for split, ratio in ratios.items():
+                upper_bound = lower_bound + math.ceil(N * ratio)
+                new_splits[split] = ids[lower_bound:upper_bound]
+                splits_to_update.append(split)
+                lower_bound = upper_bound
 
         else:
             index = self._get_file_index()
             if index is None:
                 raise FileNotFoundError("File index not found")
-            for split in ["train", "val", "test"]:
-                if split not in definitions:
-                    continue
+            for split, filepaths in definitions.items():
                 splits_to_update.append(split)
-                filepaths = definitions[split]
                 if not isinstance(filepaths, list):
-                    raise ValueError("Must provide splits as a list of str")
+                    raise ValueError("Must provide splits as a list of filepaths")
                 ids = [
                     self._find_filepath_uuid(
                         Path(filepath), index, raise_on_missing=True
@@ -569,22 +651,10 @@ class LuxonisDataset(BaseDataset):
                 ]
                 new_splits[split] = ids
 
-        splits_path = self._get_file(
-            "metadata/splits.json",
-            self.local_path,
-            default=self.metadata_path / "splits.json",
-        )
-        assert splits_path is not None
+        for split, uuids in new_splits.items():
+            old_splits[split].extend(uuids)
 
-        if splits_path.exists():
-            with open(splits_path, "r") as file:
-                splits = json.load(file)
-            for split in splits_to_update:
-                splits[split] = new_splits[split]
-        else:
-            splits = new_splits
-
-        splits_path.write_text(json.dumps(splits, indent=4))
+        splits_path.write_text(json.dumps(old_splits, indent=4))
 
         with suppress(shutil.SameFileError):
             self.fs.put_file(splits_path, "metadata/splits.json")
