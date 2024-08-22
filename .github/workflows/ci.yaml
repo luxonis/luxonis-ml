@@ -9,6 +9,11 @@ on:
       - .github/workflows/ci.yaml
 
 jobs:
+  assigner:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: toshimaru/auto-author-assign@v2.1.1
+
   labeler:
     runs-on: ubuntu-latest
     steps:
