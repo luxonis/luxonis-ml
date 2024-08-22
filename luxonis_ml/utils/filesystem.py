@@ -647,9 +647,9 @@ def _check_package_installed(protocol: str) -> None:
         )
 
     if protocol in ["gs", "gcs"] and find_spec("gcsfs") is None:
-        _pip_install("gcsfs", "2023.1.0")
+        _pip_install("gcsfs", "2023.3.0")
     elif protocol == "s3" and find_spec("s3fs") is None:
-        _pip_install("s3fs", "2023.1.0")
+        _pip_install("s3fs", "2023.3.0")
     elif protocol == "mlflow" and find_spec("mlflow") is None:
         _pip_install("mlflow", "2.10.0")
 
