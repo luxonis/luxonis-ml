@@ -35,7 +35,11 @@ class Augmentations:
         self.is_batched = False
         self.aug_batch_size = 1
 
-        self.batch_transform, self.spatial_transform, self.resize_transform = self._parse_cfg(
+        (
+            self.batch_transform,
+            self.spatial_transform,
+            self.resize_transform,
+        ) = self._parse_cfg(
             image_size=image_size,
             augmentations=[a for a in augmentations if a["name"] == "Normalize"]
             if only_normalize
@@ -221,7 +225,10 @@ class Augmentations:
             force_apply=False, **spatial_transform_args
         )
 
-        if transformed["image"].shape[0] != self.image_size[0] or transformed["image"].shape[1] != self.image_size[1]:
+        if (
+            transformed["image"].shape[0] != self.image_size[0]
+            or transformed["image"].shape[1] != self.image_size[1]
+        ):
             resize_transform_args = {
                 "image": transformed["image"],
                 "bboxes": transformed["bboxes"],
