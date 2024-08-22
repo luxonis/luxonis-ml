@@ -240,7 +240,7 @@ class Augmentations:
             }
 
             if return_mask:
-                resize_transform_args["mask"] = transformed["mask_batch"]
+                resize_transform_args["mask"] = transformed["mask"]
 
             transformed = self.resize_transform(
                 force_apply=False, **resize_transform_args
