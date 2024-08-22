@@ -1,4 +1,3 @@
-# test
 import glob
 import logging
 import os
