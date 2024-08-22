@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Iterator, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Dict, Iterator, List, Mapping, Optional, Sequence, Tuple, Type, Union
 
 from typing_extensions import TypeAlias
 
@@ -9,7 +9,7 @@ from luxonis_ml.utils.filesystem import PathType
 from .annotation import DatasetRecord
 from .source import LuxonisSource
 
-DATASETS_REGISTRY = Registry(name="datasets")
+DATASETS_REGISTRY: Registry[Type["BaseDataset"]] = Registry(name="datasets")
 
 
 DatasetIterator: TypeAlias = Iterator[Union[dict, DatasetRecord]]

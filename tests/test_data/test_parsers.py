@@ -1,8 +1,8 @@
-from typing import Final, List, cast
+from typing import Final, List
 
 import pytest
 
-from luxonis_ml.data import LabelType, LuxonisDataset, LuxonisLoader, LuxonisParser
+from luxonis_ml.data import LabelType, LuxonisLoader, LuxonisParser
 from luxonis_ml.enums import DatasetType
 
 URL_PREFIX: Final[str] = "gs://luxonis-test-bucket/luxonis-ml-test-data"
@@ -93,7 +93,7 @@ def test_dir_parser(
         delete_existing=True,
         save_dir=WORK_DIR,
     )
-    dataset = cast(LuxonisDataset, parser.parse())
+    dataset = parser.parse()
     assert len(dataset) > 0
     loader = LuxonisLoader(dataset)
     _, ann = next(iter(loader))
@@ -110,7 +110,7 @@ def test_custom_tasks():
         save_dir=WORK_DIR,
         task_mapping={LabelType.BOUNDINGBOX: "object_detection"},
     )
-    dataset = cast(LuxonisDataset, parser.parse())
+    dataset = parser.parse()
     assert len(dataset) > 0
     tasks = dataset.get_tasks()
     assert set(tasks) == {"object_detection", "classification"}

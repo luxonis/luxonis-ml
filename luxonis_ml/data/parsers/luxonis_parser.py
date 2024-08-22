@@ -2,7 +2,7 @@ import logging
 import zipfile
 from enum import Enum
 from pathlib import Path
-from typing import Dict, Optional, Tuple, Type, Union
+from typing import Dict, Generic, Optional, Tuple, Type, TypeVar, Union, overload
 
 from luxonis_ml.data import DATASETS_REGISTRY, BaseDataset, LuxonisDataset
 from luxonis_ml.data.utils.enums import LabelType
@@ -29,7 +29,10 @@ class ParserType(Enum):
     SPLIT = "split"
 
 
-class LuxonisParser:
+T = TypeVar("T", str, None)
+
+
+class LuxonisParser(Generic[T]):
     parsers: Dict[DatasetType, Type[BaseParser]] = {
         DatasetType.COCO: COCOParser,
         DatasetType.VOC: VOCParser,
@@ -49,7 +52,7 @@ class LuxonisParser:
         *,
         dataset_name: Optional[str] = None,
         save_dir: Optional[Union[Path, str]] = None,
-        dataset_plugin: Optional[str] = None,
+        dataset_plugin: T = None,
         dataset_type: Optional[DatasetType] = None,
         task_mapping: Optional[Dict[LabelType, str]] = None,
         **kwargs,
@@ -101,10 +104,8 @@ class LuxonisParser:
         else:
             self.dataset_type, self.parser_type = self._recognize_dataset()
 
-        if dataset_plugin:
-            self.dataset_constructor: Type[BaseDataset] = DATASETS_REGISTRY.get(
-                dataset_plugin
-            )
+        if dataset_plugin is not None:
+            self.dataset_constructor = DATASETS_REGISTRY.get(dataset_plugin)
         else:
             self.dataset_constructor = LuxonisDataset
 
@@ -112,6 +113,14 @@ class LuxonisParser:
 
         self.dataset = self.dataset_constructor(dataset_name=dataset_name, **kwargs)
         self.parser = self.parsers[self.dataset_type](self.dataset, task_mapping or {})
+
+    @overload
+    def parse(self: "LuxonisParser[str]", **kwargs) -> BaseDataset:
+        pass
+
+    @overload
+    def parse(self: "LuxonisParser[None]", **kwargs) -> LuxonisDataset:
+        pass
 
     def parse(self, **kwargs) -> BaseDataset:
         """Parses the dataset and returns it in LuxonisDataset format.
