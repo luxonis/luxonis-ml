@@ -28,12 +28,14 @@ class Augmentations:
         @param train_rgb: Whether should use RGB or BGR images.
         """
 
+        self.image_size = image_size
         self.train_rgb = train_rgb
+        self.only_normalize = only_normalize
 
         self.is_batched = False
         self.aug_batch_size = 1
 
-        self.batch_transform, self.spatial_transform = self._parse_cfg(
+        self.batch_transform, self.spatial_transform, self.resize_transform = self._parse_cfg(
             image_size=image_size,
             augmentations=[a for a in augmentations if a["name"] == "Normalize"]
             if only_normalize
@@ -71,7 +73,8 @@ class Augmentations:
 
         spatial_augs = []
         batched_augs = []
-        spatial_augs.append(resize)
+        if self.only_normalize:
+            spatial_augs.append(resize)
         if augmentations:
             for aug in augmentations:
                 curr_aug = AUGMENTATIONS.get(aug["name"])(**aug.get("params", {}))
@@ -109,7 +112,19 @@ class Augmentations:
             ),
         )
 
-        return batch_transform, spatial_transform
+        resize_transform = A.Compose(
+            [resize],
+            bbox_params=A.BboxParams(
+                format="coco", label_fields=["bboxes_classes", "bboxes_visibility"]
+            ),
+            keypoint_params=A.KeypointParams(
+                format="xy",
+                label_fields=["keypoints_visibility", "keypoints_classes"],
+                remove_invisible=False,
+            ),
+        )
+
+        return batch_transform, spatial_transform, resize_transform
 
     def __call__(
         self,
@@ -205,6 +220,24 @@ class Augmentations:
         transformed = self.spatial_transform(
             force_apply=False, **spatial_transform_args
         )
+
+        if transformed["image"].shape[0] != self.image_size[0] or transformed["image"].shape[1] != self.image_size[1]:
+            resize_transform_args = {
+                "image": transformed["image"],
+                "bboxes": transformed["bboxes"],
+                "bboxes_visibility": transformed["bboxes"],
+                "bboxes_classes": transformed["bboxes_classes"],
+                "keypoints": transformed["keypoints"],
+                "keypoints_visibility": transformed["keypoints_visibility"],
+                "keypoints_classes": transformed["keypoints_classes"],
+            }
+
+            if return_mask:
+                resize_transform_args["mask"] = transformed["mask_batch"]
+
+            transformed = self.resize_transform(
+                force_apply=False, **resize_transform_args
+            )
 
         out_image, out_mask, out_bboxes, out_keypoints = self.post_transform_process(
             transformed,
