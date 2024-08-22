@@ -206,11 +206,8 @@ class LuxonisLoader(BaseLoader):
 
         ann_indices = self.idx_to_df_row[idx]
         ann_rows = [self.df.row(row) for row in ann_indices]
-        if not self.dataset.is_remote:
+        if not self.dataset.is_remote or not self.stream:
             img_path = ann_rows[0][8]
-        elif not self.stream:
-            uuid = ann_rows[0][0]
-            img_path = next(self.dataset.media_path.glob(f"{uuid}.*"))
         else:
             # TODO: add support for streaming remote storage
             raise NotImplementedError(
