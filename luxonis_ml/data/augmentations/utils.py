@@ -39,6 +39,7 @@ class Augmentations:
             self.batch_transform,
             self.spatial_transform,
             self.resize_transform,
+            self.pixel_transform,
         ) = self._parse_cfg(
             image_size=image_size,
             augmentations=[a for a in augmentations if a["name"] == "Normalize"]
@@ -52,7 +53,7 @@ class Augmentations:
         image_size: List[int],
         augmentations: List[Dict[str, Any]],
         keep_aspect_ratio: bool = True,
-    ) -> Tuple[BatchCompose, A.Compose, A.Compose]:
+    ) -> Tuple[BatchCompose, A.Compose, A.Compose, A.Compose]:
         """Parses provided config and returns Albumentations BatchedCompose object and
         Compose object for default transforms.
 
@@ -63,8 +64,8 @@ class Augmentations:
         @type keep_aspect_ratio: bool
         @param keep_aspect_ratio: Whether should use resize that keeps aspect ratio of
             original image.
-        @rtype: Tuple[BatchCompose, A.Compose, A.Compose]
-        @return: Objects for batched, spatial and resize transforms
+        @rtype: Tuple[BatchCompose, A.Compose, A.Compose, A.Compose]
+        @return: Objects for batched, spatial, pixel and resize transforms
         """
 
         # NOTE: Always perform Resize
@@ -75,19 +76,20 @@ class Augmentations:
         else:
             resize = A.Resize(image_size[0], image_size[1])
 
+        pixel_augs = []
         spatial_augs = []
         batched_augs = []
-        if self.only_normalize:
-            spatial_augs.append(resize)
         if augmentations:
             for aug in augmentations:
                 curr_aug = AUGMENTATIONS.get(aug["name"])(**aug.get("params", {}))
-                if isinstance(curr_aug, BatchBasedTransform):
+                if isinstance(curr_aug, A.ImageOnlyTransform):
+                    pixel_augs.append(curr_aug)
+                elif isinstance(curr_aug, A.DualTransform):
+                    spatial_augs.append(curr_aug)
+                elif isinstance(curr_aug, BatchBasedTransform):
                     self.is_batched = True
                     self.aug_batch_size = max(self.aug_batch_size, curr_aug.batch_size)
                     batched_augs.append(curr_aug)
-                else:
-                    spatial_augs.append(curr_aug)
 
         batch_transform = BatchCompose(
             [
@@ -116,6 +118,18 @@ class Augmentations:
             ),
         )
 
+        pixel_transform = A.Compose(
+            pixel_augs,
+            bbox_params=A.BboxParams(
+                format="coco", label_fields=["bboxes_classes", "bboxes_visibility"]
+            ),
+            keypoint_params=A.KeypointParams(
+                format="xy",
+                label_fields=["keypoints_visibility", "keypoints_classes"],
+                remove_invisible=False,
+            ),
+        )
+
         resize_transform = A.Compose(
             [resize],
             bbox_params=A.BboxParams(
@@ -128,7 +142,36 @@ class Augmentations:
             ),
         )
 
-        return batch_transform, spatial_transform, resize_transform
+        return batch_transform, spatial_transform, pixel_transform, resize_transform
+
+    def _apply_transform(
+        self, transformed, arg_names, transform_func, return_mask=False, arg_suffix=""
+    ):
+        """Apply transform function.
+
+        @type transformed: Dict[str, np.ndarray]
+        @param transformed: Transformed data
+        @type arg_names: List[str]
+        @param arg_names: Names of arguments to pass to transform function
+        @type transform_func: Callable
+        @param transform_func: Transform function to apply
+        @type return_mask: bool
+        @param return_mask: Whether to return mask
+        @type arg_suffix: str
+        @param arg_suffix: Suffix to add to argument names
+        @rtype: Dict[str, np.ndarray]
+        @return: Transformed data
+        """
+
+        transform_args = {
+            arg_name: transformed[f"{arg_name}{arg_suffix}"] for arg_name in arg_names
+        }
+        if return_mask:
+            transform_args["mask"] = transformed[f"mask{arg_suffix}"]
+
+        transformed = transform_func(force_apply=False, **transform_args)
+
+        return transformed
 
     def __call__(
         self,
@@ -192,6 +235,7 @@ class Augmentations:
             keypoints_visibility_batch.append(keypoints_visibility)
             keypoints_classes_batch.append(keypoints_classes)
 
+        # Apply batch transform
         transform_args = {
             "image_batch": image_batch,
             "bboxes_batch": bboxes_batch,
@@ -204,47 +248,34 @@ class Augmentations:
         if return_mask:
             transform_args["mask_batch"] = mask_batch
 
-        # Apply transforms
         transformed = self.batch_transform(force_apply=False, **transform_args)
         transformed = {key: np.array(value[0]) for key, value in transformed.items()}
 
-        # Prepare the spatial transform arguments
-        spatial_transform_args = {
-            "image": transformed["image_batch"],
-            "bboxes": transformed["bboxes_batch"],
-            "bboxes_visibility": transformed["bboxes_visibility_batch"],
-            "bboxes_classes": transformed["bboxes_classes_batch"],
-            "keypoints": transformed["keypoints_batch"],
-            "keypoints_visibility": transformed["keypoints_visibility_batch"],
-            "keypoints_classes": transformed["keypoints_classes_batch"],
-        }
-        if return_mask:
-            spatial_transform_args["mask"] = transformed["mask_batch"]
+        arg_names = [
+            "image",
+            "bboxes",
+            "bboxes_visibility",
+            "bboxes_classes",
+            "keypoints",
+            "keypoints_visibility",
+            "keypoints_classes",
+        ]
 
-        transformed = self.spatial_transform(
-            force_apply=False, **spatial_transform_args
+        # Apply spatial transform
+        transformed = self._apply_transform(
+            transformed, arg_names, self.spatial_transform, return_mask, "_batch"
         )
 
-        if (
-            transformed["image"].shape[0] != self.image_size[0]
-            or transformed["image"].shape[1] != self.image_size[1]
-        ):
-            resize_transform_args = {
-                "image": transformed["image"],
-                "bboxes": transformed["bboxes"],
-                "bboxes_visibility": transformed["bboxes"],
-                "bboxes_classes": transformed["bboxes_classes"],
-                "keypoints": transformed["keypoints"],
-                "keypoints_visibility": transformed["keypoints_visibility"],
-                "keypoints_classes": transformed["keypoints_classes"],
-            }
-
-            if return_mask:
-                resize_transform_args["mask"] = transformed["mask"]
-
-            transformed = self.resize_transform(
-                force_apply=False, **resize_transform_args
+        # Resize if necessary
+        if transformed["image"].shape[:2] != self.image_size:
+            transformed = self._apply_transform(
+                transformed, arg_names, self.resize_transform, return_mask
             )
+
+        # Apply pixel transform
+        transformed = self._apply_transform(
+            transformed, arg_names, self.pixel_transform, return_mask
+        )
 
         out_image, out_mask, out_bboxes, out_keypoints = self.post_transform_process(
             transformed,
