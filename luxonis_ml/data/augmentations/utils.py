@@ -145,7 +145,12 @@ class Augmentations:
         return batch_transform, spatial_transform, pixel_transform, resize_transform
 
     def _apply_transform(
-        self, transformed, arg_names, transform_func, return_mask=False, arg_suffix=""
+        self,
+        transformed: Dict[str, np.ndarray],
+        arg_names: List[str],
+        transform_func: A.Compose,
+        return_mask: bool = False,
+        arg_suffix: str = "",
     ) -> Dict[str, np.ndarray]:
         """Apply transform function.
 
