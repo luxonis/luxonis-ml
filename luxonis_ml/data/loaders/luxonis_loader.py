@@ -1,9 +1,6 @@
 import json
 import logging
-import random
-import warnings
-from operator import itemgetter
-from typing import Dict, Optional, Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 
@@ -116,81 +113,151 @@ class LuxonisLoader(BaseLoader):
             annotations.
         """
 
-        if self.augmentations is None:
-            return self._load_image_with_annotations(idx)
+        # if self.augmentations is None:
+        #     return self._load_image_with_annotations(idx)
 
-        indices = [idx]
-        if self.augmentations.is_batched:
-            other_indices = [i for i in range(len(self)) if i != idx]
-            if self.augmentations.aug_batch_size > len(self):
-                warnings.warn(
-                    f"Augmentations batch_size ({self.augmentations.aug_batch_size}) is larger than dataset size ({len(self)}), samples will include repetitions."
-                )
-                random_fun = random.choices
-            else:
-                random_fun = random.sample
-            picked_indices = random_fun(
-                other_indices, k=self.augmentations.aug_batch_size - 1
-            )
-            indices.extend(picked_indices)
+        # indices = [idx]
+        # if self.augmentations.is_batched:
+        #     other_indices = [i for i in range(len(self)) if i != idx]
+        #     if self.augmentations.aug_batch_size > len(self):
+        #         warnings.warn(
+        #             f"Augmentations batch_size ({self.augmentations.aug_batch_size}) is larger than dataset size ({len(self)}), samples will include repetitions."
+        #         )
+        #         random_fun = random.choices
+        #     else:
+        #         random_fun = random.sample
+        #     picked_indices = random_fun(
+        #         other_indices, k=self.augmentations.aug_batch_size - 1
+        #     )
+        #     indices.extend(picked_indices)
 
-        out_dict: Dict[str, Tuple[np.ndarray, LabelType]] = {}
-        loaded_anns = [self._load_image_with_annotations(i) for i in indices]
-        random_state = random.getstate()
-        np_random_state = np.random.get_state()
-        while loaded_anns[0][1]:
-            aug_input_data = []
-            label_to_task = {}
-            nk = 0
-            ns = 0
-            for img, annotations in loaded_anns:
-                label_dict: Dict[LabelType, np.ndarray] = {}
-                task_dict: Dict[LabelType, str] = {}
-                for task in sorted(list(annotations.keys())):
-                    array, label_type = annotations[task]
-                    if label_type not in label_dict:
-                        # ensure that bounding box annotations are added to the
-                        # `label_dict` before keypoints
-                        if label_type == LabelType.KEYPOINTS:
-                            if (
-                                LabelType.BOUNDINGBOX
-                                in map(itemgetter(1), list(annotations.values()))
-                                and LabelType.BOUNDINGBOX not in label_dict  # type: ignore
-                            ):
-                                continue
+        # out_dict: Dict[str, Tuple[np.ndarray, LabelType]] = {}
+        # loaded_anns = [self._load_image_with_annotations(i) for i in indices]
+        # random_state = random.getstate()
+        # np_random_state = np.random.get_state()
+        # while loaded_anns[0][1]:
+        #     aug_input_data = []
+        #     label_to_task = {}
+        #     nk = 0
+        #     ns = 0
+        #     for img, annotations in loaded_anns:
+        #         label_dict: Dict[LabelType, np.ndarray] = {}
+        #         task_dict: Dict[LabelType, str] = {}
+        #         for task in sorted(list(annotations.keys())):
+        #             array, label_type = annotations[task]
+        #             if label_type not in label_dict:
+        #                 # ensure that bounding box annotations are added to the
+        #                 # `label_dict` before keypoints
+        #                 if label_type == LabelType.KEYPOINTS:
+        #                     if (
+        #                         LabelType.BOUNDINGBOX
+        #                         in map(itemgetter(1), list(annotations.values()))
+        #                         and LabelType.BOUNDINGBOX not in label_dict  # type: ignore
+        #                     ):
+        #                         continue
 
-                            if (
-                                LabelType.BOUNDINGBOX in label_dict  # type: ignore
-                                and LabelType.BOUNDINGBOX
-                                in map(itemgetter(1), list(annotations.values()))
-                            ):
-                                bbox_task = task_dict[LabelType.BOUNDINGBOX]
-                                *_, bbox_suffix = bbox_task.split("-", 1)
-                                *_, kp_suffix = task.split("-", 1)
-                                if bbox_suffix != kp_suffix:
-                                    continue
+        #                     if (
+        #                         LabelType.BOUNDINGBOX in label_dict  # type: ignore
+        #                         and LabelType.BOUNDINGBOX
+        #                         in map(itemgetter(1), list(annotations.values()))
+        #                     ):
+        #                         bbox_task = task_dict[LabelType.BOUNDINGBOX]
+        #                         *_, bbox_suffix = bbox_task.split("-", 1)
+        #                         *_, kp_suffix = task.split("-", 1)
+        #                         if bbox_suffix != kp_suffix:
+        #                             continue
 
-                        label_dict[label_type] = array
-                        label_to_task[label_type] = task
-                        task_dict[label_type] = task
-                        annotations.pop(task)
-                        if label_type == LabelType.KEYPOINTS:
-                            nk = (array.shape[1] - 1) // 3
-                        if label_type == LabelType.SEGMENTATION:
-                            ns = array.shape[0]
+        #                 label_dict[label_type] = array
+        #                 label_to_task[label_type] = task
+        #                 task_dict[label_type] = task
+        #                 annotations.pop(task)
+        #                 if label_type == LabelType.KEYPOINTS:
+        #                     nk = (array.shape[1] - 1) // 3
+        #                 if label_type == LabelType.SEGMENTATION:
+        #                     ns = array.shape[0]
 
-                aug_input_data.append((img, label_dict))
+        #         aug_input_data.append((img, label_dict))
 
-            # NOTE: To ensure the same augmentation is applied to all samples
-            # in case of multiple tasks per LabelType
-            random.setstate(random_state)
-            np.random.set_state(np_random_state)
+        #     # NOTE: To ensure the same augmentation is applied to all samples
+        #     # in case of multiple tasks per LabelType
+        #     random.setstate(random_state)
+        #     np.random.set_state(np_random_state)
 
-            img, aug_annotations = self.augmentations(aug_input_data, nk=nk, ns=ns)
-            for label_type, array in aug_annotations.items():
-                out_dict[label_to_task[label_type]] = (array, label_type)
+        #     img, aug_annotations = self.augmentations(aug_input_data, nk=nk, ns=ns)
+        #     for label_type, array in aug_annotations.items():
+        #         out_dict[label_to_task[label_type]] = (array, label_type)
 
-        return img, out_dict  # type: ignore
+        #        img = np.random.randint(0, 256, (416, 416, 3), dtype=np.uint8)
+
+        img = np.random.rand(416, 416, 3).astype(np.float32)
+        labels = {}
+        labels["boundingbox"] = (
+            np.array(
+                [
+                    [
+                        3.00000000e00,
+                        2.98437500e-03,
+                        7.64000000e-02,
+                        9.52796875e-01,
+                        9.10117647e-01,
+                    ],
+                    [
+                        3.00000000e00,
+                        3.35765625e-01,
+                        3.41576471e-01,
+                        2.85015625e-01,
+                        4.71905882e-01,
+                    ],
+                    [
+                        3.00000000e00,
+                        7.44640625e-01,
+                        2.53929412e-01,
+                        2.55359375e-01,
+                        5.64047059e-01,
+                    ],
+                    [
+                        5.60000000e01,
+                        6.90875000e-01,
+                        6.81858824e-01,
+                        3.36718750e-02,
+                        3.91529412e-02,
+                    ],
+                    [
+                        5.60000000e01,
+                        8.44843750e-01,
+                        7.95505882e-01,
+                        9.00937500e-02,
+                        1.28823529e-01,
+                    ],
+                    [
+                        5.50000000e01,
+                        5.34234375e-01,
+                        2.89200000e-01,
+                        4.16343750e-01,
+                        4.83152941e-01,
+                    ],
+                    [
+                        5.60000000e01,
+                        3.11000000e-01,
+                        2.85270588e-01,
+                        8.31093750e-02,
+                        3.95058824e-02,
+                    ],
+                    [
+                        5.60000000e01,
+                        7.76765625e-01,
+                        7.26800000e-01,
+                        4.75468750e-02,
+                        4.99764706e-02,
+                    ],
+                ]
+            ),
+            LabelType.BOUNDINGBOX,
+        )
+
+        return img, labels
+
+        # return img, out_dict  # type: ignore
 
     def _load_image_with_annotations(self, idx: int) -> Tuple[np.ndarray, Labels]:
         """Loads image and its annotations based on index.
