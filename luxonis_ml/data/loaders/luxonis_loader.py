@@ -193,14 +193,14 @@ class LuxonisLoader(BaseLoader):
         return img, out_dict  # type: ignore
 
     def _load_image_with_annotations(self, idx: int) -> Tuple[np.ndarray, Labels]:
-        # """Loads image and its annotations based on index.
+        """Loads image and its annotations based on index.
 
-        # @type idx: int
-        # @param idx: Index of the image
-        # @rtype: Tuple[L{np.ndarray}, dict]
-        # @return: Image as L{np.ndarray} in RGB format and a dictionary with all the
-        #     present annotations
-        # """
+        @type idx: int
+        @param idx: Index of the image
+        @rtype: Tuple[L{np.ndarray}, dict]
+        @return: Image as L{np.ndarray} in RGB format and a dictionary with all the
+            present annotations
+        """
 
         # ann_indices = self.idx_to_df_row[idx]
         # ann_rows = [self.df.row(row) for row in ann_indices]
@@ -245,64 +245,68 @@ class LuxonisLoader(BaseLoader):
 
         img = np.random.randint(0, 256, (416, 416, 3), dtype=np.uint8)
         labels = {}
-        labels[LabelType.BOUNDINGBOX] = np.array(
-            [
+        labels["boundingbox"] = (
+            np.array(
                 [
-                    3.00000000e00,
-                    2.98437500e-03,
-                    7.64000000e-02,
-                    9.52796875e-01,
-                    9.10117647e-01,
-                ],
-                [
-                    3.00000000e00,
-                    3.35765625e-01,
-                    3.41576471e-01,
-                    2.85015625e-01,
-                    4.71905882e-01,
-                ],
-                [
-                    3.00000000e00,
-                    7.44640625e-01,
-                    2.53929412e-01,
-                    2.55359375e-01,
-                    5.64047059e-01,
-                ],
-                [
-                    5.60000000e01,
-                    6.90875000e-01,
-                    6.81858824e-01,
-                    3.36718750e-02,
-                    3.91529412e-02,
-                ],
-                [
-                    5.60000000e01,
-                    8.44843750e-01,
-                    7.95505882e-01,
-                    9.00937500e-02,
-                    1.28823529e-01,
-                ],
-                [
-                    5.50000000e01,
-                    5.34234375e-01,
-                    2.89200000e-01,
-                    4.16343750e-01,
-                    4.83152941e-01,
-                ],
-                [
-                    5.60000000e01,
-                    3.11000000e-01,
-                    2.85270588e-01,
-                    8.31093750e-02,
-                    3.95058824e-02,
-                ],
-                [
-                    5.60000000e01,
-                    7.76765625e-01,
-                    7.26800000e-01,
-                    4.75468750e-02,
-                    4.99764706e-02,
-                ],
-            ]
+                    [
+                        3.00000000e00,
+                        2.98437500e-03,
+                        7.64000000e-02,
+                        9.52796875e-01,
+                        9.10117647e-01,
+                    ],
+                    [
+                        3.00000000e00,
+                        3.35765625e-01,
+                        3.41576471e-01,
+                        2.85015625e-01,
+                        4.71905882e-01,
+                    ],
+                    [
+                        3.00000000e00,
+                        7.44640625e-01,
+                        2.53929412e-01,
+                        2.55359375e-01,
+                        5.64047059e-01,
+                    ],
+                    [
+                        5.60000000e01,
+                        6.90875000e-01,
+                        6.81858824e-01,
+                        3.36718750e-02,
+                        3.91529412e-02,
+                    ],
+                    [
+                        5.60000000e01,
+                        8.44843750e-01,
+                        7.95505882e-01,
+                        9.00937500e-02,
+                        1.28823529e-01,
+                    ],
+                    [
+                        5.50000000e01,
+                        5.34234375e-01,
+                        2.89200000e-01,
+                        4.16343750e-01,
+                        4.83152941e-01,
+                    ],
+                    [
+                        5.60000000e01,
+                        3.11000000e-01,
+                        2.85270588e-01,
+                        8.31093750e-02,
+                        3.95058824e-02,
+                    ],
+                    [
+                        5.60000000e01,
+                        7.76765625e-01,
+                        7.26800000e-01,
+                        4.75468750e-02,
+                        4.99764706e-02,
+                    ],
+                ]
+            ),
+            LabelType.BOUNDINGBOX,
         )
+
         return img, labels
