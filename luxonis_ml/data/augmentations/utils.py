@@ -146,7 +146,7 @@ class Augmentations:
 
     def _apply_transform(
         self, transformed, arg_names, transform_func, return_mask=False, arg_suffix=""
-    ):
+    ) -> Dict[str, np.ndarray]:
         """Apply transform function.
 
         @type transformed: Dict[str, np.ndarray]
