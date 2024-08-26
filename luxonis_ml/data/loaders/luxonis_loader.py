@@ -212,7 +212,8 @@ class LuxonisLoader(BaseLoader):
         if not self.dataset.is_remote:
             img_path = ann_rows[0][8]
         elif not self.stream:
-            uuid, file_extension = ann_rows[0][0], ann_rows[0][8].rsplit(".", 1)[-1]
+            uuid = ann_rows[0][0]
+            file_extension = ann_rows[0][8].rsplit(".", 1)[-1]
             img_path = self.dataset.media_path / f"{uuid}.{file_extension}"
         else:
             # TODO: add support for streaming remote storage
