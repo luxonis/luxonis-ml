@@ -404,17 +404,11 @@ class Augmentations:
         out_mask = None
         if return_mask:
             transformed_mask = transformed_data.get("mask")
-            out_mask = (
-                np.zeros((ns, *transformed_mask.shape))
-                if transformed_mask is not None
-                else None
-            )
-            if transformed_mask is not None:
-                assert out_mask is not None
-                for key in np.unique(transformed_mask):
-                    if key != 0:
-                        out_mask[int(key) - 1, ...] = transformed_mask == key
-                out_mask[out_mask > 0] = 1
+            out_mask = np.zeros((ns, *transformed_mask.shape))
+            for key in np.unique(transformed_mask):
+                if key != 0:
+                    out_mask[int(key) - 1, ...] = transformed_mask == key
+            out_mask[out_mask > 0] = 1
 
         if transformed_data["bboxes"]:
             transformed_bboxes_classes = np.expand_dims(
