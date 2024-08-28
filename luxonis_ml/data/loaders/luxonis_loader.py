@@ -1,13 +1,13 @@
 import json
 import logging
-from typing import Optional, Tuple
+from typing import Optional
 
 import numpy as np
 
 from ..augmentations import Augmentations
 from ..datasets import LuxonisDataset
 from ..utils.enums import LabelType
-from .base_loader import BaseLoader, Labels, LuxonisLoaderOutput
+from .base_loader import BaseLoader, LuxonisLoaderOutput
 
 
 class LuxonisLoader(BaseLoader):
@@ -93,6 +93,71 @@ class LuxonisLoader(BaseLoader):
                 )
             }
             self.class_mappings[task] = class_mapping
+        self.img = np.random.rand(416, 416, 3).astype(np.float32)
+        self.labels = {}
+        self.labels["boundingbox"] = (
+            np.array(
+                [
+                    [
+                        3.00000000e00,
+                        2.98437500e-03,
+                        7.64000000e-02,
+                        9.52796875e-01,
+                        9.10117647e-01,
+                    ],
+                    [
+                        3.00000000e00,
+                        3.35765625e-01,
+                        3.41576471e-01,
+                        2.85015625e-01,
+                        4.71905882e-01,
+                    ],
+                    [
+                        3.00000000e00,
+                        7.44640625e-01,
+                        2.53929412e-01,
+                        2.55359375e-01,
+                        5.64047059e-01,
+                    ],
+                    [
+                        5.60000000e01,
+                        6.90875000e-01,
+                        6.81858824e-01,
+                        3.36718750e-02,
+                        3.91529412e-02,
+                    ],
+                    [
+                        5.60000000e01,
+                        8.44843750e-01,
+                        7.95505882e-01,
+                        9.00937500e-02,
+                        1.28823529e-01,
+                    ],
+                    [
+                        5.50000000e01,
+                        5.34234375e-01,
+                        2.89200000e-01,
+                        4.16343750e-01,
+                        4.83152941e-01,
+                    ],
+                    [
+                        5.60000000e01,
+                        3.11000000e-01,
+                        2.85270588e-01,
+                        8.31093750e-02,
+                        3.95058824e-02,
+                    ],
+                    [
+                        5.60000000e01,
+                        7.76765625e-01,
+                        7.26800000e-01,
+                        4.75468750e-02,
+                        4.99764706e-02,
+                    ],
+                ]
+            ),
+            LabelType.BOUNDINGBOX,
+        )
 
     def __len__(self) -> int:
         """Returns length of the dataset.
@@ -113,267 +178,4 @@ class LuxonisLoader(BaseLoader):
             annotations.
         """
 
-        # if self.augmentations is None:
-        #     return self._load_image_with_annotations(idx)
-
-        # indices = [idx]
-        # if self.augmentations.is_batched:
-        #     other_indices = [i for i in range(len(self)) if i != idx]
-        #     if self.augmentations.aug_batch_size > len(self):
-        #         warnings.warn(
-        #             f"Augmentations batch_size ({self.augmentations.aug_batch_size}) is larger than dataset size ({len(self)}), samples will include repetitions."
-        #         )
-        #         random_fun = random.choices
-        #     else:
-        #         random_fun = random.sample
-        #     picked_indices = random_fun(
-        #         other_indices, k=self.augmentations.aug_batch_size - 1
-        #     )
-        #     indices.extend(picked_indices)
-
-        # out_dict: Dict[str, Tuple[np.ndarray, LabelType]] = {}
-        # loaded_anns = [self._load_image_with_annotations(i) for i in indices]
-        # random_state = random.getstate()
-        # np_random_state = np.random.get_state()
-        # while loaded_anns[0][1]:
-        #     aug_input_data = []
-        #     label_to_task = {}
-        #     nk = 0
-        #     ns = 0
-        #     for img, annotations in loaded_anns:
-        #         label_dict: Dict[LabelType, np.ndarray] = {}
-        #         task_dict: Dict[LabelType, str] = {}
-        #         for task in sorted(list(annotations.keys())):
-        #             array, label_type = annotations[task]
-        #             if label_type not in label_dict:
-        #                 # ensure that bounding box annotations are added to the
-        #                 # `label_dict` before keypoints
-        #                 if label_type == LabelType.KEYPOINTS:
-        #                     if (
-        #                         LabelType.BOUNDINGBOX
-        #                         in map(itemgetter(1), list(annotations.values()))
-        #                         and LabelType.BOUNDINGBOX not in label_dict  # type: ignore
-        #                     ):
-        #                         continue
-
-        #                     if (
-        #                         LabelType.BOUNDINGBOX in label_dict  # type: ignore
-        #                         and LabelType.BOUNDINGBOX
-        #                         in map(itemgetter(1), list(annotations.values()))
-        #                     ):
-        #                         bbox_task = task_dict[LabelType.BOUNDINGBOX]
-        #                         *_, bbox_suffix = bbox_task.split("-", 1)
-        #                         *_, kp_suffix = task.split("-", 1)
-        #                         if bbox_suffix != kp_suffix:
-        #                             continue
-
-        #                 label_dict[label_type] = array
-        #                 label_to_task[label_type] = task
-        #                 task_dict[label_type] = task
-        #                 annotations.pop(task)
-        #                 if label_type == LabelType.KEYPOINTS:
-        #                     nk = (array.shape[1] - 1) // 3
-        #                 if label_type == LabelType.SEGMENTATION:
-        #                     ns = array.shape[0]
-
-        #         aug_input_data.append((img, label_dict))
-
-        #     # NOTE: To ensure the same augmentation is applied to all samples
-        #     # in case of multiple tasks per LabelType
-        #     random.setstate(random_state)
-        #     np.random.set_state(np_random_state)
-
-        #     img, aug_annotations = self.augmentations(aug_input_data, nk=nk, ns=ns)
-        #     for label_type, array in aug_annotations.items():
-        #         out_dict[label_to_task[label_type]] = (array, label_type)
-
-        #        img = np.random.randint(0, 256, (416, 416, 3), dtype=np.uint8)
-
-        img = np.random.rand(416, 416, 3).astype(np.float32)
-        labels = {}
-        labels["boundingbox"] = (
-            np.array(
-                [
-                    [
-                        3.00000000e00,
-                        2.98437500e-03,
-                        7.64000000e-02,
-                        9.52796875e-01,
-                        9.10117647e-01,
-                    ],
-                    [
-                        3.00000000e00,
-                        3.35765625e-01,
-                        3.41576471e-01,
-                        2.85015625e-01,
-                        4.71905882e-01,
-                    ],
-                    [
-                        3.00000000e00,
-                        7.44640625e-01,
-                        2.53929412e-01,
-                        2.55359375e-01,
-                        5.64047059e-01,
-                    ],
-                    [
-                        5.60000000e01,
-                        6.90875000e-01,
-                        6.81858824e-01,
-                        3.36718750e-02,
-                        3.91529412e-02,
-                    ],
-                    [
-                        5.60000000e01,
-                        8.44843750e-01,
-                        7.95505882e-01,
-                        9.00937500e-02,
-                        1.28823529e-01,
-                    ],
-                    [
-                        5.50000000e01,
-                        5.34234375e-01,
-                        2.89200000e-01,
-                        4.16343750e-01,
-                        4.83152941e-01,
-                    ],
-                    [
-                        5.60000000e01,
-                        3.11000000e-01,
-                        2.85270588e-01,
-                        8.31093750e-02,
-                        3.95058824e-02,
-                    ],
-                    [
-                        5.60000000e01,
-                        7.76765625e-01,
-                        7.26800000e-01,
-                        4.75468750e-02,
-                        4.99764706e-02,
-                    ],
-                ]
-            ),
-            LabelType.BOUNDINGBOX,
-        )
-
-        return img, labels
-
-        # return img, out_dict  # type: ignore
-
-    def _load_image_with_annotations(self, idx: int) -> Tuple[np.ndarray, Labels]:
-        """Loads image and its annotations based on index.
-
-        @type idx: int
-        @param idx: Index of the image
-        @rtype: Tuple[L{np.ndarray}, dict]
-        @return: Image as L{np.ndarray} in RGB format and a dictionary with all the
-            present annotations
-        """
-
-        # ann_indices = self.idx_to_df_row[idx]
-        # ann_rows = [self.df.row(row) for row in ann_indices]
-        # if not self.dataset.is_remote:
-        #     img_path = ann_rows[0][8]
-        # elif not self.stream:
-        #     uuid, file_extension = ann_rows[0][0], ann_rows[0][8].rsplit('.', 1)[-1]
-        #     img_path = self.dataset.media_path / f"{uuid}.{file_extension}"
-        # else:
-        #     # TODO: add support for streaming remote storage
-        #     raise NotImplementedError(
-        #         "Streaming for remote bucket storage not implemented yet"
-        #     )
-
-        # img = cv2.cvtColor(cv2.imread(str(img_path)), cv2.COLOR_BGR2RGB)
-        # height, width, _ = img.shape
-
-        # labels_by_task = defaultdict(list)
-        # instance_counters = defaultdict(int)
-        # for annotation_data in ann_rows:
-        #     _, _, type_, _, class_, instance_id, task, ann_str, _ = annotation_data
-        #     if instance_id < 0:
-        #         instance_counters[task] += 1
-        #         instance_id = instance_counters[task]
-        #     annotation = load_annotation(
-        #         type_,
-        #         ann_str,
-        #         {"class": class_, "task": task, "instance_id": instance_id},
-        #     )
-        #     labels_by_task[task].append(annotation)
-
-        # labels: Labels = {}
-        # for task, anns in labels_by_task.items():
-        #     assert anns, f"No annotations found for task {task}"
-        #     anns.sort(key=lambda x: x.instance_id)
-        #     array = anns[0].combine_to_numpy(
-        #         anns, self.class_mappings[task], width=width, height=height
-        #     )
-        #     labels[task] = (array, anns[0]._label_type)
-
-        # # return img, labels
-
-        img = np.random.randint(0, 256, (416, 416, 3), dtype=np.uint8)
-        labels = {}
-        labels["boundingbox"] = (
-            np.array(
-                [
-                    [
-                        3.00000000e00,
-                        2.98437500e-03,
-                        7.64000000e-02,
-                        9.52796875e-01,
-                        9.10117647e-01,
-                    ],
-                    [
-                        3.00000000e00,
-                        3.35765625e-01,
-                        3.41576471e-01,
-                        2.85015625e-01,
-                        4.71905882e-01,
-                    ],
-                    [
-                        3.00000000e00,
-                        7.44640625e-01,
-                        2.53929412e-01,
-                        2.55359375e-01,
-                        5.64047059e-01,
-                    ],
-                    [
-                        5.60000000e01,
-                        6.90875000e-01,
-                        6.81858824e-01,
-                        3.36718750e-02,
-                        3.91529412e-02,
-                    ],
-                    [
-                        5.60000000e01,
-                        8.44843750e-01,
-                        7.95505882e-01,
-                        9.00937500e-02,
-                        1.28823529e-01,
-                    ],
-                    [
-                        5.50000000e01,
-                        5.34234375e-01,
-                        2.89200000e-01,
-                        4.16343750e-01,
-                        4.83152941e-01,
-                    ],
-                    [
-                        5.60000000e01,
-                        3.11000000e-01,
-                        2.85270588e-01,
-                        8.31093750e-02,
-                        3.95058824e-02,
-                    ],
-                    [
-                        5.60000000e01,
-                        7.76765625e-01,
-                        7.26800000e-01,
-                        4.75468750e-02,
-                        4.99764706e-02,
-                    ],
-                ]
-            ),
-            LabelType.BOUNDINGBOX,
-        )
-
-        return img, labels
+        return self.img, self.labels
