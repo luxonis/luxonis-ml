@@ -10,14 +10,7 @@ T = TypeVar("T", bound="LuxonisConfig")
 
 
 class LuxonisConfig(BaseModelExtraForbid):
-    """Class for storing configuration.
-
-    Singleton class which checks and merges user config with a default one and provides
-    access to its values.
-
-    @warning: Only the L{get_config} method can be used to instantiate this class. Using
-        C{__init__} directly will raise a L{NotImplementedError}.
-    """
+    """Class for storing configuration."""
 
     @classmethod
     def get_config(
@@ -33,12 +26,12 @@ class LuxonisConfig(BaseModelExtraForbid):
         @param overrides: List of CLI overrides in a form of a dictionary mapping
             "dotted" keys to unparsed string or python values.
         @rtype: LuxonisConfig
-        @return: Singleton instance of the config class.
-        @raise ValueError: If the config is instantiated for the first time and neither
-            C{cfg} nor C{overrides} are provided.
+        @return: Instance of the config class.
+        @raise ValueError: If neither C{cfg} nor C{overrides} are provided.
         """
         if cfg is None and overrides is None:
             raise ValueError("At least one of `cfg` or `overrides` must be set.")
+
         if isinstance(overrides, (list, tuple)):
             if len(overrides) % 2 != 0:
                 raise ValueError(
@@ -46,9 +39,7 @@ class LuxonisConfig(BaseModelExtraForbid):
                     "but it's length is not divisible by 2."
                 )
 
-            overrides = {
-                key: value for key, value in zip(overrides[::2], overrides[1::2])
-            }
+            overrides = dict(zip(overrides[::2], overrides[1::2]))
 
         overrides = overrides or {}
         cfg = cfg or {}
