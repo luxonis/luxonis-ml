@@ -18,6 +18,7 @@ def setup_logging(
     level: Optional[str] = None,
     configure_warnings: bool = True,
     rich_print: bool = False,
+    **kwargs,
 ) -> None:
     """Globally configures logging.
 
@@ -38,6 +39,7 @@ def setup_logging(
     @type rich_print: bool
     @param rich_print: If True, builtins.print will be replaced with rich.print.
         Defaults to False.
+    @param kwargs: Additional arguments passed to RichHandler.
     """
 
     if rich_print:
@@ -59,20 +61,26 @@ def setup_logging(
     if use_rich:
         format = "%(message)s"
         # NOTE: The default rich logging colors are weird.
-        _theme = Theme(
+        theme = Theme(
             {
                 "logging.level.debug": "magenta",
                 "logging.level.info": "green",
                 "logging.level.warning": "yellow",
             }
         )
-        _console = Console(theme=_theme)
+        console = Console(theme=theme)
         handlers.append(
             RichHandler(
-                rich_tracebacks=True,
-                tracebacks_show_locals=False,
-                console=_console,
-                omit_repeated_times=False,
+                console=console,
+                **{
+                    **{
+                        "rich_tracebacks": True,
+                        "tracebacks_show_locals": False,
+                        "omit_repeated_times": False,
+                        "show_time": False,
+                    },
+                    **kwargs,
+                },
             )
         )
     else:
