@@ -27,11 +27,9 @@ class LuxonisConfig(BaseModelExtraForbid):
     ) -> T:
         """Loads config from a yaml file or a dictionary.
 
-        If config was already loaded before, it returns the same instance.
-
-        @type cfg: str or dict
-        @param cfg: Path to config or config dictionary.
-        @type overrides: dict
+        @type cfg: Optional[Union[str, dict]]
+        @param cfg: Path to config file or a dictionary.
+        @type overrides: Optional[Union[dict, list[str], tuple[str, ...]]]
         @param overrides: List of CLI overrides in a form of a dictionary mapping
             "dotted" keys to unparsed string or python values.
         @rtype: LuxonisConfig
@@ -39,6 +37,8 @@ class LuxonisConfig(BaseModelExtraForbid):
         @raise ValueError: If the config is instantiated for the first time and neither
             C{cfg} nor C{overrides} are provided.
         """
+        if cfg is None and overrides is None:
+            raise ValueError("At least one of `cfg` or `overrides` must be set.")
         if isinstance(overrides, (list, tuple)):
             if len(overrides) % 2 != 0:
                 raise ValueError(
@@ -50,38 +50,6 @@ class LuxonisConfig(BaseModelExtraForbid):
                 key: value for key, value in zip(overrides[::2], overrides[1::2])
             }
 
-        if getattr(cls, "_instance", None) is None:
-            if cfg is None and overrides is None:
-                raise ValueError(
-                    "At least one of `cfg` or `overrides` must be set"
-                    f"when calling `{cls.__name__}.get_config` for the first time."
-                )
-            cls._from_get_config = True
-            cls._instance = cls(cfg, overrides)
-        return cls._instance  # type: ignore
-
-    def __init__(
-        self,
-        cfg: Optional[Union[str, Dict[str, Any]]] = None,
-        overrides: Optional[Dict[str, Any]] = None,
-    ):
-        """Loads config from a yaml file or a dictionary.
-
-        @warning: Only the L{get_config} method can be used to instantiate this class.
-        @type cfg: str or dict
-        @param cfg: Path to config or config dictionary.
-        @type overrides: dict
-        @param overrides: List of CLI overrides in a form of a dictionary mapping
-            "dotted" keys to unparsed string or python values.
-        @raise NotImplementedError: When C{__init__} is called directly.
-            L{LuxonisConfig} can only be instantiated using the L{get_config}
-            classmethod. Using C{__init__} directly will raise this error.
-        """
-        if not getattr(self, "_from_get_config", False):
-            raise NotImplementedError(
-                "You cannot use `__init__` on the `LuxonisConfig` class"
-                f" directly. Use `{self.__class__.__name__}.get_config` instead."
-            )
         overrides = overrides or {}
         cfg = cfg or {}
 
@@ -92,20 +60,14 @@ class LuxonisConfig(BaseModelExtraForbid):
         else:
             data = cfg
 
-        self._merge_overrides(data, overrides)
-        super().__init__(**data)
+        cls._merge_overrides(data, overrides)
+        return cls(**data)
 
     def __str__(self) -> str:
         return self.model_dump_json(indent=4)
 
     def __repr__(self) -> str:
         return self.__str__()
-
-    @classmethod
-    def clear_instance(cls) -> None:
-        """Clears all singleton instances, should be only used for unit-testing."""
-        cls._instance = None
-        cls._from_get_config = False
 
     def get_json_schema(self) -> Dict[str, Any]:
         """Retuns dict representation of the config json schema.
