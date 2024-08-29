@@ -40,7 +40,7 @@ class Environ(BaseSettings):
 
     @model_serializer(when_used="always", mode="plain", return_type=str)
     def _serialize_environ(self) -> str:
-        return "[Content hidden ...]"
+        return "{}"
 
 
 environ = Environ()
