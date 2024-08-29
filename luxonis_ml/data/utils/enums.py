@@ -7,6 +7,7 @@ class LabelType(str, Enum):
     CLASSIFICATION = "classification"
     SEGMENTATION = "segmentation"
     BOUNDINGBOX = "boundingbox"
+    OBOUNDINGBOX = "oboundingbox"
     KEYPOINTS = "keypoints"
     LABEL = "label"
     ARRAY = "array"

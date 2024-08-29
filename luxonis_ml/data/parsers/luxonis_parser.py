@@ -20,6 +20,7 @@ from .tensorflow_csv_parser import TensorflowCSVParser
 from .voc_parser import VOCParser
 from .yolov4_parser import YoloV4Parser
 from .yolov6_parser import YoloV6Parser
+from .yolov6obb_parser import YoloV6OBBParser
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ class LuxonisParser(Generic[T]):
         DatasetType.VOC: VOCParser,
         DatasetType.DARKNET: DarknetParser,
         DatasetType.YOLOV6: YoloV6Parser,
+        DatasetType.YOLOV6OBB: YoloV6OBBParser,
         DatasetType.YOLOV4: YoloV4Parser,
         DatasetType.CREATEML: CreateMLParser,
         DatasetType.TFCSV: TensorflowCSVParser,
@@ -96,9 +98,12 @@ class LuxonisParser(Generic[T]):
 
         if dataset_type:
             self.dataset_type = dataset_type
+            # self.parser_type = (
+            #     ParserType.DIR if Path(self.dataset_dir / "train").exists() else ParserType.SPLIT
+            # )
             self.parser_type = (
                 ParserType.DIR
-                if Path(self.dataset_dir / "train").exists()
+                if Path(self.dataset_dir / "images" / "train").exists()
                 else ParserType.SPLIT
             )
         else:

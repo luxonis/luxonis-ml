@@ -7,6 +7,7 @@ class DatasetType(str, Enum):
     VOC = "voc"
     DARKNET = "darknet"
     YOLOV6 = "yolov6"
+    YOLOV6OBB = "yolov6obb"
     YOLOV4 = "yolov4"
     CREATEML = "createml"
     TFCSV = "tfcsv"

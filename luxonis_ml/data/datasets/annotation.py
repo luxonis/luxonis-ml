@@ -37,6 +37,7 @@ def load_annotation(name: str, js: str, data: Dict[str, Any]) -> "Annotation":
     return {
         "ClassificationAnnotation": ClassificationAnnotation,
         "BBoxAnnotation": BBoxAnnotation,
+        "OBBoxAnnotation": OBBoxAnnotation,
         "KeypointAnnotation": KeypointAnnotation,
         "RLESegmentationAnnotation": RLESegmentationAnnotation,
         "PolylineSegmentationAnnotation": PolylineSegmentationAnnotation,
@@ -141,6 +142,76 @@ class BBoxAnnotation(Annotation):
         annotations: List["BBoxAnnotation"], class_mapping: Dict[str, int], **_
     ) -> np.ndarray:
         boxes = np.zeros((len(annotations), 5))
+        for i, ann in enumerate(annotations):
+            boxes[i] = ann.to_numpy(class_mapping)
+        return boxes
+
+
+class OBBoxAnnotation(Annotation):
+    """Oriented bounding box annotation.
+
+    Values are normalized based on the image size.
+
+    @type x1: float
+    @ivar x1: The center x1-coordinate of the oriented bounding box. Normalized to [0,
+        1].
+    @type y1: float
+    @ivar y1: The center y1-coordinate of the oriented bounding box. Normalized to [0,
+        1].
+    @type x2: float
+    @ivar x2: The center x2-coordinate of the oriented bounding box. Normalized to [0,
+        1].
+    @type y2: float
+    @ivar y2: The center y2-coordinate of the oriented bounding box. Normalized to [0,
+        1].
+    @type x3: float
+    @ivar x3: The center x3-coordinate of the oriented bounding box. Normalized to [0,
+        1].
+    @type y3: float
+    @ivar y3: The center y3-coordinate of the oriented bounding box. Normalized to [0,
+        1].
+    @type x4: float
+    @ivar x4: The center x4-coordinate of the oriented bounding box. Normalized to [0,
+        1].
+    @type y4: float
+    @ivar y4: The center y4-coordinate of the oriented bounding box. Normalized to [0,
+        1].
+    """
+
+    type_: Literal["oboundingbox"] = Field("oboundingbox", alias="type")
+
+    x1: NormalizedFloat
+    y1: NormalizedFloat
+    x2: NormalizedFloat
+    y2: NormalizedFloat
+    x3: NormalizedFloat
+    y3: NormalizedFloat
+    x4: NormalizedFloat
+    y4: NormalizedFloat
+
+    _label_type = LabelType.OBOUNDINGBOX
+
+    def to_numpy(self, class_mapping: Dict[str, int]) -> np.ndarray:
+        class_ = class_mapping.get(self.class_, 0)
+        return np.array(
+            [
+                class_,
+                self.x1,
+                self.y1,
+                self.x2,
+                self.y2,
+                self.x3,
+                self.y3,
+                self.x4,
+                self.y4,
+            ]
+        )
+
+    @staticmethod
+    def combine_to_numpy(
+        annotations: List["BBoxAnnotation"], class_mapping: Dict[str, int], **_
+    ) -> np.ndarray:
+        boxes = np.zeros((len(annotations), 9))
         for i, ann in enumerate(annotations):
             boxes[i] = ann.to_numpy(class_mapping)
         return boxes
@@ -415,6 +486,7 @@ class DatasetRecord(BaseModelExtraForbid):
         Union[
             ClassificationAnnotation,
             BBoxAnnotation,
+            OBBoxAnnotation,
             KeypointAnnotation,
             RLESegmentationAnnotation,
             PolylineSegmentationAnnotation,
