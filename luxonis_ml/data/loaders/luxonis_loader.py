@@ -231,11 +231,17 @@ class LuxonisLoader(BaseLoader):
             if instance_id < 0:
                 instance_counters[task] += 1
                 instance_id = instance_counters[task]
-            annotation = load_annotation(
-                type_,
-                ann_str,
-                {"class": class_, "task": task, "instance_id": instance_id},
-            )
+            data = json.loads(ann_str)
+            if type_ == "ArrayAnnotation" and self.dataset.is_remote:
+                data["path"] = self.dataset.arrays_path / data["path"]
+                data.update(
+                    {
+                        "class": class_,
+                        "task": task,
+                        "instance_id": instance_id,
+                    }
+                )
+            annotation = load_annotation(type_, data)
             labels_by_task[task].append(annotation)
 
         labels: Labels = {}
