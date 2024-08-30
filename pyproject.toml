@@ -97,4 +97,5 @@ exclude_also = [
     "raise NotImplementedError",
     "@(abc\\.)?abstractmethod",
     "@(abc\\.)?abstractproperty",
+    "sys\\.exit",
 ]

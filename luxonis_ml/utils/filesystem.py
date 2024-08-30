@@ -651,7 +651,7 @@ class LuxonisFileSystem:
             fs.put_file(str(local_path), remote_path)
 
 
-def _check_package_installed(protocol: str) -> None:
+def _check_package_installed(protocol: str) -> None:  # pragma: no cover
     def _pip_install(package: str, version: str) -> None:
         logger.error(f"{package} is necessary for {protocol} protocol.")
         logger.info(f"Installing {package}...")
