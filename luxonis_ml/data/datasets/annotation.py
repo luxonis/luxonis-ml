@@ -209,7 +209,7 @@ class OBBoxAnnotation(Annotation):
 
     @staticmethod
     def combine_to_numpy(
-        annotations: List["BBoxAnnotation"], class_mapping: Dict[str, int], **_
+        annotations: List["OBBoxAnnotation"], class_mapping: Dict[str, int], **_
     ) -> np.ndarray:
         boxes = np.zeros((len(annotations), 9))
         for i, ann in enumerate(annotations):
