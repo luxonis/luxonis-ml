@@ -309,7 +309,7 @@ class BatchCompose(Compose):
             for k, v in additional_targets.items()
         }
         for data in datalist:
-            super(BatchCompose, self)._check_args(unbatched_targets, **data)
+            super()._check_args(unbatched_targets, **data)
 
     def _make_targets_contiguous(self, batched_data: Dict[str, Any]) -> Dict[str, Any]:
         datalist = batch2list(batched_data)
@@ -317,7 +317,7 @@ class BatchCompose(Compose):
             return batched_data
         processed = []
         for data in datalist:
-            data = super(BatchCompose, self)._make_targets_contiguous(data)
+            data = super()._make_targets_contiguous(data)
             processed.append(data)
         return list2batch(processed)
 

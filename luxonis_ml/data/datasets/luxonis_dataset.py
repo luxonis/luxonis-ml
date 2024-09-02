@@ -142,7 +142,7 @@ class LuxonisDataset(BaseDataset):
         self.media_path = self.local_path / "media"
         self.annotations_path = self.local_path / "annotations"
         self.metadata_path = self.local_path / "metadata"
-        self.masks_path = self.local_path / "masks"
+        self.arrays_path = self.local_path / "arrays"
 
         for path in [self.media_path, self.annotations_path, self.metadata_path]:
             path.mkdir(exist_ok=True, parents=True)
@@ -307,6 +307,9 @@ class LuxonisDataset(BaseDataset):
             self.logger.info(f"Deleting dataset {self.dataset_name} from cloud")
             assert self.path
             assert self.dataset_name
+            assert self.local_path
+            if self.local_path.exists():
+                shutil.rmtree(self.local_path)
             self.fs.delete_dir(allow_delete_parent=True)
 
     def _infer_task(self, ann: Annotation) -> str:
@@ -355,42 +358,36 @@ class LuxonisDataset(BaseDataset):
         return ann.task
 
     def _process_arrays(self, batch_data: List[DatasetRecord]) -> None:
-        array_paths = set(
-            ann.path for ann in batch_data if isinstance(ann, ArrayAnnotation)
+        self.logger.info("Checking arrays...")
+        task = self.progress.add_task(
+            "[magenta]Processing arrays...", total=len(batch_data)
         )
-        if array_paths:
-            task = self.progress.add_task(
-                "[magenta]Processing arrays...", total=len(batch_data)
-            )
-            self.logger.info("Checking arrays...")
-            data_utils.check_arrays(array_paths)
-            self.logger.info("Generating array UUIDs...")
-            array_uuid_dict = self.fs.get_file_uuids(
-                array_paths, local=True
-            )  # TODO: support from bucket
+        self.progress.start()
+        uuid_dict = {}
+        for record in batch_data:
+            self.progress.update(task, advance=1)
+            if not isinstance(record.annotation, ArrayAnnotation):
+                continue
+            ann = record.annotation
+            data_utils.check_array(ann.path)
             if self.is_remote:
-                self.logger.info("Uploading arrays...")
-                # TODO: support from bucket (likely with a self.fs.copy_dir)
-                arrays_upload_dict = self.fs.put_dir(
-                    local_paths=array_paths,
-                    remote_dir="arrays",
-                    uuid_dict=array_uuid_dict,
-                )
-            self.logger.info("Finalizing paths...")
-            self.progress.start()
-            for ann in batch_data:
-                if isinstance(ann, ArrayAnnotation):
-                    if self.is_remote:
-                        remote_path = arrays_upload_dict[str(ann.path)]  # type: ignore
-                        remote_path = (
-                            f"{self.fs.protocol}://{self.fs.path / remote_path}"
-                        )
-                        ann.path = remote_path  # type: ignore
-                    else:
-                        ann.path = ann.path.absolute()
-                    self.progress.update(task, advance=1)
-            self.progress.stop()
-            self.progress.remove_task(task)
+                uuid = self.fs.get_file_uuid(
+                    ann.path, local=True
+                )  # TODO: support from bucket
+                uuid_dict[str(ann.path)] = uuid
+                ann.path = Path(uuid).with_suffix(ann.path.suffix)
+            else:
+                ann.path = ann.path.absolute()
+        self.progress.stop()
+        self.progress.remove_task(task)
+        if self.is_remote:
+            self.logger.info("Uploading arrays...")
+            # TODO: support from bucket (likely with a self.fs.copy_dir)
+            self.fs.put_dir(
+                local_paths=uuid_dict.keys(),
+                remote_dir="arrays",
+                uuid_dict=uuid_dict,
+            )
 
     def _add_process_batch(
         self,
@@ -412,11 +409,11 @@ class LuxonisDataset(BaseDataset):
             self.fs.put_dir(local_paths=paths, remote_dir="media", uuid_dict=uuid_dict)
             self.logger.info("Media uploaded")
 
+        self._process_arrays(batch_data)
+
         task = self.progress.add_task(
             "[magenta]Processing data...", total=len(batch_data)
         )
-
-        self._process_arrays(batch_data)
 
         self.logger.info("Saving annotations...")
         with self.progress:

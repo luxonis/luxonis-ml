@@ -7,7 +7,13 @@ import numpy as np
 import numpy.typing as npt
 import pycocotools.mask as mask_util
 from PIL import Image, ImageDraw
-from pydantic import ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    ConfigDict,
+    Field,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 from pydantic.types import FilePath, NonNegativeInt, PositiveInt
 from typing_extensions import Annotated, TypeAlias
 
@@ -33,7 +39,7 @@ ParquetDict = TypedDict(
 )
 
 
-def load_annotation(name: str, js: str, data: Dict[str, Any]) -> "Annotation":
+def load_annotation(name: str, data: Dict[str, Any]) -> "Annotation":
     return {
         "ClassificationAnnotation": ClassificationAnnotation,
         "BBoxAnnotation": BBoxAnnotation,
@@ -43,7 +49,7 @@ def load_annotation(name: str, js: str, data: Dict[str, Any]) -> "Annotation":
         "MaskSegmentationAnnotation": MaskSegmentationAnnotation,
         "ArrayAnnotation": ArrayAnnotation,
         "LabelAnnotation": LabelAnnotation,
-    }[name](**json.loads(js), **data)
+    }[name](**data)
 
 
 class Annotation(ABC, BaseModelExtraForbid):
@@ -373,6 +379,10 @@ class ArrayAnnotation(Annotation):
             class_ = class_mapping.get(ann.class_, 0)
             out_arr[i, class_] = np.load(ann.path)
         return out_arr
+
+    @field_serializer("path")
+    def serialize_path(self, value: FilePath) -> str:
+        return str(value)
 
 
 class LabelAnnotation(Annotation):

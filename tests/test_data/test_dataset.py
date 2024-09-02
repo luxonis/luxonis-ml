@@ -14,6 +14,7 @@ from luxonis_ml.data import (
     LuxonisDataset,
     LuxonisLoader,
     LuxonisParser,
+    LuxonisSource,
 )
 from luxonis_ml.data.utils.data_utils import rgb_to_bool_masks
 from luxonis_ml.enums import DatasetType
@@ -118,9 +119,16 @@ def test_dataset(
         assert dataset.get_classes()[0] == ["person"]
         assert set(dataset.get_tasks()) == TASKS
         assert dataset.get_skeletons() == SKELETONS
+        assert dataset.identifier == dataset_name
 
     if "dataset" not in locals():
         pytest.exit("Dataset creation failed")
+
+    with subtests.test("test_source"):
+        print(dataset.source.to_document())
+        assert dataset.source.to_document() == LuxonisSource().to_document()
+        dataset.update_source(LuxonisSource("test"))
+        assert dataset.source.to_document() == LuxonisSource("test").to_document()
 
     with subtests.test("test_load", bucket_storage=bucket_storage):
         loader = LuxonisLoader(dataset)
@@ -150,6 +158,28 @@ def test_dataset(
     with subtests.test("test_delete", bucket_storage=bucket_storage):
         dataset.delete_dataset(delete_remote=True)
         assert not LuxonisDataset.exists(dataset_name, bucket_storage=bucket_storage)
+
+
+@pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
+def test_dataset_fail():
+    dataset = LuxonisDataset("__test_fail", delete_existing=True)
+
+    def generator():
+        for i in range(10):
+            img = make_image(i)
+            yield {
+                "file": img,
+                "annotation": {
+                    "type": "classification",
+                    "class": "person",
+                },
+            }
+
+    dataset.add(generator(), batch_size=2)
+
+    with pytest.raises(ValueError):
+        dataset.set_skeletons()
+        dataset.add(generator())
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
@@ -240,6 +270,8 @@ def test_make_splits(
     with pytest.raises(ValueError):
         dataset.make_splits()
         dataset.make_splits((0.7, 0.1, 1))
+        dataset.make_splits((0.7, 0.1, 0.1, 0.1))  # type: ignore
+        dataset.make_splits((0.7, 0.1, 1), definitions=definitions)
         dataset.make_splits({"train": 1.5})
         dataset.make_splits(
             definitions={split: defs * 2 for split, defs in definitions.items()}
@@ -450,3 +482,58 @@ def test_complex_dataset():
         "color_segmentation": ["background", "blue", "green", "red"],
         "vehicle_segmentation": ["vehicle"],
     }
+
+
+@pytest.mark.parametrize(
+    ("bucket_storage",),
+    [
+        (BucketStorage.LOCAL,),
+        (BucketStorage.GCS,),
+    ],
+)
+def test_uncommon_label_types(
+    bucket_storage: BucketStorage, platform_name: str, python_version: str
+):
+    arr = np.random.rand(10)
+
+    def generator():
+        for i in range(10):
+            img = make_image(i)
+            yield {
+                "file": img,
+                "annotation": {
+                    "type": "label",
+                    "value": "dog",
+                },
+            }
+            yield {
+                "file": img,
+                "annotation": {
+                    "type": "label",
+                    "value": "cat",
+                },
+            }
+            np.save(str(img.with_suffix(".npy")), arr)
+            yield {
+                "file": img,
+                "annotation": {
+                    "type": "array",
+                    "path": str(img.with_suffix(".npy")),
+                },
+            }
+
+    dataset_name = f"__uncommon_label_types-{bucket_storage.value}-{platform_name}-{python_version}"
+    dataset = LuxonisDataset(
+        dataset_name,
+        delete_existing=True,
+        delete_remote=True,
+        bucket_storage=bucket_storage,
+    )
+    dataset.add(generator())
+    dataset.make_splits()
+    loader = LuxonisLoader(dataset)
+    for _, labels in loader:
+        assert "label" in labels
+        assert "array" in labels
+        assert labels["label"][0].tolist() == [["dog"], ["cat"]]
+        assert np.allclose(labels["array"][0], arr)

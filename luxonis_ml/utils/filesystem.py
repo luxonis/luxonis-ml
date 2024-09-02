@@ -251,13 +251,16 @@ class LuxonisFileSystem:
         if self.is_mlflow:
             raise NotImplementedError
         elif self.is_fsspec:
-            if isinstance(local_paths, Path) and Path(local_paths).is_dir():
+            if isinstance(local_paths, (Path, str)):
+                local_paths = Path(local_paths)
+                if not Path(local_paths).is_dir():
+                    raise ValueError("Path must be a directory.")
                 self.fs.put(
                     str(local_paths),
                     str(self.path / remote_dir),
                     recursive=True,
                 )
-            elif isinstance(local_paths, list):
+            else:
                 upload_dict = {}
                 with ThreadPoolExecutor() as executor:
                     for local_path in local_paths:
@@ -496,14 +499,12 @@ class LuxonisFileSystem:
         if local:
             with open(path, "rb") as f:
                 file_contents = cast(bytes, f.read())
+        elif self.is_mlflow:
+            raise NotImplementedError
         else:
-            if self.is_mlflow:
-                raise NotImplementedError
-
-            else:
-                download_path = str(self.path / path)
-                with self.fs.open(download_path, "rb") as f:
-                    file_contents = cast(bytes, f.read())
+            download_path = str(self.path / path)
+            with self.fs.open(download_path, "rb") as f:
+                file_contents = cast(bytes, f.read())
 
         file_hash_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, file_contents.hex()))
 
@@ -533,7 +534,8 @@ class LuxonisFileSystem:
 
         return result
 
-    def _split_mlflow_path(self, path: PathType) -> List[Optional[str]]:
+    @staticmethod
+    def _split_mlflow_path(path: PathType) -> List[Optional[str]]:
         """Splits mlflow path into 3 parts."""
         path = Path(path)
         parts: List[Optional[str]] = list(path.parts)
@@ -649,7 +651,7 @@ class LuxonisFileSystem:
             fs.put_file(str(local_path), remote_path)
 
 
-def _check_package_installed(protocol: str) -> None:
+def _check_package_installed(protocol: str) -> None:  # pragma: no cover
     def _pip_install(package: str, version: str) -> None:
         logger.error(f"{package} is necessary for {protocol} protocol.")
         logger.info(f"Installing {package}...")
