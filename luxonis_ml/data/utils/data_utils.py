@@ -1,33 +1,32 @@
-from typing import Any, Dict, Iterable, Iterator, Tuple
+from pathlib import Path
+from typing import Dict, Iterator, Tuple
 
 import numpy as np
 import numpy.typing as npt
 
 
-def check_arrays(values: Iterable[Any]) -> None:
-    """Checks whether paths to numpy arrays are valid. This checks that th file exists
+def check_array(path: Path) -> None:
+    """Checks whether a path to a numpy array is valid. This checks that th file exists
     and is readable by numpy.
 
-    @type values: List[Any]
-    @param values: A list of paths to numpy arrays.
+    @type values: Path
+    @param values: A path to a numpy array.
     @rtype: NoneType
     @return: None
+    @raise ValueError: If the path is not a valid numpy array.
     """
 
-    def _check_valid_array(path: str) -> bool:
+    def _check_valid_array(path: Path) -> bool:
         try:
             np.load(path)
             return True
         except Exception:
             return False
 
-    for value in values:
-        if not isinstance(value, str):
-            raise Exception(
-                f"Array value {value} must be a path to a numpy array (.npy)"
-            )
-        if not _check_valid_array(value):
-            raise Exception(f"Array at path {value} is not a valid numpy array (.npy)")
+    if not isinstance(path, Path) or not path.suffix == ".npy":
+        raise ValueError(f"Array path {path} must be a path to a numpy array (.npy)")
+    if not _check_valid_array(path):
+        raise ValueError(f"Array at path {path} is not a valid numpy array (.npy)")
 
 
 def rgb_to_bool_masks(

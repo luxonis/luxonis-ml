@@ -4,7 +4,7 @@ import os
 from functools import wraps
 from importlib.util import find_spec
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Union
+from typing import Any, Callable, Dict, Literal, Optional, Union
 
 import numpy as np
 from unique_names_generator import get_random_name
@@ -154,7 +154,7 @@ class LuxonisTracker:
 
     @property
     @rank_zero_only
-    def experiment(self) -> Dict[str, Any]:
+    def experiment(self) -> Dict[Literal["tensorboard", "wandb", "mlflow"], Any]:
         """Creates new experiments or returns active ones if already created."""
         if self._experiment is not None:
             return self._experiment
