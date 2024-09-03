@@ -234,13 +234,13 @@ class LuxonisLoader(BaseLoader):
             data = json.loads(ann_str)
             if type_ == "ArrayAnnotation" and self.dataset.is_remote:
                 data["path"] = self.dataset.arrays_path / data["path"]
-                data.update(
-                    {
-                        "class": class_,
-                        "task": task,
-                        "instance_id": instance_id,
-                    }
-                )
+            data.update(
+                {
+                    "class": class_,
+                    "task": task,
+                    "instance_id": instance_id,
+                }
+            )
             annotation = load_annotation(type_, data)
             labels_by_task[task].append(annotation)
 
