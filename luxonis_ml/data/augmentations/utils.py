@@ -38,8 +38,8 @@ class Augmentations:
         (
             self.batch_transform,
             self.spatial_transform,
-            self.resize_transform,
             self.pixel_transform,
+            self.resize_transform,
         ) = self._parse_cfg(
             image_size=image_size,
             augmentations=[a for a in augmentations if a["name"] == "Normalize"]
@@ -99,6 +99,11 @@ class Augmentations:
                 format="coco",
                 label_fields=["bboxes_classes_batch", "bboxes_visibility_batch"],
             ),
+            # obbox_params=A.KeypointParams(
+            #     format="xy",
+            #     label_fields=["obboxes_classes_batch", "obboxes_visibility_batch"],
+            #     remove_invisible=False,
+            # ),
             keypoint_params=A.KeypointParams(
                 format="xy",
                 label_fields=["keypoints_visibility_batch", "keypoints_classes_batch"],
@@ -111,9 +116,17 @@ class Augmentations:
             bbox_params=A.BboxParams(
                 format="coco", label_fields=["bboxes_classes", "bboxes_visibility"]
             ),
+            # obbox_params=A.KeypointParams(
+            #     format="xy",
+            #     label_fields=["obboxes_classes", "bboxes_visibility"],
+            #     remove_invisible=False,
+            # ),
             keypoint_params=A.KeypointParams(
                 format="xy",
-                label_fields=["keypoints_visibility", "keypoints_classes"],
+                label_fields=[
+                    "keypoints_visibility",
+                    "keypoints_classes",
+                ],
                 remove_invisible=False,
             ),
         )
@@ -123,9 +136,17 @@ class Augmentations:
             bbox_params=A.BboxParams(
                 format="coco", label_fields=["bboxes_classes", "bboxes_visibility"]
             ),
+            # obbox_params=A.KeypointParams(
+            #     format="xy",
+            #     label_fields=["bboxes_classes", "bboxes_visibility"],
+            #     remove_invisible=False,
+            # ),
             keypoint_params=A.KeypointParams(
                 format="xy",
-                label_fields=["keypoints_visibility", "keypoints_classes"],
+                label_fields=[
+                    "keypoints_visibility",
+                    "keypoints_classes",
+                ],
                 remove_invisible=False,
             ),
         )
@@ -135,9 +156,17 @@ class Augmentations:
             bbox_params=A.BboxParams(
                 format="coco", label_fields=["bboxes_classes", "bboxes_visibility"]
             ),
+            # obbox_params=A.KeypointParams(
+            #     format="xy",
+            #     label_fields=["bboxes_classes", "bboxes_visibility"],
+            #     remove_invisible=False,
+            # ),
             keypoint_params=A.KeypointParams(
                 format="xy",
-                label_fields=["keypoints_visibility", "keypoints_classes"],
+                label_fields=[
+                    "keypoints_visibility",
+                    "keypoints_classes",
+                ],
                 remove_invisible=False,
             ),
         )
@@ -207,6 +236,9 @@ class Augmentations:
         bboxes_batch = []
         bboxes_visibility_batch = []
         bboxes_classes_batch = []
+        obboxes_batch = []
+        # obboxes_visibility_batch = []
+        # obboxes_classes_batch = []
         keypoints_batch = []
         keypoints_visibility_batch = []
         keypoints_classes_batch = []
@@ -218,6 +250,9 @@ class Augmentations:
                 mask,
                 bboxes_points,
                 bboxes_classes,
+                # obboxes_points,
+                # obboxes_visibility,
+                # obboxes_classes,
                 keypoints_points,
                 keypoints_visibility,
                 keypoints_classes,
@@ -236,6 +271,11 @@ class Augmentations:
             bboxes_classes_batch.append(bboxes_classes)
             bbox_counter += bboxes_points.shape[0]
 
+            if LabelType.OBOUNDINGBOX in present_annotations:
+                obboxes_batch.append(annotations[LabelType.OBOUNDINGBOX])
+            # obboxes_visibility_batch.append(obboxes_visibility)
+            # obboxes_classes_batch.append(obboxes_classes)
+
             keypoints_batch.append(keypoints_points)
             keypoints_visibility_batch.append(keypoints_visibility)
             keypoints_classes_batch.append(keypoints_classes)
@@ -246,6 +286,9 @@ class Augmentations:
             "bboxes_batch": bboxes_batch,
             "bboxes_visibility_batch": bboxes_visibility_batch,
             "bboxes_classes_batch": bboxes_classes_batch,
+            # "obboxes_batch": obboxes_batch,
+            # "obboxes_visibility_batch": obboxes_visibility_batch,
+            # "obboxes_classes_batch": obboxes_classes_batch,
             "keypoints_batch": keypoints_batch,
             "keypoints_visibility_batch": keypoints_visibility_batch,
             "keypoints_classes_batch": keypoints_classes_batch,
@@ -261,6 +304,9 @@ class Augmentations:
             "bboxes",
             "bboxes_visibility",
             "bboxes_classes",
+            # "obboxes",  # The spatial, resize, and pixel transformations use the Albumentations impementation, which does not support obbs.
+            # "obboxes_visibility",
+            # "obboxes_classes",
             "keypoints",
             "keypoints_visibility",
             "keypoints_classes",
@@ -299,6 +345,11 @@ class Augmentations:
                 out_annotations[LabelType.SEGMENTATION] = out_mask
             elif key == LabelType.BOUNDINGBOX:
                 out_annotations[LabelType.BOUNDINGBOX] = out_bboxes
+            elif key == LabelType.OBOUNDINGBOX:
+                # A temp solution without augmentations
+                out_annotations[LabelType.OBOUNDINGBOX] = np.squeeze(
+                    np.array(obboxes_batch), axis=0
+                )
             elif key == LabelType.KEYPOINTS:
                 out_annotations[LabelType.KEYPOINTS] = out_keypoints
 
@@ -316,6 +367,9 @@ class Augmentations:
         Optional[np.ndarray],
         np.ndarray,
         np.ndarray,
+        # np.ndarray,
+        # np.ndarray,
+        # np.ndarray,
         np.ndarray,
         np.ndarray,
         np.ndarray,
@@ -351,6 +405,21 @@ class Augmentations:
         bboxes_points = self.check_bboxes(bboxes_points)
         bboxes_classes = bboxes[:, 0]
 
+        # Make the obb input format similiar to the keypoints format below [(x1,y1),(x2,y2),(x3,y3),(x4,y4)].
+        # The original obb format is x1y1x2y2x3y3x4y4.
+        # obboxes = annotations.get(LabelType.OBOUNDINGBOX, np.zeros((0, 9)))
+        # obboxes_points = obboxes[:, 1:]
+        # obboxes_points[:, 0::2] *= iw
+        # obboxes_points[:, 1::2] *= ih
+        # obboxes_flat = obboxes_points.flatten()
+        # obboxes_list = list(zip(obboxes_flat[::2], obboxes_flat[1::2]))
+        # obboxes_points = np.array(obboxes_list)
+        # 0 means "invisible", 1 means "partially visible", 2 means "visible" for keypoints
+        # obboxes_visibility = np.array([2 for _ in range(obboxes_points.shape[0])])
+        # albumentations expects classes to be same length as keypoints
+        # (use case: each kpt separate class - not supported in LuxonisDataset)
+        # obboxes_classes = np.repeat(obboxes[:, 0], 4)
+
         # albumentations expects list of keypoints e.g. [(x,y),(x,y),(x,y),(x,y)]
         keypoints = annotations.get(LabelType.KEYPOINTS, np.zeros((1, nk * 3 + 1)))
         keypoints_unflat = np.reshape(keypoints[:, 1:], (-1, 3))
@@ -367,6 +436,9 @@ class Augmentations:
             mask,
             bboxes_points,
             bboxes_classes,
+            # obboxes_points,
+            # obboxes_visibility,
+            # obboxes_classes,
             keypoints_points,
             keypoints_visibility,
             keypoints_classes,
@@ -391,7 +463,8 @@ class Augmentations:
         @type filter_kpts_by_bbox: bool
         @param filter_kpts_by_bbox: If True removes keypoint instances if its bounding
             box was removed.
-        @rtype: Tuple[np.ndarray, Optional[np.ndarray], np.ndarray, np.ndarray]
+        @rtype: Tuple[np.ndarray, Optional[np.ndarray], np.ndarray, np.ndarray,
+            np.ndarray]
         @return: Postprocessed annotations
         """
 
@@ -421,6 +494,20 @@ class Augmentations:
             out_bboxes = np.zeros((0, 5))
         out_bboxes[:, 1::2] /= iw
         out_bboxes[:, 2::2] /= ih
+
+        # if transformed_data["obboxes"]:
+        #     transformed_obboxes = np.reshape(transformed_data["obboxes"], -1)
+        #     transformed_obboxes_classes = transformed_data["obboxes_classes"]
+        #     # Take just the first alement from the classes list, since all points of an obb have
+        #     # the same class
+        #     transformed_obboxes_classes = transformed_obboxes_classes[0][0]
+        #     transformed_obboxes_classes = np.expand_dims(transformed_obboxes_classes, axis=-1)
+        #     # out_bboxes = np.concatenate((transformed_obboxes_classes, transformed_obboxes), axis=1)
+        #     out_bboxes = np.concatenate((transformed_obboxes_classes, transformed_obboxes))
+        # else:  # if no bboxes after transform
+        #     out_obboxes = np.zeros((0, 9))
+        # out_obboxes[:, 1::2] /= iw
+        # out_obboxes[:, 2::2] /= ih
 
         transformed_keypoints_vis = np.expand_dims(
             transformed_data["keypoints_visibility"], axis=-1

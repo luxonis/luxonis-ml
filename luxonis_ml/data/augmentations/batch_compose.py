@@ -24,6 +24,7 @@ class Compose(BaseCompose):
         self,
         transforms: TransformsSeqType,
         bbox_params: Optional[Union[dict, BboxParams]] = None,
+        # obbox_params: Optional[Union[dict, KeypointParams]] = None,
         keypoint_params: Optional[Union[dict, KeypointParams]] = None,
         additional_targets: Optional[Dict[str, str]] = None,
         p: float = 1.0,
@@ -33,8 +34,10 @@ class Compose(BaseCompose):
 
         @param transforms: List of transformations to compose
         @type transforms: TransformsSeqType
-        @param bboxparams: Parameters for bounding boxes transforms. Defaults to None.
-        @type bboxparams: Optional[Union[dict, BboxParams]]
+        # @param bbox_params: Parameters for bounding boxes transforms. Defaults to None.
+        # @type bbox_params: Optional[Union[dict, BboxParams]]
+        @param obbox_params: Parameters for oriented bounding boxes transforms. Defaults to None.
+        @type obbox_params: Optional[Union[dict, KeypointParams]]
         @param keypoint_params: Parameters for keypoint transforms. Defaults to None.
         @type keypoint_params: Optional[Union[dict, KeypointParams]]
         @param additional_targets: Dict with keys - new target name, values - old target
@@ -63,6 +66,20 @@ class Compose(BaseCompose):
             self.processors["bboxes"] = self._get_bbox_processor(
                 b_params, additional_targets
             )
+
+        # We use KeypointParams for obbs, since their annotatin is [(x1,y1), (x2,y2), (x3,y3), (x3,y3)]
+        # if obbox_params:
+        #     if isinstance(obbox_params, dict):
+        #         obb_params = KeypointParams(**obbox_params)
+        #     elif isinstance(obbox_params, KeypointParams):
+        #         obb_params = obbox_params
+        #     else:
+        #         raise ValueError(
+        #             "unknown format of obbox_params, please use `dict` or `KeypointParams`"
+        #         )
+        #     self.processors["obboxes"] = self._get_keypoints_processor(
+        #         obb_params, additional_targets
+        #     )
 
         if keypoint_params:
             if isinstance(keypoint_params, dict):
@@ -244,6 +261,7 @@ class BatchCompose(Compose):
         self,
         transforms: TransformsSeqType,
         bbox_params: Optional[Union[dict, BboxParams]] = None,
+        # obbox_params: Optional[Union[dict, KeypointParams]] = None,
         keypoint_params: Optional[Union[dict, KeypointParams]] = None,
         additional_targets: Optional[Dict[str, str]] = None,
         p: float = 1.0,
@@ -257,8 +275,10 @@ class BatchCompose(Compose):
 
         @param transforms: List of transformations to compose
         @type transforms: TransformsSeqType
-        @param bboxparams: Parameters for bounding boxes transforms. Defaults to None.
-        @type bboxparams: Optional[Union[dict, BboxParams]]
+        @param bbox_params: Parameters for bounding boxes transforms. Defaults to None.
+        @type bbox_params: Optional[Union[dict, BboxParams]]
+        # @param obbox_params: Parameters for oriented bounding boxes transforms. Defaults to None.
+        # @type obbox_params: Optional[Union[dict, BboxParams]]
         @param keypoint_params: Parameters for keypoint transforms. Defaults to None.
         @type keypoint_params: Optional[Union[dict, KeypointParams]]
         @param additional_targets: Dict with keys - new target name, values - old target
@@ -274,6 +294,7 @@ class BatchCompose(Compose):
         super().__init__(
             transforms=transforms,
             bbox_params=bbox_params,
+            # obbox_params=obbox_params,
             keypoint_params=keypoint_params,
             additional_targets=additional_targets,
             p=p,
