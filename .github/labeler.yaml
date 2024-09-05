@@ -1,31 +1,44 @@
 data:
   - changed-files:
     - any-glob-to-any-file: 'luxonis_ml/data/*'
+
 utils:
   - changed-files:
     - any-glob-to-any-file: 'luxonis_ml/utils/*'
+
 NN Archive:
   - changed-files:
     - any-glob-to-any-file: 'luxonis_ml/nn_archive/*'
+
 tests:
   - changed-files:
     - any-glob-to-any-file: 'tests/*'
+
 embeddings:
   - changed-files:
     - any-glob-to-any-file: 'luxonis_ml/embeddings/*'
+
 tracker:
   - changed-files:
     - any-glob-to-any-file: 'luxonis_ml/tracker/*'
+
 CLI:
   - changed-files:
     - any-glob-to-any-file: '**/__main__.py'
+
+DevOps:
+  - changed-files:
+    - any-glob-to-any-file: '.github/*'
+
 release:
   - base-branch: 'main'
+
 enhancement:
   - head-branch:
     - 'feature/*'
     - 'feat/*'
     - 'enhancement/*'
+
 fix:
   - head-branch:
     - 'fix/*'
