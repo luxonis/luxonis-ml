@@ -108,7 +108,6 @@ jobs:
         emoji: false
         custom-arguments: >
           --cov luxonis_ml
-          --cov-report json:./coverage/coverage-summary.json
           --cov-report xml
           --junit-xml pytest.xml
         custom-pytest: pytest tests/test_nn_archive
@@ -126,6 +125,43 @@ jobs:
           coverageFile: coverage.xml
           token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Update Coverage Badge
-      uses: we-cli/coverage-badge-action@main
+    - name: Generate coverage badge
+      uses: tj-actions/coverage-badge-py@v2
+      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8'
+      with:
+        output: coverage_badge.svg
+
+    - name: Upload coverage badge
+      uses: actions/upload-artifact@main
+      with:
+        name: coverage_badge
+        path: coverage_badge.svg
+
+  update-badges:
+    runs-on: ubuntu-latest
+    needs:
+      - tests
+    steps:
+      - name: Checkout gh-pages
+        uses: actions/checkout@v3
+        with:
+          ref: gh-pages
+
+      - name: Download coverage badge
+        uses: actions/download-artifact@main
+        with:
+          name: coverage_badge
+
+      - name: Deploy Badges
+        uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: "Update coverage badge"
+          branch: gh-pages
+          skip_fetch: true
+          skip_checkout: true
+
+      - name: Checkout HEAD
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.ref }}
 
