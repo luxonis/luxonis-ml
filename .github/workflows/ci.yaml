@@ -151,6 +151,7 @@ jobs:
         uses: actions/download-artifact@main
         with:
           name: coverage_badge
+          path: badges/coverage_badge.svg
 
       - name: Deploy Badges
         uses: stefanzweifel/git-auto-commit-action@v4
