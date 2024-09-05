@@ -106,7 +106,11 @@ jobs:
         LUXONISML_BUCKET: luxonis-test-bucket
       with:
         emoji: false
-        custom-arguments: --cov luxonis_ml --cov-report json --junit-xml pytest.xml
+        custom-arguments: >
+          --cov luxonis_ml
+          --cov-report json
+          --cov-report xml
+          --junit-xml pytest.xml
         custom-pytest: pytest tests/test_nn_archive
 
     - name: Create Test Report
