@@ -149,10 +149,10 @@ jobs:
           ref: gh-pages
 
       - name: Download coverage badge
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: coverage_badge
-          path: badges/coverage.svg
+          path: badges/
 
       - name: Deploy Badges
         uses: stefanzweifel/git-auto-commit-action@v3
@@ -166,4 +166,3 @@ jobs:
         uses: actions/checkout@v3
         with:
           ref: ${{ github.ref }}
-
