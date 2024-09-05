@@ -106,19 +106,14 @@ jobs:
         LUXONISML_BUCKET: luxonis-test-bucket
       with:
         emoji: false
-        custom-arguments: --cov luxonis_ml --cov-report xml --junit-xml pytest.xml
+        custom-arguments: --cov luxonis_ml --cov-report json --junit-xml pytest.xml
+        custom-pytest: pytest tests/test_nn_archive
 
     - name: Create Test Report
       uses: EnricoMi/publish-unit-test-result-action@v2
       if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8'
       with:
         files: pytest.xml
-
-    - name: Generate coverage badge
-      uses: tj-actions/coverage-badge-py@v2
-      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8'
-      with:
-        output: media/coverage_badge.svg
 
     - name: Generate coverage report
       uses: orgoro/coverage@v3.1
@@ -127,19 +122,6 @@ jobs:
           coverageFile: coverage.xml
           token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Commit coverage badge
-      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8'
-      run: |
-        git config --global user.name 'GitHub Actions'
-        git config --global user.email 'actions@github.com'
-        git diff --quiet media/coverage_badge.svg || {
-          git add media/coverage_badge.svg
-          git commit -m "[Automated] Updated coverage badge"
-        }
-
-    - name: Push changes
-      uses: ad-m/github-push-action@master
-      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8'
-      with:
-        branch: ${{ github.head_ref }}
+    - name: Update Coverage Badge
+      uses: we-cli/coverage-badge-action@main
 
