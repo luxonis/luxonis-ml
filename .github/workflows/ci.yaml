@@ -110,7 +110,6 @@ jobs:
           --cov luxonis_ml
           --cov-report xml
           --junit-xml pytest.xml
-        custom-pytest: pytest tests/test_nn_archive
 
     - name: Create Test Report
       uses: EnricoMi/publish-unit-test-result-action@v2
