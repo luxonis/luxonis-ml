@@ -129,13 +129,13 @@ jobs:
       uses: tj-actions/coverage-badge-py@v2
       if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8'
       with:
-        output: coverage_badge.svg
+        output: coverage.svg
 
     - name: Upload coverage badge
       uses: actions/upload-artifact@main
       with:
         name: coverage_badge
-        path: coverage_badge.svg
+        path: coverage.svg
 
   update-coverage-badge:
     runs-on: ubuntu-latest
