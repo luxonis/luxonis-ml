@@ -108,7 +108,7 @@ jobs:
         emoji: false
         custom-arguments: >
           --cov luxonis_ml
-          --cov-report json
+          --cov-report json:./coverage/coverage-summary.json
           --cov-report xml
           --junit-xml pytest.xml
         custom-pytest: pytest tests/test_nn_archive
