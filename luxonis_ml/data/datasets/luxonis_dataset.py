@@ -503,8 +503,40 @@ class LuxonisDataset(BaseDataset):
 
         self.fs.put_file(tmp_file.name, "metadata/file_index.parquet")
         self._write_metadata()
-
+        self.warn_on_duplicates()
         return self
+
+    def warn_on_duplicates(self) -> None:
+        df = self._load_df_offline()
+
+        df_grouped = df.group_by("uuid").agg(
+            pl.col("file").n_unique().alias("file_count")
+        )
+        duplicate_uuid = df_grouped.filter(pl.col("file_count") > 1)
+        duplicate_uuid_files = (
+            df.join(duplicate_uuid, on="uuid").select(["uuid", "file"]).unique()
+        )
+        duplicates_paired = duplicate_uuid_files.group_by("uuid").agg(
+            [pl.col("file").alias("files")]
+        )
+
+        for row in duplicates_paired.iter_rows():
+            if len(row[1]) > 1:
+                self.logger.warning(f"UUID: {row[0]} has multiple file names: {row[1]}")
+
+        duplicate_annotation = (
+            df.group_by(["file", "annotation"])
+            .agg(pl.count().alias("count"))
+            .filter(pl.col("count") > 1)
+        )
+
+        if not duplicate_annotation.is_empty():
+            for row in duplicate_annotation.iter_rows():
+                file_name = row[0]
+                annotation = row[1]
+                self.logger.warning(
+                    f"File '{file_name}' has the same annotation '{annotation}' added multiple times."
+                )
 
     def get_splits(self) -> Optional[Dict[str, List[str]]]:
         splits_path = get_file(
