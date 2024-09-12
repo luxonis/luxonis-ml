@@ -154,15 +154,20 @@ class LuxonisDataset(BaseDataset):
                 self.bucket_storage, self.bucket, self.team_id, self.dataset_name
             )
 
-    def _load_df_offline(self) -> Optional[pl.DataFrame]:
+    def _load_df_offline(
+        self, lazy: bool = False
+    ) -> Optional[pl.LazyFrame | pl.DataFrame]:
         path = get_dir(self.fs, "annotations", self.local_path)
 
         if path is None or not path.exists():
             return None
 
-        dfs = [pl.read_parquet(file) for file in path.glob("*.parquet")]
-
-        return pl.concat(dfs) if dfs else None
+        if lazy:
+            dfs = [pl.scan_parquet(file) for file in path.glob("*.parquet")]
+            return pl.concat(dfs) if dfs else None
+        else:
+            dfs = [pl.read_parquet(file) for file in path.glob("*.parquet")]
+            return pl.concat(dfs) if dfs else None
 
     def _get_file_index(self) -> Optional[pl.DataFrame]:
         path = get_file(self.fs, "metadata/file_index.parquet", self.media_path)
@@ -503,12 +508,11 @@ class LuxonisDataset(BaseDataset):
 
         self.fs.put_file(tmp_file.name, "metadata/file_index.parquet")
         self._write_metadata()
-        self.warn_on_duplicates()
+        self._warn_on_duplicates()
         return self
 
-    def warn_on_duplicates(self) -> None:
-        df = self._load_df_offline()
-
+    def _warn_on_duplicates(self) -> None:
+        df = self._load_df_offline(lazy=True)
         # Warn on duplicate UUIDs
         duplicates_paired = (
             df.group_by("uuid")
@@ -519,10 +523,11 @@ class LuxonisDataset(BaseDataset):
             .unique()
             .group_by("uuid")
             .agg([pl.col("file").alias("files")])
+            .filter(pl.col("files").len() > 1)
         )
-        for uuid, files in duplicates_paired.iter_rows():
-            if len(files) > 1:
-                self.logger.warning(f"UUID: {uuid} has multiple file names: {files}")
+        duplicates_paired_df = duplicates_paired.collect()
+        for uuid, files in duplicates_paired_df.iter_rows():
+            self.logger.warning(f"UUID: {uuid} has multiple file names: {files}")
 
         # Warn on duplicate annotations
         duplicate_annotation = (
@@ -530,7 +535,8 @@ class LuxonisDataset(BaseDataset):
             .agg(pl.count().alias("count"))
             .filter(pl.col("count") > 1)
         )
-        for file_name, annotation, _ in duplicate_annotation.iter_rows():
+        duplicate_annotation_df = duplicate_annotation.collect()
+        for file_name, annotation, _ in duplicate_annotation_df.iter_rows():
             self.logger.warning(
                 f"File '{file_name}' has the same annotation '{annotation}' added multiple times."
             )
