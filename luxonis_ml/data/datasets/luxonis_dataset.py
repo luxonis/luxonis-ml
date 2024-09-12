@@ -10,12 +10,14 @@ from typing import (
     Any,
     Dict,
     List,
+    Literal,
     Mapping,
     Optional,
     Sequence,
     Set,
     Tuple,
     Union,
+    overload,
 )
 
 import numpy as np
@@ -154,9 +156,17 @@ class LuxonisDataset(BaseDataset):
                 self.bucket_storage, self.bucket, self.team_id, self.dataset_name
             )
 
+    @overload
+    def _load_df_offline(self, lazy: Literal[False] = ...) -> Optional[pl.DataFrame]:
+        ...
+
+    @overload
+    def _load_df_offline(self, lazy: Literal[True] = ...) -> Optional[pl.LazyFrame]:
+        ...
+
     def _load_df_offline(
         self, lazy: bool = False
-    ) -> Optional[pl.LazyFrame | pl.DataFrame]:
+    ) -> Optional[Union[pl.DataFrame, pl.LazyFrame]]:
         path = get_dir(self.fs, "annotations", self.local_path)
 
         if path is None or not path.exists():
