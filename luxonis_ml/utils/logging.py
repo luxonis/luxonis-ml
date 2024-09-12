@@ -1,4 +1,5 @@
 import builtins
+import inspect
 import logging
 import warnings
 from functools import wraps
@@ -158,6 +159,8 @@ def deprecated(
     """
 
     def decorator(func):
+        sig = inspect.signature(func)
+
         @wraps(func)
         def wrapper(*f_args, **f_kwargs):
             fname = func.__name__
@@ -168,22 +171,31 @@ def deprecated(
                 warnings.warn(msg, DeprecationWarning, stacklevel=2)
 
             if args:
-                for arg in args:
-                    if arg in f_kwargs:
-                        replacement = suggest.get(arg) if suggest else None
-                        msg = (
-                            f"Argument '{arg}' in function '{fname}' "
-                            "is deprecated and will be removed in "
-                            "future versions."
-                        )
-                        if replacement:
-                            msg += f" Use '{replacement}' instead."
-                        if additional_message:
-                            msg += f" {additional_message}"
-                        warnings.warn(msg, DeprecationWarning, stacklevel=2)
+                pos_arg_names = list(sig.parameters.keys())[: len(f_args)]
+
+                for arg_name in pos_arg_names:
+                    if arg_name in args:
+                        _warn_deprecated(arg_name, fname, suggest, additional_message)
+
+                for arg_name in f_kwargs:
+                    if arg_name in args:
+                        _warn_deprecated(arg_name, fname, suggest, additional_message)
 
             return func(*f_args, **f_kwargs)
 
         return wrapper
 
     return decorator
+
+
+def _warn_deprecated(arg_name, fname, suggest, additional_message):
+    replacement = suggest.get(arg_name) if suggest else None
+    msg = (
+        f"Argument '{arg_name}' in function '{fname}' "
+        "is deprecated and will be removed in future versions."
+    )
+    if replacement:
+        msg += f" Use '{replacement}' instead."
+    if additional_message:
+        msg += f" {additional_message}"
+    warnings.warn(msg, DeprecationWarning, stacklevel=3)
