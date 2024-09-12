@@ -520,7 +520,7 @@ class LuxonisDataset(BaseDataset):
     @deprecated(
         "ratios",
         "definitions",
-        suggested={"ratios": "splits", "definitions": "splits"},
+        suggest={"ratios": "splits", "definitions": "splits"},
     )
     def make_splits(
         self,

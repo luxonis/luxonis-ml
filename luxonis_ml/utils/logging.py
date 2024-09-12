@@ -124,7 +124,7 @@ def reset_logging() -> None:
 
 def deprecated(
     *args: str,
-    suggested: Optional[Dict[str, str]] = None,
+    suggest: Optional[Dict[str, str]] = None,
     additional_message: Optional[str] = None,
     altogether: bool = False,
 ):
@@ -134,7 +134,7 @@ def deprecated(
 
         >>> @deprecated("old_arg",
         ...             "another_old_arg",
-        ...             suggested={"old_arg": "new_arg"},
+        ...             suggest={"old_arg": "new_arg"},
         ...             additional_message="Usage of 'old_arg' is discouraged.")
         )
         ...def my_func(old_arg, another_old_arg, new_arg=None):
@@ -148,8 +148,8 @@ def deprecated(
 
     @type args: str
     @param args: The names of the deprecated parameters.
-    @type suggested: Dict[str, str]
-    @param suggested: Suggested replacement parameters.
+    @type suggest: Dict[str, str]
+    @param suggest: Suggested replacement parameters.
     @type additional_message: str
     @param additional_message: Additional message to display.
         If provided, it will be appended to the warning message.
@@ -171,7 +171,7 @@ def deprecated(
             if args:
                 for arg in args:
                     if arg in f_kwargs:
-                        replacement = suggested.get(arg) if suggested else None
+                        replacement = suggest.get(arg) if suggest else None
                         msg = (
                             f"Argument '{arg}' in function '{fname}' "
                             "is deprecated and will be removed in "
