@@ -136,7 +136,6 @@ def deprecated(
         ...             "another_old_arg",
         ...             suggest={"old_arg": "new_arg"},
         ...             additional_message="Usage of 'old_arg' is discouraged.")
-        )
         ...def my_func(old_arg, another_old_arg, new_arg=None):
         ...   pass
         >>> my_func("foo")
