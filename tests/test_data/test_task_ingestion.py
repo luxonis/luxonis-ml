@@ -112,7 +112,7 @@ def test_task_ingestion(
                 },
             }
 
-    dataset.add(generator1()).make_splits(ratios=(1, 0, 0))
+    dataset.add(generator1()).make_splits((1, 0, 0))
 
     classes_list, classes = dataset.get_classes()
 
@@ -151,7 +151,7 @@ def test_task_ingestion(
                 },
             }
 
-    dataset.add(generator2()).make_splits(ratios=(1, 0, 0))
+    dataset.add(generator2()).make_splits((1, 0, 0))
     classes_list, classes = dataset.get_classes()
 
     assert set(classes_list) == {"dog", "cat", "water", "grass"}
@@ -187,7 +187,7 @@ def test_task_ingestion(
                 },
             }
 
-    dataset.add(generator3()).make_splits(ratios=(1, 0, 0))
+    dataset.add(generator3()).make_splits((1, 0, 0))
     classes_list, classes = dataset.get_classes()
 
     assert set(classes_list) == {"dog", "cat", "water", "grass"}
@@ -231,7 +231,7 @@ def test_task_ingestion(
                 },
             }
 
-    dataset.add(generator4()).make_splits(ratios=(1, 0, 0))
+    dataset.add(generator4()).make_splits((1, 0, 0))
     classes_list, classes = dataset.get_classes()
 
     assert set(classes_list) == {"dog", "cat", "water", "grass", "bike", "body"}
