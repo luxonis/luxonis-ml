@@ -121,9 +121,9 @@ class BaseParser(ABC):
         """
         added_images = self._parse_split(**kwargs)
         if split is not None:
-            self.dataset.make_splits(definitions={split: added_images})
+            self.dataset.make_splits({split: added_images})
         elif random_split:
-            self.dataset.make_splits(ratios=split_ratios)
+            self.dataset.make_splits(split_ratios)
         return self.dataset
 
     def parse_dir(self, dataset_dir: Path, **kwargs) -> BaseDataset:

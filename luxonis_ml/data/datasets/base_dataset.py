@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Iterator, List, Mapping, Optional, Sequence, Tuple, Type, Union
+from typing import Dict, Iterator, List, Optional, Sequence, Tuple, Type, Union
 
 from typing_extensions import TypeAlias
 
@@ -125,29 +125,31 @@ class BaseDataset(
     @abstractmethod
     def make_splits(
         self,
+        splits: Optional[
+            Union[
+                Dict[str, Sequence[PathType]],
+                Dict[str, float],
+                Tuple[float, float, float],
+            ]
+        ] = None,
+        *,
         ratios: Optional[Union[Dict[str, float], Tuple[float, float, float]]] = None,
-        definitions: Optional[Mapping[str, Sequence[PathType]]] = None,
+        definitions: Optional[Dict[str, List[PathType]]] = None,
+        replace_old_splits: bool = False,
     ) -> None:
-        """Saves a splits json file that specified the train/val/test splis.
+        """Generates splits for the dataset.
 
+        @type splits: Optional[Union[Dict[str, Sequence[PathType]], Dict[str, float], Tuple[float, float, float]]]
+        @param splits: A dictionary of splits or a tuple of ratios for train, val, and test splits. Can be one of:
+            - A dictionary of splits with keys as split names and values as lists of filepaths
+            - A dictionary of splits with keys as split names and values as ratios
+            - A 3-tuple of ratios for train, val, and test splits
         @type ratios: Optional[Union[Dict[str, float], Tuple[float, float, float]]]
-        @param ratios: Dictionary specifying the ratios of the splits. Can be a tuple
-            of floats for "train", "val", and "test" respectively, or a dictionary
-            specifying the ratios for each split.
-            Defaults to C{{"train": 0.8, "val": 0.1, "test": 0.1}}.
-
-        @type definitions: Optional[Mapping[str, Sequence[PathType]]
-        @param definitions: Dictionary specifying split keys to lists
-            of filepath values. Note that this assumes unique filenames.
-            Example::
-
-                {
-                    "train": ["/path/to/cat.jpg", "/path/to/dog.jpg"],
-                    "val": [...],
-                    "test": [...]
-                }
-
-            Only overrides splits that are present in the dictionary.
+        @param ratios: Deprecated! A dictionary of splits with keys as split names and values as ratios.
+        @type definitions: Optional[Dict[str, List[PathType]]]
+        @param definitions: Deprecated! A dictionary of splits with keys as split names and values as lists of filepaths.
+        @type replace_old_splits: bool
+        @param replace_old_splits: Whether to remove old splits and generate new ones. If set to False, only new files will be added to the splits. Default is False.
         """
         pass
 

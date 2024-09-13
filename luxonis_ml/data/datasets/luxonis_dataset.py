@@ -10,7 +10,6 @@ from typing import (
     Any,
     Dict,
     List,
-    Mapping,
     Optional,
     Sequence,
     Set,
@@ -25,7 +24,7 @@ from ordered_set import OrderedSet
 from typing_extensions import Self
 
 import luxonis_ml.data.utils.data_utils as data_utils
-from luxonis_ml.utils import LuxonisFileSystem, environ, make_progress_bar
+from luxonis_ml.utils import LuxonisFileSystem, deprecated, environ, make_progress_bar
 from luxonis_ml.utils.filesystem import PathType
 
 from ..utils.constants import LDF_VERSION
@@ -518,14 +517,42 @@ class LuxonisDataset(BaseDataset):
         with open(splits_path, "r") as file:
             return json.load(file)
 
+    @deprecated(
+        "ratios",
+        "definitions",
+        suggest={"ratios": "splits", "definitions": "splits"},
+    )
     def make_splits(
         self,
+        splits: Optional[
+            Union[
+                Dict[str, Sequence[PathType]],
+                Dict[str, float],
+                Tuple[float, float, float],
+            ]
+        ] = None,
+        *,
         ratios: Optional[Union[Dict[str, float], Tuple[float, float, float]]] = None,
-        definitions: Optional[Mapping[str, Sequence[PathType]]] = None,
+        definitions: Optional[Dict[str, List[PathType]]] = None,
         replace_old_splits: bool = False,
     ) -> None:
         if ratios is not None and definitions is not None:
             raise ValueError("Cannot provide both ratios and definitions")
+
+        if splits is None and ratios is None and definitions is None:
+            splits = {"train": 0.8, "val": 0.1, "test": 0.1}
+
+        if splits is not None:
+            if ratios is not None or definitions is not None:
+                raise ValueError("Cannot provide both splits and ratios/definitions")
+            if isinstance(splits, tuple):
+                ratios = splits
+            elif isinstance(splits, dict):
+                value = next(iter(splits.values()))
+                if isinstance(value, float):
+                    ratios = splits  # type: ignore
+                elif isinstance(value, list):
+                    definitions = splits  # type: ignore
 
         if ratios is not None:
             if isinstance(ratios, tuple):
