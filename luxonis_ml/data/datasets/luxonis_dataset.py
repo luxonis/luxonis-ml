@@ -10,11 +10,13 @@ from typing import (
     Any,
     Dict,
     List,
+    Literal,
     Optional,
     Sequence,
     Set,
     Tuple,
     Union,
+    overload,
 )
 
 import numpy as np
@@ -153,15 +155,28 @@ class LuxonisDataset(BaseDataset):
                 self.bucket_storage, self.bucket, self.team_id, self.dataset_name
             )
 
-    def _load_df_offline(self) -> Optional[pl.DataFrame]:
+    @overload
+    def _load_df_offline(self, lazy: Literal[False] = ...) -> Optional[pl.DataFrame]:
+        ...
+
+    @overload
+    def _load_df_offline(self, lazy: Literal[True] = ...) -> Optional[pl.LazyFrame]:
+        ...
+
+    def _load_df_offline(
+        self, lazy: bool = False
+    ) -> Optional[Union[pl.DataFrame, pl.LazyFrame]]:
         path = get_dir(self.fs, "annotations", self.local_path)
 
         if path is None or not path.exists():
             return None
 
-        dfs = [pl.read_parquet(file) for file in path.glob("*.parquet")]
-
-        return pl.concat(dfs) if dfs else None
+        if lazy:
+            dfs = [pl.scan_parquet(file) for file in path.glob("*.parquet")]
+            return pl.concat(dfs) if dfs else None
+        else:
+            dfs = [pl.read_parquet(file) for file in path.glob("*.parquet")]
+            return pl.concat(dfs) if dfs else None
 
     def _get_file_index(self) -> Optional[pl.DataFrame]:
         path = get_file(self.fs, "metadata/file_index.parquet", self.media_path)
@@ -502,8 +517,38 @@ class LuxonisDataset(BaseDataset):
 
         self.fs.put_file(tmp_file.name, "metadata/file_index.parquet")
         self._write_metadata()
-
+        self._warn_on_duplicates()
         return self
+
+    def _warn_on_duplicates(self) -> None:
+        df = self._load_df_offline(lazy=True)
+        # Warn on duplicate UUIDs
+        duplicates_paired = (
+            df.group_by("uuid")
+            .agg(pl.col("file").n_unique().alias("file_count"))
+            .filter(pl.col("file_count") > 1)
+            .join(df, on="uuid")
+            .select(["uuid", "file"])
+            .unique()
+            .group_by("uuid")
+            .agg([pl.col("file").alias("files")])
+            .filter(pl.col("files").len() > 1)
+        )
+        duplicates_paired_df = duplicates_paired.collect()
+        for uuid, files in duplicates_paired_df.iter_rows():
+            self.logger.warning(f"UUID: {uuid} has multiple file names: {files}")
+
+        # Warn on duplicate annotations
+        duplicate_annotation = (
+            df.group_by(["file", "annotation"])
+            .agg(pl.count().alias("count"))
+            .filter(pl.col("count") > 1)
+        )
+        duplicate_annotation_df = duplicate_annotation.collect()
+        for file_name, annotation, _ in duplicate_annotation_df.iter_rows():
+            self.logger.warning(
+                f"File '{file_name}' has the same annotation '{annotation}' added multiple times."
+            )
 
     def get_splits(self) -> Optional[Dict[str, List[str]]]:
         splits_path = get_file(
