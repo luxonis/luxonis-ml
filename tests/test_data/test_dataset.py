@@ -239,7 +239,7 @@ def test_make_splits(
     )
     dataset.add(generator())
     assert dataset.get_splits() is None
-    dataset.make_splits(definitions=definitions)
+    dataset.make_splits(definitions)
     splits = dataset.get_splits()
     assert splits is not None
     assert set(splits.keys()) == {"train", "val", "test"}
@@ -251,7 +251,7 @@ def test_make_splits(
     assert splits is not None
     for split, split_data in splits.items():
         assert len(split_data) == 5, f"Split {split} has {len(split_data)} samples"
-    dataset.make_splits(definitions=definitions)
+    dataset.make_splits(definitions)
     splits = dataset.get_splits()
     assert splits is not None
     for split, split_data in splits.items():
@@ -273,9 +273,7 @@ def test_make_splits(
         dataset.make_splits((0.7, 0.1, 0.1, 0.1))  # type: ignore
         dataset.make_splits((0.7, 0.1, 1), definitions=definitions)
         dataset.make_splits({"train": 1.5})
-        dataset.make_splits(
-            definitions={split: defs * 2 for split, defs in definitions.items()}
-        )
+        dataset.make_splits({split: defs * 2 for split, defs in definitions.items()})
 
     dataset.add(generator(10))
     dataset.make_splits({"custom_split": 1.0})
