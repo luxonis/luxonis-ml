@@ -38,8 +38,8 @@ class Augmentations:
         (
             self.batch_transform,
             self.spatial_transform,
-            self.resize_transform,
             self.pixel_transform,
+            self.resize_transform,
         ) = self._parse_cfg(
             image_size=image_size,
             augmentations=[a for a in augmentations if a["name"] == "Normalize"]
