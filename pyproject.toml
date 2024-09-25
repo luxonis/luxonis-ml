@@ -83,6 +83,9 @@ ignore_missing_imports = true
 [tool.pyright]
 typeCheckingMode = "basic"
 
+[tool.pytest.ini_options]
+addopts = "--disable-warnings"
+
 [tool.coverage.run]
 omit = [
     "luxonis_ml/embeddings/*",
