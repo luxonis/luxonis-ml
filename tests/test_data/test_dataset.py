@@ -179,7 +179,6 @@ def test_dataset_fail():
 
     with pytest.raises(ValueError):
         dataset.set_skeletons()
-        dataset.add(generator())
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
@@ -198,8 +197,7 @@ def test_loader_iterator():
 
     loader._load_image_with_annotations = _raise
     with pytest.raises(IndexError):
-        for _ in loader:
-            pass
+        _ = loader[0]
 
 
 @pytest.mark.parametrize(
@@ -269,11 +267,21 @@ def test_make_splits(
 
     with pytest.raises(ValueError):
         dataset.make_splits()
+
+    with pytest.raises(ValueError):
         dataset.make_splits((0.7, 0.1, 1))
+
+    with pytest.raises(ValueError):
         dataset.make_splits((0.7, 0.1, 0.1, 0.1))  # type: ignore
+
+    with pytest.raises(ValueError):
         dataset.make_splits((0.7, 0.1, 1), definitions=definitions)
+
+    with pytest.raises(ValueError):
         dataset.make_splits({"train": 1.5})
-        dataset.make_splits({split: defs * 2 for split, defs in definitions.items()})
+
+    with pytest.raises(ValueError):
+        dataset.make_splits({split: defs * 2 for split, defs in splits.items()})
 
     dataset.add(generator(10))
     dataset.make_splits({"custom_split": 1.0})

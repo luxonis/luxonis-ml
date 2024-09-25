@@ -1,5 +1,3 @@
-import pytest
-
 from luxonis_ml.data.datasets.utils import add_generator_wrapper, rescale_values
 
 
@@ -85,7 +83,3 @@ def test_add_generator_wrapper_missing_scaled_to_boxes():
         tasks.append(record["annotation"]["task"])
 
     assert sorted(tasks) == ["people-boundingbox", "people-keypoints"]
-
-
-if __name__ == "__main__":
-    pytest.main(["-v", "--tb=short"])

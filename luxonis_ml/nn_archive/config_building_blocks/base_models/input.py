@@ -84,6 +84,9 @@ class Input(BaseModelExtraForbid):
     def validate_layout(self) -> Self:
         self.layout = self.layout.upper()
 
+        if len(self.layout) != len(set(self.layout)):
+            raise ValueError("Layout must not contain duplicate letters.")
+
         if len(self.layout) != len(self.shape):
             raise ValueError("Layout and shape must have the same length.")
 

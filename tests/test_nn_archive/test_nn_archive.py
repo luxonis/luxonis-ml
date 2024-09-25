@@ -160,6 +160,8 @@ def test_layout():
                 "layout": "1chwc2",
             }
         )
+
+    with pytest.raises(ValidationError):
         Input(
             **{
                 **default,
@@ -167,6 +169,8 @@ def test_layout():
                 "layout": "nch",
             }
         )
+
+    with pytest.raises(ValidationError):
         Input(
             **{
                 **default,
@@ -174,6 +178,8 @@ def test_layout():
                 "layout": "nchh",
             }
         )
+
+    with pytest.raises(ValidationError):
         Output(
             **{
                 "name": "output",
@@ -182,6 +188,8 @@ def test_layout():
                 "layout": "ncn",
             }
         )
+
+    with pytest.raises(ValidationError):
         Output(
             **{
                 "name": "output",
