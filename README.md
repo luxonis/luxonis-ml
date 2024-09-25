@@ -6,7 +6,7 @@
 [![PyPI - Downloads](https://img.shields.io/pypi/dm/luxonis-ml)](https://pypi.org/project/luxonis-ml/)
 
 ![CI](https://github.com/luxonis/luxonis-ml/actions/workflows/ci.yaml/badge.svg)
-![Coverage](https://github.com/luxonis/luxonis-ml/blob/dev/media/coverage_badge.svg)
+[![codecov](https://codecov.io/gh/luxonis/luxonis-ml/graph/badge.svg?token=01E7QTYXWU)](https://codecov.io/gh/luxonis/luxonis-ml)
 
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Docformatter](https://img.shields.io/badge/%20formatter-docformatter-fedcba.svg)](https://github.com/PyCQA/docformatter)
