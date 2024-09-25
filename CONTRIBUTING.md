@@ -46,7 +46,7 @@ We use [pytest](https://docs.pytest.org/en/stable/) for testing.
 The tests are located in the `tests` directory. You can run the tests locally with:
 
 ```bash
-pytest tests --cov=luxonis_ml
+pytest tests --cov
 ```
 
 This command will run all tests and print a coverage report. The coverage report
@@ -62,7 +62,7 @@ The tests are run only if the pre-commit hook and documentation build pass.
 Successful tests are required for merging a PR.
 
 1. Checks and tests are run automatically when you open a pull request.
-1. For the tests to run, the [pre-commit](#pre-commit-hooks) hook must pass and
+1. For the tests to run, the [pre-commit](#pre-commit-hooks) hook must pass, and
    the [documentation](#documentation) must be built successfully.
 1. Review the GitHub Actions output if your PR fails.
 1. Fix any issues to ensure that all checks and tests pass.
@@ -72,10 +72,6 @@ Successful tests are required for merging a PR.
 1. Make changes in a new branch.
 1. Test your changes locally.
 1. Commit (pre-commit hook will run).
-1. Push to your branch and create a pull request. Always request a review from:
-   - [Martin Kozlovský](https://github.com/kozlov721)
-   - [Klemen Skrlj](https://github.com/klemen1999)
-   - [Matija Teršek](https://github.com/tersekmatija)
-   - [Conor Simmons](https://github.com/conorsim)
+1. Push to your branch and create a pull request.
 1. Any other relevant team members can be added as reviewers as well.
 1. The team will review and merge your PR.
