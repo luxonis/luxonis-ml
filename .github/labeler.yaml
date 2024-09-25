@@ -19,6 +19,12 @@ tracker:
 CLI:
   - changed-files:
     - any-glob-to-any-file: '**/__main__.py'
+DevOps:
+  - head-branch:
+    - 'devops/*'
+    - 'ci/*'
+  - changed-files:
+    - any-glob-to-any-file: '.github/workflows/ci.yaml'
 release:
   - base-branch: 'main'
 enhancement:
