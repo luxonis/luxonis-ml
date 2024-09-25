@@ -175,7 +175,7 @@ def test_dir_download(fs: LuxonisFileSystem):
 
 @parametrize_dependent_fixture(depends=["test_dir_download"])
 def test_dir_upload(fs: LuxonisFileSystem):
-    if fs.exists("_dir_upload_test"):
+    if fs.exists("_dir_upload_test"):  # pragma: no cover
         fs.delete_dir("_dir_upload_test")
     assert not fs.exists("_dir_upload_test")
 
