@@ -522,6 +522,8 @@ class LuxonisDataset(BaseDataset):
 
     def _warn_on_duplicates(self) -> None:
         df = self._load_df_offline(lazy=True)
+        if df is None:
+            return
         # Warn on duplicate UUIDs
         duplicates_paired = (
             df.group_by("uuid")
@@ -541,7 +543,7 @@ class LuxonisDataset(BaseDataset):
         # Warn on duplicate annotations
         duplicate_annotation = (
             df.group_by(["file", "annotation"])
-            .agg(pl.count().alias("count"))
+            .agg(pl.len().alias("count"))
             .filter(pl.col("count") > 1)
         )
         duplicate_annotation_df = duplicate_annotation.collect()

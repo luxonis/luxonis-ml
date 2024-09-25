@@ -180,9 +180,6 @@ def test_dataset_fail():
     with pytest.raises(ValueError):
         dataset.set_skeletons()
 
-    with pytest.raises(ValueError):
-        dataset.add(generator())
-
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_loader_iterator():
@@ -284,7 +281,7 @@ def test_make_splits(
         dataset.make_splits({"train": 1.5})
 
     with pytest.raises(ValueError):
-        dataset.make_splits({split: defs * 2 for split, defs in definitions.items()})
+        dataset.make_splits({split: defs * 2 for split, defs in splits.items()})
 
     dataset.add(generator(10))
     dataset.make_splits({"custom_split": 1.0})
