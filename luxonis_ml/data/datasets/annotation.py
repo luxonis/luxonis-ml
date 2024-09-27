@@ -4,7 +4,6 @@ from datetime import datetime
 from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple, TypedDict, Union
 
 import numpy as np
-import numpy.typing as npt
 import pycocotools.mask as mask_util
 from PIL import Image, ImageDraw
 from pydantic import (
@@ -194,7 +193,7 @@ class SegmentationAnnotation(Annotation):
     @abstractmethod
     def to_numpy(
         self, class_mapping: Dict[str, int], width: int, height: int
-    ) -> npt.NDArray[np.bool_]:
+    ) -> np.ndarray:
         """Converts the annotation to a numpy array."""
         pass
 
@@ -257,9 +256,7 @@ class RLESegmentationAnnotation(SegmentationAnnotation):
             "counts": rle["counts"].decode("utf-8"),
         }
 
-    def to_numpy(
-        self, _: Dict[str, int], width: int, height: int
-    ) -> npt.NDArray[np.bool_]:
+    def to_numpy(self, _: Dict[str, int], width: int, height: int) -> np.ndarray:
         assert isinstance(self.counts, bytes)
         return mask_util.decode(
             {"counts": self.counts, "size": [height, width]}
@@ -312,7 +309,7 @@ class MaskSegmentationAnnotation(SegmentationAnnotation):
 
     @field_validator("mask", mode="before")
     @staticmethod
-    def _validate_mask(mask: Any) -> npt.NDArray[np.bool_]:
+    def _validate_mask(mask: Any) -> np.ndarray:
         if not isinstance(mask, np.ndarray):
             raise ValueError("Mask must be a numpy array")
         return mask.astype(np.bool_)
@@ -327,7 +324,7 @@ class MaskSegmentationAnnotation(SegmentationAnnotation):
             "counts": rle["counts"].decode("utf-8"),  # type: ignore
         }
 
-    def to_numpy(self, *_) -> npt.NDArray[np.bool_]:
+    def to_numpy(self, *_) -> np.ndarray:
         return self.mask
 
 
@@ -343,9 +340,7 @@ class PolylineSegmentationAnnotation(SegmentationAnnotation):
 
     points: List[Tuple[NormalizedFloat, NormalizedFloat]] = Field(min_length=3)
 
-    def to_numpy(
-        self, _: Dict[str, int], width: int, height: int
-    ) -> npt.NDArray[np.bool_]:
+    def to_numpy(self, _: Dict[str, int], width: int, height: int) -> np.ndarray:
         polyline = [(round(x * width), round(y * height)) for x, y in self.points]
         mask = Image.new("L", (width, height), 0)
         draw = ImageDraw.Draw(mask)

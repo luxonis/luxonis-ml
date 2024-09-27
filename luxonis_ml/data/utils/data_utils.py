@@ -2,7 +2,6 @@ from pathlib import Path
 from typing import Dict, Iterator, Tuple
 
 import numpy as np
-import numpy.typing as npt
 
 
 def check_array(path: Path) -> None:
@@ -30,10 +29,10 @@ def check_array(path: Path) -> None:
 
 
 def rgb_to_bool_masks(
-    segmentation_mask: npt.NDArray[np.uint8],
+    segmentation_mask: np.ndarray,
     class_colors: Dict[str, Tuple[int, int, int]],
     add_background_class: bool = False,
-) -> Iterator[Tuple[str, npt.NDArray[np.bool_]]]:
+) -> Iterator[Tuple[str, np.ndarray]]:
     """Helper function to convert an RGB segmentation mask to boolean masks for each
     class.
 
