@@ -83,7 +83,7 @@ def test_archive_generator(
         archive_name=archive_name,
         save_path="tests/data/test_nn_archive",
         cfg_dict={
-            "config_version": "1.0",
+            "config_version": "1.1",
             "model": {
                 "metadata": {
                     "name": "test_model",
