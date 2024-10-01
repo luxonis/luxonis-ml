@@ -16,6 +16,8 @@ from .head_metadata import (
 class Head(BaseModel, ABC):
     """Represents head of a model.
 
+    @type name: str | None
+    @ivar name: Optional name of the head.
     @type parser: str
     @ivar parser: Name of the parser responsible for processing the models output.
     @type outputs: List[str] | None
@@ -27,6 +29,7 @@ class Head(BaseModel, ABC):
     @ivar metadata: Metadata of the parser.
     """
 
+    name: Optional[str] = Field(None, description="Optional name of the head.")
     parser: str = Field(
         description="Name of the parser responsible for processing the models output."
     )
