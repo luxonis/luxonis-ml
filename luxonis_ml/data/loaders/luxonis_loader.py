@@ -126,17 +126,23 @@ class LuxonisLoader(BaseLoader):
 
         indices = [idx]
         if self.augmentations.is_batched:
-            other_indices = [i for i in range(len(self)) if i != idx]
             if self.augmentations.aug_batch_size > len(self):
                 warnings.warn(
                     f"Augmentations batch_size ({self.augmentations.aug_batch_size}) is larger than dataset size ({len(self)}), samples will include repetitions."
                 )
-                random_fun = random.choices
+                other_indices = [i for i in range(len(self)) if i != idx]
+                picked_indices = random.choices(
+                    other_indices, k=self.augmentations.aug_batch_size - 1
+                )
             else:
-                random_fun = random.sample
-            picked_indices = random_fun(
-                other_indices, k=self.augmentations.aug_batch_size - 1
-            )
+                picked_indices = set()
+                max_val = len(self)
+                while len(picked_indices) < self.augmentations.aug_batch_size - 1:
+                    rand_idx = random.randint(0, max_val - 1)
+                    if rand_idx != idx and rand_idx not in picked_indices:
+                        picked_indices.add(rand_idx)
+                picked_indices = list(picked_indices)
+
             indices.extend(picked_indices)
 
         out_dict: Dict[str, Tuple[np.ndarray, LabelType]] = {}
