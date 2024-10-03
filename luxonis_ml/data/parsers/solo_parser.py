@@ -40,8 +40,8 @@ class SOLOParser(BaseParser):
         @type split_path: Path
         @param split_path: Path to split directory.
         @rtype: Optional[Dict[str, Any]]
-        @return: Dictionary with kwargs to pass to L{from_split} method or C{None} if
-            the split is not in the expected format.
+        @return: Dictionary with kwargs to pass to L{from_split} method
+            or C{None} if the split is not in the expected format.
         """
         if not split_path.exists():
             return None
@@ -94,7 +94,8 @@ class SOLOParser(BaseParser):
         @type dataset_dir: str
         @param dataset_dir: Path to source dataset directory.
         @rtype: Tuple[List[str], List[str], List[str]]
-        @return: Tuple with added images for train, valid and test splits.
+        @return: Tuple with added images for train, valid and test
+            splits.
         """
 
         added_train_imgs = self._parse_split(split_path=dataset_dir / "train")
@@ -107,14 +108,15 @@ class SOLOParser(BaseParser):
         self,
         split_path: Path,
     ) -> ParserOutput:
-        """Parses data in a split subdirectory from SOLO format to L{LuxonisDataset}
-        format.
+        """Parses data in a split subdirectory from SOLO format to
+        L{LuxonisDataset} format.
 
         @type split_path: Path
-        @param split_path: Path to directory with sequences of images and annotations.
+        @param split_path: Path to directory with sequences of images
+            and annotations.
         @rtype: L{ParserOutput}
-        @return: C{LuxonisDataset} generator, list of class names, skeleton dictionary
-            for keypoints and list of added images.
+        @return: C{LuxonisDataset} generator, list of class names,
+            skeleton dictionary for keypoints and list of added images.
         """
 
         if not os.path.exists(split_path):
@@ -127,20 +129,29 @@ class SOLOParser(BaseParser):
             with open(annotation_definitions_path) as json_file:
                 annotation_definitions_dict = json.load(json_file)
         else:
-            raise Exception(f"{annotation_definitions_path} path non-existent.")
+            raise Exception(
+                f"{annotation_definitions_path} path non-existent."
+            )
 
-        annotation_types = self._get_solo_annotation_types(annotation_definitions_dict)
+        annotation_types = self._get_solo_annotation_types(
+            annotation_definitions_dict
+        )
 
-        class_names = self._get_solo_bbox_class_names(annotation_definitions_dict)
+        class_names = self._get_solo_bbox_class_names(
+            annotation_definitions_dict
+        )
         # TODO: We make an assumption here that bbox class_names are also valid for all other annotation types in the dataset. Is this OK?
         # TODO: Can we imagine a case where classes between annotation types are different? Which class names to return in this case?
         if class_names == []:
             raise Exception("No class_names identified. ")
 
-        keypoint_labels = self._get_solo_keypoint_names(annotation_definitions_dict)
+        keypoint_labels = self._get_solo_keypoint_names(
+            annotation_definitions_dict
+        )
 
         skeletons = {
-            class_name: {"labels": keypoint_labels} for class_name in class_names
+            class_name: {"labels": keypoint_labels}
+            for class_name in class_names
         }
         # TODO: setting skeletons by assigning all keypoint names to each class_name. Is this OK?
         # if NOT, set them manually with LuxonisDataset.set_skeletons() as SOLO format does not
@@ -158,7 +169,9 @@ class SOLOParser(BaseParser):
                         os.path.join(sequence_path, "*.frame_data.json")
                     ):  # single sequence can have multiple steps
                         if not os.path.exists(frame_path):
-                            raise FileNotFoundError(f"{frame_path} not existent.")
+                            raise FileNotFoundError(
+                                f"{frame_path} not existent."
+                            )
                         with open(frame_path) as f:
                             frame = json.load(f)
 
@@ -168,7 +181,9 @@ class SOLOParser(BaseParser):
                             annotations = capture["annotations"]
                             img_path = os.path.join(sequence_path, img_fname)
                             if not os.path.exists(img_path):
-                                raise FileNotFoundError(f"{img_path} not existent.")
+                                raise FileNotFoundError(
+                                    f"{img_path} not existent."
+                                )
 
                             if "BoundingBox2DAnnotation" in annotation_types:
                                 for anno in annotations:
@@ -197,7 +212,10 @@ class SOLOParser(BaseParser):
                                         },
                                     }
 
-                            if "SemanticSegmentationAnnotation" in annotation_types:
+                            if (
+                                "SemanticSegmentationAnnotation"
+                                in annotation_types
+                            ):
                                 for anno in annotations:
                                     if anno["@type"].endswith(
                                         "SemanticSegmentationAnnotation"
@@ -205,15 +223,21 @@ class SOLOParser(BaseParser):
                                         sseg_annotations = anno
 
                                 mask_fname = sseg_annotations["filename"]
-                                mask_path = os.path.join(sequence_path, mask_fname)
+                                mask_path = os.path.join(
+                                    sequence_path, mask_fname
+                                )
                                 mask = cv2.imread(mask_path)
 
                                 for instance in sseg_annotations["instances"]:
                                     class_name = instance["labelName"]
                                     r, g, b, _ = instance["pixelValue"]
                                     curr_mask = np.zeros_like(mask)
-                                    curr_mask[np.all(mask == [b, g, r], axis=2)] = 1
-                                    curr_mask = np.max(curr_mask, axis=2)  # 3D->2D
+                                    curr_mask[
+                                        np.all(mask == [b, g, r], axis=2)
+                                    ] = 1
+                                    curr_mask = np.max(
+                                        curr_mask, axis=2
+                                    )  # 3D->2D
 
                                     yield {
                                         "file": img_path,
@@ -226,13 +250,19 @@ class SOLOParser(BaseParser):
 
                             if "KeypointAnnotation" in annotation_types:
                                 for anno in annotations:
-                                    if anno["@type"].endswith("KeypointAnnotation"):
+                                    if anno["@type"].endswith(
+                                        "KeypointAnnotation"
+                                    ):
                                         keypoint_annotations = anno["values"]
 
-                                for keypoints_annotation in keypoint_annotations:
+                                for (
+                                    keypoints_annotation
+                                ) in keypoint_annotations:
                                     label_id = keypoints_annotation["labelId"]
                                     keypoints = []
-                                    for keypoint in keypoints_annotation["keypoints"]:
+                                    for keypoint in keypoints_annotation[
+                                        "keypoints"
+                                    ]:
                                         x, y = keypoint["location"]
                                         visibility = keypoint["state"]
                                         keypoints.append(
@@ -259,7 +289,9 @@ class SOLOParser(BaseParser):
             added_images,
         )
 
-    def _get_solo_annotation_types(self, annotation_definitions_dict: dict) -> list:
+    def _get_solo_annotation_types(
+        self, annotation_definitions_dict: dict
+    ) -> list:
         """List all annotation types present in the dataset.
 
         @type annotation_definitions_dict: dict

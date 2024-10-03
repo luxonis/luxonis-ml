@@ -28,13 +28,14 @@ class Mosaic4(BatchBasedTransform):
         always_apply: bool = False,
         p: float = 0.5,
     ):
-        """Mosaic augmentation arranges selected four images into single image in a 2x2
-        grid layout. This is done in deterministic way meaning first image in the batch
-        will always be in top left. The input images should have the same number of
-        channels but can have different widths and heights. The output is cropped around
-        the intersection point of the four images with the size (out_with x out_height).
-        If the mosaic image is smaller than width x height, the gap is filled by the
-        fill_value.
+        """Mosaic augmentation arranges selected four images into single
+        image in a 2x2 grid layout. This is done in deterministic way
+        meaning first image in the batch will always be in top left. The
+        input images should have the same number of channels but can
+        have different widths and heights. The output is cropped around
+        the intersection point of the four images with the size
+        (out_with x out_height). If the mosaic image is smaller than
+        width x height, the gap is filled by the fill_value.
 
         @param out_height: Output image height. The mosaic image is cropped by this height around the mosaic center.
         If the size of the mosaic image is smaller than this value the gap is filled by the `value`.
@@ -63,9 +64,13 @@ class Mosaic4(BatchBasedTransform):
         super().__init__(batch_size=4, always_apply=always_apply, p=p)
 
         if out_height <= 0:
-            raise ValueError(f"out_height should be larger than 0, got {out_height}")
+            raise ValueError(
+                f"out_height should be larger than 0, got {out_height}"
+            )
         if out_width <= 0:
-            raise ValueError(f"out_width should be larger than 0, got {out_width}")
+            raise ValueError(
+                f"out_width should be larger than 0, got {out_width}"
+            )
         if out_batch_size <= 0:
             raise ValueError(
                 f"out_batch_size should be larger than 0, got {out_batch_size}"
@@ -107,8 +112,8 @@ class Mosaic4(BatchBasedTransform):
     ) -> List[np.ndarray]:
         """Applies the transformation to a batch of images.
 
-        @param image_batch: Batch of input images to which the transformation is
-            applied.
+        @param image_batch: Batch of input images to which the
+            transformation is applied.
         @type image_batch: List[np.ndarray]
         @param indices: Indices of images in the batch.
         @type indices: List[Tuple[int, int]]
@@ -119,9 +124,13 @@ class Mosaic4(BatchBasedTransform):
         """
         output_batch = []
         for i_batch in range(self.out_batch_size):
-            idx_chunk = indices[self.n_tiles * i_batch : self.n_tiles * (i_batch + 1)]
+            idx_chunk = indices[
+                self.n_tiles * i_batch : self.n_tiles * (i_batch + 1)
+            ]
             image_chunk = [image_batch[i] for i in idx_chunk]
-            mosaiced = mosaic4(image_chunk, self.out_height, self.out_width, self.value)
+            mosaiced = mosaic4(
+                image_chunk, self.out_height, self.out_width, self.value
+            )
             output_batch.append(mosaiced)
         return output_batch
 
@@ -130,7 +139,8 @@ class Mosaic4(BatchBasedTransform):
     ) -> List[np.ndarray]:
         """Applies the transformation to a batch of masks.
 
-        @param mask_batch: Batch of input masks to which the transformation is applied.
+        @param mask_batch: Batch of input masks to which the
+            transformation is applied.
         @type mask_batch: List[np.ndarray]
         @param indices: Indices of images in the batch.
         @type indices: List[Tuple[int, int]]
@@ -141,7 +151,9 @@ class Mosaic4(BatchBasedTransform):
         """
         output_batch = []
         for i_batch in range(self.out_batch_size):
-            idx_chunk = indices[self.n_tiles * i_batch : self.n_tiles * (i_batch + 1)]
+            idx_chunk = indices[
+                self.n_tiles * i_batch : self.n_tiles * (i_batch + 1)
+            ]
             mask_chunk = [mask_batch[i] for i in idx_chunk]
             mosaiced = mosaic4(
                 mask_chunk, self.out_height, self.out_width, self.mask_value
@@ -158,8 +170,8 @@ class Mosaic4(BatchBasedTransform):
     ) -> List[BoxType]:
         """Applies the transformation to a batch of bboxes.
 
-        @param bboxes_batch: Batch of input bboxes to which the transformation is
-            applied.
+        @param bboxes_batch: Batch of input bboxes to which the
+            transformation is applied.
         @type bboxes_batch: List[BboxType]
         @param indices: Indices of images in the batch.
         @type indices: List[Tuple[int, int]]
@@ -172,7 +184,9 @@ class Mosaic4(BatchBasedTransform):
         """
         output_batch = []
         for i_batch in range(self.out_batch_size):
-            idx_chunk = indices[self.n_tiles * i_batch : self.n_tiles * (i_batch + 1)]
+            idx_chunk = indices[
+                self.n_tiles * i_batch : self.n_tiles * (i_batch + 1)
+            ]
             bboxes_chunk = [bboxes_batch[i] for i in idx_chunk]
             shape_chunk = [image_shapes[i] for i in idx_chunk]
             new_bboxes = []
@@ -181,7 +195,12 @@ class Mosaic4(BatchBasedTransform):
                 rows, cols = shape_chunk[i]
                 for bbox in bboxes:
                     new_bbox = bbox_mosaic4(
-                        bbox[:4], rows, cols, i, self.out_height, self.out_width
+                        bbox[:4],
+                        rows,
+                        cols,
+                        i,
+                        self.out_height,
+                        self.out_width,
                     )
                     new_bboxes.append(tuple(new_bbox) + tuple(bbox[4:]))
             output_batch.append(new_bboxes)
@@ -196,8 +215,8 @@ class Mosaic4(BatchBasedTransform):
     ) -> List[KeypointType]:
         """Applies the transformation to a batch of keypoints.
 
-        @param keypoints_batch: Batch of input keypoints to which the transformation is
-            applied.
+        @param keypoints_batch: Batch of input keypoints to which the
+            transformation is applied.
         @type keypoints_batch: List[KeypointType]
         @param indices: Indices of images in the batch.
         @type indices: List[Tuple[int, int]]
@@ -210,7 +229,9 @@ class Mosaic4(BatchBasedTransform):
         """
         output_batch = []
         for i_batch in range(self.out_batch_size):
-            idx_chunk = indices[self.n_tiles * i_batch : self.n_tiles * (i_batch + 1)]
+            idx_chunk = indices[
+                self.n_tiles * i_batch : self.n_tiles * (i_batch + 1)
+            ]
             keypoints_chunk = [keyboints_batch[i] for i in idx_chunk]
             shape_chunk = [image_shapes[i] for i in idx_chunk]
             new_keypoints = []
@@ -219,18 +240,26 @@ class Mosaic4(BatchBasedTransform):
                 rows, cols = shape_chunk[i]
                 for keypoint in keypoints:
                     new_keypoint = keypoint_mosaic4(
-                        keypoint[:4], rows, cols, i, self.out_height, self.out_width
+                        keypoint[:4],
+                        rows,
+                        cols,
+                        i,
+                        self.out_height,
+                        self.out_width,
                     )
                     new_keypoints.append(new_keypoint + tuple(keypoint[4:]))
             output_batch.append(new_keypoints)
         return output_batch
 
-    def get_params_dependent_on_targets(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    def get_params_dependent_on_targets(
+        self, params: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Get parameters dependent on the targets.
 
         @param params: Dictionary containing parameters.
         @type params: Dict[str, Any]
-        @return: Dictionary containing parameters dependent on the targets.
+        @return: Dictionary containing parameters dependent on the
+            targets.
         @rtype: Dict[str, Any]
         """
         image_batch = params["image_batch"]
@@ -276,7 +305,9 @@ def mosaic4(
     """
     N_TILES = 4
     if len(image_batch) != N_TILES:
-        raise ValueError(f"Length of image_batch should be 4. Got {len(image_batch)}")
+        raise ValueError(
+            f"Length of image_batch should be 4. Got {len(image_batch)}"
+        )
 
     for i in range(N_TILES - 1):
         if image_batch[0].shape[2:] != image_batch[i + 1].shape[2:]:
@@ -357,7 +388,9 @@ def mosaic4(
             )
             x1b, y1b, x2b, y2b = 0, 0, min(w, x2a - x1a), min(y2a - y1a, h)
 
-        img4[y1a:y2a, x1a:x2a] = img[y1b:y2b, x1b:x2b]  # img4[ymin:ymax, xmin:xmax]
+        img4[y1a:y2a, x1a:x2a] = img[
+            y1b:y2b, x1b:x2b
+        ]  # img4[ymin:ymax, xmin:xmax]
 
     return img4
 
@@ -374,12 +407,14 @@ def bbox_mosaic4(
 
     @param bbox: A bounding box `(x_min, y_min, x_max, y_max)`.
     @type bbox: BoxInternalType
-    @param rows: Height of input image that corresponds to one of the mosaic cells
+    @param rows: Height of input image that corresponds to one of the
+        mosaic cells
     @type rows: int
-    @param cols: Width of input image that corresponds to one of the mosaic cells
+    @param cols: Width of input image that corresponds to one of the
+        mosaic cells
     @type cols: int
-    @param position_index: Index of the mosaic cell. 0: top left, 1: top right, 2:
-        bottom left, 3: bottom right
+    @param position_index: Index of the mosaic cell. 0: top left, 1: top
+        right, 2: bottom left, 3: bottom right
     @type position_index: int
     @param height: Height of output mosaic image
     @type height: int
@@ -425,12 +460,14 @@ def keypoint_mosaic4(
 
     @param keypoint: A keypoint `(x, y, angle, scale)`.
     @type bbox: KeypointInternalType
-    @param rows: Height of input image that corresponds to one of the mosaic cells
+    @param rows: Height of input image that corresponds to one of the
+        mosaic cells
     @type rows: int
-    @param cols: Width of input image that corresponds to one of the mosaic cells
+    @param cols: Width of input image that corresponds to one of the
+        mosaic cells
     @type cols: int
-    @param position_index: Index of the mosaic cell. 0: top left, 1: top right, 2:
-        bottom left, 3: bottom right
+    @param position_index: Index of the mosaic cell. 0: top left, 1: top
+        right, 2: bottom left, 3: bottom right
     @type position_index: int
     @param height: Height of output mosaic image
     @type height: int

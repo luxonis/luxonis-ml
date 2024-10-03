@@ -6,8 +6,8 @@ from ..utils.enums import ImageType, MediaType
 
 @dataclass
 class LuxonisComponent:
-    """Abstraction for a piece of media within a source. Most commonly, this abstracts
-    an image sensor.
+    """Abstraction for a piece of media within a source. Most commonly,
+    this abstracts an image sensor.
 
     @type name: str
     @param name: A recognizable name for the component.
@@ -35,7 +35,9 @@ class LuxonisComponent:
         }
 
     @classmethod
-    def from_document(cls, document: LuxonisComponentDocument) -> "LuxonisComponent":
+    def from_document(
+        cls, document: LuxonisComponentDocument
+    ) -> "LuxonisComponent":
         if document["image_type"] is not None:
             return cls(
                 name=document["name"],
@@ -44,12 +46,14 @@ class LuxonisComponent:
             )
         else:
             return cls(
-                name=document["name"], media_type=MediaType(document["media_type"])
+                name=document["name"],
+                media_type=MediaType(document["media_type"]),
             )
 
 
 class LuxonisSource:
-    """Abstracts the structure of a dataset and which components/media are included."""
+    """Abstracts the structure of a dataset and which components/media
+    are included."""
 
     class LuxonisSourceDocument(TypedDict):
         name: str
@@ -62,7 +66,8 @@ class LuxonisSource:
         components: Optional[List[LuxonisComponent]] = None,
         main_component: Optional[str] = None,
     ) -> None:
-        """Abstracts the structure of a dataset by grouping together components.
+        """Abstracts the structure of a dataset by grouping together
+        components.
 
         For example, with an U{OAK-D<https://docs.luxonis.com/projects/hardware
         /en/latest/pages/BW1098OAK/>}, you can have a source with 4 image
@@ -86,7 +91,9 @@ class LuxonisSource:
                 LuxonisComponent(name)
             ]  # basic source includes a single color image
 
-        self.components = {component.name: component for component in components}
+        self.components = {
+            component.name: component for component in components
+        }
         self.main_component = main_component or next(iter(self.components))
 
     def to_document(self) -> LuxonisSourceDocument:
@@ -94,7 +101,8 @@ class LuxonisSource:
             "name": self.name,
             "main_component": self.main_component,
             "components": [
-                component.to_document() for component in self.components.values()
+                component.to_document()
+                for component in self.components.values()
             ],
         }
 

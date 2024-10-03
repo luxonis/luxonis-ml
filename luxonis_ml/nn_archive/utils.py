@@ -11,7 +11,8 @@ def is_nn_archive(path: PathType) -> bool:
     @type path: PathType
     @param path: Path to the file to check.
     @rtype: bool
-    @return: True if the file is a valid NN archive file, False otherwise.
+    @return: True if the file is a valid NN archive file, False
+        otherwise.
     """
     path = Path(path)
 

@@ -36,7 +36,9 @@ class Environ(BaseSettings):
 
     GOOGLE_APPLICATION_CREDENTIALS: Optional[str] = None
 
-    LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = (
+        "INFO"
+    )
 
     @model_serializer(when_used="always", mode="plain", return_type=str)
     def _serialize_environ(self) -> str:

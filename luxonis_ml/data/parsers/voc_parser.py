@@ -45,7 +45,9 @@ class VOCParser(BaseParser):
                 return False
         return True
 
-    def from_dir(self, dataset_dir: Path) -> Tuple[List[str], List[str], List[str]]:
+    def from_dir(
+        self, dataset_dir: Path
+    ) -> Tuple[List[str], List[str], List[str]]:
         added_train_imgs = self._parse_split(
             image_dir=dataset_dir / "train",
             annotation_dir=dataset_dir / "train",
@@ -65,16 +67,17 @@ class VOCParser(BaseParser):
         image_dir: Path,
         annotation_dir: Path,
     ) -> ParserOutput:
-        """Parses annotations from VOC format to LDF. Annotations include classification
-        and object detection.
+        """Parses annotations from VOC format to LDF. Annotations
+        include classification and object detection.
 
         @type image_dir: Path
         @param image_dir: Path to directory with images
         @type annotation_dir: Path
-        @param annotation_dir: Path to directory with C{.xml} annotations
+        @param annotation_dir: Path to directory with C{.xml}
+            annotations
         @rtype: L{ParserOutput}
-        @return: Annotation generator, list of classes names, skeleton dictionary for
-            keypoints and list of added images.
+        @return: Annotation generator, list of classes names, skeleton
+            dictionary for keypoints and list of added images.
         """
 
         class_names = set()

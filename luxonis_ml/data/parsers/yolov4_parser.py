@@ -49,7 +49,9 @@ class YoloV4Parser(BaseParser):
                 return False
         return True
 
-    def from_dir(self, dataset_dir: Path) -> Tuple[List[str], List[str], List[str]]:
+    def from_dir(
+        self, dataset_dir: Path
+    ) -> Tuple[List[str], List[str], List[str]]:
         added_train_imgs = self._parse_split(
             image_dir=dataset_dir / "train",
             annotation_path=dataset_dir / "train" / "_annotations.txt",
@@ -70,8 +72,8 @@ class YoloV4Parser(BaseParser):
     def from_split(
         self, image_dir: Path, annotation_path: Path, classes_path: Path
     ) -> ParserOutput:
-        """Parses annotations from YoloV4 format to LDF. Annotations include
-        classification and object detection.
+        """Parses annotations from YoloV4 format to LDF. Annotations
+        include classification and object detection.
 
         @type image_dir: Path
         @param image_dir: Path to directory with images
@@ -80,11 +82,13 @@ class YoloV4Parser(BaseParser):
         @type classes_path: Path
         @param classes_path: Path to file with class names
         @rtype: L{ParserOutput}
-        @return: Annotation generator, list of classes names, skeleton dictionary for
-            keypoints and list of added images.
+        @return: Annotation generator, list of classes names, skeleton
+            dictionary for keypoints and list of added images.
         """
         with open(classes_path) as f:
-            class_names = {i: line.rstrip() for i, line in enumerate(f.readlines())}
+            class_names = {
+                i: line.rstrip() for i, line in enumerate(f.readlines())
+            }
 
         def generator() -> DatasetIterator:
             with open(annotation_path) as f:

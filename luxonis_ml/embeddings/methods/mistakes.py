@@ -32,9 +32,11 @@ import scipy.spatial.distance as distance
 from sklearn.neighbors import KNeighborsClassifier
 
 
-def find_mismatches_centroids(X: np.array, y: np.array) -> Tuple[np.array, np.array]:
-    """Find mismatches in the dataset. A mismatch is defined as a sample that is closer
-    to another centroid than to its own centroid.
+def find_mismatches_centroids(
+    X: np.array, y: np.array
+) -> Tuple[np.array, np.array]:
+    """Find mismatches in the dataset. A mismatch is defined as a sample
+    that is closer to another centroid than to its own centroid.
 
     @type X: np.array
     @param X: The embeddings to use.
@@ -45,7 +47,9 @@ def find_mismatches_centroids(X: np.array, y: np.array) -> Tuple[np.array, np.ar
     """
     unique_labels = np.unique(y)
     # Create a mapping from string labels to integer indices
-    label_to_index = {label: index for index, label in enumerate(unique_labels)}
+    label_to_index = {
+        label: index for index, label in enumerate(unique_labels)
+    }
 
     # calculate centroids of each class
     centroids = []

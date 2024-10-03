@@ -11,8 +11,8 @@ from luxonis_ml.utils.filesystem import PathType
 ParserOutput = Tuple[DatasetIterator, List[str], Dict[str, Dict], List[str]]
 """Type alias for parser output.
 
-Contains a function to create the annotation generator, list of classes names, skeleton
-dictionary for keypoints and list of added images.
+Contains a function to create the annotation generator, list of classes
+names, skeleton dictionary for keypoints and list of added images.
 """
 
 
@@ -24,14 +24,14 @@ class BaseParser(ABC):
     @staticmethod
     @abstractmethod
     def validate_split(split_path: Path) -> Optional[Dict[str, Any]]:
-        """Validates if a split subdirectory is in an expected format. If so, returns
-        kwargs to pass to L{from_split} method.
+        """Validates if a split subdirectory is in an expected format.
+        If so, returns kwargs to pass to L{from_split} method.
 
         @type split_path: Path
         @param split_path: Path to split directory.
         @rtype: Optional[Dict[str, Any]]
-        @return: Dictionary with kwargs to pass to L{from_split} method or C{None} if
-            the split is not in the expected format.
+        @return: Dictionary with kwargs to pass to L{from_split} method
+            or C{None} if the split is not in the expected format.
         """
         pass
 
@@ -56,7 +56,8 @@ class BaseParser(ABC):
         @type dataset_dir: str
         @param dataset_dir: Path to source dataset directory.
         @type parser_kwargs: Dict[str, Any]
-        @param parser_kwargs: Additional kwargs for specific parser implementation.
+        @param parser_kwargs: Additional kwargs for specific parser
+            implementation.
         @rtype: Tuple[List[str], List[str], List[str]]
         @return: Tuple with added images for train, val and test splits.
         """
@@ -64,7 +65,8 @@ class BaseParser(ABC):
 
     @abstractmethod
     def from_split(self, **kwargs) -> ParserOutput:
-        """Parses a data in a split subdirectory to L{LuxonisDataset} format.
+        """Parses a data in a split subdirectory to L{LuxonisDataset}
+        format.
 
         @type kwargs: Dict[str, Any]
         @param kwargs: Additional kwargs for specific parser implementation.
@@ -82,7 +84,8 @@ class BaseParser(ABC):
         """Parses data in a split subdirectory.
 
         @type kwargs: Dict[str, Any]
-        @param kwargs: Additional kwargs for specific parser implementation.
+        @param kwargs: Additional kwargs for specific parser
+            implementation.
         @rtype: List[str]
         @return: List of added images.
         """
@@ -103,19 +106,21 @@ class BaseParser(ABC):
         split_ratios: Optional[Dict[str, float]] = None,
         **kwargs,
     ) -> BaseDataset:
-        """Parses data in a split subdirectory to L{LuxonisDataset} format.
+        """Parses data in a split subdirectory to L{LuxonisDataset}
+        format.
 
         @type split: Optional[str]
-        @param split: As what split the data will be added to LDF. If set,
-            C{split_ratios} and C{random_split} are ignored.
+        @param split: As what split the data will be added to LDF. If
+            set, C{split_ratios} and C{random_split} are ignored.
         @type random_split: bool
-        @param random_split: If random splits should be made. If C{True},
-            C{split_ratios} are used.
+        @param random_split: If random splits should be made. If
+            C{True}, C{split_ratios} are used.
         @type split_ratios: Optional[Tuple[float, float, float]]
-        @param split_ratios: Ratios for random splits. Only used if C{random_split} is
-            C{True}. Defaults to C{(0.8, 0.1, 0.1)}.
+        @param split_ratios: Ratios for random splits. Only used if
+            C{random_split} is C{True}. Defaults to C{(0.8, 0.1, 0.1)}.
         @type kwargs: Dict[str, Any]
-        @param kwargs: Additional C{kwargs} for specific parser implementation.
+        @param kwargs: Additional C{kwargs} for specific parser
+            implementation.
         @rtype: LuxonisDataset
         @return: C{LDF} with all the images and annotations parsed.
         """
@@ -132,7 +137,8 @@ class BaseParser(ABC):
         @type dataset_dir: str
         @param dataset_dir: Path to source dataset directory.
         @type kwargs: Dict[str, Any]
-        @param kwargs: Additional C{kwargs} for specific parser implementation.
+        @param kwargs: Additional C{kwargs} for specific parser
+            implementation.
         @rtype: LuxonisDataset
         @return: C{LDF} with all the images and annotations parsed.
         """
@@ -148,7 +154,8 @@ class BaseParser(ABC):
         return self.dataset
 
     def task_wrapper(self, generator: DatasetIterator) -> DatasetIterator:
-        """Wraps the generator with a function that adds custom task information.
+        """Wraps the generator with a function that adds custom task
+        information.
 
         @type generator: DatasetIterator
         @param generator: Generator function
@@ -167,7 +174,8 @@ class BaseParser(ABC):
 
     @staticmethod
     def _get_added_images(generator: DatasetIterator) -> List[PathType]:
-        """Returns list of unique images added by the generator function.
+        """Returns list of unique images added by the generator
+        function.
 
         @type generator: L{DatasetGenerator}
         @param generator: Generator function
@@ -182,7 +190,9 @@ class BaseParser(ABC):
         )
 
     @staticmethod
-    def _compare_stem_files(list1: Iterable[Path], list2: Iterable[Path]) -> bool:
+    def _compare_stem_files(
+        list1: Iterable[Path], list2: Iterable[Path]
+    ) -> bool:
         """Compares sets of files by their stem.
 
         Example:
@@ -207,7 +217,8 @@ class BaseParser(ABC):
 
     @staticmethod
     def _list_images(image_dir: Path) -> List[Path]:
-        """Returns list of all images in the directory supported by opencv.
+        """Returns list of all images in the directory supported by
+        opencv.
 
         @type image_dir: Path
         @param image_dir: Path to directory with images

@@ -35,8 +35,8 @@ class Registry(Generic[T]):
         """Retrieves the registry record for the key.
 
         @type key: str
-        @param key: Name of the registered item, I{e.g.} the class name in string
-            format.
+        @param key: Name of the registered item, I{e.g.} the class name
+            in string format.
         @rtype: type
         @return: Corresponding class if L{key} exists
         @raise KeyError: If L{key} is not in the registry
@@ -99,7 +99,10 @@ class Registry(Generic[T]):
         return _register
 
     def _register_module(
-        self, module: type, module_name: Optional[str] = None, force: bool = False
+        self,
+        module: type,
+        module_name: Optional[str] = None,
+        force: bool = False,
     ) -> None:
         """Registers a module by creating a (key, value) pair."""
         if module_name is None:
@@ -177,5 +180,7 @@ class AutoRegisterMeta(ABCMeta):
                 )
         if register:
             registry = registry if registry is not None else new_class.REGISTRY
-            registry.register_module(name=register_name or name, module=new_class)
+            registry.register_module(
+                name=register_name or name, module=new_class
+            )
         return new_class

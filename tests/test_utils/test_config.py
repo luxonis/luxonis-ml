@@ -73,10 +73,17 @@ def test_invalid_config_path():
 
 def test_config_simple(config_file: str):
     cfg = Config.get_config(config_file)
-    assert cfg.sub_config.str_sub_param == CONFIG_DATA["sub_config"]["str_sub_param"]
-    assert cfg.sub_config.int_sub_param == CONFIG_DATA["sub_config"]["int_sub_param"]
     assert (
-        cfg.sub_config.float_sub_param == CONFIG_DATA["sub_config"]["float_sub_param"]
+        cfg.sub_config.str_sub_param
+        == CONFIG_DATA["sub_config"]["str_sub_param"]
+    )
+    assert (
+        cfg.sub_config.int_sub_param
+        == CONFIG_DATA["sub_config"]["int_sub_param"]
+    )
+    assert (
+        cfg.sub_config.float_sub_param
+        == CONFIG_DATA["sub_config"]["float_sub_param"]
     )
 
 
@@ -85,10 +92,16 @@ def test_config_simple_override(config_file: str):
         "sub_config.str_sub_param": "sub_param_override",
     }
     cfg = Config.get_config(config_file, overrides)
-    assert cfg.sub_config.str_sub_param == overrides["sub_config.str_sub_param"]
-    assert cfg.sub_config.int_sub_param == CONFIG_DATA["sub_config"]["int_sub_param"]
     assert (
-        cfg.sub_config.float_sub_param == CONFIG_DATA["sub_config"]["float_sub_param"]
+        cfg.sub_config.str_sub_param == overrides["sub_config.str_sub_param"]
+    )
+    assert (
+        cfg.sub_config.int_sub_param
+        == CONFIG_DATA["sub_config"]["int_sub_param"]
+    )
+    assert (
+        cfg.sub_config.float_sub_param
+        == CONFIG_DATA["sub_config"]["float_sub_param"]
     )
 
 
@@ -96,9 +109,13 @@ def test_config_list_override(config_file: str):
     overrides = ["sub_config.str_sub_param", "sub_param_override"]
     cfg = Config.get_config(config_file, overrides)
     assert cfg.sub_config.str_sub_param == overrides[1]
-    assert cfg.sub_config.int_sub_param == CONFIG_DATA["sub_config"]["int_sub_param"]
     assert (
-        cfg.sub_config.float_sub_param == CONFIG_DATA["sub_config"]["float_sub_param"]
+        cfg.sub_config.int_sub_param
+        == CONFIG_DATA["sub_config"]["int_sub_param"]
+    )
+    assert (
+        cfg.sub_config.float_sub_param
+        == CONFIG_DATA["sub_config"]["float_sub_param"]
     )
     with pytest.raises(ValueError):
         Config.get_config(config_file, ["sub_config.str_sub_param"])
@@ -197,10 +214,17 @@ def test_from_dict():
             "nested_dict_param.a.b": 2,
         },
     )
-    assert cfg.sub_config.str_sub_param == CONFIG_DATA["sub_config"]["str_sub_param"]
-    assert cfg.sub_config.int_sub_param == CONFIG_DATA["sub_config"]["int_sub_param"]
     assert (
-        cfg.sub_config.float_sub_param == CONFIG_DATA["sub_config"]["float_sub_param"]
+        cfg.sub_config.str_sub_param
+        == CONFIG_DATA["sub_config"]["str_sub_param"]
+    )
+    assert (
+        cfg.sub_config.int_sub_param
+        == CONFIG_DATA["sub_config"]["int_sub_param"]
+    )
+    assert (
+        cfg.sub_config.float_sub_param
+        == CONFIG_DATA["sub_config"]["float_sub_param"]
     )
     assert cfg.nested_list_param[0][1] == 3
     assert cfg.nested_dict_param["a"]["b"] == 2

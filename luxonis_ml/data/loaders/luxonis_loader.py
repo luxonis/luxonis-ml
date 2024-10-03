@@ -30,15 +30,16 @@ class LuxonisLoader(BaseLoader):
         @type dataset: LuxonisDataset
         @param dataset: LuxonisDataset to use
         @type view: Union[str, List[str]]
-        @param view: What splits to use. Can be either a single split or a list of
-            splits. Defaults to "train".
+        @param view: What splits to use. Can be either a single split or
+            a list of splits. Defaults to "train".
         @type stream: bool
         @param stream: Flag for data streaming. Defaults to C{False}.
         @type augmentations: Optional[luxonis_ml.loader.Augmentations]
-        @param augmentations: Augmentation class that performs augmentations. Defaults
-            to C{None}.
+        @param augmentations: Augmentation class that performs
+            augmentations. Defaults to C{None}.
         @type force_resync: bool
-        @param force_resync: Flag to force resync from cloud. Defaults to C{False}.
+        @param force_resync: Flag to force resync from cloud. Defaults
+            to C{False}.
         """
 
         self.logger = logging.getLogger(__name__)
@@ -111,14 +112,15 @@ class LuxonisLoader(BaseLoader):
         return len(self.instances)
 
     def __getitem__(self, idx: int) -> LuxonisLoaderOutput:
-        """Function to load a sample consisting of an image and its annotations.
+        """Function to load a sample consisting of an image and its
+        annotations.
 
         @type idx: int
-        @param idx: The (often random) integer index to retrieve a sample from the
-            dataset.
+        @param idx: The (often random) integer index to retrieve a
+            sample from the dataset.
         @rtype: LuxonisLoaderOutput
-        @return: The loader ouput consisting of the image and a dictionary defining its
-            annotations.
+        @return: The loader ouput consisting of the image and a
+            dictionary defining its annotations.
         """
 
         if self.augmentations is None:
@@ -159,7 +161,9 @@ class LuxonisLoader(BaseLoader):
                         if label_type == LabelType.KEYPOINTS:
                             if (
                                 LabelType.BOUNDINGBOX
-                                in map(itemgetter(1), list(annotations.values()))
+                                in map(
+                                    itemgetter(1), list(annotations.values())
+                                )
                                 and LabelType.BOUNDINGBOX not in label_dict  # type: ignore
                             ):
                                 continue
@@ -167,7 +171,9 @@ class LuxonisLoader(BaseLoader):
                             if (
                                 LabelType.BOUNDINGBOX in label_dict  # type: ignore
                                 and LabelType.BOUNDINGBOX
-                                in map(itemgetter(1), list(annotations.values()))
+                                in map(
+                                    itemgetter(1), list(annotations.values())
+                                )
                             ):
                                 bbox_task = task_dict[LabelType.BOUNDINGBOX]
                                 *_, bbox_suffix = bbox_task.split("-", 1)
@@ -191,20 +197,24 @@ class LuxonisLoader(BaseLoader):
             random.setstate(random_state)
             np.random.set_state(np_random_state)
 
-            img, aug_annotations = self.augmentations(aug_input_data, nk=nk, ns=ns)
+            img, aug_annotations = self.augmentations(
+                aug_input_data, nk=nk, ns=ns
+            )
             for label_type, array in aug_annotations.items():
                 out_dict[label_to_task[label_type]] = (array, label_type)
 
         return img, out_dict  # type: ignore
 
-    def _load_image_with_annotations(self, idx: int) -> Tuple[np.ndarray, Labels]:
+    def _load_image_with_annotations(
+        self, idx: int
+    ) -> Tuple[np.ndarray, Labels]:
         """Loads image and its annotations based on index.
 
         @type idx: int
         @param idx: Index of the image
         @rtype: Tuple[L{np.ndarray}, dict]
-        @return: Image as L{np.ndarray} in RGB format and a dictionary with all the
-            present annotations
+        @return: Image as L{np.ndarray} in RGB format and a dictionary
+            with all the present annotations
         """
 
         ann_indices = self.idx_to_df_row[idx]
@@ -227,7 +237,9 @@ class LuxonisLoader(BaseLoader):
         labels_by_task = defaultdict(list)
         instance_counters = defaultdict(int)
         for annotation_data in ann_rows:
-            _, _, type_, _, class_, instance_id, task, ann_str, _ = annotation_data
+            _, _, type_, _, class_, instance_id, task, ann_str, _ = (
+                annotation_data
+            )
             if instance_id < 0:
                 instance_counters[task] += 1
                 instance_id = instance_counters[task]

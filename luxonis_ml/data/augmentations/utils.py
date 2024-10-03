@@ -42,7 +42,9 @@ class Augmentations:
             self.resize_transform,
         ) = self._parse_cfg(
             image_size=image_size,
-            augmentations=[a for a in augmentations if a["name"] == "Normalize"]
+            augmentations=[
+                a for a in augmentations if a["name"] == "Normalize"
+            ]
             if only_normalize
             else augmentations,
             keep_aspect_ratio=keep_aspect_ratio,
@@ -54,18 +56,20 @@ class Augmentations:
         augmentations: List[Dict[str, Any]],
         keep_aspect_ratio: bool = True,
     ) -> Tuple[BatchCompose, A.Compose, A.Compose, A.Compose]:
-        """Parses provided config and returns Albumentations BatchedCompose object and
-        Compose object for default transforms.
+        """Parses provided config and returns Albumentations
+        BatchedCompose object and Compose object for default transforms.
 
         @type image_size: List[int]
         @param image_size: Desired image size [H,W]
         @type augmentations: List[Dict[str, Any]]
-        @param augmentations: List of augmentations to use and their params
+        @param augmentations: List of augmentations to use and their
+            params
         @type keep_aspect_ratio: bool
-        @param keep_aspect_ratio: Whether should use resize that keeps aspect ratio of
-            original image.
+        @param keep_aspect_ratio: Whether should use resize that keeps
+            aspect ratio of original image.
         @rtype: Tuple[BatchCompose, A.Compose, A.Compose, A.Compose]
-        @return: Objects for batched, spatial, pixel and resize transforms
+        @return: Objects for batched, spatial, pixel and resize
+            transforms
         """
 
         # NOTE: Always perform Resize
@@ -81,14 +85,18 @@ class Augmentations:
         batched_augs = []
         if augmentations:
             for aug in augmentations:
-                curr_aug = AUGMENTATIONS.get(aug["name"])(**aug.get("params", {}))
+                curr_aug = AUGMENTATIONS.get(aug["name"])(
+                    **aug.get("params", {})
+                )
                 if isinstance(curr_aug, A.ImageOnlyTransform):
                     pixel_augs.append(curr_aug)
                 elif isinstance(curr_aug, A.DualTransform):
                     spatial_augs.append(curr_aug)
                 elif isinstance(curr_aug, BatchBasedTransform):
                     self.is_batched = True
-                    self.aug_batch_size = max(self.aug_batch_size, curr_aug.batch_size)
+                    self.aug_batch_size = max(
+                        self.aug_batch_size, curr_aug.batch_size
+                    )
                     batched_augs.append(curr_aug)
 
         batch_transform = BatchCompose(
@@ -97,11 +105,17 @@ class Augmentations:
             ],
             bbox_params=A.BboxParams(
                 format="coco",
-                label_fields=["bboxes_classes_batch", "bboxes_visibility_batch"],
+                label_fields=[
+                    "bboxes_classes_batch",
+                    "bboxes_visibility_batch",
+                ],
             ),
             keypoint_params=A.KeypointParams(
                 format="xy",
-                label_fields=["keypoints_visibility_batch", "keypoints_classes_batch"],
+                label_fields=[
+                    "keypoints_visibility_batch",
+                    "keypoints_classes_batch",
+                ],
                 remove_invisible=False,
             ),
         )
@@ -109,7 +123,8 @@ class Augmentations:
         spatial_transform = A.Compose(
             spatial_augs,
             bbox_params=A.BboxParams(
-                format="coco", label_fields=["bboxes_classes", "bboxes_visibility"]
+                format="coco",
+                label_fields=["bboxes_classes", "bboxes_visibility"],
             ),
             keypoint_params=A.KeypointParams(
                 format="xy",
@@ -121,7 +136,8 @@ class Augmentations:
         pixel_transform = A.Compose(
             pixel_augs,
             bbox_params=A.BboxParams(
-                format="coco", label_fields=["bboxes_classes", "bboxes_visibility"]
+                format="coco",
+                label_fields=["bboxes_classes", "bboxes_visibility"],
             ),
             keypoint_params=A.KeypointParams(
                 format="xy",
@@ -133,7 +149,8 @@ class Augmentations:
         resize_transform = A.Compose(
             [resize],
             bbox_params=A.BboxParams(
-                format="coco", label_fields=["bboxes_classes", "bboxes_visibility"]
+                format="coco",
+                label_fields=["bboxes_classes", "bboxes_visibility"],
             ),
             keypoint_params=A.KeypointParams(
                 format="xy",
@@ -142,7 +159,12 @@ class Augmentations:
             ),
         )
 
-        return batch_transform, spatial_transform, pixel_transform, resize_transform
+        return (
+            batch_transform,
+            spatial_transform,
+            pixel_transform,
+            resize_transform,
+        )
 
     def _apply_transform(
         self,
@@ -157,7 +179,8 @@ class Augmentations:
         @type transformed: Dict[str, np.ndarray]
         @param transformed: Transformed data
         @type arg_names: List[str]
-        @param arg_names: Names of arguments to pass to transform function
+        @param arg_names: Names of arguments to pass to transform
+            function
         @type transform_func: Callable
         @param transform_func: Transform function to apply
         @type return_mask: bool
@@ -169,7 +192,8 @@ class Augmentations:
         """
 
         transform_args = {
-            arg_name: transformed[f"{arg_name}{arg_suffix}"] for arg_name in arg_names
+            arg_name: transformed[f"{arg_name}{arg_suffix}"]
+            for arg_name in arg_names
         }
         if return_mask:
             transform_args["mask"] = transformed[f"mask{arg_suffix}"]
@@ -187,7 +211,8 @@ class Augmentations:
         """Performs augmentations on provided data.
 
         @type data: List[Tuple[np.ndarray, Dict[LabelType, np.ndarray]]]
-        @param data: Data with list of input images and their annotations
+        @param data: Data with list of input images and their
+            annotations
         @type nc: int
         @param nc: Number of classes
         @type ns: int
@@ -254,7 +279,9 @@ class Augmentations:
             transform_args["mask_batch"] = mask_batch
 
         transformed = self.batch_transform(force_apply=False, **transform_args)
-        transformed = {key: np.array(value[0]) for key, value in transformed.items()}
+        transformed = {
+            key: np.array(value[0]) for key, value in transformed.items()
+        }
 
         arg_names = [
             "image",
@@ -268,7 +295,11 @@ class Augmentations:
 
         # Apply spatial transform
         transformed = self._apply_transform(
-            transformed, arg_names, self.spatial_transform, return_mask, "_batch"
+            transformed,
+            arg_names,
+            self.spatial_transform,
+            return_mask,
+            "_batch",
         )
 
         # Resize if necessary
@@ -282,13 +313,17 @@ class Augmentations:
             transformed, arg_names, self.pixel_transform, return_mask
         )
 
-        out_image, out_mask, out_bboxes, out_keypoints = self.post_transform_process(
-            transformed,
-            ns=ns,
-            nk=nk,
-            filter_kpts_by_bbox=(LabelType.BOUNDINGBOX in present_annotations)
-            and (LabelType.KEYPOINTS in present_annotations),
-            return_mask=return_mask,
+        out_image, out_mask, out_bboxes, out_keypoints = (
+            self.post_transform_process(
+                transformed,
+                ns=ns,
+                nk=nk,
+                filter_kpts_by_bbox=(
+                    LabelType.BOUNDINGBOX in present_annotations
+                )
+                and (LabelType.KEYPOINTS in present_annotations),
+                return_mask=return_mask,
+            )
         )
 
         out_annotations = {}
@@ -330,8 +365,8 @@ class Augmentations:
         @param iw: Input image width
         @type return_mask: bool
         @param return_mask: Whether to compute and return mask
-        @rtype: Tuple[np.ndarray, Optional[np.ndarray], np.ndarray, np.ndarray,
-            np.ndarray, np.ndarray, np.ndarray]
+        @rtype: Tuple[np.ndarray, Optional[np.ndarray], np.ndarray,
+            np.ndarray, np.ndarray, np.ndarray, np.ndarray]
         @return: Annotations in albumentations format
         """
 
@@ -339,7 +374,9 @@ class Augmentations:
 
         mask = None
         if return_mask:
-            seg = annotations.get(LabelType.SEGMENTATION, np.zeros((1, ih, iw)))
+            seg = annotations.get(
+                LabelType.SEGMENTATION, np.zeros((1, ih, iw))
+            )
             mask = np.argmax(seg, axis=0) + 1
             mask[np.sum(seg, axis=0) == 0] = 0  # only background has value 0
 
@@ -352,7 +389,9 @@ class Augmentations:
         bboxes_classes = bboxes[:, 0]
 
         # albumentations expects list of keypoints e.g. [(x,y),(x,y),(x,y),(x,y)]
-        keypoints = annotations.get(LabelType.KEYPOINTS, np.zeros((1, nk * 3 + 1)))
+        keypoints = annotations.get(
+            LabelType.KEYPOINTS, np.zeros((1, nk * 3 + 1))
+        )
         keypoints_unflat = np.reshape(keypoints[:, 1:], (-1, 3))
         keypoints_points = keypoints_unflat[:, :2]
         keypoints_points[:, 0] *= iw
@@ -380,7 +419,8 @@ class Augmentations:
         filter_kpts_by_bbox: bool,
         return_mask: bool = True,
     ) -> Tuple[np.ndarray, Optional[np.ndarray], np.ndarray, np.ndarray]:
-        """Postprocessing of albumentations output to LuxonisLoader format.
+        """Postprocessing of albumentations output to LuxonisLoader
+        format.
 
         @type transformed_data: Dict[str, np.ndarray]
         @param transformed_data: Output data from albumentations
@@ -389,9 +429,10 @@ class Augmentations:
         @type nk: int
         @param nk: Number of keypoints per instance
         @type filter_kpts_by_bbox: bool
-        @param filter_kpts_by_bbox: If True removes keypoint instances if its bounding
-            box was removed.
-        @rtype: Tuple[np.ndarray, Optional[np.ndarray], np.ndarray, np.ndarray]
+        @param filter_kpts_by_bbox: If True removes keypoint instances
+            if its bounding box was removed.
+        @rtype: Tuple[np.ndarray, Optional[np.ndarray], np.ndarray,
+            np.ndarray]
         @return: Postprocessed annotations
         """
 
@@ -415,7 +456,8 @@ class Augmentations:
                 transformed_data["bboxes_classes"], axis=-1
             )
             out_bboxes = np.concatenate(
-                (transformed_bboxes_classes, transformed_data["bboxes"]), axis=1
+                (transformed_bboxes_classes, transformed_data["bboxes"]),
+                axis=1,
             )
         else:  # if no bboxes after transform
             out_bboxes = np.zeros((0, 5))
@@ -430,7 +472,8 @@ class Augmentations:
             nk = 1  # done for easier postprocessing
         if transformed_data["keypoints"]:
             out_keypoints = np.concatenate(
-                (transformed_data["keypoints"], transformed_keypoints_vis), axis=1
+                (transformed_data["keypoints"], transformed_keypoints_vis),
+                axis=1,
             )
         else:
             out_keypoints = np.zeros((0, nk * 3 + 1))
@@ -442,7 +485,9 @@ class Augmentations:
         keypoints_classes = transformed_data["keypoints_classes"]
         keypoints_classes = keypoints_classes[0::nk]
         keypoints_classes = np.expand_dims(keypoints_classes, axis=-1)
-        out_keypoints = np.concatenate((keypoints_classes, out_keypoints), axis=1)
+        out_keypoints = np.concatenate(
+            (keypoints_classes, out_keypoints), axis=1
+        )
         if filter_kpts_by_bbox:
             out_keypoints = out_keypoints[
                 transformed_data["bboxes_visibility"]
@@ -451,12 +496,14 @@ class Augmentations:
         return out_image, out_mask, out_bboxes, out_keypoints
 
     def check_bboxes(self, bboxes: np.ndarray) -> np.ndarray:
-        """Check bbox annotations and correct those with width or height 0.
+        """Check bbox annotations and correct those with width or height
+        0.
 
         @type bboxes: np.ndarray
         @param bboxes: A numpy array representing bounding boxes.
         @rtype: np.ndarray
-        @return: The same bounding boxes with any out-of-bounds coordinate corrections.
+        @return: The same bounding boxes with any out-of-bounds
+            coordinate corrections.
         """
 
         for i in range(bboxes.shape[0]):
@@ -478,8 +525,8 @@ class Augmentations:
         @type iw: int
         @param iw: The image width.
         @rtype: np.ndarray
-        @return: The same keypoints with corrections to mark keypoints out-of-bounds as
-            invisible.
+        @return: The same keypoints with corrections to mark keypoints
+            out-of-bounds as invisible.
         """
         for kp in keypoints:
             if not (0 <= kp[0] < iw and 0 <= kp[1] < ih):

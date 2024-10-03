@@ -36,10 +36,12 @@ from luxonis_ml.embeddings.utils.vectordb import VectorDBAPI
 
 
 class QdrantManager:
-    """Class to manage Qdrant Docker container and perform various operations related to
-    embeddings."""
+    """Class to manage Qdrant Docker container and perform various
+    operations related to embeddings."""
 
-    def __init__(self, image_name="qdrant/qdrant", container_name="qdrant_container"):
+    def __init__(
+        self, image_name="qdrant/qdrant", container_name="qdrant_container"
+    ):
         """Initialize the QdrantManager."""
         self.image_name = image_name
         self.container_name = container_name
@@ -142,20 +144,27 @@ class QdrantManager:
 
 
 class QdrantAPI(VectorDBAPI):
-    """Class to perform various Qdrant operations related to embeddings."""
+    """Class to perform various Qdrant operations related to
+    embeddings."""
 
     def __init__(self, host: str = "localhost", port: int = 6333) -> None:
-        """Initialize the QdrantAPI without setting a specific collection.
+        """Initialize the QdrantAPI without setting a specific
+        collection.
 
         @type host: str
-        @param host: The host address of the Qdrant server. Default is "localhost".
+        @param host: The host address of the Qdrant server. Default is
+            "localhost".
         @type port: int
-        @param port: The port number of the Qdrant server. Default is 6333.
+        @param port: The port number of the Qdrant server. Default is
+            6333.
         """
         self.client = QdrantClient(host=host, port=port)
 
     def create_collection(
-        self, collection_name: str, properties: List[str], vector_size: int = 512
+        self,
+        collection_name: str,
+        properties: List[str],
+        vector_size: int = 512,
     ) -> None:
         """Create a collection in Qdrant with specified properties.
 
@@ -164,7 +173,8 @@ class QdrantAPI(VectorDBAPI):
         @type properties: List[str]
         @param properties: The list of properties for the collection.
         @type vector_size: int
-        @param vector_size: The size of the embedding vectors. Default is 512.
+        @param vector_size: The size of the embedding vectors. Default
+            is 512.
         """
         self.collection_name = collection_name
         self.properties = properties
@@ -174,7 +184,9 @@ class QdrantAPI(VectorDBAPI):
         except Exception:
             self.client.recreate_collection(
                 collection_name=self.collection_name,
-                vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
+                vectors_config=VectorParams(
+                    size=vector_size, distance=Distance.COSINE
+                ),
             )
             print("Created new collection")
 
@@ -193,23 +205,28 @@ class QdrantAPI(VectorDBAPI):
         payloads: List[Dict[str, Any]],
         batch_size: int = 50,
     ) -> None:
-        """Batch insert embeddings with IDs and additional metadata into a collection.
+        """Batch insert embeddings with IDs and additional metadata into
+        a collection.
 
         @type ids: List[str]
         @param ids: The list of instance_ids for the embeddings.
         @type embeddings: List[List[float]]
         @param embeddings: The list of embedding vectors.
         @type payloads: List[Dict[str, Any]]
-        @param payloads: The list of additional metadata for the embeddings.
+        @param payloads: The list of additional metadata for the
+            embeddings.
         @type batch_size: int
-        @param batch_size: The batch size for inserting embeddings. Default is 50.
+        @param batch_size: The batch size for inserting embeddings.
+            Default is 50.
         """
         total_len = len(embeddings)
 
         # check if payloads key values subset of the self.properties
         for payload in payloads:
             if not set(payload.keys()).issubset(set(self.properties)):
-                raise ValueError("Payload keys should be subset of the properties")
+                raise ValueError(
+                    "Payload keys should be subset of the properties"
+                )
 
         for i in range(0, total_len, batch_size):
             batch_ids = ids[i : i + batch_size]
@@ -221,7 +238,9 @@ class QdrantAPI(VectorDBAPI):
             )
 
             # Upsert the batch of points to the Qdrant collection
-            self.client.upsert(collection_name=self.collection_name, points=batch)
+            self.client.upsert(
+                collection_name=self.collection_name, points=batch
+            )
 
     def search_similar_embeddings(
         self, embedding: List[float], top_k: int = 5
@@ -231,10 +250,11 @@ class QdrantAPI(VectorDBAPI):
         @type embedding: List[float]
         @param embedding: The query embedding vector.
         @type top_k: int
-        @param top_k: The number of similar embeddings to retrieve. Default is 5.
+        @param top_k: The number of similar embeddings to retrieve.
+            Default is 5.
         @rtype: Tuple[List[str], List[float]]
-        @return: The list of instance_ids of the similar embeddings and the list of
-            similarity scores.
+        @return: The list of instance_ids of the similar embeddings and
+            the list of similarity scores.
         """
         search_results = self.client.search(
             collection_name=self.collection_name,
@@ -250,22 +270,25 @@ class QdrantAPI(VectorDBAPI):
         return ids, scores
 
     def get_similarity_scores(
-        self, reference_id: str, other_ids: List[str], sort_distances: bool = True
+        self,
+        reference_id: str,
+        other_ids: List[str],
+        sort_distances: bool = True,
     ) -> Tuple[List[str], List[float]]:
-        """Get a list of similarity scores between the reference embedding and other
-        embeddings.
+        """Get a list of similarity scores between the reference
+        embedding and other embeddings.
 
         @type reference_id: int
         @param reference_id: The instance_id of the reference embedding.
         @type other_ids: List[int]
-        @param other_ids: The list of instance_ids of other embeddings to compare with
-            the reference.
+        @param other_ids: The list of instance_ids of other embeddings
+            to compare with the reference.
         @type sort_distances: bool
-        @param sort_distances: Whether to sort the results by distance or keep the
-            original order.
+        @param sort_distances: Whether to sort the results by distance
+            or keep the original order.
         @rtype: Tuple[List[int], List[float]
-        @return: The list of instance_ids of the other embeddings and the list of
-            similarity scores.
+        @return: The list of instance_ids of the other embeddings and
+            the list of similarity scores.
         """
         # Retrieve the embedding vector for the reference_id
         reference_embedding = self.get_embeddings_from_ids([reference_id])[0]
@@ -300,12 +323,15 @@ class QdrantAPI(VectorDBAPI):
         return ids, scores
 
     def compute_similarity_matrix(self) -> List[List[float]]:
-        """Compute a full similarity matrix for all embeddings in a Qdrant collection.
+        """Compute a full similarity matrix for all embeddings in a
+        Qdrant collection.
 
         @rtype: Tuple[List[str], List[List[float]]]
-        @return: The list of instance_ids of the embeddings and the similarity matrix.
-        @note: This method is not recommended for large collections. It is better to use
-            the L{get_all_embeddings} method and compute the similarity matrix yourself.
+        @return: The list of instance_ids of the embeddings and the
+            similarity matrix.
+        @note: This method is not recommended for large collections. It
+            is better to use the L{get_all_embeddings} method and
+            compute the similarity matrix yourself.
         """
         # Get all embeddings
         ids, embeddings = self.retrieve_all_embeddings()
@@ -314,7 +340,10 @@ class QdrantAPI(VectorDBAPI):
         # Create a list of search requests
         search_queries = [
             SearchRequest(
-                vector=emb, with_payload=False, with_vector=False, limit=len(embeddings)
+                vector=emb,
+                with_payload=False,
+                with_vector=False,
+                limit=len(embeddings),
             )
             for emb in embeddings
         ]
@@ -328,7 +357,9 @@ class QdrantAPI(VectorDBAPI):
                 requests=search_queries[patch : patch + 100],
             )
             batch_search_results.extend(batch_search_results_i)
-            print("Completed search for batch {}-{}".format(patch, patch + 100))
+            print(
+                "Completed search for batch {}-{}".format(patch, patch + 100)
+            )
 
         # Create a dictionary for O(1) lookup of ids
         id_to_index = {id: index for index, id in enumerate(ids)}
@@ -346,11 +377,12 @@ class QdrantAPI(VectorDBAPI):
         return sim_matrix
 
     def retrieve_embeddings_by_ids(self, ids: List[str]) -> List[List[float]]:
-        """Retrieve embeddings associated with a list of IDs from a Qdrant collection.
-        The order of the embeddings IS preserved.
+        """Retrieve embeddings associated with a list of IDs from a
+        Qdrant collection. The order of the embeddings IS preserved.
 
         @type ids: List[str]
-        @param ids: The list of instance_ids of the embeddings to retrieve.
+        @param ids: The list of instance_ids of the embeddings to
+            retrieve.
         @rtype: List[List[float]]
         @return: The list of embedding vectors.
         """
@@ -394,11 +426,12 @@ class QdrantAPI(VectorDBAPI):
         return ids
 
     def retrieve_all_embeddings(self) -> Tuple[List[str], List[List[float]]]:
-        """Retrieve all embeddings and their IDs from a Qdrant collection.
+        """Retrieve all embeddings and their IDs from a Qdrant
+        collection.
 
         @rtype: Tuple[List[str], List[List[float]]]
-        @return: The list of instance_ids of the embeddings and the list of embedding
-            vectors.
+        @return: The list of instance_ids of the embeddings and the list
+            of embedding vectors.
         """
         # Get the number of points in the collection
         collection_info = self.client.get_collection(
@@ -423,13 +456,15 @@ class QdrantAPI(VectorDBAPI):
     def retrieve_payloads_by_ids(
         self, ids: List[str], properties: Optional[List[str]] = None
     ) -> List[Dict[str, Any]]:
-        """Retrieve specified payload properties for a list of IDs from a collection.
-        The order of the labels IS preserved.
+        """Retrieve specified payload properties for a list of IDs from
+        a collection. The order of the labels IS preserved.
 
         @type ids: List[str]
-        @param ids: The list of instance_ids of the embeddings to retrieve.
+        @param ids: The list of instance_ids of the embeddings to
+            retrieve.
         @type properties: Optional[List[str]]
-        @param properties: The list of payload properties to retrieve. Default is None.
+        @param properties: The list of payload properties to retrieve.
+            Default is None.
         @rtype: List[Dict[str, Any]]
         @return: The list of payload dictionaries.
         """

@@ -5,8 +5,8 @@ import numpy as np
 
 
 def check_array(path: Path) -> None:
-    """Checks whether a path to a numpy array is valid. This checks that th file exists
-    and is readable by numpy.
+    """Checks whether a path to a numpy array is valid. This checks that
+    th file exists and is readable by numpy.
 
     @type values: Path
     @param values: A path to a numpy array.
@@ -23,9 +23,13 @@ def check_array(path: Path) -> None:
             return False
 
     if not isinstance(path, Path) or not path.suffix == ".npy":
-        raise ValueError(f"Array path {path} must be a path to a numpy array (.npy)")
+        raise ValueError(
+            f"Array path {path} must be a path to a numpy array (.npy)"
+        )
     if not _check_valid_array(path):
-        raise ValueError(f"Array at path {path} is not a valid numpy array (.npy)")
+        raise ValueError(
+            f"Array at path {path} is not a valid numpy array (.npy)"
+        )
 
 
 def rgb_to_bool_masks(
@@ -33,8 +37,8 @@ def rgb_to_bool_masks(
     class_colors: Dict[str, Tuple[int, int, int]],
     add_background_class: bool = False,
 ) -> Iterator[Tuple[str, np.ndarray]]:
-    """Helper function to convert an RGB segmentation mask to boolean masks for each
-    class.
+    """Helper function to convert an RGB segmentation mask to boolean
+    masks for each class.
 
     Example::
         >>> segmentation_mask = np.array([[[0, 0, 0], [255, 0, 0], [0, 255, 0]],
@@ -63,7 +67,9 @@ def rgb_to_bool_masks(
     @return: An iterator of tuples where the first element is the class name and
         the second element is a boolean mask for that class.
     """
-    color_to_id = {tuple(color): i for i, color in enumerate(class_colors.values())}
+    color_to_id = {
+        tuple(color): i for i, color in enumerate(class_colors.values())
+    }
 
     lookup_table = np.zeros((256, 256, 256), dtype=np.uint8)
     for color, id in color_to_id.items():
