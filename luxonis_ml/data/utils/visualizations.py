@@ -37,7 +37,8 @@ def create_text_image(
     @type font_size: float
     @param font_size: The font size of the text. Default is 0.7.
     @type bg_color: Tuple[int, int, int]
-    @param bg_color: The background color of the image. Default is white.
+    @param bg_color: The background color of the image. Default is
+        white.
     @type text_color: Tuple[int, int, int]
     @param text_color: The color of the text. Default is black.
     """
@@ -51,14 +52,23 @@ def create_text_image(
     text_y = (height + text_size[1]) // 2
 
     cv2.putText(
-        img, text, (text_x, text_y), font, font_size, text_color, 1, cv2.LINE_AA
+        img,
+        text,
+        (text_x, text_y),
+        font,
+        font_size,
+        text_color,
+        1,
+        cv2.LINE_AA,
     )
 
     return img
 
 
 def concat_images(
-    image_dict: Dict[str, np.ndarray], padding: int = 10, label_height: int = 30
+    image_dict: Dict[str, np.ndarray],
+    padding: int = 10,
+    label_height: int = 30,
 ):
     """Concatenates images into a single image with labels.
 
@@ -95,7 +105,9 @@ def concat_images(
         x_start = j * cell_width
 
         label = create_text_image(name, cell_width, label_height)
-        output[y_start : y_start + label_height, x_start : x_start + cell_width] = label
+        output[
+            y_start : y_start + label_height, x_start : x_start + cell_width
+        ] = label
 
         h, w = img.shape[:2]
         y_img = y_start + label_height + padding
@@ -123,7 +135,8 @@ def visualize(
     @type labels: Labels
     @param labels: The labels to visualize.
     @type class_names: Dict[str, List[str]]
-    @param class_names: A dictionary mapping task names to a list of class names.
+    @param class_names: A dictionary mapping task names to a list of
+        class names.
     @rtype: np.ndarray
     @return: The visualized image.
     """

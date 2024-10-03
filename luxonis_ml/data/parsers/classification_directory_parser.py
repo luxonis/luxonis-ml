@@ -46,25 +46,30 @@ class ClassificationDirectoryParser(BaseParser):
     def validate(dataset_dir: Path) -> bool:
         for split in ["train", "valid", "test"]:
             split_path = dataset_dir / split
-            if ClassificationDirectoryParser.validate_split(split_path) is None:
+            if (
+                ClassificationDirectoryParser.validate_split(split_path)
+                is None
+            ):
                 return False
         return True
 
-    def from_dir(self, dataset_dir: Path) -> Tuple[List[str], List[str], List[str]]:
+    def from_dir(
+        self, dataset_dir: Path
+    ) -> Tuple[List[str], List[str], List[str]]:
         added_train_imgs = self._parse_split(class_dir=dataset_dir / "train")
         added_val_imgs = self._parse_split(class_dir=dataset_dir / "valid")
         added_test_imgs = self._parse_split(class_dir=dataset_dir / "test")
         return added_train_imgs, added_val_imgs, added_test_imgs
 
     def from_split(self, class_dir: Path) -> ParserOutput:
-        """Parses annotations from classification directory format to LDF. Annotations
-        include classification.
+        """Parses annotations from classification directory format to
+        LDF. Annotations include classification.
 
         @type class_dir: Path
         @param class_dir: Path to top level directory
         @rtype: L{ParserOutput}
-        @return: Annotation generator, list of classes names, skeleton dictionary for
-            keypoints and list of added images.
+        @return: Annotation generator, list of classes names, skeleton
+            dictionary for keypoints and list of added images.
         """
         class_names = [d.name for d in class_dir.iterdir() if d.is_dir()]
 

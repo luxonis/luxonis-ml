@@ -30,7 +30,9 @@ class BatchBasedTransform(BasicTransform):
             "keypoints_batch": self.apply_to_keypoints_batch,
         }
 
-    def update_params(self, params: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+    def update_params(
+        self, params: Dict[str, Any], **kwargs
+    ) -> Dict[str, Any]:
         # This overwrites the `super().update_params(...)`
         return params
 

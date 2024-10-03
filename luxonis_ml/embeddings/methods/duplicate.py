@@ -87,19 +87,24 @@ def _plot_kde(
 
 
 def kde_peaks(
-    data: np.ndarray, bandwidth: Union[str, float] = "scott", plot: bool = False
+    data: np.ndarray,
+    bandwidth: Union[str, float] = "scott",
+    plot: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray, int, float]:
-    """Find peaks in a KDE distribution using scipy's argrelextrema function.
+    """Find peaks in a KDE distribution using scipy's argrelextrema
+    function.
 
     @type data: np.ndarray
     @param data: The data to fit the KDE.
     @type bandwidth: Union[str, float]
-    @param bandwidth: The bandwidth to use for the KDE. Default is 'scott'.
+    @param bandwidth: The bandwidth to use for the KDE. Default is
+        'scott'.
     @type plot: bool
     @param plot: Whether to plot the KDE.
     @rtype: Tuple[np.ndarray, np.ndarray, int, float]
-    @return: The indices of the KDE maxima, the indices of the KDE minima, the index of
-        the global maxima, and the standard deviation of the data.
+    @return: The indices of the KDE maxima, the indices of the KDE
+        minima, the index of the global maxima, and the standard
+        deviation of the data.
     """
     # fit density
     kde = FFTKDE(kernel="gaussian", bw=bandwidth)
@@ -136,28 +141,33 @@ def find_similar(
 ) -> np.ndarray:
     """Find the most similar embeddings to the reference embeddings.
 
-    @type reference_embeddings: Union[str, List[str], List[List[float]], np.ndarray]
-    @param reference_embeddings: The embeddings to compare against. Or a list of of
-        embedding instance_ids that reside in VectorDB.
+    @type reference_embeddings: Union[str, List[str], List[List[float]],
+        np.ndarray]
+    @param reference_embeddings: The embeddings to compare against. Or a
+        list of of embedding instance_ids that reside in VectorDB.
     @type vectordb_api: VectorDBAPI
     @param vectordb_api: The VectorDBAPI instance to use.
     @type k: int
     @param k: The number of embeddings to return. Default is 100.
     @type n: int
-    @param n: The number of embeddings to compare against. Default is 1000. (This is the
-        number of embeddings that are returned by the VectorDB search. It matters for
-        the KDE, as it can be slow for large n. Your choice of n depends on the amount
-        of duplicates in your dataset, the more duplicates, the larger n should be. If
-        you have 2-10 duplicates per image, n=100 should be ok. If you have 50-300
-        duplicates per image, n=1000 should work good enough.
+    @param n: The number of embeddings to compare against. Default is
+        1000. (This is the number of embeddings that are returned by the
+        VectorDB search. It matters for the KDE, as it can be slow for
+        large n. Your choice of n depends on the amount of duplicates in
+        your dataset, the more duplicates, the larger n should be. If
+        you have 2-10 duplicates per image, n=100 should be ok. If you
+        have 50-300 duplicates per image, n=1000 should work good
+        enough.
     @type method: str
-    @param method: The method to use to find the most similar embeddings. If 'first' use
-        the first of the reference embeddings. If 'average', use the average of the
-        reference embeddings.
+    @param method: The method to use to find the most similar
+        embeddings. If 'first' use the first of the reference
+        embeddings. If 'average', use the average of the reference
+        embeddings.
     @type k_method: str
-    @param k_method: The method to select the best k. If None, use k as is. If
-        'kde_basic', use the minimum of the KDE. If 'kde_peaks', use the minimum of the
-        KDE peaks, according to a specific hardcoded hevristics/thresholds.
+    @param k_method: The method to select the best k. If None, use k as
+        is. If 'kde_basic', use the minimum of the KDE. If 'kde_peaks',
+        use the minimum of the KDE peaks, according to a specific
+        hardcoded hevristics/thresholds.
     @type kde_bw: Union[str, float]
     @param kde_bw: The bandwidth to use for the KDE. Default is 'scott'.
     @type plot: bool
@@ -229,7 +239,9 @@ def find_similar(
 
         else:
             # get maxima and minima of the KDE on the distances
-            _, minima, _, _ = kde_peaks(similarities, bandwidth=kde_bw, plot=plot)
+            _, minima, _, _ = kde_peaks(
+                similarities, bandwidth=kde_bw, plot=plot
+            )
             if len(minima) > 0:
                 minima = minima[-1]
                 if minima < 0.94:

@@ -27,6 +27,7 @@ Example usage:
 Note: This loader is particularly useful when you want to use MNIST data with models that were
 pre-trained on datasets like ImageNet and expect 3-channel RGB input.
 """
+
 import torch
 import torchvision
 import torchvision.transforms as transforms
@@ -35,7 +36,8 @@ import torchvision.transforms as transforms
 def mnist_transformations() -> transforms.Compose:
     """Returns composed transformations for the MNIST dataset.
 
-    Transforms the images from 1 channel grayscale to 3 channels RGB and resizes them.
+    Transforms the images from 1 channel grayscale to 3 channels RGB and
+    resizes them.
     """
     return transforms.Compose(
         [
@@ -43,7 +45,9 @@ def mnist_transformations() -> transforms.Compose:
             transforms.Lambda(lambda x: x.convert("RGB")),
             transforms.Resize((224, 224)),
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            transforms.Normalize(
+                mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+            ),
         ]
     )
 
@@ -70,7 +74,9 @@ def load_mnist_data(
     )
 
     # If num_samples is set to -1, use the entire dataset
-    num_samples = min(num_samples, len(dataset)) if num_samples != -1 else len(dataset)
+    num_samples = (
+        min(num_samples, len(dataset)) if num_samples != -1 else len(dataset)
+    )
 
     # Create a subset of the dataset using Subset class
     subset = torch.utils.data.Subset(dataset, torch.arange(num_samples))

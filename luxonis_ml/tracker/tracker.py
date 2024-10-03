@@ -30,8 +30,9 @@ class LuxonisTracker:
         mlflow_tracking_uri: Optional[str] = None,
         rank: int = 0,
     ):
-        """Implementation of PytorchLightning Logger that wraps various logging
-        software. Supported loggers: TensorBoard, WandB and MLFlow.
+        """Implementation of PytorchLightning Logger that wraps various
+        logging software. Supported loggers: TensorBoard, WandB and
+        MLFlow.
 
         @type project_name: Optional[str]
         @param project_name: Name of the project used for WandB and MLFlow.
@@ -90,11 +91,15 @@ class LuxonisTracker:
         self.is_sweep = is_sweep
         self.rank = rank
 
-        self.run_id = run_id  # if using MLFlow then it will continue previous run
+        self.run_id = (
+            run_id  # if using MLFlow then it will continue previous run
+        )
 
         if is_wandb or is_mlflow:
             if self.project_name is None and self.project_id is None:
-                raise Exception("Either project_name or project_id must be specified!")
+                raise Exception(
+                    "Either project_name or project_id must be specified!"
+                )
 
         if self.is_wandb and wandb_entity is None:
             raise Exception("Must specify wandb_entity when using wandb!")
@@ -102,7 +107,9 @@ class LuxonisTracker:
             self.wandb_entity = wandb_entity
         if self.is_mlflow:
             if mlflow_tracking_uri is None:
-                raise Exception("Must specify mlflow_tracking_uri when using mlflow!")
+                raise Exception(
+                    "Must specify mlflow_tracking_uri when using mlflow!"
+                )
             else:
                 self.mlflow_tracking_uri = mlflow_tracking_uri
 
@@ -126,7 +133,8 @@ class LuxonisTracker:
 
     @staticmethod
     def rank_zero_only(fn: Callable) -> Callable:
-        """Function wrapper that lets only processes with rank=0 execute it."""
+        """Function wrapper that lets only processes with rank=0 execute
+        it."""
 
         @wraps(fn)
         def wrapped_fn(self, *args: Any, **kwargs: Any) -> Optional[Any]:
@@ -154,8 +162,11 @@ class LuxonisTracker:
 
     @property
     @rank_zero_only
-    def experiment(self) -> Dict[Literal["tensorboard", "wandb", "mlflow"], Any]:
-        """Creates new experiments or returns active ones if already created."""
+    def experiment(
+        self,
+    ) -> Dict[Literal["tensorboard", "wandb", "mlflow"], Any]:
+        """Creates new experiments or returns active ones if already
+        created."""
         if self._experiment is not None:
             return self._experiment
 
@@ -202,21 +213,28 @@ class LuxonisTracker:
 
             self._experiment["mlflow"] = mlflow
 
-            self.artifacts_dir = f"{self.save_directory}/{self.run_name}/artifacts"
+            self.artifacts_dir = (
+                f"{self.save_directory}/{self.run_name}/artifacts"
+            )
             Path(self.artifacts_dir).mkdir(parents=True, exist_ok=True)
 
-            self._experiment["mlflow"].set_tracking_uri(self.mlflow_tracking_uri)
+            self._experiment["mlflow"].set_tracking_uri(
+                self.mlflow_tracking_uri
+            )
 
             if self.project_id is not None:
                 self.project_name = None
             experiment = self._experiment["mlflow"].set_experiment(
-                experiment_name=self.project_name, experiment_id=self.project_id
+                experiment_name=self.project_name,
+                experiment_id=self.project_id,
             )
             self.project_id = experiment.experiment_id
 
             # if self.run_id == None then create new run, else use alredy created one
             run = self._experiment["mlflow"].start_run(
-                run_id=self.run_id, run_name=self.run_name, nested=self.is_sweep
+                run_id=self.run_id,
+                run_name=self.run_name,
+                nested=self.is_sweep,
             )
             self.run_id = run.info.run_id
 
@@ -247,8 +265,8 @@ class LuxonisTracker:
     def log_metric(self, name: str, value: float, step: int) -> None:
         """Logs metric value with name and step.
 
-        @note: step is ommited when logging with wandb to avoid problems with
-            inconsistent incrementation.
+        @note: step is ommited when logging with wandb to avoid problems
+            with inconsistent incrementation.
         @type name: str
         @param name: Metric name
         @type value: float
@@ -285,8 +303,9 @@ class LuxonisTracker:
 
     @rank_zero_only
     def log_image(self, name: str, img: np.ndarray, step: int) -> None:
-        """Logs image with name and step. Note: step is omitted when logging with wandb
-        is used to avoid problems with inconsistent incrementation.
+        """Logs image with name and step. Note: step is omitted when
+        logging with wandb is used to avoid problems with inconsistent
+        incrementation.
 
         @type name: str
         @param name: Caption of the image
@@ -296,7 +315,9 @@ class LuxonisTracker:
         @param step: Current step
         """
         if self.is_tensorboard:
-            self.experiment["tensorboard"].add_image(name, img, step, dataformats="HWC")
+            self.experiment["tensorboard"].add_image(
+                name, img, step, dataformats="HWC"
+            )
 
         if self.is_wandb:
             wandb_image = self.experiment["wandb"].Image(img, caption=name)
@@ -319,9 +340,11 @@ class LuxonisTracker:
         @type path: PathType
         @param path: Path to the artifact
         @type name: Optional[str]
-        @param name: Name of the artifact, if None then use the name of the file
+        @param name: Name of the artifact, if None then use the name of
+            the file
         @type typ: str
-        @param typ: Type of the artifact, defaults to "artifact". Only used for WandB.
+        @param typ: Type of the artifact, defaults to "artifact". Only
+            used for WandB.
         """
         path = Path(path)
         if self.is_wandb:
@@ -348,8 +371,8 @@ class LuxonisTracker:
         """Logs multiple images.
 
         @type imgs: Dict[str, np.ndarray]
-        @param imgs: Dict of image key-value pairs where key is image caption and value
-            is image data
+        @param imgs: Dict of image key-value pairs where key is image
+            caption and value is image data
         @type step: int
         @param step: Current step
         """
@@ -360,7 +383,9 @@ class LuxonisTracker:
         """Returns number id for next run."""
 
         log_dirs = glob.glob(f"{self.save_directory}/*")
-        log_dirs = [path.split("/")[-1] for path in log_dirs if os.path.isdir(path)]
+        log_dirs = [
+            path.split("/")[-1] for path in log_dirs if os.path.isdir(path)
+        ]
 
         nums = [path.split("-")[0] for path in log_dirs]
         nums = [int(num) for num in nums if num.isnumeric()]
@@ -386,7 +411,9 @@ class LuxonisTracker:
             if ld.split("-")[0].isnumeric():
                 runs.append(ld)
         runs.sort(
-            key=lambda x: os.path.getmtime(os.path.join(self.save_directory, x)),
+            key=lambda x: os.path.getmtime(
+                os.path.join(self.save_directory, x)
+            ),
             reverse=True,
         )
         return runs[0]

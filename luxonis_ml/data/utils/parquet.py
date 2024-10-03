@@ -11,10 +11,11 @@ class ParquetFileManager:
         """Manages the insertion of data into parquet files.
 
         @type directory: str
-        @param directory: The local directory in which parquet files are stored.
+        @param directory: The local directory in which parquet files are
+            stored.
         @type num_rows: int
-        @param num_rows: The maximum number of rows permitted in a parquet file before
-            another file is created.
+        @param num_rows: The maximum number of rows permitted in a
+            parquet file before another file is created.
         """
 
         self.dir = Path(directory)
@@ -49,8 +50,8 @@ class ParquetFileManager:
         """Writes a row to the current working parquet file.
 
         @type add_data: Dict
-        @param add_data: A dictionary representing annotations, mapping annotation types
-            to values.
+        @param add_data: A dictionary representing annotations, mapping
+            annotation types to values.
         """
 
         if not self.buffer:

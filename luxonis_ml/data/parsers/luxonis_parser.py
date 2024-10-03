@@ -2,7 +2,16 @@ import logging
 import zipfile
 from enum import Enum
 from pathlib import Path
-from typing import Dict, Generic, Optional, Tuple, Type, TypeVar, Union, overload
+from typing import (
+    Dict,
+    Generic,
+    Optional,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+    overload,
+)
 
 from luxonis_ml.data import DATASETS_REGISTRY, BaseDataset, LuxonisDataset
 from luxonis_ml.data.utils.enums import LabelType
@@ -59,29 +68,33 @@ class LuxonisParser(Generic[T]):
     ):
         """High-level abstraction over various parsers.
 
-        Automatically recognizes the dataset format and uses the appropriate parser.
+        Automatically recognizes the dataset format and uses the
+        appropriate parser.
 
         @type dataset_dir: str
-        @param dataset_dir: Path to the dataset directory or zip file. Can also be a
-            remote URL supported by L{LuxonisFileSystem}.
+        @param dataset_dir: Path to the dataset directory or zip file.
+            Can also be a remote URL supported by L{LuxonisFileSystem}.
         @type dataset_name: Optional[str]
-        @param dataset_name: Name of the dataset. If C{None}, the name is derived from
-            the name of the dataset directory.
+        @param dataset_name: Name of the dataset. If C{None}, the name
+            is derived from the name of the dataset directory.
         @type save_dir: Optional[Union[Path, str]]
-        @param save_dir: If a remote URL is provided in C{dataset_dir}, the dataset will
-            be downloaded to this directory. If C{None}, the dataset will be downloaded
-            to the current working directory.
+        @param save_dir: If a remote URL is provided in C{dataset_dir},
+            the dataset will be downloaded to this directory. If
+            C{None}, the dataset will be downloaded to the current
+            working directory.
         @type dataset_plugin: Optional[str]
-        @param dataset_plugin: Name of the dataset plugin to use. If C{None},
-            C{LuxonisDataset} is used.
+        @param dataset_plugin: Name of the dataset plugin to use. If
+            C{None}, C{LuxonisDataset} is used.
         @type dataset_type: Optional[DatasetType]
-        @param dataset_type: If provided, the parser will use this dataset type instead
-            of trying to recognize it automatically.
+        @param dataset_type: If provided, the parser will use this
+            dataset type instead of trying to recognize it
+            automatically.
         @type kwargs: Dict[str, Any]
-        @param kwargs: Additional C{kwargs} to be passed to the constructor of specific
-            L{BaseDataset} implementation.
+        @param kwargs: Additional C{kwargs} to be passed to the
+            constructor of specific L{BaseDataset} implementation.
         @type task_mapping: Optional[Dict[LabelType, str]]
-        @param task_mapping: Dictionary mapping label types to task names.
+        @param task_mapping: Dictionary mapping label types to task
+            names.
         """
         save_dir = Path(save_dir) if save_dir else None
         name = Path(dataset_dir).name
@@ -90,7 +103,9 @@ class LuxonisParser(Generic[T]):
         if self.dataset_dir.suffix == ".zip":
             with zipfile.ZipFile(self.dataset_dir, "r") as zip_ref:
                 unzip_dir = self.dataset_dir.parent / self.dataset_dir.stem
-                logger.info(f"Extracting '{self.dataset_dir.name}' to '{unzip_dir}'")
+                logger.info(
+                    f"Extracting '{self.dataset_dir.name}' to '{unzip_dir}'"
+                )
                 zip_ref.extractall(unzip_dir)
                 self.dataset_dir = unzip_dir
 
@@ -111,8 +126,12 @@ class LuxonisParser(Generic[T]):
 
         dataset_name = dataset_name or name.replace(" ", "_").split(".")[0]
 
-        self.dataset = self.dataset_constructor(dataset_name=dataset_name, **kwargs)
-        self.parser = self.parsers[self.dataset_type](self.dataset, task_mapping or {})
+        self.dataset = self.dataset_constructor(
+            dataset_name=dataset_name, **kwargs
+        )
+        self.parser = self.parsers[self.dataset_type](
+            self.dataset, task_mapping or {}
+        )
 
     @overload
     def parse(self: "LuxonisParser[str]", **kwargs) -> BaseDataset:
@@ -125,11 +144,12 @@ class LuxonisParser(Generic[T]):
     def parse(self, **kwargs) -> BaseDataset:
         """Parses the dataset and returns it in LuxonisDataset format.
 
-        If the dataset already exists, parsing will be skipped and the existing dataset
-        will be returned instead.
+        If the dataset already exists, parsing will be skipped and the
+        existing dataset will be returned instead.
 
         @type kwargs: Dict[str, Any]
-        @param kwargs: Additional C{kwargs} for specific parser implementation.
+        @param kwargs: Additional C{kwargs} for specific parser
+            implementation.
         @rtype: LuxonisDataset
         @return: Parsed dataset in L{LuxonisDataset} format.
         """
@@ -173,7 +193,8 @@ class LuxonisParser(Generic[T]):
         Check under each parser for the expected directory structure.
 
         @type kwargs: Dict[str, Any]
-        @param kwargs: Additional C{kwargs} for specific parser function.
+        @param kwargs: Additional C{kwargs} for specific parser
+            function.
         @rtype: LuxonisDataset
         @return: C{LDF} with all the images and annotations parsed.
         """
@@ -189,20 +210,22 @@ class LuxonisParser(Generic[T]):
     ) -> BaseDataset:
         """Parses data from a subdirectory representing a single split.
 
-        Should be used if adding/changing only specific split. Check under each parser
-        for expected directory structure.
+        Should be used if adding/changing only specific split. Check
+        under each parser for expected directory structure.
 
         @type split: Optional[Literal["train", "val", "test"]]
-        @param split: As what split the data will be added to LDF. If set,
-            C{split_ratios} and C{random_split} are ignored.
+        @param split: As what split the data will be added to LDF. If
+            set, C{split_ratios} and C{random_split} are ignored.
         @type random_split: bool
-        @param random_split: If random splits should be made. If C{True},
-            C{split_ratios} are used.
+        @param random_split: If random splits should be made. If
+            C{True}, C{split_ratios} are used.
         @type split_ratios: Optional[Dict[str, float]]
-        @param split_ratios: Ratios for random splits. Only used if C{random_split} is
-            C{True}. Defaults to C{{"train": 0.8, "val": 0.1, "test": 0.1}}.
+        @param split_ratios: Ratios for random splits. Only used if
+            C{random_split} is C{True}. Defaults to C{{"train": 0.8,
+            "val": 0.1, "test": 0.1}}.
         @type kwargs: Dict[str, Any]
-        @param kwargs: Additional kwargs for specific parser implementation.
+        @param kwargs: Additional kwargs for specific parser
+            implementation.
         @rtype: LuxonisDataset
         @return: C{LDF} with all the images and annotations parsed.
         """

@@ -58,7 +58,8 @@ class COCOParser(BaseParser):
     def _detect_dataset_dir_format(
         dataset_dir: Path,
     ) -> Tuple[Optional[Format], List[str]]:
-        """Checks if dataset directory structure is in FiftyOne or Roboflow format."""
+        """Checks if dataset directory structure is in FiftyOne or
+        Roboflow format."""
         fiftyone_splits = ["train", "validation", "test"]
         roboflow_splits = ["train", "valid", "test"]
         if all((dataset_dir / split).exists() for split in fiftyone_splits):
@@ -130,7 +131,9 @@ class COCOParser(BaseParser):
 
         train_ann_path = (
             dataset_dir / keypoint_ann_paths["train"]
-            if keypoint_ann_paths and use_keypoint_ann and dir_format == Format.FIFTYONE
+            if keypoint_ann_paths
+            and use_keypoint_ann
+            and dir_format == Format.FIFTYONE
             else train_paths["annotation_path"]
         )
         added_train_imgs = self._parse_split(
@@ -144,7 +147,9 @@ class COCOParser(BaseParser):
 
         val_ann_path = (
             dataset_dir / keypoint_ann_paths["val"]
-            if keypoint_ann_paths and use_keypoint_ann and dir_format == Format.FIFTYONE
+            if keypoint_ann_paths
+            and use_keypoint_ann
+            and dir_format == Format.FIFTYONE
             else val_paths["annotation_path"]
         )
         _added_val_imgs = self._parse_split(
@@ -179,17 +184,20 @@ class COCOParser(BaseParser):
 
         return added_train_imgs, added_val_imgs, added_test_imgs
 
-    def from_split(self, image_dir: Path, annotation_path: Path) -> ParserOutput:
-        """Parses annotations from COCO format to LDF. Annotations include
-        classification, segmentation, object detection and keypoints if present.
+    def from_split(
+        self, image_dir: Path, annotation_path: Path
+    ) -> ParserOutput:
+        """Parses annotations from COCO format to LDF. Annotations
+        include classification, segmentation, object detection and
+        keypoints if present.
 
         @type image_dir: Path
         @param image_dir: Path to directory with images
         @type annotation_path: Path
         @param annotation_path: Path to annotation json file
         @rtype: L{ParserOutput}
-        @return: Annotation generator, list of classes names, skeleton dictionary for
-            keypoints and list of added images.
+        @return: Annotation generator, list of classes names, skeleton
+            dictionary for keypoints and list of added images.
         """
         with open(annotation_path) as f:
             annotation_data = json.load(f)
@@ -292,7 +300,9 @@ class COCOParser(BaseParser):
 
                         keypoints = []
                         for kp in kpts:
-                            keypoints.append((kp[0] / img_w, kp[1] / img_h, int(kp[2])))
+                            keypoints.append(
+                                (kp[0] / img_w, kp[1] / img_h, int(kp[2]))
+                            )
                         yield {
                             "file": path,
                             "annotation": {

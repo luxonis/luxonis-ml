@@ -137,7 +137,13 @@ def get_dir(
 
 
 def _rescale_mask(
-    mask: np.ndarray, mask_w: int, mask_h: int, x: float, y: float, w: float, h: float
+    mask: np.ndarray,
+    mask_w: int,
+    mask_h: int,
+    x: float,
+    y: float,
+    w: float,
+    h: float,
 ) -> np.ndarray:
     return mask[
         int(y * mask_h) : int((y + h) * mask_h),
@@ -182,7 +188,8 @@ def rescale_values(
         np.ndarray,
     ]
 ]:
-    """Rescale annotation values based on the bounding box coordinates."""
+    """Rescale annotation values based on the bounding box
+    coordinates."""
     x, y, w, h = bbox["x"], bbox["y"], bbox["w"], bbox["h"]
 
     if sub_ann_key == "keypoints":
@@ -198,7 +205,9 @@ def rescale_values(
     if sub_ann_key == "segmentation":
         assert isinstance(ann, dict)
         if "polylines" in ann:
-            return [(poly[0] * w + x, poly[1] * h + y) for poly in ann["polylines"]]
+            return [
+                (poly[0] * w + x, poly[1] * h + y) for poly in ann["polylines"]
+            ]
 
         if "rle" in ann:
             return _rescale_rle(ann["rle"], x, y, w, h)
@@ -216,8 +225,8 @@ def rescale_values(
 
 
 def add_generator_wrapper(generator: DatasetIterator) -> DatasetIterator:
-    """Generator wrapper to rescale and reformat annotations for each record in the
-    input generator."""
+    """Generator wrapper to rescale and reformat annotations for each
+    record in the input generator."""
 
     def create_new_record(
         record: Dict[str, Union[str, Dict]],

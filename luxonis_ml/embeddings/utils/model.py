@@ -38,13 +38,14 @@ def extend_output_onnx(
     intermediate_tensor_name: str = "/Flatten_output_0",
     overwrite: bool = False,
 ) -> onnx.ModelProto:
-    """Set an intermediate output layer as output of the provided ONNX model.
+    """Set an intermediate output layer as output of the provided ONNX
+    model.
 
-    If C{overwrite} is set to True, the second to last layer output will be set as
-    output layer and renamed.
+    If C{overwrite} is set to True, the second to last layer output will
+    be set as output layer and renamed.
 
-    (You need to know the name of the intermediate layer, which you can find by
-    inspecting the ONNX model with Netron.app)
+    (You need to know the name of the intermediate layer, which you can
+    find by inspecting the ONNX model with Netron.app)
     """
     if overwrite:
         onnx.checker.check_model(onnx_model)

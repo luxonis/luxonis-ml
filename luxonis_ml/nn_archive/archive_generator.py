@@ -8,8 +8,8 @@ from .config import Config
 
 
 class ArchiveGenerator:
-    """Generator of abstracted NN archive (.tar) files containing config and model files
-    (executables).
+    """Generator of abstracted NN archive (.tar) files containing config
+    and model files (executables).
 
     @type archive_name: str
     @ivar archive_name: Desired archive file name.
@@ -20,8 +20,8 @@ class ArchiveGenerator:
     @type executables_paths: list
     @ivar executables_paths: Paths to relevant model executables.
     @type compression: str
-    @ivar compression: Type of archive file compression ("xz" for LZMA, "gz" for gzip,
-        or "bz2" for bzip2 compression).
+    @ivar compression: Type of archive file compression ("xz" for LZMA,
+        "gz" for gzip, or "bz2" for bzip2 compression).
     """
 
     def __init__(
@@ -62,7 +62,9 @@ class ArchiveGenerator:
         with tarfile.open(archive_path, f"w:{self.compression}") as tar:
             # add executables
             for executable_path in self.executables_paths:
-                tar.add(executable_path, arcname=os.path.basename(executable_path))
+                tar.add(
+                    executable_path, arcname=os.path.basename(executable_path)
+                )
             # add config JSON
             tarinfo = tarfile.TarInfo(name="config.json")
             tarinfo.size = len(json_data)

@@ -26,14 +26,22 @@ DATA_DIR = Path("tests/data/test_nn_archive")
 
 
 def create_onnx_model():
-    input0 = helper.make_tensor_value_info("input0", TensorProto.FLOAT, [1, 3, 64, 64])
+    input0 = helper.make_tensor_value_info(
+        "input0", TensorProto.FLOAT, [1, 3, 64, 64]
+    )
     input1 = helper.make_tensor_value_info(
         "input1", TensorProto.FLOAT, [1, 3, 128, 128]
     )
 
-    output0 = helper.make_tensor_value_info("output0", TensorProto.FLOAT, [1, 10])
-    output1 = helper.make_tensor_value_info("output1", TensorProto.FLOAT, [1, 5, 5, 5])
-    graph = helper.make_graph([], "DummyModel", [input0, input1], [output0, output1])
+    output0 = helper.make_tensor_value_info(
+        "output0", TensorProto.FLOAT, [1, 10]
+    )
+    output1 = helper.make_tensor_value_info(
+        "output1", TensorProto.FLOAT, [1, 5, 5, 5]
+    )
+    graph = helper.make_graph(
+        [], "DummyModel", [input0, input1], [output0, output1]
+    )
 
     model = helper.make_model(graph, producer_name="DummyModelProducer")
     checker.check_model(model)
@@ -148,7 +156,12 @@ def test_layout():
     )
     assert inp.layout == "CHWD"
     out = Output(
-        **{"name": "output", "dtype": "float32", "shape": [1, 10], "layout": "nc"}
+        **{
+            "name": "output",
+            "dtype": "float32",
+            "shape": [1, 10],
+            "layout": "nc",
+        }
     )
     assert out.layout == "NC"
 

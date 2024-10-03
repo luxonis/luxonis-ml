@@ -12,11 +12,19 @@ from albumentations.core.composition import (
     TransformsSeqType,
     get_always_apply,
 )
-from albumentations.core.keypoints_utils import KeypointParams, KeypointsProcessor
+from albumentations.core.keypoints_utils import (
+    KeypointParams,
+    KeypointsProcessor,
+)
 from albumentations.core.utils import get_shape
 
 from .batch_processors import BboxBatchProcessor, KeypointsBatchProcessor
-from .batch_utils import batch2list, concat_batches, list2batch, to_unbatched_name
+from .batch_utils import (
+    batch2list,
+    concat_batches,
+    list2batch,
+    to_unbatched_name,
+)
 
 
 class Compose(BaseCompose):
@@ -29,7 +37,8 @@ class Compose(BaseCompose):
         p: float = 1.0,
         is_check_shapes: bool = True,
     ):
-        """Compose transforms and handle all transformations regarding bounding boxes.
+        """Compose transforms and handle all transformations regarding
+        bounding boxes.
 
         @param transforms: List of transformations to compose
         @type transforms: TransformsSeqType
@@ -99,17 +108,23 @@ class Compose(BaseCompose):
         return KeypointsProcessor(k_params, additional_targets)
 
     @staticmethod
-    def _disable_check_args_for_transforms(transforms: TransformsSeqType) -> None:
+    def _disable_check_args_for_transforms(
+        transforms: TransformsSeqType,
+    ) -> None:
         for transform in transforms:
             if isinstance(transform, BaseCompose):
-                Compose._disable_check_args_for_transforms(transform.transforms)
+                Compose._disable_check_args_for_transforms(
+                    transform.transforms
+                )
             if isinstance(transform, Compose):
                 transform._disable_check_args()
 
     def _disable_check_args(self) -> None:
         self.is_check_args = False
 
-    def __call__(self, *args, force_apply: bool = False, **data) -> Dict[str, Any]:
+    def __call__(
+        self, *args, force_apply: bool = False, **data
+    ) -> Dict[str, Any]:
         if args:
             raise KeyError(
                 "You have to pass data to augmentations as named arguments, for example: aug(image=image)"
@@ -123,7 +138,9 @@ class Compose(BaseCompose):
         for p in self.processors.values():
             p.ensure_data_valid(data)
         transforms = (
-            self.transforms if need_to_run else get_always_apply(self.transforms)
+            self.transforms
+            if need_to_run
+            else get_always_apply(self.transforms)
         )
 
         check_each_transform = any(
@@ -148,7 +165,9 @@ class Compose(BaseCompose):
 
         return data
 
-    def _check_data_post_transform(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def _check_data_post_transform(
+        self, data: Dict[str, Any]
+    ) -> Dict[str, Any]:
         rows, cols = get_shape(data["image"])
 
         for p in self.processors.values():
@@ -206,7 +225,9 @@ class Compose(BaseCompose):
             internal_data_name = additional_targets.get(data_name, data_name)
             if internal_data_name in checked_single:
                 if not isinstance(data, np.ndarray):
-                    raise TypeError("{} must be numpy array type".format(data_name))
+                    raise TypeError(
+                        "{} must be numpy array type".format(data_name)
+                    )
                 shapes.append(data.shape[:2])
             if internal_data_name in checked_multi:
                 if data is not None:
@@ -223,7 +244,11 @@ class Compose(BaseCompose):
                     "bbox_params must be specified for bbox transformations"
                 )
 
-        if self.is_check_shapes and shapes and shapes.count(shapes[0]) != len(shapes):
+        if (
+            self.is_check_shapes
+            and shapes
+            and shapes.count(shapes[0]) != len(shapes)
+        ):
             raise ValueError(
                 "Height and Width of image, mask or masks should be equal. You can disable shapes check "
                 "by setting a parameter is_check_shapes=False of Compose class (do it only if you are sure "
@@ -249,10 +274,11 @@ class BatchCompose(Compose):
         p: float = 1.0,
         is_check_shapes: bool = True,
     ):
-        """Compose designed to handle the multi-image transforms The contents can be a
-        subclass of `BatchBasedTransform` or other transforms enclosed by ForEach
-        container. All targets' names should have the suffix "_batch", ex
-        ("image_batch", "bboxes_batch"). Note this nameing rule is applied to the
+        """Compose designed to handle the multi-image transforms The
+        contents can be a subclass of `BatchBasedTransform` or other
+        transforms enclosed by ForEach container. All targets' names
+        should have the suffix "_batch", ex ("image_batch",
+        "bboxes_batch"). Note this nameing rule is applied to the
         `label_fields` of the `BboxParams` and the `KeypointsParams`.
 
         @param transforms: List of transformations to compose
@@ -311,7 +337,9 @@ class BatchCompose(Compose):
         for data in datalist:
             super()._check_args(unbatched_targets, **data)
 
-    def _make_targets_contiguous(self, batched_data: Dict[str, Any]) -> Dict[str, Any]:
+    def _make_targets_contiguous(
+        self, batched_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
         datalist = batch2list(batched_data)
         if len(datalist) == 0:
             return batched_data
@@ -323,8 +351,8 @@ class BatchCompose(Compose):
 
 
 class ForEach(BaseCompose):
-    """Apply transforms for each batch element This expects batched input and can be
-    contained by the `BatchCompose`."""
+    """Apply transforms for each batch element This expects batched
+    input and can be contained by the `BatchCompose`."""
 
     def __init__(self, transforms: TransformsSeqType, p: float = 0.5):
         super().__init__(transforms, p)
@@ -341,7 +369,9 @@ class ForEach(BaseCompose):
         batched_data = list2batch(processed)
         return batched_data
 
-    def add_targets(self, additional_targets: Optional[Dict[str, str]]) -> None:
+    def add_targets(
+        self, additional_targets: Optional[Dict[str, str]]
+    ) -> None:
         if additional_targets:
             unbatched_targets = {
                 to_unbatched_name(k): to_unbatched_name(v)

@@ -17,8 +17,8 @@ class Model(BaseModelExtraForbid):
     @type outputs: list
     @ivar outputs: List of Output objects defining the model outputs.
     @type heads: list
-    @ivar heads: List of Head objects defining the model heads. If not defined, we
-        assume a raw output.
+    @ivar heads: List of Head objects defining the model heads. If not
+        defined, we assume a raw output.
     """
 
     metadata: Metadata = Field(

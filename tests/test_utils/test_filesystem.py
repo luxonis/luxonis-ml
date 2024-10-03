@@ -6,7 +6,10 @@ from typing import List, Optional
 import pytest
 
 from luxonis_ml.utils import environ
-from luxonis_ml.utils.filesystem import LuxonisFileSystem, _get_protocol_and_path
+from luxonis_ml.utils.filesystem import (
+    LuxonisFileSystem,
+    _get_protocol_and_path,
+)
 
 URL_PATH = "luxonis-test-bucket/luxonis-ml-test-data/fs_test_data"
 
@@ -29,13 +32,17 @@ skip_if_no_gcs_credentials = pytest.mark.skipif(
 
 # NOTE: needed for tests running in GitHub Actions using the matrix strategy
 #       to avoid race conditions when running tests in parallel
-def get_os_python_specific_url(protocol: str, platform: str, python_version: str):
+def get_os_python_specific_url(
+    protocol: str, platform: str, python_version: str
+):
     return f"{protocol}://{URL_PATH}_{platform}_{python_version}"
 
 
 @pytest.fixture
 def fs(request, python_version: str, platform_name: str):
-    url_path = get_os_python_specific_url(request.param, platform_name, python_version)
+    url_path = get_os_python_specific_url(
+        request.param, platform_name, python_version
+    )
     yield LuxonisFileSystem(url_path)
 
 
@@ -189,7 +196,8 @@ def test_dir_upload(fs: LuxonisFileSystem):
             file_path = Path(dir_path, f"file_{i}.txt")
             assert file_path.exists()
             assert (
-                file_path.read_text() == (LOCAL_DIR_PATH / f"file_{i}.txt").read_text()
+                file_path.read_text()
+                == (LOCAL_DIR_PATH / f"file_{i}.txt").read_text()
             )
 
     with tempfile.TemporaryDirectory() as tempdir:
@@ -222,8 +230,12 @@ def test_walk_dir(fs: LuxonisFileSystem):
         "test_dir_download",
     ],
 )
-def test_static_download(protocol: str, python_version: str, platform_name: str):
-    url_root = get_os_python_specific_url(protocol, platform_name, python_version)
+def test_static_download(
+    protocol: str, python_version: str, platform_name: str
+):
+    url_root = get_os_python_specific_url(
+        protocol, platform_name, python_version
+    )
     with tempfile.TemporaryDirectory() as tempdir:
         url = f"{url_root}/file.txt"
         path = LuxonisFileSystem.download(url, tempdir)
@@ -248,7 +260,9 @@ def test_static_download(protocol: str, python_version: str, platform_name: str)
     ],
 )
 def test_static_upload(protocol: str, python_version: str, platform_name: str):
-    url_root = get_os_python_specific_url(protocol, platform_name, python_version)
+    url_root = get_os_python_specific_url(
+        protocol, platform_name, python_version
+    )
     with tempfile.TemporaryDirectory() as tempdir:
         url = f"{url_root}/_file_upload_test.txt"
         LuxonisFileSystem.upload(LOCAL_FILE_PATH, url)
@@ -266,7 +280,8 @@ def test_static_upload(protocol: str, python_version: str, platform_name: str):
             file_path = Path(dir_path, f"file_{i}.txt")
             assert file_path.exists()
             assert (
-                file_path.read_text() == (LOCAL_DIR_PATH / f"file_{i}.txt").read_text()
+                file_path.read_text()
+                == (LOCAL_DIR_PATH / f"file_{i}.txt").read_text()
             )
 
     fs = LuxonisFileSystem(url_root)

@@ -50,7 +50,8 @@ def delete(url: UrlArgument):
 def ls(
     url: UrlArgument,
     recursive: Annotated[
-        bool, typer.Option(..., "--recursive", "-r", help="List files recursively.")
+        bool,
+        typer.Option(..., "--recursive", "-r", help="List files recursively."),
     ] = False,
     typ: Annotated[
         TypeEnum,

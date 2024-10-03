@@ -8,9 +8,9 @@ from luxonis_ml.embeddings.utils.vectordb import VectorDBAPI
 
 
 class WeaviateAPI(VectorDBAPI):
-    """Provides a Python interface for interacting with Weaviate, facilitating
-    operations such as creating collections, managing embeddings, and querying for
-    similar embeddings.
+    """Provides a Python interface for interacting with Weaviate,
+    facilitating operations such as creating collections, managing
+    embeddings, and querying for similar embeddings.
 
     It only supports cosine similarity for now.
     """
@@ -24,12 +24,14 @@ class WeaviateAPI(VectorDBAPI):
         """Initializes the Weaviate API client with connection details.
 
         @type url: str
-        @param url: URL of the Weaviate instance, defaults to U{localhost:8080}.
+        @param url: URL of the Weaviate instance, defaults to
+            U{localhost:8080}.
         @type grpc_url: str
         @param grpc_url: URL of the gRPC Weaviate instance, defaults to
             U{localhost:50051}.
         @type auth_api_key: str
-        @param auth_api_key: API key for authentication. Defaults to C{None}.
+        @param auth_api_key: API key for authentication. Defaults to
+            C{None}.
         """
         if auth_api_key is not None:
             auth_api_key = weaviate.AuthApiKey(auth_api_key)
@@ -56,7 +58,8 @@ class WeaviateAPI(VectorDBAPI):
         @type collection_name: str
         @param collection_name: Name of the collection to create.
         @type properties: List[str]
-        @param properties: List of properties for the collection. Defaults to None.
+        @param properties: List of properties for the collection.
+            Defaults to None.
         """
         self.collection_name = collection_name
         self.properties = properties
@@ -68,7 +71,9 @@ class WeaviateAPI(VectorDBAPI):
             for prop in self.properties:
                 properties.append(
                     wvc.Property(
-                        name=prop, data_type=wvc.DataType.TEXT, skip_vectorization=True
+                        name=prop,
+                        data_type=wvc.DataType.TEXT,
+                        skip_vectorization=True,
                     )
                 )
 
@@ -99,7 +104,8 @@ class WeaviateAPI(VectorDBAPI):
         payloads: List[Dict[str, Any]],
         batch_size: int = 100,
     ) -> None:
-        """Inserts embeddings with associated payloads into a collection.
+        """Inserts embeddings with associated payloads into a
+        collection.
 
         @type uuids: List[str]
         @param uuids: List of UUIDs for the embeddings.
@@ -113,7 +119,9 @@ class WeaviateAPI(VectorDBAPI):
         data = []
         for i, embedding in enumerate(embeddings):
             data.append(
-                wvc.DataObject(properties=payloads[i], uuid=uuids[i], vector=embedding)
+                wvc.DataObject(
+                    properties=payloads[i], uuid=uuids[i], vector=embedding
+                )
             )
 
             if len(data) == batch_size:
@@ -152,18 +160,21 @@ class WeaviateAPI(VectorDBAPI):
         return uuids, scores
 
     def get_similarity_scores(
-        self, reference_id: str, other_ids: List[str], sort_distances: bool = False
+        self,
+        reference_id: str,
+        other_ids: List[str],
+        sort_distances: bool = False,
     ) -> Tuple[List[str], List[float]]:
-        """Calculates the similarity score between the reference embedding and the
-        specified embeddings.
+        """Calculates the similarity score between the reference
+        embedding and the specified embeddings.
 
         @type reference_id: str
         @param reference_id: UUID of the reference embedding.
         @type other_ids: List[str]
         @param other_ids: List of UUIDs of the embeddings to compare to.
         @type sort_distances: bool
-        @param sort_distances: Whether to sort the results by distance or keep order of
-            the UUIDs. Defaults to False.
+        @param sort_distances: Whether to sort the results by distance
+            or keep order of the UUIDs. Defaults to False.
         @rtype ids: List[str]
         @return ids: List of UUIDs of the embeddings.
         @rtype scores: List[float]
@@ -186,30 +197,39 @@ class WeaviateAPI(VectorDBAPI):
             ids = other_ids
             scores = [0] * len(other_ids)
             for result in response.objects:
-                scores[other_ids.index(str(result.uuid))] = 1 - result.metadata.distance
+                scores[other_ids.index(str(result.uuid))] = (
+                    1 - result.metadata.distance
+                )
 
         return ids, scores
 
     def compute_similarity_matrix(self) -> List[List[float]]:
-        """Calculates the similarity matrix for all the embeddings in the collection.
-        @note: This is a very inefficient implementation. For large numbers of
-        embeddings, calculate the similarity matrix by hand
+        """Calculates the similarity matrix for all the embeddings in
+        the collection. @note: This is a very inefficient
+        implementation. For large numbers of embeddings, calculate the
+        similarity matrix by hand
         (sklearn.metrics.pairwise.cosine_similarity).
 
         @rtype sim_matrix: List[List[float]]
-        @return sim_matrix: Similarity matrix for all the embeddings in the collection.
+        @return sim_matrix: Similarity matrix for all the embeddings in
+            the collection.
         """
         uuids = self.retrieve_all_ids()
 
         sim_matrix = []
         for uuid in uuids:
-            ids, scores = self.get_similarity_scores(uuid, uuids, sort_distances=False)
+            ids, scores = self.get_similarity_scores(
+                uuid, uuids, sort_distances=False
+            )
             sim_matrix.append(scores)
 
         return sim_matrix
 
-    def retrieve_embeddings_by_ids(self, uuids: List[str]) -> List[List[float]]:
-        """Gets the embeddings for the specified UUIDs, up to a maximum of 10000.
+    def retrieve_embeddings_by_ids(
+        self, uuids: List[str]
+    ) -> List[List[float]]:
+        """Gets the embeddings for the specified UUIDs, up to a maximum
+        of 10000.
 
         @type uuids: List[str]
         @param uuids: List of UUIDs of the embeddings to get.
@@ -230,7 +250,9 @@ class WeaviateAPI(VectorDBAPI):
         }
         # Retrieve embeddings in the order of the provided UUIDs
         embeddings = [
-            uuid_embedding_map[uuid] for uuid in uuids if uuid in uuid_embedding_map
+            uuid_embedding_map[uuid]
+            for uuid in uuids
+            if uuid in uuid_embedding_map
         ]
 
         return embeddings
@@ -238,7 +260,8 @@ class WeaviateAPI(VectorDBAPI):
     def retrieve_payloads_by_ids(
         self, uuids: List[str], properties: Optional[List[str]] = None
     ) -> List[Dict[str, Any]]:
-        """Gets the payloads for the specified UUIDs, up to a maximum of 10000.
+        """Gets the payloads for the specified UUIDs, up to a maximum of
+        10000.
 
         @type uuids: List[str]
         @param uuids: List of UUIDs of the embeddings to get.
@@ -261,7 +284,9 @@ class WeaviateAPI(VectorDBAPI):
         }
         # Retrieve payloads in the order of the provided UUIDs
         payloads = [
-            uuid_payload_map[uuid] for uuid in uuids if uuid in uuid_payload_map
+            uuid_payload_map[uuid]
+            for uuid in uuids
+            if uuid in uuid_payload_map
         ]
 
         return payloads

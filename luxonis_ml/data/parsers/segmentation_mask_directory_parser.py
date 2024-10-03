@@ -51,11 +51,16 @@ class SegmentationMaskDirectoryParser(BaseParser):
     def validate(dataset_dir: Path) -> bool:
         for split in ["train", "valid", "test"]:
             split_path = dataset_dir / split
-            if SegmentationMaskDirectoryParser.validate_split(split_path) is None:
+            if (
+                SegmentationMaskDirectoryParser.validate_split(split_path)
+                is None
+            ):
                 return False
         return True
 
-    def from_dir(self, dataset_dir: Path) -> Tuple[List[str], List[str], List[str]]:
+    def from_dir(
+        self, dataset_dir: Path
+    ) -> Tuple[List[str], List[str], List[str]]:
         added_train_imgs = self._parse_split(
             image_dir=dataset_dir / "train",
             seg_dir=dataset_dir / "train",
@@ -87,8 +92,8 @@ class SegmentationMaskDirectoryParser(BaseParser):
         @type classes_path: Path
         @param classes_path: Path to CSV file with class names
         @rtype: L{ParserOutput}
-        @return: Annotation generator, list of classes names, skeleton dictionary for
-            keypoints and list of added images
+        @return: Annotation generator, list of classes names, skeleton
+            dictionary for keypoints and list of added images
         """
 
         idx_class = " Class"  # NOTE: space prefix included

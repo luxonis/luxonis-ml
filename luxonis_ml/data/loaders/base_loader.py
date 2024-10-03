@@ -9,13 +9,14 @@ from luxonis_ml.utils import AutoRegisterMeta, Registry
 from ..utils.enums import LabelType
 
 Labels: TypeAlias = Dict[str, Tuple[np.ndarray, LabelType]]
-"""C{Labels} is a dictionary mappping task names to their L{LabelType} and annotations
-as L{numpy arrays<np.ndarray>}."""
+"""C{Labels} is a dictionary mappping task names to their L{LabelType}
+and annotations as L{numpy arrays<np.ndarray>}."""
 
 
 LuxonisLoaderOutput: TypeAlias = Tuple[np.ndarray, Labels]
-"""C{LuxonisLoaderOutput} is a tuple of an image as a L{numpy array<np.ndarray>} and a
-dictionary of task group names and their annotations as L{Annotations}."""
+"""C{LuxonisLoaderOutput} is a tuple of an image as a L{numpy
+array<np.ndarray>} and a dictionary of task group names and their
+annotations as L{Annotations}."""
 
 LOADERS_REGISTRY: Registry[Type["BaseLoader"]] = Registry(name="loaders")
 

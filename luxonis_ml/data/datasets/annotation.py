@@ -2,7 +2,17 @@ import json
 import logging
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple, TypedDict, Union
+from typing import (
+    Any,
+    ClassVar,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    TypedDict,
+    Union,
+)
 
 import numpy as np
 import pycocotools.mask as mask_util
@@ -25,7 +35,8 @@ logger = logging.getLogger(__name__)
 
 KeypointVisibility: TypeAlias = Literal[0, 1, 2]
 NormalizedFloat: TypeAlias = Annotated[float, Field(ge=0, le=1)]
-"""C{NormalizedFloat} is a float that is restricted to the range [0, 1]."""
+"""C{NormalizedFloat} is a float that is restricted to the range [0,
+1]."""
 
 ParquetDict = TypedDict(
     "ParquetDict",
@@ -58,13 +69,14 @@ class Annotation(ABC, BaseModelExtraForbid):
     """Base class for an annotation.
 
     @type task: str
-    @ivar task: The task name. By default it is the string representation of the
-        L{LabelType}.
+    @ivar task: The task name. By default it is the string
+        representation of the L{LabelType}.
     @type class_: str
     @ivar class_: The class name for the annotation.
     @type instance_id: int
-    @ivar instance_id: The instance id of the annotation. This determines the order in
-        which individual instances are loaded in L{LuxonisLoader}.
+    @ivar instance_id: The instance id of the annotation. This
+        determines the order in which individual instances are loaded in
+        L{LuxonisLoader}.
     @type _label_type: ClassVar[L{LabelType}]
     @ivar _label_type: The label type of the annotation.
     """
@@ -83,9 +95,11 @@ class Annotation(ABC, BaseModelExtraForbid):
         return values
 
     def get_value(self) -> Dict[str, Any]:
-        """Converts the annotation to a dictionary that can be saved to a parquet
-        file."""
-        return self.dict(exclude={"class_", "class_id", "instance_id", "task", "type_"})
+        """Converts the annotation to a dictionary that can be saved to
+        a parquet file."""
+        return self.dict(
+            exclude={"class_", "class_id", "instance_id", "task", "type_"}
+        )
 
     @staticmethod
     @abstractmethod
@@ -95,7 +109,8 @@ class Annotation(ABC, BaseModelExtraForbid):
         height: int,
         width: int,
     ) -> np.ndarray:
-        """Combines multiple instance annotations into a single numpy array."""
+        """Combines multiple instance annotations into a single numpy
+        array."""
         pass
 
 
@@ -122,9 +137,11 @@ class BBoxAnnotation(Annotation):
     Values are normalized based on the image size.
 
     @type x: float
-    @ivar x: The center x-coordinate of the bounding box. Normalized to [0, 1].
+    @ivar x: The center x-coordinate of the bounding box. Normalized to
+        [0, 1].
     @type y: float
-    @ivar y: The center y-coordinate of the bounding box. Normalized to [0, 1].
+    @ivar y: The center y-coordinate of the bounding box. Normalized to
+        [0, 1].
     @type w: float
     @ivar w: The width of the bounding box. Normalized to [0, 1].
     @type h: float
@@ -188,7 +205,9 @@ class KeypointAnnotation(Annotation):
 
     type_: Literal["keypoints"] = Field("keypoints", alias="type")
 
-    keypoints: List[Tuple[NormalizedFloat, NormalizedFloat, KeypointVisibility]]
+    keypoints: List[
+        Tuple[NormalizedFloat, NormalizedFloat, KeypointVisibility]
+    ]
 
     _label_type = LabelType.KEYPOINTS
 
@@ -226,9 +245,13 @@ class KeypointAnnotation(Annotation):
 
     @staticmethod
     def combine_to_numpy(
-        annotations: List["KeypointAnnotation"], class_mapping: Dict[str, int], **_
+        annotations: List["KeypointAnnotation"],
+        class_mapping: Dict[str, int],
+        **_,
     ) -> np.ndarray:
-        keypoints = np.zeros((len(annotations), len(annotations[0].keypoints) * 3 + 1))
+        keypoints = np.zeros(
+            (len(annotations), len(annotations[0].keypoints) * 3 + 1)
+        )
         for i, ann in enumerate(annotations):
             keypoints[i] = ann.to_numpy(class_mapping)
         return keypoints
@@ -305,7 +328,9 @@ class RLESegmentationAnnotation(SegmentationAnnotation):
             "counts": rle["counts"].decode("utf-8"),
         }
 
-    def to_numpy(self, _: Dict[str, int], width: int, height: int) -> np.ndarray:
+    def to_numpy(
+        self, _: Dict[str, int], width: int, height: int
+    ) -> np.ndarray:
         assert isinstance(self.counts, bytes)
         return mask_util.decode(
             {"counts": self.counts, "size": [height, width]}
@@ -316,8 +341,8 @@ class MaskSegmentationAnnotation(SegmentationAnnotation):
     """Pixel-wise binary segmentation mask.
 
     @type mask: npt.NDArray[np.bool_]
-    @ivar mask: The segmentation mask as a numpy array. The mask must be 2D and must be
-        castable to a boolean array.
+    @ivar mask: The segmentation mask as a numpy array. The mask must be
+        2D and must be castable to a boolean array.
     """
 
     type_: Literal["mask"] = Field("mask", alias="type")
@@ -331,7 +356,11 @@ class MaskSegmentationAnnotation(SegmentationAnnotation):
         if "mask" in values:
             return values
 
-        if "width" not in values or "height" not in values or "counts" not in values:
+        if (
+            "width" not in values
+            or "height" not in values
+            or "counts" not in values
+        ):
             raise ValueError(
                 "MaskSegmentationAnnotation must have either "
                 "'mask' or 'width', 'height', and 'counts'"
@@ -381,8 +410,9 @@ class PolylineSegmentationAnnotation(SegmentationAnnotation):
     """Polyline segmentation mask.
 
     @type points: List[Tuple[float, float]]
-    @ivar points: List of points that define the polyline. Each point is a tuple of (x,
-        y). x and y are normalized to [0, 1] based on the image size.
+    @ivar points: List of points that define the polyline. Each point is
+        a tuple of (x, y). x and y are normalized to [0, 1] based on the
+        image size.
     """
 
     type_: Literal["polyline"] = Field("polyline", alias="type")
@@ -394,7 +424,9 @@ class PolylineSegmentationAnnotation(SegmentationAnnotation):
     def validate_values(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         warn = False
         for i, point in enumerate(values["points"]):
-            if (point[0] < -2 or point[0] > 2) or (point[1] < -2 or point[1] > 2):
+            if (point[0] < -2 or point[0] > 2) or (
+                point[1] < -2 or point[1] > 2
+            ):
                 raise ValueError(
                     "Polyline annotation has value outside of automatic clipping range ([-2, 2]). "
                     "Values should be normalized based on image size to range [0, 1]."
@@ -414,8 +446,12 @@ class PolylineSegmentationAnnotation(SegmentationAnnotation):
             )
         return values
 
-    def to_numpy(self, _: Dict[str, int], width: int, height: int) -> np.ndarray:
-        polyline = [(round(x * width), round(y * height)) for x, y in self.points]
+    def to_numpy(
+        self, _: Dict[str, int], width: int, height: int
+    ) -> np.ndarray:
+        polyline = [
+            (round(x * width), round(y * height)) for x, y in self.points
+        ]
         mask = Image.new("L", (width, height), 0)
         draw = ImageDraw.Draw(mask)
         draw.polygon(polyline, fill=1, outline=1)
@@ -439,10 +475,16 @@ class ArrayAnnotation(Annotation):
 
     @staticmethod
     def combine_to_numpy(
-        annotations: List["ArrayAnnotation"], class_mapping: Dict[str, int], **_
+        annotations: List["ArrayAnnotation"],
+        class_mapping: Dict[str, int],
+        **_,
     ) -> np.ndarray:
         out_arr = np.zeros(
-            (len(annotations), len(class_mapping), *np.load(annotations[0].path).shape)
+            (
+                len(annotations),
+                len(class_mapping),
+                *np.load(annotations[0].path).shape,
+            )
         )
         for i, ann in enumerate(annotations):
             class_ = class_mapping.get(ann.class_, 0)
@@ -469,7 +511,9 @@ class LabelAnnotation(Annotation):
 
     @staticmethod
     def combine_to_numpy(
-        annotations: List["LabelAnnotation"], class_mapping: Dict[str, int], **_
+        annotations: List["LabelAnnotation"],
+        class_mapping: Dict[str, int],
+        **_,
     ) -> np.ndarray:
         out_arr = np.zeros((len(annotations), len(class_mapping))).astype(
             type(annotations[0].value)
@@ -504,24 +548,33 @@ class DatasetRecord(BaseModelExtraForbid):
     ] = Field(None, discriminator="type_")
 
     def to_parquet_dict(self) -> ParquetDict:
-        """Converts an annotation to a dictionary for writing to a parquet file.
+        """Converts an annotation to a dictionary for writing to a
+        parquet file.
 
         @rtype: L{ParquetDict}
         @return: A dictionary of annotation data.
         """
 
-        value = self.annotation.get_value() if self.annotation is not None else {}
+        value = (
+            self.annotation.get_value() if self.annotation is not None else {}
+        )
         json_value = json.dumps(value)
         return {
             "file": self.file.name,
             "type": self.annotation.__class__.__name__,
             "created_at": datetime.utcnow(),
             "class": (
-                self.annotation.class_ or "" if self.annotation is not None else ""
+                self.annotation.class_ or ""
+                if self.annotation is not None
+                else ""
             ),
             "instance_id": (
-                self.annotation.instance_id or -1 if self.annotation is not None else -1
+                self.annotation.instance_id or -1
+                if self.annotation is not None
+                else -1
             ),
-            "task": self.annotation.task if self.annotation is not None else "",
+            "task": self.annotation.task
+            if self.annotation is not None
+            else "",
             "annotation": json_value,
         }

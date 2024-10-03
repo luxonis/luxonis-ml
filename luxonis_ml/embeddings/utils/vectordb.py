@@ -5,12 +5,14 @@ from typing import Any, Dict, List, Optional, Tuple
 class VectorDBAPI(ABC):
     """Abstract class for Vector Database APIs.
 
-    This class defines a common interface for vector database operations for different
-    implementations like Qdrant and Weaviate.
+    This class defines a common interface for vector database operations
+    for different implementations like Qdrant and Weaviate.
     """
 
     @abstractmethod
-    def create_collection(self, collection_name: str, properties: List[str]) -> None:
+    def create_collection(
+        self, collection_name: str, properties: List[str]
+    ) -> None:
         """Create a collection in the vector database."""
         pass
 
@@ -39,14 +41,19 @@ class VectorDBAPI(ABC):
 
     @abstractmethod
     def get_similarity_scores(
-        self, reference_id: str, other_ids: List[str], sort_distances: bool = True
+        self,
+        reference_id: str,
+        other_ids: List[str],
+        sort_distances: bool = True,
     ) -> Tuple[List[str], List[float]]:
-        """Get similarity scores between a reference embedding and other embeddings."""
+        """Get similarity scores between a reference embedding and other
+        embeddings."""
         pass
 
     @abstractmethod
     def compute_similarity_matrix(self) -> List[List[float]]:
-        """Compute a similarity matrix for all the embeddings in the collection."""
+        """Compute a similarity matrix for all the embeddings in the
+        collection."""
         pass
 
     @abstractmethod

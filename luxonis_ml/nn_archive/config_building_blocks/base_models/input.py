@@ -14,18 +14,22 @@ class PreprocessingBlock(BaseModelExtraForbid):
     """Represents preprocessing operations applied to the input data.
 
     @type mean: list
-    @ivar mean: Mean values in channel order. Typically, this is BGR order.
+    @ivar mean: Mean values in channel order. Typically, this is BGR
+        order.
     @type scale: list
-    @ivar scale: Standardization values in channel order. Typically, this is BGR order.
+    @ivar scale: Standardization values in channel order. Typically,
+        this is BGR order.
     @type reverse_channels: bool | None
-    @ivar reverse_channels: If True, color channels are reversed (e.g. BGR to RGB or
-        vice versa).
+    @ivar reverse_channels: If True, color channels are reversed (e.g.
+        BGR to RGB or vice versa).
     @type interleaved_to_planar: bool | None
-    @ivar interleaved_to_planar: If True, format is changed from interleaved to planar.
+    @ivar interleaved_to_planar: If True, format is changed from
+        interleaved to planar.
     """
 
     mean: Optional[List[float]] = Field(
-        None, description="Mean values in channel order. Typically, this is BGR order."
+        None,
+        description="Mean values in channel order. Typically, this is BGR order.",
     )
     scale: Optional[List[float]] = Field(
         None,
@@ -36,7 +40,8 @@ class PreprocessingBlock(BaseModelExtraForbid):
         description="If True, color channels are reversed (e.g. BGR to RGB or vice versa).",
     )
     interleaved_to_planar: Optional[bool] = Field(
-        None, description="If True, format is changed from interleaved to planar."
+        None,
+        description="If True, format is changed from interleaved to planar.",
     )
 
 
@@ -66,7 +71,9 @@ class Input(BaseModelExtraForbid):
     dtype: DataType = Field(
         description="Data type of the input data (e.g., 'float32')."
     )
-    input_type: InputType = Field(description="Type of input data (e.g., 'image').")
+    input_type: InputType = Field(
+        description="Type of input data (e.g., 'image')."
+    )
     shape: List[int] = Field(
         min_length=1,
         description="Shape of the input data as a list of integers (e.g. [H,W], [H,W,C], [N,H,W,C], ...).",

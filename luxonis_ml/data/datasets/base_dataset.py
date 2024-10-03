@@ -18,8 +18,8 @@ DatasetIterator: TypeAlias = Iterator[Union[dict, DatasetRecord]]
 class BaseDataset(
     ABC, metaclass=AutoRegisterMeta, registry=DATASETS_REGISTRY, register=False
 ):
-    """Base abstract dataset class for managing datasets in the Luxonis MLOps
-    ecosystem."""
+    """Base abstract dataset class for managing datasets in the Luxonis
+    MLOps ecosystem."""
 
     @property
     @abstractmethod
@@ -38,7 +38,8 @@ class BaseDataset(
 
     @abstractmethod
     def update_source(self, source: LuxonisSource) -> None:
-        """Updates underlying source of the dataset with a new LuxonisSource.
+        """Updates underlying source of the dataset with a new
+        LuxonisSource.
 
         @type source: L{LuxonisSource}
         @param source: The new L{LuxonisSource} to replace the old one.
@@ -46,28 +47,31 @@ class BaseDataset(
         pass
 
     @abstractmethod
-    def set_classes(self, classes: List[str], task: Optional[str] = None) -> None:
-        """Sets the names of classes for the dataset. This can be across all CV tasks or
-        certain tasks.
+    def set_classes(
+        self, classes: List[str], task: Optional[str] = None
+    ) -> None:
+        """Sets the names of classes for the dataset. This can be across
+        all CV tasks or certain tasks.
 
         @type classes: List[str]
         @param classes: List of class names to set.
         @type task: Optional[str]
-        @param task: Optionally specify the task where these classes apply.
+        @param task: Optionally specify the task where these classes
+            apply.
         """
         pass
 
     @abstractmethod
     def get_classes(self) -> Tuple[List[str], Dict[str, List[str]]]:
-        """Gets overall classes in the dataset and classes according to computer vision
-        task.
+        """Gets overall classes in the dataset and classes according to
+        computer vision task.
 
         @type sync_mode: bool
-        @param sync_mode: If C{True}, reads classes from remote storage. If C{False},
-            classes are read locally.
+        @param sync_mode: If C{True}, reads classes from remote storage.
+            If C{False}, classes are read locally.
         @rtype: Tuple[List[str], Dict]
-        @return: A combined list of classes for all tasks and a dictionary mapping tasks
-            to the classes used in each task.
+        @return: A combined list of classes for all tasks and a
+            dictionary mapping tasks to the classes used in each task.
         """
         pass
 
@@ -78,8 +82,8 @@ class BaseDataset(
         edges: Optional[List[Tuple[int, int]]] = None,
         task: Optional[str] = None,
     ) -> None:
-        """Sets the semantic structure of keypoint skeletons for the classes that use
-        keypoints.
+        """Sets the semantic structure of keypoint skeletons for the
+        classes that use keypoints.
 
         Example::
 
@@ -99,26 +103,32 @@ class BaseDataset(
         pass
 
     @abstractmethod
-    def get_skeletons(self) -> Dict[str, Tuple[List[str], List[Tuple[int, int]]]]:
-        """Returns the dictionary defining the semantic skeleton for each class using
-        keypoints.
+    def get_skeletons(
+        self,
+    ) -> Dict[str, Tuple[List[str], List[Tuple[int, int]]]]:
+        """Returns the dictionary defining the semantic skeleton for
+        each class using keypoints.
 
         @rtype: Dict[str, Tuple[List[str], List[Tuple[int, int]]]]
-        @return: For each task, a tuple containing a list of keypoint names and a list
-            of edges between the keypoints.
+        @return: For each task, a tuple containing a list of keypoint
+            names and a list of edges between the keypoints.
         """
         pass
 
     @abstractmethod
-    def add(self, generator: DatasetIterator, batch_size: int = 1_000_000) -> None:
+    def add(
+        self, generator: DatasetIterator, batch_size: int = 1_000_000
+    ) -> None:
         """Write annotations to parquet files.
 
         @type generator: L{DatasetGenerator}
-        @param generator: A Python iterator that yields either instances of
-            L{DatasetRecord} or a dictionary that can be converted to L{DatasetRecord}.
+        @param generator: A Python iterator that yields either instances
+            of L{DatasetRecord} or a dictionary that can be converted to
+            L{DatasetRecord}.
         @type batch_size: int
-        @param batch_size: The number of annotations generated before processing. This
-            can be set to a lower value to reduce memory usage.
+        @param batch_size: The number of annotations generated before
+            processing. This can be set to a lower value to reduce
+            memory usage.
         """
         pass
 
@@ -133,7 +143,9 @@ class BaseDataset(
             ]
         ] = None,
         *,
-        ratios: Optional[Union[Dict[str, float], Tuple[float, float, float]]] = None,
+        ratios: Optional[
+            Union[Dict[str, float], Tuple[float, float, float]]
+        ] = None,
         definitions: Optional[Dict[str, List[PathType]]] = None,
         replace_old_splits: bool = False,
     ) -> None:

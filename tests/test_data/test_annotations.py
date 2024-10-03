@@ -1,4 +1,7 @@
-from luxonis_ml.data.datasets.utils import add_generator_wrapper, rescale_values
+from luxonis_ml.data.datasets.utils import (
+    add_generator_wrapper,
+    rescale_values,
+)
 
 
 def test_rescale_values_keypoints():
@@ -14,7 +17,10 @@ def test_rescale_values_keypoints():
 def test_rescale_values_segmentation_polyline():
     bbox = {"x": 0.1, "y": 0.2, "w": 0.5, "h": 0.5}
     segmentation = {"polylines": [[0.2, 0.4], [0.5, 0.8]]}
-    expected = [(0.2 * 0.5 + 0.1, 0.4 * 0.5 + 0.2), (0.5 * 0.5 + 0.1, 0.8 * 0.5 + 0.2)]
+    expected = [
+        (0.2 * 0.5 + 0.1, 0.4 * 0.5 + 0.2),
+        (0.5 * 0.5 + 0.1, 0.8 * 0.5 + 0.2),
+    ]
     assert rescale_values(bbox, segmentation, "segmentation") == expected
 
 

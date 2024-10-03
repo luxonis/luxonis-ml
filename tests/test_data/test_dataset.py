@@ -67,7 +67,12 @@ SKELETONS: Final[dict] = {
 URL_PREFIX: Final[str] = "gs://luxonis-test-bucket/luxonis-ml-test-data"
 WORK_DIR: Final[str] = "tests/data/parser_datasets"
 DATASET_NAME: Final[str] = "test-dataset"
-TASKS: Final[Set[str]] = {"segmentation", "classification", "keypoints", "boundingbox"}
+TASKS: Final[Set[str]] = {
+    "segmentation",
+    "classification",
+    "keypoints",
+    "boundingbox",
+}
 DATA_DIR = Path("tests/data/test_dataset")
 
 
@@ -84,7 +89,9 @@ def make_image(i) -> Path:
     path = DATA_DIR / f"img_{i}.jpg"
     if not path.exists():
         img = np.zeros((512, 512, 3), dtype=np.uint8)
-        img[0:10, 0:10] = np.random.randint(0, 255, (10, 10, 3), dtype=np.uint8)
+        img[0:10, 0:10] = np.random.randint(
+            0, 255, (10, 10, 3), dtype=np.uint8
+        )
         cv2.imwrite(str(path), img)
     return path
 
@@ -98,11 +105,12 @@ def make_image(i) -> Path:
     ],
 )
 def test_dataset(
-    bucket_storage: BucketStorage, platform_name: str, python_version: str, subtests
+    bucket_storage: BucketStorage,
+    platform_name: str,
+    python_version: str,
+    subtests,
 ):
-    dataset_name = (
-        f"{DATASET_NAME}-{bucket_storage.value}-{platform_name}-{python_version}"
-    )
+    dataset_name = f"{DATASET_NAME}-{bucket_storage.value}-{platform_name}-{python_version}"
     with subtests.test("test_create", bucket_storage=bucket_storage):
         parser = LuxonisParser(
             f"{URL_PREFIX}/COCO_people_subset.zip",
@@ -115,7 +123,9 @@ def test_dataset(
         )
         parser.parse()
         dataset = LuxonisDataset(dataset_name, bucket_storage=bucket_storage)
-        assert LuxonisDataset.exists(dataset_name, bucket_storage=bucket_storage)
+        assert LuxonisDataset.exists(
+            dataset_name, bucket_storage=bucket_storage
+        )
         assert dataset.get_classes()[0] == ["person"]
         assert set(dataset.get_tasks()) == TASKS
         assert dataset.get_skeletons() == SKELETONS
@@ -128,7 +138,9 @@ def test_dataset(
         print(dataset.source.to_document())
         assert dataset.source.to_document() == LuxonisSource().to_document()
         dataset.update_source(LuxonisSource("test"))
-        assert dataset.source.to_document() == LuxonisSource("test").to_document()
+        assert (
+            dataset.source.to_document() == LuxonisSource("test").to_document()
+        )
 
     with subtests.test("test_load", bucket_storage=bucket_storage):
         loader = LuxonisLoader(dataset)
@@ -157,7 +169,9 @@ def test_dataset(
 
     with subtests.test("test_delete", bucket_storage=bucket_storage):
         dataset.delete_dataset(delete_remote=True)
-        assert not LuxonisDataset.exists(dataset_name, bucket_storage=bucket_storage)
+        assert not LuxonisDataset.exists(
+            dataset_name, bucket_storage=bucket_storage
+        )
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
@@ -242,18 +256,24 @@ def test_make_splits(
     assert splits is not None
     assert set(splits.keys()) == {"train", "val", "test"}
     for split, split_data in splits.items():
-        assert len(split_data) == 5, f"Split {split} has {len(split_data)} samples"
+        assert (
+            len(split_data) == 5
+        ), f"Split {split} has {len(split_data)} samples"
 
     dataset.add(generator())
     splits = dataset.get_splits()
     assert splits is not None
     for split, split_data in splits.items():
-        assert len(split_data) == 5, f"Split {split} has {len(split_data)} samples"
+        assert (
+            len(split_data) == 5
+        ), f"Split {split} has {len(split_data)} samples"
     dataset.make_splits(definitions)
     splits = dataset.get_splits()
     assert splits is not None
     for split, split_data in splits.items():
-        assert len(split_data) == 10, f"Split {split} has {len(split_data)} samples"
+        assert (
+            len(split_data) == 10
+        ), f"Split {split} has {len(split_data)} samples"
 
     dataset.add(generator())
     dataset.make_splits((1, 0, 0))
@@ -281,7 +301,9 @@ def test_make_splits(
         dataset.make_splits({"train": 1.5})
 
     with pytest.raises(ValueError):
-        dataset.make_splits({split: defs * 2 for split, defs in splits.items()})
+        dataset.make_splits(
+            {split: defs * 2 for split, defs in splits.items()}
+        )
 
     dataset.add(generator(10))
     dataset.make_splits({"custom_split": 1.0})
@@ -338,7 +360,9 @@ def test_complex_dataset():
                 for bbox_annotation in annotations.get(
                     "BoundingBox2DAnnotation", defaultdict(list)
                 )["values"]:
-                    class_ = bbox_annotation["labelName"].split("-")[-1].lower()
+                    class_ = (
+                        bbox_annotation["labelName"].split("-")[-1].lower()
+                    )
                     if class_ == "motorbiek":
                         class_ = "motorbike"
                     x, y = bbox_annotation["origin"]
@@ -399,7 +423,10 @@ def test_complex_dataset():
                 ]
                 mask = cv2.cvtColor(
                     cv2.imread(
-                        str(sequence_path / vehicle_type_segmentation["filename"])
+                        str(
+                            sequence_path
+                            / vehicle_type_segmentation["filename"]
+                        )
                     ),
                     cv2.COLOR_BGR2RGB,
                 )

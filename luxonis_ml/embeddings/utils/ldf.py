@@ -1,5 +1,5 @@
-"""Utilities for generating image embeddings and inserting them into a VectorDB
-database.
+"""Utilities for generating image embeddings and inserting them into a
+VectorDB database.
 
 This script provides functions for:
 
@@ -25,6 +25,7 @@ Important note:
 
 Ensure that a VectorDB server is running and accessible before using these utilities.
 """
+
 from typing import Any, Callable, Dict, List
 
 import numpy as np
@@ -36,8 +37,8 @@ from luxonis_ml.embeddings.utils.vectordb import VectorDBAPI
 
 
 def _get_sample_payloads_LDF(dataset: LuxonisDataset) -> List[Dict[str, Any]]:
-    """Extract payloads from the LuxonisDataset. Currently supports classification
-    datasets.
+    """Extract payloads from the LuxonisDataset. Currently supports
+    classification datasets.
 
     @type dataset: LuxonisDataset
     @param dataset: An instance of LuxonisDataset.
@@ -71,8 +72,8 @@ def _get_sample_payloads_LDF(dataset: LuxonisDataset) -> List[Dict[str, Any]]:
 def _filter_new_samples_by_id(
     vectordb_api: VectorDBAPI, all_payloads: List[Dict[str, Any]]
 ) -> List[Dict[str, Any]]:
-    """Filter out samples that are already in the Vector database based on their
-    instance ID.
+    """Filter out samples that are already in the Vector database based
+    on their instance ID.
 
     @type vectordb_api: L{VectorDBAPI}
     @param vectordb_api: Vector database API instance.
@@ -143,7 +144,8 @@ def generate_embeddings(
     emb_batch_size: int = 64,
     vectordb_batch_size: int = 64,
 ) -> Dict[str, List[float]]:
-    """Generate embeddings for a given dataset and insert them into a VectorDB.
+    """Generate embeddings for a given dataset and insert them into a
+    VectorDB.
 
     @type luxonis_dataset: L{LuxonisDataset}
     @param luxonis_dataset: The dataset object.
@@ -152,14 +154,16 @@ def generate_embeddings(
     @type vectordb_api: L{VectorDBAPI}
     @param vectordb_api: VectorDBAPI instance.
     @type output_layer_name: str
-    @param output_layer_name: Name of the output layer in the ONNX model.
+    @param output_layer_name: Name of the output layer in the ONNX
+        model.
     @type transform: Callable[[np.ndarray], np.ndarray]
-    @param transform: Preprocessing function for images. If None, default preprocessing
-        is used.
+    @param transform: Preprocessing function for images. If None,
+        default preprocessing is used.
     @type emb_batch_size: int
     @param emb_batch_size: Batch size for generating embeddings.
     @type vectordb_batch_size: int
-    @param vectordb_batch_size: Batch size for inserting into a vector DB.
+    @param vectordb_batch_size: Batch size for inserting into a vector
+        DB.
     @type: Dict[str, List[float]]
     @return: Dictionary of instance ID to embedding.
     """
@@ -180,7 +184,9 @@ def generate_embeddings(
     )
     new_payloads = [new_payloads[ix] for ix in succ_ix]
 
-    _batch_upsert(vectordb_api, new_embeddings, new_payloads, vectordb_batch_size)
+    _batch_upsert(
+        vectordb_api, new_embeddings, new_payloads, vectordb_batch_size
+    )
 
     # make a instance_id : embedding dictionary
     instance_id_to_embedding = {

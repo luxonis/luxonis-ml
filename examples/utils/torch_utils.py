@@ -11,8 +11,8 @@ import torchvision.transforms as transforms
 
 # PyTorch and ONNX model loading and exporting functions
 def load_model_resnet50(discard_last_layer: bool) -> nn.Module:
-    """Load a pre-trained ResNet-50 model with the last fully connected layer
-    removed."""
+    """Load a pre-trained ResNet-50 model with the last fully connected
+    layer removed."""
     model = models.resnet50(weights=resnet.ResNet50_Weights.IMAGENET1K_V1)
     if discard_last_layer:
         model = nn.Sequential(
@@ -83,7 +83,9 @@ def save_embeddings(
     torch.save(labels, save_path + "labels.pth")
 
 
-def load_embeddings(save_path: str = "./") -> Tuple[torch.Tensor, torch.Tensor]:
+def load_embeddings(
+    save_path: str = "./",
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """Load embeddings and labels tensors from the specified path."""
     embeddings = torch.load(save_path + "embeddings.pth")
     labels = torch.load(save_path + "labels.pth")
@@ -99,18 +101,21 @@ def generate_new_embeddings(
     emb_batch_size: int = 64,
     transform: transforms.Compose = None,
 ):
-    """Generate embeddings for new images using a given ONNX runtime session.
+    """Generate embeddings for new images using a given ONNX runtime
+    session.
 
     @type img_paths: List[str]
     @param img_paths: List of image paths for new images.
     @type ort_session: L{InferenceSession}
     @param ort_session: ONNX runtime session.
     @type output_layer_name: str
-    @param output_layer_name: Name of the output layer in the ONNX model.
+    @param output_layer_name: Name of the output layer in the ONNX
+        model.
     @type emb_batch_size: int
     @param emb_batch_size: Batch size for generating embeddings.
     @type transform: torchvision.transforms
-    @param transform: Optional torchvision transform for preprocessing images.
+    @param transform: Optional torchvision transform for preprocessing
+        images.
     @rtype: List[List[float]]
     @return: List of embeddings for the new images.
     """
@@ -141,7 +146,9 @@ def generate_new_embeddings(
         batch_tensor = torch.stack(batch_tensors).cuda()
 
         # Run the ONNX model on the batch
-        ort_inputs = {ort_session.get_inputs()[0].name: batch_tensor.cpu().numpy()}
+        ort_inputs = {
+            ort_session.get_inputs()[0].name: batch_tensor.cpu().numpy()
+        }
         ort_outputs = ort_session.run([output_layer_name], ort_inputs)
 
         # Append the embeddings from the batch to the new_embeddings list

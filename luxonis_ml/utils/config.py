@@ -16,7 +16,9 @@ class LuxonisConfig(BaseModelExtraForbid):
     def get_config(
         cls: Type[T],
         cfg: Optional[Union[str, Dict[str, Any]]] = None,
-        overrides: Optional[Union[Dict[str, Any], List[str], Tuple[str, ...]]] = None,
+        overrides: Optional[
+            Union[Dict[str, Any], List[str], Tuple[str, ...]]
+        ] = None,
     ) -> T:
         """Loads config from a yaml file or a dictionary.
 
@@ -30,7 +32,9 @@ class LuxonisConfig(BaseModelExtraForbid):
         @raise ValueError: If neither C{cfg} nor C{overrides} are provided.
         """
         if cfg is None and overrides is None:
-            raise ValueError("At least one of `cfg` or `overrides` must be set.")
+            raise ValueError(
+                "At least one of `cfg` or `overrides` must be set."
+            )
 
         if isinstance(overrides, (list, tuple)):
             if len(overrides) % 2 != 0:
@@ -83,9 +87,11 @@ class LuxonisConfig(BaseModelExtraForbid):
         If the key doesn't exist, the default value is returned.
 
         @type key_merged: str
-        @param key_merged: Key in a form of a string with levels separated by dots.
+        @param key_merged: Key in a form of a string with levels
+            separated by dots.
         @type default: Any
-        @param default: Default value to return if the key doesn't exist.
+        @param default: Default value to return if the key doesn't
+            exist.
         @rtype: Any
         @return: Value of the key or default value.
         """
@@ -93,7 +99,9 @@ class LuxonisConfig(BaseModelExtraForbid):
         for key in key_merged.split("."):
             if isinstance(value, list):
                 if not key.isdecimal():
-                    raise ValueError(f"Can't access list with non-int key `{key}`.")
+                    raise ValueError(
+                        f"Can't access list with non-int key `{key}`."
+                    )
                 index = int(key)
                 if index >= len(value):
                     return default
@@ -109,11 +117,13 @@ class LuxonisConfig(BaseModelExtraForbid):
         return value
 
     @staticmethod
-    def _merge_overrides(data: Dict[str, Any], overrides: Dict[str, Any]) -> None:
+    def _merge_overrides(
+        data: Dict[str, Any], overrides: Dict[str, Any]
+    ) -> None:
         """Merges the config dictionary with the CLI overrides.
 
-        The overrides are a dictionary mapping "dotted" keys to either final or unparsed
-        values.
+        The overrides are a dictionary mapping "dotted" keys to either
+        final or unparsed values.
 
         @type data: dict
         @param data: Dictionary with config data.
@@ -132,20 +142,26 @@ class LuxonisConfig(BaseModelExtraForbid):
                 # keep as string and hope for the best
                 return value
 
-        def _merge_recursive(data: Union[Dict, List], dot_name: str, value: Any):
+        def _merge_recursive(
+            data: Union[Dict, List], dot_name: str, value: Any
+        ):
             key, *tail = dot_name.split(".")
             if not tail:
                 parsed_value = _parse_value(value)
                 if key.isdecimal():
                     index = int(key)
                     if not isinstance(data, list):
-                        raise ValueError("int keys are not allowed for non-list values")
+                        raise ValueError(
+                            "int keys are not allowed for non-list values"
+                        )
                     if index >= len(data):
                         data.append(parsed_value)
                     else:
                         data[index] = parsed_value
                 elif isinstance(data, list):
-                    raise ValueError("Only int keys are allowed for list values")
+                    raise ValueError(
+                        "Only int keys are allowed for list values"
+                    )
                 else:
                     data[key] = parsed_value
 
@@ -156,7 +172,9 @@ class LuxonisConfig(BaseModelExtraForbid):
             if key.isdecimal():
                 index = int(key)
                 if not isinstance(data, list):
-                    raise ValueError("int keys are not allowed for non-list values")
+                    raise ValueError(
+                        "int keys are not allowed for non-list values"
+                    )
                 if index >= len(data):
                     index = len(data)
                     if data:

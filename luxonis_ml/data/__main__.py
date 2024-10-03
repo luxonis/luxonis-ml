@@ -59,7 +59,9 @@ def get_dataset_info(name: str) -> Tuple[int, List[str], List[str]]:
 def print_info(name: str) -> None:
     dataset = LuxonisDataset(name)
     _, classes = dataset.get_classes()
-    table = Table(title="Classes", box=rich.box.ROUNDED, row_styles=["yellow", "cyan"])
+    table = Table(
+        title="Classes", box=rich.box.ROUNDED, row_styles=["yellow", "cyan"]
+    )
     table.add_column("Task", header_style="magenta i", max_width=30)
     table.add_column("Class Names", header_style="magenta i", max_width=50)
     for task, c in classes.items():
