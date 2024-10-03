@@ -1,6 +1,5 @@
 [project]
 name = "luxonis-ml"
-version = "0.3.0"
 description = "MLOps tools for training models for Luxonis devices"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -8,7 +7,7 @@ license = { file = "LICENSE" }
 authors = [{ name = "Luxonis", email = "support@luxonis.com" }]
 maintainers = [{ name = "Luxonis", email = "support@luxonis.com" }]
 keywords = ["ml", "ops", "camera", "luxonis", "oak"]
-dynamic = ["dependencies", "optional-dependencies"]
+dynamic = ["dependencies", "optional-dependencies", "version"]
 classifiers = [
   "License :: OSI Approved :: Apache Software License",
   "Development Status :: 3 - Beta",
@@ -36,6 +35,7 @@ where = ["."]
 
 [tool.setuptools.dynamic]
 dependencies = { file = ["luxonis_ml/utils/requirements.txt"] }
+version = {attr = "luxonis_ml.__version__"}
 
 [tool.setuptools.dynamic.optional-dependencies]
 data = { file = ["luxonis_ml/data/requirements.txt"] }

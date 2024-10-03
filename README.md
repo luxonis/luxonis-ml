@@ -41,7 +41,7 @@ We offer several versions of the package:
 - `luxonis-ml[all]`: installs all dependencies
 - `luxonis-ml[dev]`: installs all dependencies, including development dependencies
 
-To install the package with all dependecies, run:
+To install the package with all dependencies, run:
 
 ```bash
 pip install luxonis-ml[all]
