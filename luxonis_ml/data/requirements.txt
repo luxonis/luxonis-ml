@@ -10,5 +10,5 @@ pandas>=2.0.0
 pyarrow>=13.0.0
 pycocotools>=2.0.7
 typeguard>=4.1.0
-polars>=0.20.31
+polars[timezone]>=0.20.31
 ordered-set>=4.0.0
