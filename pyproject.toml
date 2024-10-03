@@ -35,7 +35,7 @@ where = ["."]
 
 [tool.setuptools.dynamic]
 dependencies = { file = ["luxonis_ml/utils/requirements.txt"] }
-version = {attr = "luxonis_train.__version__"}
+version = {attr = "luxonis_ml.__version__"}
 
 [tool.setuptools.dynamic.optional-dependencies]
 data = { file = ["luxonis_ml/data/requirements.txt"] }
