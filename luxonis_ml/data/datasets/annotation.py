@@ -145,12 +145,17 @@ class BBoxAnnotation(Annotation):
     def validate_values(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         warn = False
         for key in ["x", "y", "w", "h"]:
+            if values[key] < -2 or values[key] > 2:
+                raise ValueError(
+                    "BBox annotation has value outside of automatic clipping range ([-2, 2]). "
+                    "Values should be normalized based on image size to range [0, 1]."
+                )
             if not (0 <= values[key] <= 1):
                 warn = True
                 values[key] = max(0, min(1, values[key]))
         if warn:
             logger.warning(
-                "BBox annotation has values outside of [0,1] range. Clipping them to [0,1]."
+                "BBox annotation has values outside of [0, 1] range. Clipping them to [0, 1]."
             )
         return values
 
@@ -192,6 +197,13 @@ class KeypointAnnotation(Annotation):
     def validate_values(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         warn = False
         for i, keypoint in enumerate(values["keypoints"]):
+            if (keypoint[0] < -2 or keypoint[0] > 2) or (
+                keypoint[1] < -2 or keypoint[1] > 2
+            ):
+                raise ValueError(
+                    "Keypoint annotation has value outside of automatic clipping range ([-2, 2]). "
+                    "Values should be normalized based on image size to range [0, 1]."
+                )
             new_keypoint = list(keypoint)
             if not (0 <= keypoint[0] <= 1):
                 new_keypoint[0] = max(0, min(1, keypoint[0]))
@@ -203,7 +215,7 @@ class KeypointAnnotation(Annotation):
 
         if warn:
             logger.warning(
-                "Keypoint annotation has values outside of [0,1] range. Clipping them to [0,1]."
+                "Keypoint annotation has values outside of [0, 1] range. Clipping them to [0, 1]."
             )
         return values
 
@@ -382,6 +394,11 @@ class PolylineSegmentationAnnotation(SegmentationAnnotation):
     def validate_values(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         warn = False
         for i, point in enumerate(values["points"]):
+            if (point[0] < -2 or point[0] > 2) or (point[1] < -2 or point[1] > 2):
+                raise ValueError(
+                    "Polyline annotation has value outside of automatic clipping range ([-2, 2]). "
+                    "Values should be normalized based on image size to range [0, 1]."
+                )
             new_point = list(point)
             if not (0 <= point[0] <= 1):
                 new_point[0] = max(0, min(1, point[0]))
@@ -393,7 +410,7 @@ class PolylineSegmentationAnnotation(SegmentationAnnotation):
 
         if warn:
             logger.warning(
-                "Polyline annotation has values outside of [0,1] range. Clipping them to [0,1]."
+                "Polyline annotation has values outside of [0, 1] range. Clipping them to [0, 1]."
             )
         return values
 
