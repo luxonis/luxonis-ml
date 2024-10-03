@@ -1,4 +1,5 @@
 import json
+import logging
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple, TypedDict, Union
@@ -19,6 +20,8 @@ from typing_extensions import Annotated, TypeAlias
 from luxonis_ml.utils import BaseModelExtraForbid
 
 from ..utils.enums import LabelType
+
+logger = logging.getLogger(__name__)
 
 KeypointVisibility: TypeAlias = Literal[0, 1, 2]
 NormalizedFloat: TypeAlias = Annotated[float, Field(ge=0, le=1)]
@@ -137,6 +140,25 @@ class BBoxAnnotation(Annotation):
 
     _label_type = LabelType.BOUNDINGBOX
 
+    @model_validator(mode="before")
+    @classmethod
+    def validate_values(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        warn = False
+        for key in ["x", "y", "w", "h"]:
+            if values[key] < -2 or values[key] > 2:
+                raise ValueError(
+                    "BBox annotation has value outside of automatic clipping range ([-2, 2]). "
+                    "Values should be normalized based on image size to range [0, 1]."
+                )
+            if not (0 <= values[key] <= 1):
+                warn = True
+                values[key] = max(0, min(1, values[key]))
+        if warn:
+            logger.warning(
+                "BBox annotation has values outside of [0, 1] range. Clipping them to [0, 1]."
+            )
+        return values
+
     def to_numpy(self, class_mapping: Dict[str, int]) -> np.ndarray:
         class_ = class_mapping.get(self.class_, 0)
         return np.array([class_, self.x, self.y, self.w, self.h])
@@ -169,6 +191,33 @@ class KeypointAnnotation(Annotation):
     keypoints: List[Tuple[NormalizedFloat, NormalizedFloat, KeypointVisibility]]
 
     _label_type = LabelType.KEYPOINTS
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_values(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        warn = False
+        for i, keypoint in enumerate(values["keypoints"]):
+            if (keypoint[0] < -2 or keypoint[0] > 2) or (
+                keypoint[1] < -2 or keypoint[1] > 2
+            ):
+                raise ValueError(
+                    "Keypoint annotation has value outside of automatic clipping range ([-2, 2]). "
+                    "Values should be normalized based on image size to range [0, 1]."
+                )
+            new_keypoint = list(keypoint)
+            if not (0 <= keypoint[0] <= 1):
+                new_keypoint[0] = max(0, min(1, keypoint[0]))
+                warn = True
+            if not (0 <= keypoint[1] <= 1):
+                new_keypoint[1] = max(0, min(1, keypoint[1]))
+                warn = True
+            values["keypoints"][i] = tuple(new_keypoint)
+
+        if warn:
+            logger.warning(
+                "Keypoint annotation has values outside of [0, 1] range. Clipping them to [0, 1]."
+            )
+        return values
 
     def to_numpy(self, class_mapping: Dict[str, int]) -> np.ndarray:
         class_ = class_mapping.get(self.class_, 0)
@@ -339,6 +388,31 @@ class PolylineSegmentationAnnotation(SegmentationAnnotation):
     type_: Literal["polyline"] = Field("polyline", alias="type")
 
     points: List[Tuple[NormalizedFloat, NormalizedFloat]] = Field(min_length=3)
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_values(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        warn = False
+        for i, point in enumerate(values["points"]):
+            if (point[0] < -2 or point[0] > 2) or (point[1] < -2 or point[1] > 2):
+                raise ValueError(
+                    "Polyline annotation has value outside of automatic clipping range ([-2, 2]). "
+                    "Values should be normalized based on image size to range [0, 1]."
+                )
+            new_point = list(point)
+            if not (0 <= point[0] <= 1):
+                new_point[0] = max(0, min(1, point[0]))
+                warn = True
+            if not (0 <= point[1] <= 1):
+                new_point[1] = max(0, min(1, point[1]))
+                warn = True
+            values["points"][i] = tuple(new_point)
+
+        if warn:
+            logger.warning(
+                "Polyline annotation has values outside of [0, 1] range. Clipping them to [0, 1]."
+            )
+        return values
 
     def to_numpy(self, _: Dict[str, int], width: int, height: int) -> np.ndarray:
         polyline = [(round(x * width), round(y * height)) for x, y in self.points]
