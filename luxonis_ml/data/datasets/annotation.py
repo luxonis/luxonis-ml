@@ -137,11 +137,11 @@ class BBoxAnnotation(Annotation):
     Values are normalized based on the image size.
 
     @type x: float
-    @ivar x: The center x-coordinate of the bounding box. Normalized to
-        [0, 1].
+    @ivar x: The top-left x coordinate of the bounding box. Normalized
+        to [0, 1].
     @type y: float
-    @ivar y: The center y-coordinate of the bounding box. Normalized to
-        [0, 1].
+    @ivar y: The top-left y coordinate of the bounding box. Normalized
+        to [0, 1].
     @type w: float
     @ivar w: The width of the bounding box. Normalized to [0, 1].
     @type h: float
