@@ -1,7 +1,7 @@
 import json
 import logging
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import (
     Any,
     ClassVar,
@@ -562,7 +562,7 @@ class DatasetRecord(BaseModelExtraForbid):
         return {
             "file": self.file.name,
             "type": self.annotation.__class__.__name__,
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
             "class": (
                 self.annotation.class_ or ""
                 if self.annotation is not None
