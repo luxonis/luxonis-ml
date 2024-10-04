@@ -384,32 +384,39 @@ def mosaic4(
         dtype=dtype,
     )
 
-    xc = width // 2
-    yc = height // 2
-
     for i, img in enumerate(image_batch):
         (h, w) = img.shape[:2]
 
         if i == 0:  # top left
-            x1a, y1a, x2a, y2a = max(xc - w, 0), max(yc - h, 0), xc, yc
+            x1a, y1a, x2a, y2a = (
+                max(width - w, 0),
+                max(height - h, 0),
+                width,
+                height,
+            )
             x1b, y1b, x2b, y2b = w - (x2a - x1a), h - (y2a - y1a), w, h
         elif i == 1:  # top right
-            x1a, y1a, x2a, y2a = xc, max(yc - h, 0), min(xc + w, width * 2), yc
+            x1a, y1a, x2a, y2a = (
+                width,
+                max(height - h, 0),
+                min(width + w, width * 2),
+                height,
+            )
             x1b, y1b, x2b, y2b = 0, h - (y2a - y1a), min(w, x2a - x1a), h
         elif i == 2:  # bottom left
             x1a, y1a, x2a, y2a = (
-                max(xc - w, 0),
-                yc,
-                xc,
-                min(height * 2, yc + h),
+                max(width - w, 0),
+                height,
+                width,
+                min(height * 2, height + h),
             )
             x1b, y1b, x2b, y2b = w - (x2a - x1a), 0, w, min(y2a - y1a, h)
         elif i == 3:  # bottom right
             x1a, y1a, x2a, y2a = (
-                xc,
-                yc,
-                min(xc + w, width * 2),
-                min(height * 2, yc + h),
+                width,
+                height,
+                min(width + w, width * 2),
+                min(height * 2, height + h),
             )
             x1b, y1b, x2b, y2b = 0, 0, min(w, x2a - x1a), min(y2a - y1a, h)
 
@@ -461,30 +468,28 @@ def bbox_mosaic4(
     @type height: int
     @param width: Width of the final output mosaic image.
     @type width: int
-    @param xc: x-coordinate of the center of the mosaic image.
-    @type xc: int
-    @param yc: y-coordinate of the center of the mosaic image.
-    @type yc: int
+    @param x_crop: x-coordinate of the croping start point
+    @type x_crop: int
+    @param y_crop: y-coordinate of the croping start point
+    @type y_crop: int
     @return: Transformed bounding box coordinates.
     @rtype: BoxInternalType
     """
 
     bbox = denormalize_bbox(bbox, rows, cols)
-    xc = width // 2
-    yc = height // 2
 
     if position_index == 0:
-        shift_x = xc - cols
-        shift_y = yc - rows
+        shift_x = width - cols
+        shift_y = height - rows
     elif position_index == 1:
-        shift_x = xc
-        shift_y = yc - rows
+        shift_x = width
+        shift_y = height - rows
     elif position_index == 2:
-        shift_x = xc - cols
-        shift_y = yc
+        shift_x = width - cols
+        shift_y = height
     elif position_index == 3:
-        shift_x = xc
-        shift_y = yc
+        shift_x = width
+        shift_y = height
 
     bbox = (
         bbox[0] + shift_x - x_crop,
@@ -536,20 +541,18 @@ def keypoint_mosaic4(
     @rtype: KeypointInternalType
     """
     x, y, angle, scale = keypoint
-    xc = width // 2
-    yc = height // 2
 
     if position_index == 0:
-        shift_x = xc - cols
-        shift_y = yc - rows
+        shift_x = width - cols
+        shift_y = height - rows
     elif position_index == 1:
-        shift_x = xc
-        shift_y = yc - rows
+        shift_x = width
+        shift_y = height - rows
     elif position_index == 2:
-        shift_x = xc - cols
-        shift_y = yc
+        shift_x = width - cols
+        shift_y = height
     elif position_index == 3:
-        shift_x = xc
-        shift_y = yc
+        shift_x = width
+        shift_y = height
 
     return x + shift_x - x_crop, y + shift_y - y_crop, angle, scale
