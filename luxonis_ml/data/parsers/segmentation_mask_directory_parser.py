@@ -104,7 +104,7 @@ class SegmentationMaskDirectoryParser(BaseParser):
         def generator() -> DatasetIterator:
             for mask_path in seg_dir.glob("*_mask.*"):
                 image_path = next(image_dir.glob(f"{mask_path.stem[:-5]}.*"))
-                file = str(image_path.absolute())
+                file = str(image_path.absolute().resolve())
                 mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
 
                 ids = np.unique(mask)

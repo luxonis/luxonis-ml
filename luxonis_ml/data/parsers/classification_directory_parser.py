@@ -77,7 +77,7 @@ class ClassificationDirectoryParser(BaseParser):
             for class_name in class_names:
                 for img_path in (class_dir / class_name).iterdir():
                     yield {
-                        "file": str(img_path.absolute()),
+                        "file": str(img_path.absolute().resolve()),
                         "annotation": {
                             "type": "classification",
                             "class": class_name,

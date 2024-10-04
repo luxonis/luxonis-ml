@@ -438,7 +438,7 @@ class LuxonisDataset(BaseDataset):
                 uuid_dict[str(ann.path)] = uuid
                 ann.path = Path(uuid).with_suffix(ann.path.suffix)
             else:
-                ann.path = ann.path.absolute()
+                ann.path = ann.path.absolute().resolve()
         self.progress.stop()
         self.progress.remove_task(task)
         if self.is_remote:
@@ -496,7 +496,7 @@ class LuxonisDataset(BaseDataset):
                     new_index["uuid"].append(uuid)
                     new_index["file"].append(file)
                     new_index["original_filepath"].append(
-                        str(filepath.absolute())
+                        str(filepath.absolute().resolve())
                     )
                     processed_uuids.add(uuid)
 
