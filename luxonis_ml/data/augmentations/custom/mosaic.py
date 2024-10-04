@@ -371,10 +371,16 @@ def mosaic4(
                 "All images should have the same number of channels."
             )
 
+    if len(image_batch[0].shape) == 2:
+        out_shape = [height * 2, width * 2]
+    else:
+        out_shape = [height * 2, width * 2, image_batch[0].shape[2]]
+
     dtype = image_batch[0].dtype
+
     img4 = np.full(
-        (height * 2, width * 2, image_batch[0].shape[2]),
-        value if value is not None else 114,
+        out_shape,
+        value if value is not None else 0,
         dtype=dtype,
     )
 
