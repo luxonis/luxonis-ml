@@ -86,7 +86,9 @@ class VOCParser(BaseParser):
             annotation_data = ET.parse(anno_xml)
             root = annotation_data.getroot()
 
-            path = image_dir.absolute() / self._xml_find(root, "filename")
+            path = image_dir.absolute().resolve() / self._xml_find(
+                root, "filename"
+            )
             if not path.exists():
                 continue
 

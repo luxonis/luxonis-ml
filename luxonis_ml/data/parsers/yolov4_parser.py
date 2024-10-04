@@ -98,7 +98,7 @@ class YoloV4Parser(BaseParser):
                 data = ann_line.split(" ")
                 img_path = data[0]
 
-                path = image_dir.absolute() / img_path
+                path = image_dir.absolute().resolve() / img_path
                 if not path.exists():
                     continue
 

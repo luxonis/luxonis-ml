@@ -199,14 +199,30 @@ class LuxonisDataset(BaseDataset):
             dfs = [pl.read_parquet(file) for file in path.glob("*.parquet")]
             return pl.concat(dfs) if dfs else None
 
-    def _get_file_index(self) -> Optional[pl.DataFrame]:
+    @overload
+    def _get_file_index(
+        self, lazy: Literal[False] = ...
+    ) -> Optional[pl.DataFrame]: ...
+
+    @overload
+    def _get_file_index(
+        self, lazy: Literal[True] = ...
+    ) -> Optional[pl.LazyFrame]: ...
+
+    def _get_file_index(
+        self, lazy: bool = False
+    ) -> Optional[Union[pl.DataFrame, pl.LazyFrame]]:
         path = get_file(
             self.fs, "metadata/file_index.parquet", self.media_path
         )
         if path is not None and path.exists():
-            return pl.read_parquet(path).select(
-                pl.all().exclude("^__index_level_.*$")
-            )
+            if not lazy:
+                df = pl.read_parquet(path)
+            else:
+                df = pl.scan_parquet(path)
+
+            return df.select(pl.all().exclude("^__index_level_.*$"))
+
         return None
 
     def _write_index(
@@ -438,7 +454,7 @@ class LuxonisDataset(BaseDataset):
                 uuid_dict[str(ann.path)] = uuid
                 ann.path = Path(uuid).with_suffix(ann.path.suffix)
             else:
-                ann.path = ann.path.absolute()
+                ann.path = ann.path.absolute().resolve()
         self.progress.stop()
         self.progress.remove_task(task)
         if self.is_remote:
@@ -496,7 +512,7 @@ class LuxonisDataset(BaseDataset):
                     new_index["uuid"].append(uuid)
                     new_index["file"].append(file)
                     new_index["original_filepath"].append(
-                        str(filepath.absolute())
+                        str(filepath.absolute().resolve())
                     )
                     processed_uuids.add(uuid)
 
@@ -514,7 +530,9 @@ class LuxonisDataset(BaseDataset):
 
         batch_data: list[DatasetRecord] = []
 
-        classes_per_task: Dict[str, OrderedSet[str]] = defaultdict(OrderedSet)
+        classes_per_task: Dict[str, OrderedSet[str]] = defaultdict(
+            lambda: OrderedSet([])
+        )
         num_kpts_per_task: Dict[str, int] = {}
 
         annotations_path = get_dir(
@@ -584,36 +602,55 @@ class LuxonisDataset(BaseDataset):
 
     def _warn_on_duplicates(self) -> None:
         df = self._load_df_offline(lazy=True)
-        if df is None:
+        index_df = self._get_file_index(lazy=True)
+        if df is None or index_df is None:
             return
+        df = df.join(index_df, on="uuid").drop("file_right")
         # Warn on duplicate UUIDs
         duplicates_paired = (
             df.group_by("uuid")
             .agg(pl.col("file").n_unique().alias("file_count"))
             .filter(pl.col("file_count") > 1)
             .join(df, on="uuid")
-            .select(["uuid", "file"])
+            .select("uuid", "file")
             .unique()
             .group_by("uuid")
-            .agg([pl.col("file").alias("files")])
+            .agg(pl.col("file").alias("files"))
             .filter(pl.col("files").len() > 1)
+            .collect()
         )
-        duplicates_paired_df = duplicates_paired.collect()
-        for uuid, files in duplicates_paired_df.iter_rows():
+        for uuid, files in duplicates_paired.iter_rows():
             self.logger.warning(
                 f"UUID: {uuid} has multiple file names: {files}"
             )
 
         # Warn on duplicate annotations
         duplicate_annotation = (
-            df.group_by(["file", "annotation"])
+            df.group_by(
+                "original_filepath",
+                "task",
+                "type",
+                "annotation",
+                "instance_id",
+            )
             .agg(pl.len().alias("count"))
             .filter(pl.col("count") > 1)
-        )
-        duplicate_annotation_df = duplicate_annotation.collect()
-        for file_name, annotation, _ in duplicate_annotation_df.iter_rows():
+            .filter(pl.col("annotation") != "{}")
+            .drop("instance_id")
+        ).collect()
+
+        for (
+            file_name,
+            task,
+            type_,
+            annotation,
+            count,
+        ) in duplicate_annotation.iter_rows():
+            if "RLE" in type_ or "Mask" in type_:
+                annotation = "<binary mask>"
             self.logger.warning(
-                f"File '{file_name}' has the same annotation '{annotation}' added multiple times."
+                f"File '{file_name}' has the same '{type_}' annotation "
+                f"'{annotation}' ({task=}) added {count} times."
             )
 
     def get_splits(self) -> Optional[Dict[str, List[str]]]:

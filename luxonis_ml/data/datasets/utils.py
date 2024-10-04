@@ -86,7 +86,7 @@ def find_filepath_uuid(
     if index is None:
         return None
 
-    abs_path = str(Path(filepath).absolute())
+    abs_path = str(Path(filepath).absolute().resolve())
     matched = index.filter(pl.col("original_filepath") == abs_path)
 
     if len(matched):

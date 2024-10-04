@@ -92,7 +92,7 @@ class CreateMLParser(BaseParser):
         class_names = set()
         images_annotations = []
         for annotations in annotations_data:
-            path = image_dir.absolute() / annotations["image"]
+            path = image_dir.absolute().resolve() / annotations["image"]
             if not path.exists():
                 continue
             file = str(path)

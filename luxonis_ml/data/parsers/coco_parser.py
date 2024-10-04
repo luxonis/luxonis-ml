@@ -226,7 +226,7 @@ class COCOParser(BaseParser):
                 ann_dict[img_id].append(ann)
 
             for img_id, img in img_dict.items():
-                path = image_dir.absolute() / img["file_name"]
+                path = image_dir.absolute().resolve() / img["file_name"]
                 if not path.exists():
                     continue
                 path = str(path)

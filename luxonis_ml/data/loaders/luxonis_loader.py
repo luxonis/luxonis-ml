@@ -84,7 +84,7 @@ class LuxonisLoader(BaseLoader):
         for view in self.view:
             self.instances.extend(splits[view])
 
-        self.idx_to_df_row = []
+        self.idx_to_df_row: list[list[int]] = []
         for uuid in self.instances:
             boolean_mask = df["uuid"] == uuid
             row_indexes = boolean_mask.arg_true().to_list()
@@ -139,7 +139,9 @@ class LuxonisLoader(BaseLoader):
             else:
                 picked_indices = set()
                 max_val = len(self)
-                while len(picked_indices) < self.augmentations.aug_batch_size - 1:
+                while (
+                    len(picked_indices) < self.augmentations.aug_batch_size - 1
+                ):
                     rand_idx = random.randint(0, max_val - 1)
                     if rand_idx != idx and rand_idx not in picked_indices:
                         picked_indices.add(rand_idx)
