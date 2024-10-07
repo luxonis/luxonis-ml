@@ -257,6 +257,12 @@ class LuxonisParser(Generic[T]):
     def _download_roboflow_dataset(
         self, dataset_dir: str, local_path: Optional[Path]
     ) -> Tuple[Path, str]:
+        if environ.ROBOFLOW_API_KEY is None:
+            raise RuntimeError(
+                "ROBOFLOW_API_KEY environment variable is not set. "
+                "Please set it to your Roboflow API key."
+            )
+
         rf = Roboflow(api_key=environ.ROBOFLOW_API_KEY)
         parts = dataset_dir.split("roboflow://")[1].split("/")
         if len(parts) != 4:
