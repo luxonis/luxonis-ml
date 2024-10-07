@@ -106,12 +106,12 @@ class LuxonisParser(Generic[T]):
             names.
         """
         save_dir = Path(save_dir) if save_dir else None
-        name = dataset_dir.split("/")[-1]
         if dataset_dir.startswith("roboflow://"):
-            self.dataset_dir = self._download_roboflow_dataset(
+            self.dataset_dir, name = self._download_roboflow_dataset(
                 dataset_dir, save_dir
             )
         else:
+            name = dataset_dir.split("/")[-1]
             local_path = (save_dir or Path.cwd()) / name
             self.dataset_dir = LuxonisFileSystem.download(
                 dataset_dir, local_path
@@ -256,7 +256,7 @@ class LuxonisParser(Generic[T]):
 
     def _download_roboflow_dataset(
         self, dataset_dir: str, local_path: Optional[Path]
-    ) -> Path:
+    ) -> Tuple[Path, str]:
         rf = Roboflow(api_key=environ.ROBOFLOW_API_KEY)
         parts = dataset_dir.split("roboflow://")[1].split("/")
         if len(parts) != 4:
@@ -281,5 +281,4 @@ class LuxonisParser(Generic[T]):
             .version(int(version))
             .download(format, str(local_path))
         )
-        print(dataset.location)
-        return Path(dataset.location)
+        return Path(dataset.location), project
