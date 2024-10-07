@@ -285,6 +285,6 @@ class LuxonisParser(Generic[T]):
             rf.workspace(workspace)
             .project(project)
             .version(int(version))
-            .download(format, str(local_path))
+            .download(format, str(local_path / project))
         )
         return Path(dataset.location), project
