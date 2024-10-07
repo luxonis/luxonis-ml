@@ -13,10 +13,12 @@ from typing import (
     overload,
 )
 
+from roboflow import Roboflow
+
 from luxonis_ml.data import DATASETS_REGISTRY, BaseDataset, LuxonisDataset
 from luxonis_ml.data.utils.enums import LabelType
 from luxonis_ml.enums import DatasetType
-from luxonis_ml.utils import LuxonisFileSystem
+from luxonis_ml.utils import LuxonisFileSystem, environ
 
 from .base_parser import BaseParser
 from .classification_directory_parser import ClassificationDirectoryParser
@@ -72,8 +74,15 @@ class LuxonisParser(Generic[T]):
         appropriate parser.
 
         @type dataset_dir: str
-        @param dataset_dir: Path to the dataset directory or zip file.
-            Can also be a remote URL supported by L{LuxonisFileSystem}.
+        @param dataset_dir: Identifier of the dataset directory.
+            Can be one of:
+                - Local path to the dataset directory.
+                - Remote URL supported by L{LuxonisFileSystem}.
+                  - C{gcs://} for Google Cloud Storage
+                  - C{s3://} for Amazon S3
+                - C{roboflow://} for Roboflow datasets.
+                  - Expected format: C{roboflow://workspace/project/version/format}.
+            Can be a remote URL supported by L{LuxonisFileSystem}.
         @type dataset_name: Optional[str]
         @param dataset_name: Name of the dataset. If C{None}, the name
             is derived from the name of the dataset directory.
@@ -97,9 +106,16 @@ class LuxonisParser(Generic[T]):
             names.
         """
         save_dir = Path(save_dir) if save_dir else None
-        name = Path(dataset_dir).name
-        local_path = (save_dir or Path.cwd()) / name
-        self.dataset_dir = LuxonisFileSystem.download(dataset_dir, local_path)
+        name = dataset_dir.split("/")[-1]
+        if dataset_dir.startswith("roboflow://"):
+            self.dataset_dir = self._download_roboflow_dataset(
+                dataset_dir, save_dir
+            )
+        else:
+            local_path = (save_dir or Path.cwd()) / name
+            self.dataset_dir = LuxonisFileSystem.download(
+                dataset_dir, local_path
+            )
         if self.dataset_dir.suffix == ".zip":
             with zipfile.ZipFile(self.dataset_dir, "r") as zip_ref:
                 unzip_dir = self.dataset_dir.parent / self.dataset_dir.stem
@@ -237,3 +253,33 @@ class LuxonisParser(Generic[T]):
         return self.parser.parse_split(
             split, random_split, split_ratios, **parsed_kwargs, **kwargs
         )
+
+    def _download_roboflow_dataset(
+        self, dataset_dir: str, local_path: Optional[Path]
+    ) -> Path:
+        rf = Roboflow(api_key=environ.ROBOFLOW_API_KEY)
+        parts = dataset_dir.split("roboflow://")[1].split("/")
+        if len(parts) != 4:
+            raise ValueError(
+                f"Incorrect Roboflow dataset URL: `{dataset_dir}`. "
+                "Expected format: `roboflow://workspace/project/version/format`."
+            )
+        workspace, project, version, format = dataset_dir.split("roboflow://")[
+            1
+        ].split("/")
+        try:
+            version = int(version)
+        except ValueError as e:
+            raise ValueError(
+                f"Roboflow version must be an integer, got `{version}`."
+            ) from e
+
+        local_path = local_path or Path.cwd() / f"{project}_{format}"
+        dataset = (
+            rf.workspace(workspace)
+            .project(project)
+            .version(int(version))
+            .download(format, str(local_path))
+        )
+        print(dataset.location)
+        return Path(dataset.location)
