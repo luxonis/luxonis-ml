@@ -41,6 +41,9 @@ jobs:
       with:
         ref: ${{ github.head_ref }}
 
+    - name: Install pre-commit
+      run: python3 -m pip install 'pre-commit<4.0.0'
+
     - name: Run pre-commit
       uses: pre-commit/action@v3.0.1
 

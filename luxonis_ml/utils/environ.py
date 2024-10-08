@@ -34,6 +34,8 @@ class Environ(BaseSettings):
     LUXONISML_BASE_PATH: Path = Path.home() / "luxonis_ml"
     LUXONISML_TEAM_ID: str = "offline"
 
+    ROBOFLOW_API_KEY: Optional[str] = None
+
     GOOGLE_APPLICATION_CREDENTIALS: Optional[str] = None
 
     LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = (
