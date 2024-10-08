@@ -1,6 +1,7 @@
 import logging
 import zipfile
 from enum import Enum
+from importlib.util import find_spec
 from pathlib import Path
 from typing import (
     Dict,
@@ -13,12 +14,11 @@ from typing import (
     overload,
 )
 
-from roboflow import Roboflow
-
 from luxonis_ml.data import DATASETS_REGISTRY, BaseDataset, LuxonisDataset
 from luxonis_ml.data.utils.enums import LabelType
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.utils import LuxonisFileSystem, environ
+from luxonis_ml.utils.filesystem import _pip_install
 
 from .base_parser import BaseParser
 from .classification_directory_parser import ClassificationDirectoryParser
@@ -257,6 +257,11 @@ class LuxonisParser(Generic[T]):
     def _download_roboflow_dataset(
         self, dataset_dir: str, local_path: Optional[Path]
     ) -> Tuple[Path, str]:
+        if find_spec("roboflow") is None:
+            _pip_install("roboflow", "roboflow", "0.1.1")
+
+        from roboflow import Roboflow
+
         if environ.ROBOFLOW_API_KEY is None:
             raise RuntimeError(
                 "ROBOFLOW_API_KEY environment variable is not set. "
