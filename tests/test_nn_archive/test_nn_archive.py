@@ -20,7 +20,7 @@ from onnx.onnx_pb import TensorProto
 from pydantic import ValidationError
 
 from luxonis_ml.nn_archive import ArchiveGenerator, is_nn_archive
-from luxonis_ml.nn_archive.model import Input, Output
+from luxonis_ml.nn_archive.model import HeadType, Input, Output
 
 DATA_DIR = Path("tests/data/test_nn_archive")
 
@@ -91,7 +91,7 @@ def test_archive_generator(
         archive_name=archive_name,
         save_path="tests/data/test_nn_archive",
         cfg_dict={
-            "config_version": "1.1",
+            "config_version": "1.0",
             "model": {
                 "metadata": {
                     "name": "test_model",
@@ -130,6 +130,22 @@ def test_archive_generator(
     with tarfile.open(DATA_DIR / f"{archive_name}.tar.{compression}") as tar:
         assert "test_model.onnx" in tar.getnames()
         assert "config.json" in tar.getnames()
+
+
+def test_optional_head_name():
+    from luxonis_ml.nn_archive.config_building_blocks.base_models.head_metadata import (
+        HeadMetadata,
+    )
+
+    # without head name
+    HeadType(parser="Parser", metadata=HeadMetadata(), outputs=["output"])
+    # with head name
+    HeadType(
+        parser="Parser",
+        name="HeadName",
+        metadata=HeadMetadata(),
+        outputs=["output"],
+    )
 
 
 def test_layout():
