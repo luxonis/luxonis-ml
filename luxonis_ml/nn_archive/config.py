@@ -6,7 +6,9 @@ from luxonis_ml.utils import BaseModelExtraForbid
 
 from .model import Model
 
-CONFIG_VERSION = Literal["1.0", "1.1"]
+# NOTE: Change in CONFIG_VERSION is a breaking change and should be communicated
+# to all other packages that relly on it before pushed to release
+CONFIG_VERSION = Literal["1.0"]
 
 
 class Config(BaseModelExtraForbid):
