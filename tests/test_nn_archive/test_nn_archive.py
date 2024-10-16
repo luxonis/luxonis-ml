@@ -138,12 +138,12 @@ def test_optional_head_name():
     )
 
     # without head name
-    HeadType(parser="Parser", metadata=HeadMetadata(), outputs=["output"])
+    HeadType(parser="Parser", metadata=HeadMetadata(), outputs=["output"])  # type: ignore
     # with head name
     HeadType(
         parser="Parser",
         name="HeadName",
-        metadata=HeadMetadata(),
+        metadata=HeadMetadata(),  # type: ignore
         outputs=["output"],
     )
 
