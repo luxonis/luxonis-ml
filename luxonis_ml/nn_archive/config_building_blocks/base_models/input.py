@@ -1,9 +1,12 @@
-from typing import List, Optional
+from contextlib import suppress
+from typing import Any, Dict, List, Optional
 
 from pydantic import Field, model_validator
+from typing_extensions import Self
 
 from luxonis_ml.utils import BaseModelExtraForbid
 
+from ...utils import infer_layout
 from ..enums import DataType, InputType
 
 
@@ -11,18 +14,22 @@ class PreprocessingBlock(BaseModelExtraForbid):
     """Represents preprocessing operations applied to the input data.
 
     @type mean: list
-    @ivar mean: Mean values in channel order. Typically, this is BGR order.
+    @ivar mean: Mean values in channel order. Typically, this is BGR
+        order.
     @type scale: list
-    @ivar scale: Standardization values in channel order. Typically, this is BGR order.
+    @ivar scale: Standardization values in channel order. Typically,
+        this is BGR order.
     @type reverse_channels: bool | None
-    @ivar reverse_channels: If True, color channels are reversed (e.g. BGR to RGB or
-        vice versa).
+    @ivar reverse_channels: If True, color channels are reversed (e.g.
+        BGR to RGB or vice versa).
     @type interleaved_to_planar: bool | None
-    @ivar interleaved_to_planar: If True, format is changed from interleaved to planar.
+    @ivar interleaved_to_planar: If True, format is changed from
+        interleaved to planar.
     """
 
     mean: Optional[List[float]] = Field(
-        None, description="Mean values in channel order. Typically, this is BGR order."
+        None,
+        description="Mean values in channel order. Typically, this is BGR order.",
     )
     scale: Optional[List[float]] = Field(
         None,
@@ -33,7 +40,8 @@ class PreprocessingBlock(BaseModelExtraForbid):
         description="If True, color channels are reversed (e.g. BGR to RGB or vice versa).",
     )
     interleaved_to_planar: Optional[bool] = Field(
-        None, description="If True, format is changed from interleaved to planar."
+        None,
+        description="If True, format is changed from interleaved to planar.",
     )
 
 
@@ -63,42 +71,49 @@ class Input(BaseModelExtraForbid):
     dtype: DataType = Field(
         description="Data type of the input data (e.g., 'float32')."
     )
-    input_type: InputType = Field(description="Type of input data (e.g., 'image').")
+    input_type: InputType = Field(
+        description="Type of input data (e.g., 'image')."
+    )
     shape: List[int] = Field(
         min_length=1,
-        max_length=5,
         description="Shape of the input data as a list of integers (e.g. [H,W], [H,W,C], [N,H,W,C], ...).",
     )
     layout: str = Field(
-        description="Lettercode interpretation of the input layout (e.g., 'NCHW').",
-        default="NCHW",
+        "NCHW",
+        description="Lettercode interpretation of the input data dimensions (e.g., 'NCHW')",
+        min_length=1,
     )
     preprocessing: PreprocessingBlock = Field(
         description="Preprocessing steps applied to the input data."
     )
 
+    @model_validator(mode="after")
+    def validate_layout(self) -> Self:
+        self.layout = self.layout.upper()
+
+        if len(self.layout) != len(set(self.layout)):
+            raise ValueError("Layout must not contain duplicate letters.")
+
+        if len(self.layout) != len(self.shape):
+            raise ValueError("Layout and shape must have the same length.")
+
+        if "N" in self.layout and self.layout[0] != "N":
+            raise ValueError(
+                "If N (batch size) is included in the layout, it must be first"
+            )
+
+        if self.input_type == InputType.IMAGE:
+            if "C" not in self.layout:
+                raise ValueError(
+                    "C letter must be present in layout for image input type."
+                )
+
+        return self
+
     @model_validator(mode="before")
-    def validate_layout(
-        cls,
-        values,
-    ):
-        if "layout" in values.keys():
-            values["layout"] = values["layout"].upper()
-            idx_n = values["layout"].find("N")
-
-            if len(values["layout"]) != len(values["shape"]):
-                raise ValueError("Layout and shape must have the same length.")
-
-            if idx_n not in [-1, 0]:
-                raise ValueError("N (batch size) must be the first letter if included.")
-
-            if values["input_type"] == InputType.IMAGE.value:
-                if "C" not in values["layout"]:
-                    raise ValueError(
-                        "C letter must be present in layout for image input type."
-                    )
-
-            if len(values["layout"]) != len(set(values["layout"])):
-                raise ValueError("Layout must not contain any duplicate letters.")
-
-        return values
+    @staticmethod
+    def infer_layout(data: Dict[str, Any]) -> Dict[str, Any]:
+        if "shape" in data and "layout" not in data:
+            with suppress(Exception):
+                data["layout"] = infer_layout(data["shape"])
+        return data

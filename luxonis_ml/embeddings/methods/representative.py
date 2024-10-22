@@ -58,22 +58,25 @@ def calculate_similarity_matrix(embeddings: np.ndarray) -> np.ndarray:
 def find_representative_greedy(
     distance_matrix: np.ndarray, desired_size: int = 1000, seed: int = 0
 ) -> List[int]:
-    """Find the most representative images using a greedy algorithm. Gready search of
-    maximally unique embeddings.
+    """Find the most representative images using a greedy algorithm.
+    Gready search of maximally unique embeddings.
 
     @type distance_matrix: np.array
     @param distance_matrix: The distance matrix to use.
     @type desired_size: int
-    @param desired_size: The desired size of the representative set. Default is 1000.
+    @param desired_size: The desired size of the representative set.
+        Default is 1000.
     @type seed: int
-    @param seed: The index of the seed image. Default is 0. Must be in the range [0,
-        num_images-1].
+    @param seed: The index of the seed image. Default is 0. Must be in
+        the range [0, num_images-1].
     @rtype: List[int]
     @return: The indices of the representative images.
     """
     num_images = distance_matrix.shape[0]
     selected_images = set()
-    selected_images.add(seed)  # If seed==0: start with the first image as a seed.
+    selected_images.add(
+        seed
+    )  # If seed==0: start with the first image as a seed.
 
     while len(selected_images) < desired_size:
         max_distance = -1
@@ -82,7 +85,9 @@ def find_representative_greedy(
         for i in range(num_images):
             if i not in selected_images:
                 # Calculate the minimum similarity to all previously selected images
-                min_distance = min([distance_matrix[i, j] for j in selected_images])
+                min_distance = min(
+                    [distance_matrix[i, j] for j in selected_images]
+                )
                 if min_distance > max_distance:
                     max_distance = min_distance
                     best_image = i
@@ -96,17 +101,21 @@ def find_representative_greedy(
 def find_representative_greedy_vectordb(
     vectordb_api: VectorDBAPI, desired_size: int = 1000, seed: int = None
 ) -> List[int]:
-    """Find the most representative embeddings using a greedy algorithm with VectorDB.
+    """Find the most representative embeddings using a greedy algorithm
+    with VectorDB.
 
     @note: Due to many requests, this function is very slow. Use
-        vectordb_api.retrieve_all_embeddings() and find_representative_greedy() instead.
+        vectordb_api.retrieve_all_embeddings() and
+        find_representative_greedy() instead.
     @type vectordb_api: VectorDBAPI
-    @param vectordb_api: The Vector database client instance to use for searches.
+    @param vectordb_api: The Vector database client instance to use for
+        searches.
     @type desired_size: int
-    @param desired_size: The desired size of the representative set. Default is 1000.
+    @param desired_size: The desired size of the representative set.
+        Default is 1000.
     @type seed: int
-    @param seed: The ID of the seed embedding. Default is None, which means a random
-        seed is chosen.
+    @param seed: The ID of the seed embedding. Default is None, which
+        means a random seed is chosen.
     @rtype: List[int]
     @return: The IDs of the representative embeddings.
     """
@@ -150,15 +159,17 @@ def find_representative_kmedoids(
     max_iter: int = 100,
     seed: int = None,
 ) -> List[int]:
-    """Find the most representative images using k-medoids. K-medoids clustering of
-    embeddings.
+    """Find the most representative images using k-medoids. K-medoids
+    clustering of embeddings.
 
     @type similarity_matrix: np.array
     @param similarity_matrix: The similarity matrix to use.
     @type desired_size: int
-    @param desired_size: The desired size of the representative set. Default is 1000.
+    @param desired_size: The desired size of the representative set.
+        Default is 1000.
     @type max_iter: int
-    @param max_iter: The maximum number of iterations to use. Default is 100.
+    @param max_iter: The maximum number of iterations to use. Default is
+        100.
     @type seed: int
     @param seed: The random seed to use. Default is None.
     @rtype: list

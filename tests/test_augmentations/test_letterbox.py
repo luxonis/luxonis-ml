@@ -2,7 +2,9 @@ from typing import Final
 
 import numpy as np
 
-from luxonis_ml.data.augmentations.custom.letterbox_resize import LetterboxResize
+from luxonis_ml.data.augmentations.custom.letterbox_resize import (
+    LetterboxResize,
+)
 
 WIDTH: Final[int] = 640
 HEIGHT: Final[int] = 480

@@ -10,35 +10,32 @@ T = TypeVar("T", bound="LuxonisConfig")
 
 
 class LuxonisConfig(BaseModelExtraForbid):
-    """Class for storing configuration.
-
-    Singleton class which checks and merges user config with a default one and provides
-    access to its values.
-
-    @warning: Only the L{get_config} method can be used to instantiate this class. Using
-        C{__init__} directly will raise a L{NotImplementedError}.
-    """
+    """Class for storing configuration."""
 
     @classmethod
     def get_config(
         cls: Type[T],
         cfg: Optional[Union[str, Dict[str, Any]]] = None,
-        overrides: Optional[Union[Dict[str, Any], List[str], Tuple[str, ...]]] = None,
+        overrides: Optional[
+            Union[Dict[str, Any], List[str], Tuple[str, ...]]
+        ] = None,
     ) -> T:
         """Loads config from a yaml file or a dictionary.
 
-        If config was already loaded before, it returns the same instance.
-
-        @type cfg: str or dict
-        @param cfg: Path to config or config dictionary.
-        @type overrides: dict
+        @type cfg: Optional[Union[str, dict]]
+        @param cfg: Path to config file or a dictionary.
+        @type overrides: Optional[Union[dict, list[str], tuple[str, ...]]]
         @param overrides: List of CLI overrides in a form of a dictionary mapping
             "dotted" keys to unparsed string or python values.
         @rtype: LuxonisConfig
-        @return: Singleton instance of the config class.
-        @raise ValueError: If the config is instantiated for the first time and neither
-            C{cfg} nor C{overrides} are provided.
+        @return: Instance of the config class.
+        @raise ValueError: If neither C{cfg} nor C{overrides} are provided.
         """
+        if cfg is None and overrides is None:
+            raise ValueError(
+                "At least one of `cfg` or `overrides` must be set."
+            )
+
         if isinstance(overrides, (list, tuple)):
             if len(overrides) % 2 != 0:
                 raise ValueError(
@@ -46,42 +43,8 @@ class LuxonisConfig(BaseModelExtraForbid):
                     "but it's length is not divisible by 2."
                 )
 
-            overrides = {
-                key: value for key, value in zip(overrides[::2], overrides[1::2])
-            }
+            overrides = dict(zip(overrides[::2], overrides[1::2]))
 
-        if getattr(cls, "_instance", None) is None:
-            if cfg is None and overrides is None:
-                raise ValueError(
-                    "At least one of `cfg` or `overrides` must be set"
-                    f"when calling `{cls.__name__}.get_config` for the first time."
-                )
-            cls._from_get_config = True
-            cls._instance = cls(cfg, overrides)
-        return cls._instance  # type: ignore
-
-    def __init__(
-        self,
-        cfg: Optional[Union[str, Dict[str, Any]]] = None,
-        overrides: Optional[Dict[str, Any]] = None,
-    ):
-        """Loads config from a yaml file or a dictionary.
-
-        @warning: Only the L{get_config} method can be used to instantiate this class.
-        @type cfg: str or dict
-        @param cfg: Path to config or config dictionary.
-        @type overrides: dict
-        @param overrides: List of CLI overrides in a form of a dictionary mapping
-            "dotted" keys to unparsed string or python values.
-        @raise NotImplementedError: When C{__init__} is called directly.
-            L{LuxonisConfig} can only be instantiated using the L{get_config}
-            classmethod. Using C{__init__} directly will raise this error.
-        """
-        if not getattr(self, "_from_get_config", False):
-            raise NotImplementedError(
-                "You cannot use `__init__` on the `LuxonisConfig` class"
-                f" directly. Use `{self.__class__.__name__}.get_config` instead."
-            )
         overrides = overrides or {}
         cfg = cfg or {}
 
@@ -92,20 +55,14 @@ class LuxonisConfig(BaseModelExtraForbid):
         else:
             data = cfg
 
-        self._merge_overrides(data, overrides)
-        super().__init__(**data)
+        cls._merge_overrides(data, overrides)
+        return cls(**data)
 
     def __str__(self) -> str:
         return self.model_dump_json(indent=4)
 
     def __repr__(self) -> str:
         return self.__str__()
-
-    @classmethod
-    def clear_instance(cls) -> None:
-        """Clears all singleton instances, should be only used for unit-testing."""
-        cls._instance = None
-        cls._from_get_config = False
 
     def get_json_schema(self) -> Dict[str, Any]:
         """Retuns dict representation of the config json schema.
@@ -130,9 +87,11 @@ class LuxonisConfig(BaseModelExtraForbid):
         If the key doesn't exist, the default value is returned.
 
         @type key_merged: str
-        @param key_merged: Key in a form of a string with levels separated by dots.
+        @param key_merged: Key in a form of a string with levels
+            separated by dots.
         @type default: Any
-        @param default: Default value to return if the key doesn't exist.
+        @param default: Default value to return if the key doesn't
+            exist.
         @rtype: Any
         @return: Value of the key or default value.
         """
@@ -140,7 +99,9 @@ class LuxonisConfig(BaseModelExtraForbid):
         for key in key_merged.split("."):
             if isinstance(value, list):
                 if not key.isdecimal():
-                    raise ValueError(f"Can't access list with non-int key `{key}`.")
+                    raise ValueError(
+                        f"Can't access list with non-int key `{key}`."
+                    )
                 index = int(key)
                 if index >= len(value):
                     return default
@@ -156,11 +117,13 @@ class LuxonisConfig(BaseModelExtraForbid):
         return value
 
     @staticmethod
-    def _merge_overrides(data: Dict[str, Any], overrides: Dict[str, Any]) -> None:
+    def _merge_overrides(
+        data: Dict[str, Any], overrides: Dict[str, Any]
+    ) -> None:
         """Merges the config dictionary with the CLI overrides.
 
-        The overrides are a dictionary mapping "dotted" keys to either final or unparsed
-        values.
+        The overrides are a dictionary mapping "dotted" keys to either
+        final or unparsed values.
 
         @type data: dict
         @param data: Dictionary with config data.
@@ -179,20 +142,26 @@ class LuxonisConfig(BaseModelExtraForbid):
                 # keep as string and hope for the best
                 return value
 
-        def _merge_recursive(data: Union[Dict, List], dot_name: str, value: Any):
+        def _merge_recursive(
+            data: Union[Dict, List], dot_name: str, value: Any
+        ):
             key, *tail = dot_name.split(".")
             if not tail:
                 parsed_value = _parse_value(value)
                 if key.isdecimal():
                     index = int(key)
                     if not isinstance(data, list):
-                        raise ValueError("int keys are not allowed for non-list values")
+                        raise ValueError(
+                            "int keys are not allowed for non-list values"
+                        )
                     if index >= len(data):
                         data.append(parsed_value)
                     else:
                         data[index] = parsed_value
                 elif isinstance(data, list):
-                    raise ValueError("Only int keys are allowed for list values")
+                    raise ValueError(
+                        "Only int keys are allowed for list values"
+                    )
                 else:
                     data[key] = parsed_value
 
@@ -203,7 +172,9 @@ class LuxonisConfig(BaseModelExtraForbid):
             if key.isdecimal():
                 index = int(key)
                 if not isinstance(data, list):
-                    raise ValueError("int keys are not allowed for non-list values")
+                    raise ValueError(
+                        "int keys are not allowed for non-list values"
+                    )
                 if index >= len(data):
                     index = len(data)
                     if data:

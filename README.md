@@ -1,12 +1,12 @@
 # LuxonisML
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-![PyBadge](https://github.com/luxonis/luxonis-ml/blob/116262ee55c36433861689077a522faeb32b3967/media/pybadge.svg)
+![PyBadge](https://img.shields.io/pypi/pyversions/luxonis-ml?logo=data:image/svg+xml%3Bbase64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj4KICA8ZGVmcz4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0icHlZZWxsb3ciIGdyYWRpZW50VHJhbnNmb3JtPSJyb3RhdGUoNDUpIj4KICAgICAgPHN0b3Agc3RvcC1jb2xvcj0iI2ZlNSIgb2Zmc2V0PSIwLjYiLz4KICAgICAgPHN0b3Agc3RvcC1jb2xvcj0iI2RhMSIgb2Zmc2V0PSIxIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJweUJsdWUiIGdyYWRpZW50VHJhbnNmb3JtPSJyb3RhdGUoNDUpIj4KICAgICAgPHN0b3Agc3RvcC1jb2xvcj0iIzY5ZiIgb2Zmc2V0PSIwLjQiLz4KICAgICAgPHN0b3Agc3RvcC1jb2xvcj0iIzQ2OCIgb2Zmc2V0PSIxIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogIDwvZGVmcz4KCiAgPHBhdGggZD0iTTI3LDE2YzAtNyw5LTEzLDI0LTEzYzE1LDAsMjMsNiwyMywxM2wwLDIyYzAsNy01LDEyLTExLDEybC0yNCwwYy04LDAtMTQsNi0xNCwxNWwwLDEwbC05LDBjLTgsMC0xMy05LTEzLTI0YzAtMTQsNS0yMywxMy0yM2wzNSwwbDAtM2wtMjQsMGwwLTlsMCwweiBNODgsNTB2MSIgZmlsbD0idXJsKCNweUJsdWUpIi8+CiAgPHBhdGggZD0iTTc0LDg3YzAsNy04LDEzLTIzLDEzYy0xNSwwLTI0LTYtMjQtMTNsMC0yMmMwLTcsNi0xMiwxMi0xMmwyNCwwYzgsMCwxNC03LDE0LTE1bDAtMTBsOSwwYzcsMCwxMyw5LDEzLDIzYzAsMTUtNiwyNC0xMywyNGwtMzUsMGwwLDNsMjMsMGwwLDlsMCwweiBNMTQwLDUwdjEiIGZpbGw9InVybCgjcHlZZWxsb3cpIi8+CgogIDxjaXJjbGUgcj0iNCIgY3g9IjY0IiBjeT0iODgiIGZpbGw9IiNGRkYiLz4KICA8Y2lyY2xlIHI9IjQiIGN4PSIzNyIgY3k9IjE1IiBmaWxsPSIjRkZGIi8+Cjwvc3ZnPgo=)
 [![PyPI](https://img.shields.io/pypi/v/luxonis-ml?label=pypi%20package)](https://pypi.org/project/luxonis-ml/)
 [![PyPI - Downloads](https://img.shields.io/pypi/dm/luxonis-ml)](https://pypi.org/project/luxonis-ml/)
 
 ![CI](https://github.com/luxonis/luxonis-ml/actions/workflows/ci.yaml/badge.svg)
-![Coverage](https://github.com/luxonis/luxonis-ml/blob/dev/media/coverage_badge.svg)
+[![codecov](https://codecov.io/gh/luxonis/luxonis-ml/graph/badge.svg?token=01E7QTYXWU)](https://codecov.io/gh/luxonis/luxonis-ml)
 
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Docformatter](https://img.shields.io/badge/%20formatter-docformatter-fedcba.svg)](https://github.com/PyCQA/docformatter)
@@ -14,17 +14,18 @@
 
 This library includes a collection of helper functions and utilities for the Luxonis MLOps stack. This includes the following submodules:
 
-- **Dataset Management**: Creating computer vision datasets focused around Luxonis hardware and loading data into our training library.
+- **Dataset Management**: Creating computer vision datasets focused around Luxonis hardware and to be used with our [LuxonisTrain](https://pypi.org/project/luxonis-train/) framework.
 - **Embeddings**: Methods to compute image embeddings.
-- **Tracking**: Our implementation of a logger for use with PyTorch Lightning or in our training library.
-- **Utils**: Miscellaneous utils for developers. See this README for details on the different utils.
+- **Tracking**: Our implementation of a logger for use with PyTorch Lightning or in [LuxonisTrain](https://pypi.org/project/luxonis-train/)
+- **Utils**: Miscellaneous utils for developers.
 
 **NOTE**:
-The project is in an alpha state, so it may be missing some critical features or contain bugs - please report any feedback!
+The project is in a beta state, it might be missing certain features or contain bugs - please report any feedback!
 
 ## Table of Contents
 
 - [Installation](#installation)
+- [CLI](#cli)
 - [Contributing](#contributing)
 
 ## Installation
@@ -40,10 +41,20 @@ We offer several versions of the package:
 - `luxonis-ml[all]`: installs all dependencies
 - `luxonis-ml[dev]`: installs all dependencies, including development dependencies
 
-To install the package with all dependecies, run:
+To install the package with all dependencies, run:
 
 ```bash
 pip install luxonis-ml[all]
+```
+
+## CLI
+
+The `luxonis-ml` package comes with a CLI that can be used to interact with the library.
+
+To see the available commands, run:
+
+```bash
+luxonis_ml --help
 ```
 
 ## Contributing

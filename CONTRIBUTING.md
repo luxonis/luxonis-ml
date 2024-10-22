@@ -5,6 +5,7 @@ It outlines our workflow and standards for contributing to this project.
 
 ## Table of Contents
 
+- [Pre-requisites](#pre-requisites)
 - [Pre-commit Hooks](#pre-commit-hooks)
 - [Documentation](#documentation)
   - [Editor Support](#editor-support)
@@ -12,6 +13,25 @@ It outlines our workflow and standards for contributing to this project.
 - [GitHub Actions](#github-actions)
 - [Making and Reviewing Changes](#making-and-reviewing-changes)
 - [Notes](#notes)
+
+## Pre-requisites
+
+Clone the repository and navigate to the root directory:
+
+```bash
+git clone git@github.com:luxonis/luxonis-ml.git
+cd luxonis-train
+```
+
+Install the development dependencies by running `pip install -r requirements-dev.txt` or install the package with the `dev` extra flag:
+
+```bash
+pip install -e .[dev]
+```
+
+> \[!NOTE\]
+> This will install the package in editable mode (`-e`),
+> so you can make changes to the code and run them immediately.
 
 ## Pre-commit Hooks
 
@@ -31,8 +51,11 @@ To verify that your documentation is formatted correctly, follow these steps:
 1. Download [`get-docs.py`](https://github.com/luxonis/python-api-analyzer-to-json/blob/main/gen-docs.py) script
 1. Run `python3 get-docs.py luxonis_ml` in the root directory.
    - If the script runs successfully and produces `docs.json` file, your documentation is formatted correctly.
-   - **NOTE:** If the script fails, it might not give the specific error message. In that case, you can run
-     the script for each file individually until you find the one that is causing the error.
+
+> \[!NOTE\]
+> If the script fails, it might not give a specific error message.
+> In that case, you can run the script for each file individually
+> until you find the one that is causing the error.
 
 ### Editor Support
 
@@ -46,35 +69,36 @@ We use [pytest](https://docs.pytest.org/en/stable/) for testing.
 The tests are located in the `tests` directory. You can run the tests locally with:
 
 ```bash
-pytest tests --cov=luxonis_ml
+pytest tests --cov=luxonis_ml --cov-report=html
 ```
 
-This command will run all tests and print a coverage report. The coverage report
-is only informational for now, but we may enforce a minimum coverage in the future.
+This command will run all tests and generate HTML coverage report.
 
-**If a new feature is added, a new test should be added to cover it.**
+> \[!TIP\]
+> The coverage report will be saved to `htmlcov` directory.
+> If you want to inspect the coverage in more detail, open `htmlcov/index.html` in a browser.
+
+> \[!IMPORTANT\]
+> If a new feature is added, a new test should be added to cover it.
+> There is no minimum coverage requirement for now, but minimal coverage will be enforced in the future.
 
 ## GitHub Actions
 
 Our GitHub Actions workflow is run when a new PR is opened.
-It first checks that the pre-commit hook passes and that the documentation builds successfully.
-The tests are run only if the pre-commit hook and documentation build pass.
-Successful tests are required for merging a PR.
 
-1. Checks and tests are run automatically when you open a pull request.
-1. For the tests to run, the [pre-commit](#pre-commit-hooks) hook must pass and
-   the [documentation](#documentation) must be built successfully.
-1. Review the GitHub Actions output if your PR fails.
-1. Fix any issues to ensure that all checks and tests pass.
+1. First, the [pre-commit](#pre-commit-hooks) hooks must pass and the [documentation](#documentation) must be built successfully.
+1. If all previous checks pass, the [tests](#tests) are run.
+
+> \[!TIP\]
+> Review the GitHub Actions output if your PR fails.
+
+> \[!IMPORTANT\]
+> Successful completion of all the workflow checks is required for merging a PR.
 
 ## Making and Reviewing Changes
 
 1. Make changes in a new branch.
 1. Test your changes locally.
-1. Commit (pre-commit hook will run).
-1. Push to your branch and create a pull request. Always request a review from:
-   - [Martin Kozlovský](https://github.com/kozlov721)
-   - [Matija Teršek](https://github.com/tersekmatija)
-   - [Conor Simmons](https://github.com/conorsim)
-1. Any other relevant team members can be added as reviewers as well.
+1. Commit your changes (pre-commit hooks will run).
+1. Push your branch and create a pull request.
 1. The team will review and merge your PR.

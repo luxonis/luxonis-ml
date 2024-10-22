@@ -1,6 +1,1 @@
-import builtins
-
-from rich import print
-
-# replace builtin print with rich print
-builtins.print = print
+__version__ = "0.4.1"

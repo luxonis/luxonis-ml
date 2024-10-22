@@ -48,33 +48,43 @@ class CreateMLParser(BaseParser):
                 return False
         return True
 
-    def from_dir(self, dataset_dir: Path) -> Tuple[List[str], List[str], List[str]]:
+    def from_dir(
+        self, dataset_dir: Path
+    ) -> Tuple[List[str], List[str], List[str]]:
         added_train_imgs = self._parse_split(
             image_dir=dataset_dir / "train",
-            annotation_path=dataset_dir / "train" / "_annotations.createml.json",
+            annotation_path=dataset_dir
+            / "train"
+            / "_annotations.createml.json",
         )
         added_val_imgs = self._parse_split(
             image_dir=dataset_dir / "valid",
-            annotation_path=dataset_dir / "valid" / "_annotations.createml.json",
+            annotation_path=dataset_dir
+            / "valid"
+            / "_annotations.createml.json",
         )
         added_test_imgs = self._parse_split(
             image_dir=dataset_dir / "test",
-            annotation_path=dataset_dir / "test" / "_annotations.createml.json",
+            annotation_path=dataset_dir
+            / "test"
+            / "_annotations.createml.json",
         )
 
         return added_train_imgs, added_val_imgs, added_test_imgs
 
-    def from_split(self, image_dir: Path, annotation_path: Path) -> ParserOutput:
-        """Parses annotations from CreateML format to LDF. Annotations include
-        classification and object detection.
+    def from_split(
+        self, image_dir: Path, annotation_path: Path
+    ) -> ParserOutput:
+        """Parses annotations from CreateML format to LDF. Annotations
+        include classification and object detection.
 
         @type image_dir: Path
         @param image_dir: Path to directory with images
         @type annotation_path: Path
         @param annotation_path: Path to annotation json file
         @rtype: L{ParserOutput}
-        @return: Annotation generator, list of classes names, skeleton dictionary for
-            keypoints and list of added images.
+        @return: Annotation generator, list of classes names, skeleton
+            dictionary for keypoints and list of added images.
         """
         with open(annotation_path) as f:
             annotations_data = json.load(f)
@@ -82,7 +92,7 @@ class CreateMLParser(BaseParser):
         class_names = set()
         images_annotations = []
         for annotations in annotations_data:
-            path = image_dir.absolute() / annotations["image"]
+            path = image_dir.absolute().resolve() / annotations["image"]
             if not path.exists():
                 continue
             file = str(path)

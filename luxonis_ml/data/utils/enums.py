@@ -15,13 +15,11 @@ class LabelType(str, Enum):
 class DataLabelType(Enum):
     """Supported computer vision label types.
 
-    Annotation types can be nested (I{e.g.} a BOX has 2 LABELS, a BOX has a POLYLINE
-    instance segmentation, I{etc.})
+    Annotation types can be nested (I{e.g.} a BOX has 2 LABELS, a BOX
+    has a POLYLINE instance segmentation, I{etc.})
     """
 
-    CLASSIFICATION = (
-        "classification"  # used for single, multi-class, or multi-label classification
-    )
+    CLASSIFICATION = "classification"  # used for single, multi-class, or multi-label classification
     BOX = "box"  # bounding box
     POLYLINE = "polyline"  # polyline to represent segmentation mask instances
     SEGMENTATION = "segmentation"  # RLE encoding of a binary segmentation mask

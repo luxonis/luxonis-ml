@@ -3,23 +3,21 @@ from .annotation import (
     ArrayAnnotation,
     BBoxAnnotation,
     ClassificationAnnotation,
+    DatasetRecord,
     KeypointAnnotation,
     LabelAnnotation,
     PolylineSegmentationAnnotation,
     RLESegmentationAnnotation,
     load_annotation,
 )
-from .base_dataset import (
-    DATASETS_REGISTRY,
-    BaseDataset,
-    DatasetIterator,
-)
+from .base_dataset import DATASETS_REGISTRY, BaseDataset, DatasetIterator
 from .luxonis_dataset import LuxonisDataset
 from .source import LuxonisComponent, LuxonisSource
 
 __all__ = [
     "BaseDataset",
     "DatasetIterator",
+    "DatasetRecord",
     "LuxonisDataset",
     "LuxonisComponent",
     "LuxonisSource",

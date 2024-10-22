@@ -91,8 +91,8 @@ class YoloV6Parser(BaseParser):
     def from_split(
         self, image_dir: Path, annotation_dir: Path, classes_path: Path
     ) -> ParserOutput:
-        """Parses annotations from YoloV6 format to LDF. Annotations include
-        classification and object detection.
+        """Parses annotations from YoloV6 format to LDF. Annotations
+        include classification and object detection.
 
         @type image_dir: Path
         @param image_dir: Path to directory with images
@@ -101,8 +101,8 @@ class YoloV6Parser(BaseParser):
         @type classes_path: Path
         @param classes_path: Path to yaml file with classes names
         @rtype: L{ParserOutput}
-        @return: Annotation generator, list of classes names, skeleton dictionary for
-            keypoints and list of added images.
+        @return: Annotation generator, list of classes names, skeleton
+            dictionary for keypoints and list of added images.
         """
         with open(classes_path) as f:
             classes_data = yaml.safe_load(f)

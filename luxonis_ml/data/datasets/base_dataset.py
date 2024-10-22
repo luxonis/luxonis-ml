@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple, Union
+from typing import Dict, Iterator, List, Optional, Sequence, Tuple, Type, Union
 
 from typing_extensions import TypeAlias
 
@@ -9,7 +9,7 @@ from luxonis_ml.utils.filesystem import PathType
 from .annotation import DatasetRecord
 from .source import LuxonisSource
 
-DATASETS_REGISTRY = Registry(name="datasets")
+DATASETS_REGISTRY: Registry[Type["BaseDataset"]] = Registry(name="datasets")
 
 
 DatasetIterator: TypeAlias = Iterator[Union[dict, DatasetRecord]]
@@ -18,8 +18,8 @@ DatasetIterator: TypeAlias = Iterator[Union[dict, DatasetRecord]]
 class BaseDataset(
     ABC, metaclass=AutoRegisterMeta, registry=DATASETS_REGISTRY, register=False
 ):
-    """Base abstract dataset class for managing datasets in the Luxonis MLOps
-    ecosystem."""
+    """Base abstract dataset class for managing datasets in the Luxonis
+    MLOps ecosystem."""
 
     @property
     @abstractmethod
@@ -38,7 +38,8 @@ class BaseDataset(
 
     @abstractmethod
     def update_source(self, source: LuxonisSource) -> None:
-        """Updates underlying source of the dataset with a new LuxonisSource.
+        """Updates underlying source of the dataset with a new
+        LuxonisSource.
 
         @type source: L{LuxonisSource}
         @param source: The new L{LuxonisSource} to replace the old one.
@@ -46,102 +47,121 @@ class BaseDataset(
         pass
 
     @abstractmethod
-    def set_classes(self, classes: List[str], task: Optional[str] = None) -> None:
-        """Sets the names of classes for the dataset. This can be across all CV tasks or
-        certain tasks.
+    def set_classes(
+        self, classes: List[str], task: Optional[str] = None
+    ) -> None:
+        """Sets the names of classes for the dataset. This can be across
+        all CV tasks or certain tasks.
 
         @type classes: List[str]
         @param classes: List of class names to set.
         @type task: Optional[str]
-        @param task: Optionally specify the task where these classes apply.
+        @param task: Optionally specify the task where these classes
+            apply.
         """
         pass
 
     @abstractmethod
     def get_classes(self) -> Tuple[List[str], Dict[str, List[str]]]:
-        """Gets overall classes in the dataset and classes according to computer vision
-        task.
+        """Gets overall classes in the dataset and classes according to
+        computer vision task.
 
         @type sync_mode: bool
-        @param sync_mode: If C{True}, reads classes from remote storage. If C{False},
-            classes are read locally.
+        @param sync_mode: If C{True}, reads classes from remote storage.
+            If C{False}, classes are read locally.
         @rtype: Tuple[List[str], Dict]
-        @return: A combined list of classes for all tasks and a dictionary mapping tasks
-            to the classes used in each task.
+        @return: A combined list of classes for all tasks and a
+            dictionary mapping tasks to the classes used in each task.
         """
         pass
 
     @abstractmethod
     def set_skeletons(
-        self, skeletons: Dict[str, Dict[str, Any]], task: Optional[str] = None
+        self,
+        labels: Optional[List[str]] = None,
+        edges: Optional[List[Tuple[int, int]]] = None,
+        task: Optional[str] = None,
     ) -> None:
-        """Sets the semantic structure of keypoint skeletons for the classes that use
-        keypoints.
+        """Sets the semantic structure of keypoint skeletons for the
+        classes that use keypoints.
 
-        @type skeletons: Dict[str, Dict]
-        @param skeletons: A dict mapping class name to keypoint "labels" and "edges"
-            between keypoints.
-            The inclusion of "edges" is optional.
+        Example::
 
-            Example::
+            dataset.set_skeletons(
+                labels=["right hand", "right shoulder", ...],
+                edges=[[0, 1], [4, 5], ...]
+            )
 
-                {
-                    "person": {
-                        "labels": ["right hand", "right shoulder", ...]
-                        "edges" [[0, 1], [4, 5], ...]
-                    }
-                }
+        @type labels: Optional[List[str]]
+        @param labels: List of keypoint names.
+        @type edges: Optional[List[Tuple[int, int]]]
+        @param edges: List of edges between keypoints.
+        @type task: Optional[str]
+        @param task: Optionally specify the task where these skeletons apply.
+            If not specified, the skeletons are set for all tasks that use keypoints.
         """
         pass
 
     @abstractmethod
-    def get_skeletons(self) -> Dict[str, Dict]:
-        """Returns the dictionary defining the semantic skeleton for each class using
-        keypoints.
+    def get_skeletons(
+        self,
+    ) -> Dict[str, Tuple[List[str], List[Tuple[int, int]]]]:
+        """Returns the dictionary defining the semantic skeleton for
+        each class using keypoints.
 
-        @rtype: Dict[str, Dict]
-        @return: A dictionary mapping classes to their skeleton definitions.
+        @rtype: Dict[str, Tuple[List[str], List[Tuple[int, int]]]]
+        @return: For each task, a tuple containing a list of keypoint
+            names and a list of edges between the keypoints.
         """
         pass
 
     @abstractmethod
-    def add(self, generator: DatasetIterator, batch_size: int = 1_000_000) -> None:
+    def add(
+        self, generator: DatasetIterator, batch_size: int = 1_000_000
+    ) -> None:
         """Write annotations to parquet files.
 
         @type generator: L{DatasetGenerator}
-        @param generator: A Python iterator that yields either instances of
-            L{DatasetRecord} or a dictionary that can be converted to L{DatasetRecord}.
+        @param generator: A Python iterator that yields either instances
+            of L{DatasetRecord} or a dictionary that can be converted to
+            L{DatasetRecord}.
         @type batch_size: int
-        @param batch_size: The number of annotations generated before processing. This
-            can be set to a lower value to reduce memory usage.
+        @param batch_size: The number of annotations generated before
+            processing. This can be set to a lower value to reduce
+            memory usage.
         """
         pass
 
-    # TODO: Support arbitrary named splits
     @abstractmethod
     def make_splits(
         self,
-        ratios: Tuple[float, float, float] = (0.8, 0.1, 0.1),
-        definitions: Optional[Dict[str, Sequence[PathType]]] = None,
+        splits: Optional[
+            Union[
+                Dict[str, Sequence[PathType]],
+                Dict[str, float],
+                Tuple[float, float, float],
+            ]
+        ] = None,
+        *,
+        ratios: Optional[
+            Union[Dict[str, float], Tuple[float, float, float]]
+        ] = None,
+        definitions: Optional[Dict[str, List[PathType]]] = None,
+        replace_old_splits: bool = False,
     ) -> None:
-        """Saves a splits json file that specified the train/val/test split. For use in
-        I{OFFLINE} mode only.
+        """Generates splits for the dataset.
 
-        @type ratios: Tuple[float, float, float]
-            Defaults to (0.8, 0.1, 0.1).
-
-        @type definitions: Optional[Dict]
-        @param definitions [Optional[Dict]]: Dictionary specifying split keys to lists
-            of filepath values. Note that this assumes unique filenames.
-            Example::
-
-                {
-                    "train": ["/path/to/cat.jpg", "/path/to/dog.jpg"],
-                    "val": [...],
-                    "test": [...]
-                }
-
-            Only overrides splits that are present in the dictionary.
+        @type splits: Optional[Union[Dict[str, Sequence[PathType]], Dict[str, float], Tuple[float, float, float]]]
+        @param splits: A dictionary of splits or a tuple of ratios for train, val, and test splits. Can be one of:
+            - A dictionary of splits with keys as split names and values as lists of filepaths
+            - A dictionary of splits with keys as split names and values as ratios
+            - A 3-tuple of ratios for train, val, and test splits
+        @type ratios: Optional[Union[Dict[str, float], Tuple[float, float, float]]]
+        @param ratios: Deprecated! A dictionary of splits with keys as split names and values as ratios.
+        @type definitions: Optional[Dict[str, List[PathType]]]
+        @param definitions: Deprecated! A dictionary of splits with keys as split names and values as lists of filepaths.
+        @type replace_old_splits: bool
+        @param replace_old_splits: Whether to remove old splits and generate new ones. If set to False, only new files will be added to the splits. Default is False.
         """
         pass
 

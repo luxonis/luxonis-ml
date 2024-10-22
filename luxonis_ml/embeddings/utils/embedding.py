@@ -31,6 +31,7 @@ Note:
     - Ensure the output_layer_name in C{extract_embeddings} matches the appropriate output layer in the ONNX model.
     - This module specifically focuses on ONNX models and reading images from Luxonis Filesystem.
 """
+
 from typing import Callable, List, Tuple
 
 import cv2

@@ -4,7 +4,6 @@ from typing import Any, Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 import polars as pl
-import pycocotools.mask as mask_util
 
 from luxonis_ml.data import DatasetIterator
 
@@ -52,11 +51,16 @@ class SegmentationMaskDirectoryParser(BaseParser):
     def validate(dataset_dir: Path) -> bool:
         for split in ["train", "valid", "test"]:
             split_path = dataset_dir / split
-            if SegmentationMaskDirectoryParser.validate_split(split_path) is None:
+            if (
+                SegmentationMaskDirectoryParser.validate_split(split_path)
+                is None
+            ):
                 return False
         return True
 
-    def from_dir(self, dataset_dir: Path) -> Tuple[List[str], List[str], List[str]]:
+    def from_dir(
+        self, dataset_dir: Path
+    ) -> Tuple[List[str], List[str], List[str]]:
         added_train_imgs = self._parse_split(
             image_dir=dataset_dir / "train",
             seg_dir=dataset_dir / "train",
@@ -88,8 +92,8 @@ class SegmentationMaskDirectoryParser(BaseParser):
         @type classes_path: Path
         @param classes_path: Path to CSV file with class names
         @rtype: L{ParserOutput}
-        @return: Annotation generator, list of classes names, skeleton dictionary for
-            keypoints and list of added images
+        @return: Annotation generator, list of classes names, skeleton
+            dictionary for keypoints and list of added images
         """
 
         idx_class = " Class"  # NOTE: space prefix included
@@ -100,7 +104,7 @@ class SegmentationMaskDirectoryParser(BaseParser):
         def generator() -> DatasetIterator:
             for mask_path in seg_dir.glob("*_mask.*"):
                 image_path = next(image_dir.glob(f"{mask_path.stem[:-5]}.*"))
-                file = str(image_path.absolute())
+                file = str(image_path.absolute().resolve())
                 mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
 
                 ids = np.unique(mask)
@@ -116,18 +120,12 @@ class SegmentationMaskDirectoryParser(BaseParser):
 
                     curr_seg_mask = np.zeros_like(mask)
                     curr_seg_mask[mask == id] = 1
-                    curr_seg_mask = np.asfortranarray(
-                        curr_seg_mask
-                    )  # pycocotools requirement
-                    curr_rle = mask_util.encode(curr_seg_mask)
                     yield {
                         "file": file,
                         "annotation": {
-                            "type": "rle",
+                            "type": "mask",
                             "class": class_name,
-                            "width": curr_rle["size"][0],
-                            "height": curr_rle["size"][1],
-                            "counts": curr_rle["counts"],
+                            "mask": curr_seg_mask,
                         },
                     }
 

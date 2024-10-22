@@ -27,14 +27,16 @@ def make_image(i) -> Path:
     path = DATA_DIR / f"img_{i}.jpg"
     if not path.exists():
         img = np.zeros((512, 512, 3), dtype=np.uint8)
-        img[0:10, 0:10] = np.random.randint(0, 255, (10, 10, 3), dtype=np.uint8)
+        img[0:10, 0:10] = np.random.randint(
+            0, 255, (10, 10, 3), dtype=np.uint8
+        )
         cv2.imwrite(str(path), img)
     return path
 
 
 def compute_histogram(dataset: LuxonisDataset) -> Dict[str, int]:
     classes = defaultdict(int)
-    loader = LuxonisLoader(dataset)
+    loader = LuxonisLoader(dataset, force_resync=True)
     for _, record in loader:
         for task, _ in record.items():
             classes[task] += 1
@@ -46,15 +48,18 @@ def compute_histogram(dataset: LuxonisDataset) -> Dict[str, int]:
     ("bucket_storage",),
     [
         (BucketStorage.LOCAL,),
-        # (BucketStorage.S3,),
-        # (BucketStorage.GCS,),
+        (BucketStorage.S3,),
+        (BucketStorage.GCS,),
     ],
 )
-def test_task_ingestion(bucket_storage: BucketStorage):
-    dataset = LuxonisDataset.delete_and_create(
-        DATASET_NAME,
+def test_task_ingestion(
+    bucket_storage: BucketStorage, platform_name: str, python_version: str
+):
+    dataset = LuxonisDataset(
+        f"{DATASET_NAME}-{bucket_storage.value}-{platform_name}-{python_version}",
         bucket_storage=bucket_storage,
-        remote=bucket_storage != BucketStorage.LOCAL,
+        delete_existing=True,
+        delete_remote=True,
     )
 
     def generator1():
@@ -109,7 +114,7 @@ def test_task_ingestion(bucket_storage: BucketStorage):
                 },
             }
 
-    dataset.add(generator1()).make_splits(ratios=(1, 0, 0))
+    dataset.add(generator1()).make_splits((1, 0, 0))
 
     classes_list, classes = dataset.get_classes()
 
@@ -148,7 +153,7 @@ def test_task_ingestion(bucket_storage: BucketStorage):
                 },
             }
 
-    dataset.add(generator2()).make_splits(ratios=(1, 0, 0))
+    dataset.add(generator2()).make_splits((1, 0, 0))
     classes_list, classes = dataset.get_classes()
 
     assert set(classes_list) == {"dog", "cat", "water", "grass"}
@@ -180,11 +185,16 @@ def test_task_ingestion(bucket_storage: BucketStorage):
                 "annotation": {
                     "type": "polyline",
                     "class": "water",
-                    "points": [(0.1, 0.7), (0.5, 0.2), (0.3, 0.3), (0.12, 0.45)],
+                    "points": [
+                        (0.1, 0.7),
+                        (0.5, 0.2),
+                        (0.3, 0.3),
+                        (0.12, 0.45),
+                    ],
                 },
             }
 
-    dataset.add(generator3()).make_splits(ratios=(1, 0, 0))
+    dataset.add(generator3()).make_splits((1, 0, 0))
     classes_list, classes = dataset.get_classes()
 
     assert set(classes_list) == {"dog", "cat", "water", "grass"}
@@ -228,10 +238,17 @@ def test_task_ingestion(bucket_storage: BucketStorage):
                 },
             }
 
-    dataset.add(generator4()).make_splits(ratios=(1, 0, 0))
+    dataset.add(generator4()).make_splits((1, 0, 0))
     classes_list, classes = dataset.get_classes()
 
-    assert set(classes_list) == {"dog", "cat", "water", "grass", "bike", "body"}
+    assert set(classes_list) == {
+        "dog",
+        "cat",
+        "water",
+        "grass",
+        "bike",
+        "body",
+    }
     assert set(classes["land-segmentation"]) == {"water", "grass"}
     assert set(classes["animals-boxes"]) == {"dog", "cat"}
     assert set(classes["land-segmentation-2"]) == {"water"}

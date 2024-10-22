@@ -23,6 +23,7 @@ Dependencies:
     - numpy
     - scikit-learn
 """
+
 from typing import Optional, Union
 
 import numpy as np
@@ -41,11 +42,11 @@ def isolation_forest_OOD(
     @type X: np.array
     @param X: The embeddings to use.
     @type contamination: Union[float, str]
-    @param contamination: The contamination parameter for Isolation Forests. Default is
-        'auto'.
+    @param contamination: The contamination parameter for Isolation
+        Forests. Default is 'auto'.
     @type n_jobs: int
-    @param n_jobs: The number of jobs to use. Default is -1, which means all available
-        CPUs.
+    @param n_jobs: The number of jobs to use. Default is -1, which means
+        all available CPUs.
     @type verbose: int
     @param verbose: The verbosity level. Default is 1.
     @type random_state: Optional[int]
@@ -74,13 +75,14 @@ def isolation_forest_OOD(
 
 
 def leverage_OOD(X: np.array, std_threshold: int = 3) -> np.array:
-    """Out-of-distribution detection using leverage and linear regression.
+    """Out-of-distribution detection using leverage and linear
+    regression.
 
     @type X: np.array
     @param X: The embeddings to use.
     @type std_threshold: int
-    @param std_threshold: The number of standard deviations to use for the leverage
-        threshold. Default is 3.
+    @param std_threshold: The number of standard deviations to use for
+        the leverage threshold. Default is 3.
     @rtype: np.array
     @return: The indices of the embeddings that are out-of-distribution.
     """

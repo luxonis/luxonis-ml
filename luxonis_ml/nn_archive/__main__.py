@@ -53,7 +53,9 @@ def inspect(
         inputs = metadata = outputs = heads = True
 
     if metadata:
-        print(Panel.fit(Pretty(archive_config.model.metadata), title="Metadata"))
+        print(
+            Panel.fit(Pretty(archive_config.model.metadata), title="Metadata")
+        )
     if heads:
         print(Panel.fit(Pretty(archive_config.model.heads), title="Heads"))
     if inputs:
@@ -67,13 +69,15 @@ def extract(
     path: PathArgument,
     destination: Annotated[
         str,
-        typer.Option("-d", "--dest", help="Path where to extract the Archive."),
+        typer.Option(
+            "-d", "--dest", help="Path where to extract the Archive."
+        ),
     ] = ".",
 ):
     """Extracts NN Archive.
 
-    Extracts the NN Archive to the destination path. By default, the Archive is
-    extracted to the current working directory.
+    Extracts the NN Archive to the destination path. By default, the
+    Archive is extracted to the current working directory.
     """
 
     extract_path = Path(destination) / (Path(path).name.split(".")[0])

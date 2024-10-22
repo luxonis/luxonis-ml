@@ -1,9 +1,10 @@
-from typing import Final, List, cast
+from typing import Final, List
 
 import pytest
 
-from luxonis_ml.data import LabelType, LuxonisDataset, LuxonisLoader, LuxonisParser
+from luxonis_ml.data import LabelType, LuxonisLoader, LuxonisParser
 from luxonis_ml.enums import DatasetType
+from luxonis_ml.utils import environ
 
 URL_PREFIX: Final[str] = "gs://luxonis-test-bucket/luxonis-ml-test-data"
 WORK_DIR: Final[str] = "tests/data/parser_datasets"
@@ -31,6 +32,11 @@ def prepare_dir():
                 LabelType.SEGMENTATION,
                 LabelType.CLASSIFICATION,
             ],
+        ),
+        (
+            DatasetType.COCO,
+            "Thermal_Dogs_and_People.v1-resize-416x416.coco.zip",
+            [LabelType.BOUNDINGBOX, LabelType.CLASSIFICATION],
         ),
         (
             DatasetType.VOC,
@@ -77,21 +83,46 @@ def prepare_dir():
             "D1_ParkingSlot-solo.zip",
             [LabelType.BOUNDINGBOX, LabelType.SEGMENTATION],
         ),
+        (
+            DatasetType.COCO,
+            "roboflow://team-roboflow/coco-128/2/coco",
+            [LabelType.BOUNDINGBOX, LabelType.CLASSIFICATION],
+        ),
     ],
 )
 def test_dir_parser(
     dataset_type: DatasetType, url: str, expected_label_types: List[LabelType]
 ):
+    if not url.startswith("roboflow://"):
+        url = f"{URL_PREFIX}/{url}"
+
+    elif environ.ROBOFLOW_API_KEY is None:
+        pytest.skip("Roboflow API key is not set")
+
     parser = LuxonisParser(
-        f"{URL_PREFIX}/{url}",
+        url,
         dataset_name=f"test-{dataset_type}",
         delete_existing=True,
         save_dir=WORK_DIR,
     )
-    dataset = cast(LuxonisDataset, parser.parse())
+    dataset = parser.parse()
     assert len(dataset) > 0
     loader = LuxonisLoader(dataset)
     _, ann = next(iter(loader))
     label_types = {label_type for _, label_type in ann.values()}
     assert label_types == set(expected_label_types)
     dataset.delete_dataset()
+
+
+def test_custom_tasks():
+    parser = LuxonisParser(
+        f"{URL_PREFIX}/Thermal_Dogs_and_People.v1-resize-416x416.coco.zip",
+        dataset_name="test-custom-tasks",
+        delete_existing=True,
+        save_dir=WORK_DIR,
+        task_mapping={LabelType.BOUNDINGBOX: "object_detection"},
+    )
+    dataset = parser.parse()
+    assert len(dataset) > 0
+    tasks = dataset.get_tasks()
+    assert set(tasks) == {"object_detection", "classification"}

@@ -156,6 +156,7 @@ head_segmentation_metadata = HeadSegmentationMetadata(
 
 classification_head = dict(
     Head(
+        name="ClassificationHead",
         parser="Classification",
         outputs=["output"],
         metadata=head_classification_metadata,
@@ -164,6 +165,7 @@ classification_head = dict(
 
 ssd_object_detection_head = dict(
     Head(
+        name="ObjectDetectionSSDHead",
         parser="ObjectDetectionSSD",
         outputs=["boxes"],
         metadata=head_object_detection_ssd_metadata,
@@ -172,6 +174,7 @@ ssd_object_detection_head = dict(
 
 yolo_object_detection_head = dict(
     Head(
+        name="YoloDetectionHead",
         parser="YOLO",
         outputs=["output"],
         metadata=head_yolo_obb_det_metadata,
@@ -180,6 +183,7 @@ yolo_object_detection_head = dict(
 
 yolo_instance_segmentation_head = dict(
     Head(
+        name="YoloInstanceSegHead",
         parser="YOLO",
         outputs=["output"],
         metadata=head_yolo_instance_seg_metadata,
@@ -188,6 +192,7 @@ yolo_instance_segmentation_head = dict(
 
 yolo_keypoint_detection_head = dict(
     Head(
+        name="YoloKeypointDetectionHead",
         parser="YOLO",
         outputs=["output"],
         metadata=head_yolo_keypoint_det_metadata,
@@ -196,6 +201,7 @@ yolo_keypoint_detection_head = dict(
 
 yolo_obb_detection_head = dict(
     Head(
+        name="YoloOBBHead",
         parser="YOLO",
         outputs=["output"],
         metadata=head_yolo_obb_det_metadata,
@@ -204,6 +210,7 @@ yolo_obb_detection_head = dict(
 
 yolo_instance_seg_kpts_head = dict(
     Head(
+        name="YoloInstaceSegKptHead",
         parser="YOLO",
         outputs=["outputs"],
         metadata=head_yolo_instance_seg_kpts_metadata,
@@ -212,6 +219,7 @@ yolo_instance_seg_kpts_head = dict(
 
 custom_segmentation_head = dict(
     Head(
+        name="SegmentationHead",
         parser="Segmentation",
         outputs=["output"],
         metadata=head_segmentation_metadata,

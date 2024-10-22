@@ -17,21 +17,31 @@ from heads import (
 )
 from onnx import checker, helper
 from onnx.onnx_pb import TensorProto
+from pydantic import ValidationError
 
 from luxonis_ml.nn_archive import ArchiveGenerator, is_nn_archive
+from luxonis_ml.nn_archive.model import HeadType, Input, Output
 
 DATA_DIR = Path("tests/data/test_nn_archive")
 
 
 def create_onnx_model():
-    input0 = helper.make_tensor_value_info("input0", TensorProto.FLOAT, [1, 3, 64, 64])
+    input0 = helper.make_tensor_value_info(
+        "input0", TensorProto.FLOAT, [1, 3, 64, 64]
+    )
     input1 = helper.make_tensor_value_info(
         "input1", TensorProto.FLOAT, [1, 3, 128, 128]
     )
 
-    output0 = helper.make_tensor_value_info("output0", TensorProto.FLOAT, [1, 10])
-    output1 = helper.make_tensor_value_info("output1", TensorProto.FLOAT, [1, 5, 5, 5])
-    graph = helper.make_graph([], "DummyModel", [input0, input1], [output0, output1])
+    output0 = helper.make_tensor_value_info(
+        "output0", TensorProto.FLOAT, [1, 10]
+    )
+    output1 = helper.make_tensor_value_info(
+        "output1", TensorProto.FLOAT, [1, 5, 5, 5]
+    )
+    graph = helper.make_graph(
+        [], "DummyModel", [input0, input1], [output0, output1]
+    )
 
     model = helper.make_model(graph, producer_name="DummyModelProducer")
     checker.check_model(model)
@@ -120,6 +130,102 @@ def test_archive_generator(
     with tarfile.open(DATA_DIR / f"{archive_name}.tar.{compression}") as tar:
         assert "test_model.onnx" in tar.getnames()
         assert "config.json" in tar.getnames()
+
+
+def test_optional_head_name():
+    from luxonis_ml.nn_archive.config_building_blocks.base_models.head_metadata import (
+        HeadMetadata,
+    )
+
+    # without head name
+    HeadType(parser="Parser", metadata=HeadMetadata(), outputs=["output"])  # type: ignore
+    # with head name
+    HeadType(
+        parser="Parser",
+        name="HeadName",
+        metadata=HeadMetadata(),  # type: ignore
+        outputs=["output"],
+    )
+
+
+def test_layout():
+    default = {
+        "name": "input",
+        "dtype": "float32",
+        "input_type": "image",
+        "preprocessing": {},
+    }
+    inp = Input(
+        **{
+            **default,
+            "shape": [1, 3, 224, 224],
+            "layout": "nchw",
+        }
+    )
+    assert inp.layout == "NCHW"
+    inp = Input(
+        **{
+            **default,
+            "shape": [3, 256, 256, 16],
+            "layout": "chwd",
+        }
+    )
+    assert inp.layout == "CHWD"
+    out = Output(
+        **{
+            "name": "output",
+            "dtype": "float32",
+            "shape": [1, 10],
+            "layout": "nc",
+        }
+    )
+    assert out.layout == "NC"
+
+    with pytest.raises(ValidationError):
+        Input(
+            **{
+                **default,
+                "shape": [3, 256, 256, 16],
+                "layout": "1chwc2",
+            }
+        )
+
+    with pytest.raises(ValidationError):
+        Input(
+            **{
+                **default,
+                "shape": [1, 3, 256, 256],
+                "layout": "nch",
+            }
+        )
+
+    with pytest.raises(ValidationError):
+        Input(
+            **{
+                **default,
+                "shape": [1, 3, 256, 256],
+                "layout": "nchh",
+            }
+        )
+
+    with pytest.raises(ValidationError):
+        Output(
+            **{
+                "name": "output",
+                "dtype": "float32",
+                "shape": [1, 10],
+                "layout": "ncn",
+            }
+        )
+
+    with pytest.raises(ValidationError):
+        Output(
+            **{
+                "name": "output",
+                "dtype": "float32",
+                "layout": list("nc"),
+            }
+        )
 
 
 @pytest.mark.parametrize(

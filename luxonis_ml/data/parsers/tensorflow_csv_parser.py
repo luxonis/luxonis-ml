@@ -48,7 +48,9 @@ class TensorflowCSVParser(BaseParser):
                 return False
         return True
 
-    def from_dir(self, dataset_dir: Path) -> Tuple[List[str], List[str], List[str]]:
+    def from_dir(
+        self, dataset_dir: Path
+    ) -> Tuple[List[str], List[str], List[str]]:
         added_train_imgs = self._parse_split(
             image_dir=dataset_dir / "train",
             annotation_path=dataset_dir / "train" / "_annotations.csv",
@@ -63,18 +65,23 @@ class TensorflowCSVParser(BaseParser):
         )
         return added_train_imgs, added_val_imgs, added_test_imgs
 
-    def from_split(self, image_dir: Path, annotation_path: Path) -> ParserOutput:
-        """Parses annotations from TensorflowCSV format to LDF. Annotations include
-        classification and object detection.
+    def from_split(
+        self, image_dir: Path, annotation_path: Path
+    ) -> ParserOutput:
+        """Parses annotations from TensorflowCSV format to LDF.
+        Annotations include classification and object detection.
 
         @type image_dir: Path
         @param image_dir: Path to directory with images
         @type annotation_path: Path
         @param annotation_path: Path to annotation CSV file
         @rtype: L{ParserOutput}
-        @return: Annotation generator, list of classes names, skeleton dictionary for
+        @return: Annotation generator, list of classes names, skeleton
+            dictionary for
         """
-        df = pl.read_csv(annotation_path).filter(pl.col("filename").is_not_null())
+        df = pl.read_csv(annotation_path).filter(
+            pl.col("filename").is_not_null()
+        )
         images_annotations = {}
 
         class_names = set(df["class"])
@@ -95,7 +102,9 @@ class TensorflowCSVParser(BaseParser):
             ymin = row["ymin"]
             xmax = row["xmax"]
             ymax = row["ymax"]
-            bbox_xywh = np.array([xmin, ymin, xmax - xmin, ymax - ymin], dtype=float)
+            bbox_xywh = np.array(
+                [xmin, ymin, xmax - xmin, ymax - ymin], dtype=float
+            )
             bbox_xywh[::2] /= width
             bbox_xywh[1::2] /= height
             bbox_xywh = bbox_xywh.tolist()

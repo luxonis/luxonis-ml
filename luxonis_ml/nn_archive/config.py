@@ -6,17 +6,22 @@ from luxonis_ml.utils import BaseModelExtraForbid
 
 from .model import Model
 
+# NOTE: Change in CONFIG_VERSION is a breaking change and should be communicated
+# to all other packages that relly on it before pushed to release
 CONFIG_VERSION = Literal["1.0"]
 
 
 class Config(BaseModelExtraForbid):
-    """The main class of the multi/single-stage model config scheme (multi- stage models
-    consists of interconnected single-stage models).
+    """The main class of the multi/single-stage model config scheme
+    (multi- stage models consists of interconnected single-stage
+    models).
 
     @type config_version: str
-    @ivar config_version: Static variable representing the version of the config scheme.
+    @ivar config_version: Static variable representing the version of
+        the config scheme.
     @type model: Model
-    @ivar model: A Model object representing the neural network used in the archive.
+    @ivar model: A Model object representing the neural network used in
+        the archive.
     """
 
     config_version: CONFIG_VERSION = Field(

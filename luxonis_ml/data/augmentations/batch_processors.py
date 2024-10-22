@@ -2,7 +2,10 @@ import copy
 from typing import Any, Dict, Optional, Sequence
 
 from albumentations.core.bbox_utils import BboxParams, BboxProcessor
-from albumentations.core.keypoints_utils import KeypointParams, KeypointsProcessor
+from albumentations.core.keypoints_utils import (
+    KeypointParams,
+    KeypointsProcessor,
+)
 from albumentations.core.utils import DataProcessor
 
 from .batch_utils import batch2list, list2batch, to_unbatched_name
@@ -10,14 +13,16 @@ from .batch_utils import batch2list, list2batch, to_unbatched_name
 
 class BboxBatchProcessor(DataProcessor):
     def __init__(
-        self, params: BboxParams, additional_targets: Optional[Dict[str, str]] = None
+        self,
+        params: BboxParams,
+        additional_targets: Optional[Dict[str, str]] = None,
     ):
         """Data processor class to process bbox data in batches.
 
         @param params: Bbox parameters
         @type params: BboxParams
-        @param additional_targets: Additional targets of the transform. Defaults to
-            None.
+        @param additional_targets: Additional targets of the transform.
+            Defaults to None.
         @type additional_targets: Optional[Dict[str, str]]
         """
         super().__init__(params, additional_targets)
@@ -38,7 +43,9 @@ class BboxBatchProcessor(DataProcessor):
             self.item_processor.ensure_data_valid(item)
 
     def postprocess(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        processed = [self.item_processor.postprocess(item) for item in batch2list(data)]
+        processed = [
+            self.item_processor.postprocess(item) for item in batch2list(data)
+        ]
         procesed_data = list2batch(processed)
         for k in data.keys():
             data[k] = procesed_data[k]
@@ -77,7 +84,9 @@ class BboxBatchProcessor(DataProcessor):
     def convert_from_albumentations(
         self, data: Sequence, rows: int, cols: int
     ) -> Sequence:
-        return self.item_processor.convert_from_albumentations(data, rows, cols)
+        return self.item_processor.convert_from_albumentations(
+            data, rows, cols
+        )
 
 
 class KeypointsBatchProcessor(DataProcessor):
@@ -90,8 +99,8 @@ class KeypointsBatchProcessor(DataProcessor):
 
         @param params: Keypoint parameters
         @type params: KeypointParams
-        @param additional_targets: Additional targets of the transform. Defaults to
-            None.
+        @param additional_targets: Additional targets of the transform.
+            Defaults to None.
         @type additional_targets: Optional[Dict[str, str]]
         """
         super().__init__(params, additional_targets)
@@ -101,7 +110,9 @@ class KeypointsBatchProcessor(DataProcessor):
             item_params.label_fields = [
                 to_unbatched_name(field) for field in label_fields
             ]
-        self.item_processor = KeypointsProcessor(item_params, additional_targets)
+        self.item_processor = KeypointsProcessor(
+            item_params, additional_targets
+        )
 
     @property
     def default_data_name(self) -> str:
@@ -112,7 +123,9 @@ class KeypointsBatchProcessor(DataProcessor):
             self.item_processor.ensure_data_valid(item)
 
     def postprocess(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        processed = [self.item_processor.postprocess(item) for item in batch2list(data)]
+        processed = [
+            self.item_processor.postprocess(item) for item in batch2list(data)
+        ]
         procesed_data = list2batch(processed)
         for k in data.keys():
             data[k] = procesed_data[k]
@@ -151,4 +164,6 @@ class KeypointsBatchProcessor(DataProcessor):
     def convert_from_albumentations(
         self, data: Sequence, rows: int, cols: int
     ) -> Sequence:
-        return self.item_processor.convert_from_albumentations(data, rows, cols)
+        return self.item_processor.convert_from_albumentations(
+            data, rows, cols
+        )

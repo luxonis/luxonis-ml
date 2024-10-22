@@ -32,17 +32,19 @@ class Environ(BaseSettings):
 
     LUXONISML_BUCKET: Optional[str] = None
     LUXONISML_BASE_PATH: Path = Path.home() / "luxonis_ml"
-    LUXONISML_TMP_DIR: Path = Path.cwd() / ".luxonis_tmp"
     LUXONISML_TEAM_ID: str = "offline"
-    LUXONISML_TEAM_NAME: str = "offline"
+
+    ROBOFLOW_API_KEY: Optional[str] = None
 
     GOOGLE_APPLICATION_CREDENTIALS: Optional[str] = None
 
-    LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = (
+        "INFO"
+    )
 
     @model_serializer(when_used="always", mode="plain", return_type=str)
     def _serialize_environ(self) -> str:
-        return "[Content hidden ...]"
+        return "{}"
 
 
 environ = Environ()

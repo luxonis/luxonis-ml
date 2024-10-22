@@ -34,7 +34,10 @@ class DarknetParser(BaseParser):
         labels = split_path.glob("*.txt")
         if not BaseParser._compare_stem_files(images, labels):
             return None
-        return {"image_dir": split_path, "classes_path": split_path / "_darknet.labels"}
+        return {
+            "image_dir": split_path,
+            "classes_path": split_path / "_darknet.labels",
+        }
 
     @staticmethod
     def validate(dataset_dir: Path) -> bool:
@@ -44,7 +47,9 @@ class DarknetParser(BaseParser):
                 return False
         return True
 
-    def from_dir(self, dataset_dir: Path) -> Tuple[List[str], List[str], List[str]]:
+    def from_dir(
+        self, dataset_dir: Path
+    ) -> Tuple[List[str], List[str], List[str]]:
         added_train_imgs = self._parse_split(
             image_dir=dataset_dir / "train",
             classes_path=dataset_dir / "train" / "_darknet.labels",
@@ -60,19 +65,21 @@ class DarknetParser(BaseParser):
         return added_train_imgs, added_val_imgs, added_test_imgs
 
     def from_split(self, image_dir: Path, classes_path: Path) -> ParserOutput:
-        """Parses annotations from Darknet format to LDF. Annotations include
-        classification and object detection.
+        """Parses annotations from Darknet format to LDF. Annotations
+        include classification and object detection.
 
         @type image_dir: Path
         @param image_dir: Path to directory with images
         @type classes_path: Path
         @param classes_path: Path to file with class names
         @rtype: L{ParserOutput}
-        @return: Annotation generator, list of classes names, skeleton dictionary for
-            keypoints and list of added images.
+        @return: Annotation generator, list of classes names, skeleton
+            dictionary for keypoints and list of added images.
         """
         with open(classes_path) as f:
-            class_names = {i: line.rstrip() for i, line in enumerate(f.readlines())}
+            class_names = {
+                i: line.rstrip() for i, line in enumerate(f.readlines())
+            }
 
         def generator() -> DatasetIterator:
             for img_path in self._list_images(image_dir):

@@ -1,6 +1,4 @@
-import platform
 import shutil
-import sys
 import tempfile
 from pathlib import Path
 from typing import List, Optional
@@ -8,7 +6,10 @@ from typing import List, Optional
 import pytest
 
 from luxonis_ml.utils import environ
-from luxonis_ml.utils.filesystem import LuxonisFileSystem, _get_protocol_and_path
+from luxonis_ml.utils.filesystem import (
+    LuxonisFileSystem,
+    _get_protocol_and_path,
+)
 
 URL_PATH = "luxonis-test-bucket/luxonis-ml-test-data/fs_test_data"
 
@@ -29,35 +30,19 @@ skip_if_no_gcs_credentials = pytest.mark.skipif(
 )
 
 
-def get_python_version():
-    version = sys.version_info
-    formatted_version = f"{version.major}{version.minor}"
-    return formatted_version
-
-
-def get_os():
-    os_name = platform.system().lower()
-    if "darwin" in os_name:
-        return "mac"
-    elif "linux" in os_name:
-        return "lin"
-    elif "windows" in os_name:
-        return "win"
-    else:
-        raise ValueError(f"Unsupported operating system: {os_name}")
-
-
 # NOTE: needed for tests running in GitHub Actions using the matrix strategy
 #       to avoid race conditions when running tests in parallel
-def get_os_python_specific_url(protocol: str):
-    os_name = get_os()
-    python_version = get_python_version()
-    return f"{protocol}://{URL_PATH}_{os_name}_{python_version}"
+def get_os_python_specific_url(
+    protocol: str, platform: str, python_version: str
+):
+    return f"{protocol}://{URL_PATH}_{platform}_{python_version}"
 
 
 @pytest.fixture
-def fs(request):
-    url_path = get_os_python_specific_url(request.param)
+def fs(request, python_version: str, platform_name: str):
+    url_path = get_os_python_specific_url(
+        request.param, platform_name, python_version
+    )
     yield LuxonisFileSystem(url_path)
 
 
@@ -131,7 +116,6 @@ def test_protocol():
 
 def test_fail():
     with pytest.raises(ValueError):
-        LuxonisFileSystem(None)  # type: ignore
         LuxonisFileSystem(str(LOCAL_FILE_PATH), allow_local=False)
 
 
@@ -198,7 +182,7 @@ def test_dir_download(fs: LuxonisFileSystem):
 
 @parametrize_dependent_fixture(depends=["test_dir_download"])
 def test_dir_upload(fs: LuxonisFileSystem):
-    if fs.exists("_dir_upload_test"):
+    if fs.exists("_dir_upload_test"):  # pragma: no cover
         fs.delete_dir("_dir_upload_test")
     assert not fs.exists("_dir_upload_test")
 
@@ -212,7 +196,8 @@ def test_dir_upload(fs: LuxonisFileSystem):
             file_path = Path(dir_path, f"file_{i}.txt")
             assert file_path.exists()
             assert (
-                file_path.read_text() == (LOCAL_DIR_PATH / f"file_{i}.txt").read_text()
+                file_path.read_text()
+                == (LOCAL_DIR_PATH / f"file_{i}.txt").read_text()
             )
 
     with tempfile.TemporaryDirectory() as tempdir:
@@ -245,8 +230,12 @@ def test_walk_dir(fs: LuxonisFileSystem):
         "test_dir_download",
     ],
 )
-def test_static_download(protocol: str):
-    url_root = get_os_python_specific_url(protocol)
+def test_static_download(
+    protocol: str, python_version: str, platform_name: str
+):
+    url_root = get_os_python_specific_url(
+        protocol, platform_name, python_version
+    )
     with tempfile.TemporaryDirectory() as tempdir:
         url = f"{url_root}/file.txt"
         path = LuxonisFileSystem.download(url, tempdir)
@@ -270,8 +259,10 @@ def test_static_download(protocol: str):
         "test_static_download",
     ],
 )
-def test_static_upload(protocol: str):
-    url_root = get_os_python_specific_url(protocol)
+def test_static_upload(protocol: str, python_version: str, platform_name: str):
+    url_root = get_os_python_specific_url(
+        protocol, platform_name, python_version
+    )
     with tempfile.TemporaryDirectory() as tempdir:
         url = f"{url_root}/_file_upload_test.txt"
         LuxonisFileSystem.upload(LOCAL_FILE_PATH, url)
@@ -289,7 +280,8 @@ def test_static_upload(protocol: str):
             file_path = Path(dir_path, f"file_{i}.txt")
             assert file_path.exists()
             assert (
-                file_path.read_text() == (LOCAL_DIR_PATH / f"file_{i}.txt").read_text()
+                file_path.read_text()
+                == (LOCAL_DIR_PATH / f"file_{i}.txt").read_text()
             )
 
     fs = LuxonisFileSystem(url_root)

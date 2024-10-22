@@ -1,11 +1,17 @@
 import glob
+import logging
 import os
 from functools import wraps
+from importlib.util import find_spec
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Union
+from typing import Any, Callable, Dict, Literal, Optional, Union
 
 import numpy as np
 from unique_names_generator import get_random_name
+
+from luxonis_ml.utils.filesystem import LuxonisFileSystem, PathType
+
+logger = logging.getLogger(__name__)
 
 
 class LuxonisTracker:
@@ -24,8 +30,9 @@ class LuxonisTracker:
         mlflow_tracking_uri: Optional[str] = None,
         rank: int = 0,
     ):
-        """Implementation of PytorchLightning Logger that wraps various logging
-        software. Supported loggers: TensorBoard, WandB and MLFlow.
+        """Implementation of PytorchLightning Logger that wraps various
+        logging software. Supported loggers: TensorBoard, WandB and
+        MLFlow.
 
         @type project_name: Optional[str]
         @param project_name: Name of the project used for WandB and MLFlow.
@@ -84,20 +91,27 @@ class LuxonisTracker:
         self.is_sweep = is_sweep
         self.rank = rank
 
-        self.run_id = run_id  # if using MLFlow then it will continue previous run
+        self.run_id = (
+            run_id  # if using MLFlow then it will continue previous run
+        )
 
         if is_wandb or is_mlflow:
             if self.project_name is None and self.project_id is None:
-                raise Exception("Either project_name or project_id must be specified!")
+                raise Exception(
+                    "Either project_name or project_id must be specified!"
+                )
 
         if self.is_wandb and wandb_entity is None:
             raise Exception("Must specify wandb_entity when using wandb!")
         else:
             self.wandb_entity = wandb_entity
-        if self.is_mlflow and mlflow_tracking_uri is None:
-            raise Exception("Must specify mlflow_tracking_uri when using mlflow!")
-        else:
-            self.mlflow_tracking_uri = mlflow_tracking_uri
+        if self.is_mlflow:
+            if mlflow_tracking_uri is None:
+                raise Exception(
+                    "Must specify mlflow_tracking_uri when using mlflow!"
+                )
+            else:
+                self.mlflow_tracking_uri = mlflow_tracking_uri
 
         if not (self.is_tensorboard or self.is_wandb or self.is_mlflow):
             raise Exception("At least one integration must be used!")
@@ -119,7 +133,8 @@ class LuxonisTracker:
 
     @staticmethod
     def rank_zero_only(fn: Callable) -> Callable:
-        """Function wrapper that lets only processes with rank=0 execute it."""
+        """Function wrapper that lets only processes with rank=0 execute
+        it."""
 
         @wraps(fn)
         def wrapped_fn(self, *args: Any, **kwargs: Any) -> Optional[Any]:
@@ -147,15 +162,18 @@ class LuxonisTracker:
 
     @property
     @rank_zero_only
-    def experiment(self) -> Dict[str, Any]:
-        """Creates new experiments or returns active ones if already created."""
+    def experiment(
+        self,
+    ) -> Dict[Literal["tensorboard", "wandb", "mlflow"], Any]:
+        """Creates new experiments or returns active ones if already
+        created."""
         if self._experiment is not None:
             return self._experiment
 
         self._experiment = {}
 
         if self.is_tensorboard:
-            from torch.utils.tensorboard import SummaryWriter
+            from torch.utils.tensorboard.writer import SummaryWriter
 
             log_dir = f"{self.save_directory}/tensorboard_logs/{self.run_name}"
             self._experiment["tensorboard"] = SummaryWriter(log_dir=log_dir)
@@ -180,23 +198,43 @@ class LuxonisTracker:
         if self.is_mlflow:
             import mlflow
 
+            if find_spec("psutil") is not None:
+                mlflow.enable_system_metrics_logging()
+                if find_spec("pynvml") is None:
+                    logger.warning(
+                        "pynvml not found, GPU stats will not be monitored. "
+                        "To enable GPU monitoring, install it using 'pip install pynvml'"
+                    )
+            else:
+                logger.warning(
+                    "`psutil` not found. To enable system metric logging, "
+                    "install it using 'pip install psutil'"
+                )
+
             self._experiment["mlflow"] = mlflow
 
-            self.artifacts_dir = f"{self.save_directory}/{self.run_name}/artifacts"
+            self.artifacts_dir = (
+                f"{self.save_directory}/{self.run_name}/artifacts"
+            )
             Path(self.artifacts_dir).mkdir(parents=True, exist_ok=True)
 
-            self._experiment["mlflow"].set_tracking_uri(self.mlflow_tracking_uri)
+            self._experiment["mlflow"].set_tracking_uri(
+                self.mlflow_tracking_uri
+            )
 
             if self.project_id is not None:
                 self.project_name = None
             experiment = self._experiment["mlflow"].set_experiment(
-                experiment_name=self.project_name, experiment_id=self.project_id
+                experiment_name=self.project_name,
+                experiment_id=self.project_id,
             )
             self.project_id = experiment.experiment_id
 
             # if self.run_id == None then create new run, else use alredy created one
             run = self._experiment["mlflow"].start_run(
-                run_id=self.run_id, run_name=self.run_name, nested=self.is_sweep
+                run_id=self.run_id,
+                run_name=self.run_name,
+                nested=self.is_sweep,
             )
             self.run_id = run.info.run_id
 
@@ -227,8 +265,8 @@ class LuxonisTracker:
     def log_metric(self, name: str, value: float, step: int) -> None:
         """Logs metric value with name and step.
 
-        @note: step is ommited when logging with wandb to avoid problems with
-            inconsistent incrementation.
+        @note: step is ommited when logging with wandb to avoid problems
+            with inconsistent incrementation.
         @type name: str
         @param name: Metric name
         @type value: float
@@ -265,8 +303,9 @@ class LuxonisTracker:
 
     @rank_zero_only
     def log_image(self, name: str, img: np.ndarray, step: int) -> None:
-        """Logs image with name and step. Note: step is omitted when logging with wandb
-        is used to avoid problems with inconsistent incrementation.
+        """Logs image with name and step. Note: step is omitted when
+        logging with wandb is used to avoid problems with inconsistent
+        incrementation.
 
         @type name: str
         @param name: Caption of the image
@@ -276,18 +315,55 @@ class LuxonisTracker:
         @param step: Current step
         """
         if self.is_tensorboard:
-            self.experiment["tensorboard"].add_image(name, img, step, dataformats="HWC")
+            self.experiment["tensorboard"].add_image(
+                name, img, step, dataformats="HWC"
+            )
 
         if self.is_wandb:
-            wandb_image = self._experiment["wandb"].Image(img, caption=name)
+            wandb_image = self.experiment["wandb"].Image(img, caption=name)
             # if step is added here it doesn't work correctly with wandb
-            self._experiment["wandb"].log({name: wandb_image})
+            self.experiment["wandb"].log({name: wandb_image})
 
         if self.is_mlflow:
             # split images into separate directories based on step
             base_path, img_caption = name.rsplit("/", 1)
-            self._experiment["mlflow"].log_image(
+            self.experiment["mlflow"].log_image(
                 img, f"{base_path}/{step}/{img_caption}.png"
+            )
+
+    @rank_zero_only
+    def upload_artifact(
+        self, path: PathType, name: Optional[str] = None, typ: str = "artifact"
+    ) -> None:
+        """Uploads artifact to the logging service.
+
+        @type path: PathType
+        @param path: Path to the artifact
+        @type name: Optional[str]
+        @param name: Name of the artifact, if None then use the name of
+            the file
+        @type typ: str
+        @param typ: Type of the artifact, defaults to "artifact". Only
+            used for WandB.
+        """
+        path = Path(path)
+        if self.is_wandb:
+            import wandb
+
+            artifact = wandb.Artifact(name=name or path.stem, type=typ)
+            artifact.add_file(local_path=str(path))
+            artifact.save()
+
+        if self.is_mlflow:
+            fs = LuxonisFileSystem(
+                "mlflow://",
+                allow_active_mlflow_run=True,
+                allow_local=False,
+            )
+            fs.put_file(
+                local_path=path,
+                remote_path=name or path.name,
+                mlflow_instance=self.experiment.get("mlflow"),
             )
 
     @rank_zero_only
@@ -295,8 +371,8 @@ class LuxonisTracker:
         """Logs multiple images.
 
         @type imgs: Dict[str, np.ndarray]
-        @param imgs: Dict of image key-value pairs where key is image caption and value
-            is image data
+        @param imgs: Dict of image key-value pairs where key is image
+            caption and value is image data
         @type step: int
         @param step: Current step
         """
@@ -307,7 +383,9 @@ class LuxonisTracker:
         """Returns number id for next run."""
 
         log_dirs = glob.glob(f"{self.save_directory}/*")
-        log_dirs = [path.split("/")[-1] for path in log_dirs if os.path.isdir(path)]
+        log_dirs = [
+            path.split("/")[-1] for path in log_dirs if os.path.isdir(path)
+        ]
 
         nums = [path.split("-")[0] for path in log_dirs]
         nums = [int(num) for num in nums if num.isnumeric()]
@@ -333,7 +411,9 @@ class LuxonisTracker:
             if ld.split("-")[0].isnumeric():
                 runs.append(ld)
         runs.sort(
-            key=lambda x: os.path.getmtime(os.path.join(self.save_directory, x)),
+            key=lambda x: os.path.getmtime(
+                os.path.join(self.save_directory, x)
+            ),
             reverse=True,
         )
         return runs[0]

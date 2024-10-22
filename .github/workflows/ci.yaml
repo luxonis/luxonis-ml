@@ -8,7 +8,31 @@ on:
       - 'tests/**'
       - .github/workflows/ci.yaml
 
+permissions:
+  pull-requests: write
+  contents: write
+  checks: write
+
 jobs:
+  assigner:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Auto-assign
+        uses: toshimaru/auto-author-assign@v2.1.1
+
+  labeler:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Labeler
+        uses: actions/labeler@v5
+        with:
+          configuration-path: .github/labeler.yaml
+
   pre-commit:
     runs-on: ubuntu-latest
     steps:
@@ -16,6 +40,9 @@ jobs:
       uses: actions/checkout@v4
       with:
         ref: ${{ github.head_ref }}
+
+    - name: Install pre-commit
+      run: python3 -m pip install 'pre-commit<4.0.0'
 
     - name: Run pre-commit
       uses: pre-commit/action@v3.0.1
@@ -45,7 +72,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ['3.8', '3.9', '3.10']
+        python-version: ['3.8', '3.10']
 
     runs-on: ${{ matrix.os }}
 
@@ -74,48 +101,24 @@ jobs:
         token_format: access_token
 
     - name: Run pytest
-      uses: pavelzw/pytest-action@v2
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         AWS_S3_ENDPOINT_URL: ${{ secrets.AWS_S3_ENDPOINT_URL }}
         LUXONISML_BUCKET: luxonis-test-bucket
-      with:
-        emoji: false
-        custom-arguments: --cov luxonis_ml --cov-report xml --junit-xml pytest.xml
+      run:
+        pytest --cov --junitxml=junit.xml -o junit_family=legacy
 
-    - name: Create Test Report
-      uses: EnricoMi/publish-unit-test-result-action@v2
+    - name: Upload test results to Codecov
       if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8'
+      uses: codecov/test-results-action@v1
       with:
-        files: pytest.xml
+        token: ${{ secrets.CODECOV_TOKEN }}
+        fail_ci_if_error: false
 
-    - name: Generate coverage badge
-      uses: tj-actions/coverage-badge-py@v2
+    - name: Upload coverage results to Codecov
       if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8'
+      uses: codecov/codecov-action@v4
       with:
-        output: media/coverage_badge.svg
-
-    - name: Generate coverage report
-      uses: orgoro/coverage@v3.1
-      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8'
-      with:
-          coverageFile: coverage.xml
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Commit coverage badge
-      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8'
-      run: |
-        git config --global user.name 'GitHub Actions'
-        git config --global user.email 'actions@github.com'
-        git diff --quiet media/coverage_badge.svg || {
-          git add media/coverage_badge.svg
-          git commit -m "[Automated] Updated coverage badge"
-        }
-
-    - name: Push changes
-      uses: ad-m/github-push-action@master
-      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8'
-      with:
-        branch: ${{ github.head_ref }}
-
+        token: ${{ secrets.CODECOV_TOKEN }}
+        fail_ci_if_error: false

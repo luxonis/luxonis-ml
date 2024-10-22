@@ -20,23 +20,25 @@ class LetterboxResize(DualTransform):
         always_apply: bool = False,
         p: float = 1.0,
     ):
-        """Augmentation to apply letterbox resizing to images. Also transforms masks,
-        bboxes and keypoints to correct shape.
+        """Augmentation to apply letterbox resizing to images. Also
+        transforms masks, bboxes and keypoints to correct shape.
 
         @param height: Desired height of the output.
         @type height: int
         @param width: Desired width of the output.
         @type width: int
-        @param interpolation: Cv2 flag to specify interpolation used when resizing.
-            Defaults to cv2.INTER_LINEAR.
+        @param interpolation: Cv2 flag to specify interpolation used
+            when resizing. Defaults to cv2.INTER_LINEAR.
         @type interpolation: int, optional
         @param border_value: Padding value for images. Defaults to 0.
         @type border_value: int, optional
         @param mask_value: Padding value for masks. Defaults to 0.
         @type mask_value: int, optional
-        @param always_apply: Whether to always apply the transform. Defaults to False.
+        @param always_apply: Whether to always apply the transform.
+            Defaults to False.
         @type always_apply: bool, optional
-        @param p: Probability of applying the transform. Defaults to 1.0.
+        @param p: Probability of applying the transform. Defaults to
+            1.0.
         @type p: float, optional
         """
 
@@ -54,12 +56,15 @@ class LetterboxResize(DualTransform):
         self.border_value = border_value
         self.mask_value = mask_value
 
-    def update_params(self, params: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+    def update_params(
+        self, params: Dict[str, Any], **kwargs
+    ) -> Dict[str, Any]:
         """Updates augmentation parameters with the necessary metadata.
 
         @param params: The existing augmentation parameters dictionary.
         @type params: Dict[str, Any]
-        @param kwargs: Additional keyword arguments to add the parameters.
+        @param kwargs: Additional keyword arguments to add the
+            parameters.
         @type kwargs: Any
         @return: Updated dictionary containing the merged parameters.
         @rtype: Dict[str, Any]
@@ -121,7 +126,10 @@ class LetterboxResize(DualTransform):
 
         resized_img = cv2.resize(
             img,
-            (self.width - pad_left - pad_right, self.height - pad_top - pad_bottom),
+            (
+                self.width - pad_left - pad_right,
+                self.height - pad_top - pad_bottom,
+            ),
             interpolation=self.interpolation,
         )
         img_out = cv2.copyMakeBorder(
@@ -165,7 +173,10 @@ class LetterboxResize(DualTransform):
 
         resized_img = cv2.resize(
             img,
-            (self.width - pad_left - pad_right, self.height - pad_top - pad_bottom),
+            (
+                self.width - pad_left - pad_right,
+                self.height - pad_top - pad_bottom,
+            ),
             interpolation=cv2.INTER_NEAREST,
         )
         img_out = cv2.copyMakeBorder(
@@ -208,10 +219,17 @@ class LetterboxResize(DualTransform):
         """
 
         x_min, y_min, x_max, y_max = denormalize_bbox(
-            bbox, self.height - pad_top - pad_bottom, self.width - pad_left - pad_right
+            bbox,
+            self.height - pad_top - pad_bottom,
+            self.width - pad_left - pad_right,
         )[:4]
         bbox = np.array(
-            [x_min + pad_left, y_min + pad_top, x_max + pad_left, y_max + pad_top]
+            [
+                x_min + pad_left,
+                y_min + pad_top,
+                x_max + pad_left,
+                y_max + pad_top,
+            ]
         )
         # clip bbox to image, ignoring padding
         bbox = bbox.clip(
@@ -272,9 +290,17 @@ class LetterboxResize(DualTransform):
         @rtype: Tuple[str, ...]
         """
 
-        return ("height", "width", "interpolation", "border_value", "mask_value")
+        return (
+            "height",
+            "width",
+            "interpolation",
+            "border_value",
+            "mask_value",
+        )
 
-    def _out_of_bounds(self, value: float, min_limit: float, max_limit: float) -> bool:
+    def _out_of_bounds(
+        self, value: float, min_limit: float, max_limit: float
+    ) -> bool:
         """ "Check if the given value is outside the specified limits.
 
         @param value: The value to be checked.
@@ -283,7 +309,8 @@ class LetterboxResize(DualTransform):
         @type min_limit: float
         @param max_limit: Maximum limit.
         @type max_limit: float
-        @return: True if the value is outside the specified limits, False otherwise.
+        @return: True if the value is outside the specified limits,
+            False otherwise.
         @rtype: bool
         """
         return value < min_limit or value > max_limit
