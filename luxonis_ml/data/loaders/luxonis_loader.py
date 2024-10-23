@@ -106,12 +106,12 @@ class LuxonisLoader(BaseLoader):
             self.class_mappings[task] = class_mapping
 
         self.add_background = False
+        test_image, test_labels = self._load_image_with_annotations(0)
         if (
-            LabelType.SEGMENTATION in self.classes_by_task
+            LabelType.SEGMENTATION in test_labels
             and "background"
             not in self.classes_by_task[LabelType.SEGMENTATION]
         ):
-            test_image, test_labels = self._load_image_with_annotations(0)
             seg_masks = test_labels[LabelType.SEGMENTATION][0]
             unassigned_pixels = np.sum(seg_masks, axis=0) == 0
 
