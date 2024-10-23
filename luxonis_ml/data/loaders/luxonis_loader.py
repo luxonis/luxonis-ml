@@ -106,28 +106,31 @@ class LuxonisLoader(BaseLoader):
             self.class_mappings[task] = class_mapping
 
         self.add_background = False
+        # TODO: possibly check more labels
         test_image, test_labels = self._load_image_with_annotations(0)
-        if (
-            LabelType.SEGMENTATION in test_labels
-            and "background"
-            not in self.classes_by_task[LabelType.SEGMENTATION]
-        ):
+        if LabelType.SEGMENTATION in test_labels:
             seg_masks = test_labels[LabelType.SEGMENTATION][0]
             unassigned_pixels = np.sum(seg_masks, axis=0) == 0
 
             if np.any(unassigned_pixels):
                 logger.warning(
-                    "Found unassigned pixels in segmentation masks. Adding background class at index 0."
+                    "Found unassigned pixels in segmentation masks. Assigning them to background class (class index 0)."
                 )
                 self.add_background = True
-                self.classes_by_task[LabelType.SEGMENTATION].append(
+                if (
                     "background"
-                )
-                self.class_mappings[LabelType.SEGMENTATION] = {
-                    class_: idx + 1
-                    for class_, idx in self.class_mappings[task].items()
-                }
-                self.class_mappings[LabelType.SEGMENTATION]["background"] = 0
+                    not in self.classes_by_task[LabelType.SEGMENTATION]
+                ):
+                    self.classes_by_task[LabelType.SEGMENTATION].append(
+                        "background"
+                    )
+                    self.class_mappings[LabelType.SEGMENTATION] = {
+                        class_: idx + 1
+                        for class_, idx in self.class_mappings[task].items()
+                    }
+                    self.class_mappings[LabelType.SEGMENTATION][
+                        "background"
+                    ] = 0
 
     def __len__(self) -> int:
         """Returns length of the dataset.
