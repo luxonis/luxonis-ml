@@ -174,6 +174,24 @@ class BBoxAnnotation(Annotation):
             logger.warning(
                 "BBox annotation has values outside of [0, 1] range. Clipping them to [0, 1]."
             )
+
+        # cliping done in function instead of separate model validator so
+        # order of execution is explicitly defined
+        values = cls.clip_sum(values)
+        return values
+
+    @classmethod
+    def clip_sum(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        if values["x"] + values["w"] > 1:
+            values["w"] = 1 - values["x"]
+            logger.warning(
+                "BBox annotation has x + width > 1. Clipping width so the sum is 1."
+            )
+        if values["y"] + values["h"] > 1:
+            values["h"] = 1 - values["y"]
+            logger.warning(
+                "BBox annotation has y + height > 1. Clipping height so the sum is 1."
+            )
         return values
 
     def to_numpy(self, class_mapping: Dict[str, int]) -> np.ndarray:
