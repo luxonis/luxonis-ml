@@ -549,7 +549,7 @@ The following example demonstrates a simple augmentation pipeline:
   {
     'name': 'Perspective',
     'params': {
-      'p': 0.5
+      'p': 0.5,
       'scale': [0.04, 0.08],
       'keep_size': True,
       'pad_mode': 0,
@@ -563,7 +563,7 @@ The following example demonstrates a simple augmentation pipeline:
   {
     'name': 'Affine',
     'params': {
-      'p': 0.4
+      'p': 0.4,
       'scale': None,
       'translate_percent': None,
       'translate_px': None,
