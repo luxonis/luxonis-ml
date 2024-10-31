@@ -19,6 +19,7 @@ Each of these steps will be explained in more detail in the following examples.
 
 - [LuxonisML Data](#luxonisml-data)
   - [Introduction](#introduction)
+  - [Table of Contents](#table-of-contents)
   - [Prerequisites](#prerequisites)
   - [LuxonisDataset](#luxonisdataset)
     - [Adding Data](#adding-data)
@@ -29,6 +30,15 @@ Each of these steps will be explained in more detail in the following examples.
   - [LuxonisParser](#luxonisparser)
     - [Dataset Creation](#dataset-creation)
     - [CLI Reference](#cli-reference)
+  - [Annotation Format](#annotation-format)
+    - [Classification](#classification)
+    - [Bounding Box](#bounding-box)
+    - [Keypoints](#keypoints)
+    - [Segmentation Mask](#segmentation-mask)
+      - [Polyline](#polyline)
+      - [Binary Mask](#binary-mask)
+      - [Run-Length Encoding](#run-length-encoding)
+    - [Array](#array)
 
 ## Prerequisites
 
@@ -314,3 +324,175 @@ luxonis_ml data parse path/to/dataset --name my_dataset --type coco
 ```
 
 For more detailed information, run `luxonis_ml data parse --help`.
+
+## Annotation Format
+
+The Luxonis Data Format supports several task types, each with its own annotation structure.
+Each annotation describes a single instance of the corresponding task type in the image.
+
+### Classification
+
+A single class label for the entire image.
+
+```python
+{
+    # type of the annotation, always "classification"
+    "type": "classification",
+
+    # name of the class the image belongs to
+    "class": str,
+}
+```
+
+### Bounding Box
+
+A single bounding box in the `"xywh"` format.
+The coordinates and dimensions are relative to the image size.
+
+```python
+{
+    # type of the annotation, always "boundingbox"
+    "type": "boundingbox",
+
+    # name of the class the bounding box belongs to
+    "class": str,
+
+    # unique identifier of the instance in the image
+    "instance_id": Optional[int],
+
+    # bounding box coordinates, relative to the image size
+    "x": float, # x coordinate of the top-left corner
+    "y": float, # y coordinate of the top-left corner
+    "w": float, # width of the bounding box
+    "h": float, # height of the bounding box
+}
+```
+
+### Keypoints
+
+A list of keypoint coordinates in the form of `(x, y, visibility)`.
+THe coordinates are relative to the image size.
+
+The visibility can be:
+
+- 0 for keypoints outside the image
+- 1 for keypoints in the image but occluded
+- 2 for fully visible keypoints
+
+```python
+{
+    # type of the annotation, always "keypoints"
+    "type": "keypoints",
+
+    # name of the class the keypoints belong to
+    "class": str,
+
+    # unique identifier of the instance in the image
+    "instance_id": Optional[int],
+
+    # list of (x, y, visibility) coordinates of the keypoints
+    # coordinates are relative to the image size
+    # visibility is 0 for not visible, 1 for occluded and 2 for visible
+    "points": list[tuple[float, float, Literal[0, 1, 2]]],
+}
+```
+
+### Segmentation Mask
+
+There are 3 options for how to specify the segmentation mask:
+
+#### Polyline
+
+The mask is described as a polyline. It is assumed that the last
+point connects to the first one to form a polygon.
+The coordinates are relative to the image size.
+
+```python
+{
+    # type of the annotation, always "polyline"
+    "type": "polyline",
+
+    # name of the class this mask belongs to
+    "class": str,
+
+    # list of (x, y) coordinates forming the polyline
+    # coordinates are relative to the image size
+    # the polyline will be closed to form a polygon,
+    #   i.e. the first and last point are the same
+    "polyline": list[tuple[float, float]],
+}
+```
+
+#### Binary Mask
+
+The mask is a binary 2D numpy array.
+
+```python
+{
+    # type of the annotation, always "mask"
+    "type": "mask",
+
+    # name of the class this mask belongs to
+    "class": str,
+
+    # binary mask as a 2D numpy array
+    # 0 for background, 1 for the object
+    "mask": np.ndarray,
+}
+```
+
+#### Run-Length Encoding
+
+The mask is described using the [Run-Length Encoding](https://en.wikipedia.org/wiki/Run-length_encoding) compression.
+
+Run-length encoding compresses data by reducing the physical size
+of a repeating string of characters.
+This process involves converting the input data into a compressed format
+by identifying and counting consecutive occurrences of each character.
+
+The RLE is composed of the height and width of the mask image and the counts of the pixels belonging to the positive class.
+
+```python
+{
+    # type of the annotation, always "rle"
+    "type": "rle",
+
+    # name of the class this mask belongs to
+    "class": str,
+
+    # height of the mask
+    "height": int,
+
+    # width of the mask
+    "width": int,
+
+    # counts of the pixels belonging to the positive class
+    "counts": list[int] | bytes,
+
+}
+```
+
+{% alert %}
+The RLE format is not intended for regular use and is provided mainly to support datasets that may already be in this format.
+{% /alert %}
+
+{% alert %}
+Masks provided as numpy arrays are converted to RLE format internally.
+{% /alert %}
+
+### Array
+
+An array of arbitrary data. This can be used for any custom data that doesn't fit into the other types.
+
+```python
+{
+    # type of the annotation, always "array"
+    "type": "array",
+
+    # name of the class this array belongs to
+    "class": str,
+
+    # path to a `.npy` file containing the array data
+    "path": str,
+}
+```
