@@ -15,6 +15,21 @@ The lifecycle of an LDF dataset is as follows:
 
 Each of these steps will be explained in more detail in the following examples.
 
+## Table of Contents
+
+- [LuxonisML Data](#luxonisml-data)
+  - [Introduction](#introduction)
+  - [Prerequisites](#prerequisites)
+  - [LuxonisDataset](#luxonisdataset)
+    - [Adding Data](#adding-data)
+    - [Defining Splits](#defining-splits)
+    - [CLI Reference](#cli-reference)
+  - [LuxonisLoader](#luxonisloader)
+  - [Dataset Loading](#dataset-loading)
+  - [LuxonisParser](#luxonisparser)
+    - [Dataset Creation](#dataset-creation)
+    - [CLI Reference](#cli-reference)
+
 ## Prerequisites
 
 We will be using our toy dataset `parking_lot` in all examples. The dataset consists of images of cars and motorcycles in a parking lot. Each image has a corresponding annotation in the form of a bounding box, keypoints and several segmentation masks.
