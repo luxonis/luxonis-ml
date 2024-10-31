@@ -242,16 +242,16 @@ for img, labels in loader:
 
 The supported formats are:
 
-- COCO - We support COCO JSON format in two variants:
+- **COCO** - We support COCO JSON format in two variants:
   - [RoboFlow](https://roboflow.com/formats/coco-json)
   - [FiftyOne](https://docs.voxel51.com/user_guide/export_datasets.html#cocodetectiondataset-export)
-- [Pascal VOC XML](https://roboflow.com/formats/pascal-voc-xml)
-- [YOLO Darknet TXT](https://roboflow.com/formats/yolo-darknet-txt)
-- [YOLOv4 PyTorch TXT](https://roboflow.com/formats/yolov4-pytorch-txt)
-- [MT YOLOv6](https://roboflow.com/formats/mt-yolov6)
-- [CreateML JSON](https://roboflow.com/formats/createml-json)
-- [TensorFlow Object Detection CSV](https://roboflow.com/formats/tensorflow-object-detection-csv)
-- Classification Directory - A directory with subdirectories for each class
+- [**Pascal VOC XML**](https://roboflow.com/formats/pascal-voc-xml)
+- [**YOLO Darknet TXT**](https://roboflow.com/formats/yolo-darknet-txt)
+- [**YOLOv4 PyTorch TXT**](https://roboflow.com/formats/yolov4-pytorch-txt)
+- [**MT YOLOv6**](https://roboflow.com/formats/mt-yolov6)
+- [**CreateML JSON**](https://roboflow.com/formats/createml-json)
+- [**TensorFlow Object Detection CSV**](https://roboflow.com/formats/tensorflow-object-detection-csv)
+- **Classification Directory** - A directory with subdirectories for each class
 
 ```plaintext
 dataset_dir/
@@ -266,7 +266,7 @@ dataset_dir/
 └── test/
 ```
 
-- Segmentation Mask Directory - A directory with images and corresponding masks.
+- **Segmentation Mask Directory** - A directory with images and corresponding masks.
 
 ```plaintext
 dataset_dir/
