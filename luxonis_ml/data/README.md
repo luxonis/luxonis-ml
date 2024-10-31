@@ -476,13 +476,11 @@ The RLE is composed of the height and width of the mask image and the counts of 
 }
 ```
 
-{% alert %}
-The RLE format is not intended for regular use and is provided mainly to support datasets that may already be in this format.
-{% /alert %}
+> \[!NOTE\]
+> The RLE format is not intended for regular use and is provided mainly to support datasets that may already be in this format.
 
-{% alert %}
-Masks provided as numpy arrays are converted to RLE format internally.
-{% /alert %}
+> \[!NOTE\]
+> Masks provided as numpy arrays are converted to RLE format internally.
 
 ### Array
 
@@ -516,7 +514,7 @@ The augmentations are specified as a list of dictionaries, where each dictionary
 }
 ```
 
-By default, we support most augmentations from the `albumentations` library. You can find the full list of augmentations and their parameters in the {% link href="https://albumentations.ai/docs/api_reference/augmentations/" %}Albumentations documentation{% /link %}.
+By default, we support most augmentations from the `albumentations` library. You can find the full list of augmentations and their parameters in the [Albumentations](https://albumentations.ai/docs/api_reference/augmentations/)documentation.
 
 On top of that, we provide a handful of custom batch augmentations:
 
@@ -586,9 +584,8 @@ The following example demonstrates a simple augmentation pipeline:
 
 ```
 
-{% alert %}
-The augmentations are **not** applied in order. Instead, an optimal order is determined based on the type of the augmentations to minimize the computational cost.
-{% /alert %}
+> \[!NOTE\]
+> The augmentations are **not** applied in order. Instead, an optimal order is determined based on the type of the augmentations to minimize the computational cost.
 
 ### Usage with LuxonisLoader
 
