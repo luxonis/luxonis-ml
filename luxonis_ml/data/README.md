@@ -531,7 +531,7 @@ The following example demonstrates a simple augmentation pipeline:
   {
     'name': 'HueSaturationValue',
     'params': {
-      'p': 0.5
+      'p': 0.5,
       'hue_shift_limit': 3,
       'sat_shift_limit': 70,
       'val_shift_limit': 40,
