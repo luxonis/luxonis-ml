@@ -94,6 +94,8 @@ class LuxonisLoader(BaseLoader):
 
         self.class_mappings = {}
         for task in df["task"].unique():
+            if not task:
+                continue
             class_mapping = {
                 class_: i
                 for i, class_ in enumerate(
@@ -290,8 +292,9 @@ class LuxonisLoader(BaseLoader):
                     "instance_id": instance_id,
                 }
             )
-            annotation = load_annotation(type_, data)
-            labels_by_task[task].append(annotation)
+            if type_ != "NoneType":
+                annotation = load_annotation(type_, data)
+                labels_by_task[task].append(annotation)
 
         labels: Labels = {}
         for task, anns in labels_by_task.items():
