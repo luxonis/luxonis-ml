@@ -24,12 +24,12 @@ Each of these steps will be explained in more detail in the following examples.
   - [LuxonisDataset](#luxonisdataset)
     - [Adding Data](#adding-data)
     - [Defining Splits](#defining-splits)
-    - [CLI Reference](#cli-reference)
+    - [LuxonisML CLI](#luxonisml-cli)
   - [LuxonisLoader](#luxonisloader)
-  - [Dataset Loading](#dataset-loading)
+    - [Dataset Loading](#dataset-loading)
   - [LuxonisParser](#luxonisparser)
     - [Dataset Creation](#dataset-creation)
-    - [CLI Reference](#cli-reference)
+    - [LuxonisParser CLI](#luxonisparser-cli)
   - [Annotation Format](#annotation-format)
     - [Classification](#classification)
     - [Bounding Box](#bounding-box)
@@ -39,6 +39,10 @@ Each of these steps will be explained in more detail in the following examples.
       - [Binary Mask](#binary-mask)
       - [Run-Length Encoding](#run-length-encoding)
     - [Array](#array)
+  - [Augmentation](#augmentation)
+    - [Augmentation Pipeline](#augmentation-pipeline)
+    - [Example](#example)
+    - [Usage with LuxonisLoader](#usage-with-luxonisloader)
 
 ## Prerequisites
 
@@ -189,7 +193,7 @@ If you wish to delete old splits and create new ones using all the data, pass `r
 > There are no restrictions on the split names,
 > however for most cases one should stick to `"train"`, `"val"`, and `"test"`.
 
-### CLI Reference
+### LuxonisML CLI
 
 The `luxonis_ml` CLI provides a set of commands for managing datasets.
 These commands are accessible via the `luxonis_ml data` command.
@@ -212,7 +216,7 @@ This guide covers the loading of datasets using the `LuxonisLoader` class.
 
 The `LuxonisLoader` class can also take care of data augmentation, for more info see [Augmentation](#augmentation).
 
-## Dataset Loading
+### Dataset Loading
 
 To load a dataset with `LuxonisLoader`, we need an instance of `LuxonisDataset`, and we need to specify what view of the dataset we want to load.
 
@@ -315,7 +319,7 @@ After initializing the parser, you can parse the dataset to create a `LuxonisDat
 dataset = parser.parse()
 ```
 
-### CLI Reference
+### LuxonisParser CLI
 
 The parser can be invoked using the `luxonis_ml data parse` command.
 
@@ -495,4 +499,113 @@ An array of arbitrary data. This can be used for any custom data that doesn't fi
     # path to a `.npy` file containing the array data
     "path": str,
 }
+```
+
+## Augmentation
+
+`LuxonisLoader` provides a way to use augmentations with your datasets. Augmentations are transformations applied to the data to increase the diversity of the dataset and improve the performance of the model.
+
+### Augmentation Pipeline
+
+The augmentations are specified as a list of dictionaries, where each dictionary represents a single augmentation. The structure of the dictionary is as follows:
+
+```python
+{
+    "name": str,  # name of the augmentation
+    "params": dict  # parameters of the augmentation
+}
+```
+
+By default, we support most augmentations from the `albumentations` library. You can find the full list of augmentations and their parameters in the {% link href="https://albumentations.ai/docs/api_reference/augmentations/" %}Albumentations documentation{% /link %}.
+
+On top of that, we provide a handful of custom batch augmentations:
+
+- `Mosaic4` - Mosaic augmentation with 4 images. Combines crops of 4 images into a single image in a mosaic pattern.
+- `MixUp` - MixUp augmentation. Overlays two images with a random weight.
+
+### Example
+
+The following example demonstrates a simple augmentation pipeline:
+
+```python
+
+[
+  {
+    'name': 'HueSaturationValue',
+    'params': {
+      'p': 0.5
+      'hue_shift_limit': 3,
+      'sat_shift_limit': 70,
+      'val_shift_limit': 40,
+    }
+  },
+  {
+    'name': 'Rotate',
+    'params': {
+      'p': 0.6,
+      'limit': 30,
+      'border_mode': 0,
+      'value': [0, 0, 0]
+    }
+  },
+  {
+    'name': 'Perspective',
+    'params': {
+      'p': 0.5
+      'scale': [0.04, 0.08],
+      'keep_size': True,
+      'pad_mode': 0,
+      'pad_val': 0,
+      'mask_pad_val': 0,
+      'fit_output': False,
+      'interpolation': 1,
+      'always_apply': False,
+    }
+  },
+  {
+    'name': 'Affine',
+    'params': {
+      'p': 0.4
+      'scale': None,
+      'translate_percent': None,
+      'translate_px': None,
+      'rotate': None,
+      'shear': 10,
+      'interpolation': 1,
+      'mask_interpolation': 0,
+      'cval': 0,
+      'cval_mask': 0,
+      'mode': 0,
+      'fit_output': False,
+      'keep_ratio': False,
+      'rotate_method': 'largest_box',
+      'always_apply': False,
+    }
+  },
+]
+
+```
+
+{% alert %}
+The augmentations are **not** applied in order. Instead, an optimal order is determined based on the type of the augmentations to minimize the computational cost.
+{% /alert %}
+
+### Usage with LuxonisLoader
+
+For this example, we will assume the augmentation example above is stored in a JSON file named `augmentations.json`.
+
+```python
+
+from luxonis_ml.data import LuxonisDataset, LuxonisLoader, Augmentations
+import json
+
+with open("augmentations.json") as f:
+    augmentations = json.load(f)
+
+aug = Augmentations(image_size=[256, 320], augmentations=augmentations)
+dataset = LuxonisDataset("parking_lot")
+loader = LuxonisLoader(dataset, view="train", augmentations=aug)
+
+for img, labels in loader:
+    ...
 ```
