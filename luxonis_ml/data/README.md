@@ -59,7 +59,7 @@ We will be using our toy dataset `parking_lot` in all examples. The dataset cons
 | Brand Segmentation          | Segmentation Mask | background, alfa-romeo, buick, ducati, harley, ferrari, infiniti, jeep, land-rover, roll-royce, yamaha |
 | Binary Vehicle Segmentation | Segmentation Mask | vehicle                                                                                                |
 
-To start, download the zipped dataset from TODO and extract it to a directory of your choice.
+To start, download the zipped dataset from [here](https://drive.google.com/uc?export=download&id=1OAuLlL_4wRSzZ33BuxM6Uw2QYYgv_19N) and extract it to a directory of your choice.
 
 ## LuxonisDataset
 
