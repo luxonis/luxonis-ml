@@ -303,8 +303,7 @@ class SegmentationAnnotation(Annotation):
 
 
 class RLESegmentationAnnotation(SegmentationAnnotation):
-    """U{Run-length encoded<https://en.wikipedia.org/wiki/Run-length_encoding>}
-        segmentation mask.
+    """Run-length encoded segmentation mask.
 
     @type height: int
     @ivar height: The height of the segmentation mask.
@@ -315,6 +314,8 @@ class RLESegmentationAnnotation(SegmentationAnnotation):
     @type counts: Union[List[int], bytes]
     @ivar counts: The run-length encoded mask.
         This can be a list of integers or a byte string.
+
+    @see: U{Run-length encoding<https://en.wikipedia.org/wiki/Run-length_encoding>}
     """
 
     type_: Literal["rle"] = Field("rle", alias="type")
