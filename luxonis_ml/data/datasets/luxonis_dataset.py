@@ -310,8 +310,10 @@ class LuxonisDataset(BaseDataset):
                 for c in classes
             }
         )
-        # for task in self.metadata["classes"]:
-        #     self.metadata["classes"][task] = sorted(self.metadata["classes"][task])
+        for task in self.metadata["classes"]:
+            self.metadata["classes"][task] = sorted(
+                self.metadata["classes"][task]
+            )
         return sorted(all_classes), self.metadata["classes"]
 
     def set_skeletons(
