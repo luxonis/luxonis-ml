@@ -199,6 +199,24 @@ class COCOParser(BaseParser):
         @return: Annotation generator, list of classes names, skeleton
             dictionary for keypoints and list of added images.
         """
+        # Files that are in the training split and also have copies in the validation split
+        files_to_avoid = [
+            "000000341448.jpg",
+            "000000279522.jpg",
+            "000000090169.jpg",
+            "000000321238.jpg",
+            "000000242807.jpg",
+            "000000297126.jpg",
+            "000000411274.jpg",
+            "000000407259.jpg",
+            "000000446141.jpg",
+            "000000373199.jpg",
+            "000000410810.jpg",
+            "000000397819.jpg",
+            "000000578492.jpg",
+            "000000531721.jpg",
+        ]
+
         with open(annotation_path) as f:
             annotation_data = json.load(f)
 
@@ -227,7 +245,7 @@ class COCOParser(BaseParser):
 
             for img_id, img in img_dict.items():
                 path = image_dir.absolute().resolve() / img["file_name"]
-                if not path.exists():
+                if not path.exists() or img["file_name"] in files_to_avoid:
                     continue
                 path = str(path)
 
@@ -236,6 +254,8 @@ class COCOParser(BaseParser):
                 img_w = img["width"]
 
                 for i, ann in enumerate(img_anns):
+                    if ann.get("iscrowd", True):
+                        continue
                     class_name = categories[ann["category_id"]]
                     yield {
                         "file": path,
