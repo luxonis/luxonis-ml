@@ -14,6 +14,8 @@ from ..datasets import LuxonisDataset, load_annotation
 from ..utils.enums import LabelType
 from .base_loader import BaseLoader, Labels, LuxonisLoaderOutput
 
+logger = logging.getLogger(__name__)
+
 
 class LuxonisLoader(BaseLoader):
     def __init__(
@@ -92,6 +94,8 @@ class LuxonisLoader(BaseLoader):
 
         self.class_mappings = {}
         for task in df["task"].unique():
+            if not task:
+                continue
             class_mapping = {
                 class_: i
                 for i, class_ in enumerate(
@@ -102,6 +106,33 @@ class LuxonisLoader(BaseLoader):
                 )
             }
             self.class_mappings[task] = class_mapping
+
+        self.add_background = False
+        # TODO: possibly check more labels
+        test_image, test_labels = self._load_image_with_annotations(0)
+        if LabelType.SEGMENTATION in test_labels:
+            seg_masks = test_labels[LabelType.SEGMENTATION][0]
+            unassigned_pixels = np.sum(seg_masks, axis=0) == 0
+
+            if np.any(unassigned_pixels):
+                logger.warning(
+                    "Found unassigned pixels in segmentation masks. Assigning them to `background` class (class index 0). If this is not desired then make sure all pixels are assigned to one class or rename your background class."
+                )
+                self.add_background = True
+                if (
+                    "background"
+                    not in self.classes_by_task[LabelType.SEGMENTATION]
+                ):
+                    self.classes_by_task[LabelType.SEGMENTATION].append(
+                        "background"
+                    )
+                    self.class_mappings[LabelType.SEGMENTATION] = {
+                        class_: idx + 1
+                        for class_, idx in self.class_mappings[task].items()
+                    }
+                    self.class_mappings[LabelType.SEGMENTATION][
+                        "background"
+                    ] = 0
 
     def __len__(self) -> int:
         """Returns length of the dataset.
@@ -261,8 +292,9 @@ class LuxonisLoader(BaseLoader):
                     "instance_id": instance_id,
                 }
             )
-            annotation = load_annotation(type_, data)
-            labels_by_task[task].append(annotation)
+            if type_ != "NoneType":
+                annotation = load_annotation(type_, data)
+                labels_by_task[task].append(annotation)
 
         labels: Labels = {}
         for task, anns in labels_by_task.items():
@@ -271,6 +303,11 @@ class LuxonisLoader(BaseLoader):
             array = anns[0].combine_to_numpy(
                 anns, self.class_mappings[task], width=width, height=height
             )
+            if self.add_background and task == LabelType.SEGMENTATION:
+                unassigned_pixels = np.sum(array, axis=0) == 0
+                background_idx = self.class_mappings[task]["background"]
+                array[background_idx, unassigned_pixels] = 1
+
             labels[task] = (array, anns[0]._label_type)
 
         return img, labels
