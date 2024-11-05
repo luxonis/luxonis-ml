@@ -357,7 +357,6 @@ def clean_annotations(annotation_path: Path) -> Path:
     annotation_data["images"] = filtered_images
     annotation_data["annotations"] = filtered_annotations
 
-    # Save the cleaned annotation file
     cleaned_annotation_path = annotation_path.with_name("labels_fixed.json")
     with open(cleaned_annotation_path, "w") as f:
         json.dump(annotation_data, f)
