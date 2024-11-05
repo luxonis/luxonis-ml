@@ -1,4 +1,5 @@
 import glob
+import json
 import logging
 import os
 from functools import wraps
@@ -6,6 +7,7 @@ from importlib.util import find_spec
 from pathlib import Path
 from typing import Any, Callable, Dict, Literal, Optional, Union
 
+import cv2
 import numpy as np
 from unique_names_generator import get_random_name
 
@@ -90,6 +92,13 @@ class LuxonisTracker:
         self.is_mlflow = is_mlflow
         self.is_sweep = is_sweep
         self.rank = rank
+        self.local_logs = {
+            "metrics": [],
+            "params": {},
+            "images": [],
+            "artifacts": [],
+        }
+        self.mlflow_initialized = False
 
         self.run_id = (
             run_id  # if using MLFlow then it will continue previous run
@@ -144,6 +153,111 @@ class LuxonisTracker:
 
         return wrapped_fn
 
+    def log_to_mlflow(self, log_fn: Callable, *args, **kwargs) -> None:
+        """Attempts to log to MLflow, with retries.
+
+        Logs locally if failures persist.
+        """
+        try:
+            log_fn(*args, **kwargs)
+            self.log_stored_logs_to_mlflow()  # Attempt to log stored logs after successful log
+            return
+        except Exception as e:
+            logger.warning(f"Attempt to log to MLflow failed: {e}")
+
+        self.store_log_locally(log_fn, *args, **kwargs)
+
+    def store_log_locally(self, log_fn: Callable, *args, **kwargs) -> None:
+        """Stores log data locally if logging to MLflow fails."""
+        # Checking functions without reinitializing experiment
+        if log_fn == self.log_metric:
+            self.local_logs["metrics"].append(
+                {"name": args[0], "value": args[1], "step": args[2]}
+            )
+        elif log_fn == self.log_hyperparams:
+            self.local_logs["params"].update(args[0])
+        elif log_fn == self.log_image:
+            self.local_logs["images"].append(
+                {"image_data": args[0], "name": args[1]}
+            )
+        elif log_fn == self.upload_artifact:
+            self.local_logs["artifacts"].append(
+                {"path": str(args[0]), "name": args[1], "type": args[2]}
+            )
+
+    def log_stored_logs_to_mlflow(self):
+        """Attempts to log any data stored in local_logs to MLflow."""
+        if not self.mlflow_initialized or not any(self.local_logs.values()):
+            return
+
+        try:
+            for metric in self.local_logs["metrics"]:
+                self._experiment["mlflow"].log_metric(
+                    metric["name"], metric["value"], metric["step"]
+                )
+            if self.local_logs["params"]:
+                self._experiment["mlflow"].log_params(
+                    self.local_logs["params"]
+                )
+            for image in self.local_logs["images"]:
+                self._experiment["mlflow"].log_image(
+                    image["image_data"], image["name"]
+                )
+            for artifact in self.local_logs["artifacts"]:
+                self.upload_artifact(
+                    Path(artifact["path"]), artifact["name"], artifact["type"]
+                )
+
+            self.local_logs = {
+                "metrics": [],
+                "params": {},
+                "images": [],
+                "artifacts": [],
+            }
+            logger.info("Successfully re-logged stored logs to MLflow.")
+        except Exception as e:
+            logger.warning(f"Failed to re-log stored logs to MLflow: {e}")
+
+    def save_logs_locally(self):
+        """Saves metrics, parameters, and artifacts to JSON and images
+        to separate files."""
+        run_dir = Path(self.save_directory) / self.run_name
+        image_dir = run_dir / "images"
+        artifact_dir = run_dir / "artifacts"
+
+        run_dir.mkdir(parents=True, exist_ok=True)
+        image_dir.mkdir(exist_ok=True)
+        artifact_dir.mkdir(exist_ok=True)
+
+        for idx, img in enumerate(self.local_logs["images"]):
+            img_path = str(image_dir / f"{idx}.png")
+            cv2.imwrite(
+                img_path, cv2.cvtColor(img["image_data"], cv2.COLOR_RGB2BGR)
+            )
+            img["image_data"] = img_path  # Replace data with path
+
+        # Save artifacts to local storage directory
+        for artifact in self.local_logs["artifacts"]:
+            artifact_path = Path(artifact["path"])
+            if artifact_path.exists():
+                local_path = artifact_dir / artifact_path.name
+                local_path.write_bytes(artifact_path.read_bytes())
+                artifact["path"] = str(local_path)
+
+        # Save logs to JSON file
+        with open(run_dir / "local_logs.json", "w") as f:
+            json.dump(
+                {
+                    k: self.local_logs[k]
+                    for k in ["metrics", "params", "images", "artifacts"]
+                },
+                f,
+            )
+
+        logger.info(
+            f"Logs saved locally at {run_dir / 'local_logs.json'}, images in {image_dir}, artifacts in {artifact_dir}"
+        )
+
     @property
     def name(self) -> str:
         """Returns run name.
@@ -167,18 +281,16 @@ class LuxonisTracker:
     ) -> Dict[Literal["tensorboard", "wandb", "mlflow"], Any]:
         """Creates new experiments or returns active ones if already
         created."""
-        if self._experiment is not None:
-            return self._experiment
+        if self._experiment is None:
+            self._experiment = {}
 
-        self._experiment = {}
-
-        if self.is_tensorboard:
+        if self.is_tensorboard and "tensorboard" not in self._experiment:
             from torch.utils.tensorboard.writer import SummaryWriter
 
             log_dir = f"{self.save_directory}/tensorboard_logs/{self.run_name}"
             self._experiment["tensorboard"] = SummaryWriter(log_dir=log_dir)
 
-        if self.is_wandb:
+        if self.is_wandb and "wandb" not in self._experiment:
             import wandb
 
             self._experiment["wandb"] = wandb
@@ -195,48 +307,56 @@ class LuxonisTracker:
                 name=self.run_name,
             )
 
-        if self.is_mlflow:
-            import mlflow
+        if self.is_mlflow and self.mlflow_initialized is False:
+            try:
+                import mlflow
 
-            if find_spec("psutil") is not None:
-                mlflow.enable_system_metrics_logging()
-                if find_spec("pynvml") is None:
+                if find_spec("psutil") is not None:
+                    mlflow.enable_system_metrics_logging()
+                    if find_spec("pynvml") is None:
+                        logger.warning(
+                            "pynvml not found, GPU stats will not be monitored. "
+                            "To enable GPU monitoring, install it using 'pip install pynvml'"
+                        )
+                else:
                     logger.warning(
-                        "pynvml not found, GPU stats will not be monitored. "
-                        "To enable GPU monitoring, install it using 'pip install pynvml'"
+                        "`psutil` not found. To enable system metric logging, "
+                        "install it using 'pip install psutil'"
                     )
-            else:
-                logger.warning(
-                    "`psutil` not found. To enable system metric logging, "
-                    "install it using 'pip install psutil'"
+
+                self._experiment["mlflow"] = mlflow
+
+                self.artifacts_dir = (
+                    f"{self.save_directory}/{self.run_name}/artifacts"
+                )
+                Path(self.artifacts_dir).mkdir(parents=True, exist_ok=True)
+
+                self._experiment["mlflow"].set_tracking_uri(
+                    self.mlflow_tracking_uri
                 )
 
-            self._experiment["mlflow"] = mlflow
+                if self.project_id is not None:
+                    self.project_name = None
+                experiment = self._experiment["mlflow"].set_experiment(
+                    experiment_name=self.project_name,
+                    experiment_id=self.project_id,
+                )
+                self.project_id = experiment.experiment_id
 
-            self.artifacts_dir = (
-                f"{self.save_directory}/{self.run_name}/artifacts"
-            )
-            Path(self.artifacts_dir).mkdir(parents=True, exist_ok=True)
+                # If self.run_id is None, create a new run; otherwise, use the existing one
+                run = self._experiment["mlflow"].start_run(
+                    run_id=self.run_id,
+                    run_name=self.run_name,
+                    nested=self.is_sweep,
+                )
+                self.run_id = run.info.run_id
+                self.mlflow_initialized = (
+                    True  # Mark MLflow as initialized successfully
+                )
 
-            self._experiment["mlflow"].set_tracking_uri(
-                self.mlflow_tracking_uri
-            )
-
-            if self.project_id is not None:
-                self.project_name = None
-            experiment = self._experiment["mlflow"].set_experiment(
-                experiment_name=self.project_name,
-                experiment_id=self.project_id,
-            )
-            self.project_id = experiment.experiment_id
-
-            # if self.run_id == None then create new run, else use alredy created one
-            run = self._experiment["mlflow"].start_run(
-                run_id=self.run_id,
-                run_name=self.run_name,
-                nested=self.is_sweep,
-            )
-            self.run_id = run.info.run_id
+            except Exception as e:
+                logger.warning(f"Failed to initialize MLflow: {e}")
+                self.mlflow_initialized = False  # Mark MLflow as unavailable
 
         return self._experiment
 
@@ -259,7 +379,7 @@ class LuxonisTracker:
         if self.is_wandb:
             self.experiment["wandb"].config.update(params)
         if self.is_mlflow:
-            self.experiment["mlflow"].log_params(params)
+            self.log_to_mlflow(self.experiment["mlflow"].log_params, params)
 
     @rank_zero_only
     def log_metric(self, name: str, value: float, step: int) -> None:
@@ -282,7 +402,9 @@ class LuxonisTracker:
             self.experiment["wandb"].log({name: value})
 
         if self.is_mlflow:
-            self.experiment["mlflow"].log_metric(name, value, step)
+            self.log_to_mlflow(
+                self.experiment["mlflow"].log_metric, name, value, step
+            )
 
     @rank_zero_only
     def log_metrics(self, metrics: Dict[str, float], step: int) -> None:
@@ -299,7 +421,9 @@ class LuxonisTracker:
         if self.is_wandb:
             self.experiment["wandb"].log(metrics)
         if self.is_mlflow:
-            self.experiment["mlflow"].log_metrics(metrics, step)
+            self.log_to_mlflow(
+                self.experiment["mlflow"].log_metrics, metrics, step
+            )
 
     @rank_zero_only
     def log_image(self, name: str, img: np.ndarray, step: int) -> None:
@@ -327,8 +451,9 @@ class LuxonisTracker:
         if self.is_mlflow:
             # split images into separate directories based on step
             base_path, img_caption = name.rsplit("/", 1)
-            self.experiment["mlflow"].log_image(
-                img, f"{base_path}/{step}/{img_caption}.png"
+            img_path = f"{base_path}/{step}/{img_caption}.png"
+            self.log_to_mlflow(
+                self.experiment["mlflow"].log_image, img, img_path
             )
 
     @rank_zero_only
@@ -355,16 +480,23 @@ class LuxonisTracker:
             artifact.save()
 
         if self.is_mlflow:
-            fs = LuxonisFileSystem(
-                "mlflow://",
-                allow_active_mlflow_run=True,
-                allow_local=False,
-            )
-            fs.put_file(
-                local_path=path,
-                remote_path=name or path.name,
-                mlflow_instance=self.experiment.get("mlflow"),
-            )
+            try:
+                fs = LuxonisFileSystem(
+                    "mlflow://",
+                    allow_active_mlflow_run=True,
+                    allow_local=False,
+                )
+                fs.put_file(
+                    local_path=path,
+                    remote_path=name or path.name,
+                    mlflow_instance=self.experiment.get("mlflow"),
+                )
+            except Exception as e:
+                logger.warning(f"Failed to upload artifact to MLflow: {e}")
+                self.store_log_locally(
+                    self.upload_artifact, path, name, typ
+                )  # Stores details for retrying later
+                self.log_stored_logs_to_mlflow()
 
     @rank_zero_only
     def log_images(self, imgs: Dict[str, np.ndarray], step: int) -> None:
@@ -394,6 +526,11 @@ class LuxonisTracker:
             return 0
         else:
             return max(nums) + 1
+
+    def close(self):
+        """Finalizes logging and saves unsent logs locally."""
+        if self.is_mlflow and any(self.local_logs.values()):
+            self.save_logs_locally()
 
     def _get_run_name(self) -> str:
         """Generates new run name."""
