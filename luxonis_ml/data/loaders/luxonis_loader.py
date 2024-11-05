@@ -184,6 +184,11 @@ class LuxonisLoader(BaseLoader):
         loaded_anns = [self._load_image_with_annotations(i) for i in indices]
         random_state = random.getstate()
         np_random_state = np.random.get_state()
+        if not loaded_anns[0][1]:
+            img, aug_annotations = self.augmentations(
+                [(loaded_anns[i][0], {}) for i in range(len(loaded_anns))],
+            )
+
         while loaded_anns[0][1]:
             aug_input_data = []
             label_to_task = {}
@@ -242,7 +247,7 @@ class LuxonisLoader(BaseLoader):
             for label_type, array in aug_annotations.items():
                 out_dict[label_to_task[label_type]] = (array, label_type)
 
-        return img, out_dict  # type: ignore
+        return img, out_dict
 
     def _load_image_with_annotations(
         self, idx: int
@@ -256,7 +261,13 @@ class LuxonisLoader(BaseLoader):
             with all the present annotations
         """
 
+        if not self.idx_to_df_row:
+            raise ValueError(
+                f"No data found in dataset '{self.dataset.identifier}' for {self.view} views"
+            )
+
         ann_indices = self.idx_to_df_row[idx]
+
         ann_rows = [self.df.row(row) for row in ann_indices]
         if not self.dataset.is_remote:
             img_path = ann_rows[0][8]
