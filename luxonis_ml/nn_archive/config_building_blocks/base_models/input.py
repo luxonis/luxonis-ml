@@ -38,17 +38,17 @@ class PreprocessingBlock(BaseModelExtraForbid):
         description="Standardization values in channel order. Typically, this is BGR order.",
     )
     reverse_channels: Optional[bool] = Field(
-        None,
+        True,
         deprecated="Deprecated, use `dai_type` instead.",
         description="If True input to the model is RGB else BGR.",
     )
     interleaved_to_planar: Optional[bool] = Field(
-        None,
+        False,
         deprecated="Deprecated, use `dai_type` instead.",
         description="If True input to the model is interleaved (NHWC) else planar (NCHW).",
     )
-    dai_type: Optional[str] = Field(
-        None,
+    dai_type: str = Field(
+        "RGB888p",
         description="DepthAI input type which is read by DepthAI to automatically setup the pipeline.",
     )
 
