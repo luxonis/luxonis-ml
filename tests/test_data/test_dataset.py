@@ -572,3 +572,26 @@ def test_uncommon_label_types(
         assert "array" in labels
         assert labels["label"][0].tolist() == [["dog"], ["cat"]]
         assert np.allclose(labels["array"][0], arr)
+
+
+def test_no_labels():
+    dataset = LuxonisDataset("__no_labels", delete_existing=True)
+
+    def generator():
+        for i in range(10):
+            img = make_image(i)
+            yield {
+                "file": img,
+            }
+
+    dataset.add(generator())
+    dataset.make_splits()
+
+    loader = LuxonisLoader(dataset)
+    for _, labels in loader:
+        assert labels == {}
+
+    augments = Augmentations([512, 512], [{"name": "Flip", "params": {}}])
+    loader = LuxonisLoader(dataset, augmentations=augments)
+    for _, labels in loader:
+        assert labels == {}
