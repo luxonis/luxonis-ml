@@ -20,11 +20,13 @@ class PreprocessingBlock(BaseModelExtraForbid):
     @ivar scale: Standardization values in channel order. Typically,
         this is BGR order.
     @type reverse_channels: bool | None
-    @ivar reverse_channels: If True, color channels are reversed (e.g.
-        BGR to RGB or vice versa).
+    @ivar reverse_channels: If True input to the model is RGB else BGR.
     @type interleaved_to_planar: bool | None
-    @ivar interleaved_to_planar: If True, format is changed from
-        interleaved to planar.
+    @ivar interleaved_to_planar: If True input to the model is
+        interleaved (NHWC) else planar (NCHW).
+    @type layout: str | None
+    @ivar layout: DepthAI input type which is read by DepthAI to
+        automatically setup the pipeline.
     """
 
     mean: Optional[List[float]] = Field(
@@ -37,11 +39,17 @@ class PreprocessingBlock(BaseModelExtraForbid):
     )
     reverse_channels: Optional[bool] = Field(
         None,
-        description="If True, color channels are reversed (e.g. BGR to RGB or vice versa).",
+        deprecated="Deprecated, use `dai_type` instead.",
+        description="If True input to the model is RGB else BGR.",
     )
     interleaved_to_planar: Optional[bool] = Field(
         None,
-        description="If True, format is changed from interleaved to planar.",
+        deprecated="Deprecated, use `dai_type` instead.",
+        description="If True input to the model is interleaved (NHWC) else planar (NCHW).",
+    )
+    dai_type: Optional[str] = Field(
+        None,
+        description="DepthAI input type which is read by DepthAI to automatically setup the pipeline.",
     )
 
 

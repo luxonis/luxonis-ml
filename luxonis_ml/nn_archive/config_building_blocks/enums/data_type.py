@@ -5,6 +5,7 @@ class DataType(Enum):
     """Represents all existing data types used in i/o streams of the
     model."""
 
+    INT4 = "int4"
     INT8 = "int8"
     INT32 = "int32"
     UINT8 = "uint8"

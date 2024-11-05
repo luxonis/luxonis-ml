@@ -9,8 +9,6 @@ from .base_models import (
 from .enums import (
     DataType,
     InputType,
-    ObjectDetectionSubtypeSSD,
-    ObjectDetectionSubtypeYOLO,
 )
 
 __all__ = [
@@ -22,6 +20,4 @@ __all__ = [
     "Metadata",
     "DataType",
     "InputType",
-    "ObjectDetectionSubtypeSSD",
-    "ObjectDetectionSubtypeYOLO",
 ]
