@@ -136,9 +136,10 @@ class COCOParser(BaseParser):
             and dir_format == Format.FIFTYONE
             else train_paths["annotation_path"]
         )
+        cleaned_annotation_path = clean_annotations(train_ann_path)
         added_train_imgs = self._parse_split(
             image_dir=train_paths["image_dir"],
-            annotation_path=train_ann_path,
+            annotation_path=cleaned_annotation_path,
         )
 
         val_paths = COCOParser.validate_split(dataset_dir / splits[1])
@@ -199,23 +200,6 @@ class COCOParser(BaseParser):
         @return: Annotation generator, list of classes names, skeleton
             dictionary for keypoints and list of added images.
         """
-        # Files that are in the training split and also have copies in the validation split
-        files_to_avoid = [
-            "000000341448.jpg",
-            "000000279522.jpg",
-            "000000090169.jpg",
-            "000000321238.jpg",
-            "000000242807.jpg",
-            "000000297126.jpg",
-            "000000411274.jpg",
-            "000000407259.jpg",
-            "000000446141.jpg",
-            "000000373199.jpg",
-            "000000410810.jpg",
-            "000000397819.jpg",
-            "000000578492.jpg",
-            "000000531721.jpg",
-        ]
 
         with open(annotation_path) as f:
             annotation_data = json.load(f)
@@ -245,7 +229,7 @@ class COCOParser(BaseParser):
 
             for img_id, img in img_dict.items():
                 path = image_dir.absolute().resolve() / img["file_name"]
-                if not path.exists() or img["file_name"] in files_to_avoid:
+                if not path.exists():
                     continue
                 path = str(path)
 
@@ -336,3 +320,46 @@ class COCOParser(BaseParser):
         added_images = self._get_added_images(generator())
 
         return generator(), class_names, skeletons, added_images
+
+
+def clean_annotations(annotation_path: Path) -> Path:
+    files_to_avoid = [
+        "000000341448.jpg",
+        "000000279522.jpg",
+        "000000090169.jpg",
+        "000000321238.jpg",
+        "000000242807.jpg",
+        "000000297126.jpg",
+        "000000411274.jpg",
+        "000000407259.jpg",
+        "000000446141.jpg",
+        "000000373199.jpg",
+        "000000410810.jpg",
+        "000000397819.jpg",
+        "000000578492.jpg",
+        "000000531721.jpg",
+    ]
+    with open(annotation_path, "r") as f:
+        annotation_data = json.load(f)
+
+    filtered_images = [
+        img
+        for img in annotation_data["images"]
+        if img["file_name"] not in files_to_avoid
+    ]
+    filtered_image_ids = {img["id"] for img in filtered_images}
+    filtered_annotations = [
+        ann
+        for ann in annotation_data["annotations"]
+        if ann["image_id"] in filtered_image_ids
+    ]
+
+    annotation_data["images"] = filtered_images
+    annotation_data["annotations"] = filtered_annotations
+
+    # Save the cleaned annotation file
+    cleaned_annotation_path = annotation_path.with_name("labels_fixed.json")
+    with open(cleaned_annotation_path, "w") as f:
+        json.dump(annotation_data, f)
+
+    return cleaned_annotation_path
