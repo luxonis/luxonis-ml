@@ -323,6 +323,16 @@ class COCOParser(BaseParser):
 
 
 def clean_annotations(annotation_path: Path) -> Path:
+    """Cleans annotations by removing images that are known to cause
+    issues.
+
+    @type annotation_path: Path
+    @param annotation_path: Path to the annotation JSON file.
+    @rtype: Path
+    @return: Path to the cleaned annotation JSON file
+        ("labels_fixed.json").
+    """
+
     files_to_avoid = [
         "000000341448.jpg",
         "000000279522.jpg",
@@ -347,6 +357,10 @@ def clean_annotations(annotation_path: Path) -> Path:
         for img in annotation_data["images"]
         if img["file_name"] not in files_to_avoid
     ]
+
+    if len(filtered_images) == len(annotation_data["images"]):
+        return annotation_path
+
     filtered_image_ids = {img["id"] for img in filtered_images}
     filtered_annotations = [
         ann
