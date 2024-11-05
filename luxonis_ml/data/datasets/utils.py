@@ -239,7 +239,7 @@ def add_generator_wrapper(generator: DatasetIterator) -> DatasetIterator:
         }
 
     for record in generator:
-        if isinstance(record, DatasetRecord):
+        if isinstance(record, DatasetRecord) or "annotation" not in record:
             yield record
             continue
 

@@ -14,7 +14,7 @@
 
 This library includes a collection of helper functions and utilities for the Luxonis MLOps stack. This includes the following submodules:
 
-- **Dataset Management**: Creating computer vision datasets focused around Luxonis hardware and to be used with our [LuxonisTrain](https://pypi.org/project/luxonis-train/) framework.
+- **Dataset Management**: Creating computer vision datasets focused around Luxonis hardware and to be used with our [LuxonisTrain](https://pypi.org/project/luxonis-train/) framework. Additional documentation can be found [here](https://github.com/luxonis/luxonis-ml/blob/main/luxonis_ml/data/README.md).
 - **Embeddings**: Methods to compute image embeddings.
 - **Tracking**: Our implementation of a logger for use with PyTorch Lightning or in [LuxonisTrain](https://pypi.org/project/luxonis-train/)
 - **Utils**: Miscellaneous utils for developers.
