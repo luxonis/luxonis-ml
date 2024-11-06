@@ -24,8 +24,8 @@ class PreprocessingBlock(BaseModelExtraForbid):
     @type interleaved_to_planar: bool | None
     @ivar interleaved_to_planar: If True input to the model is
         interleaved (NHWC) else planar (NCHW).
-    @type layout: str | None
-    @ivar layout: DepthAI input type which is read by DepthAI to
+    @type dai_type: str | None
+    @ivar dai_type: DepthAI input type which is read by DepthAI to
         automatically setup the pipeline.
     """
 
