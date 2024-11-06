@@ -112,27 +112,30 @@ class LuxonisLoader(BaseLoader):
         test_image, test_labels = self._load_image_with_annotations(0)
         if LabelType.SEGMENTATION in test_labels:
             seg_masks = test_labels[LabelType.SEGMENTATION][0]
-            unassigned_pixels = np.sum(seg_masks, axis=0) == 0
+            if seg_masks.shape[0] > 1:
+                unassigned_pixels = np.sum(seg_masks, axis=0) == 0
 
-            if np.any(unassigned_pixels):
-                logger.warning(
-                    "Found unassigned pixels in segmentation masks. Assigning them to `background` class (class index 0). If this is not desired then make sure all pixels are assigned to one class or rename your background class."
-                )
-                self.add_background = True
-                if (
-                    "background"
-                    not in self.classes_by_task[LabelType.SEGMENTATION]
-                ):
-                    self.classes_by_task[LabelType.SEGMENTATION].append(
-                        "background"
+                if np.any(unassigned_pixels):
+                    logger.warning(
+                        "Found unassigned pixels in segmentation masks. Assigning them to `background` class (class index 0). If this is not desired then make sure all pixels are assigned to one class or rename your background class."
                     )
-                    self.class_mappings[LabelType.SEGMENTATION] = {
-                        class_: idx + 1
-                        for class_, idx in self.class_mappings[task].items()
-                    }
-                    self.class_mappings[LabelType.SEGMENTATION][
+                    self.add_background = True
+                    if (
                         "background"
-                    ] = 0
+                        not in self.classes_by_task[LabelType.SEGMENTATION]
+                    ):
+                        self.classes_by_task[LabelType.SEGMENTATION].append(
+                            "background"
+                        )
+                        self.class_mappings[LabelType.SEGMENTATION] = {
+                            class_: idx + 1
+                            for class_, idx in self.class_mappings[
+                                task
+                            ].items()
+                        }
+                        self.class_mappings[LabelType.SEGMENTATION][
+                            "background"
+                        ] = 0
 
     def __len__(self) -> int:
         """Returns length of the dataset.
