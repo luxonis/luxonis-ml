@@ -6,6 +6,8 @@ from luxonis_ml.utils import BaseModelExtraForbid
 
 from .model import Model
 
+CONFIG_VERSION = "1.0"
+
 
 class Config(BaseModelExtraForbid):
     """The main class of the multi/single-stage model config scheme
@@ -21,7 +23,7 @@ class Config(BaseModelExtraForbid):
     """
 
     config_version: str = Field(
-        ...,
+        CONFIG_VERSION,
         description="String representing config schema version in format 'x.y' where x is major version and y is minor version.",
     )
     model: Model = Field(
