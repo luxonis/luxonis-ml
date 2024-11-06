@@ -84,6 +84,8 @@ class LuxonisTracker:
         @param rank: Rank of the process, used when running on multiple threads.
             Defaults to 0.
         """
+        os.environ["MLFLOW_HTTP_REQUEST_MAX_RETRIES"] = "1"
+
         self.project_name = project_name
         self.project_id = project_id
         self.save_directory = save_directory
