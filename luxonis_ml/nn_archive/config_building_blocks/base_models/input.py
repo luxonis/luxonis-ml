@@ -13,12 +13,12 @@ from ..enums import DataType, InputType
 class PreprocessingBlock(BaseModelExtraForbid):
     """Represents preprocessing operations applied to the input data.
 
-    @type mean: list
-    @ivar mean: Mean values in channel order. Typically, this is BGR
-        order.
-    @type scale: list
-    @ivar scale: Standardization values in channel order. Typically,
-        this is BGR order.
+    @type mean: list | None
+    @ivar mean: Mean values in channel order. Order depends on the order
+        in which the model was trained on.
+    @type scale: list | None
+    @ivar scale: Standardization values in channel order. Order depends
+        on the order in which the model was trained on.
     @type reverse_channels: bool | None
     @ivar reverse_channels: If True input to the model is RGB else BGR.
     @type interleaved_to_planar: bool | None
@@ -31,24 +31,24 @@ class PreprocessingBlock(BaseModelExtraForbid):
 
     mean: Optional[List[float]] = Field(
         None,
-        description="Mean values in channel order. Typically, this is BGR order.",
+        description="Mean values in channel order. Order depends on the order in which the model was trained on.",
     )
     scale: Optional[List[float]] = Field(
         None,
-        description="Standardization values in channel order. Typically, this is BGR order.",
+        description="Standardization values in channel order. Order depends on the order in which the model was trained on.",
     )
     reverse_channels: Optional[bool] = Field(
-        True,
+        None,
         deprecated="Deprecated, use `dai_type` instead.",
         description="If True input to the model is RGB else BGR.",
     )
     interleaved_to_planar: Optional[bool] = Field(
-        False,
+        None,
         deprecated="Deprecated, use `dai_type` instead.",
         description="If True input to the model is interleaved (NHWC) else planar (NCHW).",
     )
-    dai_type: str = Field(
-        "RGB888p",
+    dai_type: Optional[str] = Field(
+        None,
         description="DepthAI input type which is read by DepthAI to automatically setup the pipeline.",
     )
 
