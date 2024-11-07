@@ -318,7 +318,7 @@ class LuxonisLoader(BaseLoader):
                 anns, self.class_mappings[task], width=width, height=height
             )
             if self.add_background and task == LabelType.SEGMENTATION:
-                unassigned_pixels = np.sum(array, axis=0) == 0
+                unassigned_pixels = ~np.any(array, axis=0)
                 background_idx = self.class_mappings[task]["background"]
                 array[background_idx, unassigned_pixels] = 1
 
