@@ -818,9 +818,15 @@ class LuxonisDataset(BaseDataset):
 
         @type dataset_name: str
         @param dataset_name: Name of the dataset to check
-        @type remote: bool
-        @param remote: Whether to check if the dataset exists in the
-            cloud
+        @type team_id: Optional[str]
+        @param team_id: Optional team identifier
+        @type bucket_storage: BucketStorage
+        @param bucket_storage: Underlying bucket storage from C{local},
+            C{S3}, or C{GCS}. Default is C{local}.
+        @type bucket: Optional[str]
+        @param bucket: Name of the bucket. Default is C{None}.
+        @rtype: bool
+        @return: Whether the dataset exists
         """
         return dataset_name in LuxonisDataset.list_datasets(
             team_id, bucket_storage, bucket

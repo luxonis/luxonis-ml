@@ -76,7 +76,7 @@ class Annotation(ABC, BaseModelExtraForbid):
     @type instance_id: int
     @ivar instance_id: The instance id of the annotation. This
         determines the order in which individual instances are loaded in
-        L{LuxonisLoader}.
+        L{luxonis_ml.data.LuxonisLoader}.
     @type _label_type: ClassVar[L{LabelType}]
     @ivar _label_type: The label type of the annotation.
     """
@@ -482,7 +482,7 @@ class ArrayAnnotation(Annotation):
 
     All instances of this annotation must have the same shape.
 
-    @type path: L{FilePath}
+    @type path: FilePath
     @ivar path: The path to the numpy array saved as a C{.npy} file.
     """
 
@@ -546,7 +546,7 @@ class LabelAnnotation(Annotation):
 class DatasetRecord(BaseModelExtraForbid):
     """A record of an image and its annotation.
 
-    @type file: L{FilePath}
+    @type file: FilePath
     @ivar file: A path to the image.
     @type annotation: Optional[Annotation]
     @ivar annotation: The annotation for the image.

@@ -9,14 +9,14 @@ from luxonis_ml.utils import AutoRegisterMeta, Registry
 from ..utils.enums import LabelType
 
 Labels: TypeAlias = Dict[str, Tuple[np.ndarray, LabelType]]
-"""C{Labels} is a dictionary mappping task names to their L{LabelType}
-and annotations as L{numpy arrays<np.ndarray>}."""
+"""C{Labels} is a dictionary mappping task names to a tuple composed of
+the annotation as C{np.ndarray} and its corresponding C{LabelType}"""
 
 
 LuxonisLoaderOutput: TypeAlias = Tuple[np.ndarray, Labels]
-"""C{LuxonisLoaderOutput} is a tuple of an image as a L{numpy
-array<np.ndarray>} and a dictionary of task group names and their
-annotations as L{Annotations}."""
+"""C{LuxonisLoaderOutput} is a tuple of an image as a C{np.ndarray>} and
+a dictionary of task group names and their annotations as
+L{Annotations}."""
 
 LOADERS_REGISTRY: Registry[Type["BaseLoader"]] = Registry(name="loaders")
 
@@ -44,7 +44,7 @@ class BaseLoader(
 
         @type idx: int
         @param idx: Index of the sample to load.
-        @rtype: LuxonisLoaderOutput
+        @rtype: L{LuxonisLoaderOutput}
         @return: Sample's data in L{LuxonisLoaderOutput} format.
         """
         pass
@@ -52,7 +52,7 @@ class BaseLoader(
     def __iter__(self) -> Iterator[LuxonisLoaderOutput]:
         """Iterates over the dataset.
 
-        @rtype: Iterator
+        @rtype: Iterator[L{LuxonisLoaderOutput}]
         @return: Iterator over the dataset.
         """
         for i in range(len(self)):

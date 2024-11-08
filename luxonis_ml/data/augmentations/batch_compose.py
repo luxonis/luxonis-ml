@@ -42,8 +42,8 @@ class Compose(BaseCompose):
 
         @param transforms: List of transformations to compose
         @type transforms: TransformsSeqType
-        @param bboxparams: Parameters for bounding boxes transforms. Defaults to None.
-        @type bboxparams: Optional[Union[dict, BboxParams]]
+        @param bbox_params: Parameters for bounding boxes transforms. Defaults to None.
+        @type bbox_params: Optional[Union[dict, BboxParams]]
         @param keypoint_params: Parameters for keypoint transforms. Defaults to None.
         @type keypoint_params: Optional[Union[dict, KeypointParams]]
         @param additional_targets: Dict with keys - new target name, values - old target
@@ -283,8 +283,8 @@ class BatchCompose(Compose):
 
         @param transforms: List of transformations to compose
         @type transforms: TransformsSeqType
-        @param bboxparams: Parameters for bounding boxes transforms. Defaults to None.
-        @type bboxparams: Optional[Union[dict, BboxParams]]
+        @param bbox_params: Parameters for bounding boxes transforms. Defaults to None.
+        @type bbox_params: Optional[Union[dict, BboxParams]]
         @param keypoint_params: Parameters for keypoint transforms. Defaults to None.
         @type keypoint_params: Optional[Union[dict, KeypointParams]]
         @param additional_targets: Dict with keys - new target name, values - old target

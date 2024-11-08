@@ -1,6 +1,6 @@
 import pkg_resources
 
-from ..guard_extras import guard_missing_extra
+from luxonis_ml.guard_extras import guard_missing_extra
 
 with guard_missing_extra("data"):
     from .augmentations import Augmentations

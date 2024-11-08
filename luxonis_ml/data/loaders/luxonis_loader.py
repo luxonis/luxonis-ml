@@ -259,8 +259,8 @@ class LuxonisLoader(BaseLoader):
 
         @type idx: int
         @param idx: Index of the image
-        @rtype: Tuple[L{np.ndarray}, dict]
-        @return: Image as L{np.ndarray} in RGB format and a dictionary
+        @rtype: Tuple[np.ndarray, Labels]
+        @return: Image as C{np.ndarray} in RGB format and a dictionary
             with all the present annotations
         """
 

@@ -3,11 +3,10 @@ from typing import Dict, Iterator, List, Optional, Sequence, Tuple, Type, Union
 
 from typing_extensions import TypeAlias
 
+from luxonis_ml.data.datasets.annotation import DatasetRecord
+from luxonis_ml.data.datasets.source import LuxonisSource
 from luxonis_ml.utils import AutoRegisterMeta, Registry
 from luxonis_ml.utils.filesystem import PathType
-
-from .annotation import DatasetRecord
-from .source import LuxonisSource
 
 DATASETS_REGISTRY: Registry[Type["BaseDataset"]] = Registry(name="datasets")
 
@@ -24,7 +23,10 @@ class BaseDataset(
     @property
     @abstractmethod
     def identifier(self) -> str:
-        """The unique identifier for the dataset."""
+        """The unique identifier for the dataset.
+
+        @type: str
+        """
         pass
 
     @abstractmethod
@@ -66,9 +68,6 @@ class BaseDataset(
         """Gets overall classes in the dataset and classes according to
         computer vision task.
 
-        @type sync_mode: bool
-        @param sync_mode: If C{True}, reads classes from remote storage.
-            If C{False}, classes are read locally.
         @rtype: Tuple[List[str], Dict]
         @return: A combined list of classes for all tasks and a
             dictionary mapping tasks to the classes used in each task.
@@ -121,7 +120,7 @@ class BaseDataset(
     ) -> None:
         """Write annotations to parquet files.
 
-        @type generator: L{DatasetGenerator}
+        @type generator: L{DatasetIterator}
         @param generator: A Python iterator that yields either instances
             of L{DatasetRecord} or a dictionary that can be converted to
             L{DatasetRecord}.

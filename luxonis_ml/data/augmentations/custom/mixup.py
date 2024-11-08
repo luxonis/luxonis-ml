@@ -23,18 +23,18 @@ class MixUp(BatchBasedTransform):
         annotations into one. If images are not of same size then second
         one is first resized to match the first one.
 
+        @type alpha: Union[float, Tuple[float, float]]
         @param alpha: Mixing coefficient, either a single float or a
-            tuple representing the range. Defaults to 0.5.
-        @type alpha: Union[float, Tuple[float, float]], optional
+            tuple representing the range. Defaults to C{0.5}.
+        @type out_batch_size: int
         @param out_batch_size: Number of output images in the batch.
-            Defaults to 1.
-        @type out_batch_size: int, optional
+            Defaults to C{1}.
+        @type always_apply: bool
         @param always_apply: Whether to always apply the transform.
-            Defaults to False.
-        @type always_apply: bool, optional
-        @param p: Probability of applying the transform. Defaults to
-            0.5.
+            Defaults to C{False}.
         @type p: float, optional
+        @param p: Probability of applying the transform. Defaults to
+            C{0.5}.
         """
         super().__init__(batch_size=2, always_apply=always_apply, p=p)
 
@@ -44,8 +44,8 @@ class MixUp(BatchBasedTransform):
     def get_transform_init_args_names(self) -> Tuple[str, ...]:
         """Gets the default arguments for the mixup augmentation.
 
-        @return: The string keywords of the arguments.
         @rtype: Tuple[str, ...]
+        @return: The string keywords of the arguments.
         """
         return ("alpha", "out_batch_size")
 
@@ -53,8 +53,8 @@ class MixUp(BatchBasedTransform):
     def targets_as_params(self) -> List[str]:
         """List of augmentation targets.
 
-        @return: Output list of augmentation targets.
         @rtype: List[str]
+        @return: Output list of augmentation targets.
         """
         return ["image_batch"]
 
@@ -66,15 +66,15 @@ class MixUp(BatchBasedTransform):
     ) -> List[np.ndarray]:
         """Applies the transformation to a batch of images.
 
+        @type image_batch: List[np.ndarray]
         @param image_batch: Batch of input images to which the
             transformation is applied.
-        @type image_batch: List[np.ndarray]
-        @param image_shapes: Shapes of the input images in the batch.
         @type image_shapes: List[Tuple[int, int]]
-        @param params: Additional parameters for the transformation.
+        @param image_shapes: Shapes of the input images in the batch.
         @type params: Any
-        @return: List of transformed images.
+        @param params: Additional parameters for the transformation.
         @rtype: List[np.ndarray]
+        @return: List of transformed images.
         """
         image1 = image_batch[0]
         # resize second image to size of the first one
@@ -101,15 +101,15 @@ class MixUp(BatchBasedTransform):
     ) -> List[np.ndarray]:
         """Applies the transformation to a batch of masks.
 
-        @param image_batch: Batch of input masks to which the
+        @type mask_batch: List[np.ndarray]
+        @param mask_batch: Batch of input masks to which the
             transformation is applied.
-        @type image_batch: List[np.ndarray]
-        @param image_shapes: Shapes of the input images in the batch.
         @type image_shapes: List[Tuple[int, int]]
-        @param params: Additional parameters for the transformation.
+        @param image_shapes: Shapes of the input images in the batch.
         @type params: Any
-        @return: List of transformed masks.
+        @param params: Additional parameters for the transformation.
         @rtype: List[np.ndarray]
+        @return: List of transformed masks.
         """
         mask1 = mask_batch[0]
         mask2 = cv2.resize(
@@ -127,19 +127,19 @@ class MixUp(BatchBasedTransform):
         self,
         bboxes_batch: List[BoxType],
         image_shapes: List[Tuple[int, int]],
-        **params,
+        **kwargs,
     ) -> List[BoxType]:
         """Applies the transformation to a batch of bboxes.
 
-        @param image_batch: Batch of input bboxes to which the
+        @type bboxes_batch: List[BoxType]
+        @param bboxes_batch: Batch of input bboxes to which the
             transformation is applied.
-        @type image_batch: List[BoxType]
-        @param image_shapes: Shapes of the input images in the batch.
         @type image_shapes: List[Tuple[int, int]]
-        @param params: Additional parameters for the transformation.
-        @type params: Any
-        @return: List of transformed bboxes.
+        @param image_shapes: Shapes of the input images in the batch.
+        @type kwargs: Any
+        @param kwargs: Additional parameters for the transformation.
         @rtype: List[BoxType]
+        @return: List of transformed bboxes.
         """
         return [bboxes_batch[0] + bboxes_batch[1]]
 
@@ -147,19 +147,19 @@ class MixUp(BatchBasedTransform):
         self,
         keypoints_batch: List[KeypointType],
         image_shapes: List[Tuple[int, int]],
-        **params,
+        **kwargs,
     ) -> List[KeypointType]:
         """Applies the transformation to a batch of keypoints.
 
-        @param image_batch: Batch of input keypoints to which the
+        @type keypoints_batch: List[BoxType]
+        @param keypoints_batch: Batch of input keypoints to which the
             transformation is applied.
-        @type image_batch: List[BoxType]
-        @param image_shapes: Shapes of the input images in the batch.
         @type image_shapes: List[Tuple[int, int]]
-        @param params: Additional parameters for the transformation.
-        @type params: Any
-        @return: List of transformed keypoints.
+        @param image_shapes: Shapes of the input images in the batch.
+        @type kwargs: Any
+        @param kwargs: Additional parameters for the transformation.
         @rtype: List[BoxType]
+        @return: List of transformed keypoints.
         """
         scaled_kpts2 = []
         scale_x = image_shapes[0][1] / image_shapes[1][1]
