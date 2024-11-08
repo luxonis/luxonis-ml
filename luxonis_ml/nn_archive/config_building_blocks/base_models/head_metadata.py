@@ -2,8 +2,6 @@ from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ..enums import ObjectDetectionSubtypeYOLO
-
 
 class HeadMetadata(BaseModel):
     """Metadata for the basic head. It allows you to specify additional
@@ -138,7 +136,7 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
     @ivar keypoints_outputs: A list of output names for the keypoints.
     @type angles_outputs: list | None
     @ivar angles_outputs: A list of output names for the angles.
-    @type subtype: C{ObjectDetectionSubtypeYOLO}
+    @type subtype: str
     @ivar subtype: YOLO family decoding subtype (e.g. yolov5, yolov6,
         yolov7 etc.)
     @type n_prototypes: int | None
@@ -174,7 +172,7 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
         None, description="A list of output names for the angles."
     )
 
-    subtype: ObjectDetectionSubtypeYOLO = Field(
+    subtype: str = Field(
         description="YOLO family decoding subtype (e.g. yolov5, yolov6, yolov7 etc.)."
     )
     n_prototypes: Optional[int] = Field(
@@ -319,20 +317,4 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
                     f"Invalid combination of output parameters. Field {param} is not supported for the tasks {tasks}."
                 )
 
-        return values
-
-    @model_validator(mode="before")
-    def validate_anchors(cls, values):
-        if (
-            "anchors" in values
-            and values["anchors"] is not None
-            and (
-                values["subtype"] == ObjectDetectionSubtypeYOLO.YOLOv6
-                or values["subtype"] == ObjectDetectionSubtypeYOLO.YOLOv6r2
-                or values["subtype"] == ObjectDetectionSubtypeYOLO.YOLOv8
-            )
-        ):
-            raise ValueError(
-                "YOLOv6, YOLOv6r2, and YOLOv8 do not support anchors."
-            )
         return values

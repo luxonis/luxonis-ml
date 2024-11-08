@@ -7,9 +7,6 @@ from luxonis_ml.nn_archive.config_building_blocks.base_models.head_metadata impo
     HeadSegmentationMetadata,
     HeadYOLOMetadata,
 )
-from luxonis_ml.nn_archive.config_building_blocks.enums import (
-    ObjectDetectionSubtypeYOLO,
-)
 
 head_metadata = HeadMetadata(
     postprocessor_path="postprocessor.onnx",
@@ -61,7 +58,7 @@ head_yolo_obj_det_metadata = HeadYOLOMetadata(
     n_prototypes=None,
     n_keypoints=None,
     is_softmax=None,
-    subtype=ObjectDetectionSubtypeYOLO.YOLOv6,
+    subtype="yolov6",
     postprocessor_path=None,
     yolo_outputs=["feats"],
     mask_outputs=None,
@@ -80,7 +77,7 @@ head_yolo_instance_seg_metadata = HeadYOLOMetadata(
     n_prototypes=10,
     n_keypoints=None,
     is_softmax=True,
-    subtype=ObjectDetectionSubtypeYOLO.YOLOv6,
+    subtype="yolov6",
     postprocessor_path="postprocessor.onnx",
     yolo_outputs=["feats"],
     mask_outputs=["mask"],
@@ -99,7 +96,7 @@ head_yolo_keypoint_det_metadata = HeadYOLOMetadata(
     n_prototypes=None,
     n_keypoints=21,
     is_softmax=None,
-    subtype=ObjectDetectionSubtypeYOLO.YOLOv6,
+    subtype="yolov6",
     postprocessor_path=None,
     yolo_outputs=["feats"],
     mask_outputs=None,
@@ -118,7 +115,7 @@ head_yolo_obb_det_metadata = HeadYOLOMetadata(
     n_prototypes=None,
     n_keypoints=None,
     is_softmax=None,
-    subtype=ObjectDetectionSubtypeYOLO.YOLOv6,
+    subtype="yolov6",
     postprocessor_path="postprocessor.onnx",
     yolo_outputs=["feats"],
     mask_outputs=None,
@@ -137,7 +134,7 @@ head_yolo_instance_seg_kpts_metadata = HeadYOLOMetadata(
     n_prototypes=10,
     n_keypoints=21,
     is_softmax=False,
-    subtype=ObjectDetectionSubtypeYOLO.YOLOv6,
+    subtype="yolov6",
     postprocessor_path="postprocessor.onnx",
     yolo_outputs=["feats"],
     mask_outputs=["mask"],
