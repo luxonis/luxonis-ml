@@ -294,12 +294,21 @@ class SegmentationAnnotation(Annotation):
         height: int,
         width: int,
     ) -> np.ndarray:
-        seg = np.zeros((len(class_mapping), height, width), dtype=np.bool_)
-        for ann in annotations:
-            class_ = class_mapping.get(ann.class_, 0)
-            seg[class_, ...] |= ann.to_numpy(class_mapping, width, height)
+        seg = np.zeros((len(class_mapping), height, width), dtype=np.uint8)
 
-        return seg.astype(np.uint8)
+        masks = np.stack(
+            [ann.to_numpy(class_mapping, width, height) for ann in annotations]
+        )
+        classes = np.array(
+            [class_mapping.get(ann.class_, 0) for ann in annotations]
+        )
+
+        for i, class_ in enumerate(classes):
+            seg[class_, ...] = np.maximum(
+                seg[class_, ...], masks[i].astype(np.uint8)
+            )
+
+        return seg
 
 
 class RLESegmentationAnnotation(SegmentationAnnotation):
