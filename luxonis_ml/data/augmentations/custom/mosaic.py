@@ -35,30 +35,32 @@ class Mosaic4(BatchBasedTransform):
         have different widths and heights. The output is cropped around
         the intersection point of the four images with the size
         (out_with x out_height). If the mosaic image is smaller than
-        width x height, the gap is filled by the fill_value.
+        width x height, the gap is filled by the C{fill_value}.
 
-        @param out_height: Output image height. The mosaic image is cropped by this height around the mosaic center.
-        If the size of the mosaic image is smaller than this value the gap is filled by the `value`.
         @type out_height: int
-
-        @param out_width: Output image width. The mosaic image is cropped by this height around the mosaic center.
-        If the size of the mosaic image is smaller than this value the gap is filled by the `value`.
+        @param out_height: Output image height. The mosaic image is
+            cropped by this height around the mosaic center. If the size
+            of the mosaic image is smaller than this value the gap is
+            filled by the C{value}.
         @type out_width: int
-
-        @param value: Padding value. Defaults to None.
-        @type value: Optional[Union[int, float, List[int], List[float]]], optional
-
-        @param out_batch_size: Number of output images in the batch. Defaults to 1.
-        @type out_batch_size: int, optional
-
-        @param mask_value: Padding value for masks. Defaults to None.
-        @type mask_value: Optional[Union[int, float, List[int], List[float]]], optional
-
-        @param always_apply: Whether to always apply the transform. Defaults to False.
-        @type always_apply: bool, optional
-
-        @param p: Probability of applying the transform. Defaults to 0.5.
-        @type p: float, optional
+        @param out_width: Output image width. The mosaic image is
+            cropped by this height around the mosaic center. If the size
+            of the mosaic image is smaller than this value the gap is
+            filled by the C{value}.
+        @type value: Optional[Union[int, float, List[int], List[float]]]
+        @param value: Padding value. Defaults to C{None}.
+        @type out_batch_size: int
+        @param out_batch_size: Number of output images in the batch.
+            Defaults to C{1}.
+        @type mask_value: Optional[Union[int, float, List[int],
+            List[float]]]
+        @param mask_value: Padding value for masks. Defaults to C{None}.
+        @type always_apply: bool
+        @param always_apply: Whether to always apply the transform.
+            Defaults to C{False}.
+        @type p: float
+        @param p: Probability of applying the transform. Defaults to
+            C{0.5}.
         """
 
         super().__init__(batch_size=4, always_apply=always_apply, p=p)
@@ -86,8 +88,8 @@ class Mosaic4(BatchBasedTransform):
     def get_transform_init_args_names(self) -> Tuple[str, ...]:
         """Gets the default arguments for the mixup augmentation.
 
-        @return: The string keywords of the arguments.
         @rtype: Tuple[str, ...]
+        @return: The string keywords of the arguments.
         """
         return (
             "out_height",
@@ -109,8 +111,8 @@ class Mosaic4(BatchBasedTransform):
     def targets_as_params(self):
         """List of augmentation targets.
 
-        @return: Output list of augmentation targets.
         @rtype: List[str]
+        @return: Output list of augmentation targets.
         """
         return ["image_batch"]
 
@@ -124,19 +126,19 @@ class Mosaic4(BatchBasedTransform):
     ) -> List[np.ndarray]:
         """Applies the transformation to a batch of images.
 
+        @type image_batch: List[np.ndarray]
         @param image_batch: Batch of input images to which the
             transformation is applied.
-        @type image_batch: List[np.ndarray]
-        @param indices: Indices of images in the batch.
         @type indices: List[Tuple[int, int]]
-        @param params: Additional parameters for the transformation.
+        @param indices: Indices of images in the batch.
         @type params: Any
-        @param x_crop: x-coordinate of the croping start point
+        @param params: Additional parameters for the transformation.
         @type x_crop: int
-        @param y_crop: y-coordinate of the croping start point
+        @param x_crop: x-coordinate of the croping start point
         @type y_crop: int
-        @return: List of transformed images.
+        @param y_crop: y-coordinate of the croping start point
         @rtype: List[np.ndarray]
+        @return: List of transformed images.
         """
         output_batch = []
         for i_batch in range(self.out_batch_size):
@@ -165,19 +167,19 @@ class Mosaic4(BatchBasedTransform):
     ) -> List[np.ndarray]:
         """Applies the transformation to a batch of masks.
 
+        @type mask_batch: List[np.ndarray]
         @param mask_batch: Batch of input masks to which the
             transformation is applied.
-        @type mask_batch: List[np.ndarray]
-        @param indices: Indices of images in the batch.
         @type indices: List[Tuple[int, int]]
-        @param params: Additional parameters for the transformation.
+        @param indices: Indices of images in the batch.
         @type params: Any
-        @param x_crop: x-coordinate of the croping start point
+        @param params: Additional parameters for the transformation.
         @type x_crop: int
-        @param y_crop: y-coordinate of the croping start point
+        @param x_crop: x-coordinate of the croping start point
         @type y_crop: int
-        @return: List of transformed masks.
+        @param y_crop: y-coordinate of the croping start point
         @rtype: List[np.ndarray]
+        @return: List of transformed masks.
         """
         output_batch = []
         for i_batch in range(self.out_batch_size):
@@ -207,21 +209,21 @@ class Mosaic4(BatchBasedTransform):
     ) -> List[BoxType]:
         """Applies the transformation to a batch of bboxes.
 
+        @type bboxes_batch: List[BboxType]
         @param bboxes_batch: Batch of input bboxes to which the
             transformation is applied.
-        @type bboxes_batch: List[BboxType]
-        @param indices: Indices of images in the batch.
         @type indices: List[Tuple[int, int]]
-        @param image_shapes: Shapes of the input images in the batch.
+        @param indices: Indices of images in the batch.
         @type image_shapes: List[Tuple[int, int]]
-        @param params: Additional parameters for the transformation.
+        @param image_shapes: Shapes of the input images in the batch.
         @type params: Any
-        @param x_crop: x-coordinate of the croping start point
+        @param params: Additional parameters for the transformation.
         @type x_crop: int
-        @param y_crop: y-coordinate of the croping start point
+        @param x_crop: x-coordinate of the croping start point
         @type y_crop: int
-        @return: List of transformed bboxes.
+        @param y_crop: y-coordinate of the croping start point
         @rtype: List[BoxType]
+        @return: List of transformed bboxes.
         """
         output_batch = []
         for i_batch in range(self.out_batch_size):
@@ -251,7 +253,7 @@ class Mosaic4(BatchBasedTransform):
 
     def apply_to_keypoints_batch(
         self,
-        keyboints_batch: List[KeypointType],
+        keypoints_batch: List[KeypointType],
         indices: List[int],
         image_shapes: List[Tuple[int, int]],
         x_crop: int,
@@ -260,28 +262,28 @@ class Mosaic4(BatchBasedTransform):
     ) -> List[KeypointType]:
         """Applies the transformation to a batch of keypoints.
 
+        @type keypoints_batch: List[KeypointType]
         @param keypoints_batch: Batch of input keypoints to which the
             transformation is applied.
-        @type keypoints_batch: List[KeypointType]
-        @param indices: Indices of images in the batch.
         @type indices: List[Tuple[int, int]]
-        @param image_shapes: Shapes of the input images in the batch.
+        @param indices: Indices of images in the batch.
         @type image_shapes: List[Tuple[int, int]]
-        @param params: Additional parameters for the transformation.
+        @param image_shapes: Shapes of the input images in the batch.
         @type params: Any
-        @param x_crop: x-coordinate of the croping start point
+        @param params: Additional parameters for the transformation.
         @type x_crop: int
-        @param y_crop: y-coordinate of the croping start point
+        @param x_crop: x-coordinate of the croping start point
         @type y_crop: int
-        @return: List of transformed keypoints.
+        @param y_crop: y-coordinate of the croping start point
         @rtype: List[KeypointType]
+        @return: List of transformed keypoints.
         """
         output_batch = []
         for i_batch in range(self.out_batch_size):
             idx_chunk = indices[
                 self.n_tiles * i_batch : self.n_tiles * (i_batch + 1)
             ]
-            keypoints_chunk = [keyboints_batch[i] for i in idx_chunk]
+            keypoints_chunk = [keypoints_batch[i] for i in idx_chunk]
             shape_chunk = [image_shapes[i] for i in idx_chunk]
             new_keypoints = []
             for i in range(self.n_tiles):
@@ -307,11 +309,11 @@ class Mosaic4(BatchBasedTransform):
     ) -> Dict[str, Any]:
         """Get parameters dependent on the targets.
 
-        @param params: Dictionary containing parameters.
         @type params: Dict[str, Any]
+        @param params: Dictionary containing parameters.
+        @rtype: Dict[str, Any]
         @return: Dictionary containing parameters dependent on the
             targets.
-        @rtype: Dict[str, Any]
         """
         image_batch = params["image_batch"]
         n = len(image_batch)
@@ -343,21 +345,21 @@ def mosaic4(
     have the same number of channels but can have different widths and
     heights. The gaps are filled by the value.
 
+    @type image_batch: List[np.ndarray]
     @param image_batch: Image list. The length should be four. Each
         image can has different size.
-    @type image_batch: List[np.ndarray]
-    @param height: Height of output mosaic image
     @type height: int
-    @param width: Width of output mosaic image
+    @param height: Height of output mosaic image
     @type width: int
-    @param value: Padding value
+    @param width: Width of output mosaic image
     @type value: Optional[int]
-    @param x_crop: x-coordinate of the croping start point
+    @param value: Padding value
     @type x_crop: int
-    @param y_crop: y-coordinate of the croping start point
+    @param x_crop: x-coordinate of the croping start point
     @type y_crop: int
-    @return: Final output image
+    @param y_crop: y-coordinate of the croping start point
     @rtype: np.ndarray
+    @return: Final output image
     """
     N_TILES = 4
     if len(image_batch) != N_TILES:
@@ -455,25 +457,25 @@ def bbox_mosaic4(
     in a 2x2 grid mosaic, shifting their coordinates based on the tile's
     relative position within the mosaic.
 
-    @param bbox: Bounding box coordinates to be transformed.
     @type bbox: BoxInternalType
-    @param rows: Height of the original image.
+    @param bbox: Bounding box coordinates to be transformed.
     @type rows: int
-    @param cols: Width of the original image.
+    @param rows: Height of the original image.
     @type cols: int
+    @param cols: Width of the original image.
+    @type position_index: int
     @param position_index: Position of the image in the 2x2 grid. (0 =
         top-left, 1 = top-right, 2 = bottom-left, 3 = bottom-right).
-    @type position_index: int
-    @param height: Height of the final output mosaic image.
     @type height: int
-    @param width: Width of the final output mosaic image.
+    @param height: Height of the final output mosaic image.
     @type width: int
-    @param x_crop: x-coordinate of the croping start point
+    @param width: Width of the final output mosaic image.
     @type x_crop: int
-    @param y_crop: y-coordinate of the croping start point
+    @param x_crop: x-coordinate of the croping start point
     @type y_crop: int
-    @return: Transformed bounding box coordinates.
+    @param y_crop: y-coordinate of the croping start point
     @rtype: BoxInternalType
+    @return: Transformed bounding box coordinates.
     """
 
     bbox = denormalize_bbox(bbox, rows, cols)
@@ -519,26 +521,26 @@ def keypoint_mosaic4(
     one of the 2x2 mosaic grid cells, with shifts relative to the mosaic
     center.
 
+    @type keypoint: KeypointInternalType
     @param keypoint: Keypoint coordinates and attributes (x, y, angle,
         scale).
-    @type keypoint: KeypointInternalType
-    @param rows: Height of the original image.
     @type rows: int
-    @param cols: Width of the original image.
+    @param rows: Height of the original image.
     @type cols: int
+    @param cols: Width of the original image.
+    @type position_index: int
     @param position_index: Position of the image in the 2x2 grid. (0 =
         top-left, 1 = top-right, 2 = bottom-left, 3 = bottom-right).
-    @type position_index: int
-    @param height: Height of the final output mosaic image.
     @type height: int
-    @param width: Width of the final output mosaic image.
+    @param height: Height of the final output mosaic image.
     @type width: int
-    @param x_crop: x-coordinate of the croping start point
+    @param width: Width of the final output mosaic image.
     @type x_crop: int
-    @param y_crop: y-coordinate of the croping start point
+    @param x_crop: x-coordinate of the croping start point
     @type y_crop: int
-    @return: Adjusted keypoint coordinates.
+    @param y_crop: y-coordinate of the croping start point
     @rtype: KeypointInternalType
+    @return: Adjusted keypoint coordinates.
     """
     x, y, angle, scale = keypoint
 

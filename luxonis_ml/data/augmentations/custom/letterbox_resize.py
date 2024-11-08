@@ -23,23 +23,23 @@ class LetterboxResize(DualTransform):
         """Augmentation to apply letterbox resizing to images. Also
         transforms masks, bboxes and keypoints to correct shape.
 
-        @param height: Desired height of the output.
         @type height: int
-        @param width: Desired width of the output.
+        @param height: Desired height of the output.
         @type width: int
-        @param interpolation: Cv2 flag to specify interpolation used
-            when resizing. Defaults to cv2.INTER_LINEAR.
+        @param width: Desired width of the output.
         @type interpolation: int, optional
-        @param border_value: Padding value for images. Defaults to 0.
+        @param interpolation: cv2 flag to specify interpolation used
+            when resizing. Defaults to C{cv2.INTER_LINEAR}.
         @type border_value: int, optional
-        @param mask_value: Padding value for masks. Defaults to 0.
+        @param border_value: Padding value for images. Defaults to C{0}.
         @type mask_value: int, optional
-        @param always_apply: Whether to always apply the transform.
-            Defaults to False.
+        @param mask_value: Padding value for masks. Defaults to C{0}.
         @type always_apply: bool, optional
-        @param p: Probability of applying the transform. Defaults to
-            1.0.
+        @param always_apply: Whether to always apply the transform.
+            Defaults to C{False}.
         @type p: float, optional
+        @param p: Probability of applying the transform. Defaults to
+            C{1.0}.
         """
 
         super().__init__(always_apply, p)
@@ -108,20 +108,20 @@ class LetterboxResize(DualTransform):
     ) -> np.ndarray:
         """Applies the letterbox augmentation to an image.
 
-        @param img: Input image to which resize is applied.
         @type img: np.ndarray
-        @param pad_top: Number of pixels to pad at the top.
+        @param img: Input image to which resize is applied.
         @type pad_top: int
-        @param pad_bottom: Number of pixels to pad at the bottom.
+        @param pad_top: Number of pixels to pad at the top.
         @type pad_bottom: int
-        @param pad_left: Number of pixels to pad on the left.
+        @param pad_bottom: Number of pixels to pad at the bottom.
         @type pad_left: int
-        @param pad_right: Number of pixels to pad on the right.
+        @param pad_left: Number of pixels to pad on the left.
         @type pad_right: int
-        @param params: Additional parameters for the padding operation.
-        @type params: Any
-        @return: Image with applied letterbox resize.
+        @param pad_right: Number of pixels to pad on the right.
+        @type kwargs: Any
+        @param kwargs: Additional parameters for the padding operation.
         @rtype: np.ndarray
+        @return: Image with applied letterbox resize.
         """
 
         resized_img = cv2.resize(
@@ -155,20 +155,20 @@ class LetterboxResize(DualTransform):
     ) -> np.ndarray:
         """Applies letterbox augmentation to the input mask.
 
-        @param img: Input mask to which resize is applied.
         @type img: np.ndarray
-        @param pad_top: Number of pixels to pad at the top.
+        @param img: Input mask to which resize is applied.
         @type pad_top: int
-        @param pad_bottom: Number of pixels to pad at the bottom.
+        @param pad_top: Number of pixels to pad at the top.
         @type pad_bottom: int
-        @param pad_left: Number of pixels to pad on the left.
+        @param pad_bottom: Number of pixels to pad at the bottom.
         @type pad_left: int
-        @param pad_right: Number of pixels to pad on the right.
+        @param pad_left: Number of pixels to pad on the left.
         @type pad_right: int
-        @param params: Additional parameters for the padding operation.
+        @param pad_right: Number of pixels to pad on the right.
         @type params: Any
-        @return: Mask with applied letterbox resize.
+        @param params: Additional parameters for the padding operation.
         @rtype: np.ndarray
+        @return: Mask with applied letterbox resize.
         """
 
         resized_img = cv2.resize(
@@ -202,20 +202,20 @@ class LetterboxResize(DualTransform):
     ) -> BoxType:
         """Applies letterbox augmentation to the bounding box.
 
-        @param img: Bounding box to which resize is applied.
-        @type img: BoxType
-        @param pad_top: Number of pixels to pad at the top.
+        @type bbox: BoxType
+        @param bbox: Bounding box to which resize is applied.
         @type pad_top: int
-        @param pad_bottom: Number of pixels to pad at the bottom.
+        @param pad_top: Number of pixels to pad at the top.
         @type pad_bottom: int
-        @param pad_left: Number of pixels to pad on the left.
+        @param pad_bottom: Number of pixels to pad at the bottom.
         @type pad_left: int
-        @param pad_right: Number of pixels to pad on the right.
+        @param pad_left: Number of pixels to pad on the left.
         @type pad_right: int
-        @param params: Additional parameters for the padding operation.
+        @param pad_right: Number of pixels to pad on the right.
         @type params: Any
-        @return: Bounding box with applied letterbox resize.
+        @param params: Additional parameters for the padding operation.
         @rtype: BoxType
+        @return: Bounding box with applied letterbox resize.
         """
 
         x_min, y_min, x_max, y_max = denormalize_bbox(
@@ -245,29 +245,29 @@ class LetterboxResize(DualTransform):
         pad_bottom: int,
         pad_left: int,
         pad_right: int,
-        **params,
+        **kwargs,
     ) -> KeypointType:
         """Applies letterbox augmentation to the keypoint.
 
-        @param img: Keypoint to which resize is applied.
-        @type img: KeypointType
-        @param pad_top: Number of pixels to pad at the top.
+        @type keypoint: KeypointType
+        @param keypoint: Keypoint to which resize is applied.
         @type pad_top: int
-        @param pad_bottom: Number of pixels to pad at the bottom.
+        @param pad_top: Number of pixels to pad at the top.
         @type pad_bottom: int
-        @param pad_left: Number of pixels to pad on the left.
+        @param pad_bottom: Number of pixels to pad at the bottom.
         @type pad_left: int
-        @param pad_right: Number of pixels to pad on the right.
+        @param pad_left: Number of pixels to pad on the left.
         @type pad_right: int
-        @param params: Additional parameters for the padding operation.
-        @type params: Any
-        @return: Keypoint with applied letterbox resize.
+        @param pad_right: Number of pixels to pad on the right.
+        @type kwargs: Any
+        @param kwargs: Additional parameters for the padding operation.
         @rtype: KeypointType
+        @return: Keypoint with applied letterbox resize.
         """
 
         x, y, angle, scale = keypoint[:4]
-        scale_x = (self.width - pad_left - pad_right) / params["cols"]
-        scale_y = (self.height - pad_top - pad_bottom) / params["rows"]
+        scale_x = (self.width - pad_left - pad_right) / kwargs["cols"]
+        scale_y = (self.height - pad_top - pad_bottom) / kwargs["rows"]
         new_x = (x * scale_x) + pad_left
         new_y = (y * scale_y) + pad_top
         # if keypoint is in the padding then set coordinates to -1
@@ -286,8 +286,8 @@ class LetterboxResize(DualTransform):
     def get_transform_init_args_names(self) -> Tuple[str, ...]:
         """Gets the default arguments for the letterbox augmentation.
 
-        @return: The string keywords of the arguments.
         @rtype: Tuple[str, ...]
+        @return: The string keywords of the arguments.
         """
 
         return (
@@ -303,14 +303,14 @@ class LetterboxResize(DualTransform):
     ) -> bool:
         """ "Check if the given value is outside the specified limits.
 
-        @param value: The value to be checked.
         @type value: float
-        @param min_limit: Minimum limit.
+        @param value: The value to be checked.
         @type min_limit: float
-        @param max_limit: Maximum limit.
+        @param min_limit: Minimum limit.
         @type max_limit: float
+        @param max_limit: Maximum limit.
+        @rtype: bool
         @return: True if the value is outside the specified limits,
             False otherwise.
-        @rtype: bool
         """
         return value < min_limit or value > max_limit

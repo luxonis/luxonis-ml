@@ -76,8 +76,8 @@ class Annotation(ABC, BaseModelExtraForbid):
     @type instance_id: int
     @ivar instance_id: The instance id of the annotation. This
         determines the order in which individual instances are loaded in
-        L{LuxonisLoader}.
-    @type _label_type: ClassVar[L{LabelType}]
+        L{luxonis_ml.data.LuxonisLoader}.
+    @type _label_type: ClassVar[LabelType]
     @ivar _label_type: The label type of the annotation.
     """
 
@@ -110,7 +110,17 @@ class Annotation(ABC, BaseModelExtraForbid):
         width: int,
     ) -> np.ndarray:
         """Combines multiple instance annotations into a single numpy
-        array."""
+        array.
+
+        @type annotations: List[Annotation]
+        @param annotations: List of annotations to combine.
+        @type class_mapping: Dict[str, int]
+        @param class_mapping: Mapping of class names to class indices.
+        @type height: int
+        @param height: The height of the image.
+        @type width: int
+        @param width: The width of the image.
+        """
         pass
 
 
@@ -138,14 +148,14 @@ class BBoxAnnotation(Annotation):
 
     @type x: float
     @ivar x: The top-left x coordinate of the bounding box. Normalized
-        to [0, 1].
+        to M{[0, 1]}.
     @type y: float
     @ivar y: The top-left y coordinate of the bounding box. Normalized
-        to [0, 1].
+        to M{[0, 1]}.
     @type w: float
-    @ivar w: The width of the bounding box. Normalized to [0, 1].
+    @ivar w: The width of the bounding box. Normalized to M{[0, 1]}.
     @type h: float
-    @ivar h: The height of the bounding box. Normalized to [0, 1].
+    @ivar h: The height of the bounding box. Normalized to M{[0, 1]}.
     """
 
     type_: Literal["boundingbox"] = Field("boundingbox", alias="type")
@@ -211,11 +221,11 @@ class BBoxAnnotation(Annotation):
 class KeypointAnnotation(Annotation):
     """Keypoint annotation.
 
-    Values are normalized to [0, 1] based on the image size.
+    Values are normalized to M{[0, 1]} based on the image size.
 
     @type keypoints: List[Tuple[float, float, L{KeypointVisibility}]]
     @ivar keypoints: List of keypoints. Each keypoint is a tuple of (x, y, visibility).
-        x and y are normalized to [0, 1]. visibility is one of {0, 1, 2} where:
+        x and y are normalized to M{[0, 1]}. visibility is one of M{0}, M{1}, or M{2} where:
             - 0: Not visible / not labeled
             - 1: Occluded
             - 2: Visible
@@ -439,8 +449,8 @@ class PolylineSegmentationAnnotation(SegmentationAnnotation):
 
     @type points: List[Tuple[float, float]]
     @ivar points: List of points that define the polyline. Each point is
-        a tuple of (x, y). x and y are normalized to [0, 1] based on the
-        image size.
+        a tuple of (x, y). x and y are normalized to M{[0, 1]} based on
+        the image size.
     """
 
     type_: Literal["polyline"] = Field("polyline", alias="type")
@@ -491,7 +501,7 @@ class ArrayAnnotation(Annotation):
 
     All instances of this annotation must have the same shape.
 
-    @type path: L{FilePath}
+    @type path: FilePath
     @ivar path: The path to the numpy array saved as a C{.npy} file.
     """
 
@@ -555,7 +565,7 @@ class LabelAnnotation(Annotation):
 class DatasetRecord(BaseModelExtraForbid):
     """A record of an image and its annotation.
 
-    @type file: L{FilePath}
+    @type file: FilePath
     @ivar file: A path to the image.
     @type annotation: Optional[Annotation]
     @ivar annotation: The annotation for the image.

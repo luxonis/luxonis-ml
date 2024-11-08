@@ -55,11 +55,12 @@ class BaseParser(ABC):
 
         @type dataset_dir: str
         @param dataset_dir: Path to source dataset directory.
-        @type parser_kwargs: Dict[str, Any]
-        @param parser_kwargs: Additional kwargs for specific parser
+        @type kwargs: Any
+        @param kwargs: Additional arguments for a specific parser
             implementation.
         @rtype: Tuple[List[str], List[str], List[str]]
-        @return: Tuple with added images for train, val and test splits.
+        @return: Tuple with added images for C{train}, C{val} and
+            C{test} splits.
         """
         pass
 
