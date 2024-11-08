@@ -64,8 +64,8 @@ class LuxonisDataset(BaseDataset):
         @type bucket_type: BucketType
         @param bucket_type: Whether to use external cloud buckets
         @type bucket_storage: BucketStorage
-        @param bucket_storage: Underlying bucket storage from local, S3,
-            or GCS
+        @param bucket_storage: Underlying bucket storage. Can be one of
+            C{local}, C{S3}, or C{GCS}.
         @type delete_existing: bool
         @param delete_existing: Whether to delete a dataset with the
             same name if it exists
@@ -283,8 +283,8 @@ class LuxonisDataset(BaseDataset):
         """Updates underlying source of the dataset with a new
         L{LuxonisSource}.
 
-        @type source: L{LuxonisSource}
-        @param source: The new L{LuxonisSource} to replace the old one.
+        @type source: LuxonisSource
+        @param source: The new C{LuxonisSource} to replace the old one.
         """
 
         self.metadata["source"] = source.to_document()
@@ -826,7 +826,7 @@ class LuxonisDataset(BaseDataset):
         @type bucket: Optional[str]
         @param bucket: Name of the bucket. Default is C{None}.
         @rtype: bool
-        @return: Whether the dataset exists
+        @return: Whether the dataset exists.
         """
         return dataset_name in LuxonisDataset.list_datasets(
             team_id, bucket_storage, bucket
@@ -840,8 +840,15 @@ class LuxonisDataset(BaseDataset):
     ) -> List[str]:
         """Returns a dictionary of all datasets.
 
-        @rtype: Dict
-        @return: Dictionary of all datasets
+        @type team_id: Optional[str]
+        @param team_id: Optional team identifier
+        @type bucket_storage: BucketStorage
+        @param bucket_storage: Underlying bucket storage from C{local},
+            C{S3}, or C{GCS}. Default is C{local}.
+        @type bucket: Optional[str]
+        @param bucket: Name of the bucket. Default is C{None}.
+        @rtype: List[str]
+        @return: List of all dataset names.
         """
         base_path = environ.LUXONISML_BASE_PATH
 

@@ -44,7 +44,7 @@ class BaseDataset(
         LuxonisSource.
 
         @type source: L{LuxonisSource}
-        @param source: The new L{LuxonisSource} to replace the old one.
+        @param source: The new C{LuxonisSource} to replace the old one.
         """
         pass
 
@@ -122,8 +122,8 @@ class BaseDataset(
 
         @type generator: L{DatasetIterator}
         @param generator: A Python iterator that yields either instances
-            of L{DatasetRecord} or a dictionary that can be converted to
-            L{DatasetRecord}.
+            of C{DatasetRecord} or a dictionary that can be converted to
+            C{DatasetRecord}.
         @type batch_size: int
         @param batch_size: The number of annotations generated before
             processing. This can be set to a lower value to reduce

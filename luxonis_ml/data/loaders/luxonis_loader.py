@@ -30,10 +30,10 @@ class LuxonisLoader(BaseLoader):
         """A loader class used for loading data from L{LuxonisDataset}.
 
         @type dataset: LuxonisDataset
-        @param dataset: LuxonisDataset to use
+        @param dataset: Instance of C{LuxonisDataset} to use.
         @type view: Union[str, List[str]]
         @param view: What splits to use. Can be either a single split or
-            a list of splits. Defaults to "train".
+            a list of splits. Defaults to C{"train"}.
         @type stream: bool
         @param stream: Flag for data streaming. Defaults to C{False}.
         @type augmentations: Optional[luxonis_ml.loader.Augmentations]
@@ -141,7 +141,7 @@ class LuxonisLoader(BaseLoader):
         """Returns length of the dataset.
 
         @rtype: int
-        @return: Length of dataset.
+        @return: Length of the loader.
         """
         return len(self.instances)
 
@@ -150,9 +150,8 @@ class LuxonisLoader(BaseLoader):
         annotations.
 
         @type idx: int
-        @param idx: The (often random) integer index to retrieve a
-            sample from the dataset.
-        @rtype: LuxonisLoaderOutput
+        @param idx: The integer index of the sample to retrieve.
+        @rtype: L{LuxonisLoaderOutput}
         @return: The loader ouput consisting of the image and a
             dictionary defining its annotations.
         """

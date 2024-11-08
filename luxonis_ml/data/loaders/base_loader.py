@@ -45,7 +45,7 @@ class BaseLoader(
         @type idx: int
         @param idx: Index of the sample to load.
         @rtype: L{LuxonisLoaderOutput}
-        @return: Sample's data in L{LuxonisLoaderOutput} format.
+        @return: Sample's data in C{LuxonisLoaderOutput} format.
         """
         pass
 
