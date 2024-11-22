@@ -501,22 +501,20 @@ class LuxonisTracker:
                 self.log_stored_logs_to_mlflow()
 
     @rank_zero_only
-    def log_matrix(self, matrix: np.ndarray, path: str) -> None:
+    def log_matrix(self, matrix: np.ndarray, name: str) -> None:
         """Logs confusion matrix to the logging service.
 
         @type matrix: np.ndarray
         @param matrix: The confusion matrix to log.
-        @type path: str
-        @param path: The artifact file path in posix format where the
-            matrix will be logged.
+        @type name: str
+        @param name: The name used to log the matrix.
         """
-        name = os.path.splitext(path)[0]
         if self.is_mlflow:
             matrix_data = {
                 "flat_array": matrix.flatten().tolist(),
                 "shape": matrix.shape,
             }
-            self.experiment["mlflow"].log_dict(matrix_data, path)
+            self.experiment["mlflow"].log_dict(matrix_data, f"{name}.json")
 
         if self.is_tensorboard:
             matrix_str = np.array2string(matrix, separator=", ")
