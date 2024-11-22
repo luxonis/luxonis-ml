@@ -501,28 +501,37 @@ class LuxonisTracker:
                 self.log_stored_logs_to_mlflow()
 
     @rank_zero_only
-    def log_matrix(
-        self, matrix: np.ndarray, name: str = "confusion_matrix"
-    ) -> None:
-        """Logs a confusion matrix as a JSON artifact by flattening the
-        matrix and saving its shape.
+    def log_matrix(self, matrix: np.ndarray, path: str) -> None:
+        """Logs confusion matrix to the logging service.
 
         @type matrix: np.ndarray
         @param matrix: The confusion matrix to log.
-        @type name: str
-        @param name: The name of the artifact.
+        @type path: str
+        @param path: The artifact file path in posix format where the
+            matrix will be logged.
         """
-        matrix_data = {
-            "flat_array": matrix.flatten().tolist(),
-            "shape": matrix.shape,
-        }
-        tmp_file_path = f"{name}.json"
-        try:
-            with open(tmp_file_path, "w") as tmp_file:
-                json.dump(matrix_data, tmp_file)
-            self.upload_artifact(path=tmp_file_path)
-        finally:
-            Path(tmp_file_path).unlink(missing_ok=True)
+        name = os.path.splitext(path)[0]
+        if self.is_mlflow:
+            matrix_data = {
+                "flat_array": matrix.flatten().tolist(),
+                "shape": matrix.shape,
+            }
+            self.experiment["mlflow"].log_dict(matrix_data, path)
+
+        if self.is_tensorboard:
+            matrix_str = np.array2string(matrix, separator=", ")
+            self.experiment["tensorboard"].add_text(name, matrix_str)
+
+        if self.is_wandb:
+            import wandb
+
+            table = wandb.Table(
+                columns=["Row Index"]
+                + [f"Col {i}" for i in range(matrix.shape[1])]
+            )
+            for i, row in enumerate(matrix):
+                table.add_data(i, *row)
+            self.experiment["wandb"].log({f"{name}_table": table})
 
     @rank_zero_only
     def log_images(self, imgs: Dict[str, np.ndarray], step: int) -> None:
