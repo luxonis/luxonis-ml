@@ -501,13 +501,15 @@ class LuxonisTracker:
                 self.log_stored_logs_to_mlflow()
 
     @rank_zero_only
-    def log_matrix(self, matrix: np.ndarray, name: str) -> None:
+    def log_matrix(self, matrix: np.ndarray, name: str, step: int) -> None:
         """Logs confusion matrix to the logging service.
 
         @type matrix: np.ndarray
         @param matrix: The confusion matrix to log.
         @type name: str
         @param name: The name used to log the matrix.
+        @type step: int
+        @param step: The current step.
         """
         if self.is_mlflow:
             matrix_data = {
@@ -518,7 +520,7 @@ class LuxonisTracker:
 
         if self.is_tensorboard:
             matrix_str = np.array2string(matrix, separator=", ")
-            self.experiment["tensorboard"].add_text(name, matrix_str)
+            self.experiment["tensorboard"].add_text(name, matrix_str, step)
 
         if self.is_wandb:
             import wandb
@@ -529,7 +531,7 @@ class LuxonisTracker:
             )
             for i, row in enumerate(matrix):
                 table.add_data(i, *row)
-            self.experiment["wandb"].log({f"{name}_table": table})
+            self.experiment["wandb"].log({f"{name}_table": table}, step=step)
 
     @rank_zero_only
     def log_images(self, imgs: Dict[str, np.ndarray], step: int) -> None:
