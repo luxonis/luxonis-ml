@@ -213,8 +213,6 @@ class Augmentations:
         @type data: List[Tuple[np.ndarray, Dict[LabelType, np.ndarray]]]
         @param data: Data with list of input images and their
             annotations
-        @type nc: int
-        @param nc: Number of classes
         @type ns: int
         @param ns: Number of segmentation classes
         @type nk: int

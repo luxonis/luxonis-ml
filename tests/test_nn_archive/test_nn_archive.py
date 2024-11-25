@@ -132,6 +132,51 @@ def test_archive_generator(
         assert "config.json" in tar.getnames()
 
 
+def test_config_version():
+    from luxonis_ml.nn_archive import Config
+
+    cfg_dict = {
+        "config_version": "1.0",
+        "model": {
+            "metadata": {
+                "name": "test_model",
+                "path": "test_model.onnx",
+            },
+            "inputs": [
+                {
+                    "name": "input",
+                    "shape": [1, 3, 224, 224],
+                    "input_type": "image",
+                    "layout": "nchw",
+                    "dtype": "float32",
+                    "preprocessing": {
+                        "mean": [0.485, 0.456, 0.406],
+                        "scale": [0.229, 0.224, 0.225],
+                        "reverse_channels": False,
+                        "interleaved_to_planar": False,
+                    },
+                }
+            ],
+            "outputs": [
+                {
+                    "name": "output",
+                    "dtype": "float32",
+                }
+            ],
+            "heads": [],
+        },
+    }
+    Config(**cfg_dict)
+    cfg_dict["config_version"] = "1.2"
+    Config(**cfg_dict)
+    cfg_dict["config_version"] = "1.2.2"
+    with pytest.raises(ValidationError):
+        Config(**cfg_dict)
+    cfg_dict["config_version"] = "1.a"
+    with pytest.raises(ValidationError):
+        Config(**cfg_dict)
+
+
 def test_optional_head_name():
     from luxonis_ml.nn_archive.config_building_blocks.base_models.head_metadata import (
         HeadMetadata,

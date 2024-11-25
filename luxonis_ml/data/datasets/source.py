@@ -71,7 +71,7 @@ class LuxonisSource:
 
         For example, with an U{OAK-D<https://docs.luxonis.com/projects/hardware
         /en/latest/pages/BW1098OAK/>}, you can have a source with 4 image
-        components: rgb (color), left (mono), right (mono), and depth.
+        components: C{rgb} (color), C{left} (mono), C{right} (mono), and C{depth}.
 
         @type name: str
         @param name: A recognizable name for the source. Defaults to "default".
