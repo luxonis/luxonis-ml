@@ -178,7 +178,7 @@ class LuxonisTracker:
             self.local_logs["metric"].append(
                 {"name": args[0], "value": args[1], "step": args[2]}
             )
-        if log_fn == self._experiment["mlflow"].log_metrics:
+        elif log_fn == self._experiment["mlflow"].log_metrics:
             self.local_logs["metrics"].append(
                 {"metrics": args[0], "step": args[1]}
             )
@@ -527,7 +527,7 @@ class LuxonisTracker:
 
     @rank_zero_only
     def log_matrix(self, matrix: np.ndarray, name: str, step: int) -> None:
-        """Logs confusion matrix to the logging service.
+        """Logs matrix to the logging service.
 
         @type matrix: np.ndarray
         @param matrix: The confusion matrix to log.
