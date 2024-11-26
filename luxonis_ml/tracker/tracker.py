@@ -530,7 +530,7 @@ class LuxonisTracker:
         """Logs matrix to the logging service.
 
         @type matrix: np.ndarray
-        @param matrix: The confusion matrix to log.
+        @param matrix: The matrix to log.
         @type name: str
         @param name: The name used to log the matrix.
         @type step: int
