@@ -330,11 +330,11 @@ class LuxonisLoader(BaseLoader):
                         (len(self.class_mappings[task]), height, width),
                         dtype=np.uint8,
                     )
-                if task == LabelType.BOUNDINGBOX:
+                elif task == LabelType.BOUNDINGBOX:
                     empty_array = np.zeros((0, 6), dtype=np.float32)
-                if task == LabelType.KEYPOINTS:
+                elif task == LabelType.KEYPOINTS:
                     empty_array = np.zeros((0, 3), dtype=np.float32)
-                if task == LabelType.CLASSIFICATION:
+                elif task == LabelType.CLASSIFICATION:
                     empty_array = np.zeros(
                         (0, len(self.class_mappings[task])), dtype=np.float32
                     )
