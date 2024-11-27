@@ -323,4 +323,21 @@ class LuxonisLoader(BaseLoader):
 
             labels[task] = (array, anns[0]._label_type)
 
+        if not labels:
+            for task in self.classes_by_task.keys():
+                if task == LabelType.SEGMENTATION:
+                    empty_array = np.zeros(
+                        (len(self.class_mappings[task]), height, width),
+                        dtype=np.uint8,
+                    )
+                if task == LabelType.BOUNDINGBOX:
+                    empty_array = np.zeros((0, 6), dtype=np.float32)
+                if task == LabelType.KEYPOINTS:
+                    empty_array = np.zeros((0, 3), dtype=np.float32)
+                if task == LabelType.CLASSIFICATION:
+                    empty_array = np.zeros(
+                        (0, len(self.class_mappings[task])), dtype=np.float32
+                    )
+                labels[task] = (empty_array, task)
+
         return img, labels
