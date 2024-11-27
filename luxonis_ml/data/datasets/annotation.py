@@ -4,13 +4,11 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import (
     Any,
-    ClassVar,
     Dict,
     List,
     Literal,
     Optional,
     Tuple,
-    TypedDict,
     Union,
 )
 
@@ -22,6 +20,7 @@ from pydantic import (
     Field,
     field_serializer,
     field_validator,
+    model_serializer,
     model_validator,
 )
 from pydantic.types import FilePath, NonNegativeInt, PositiveInt
@@ -38,31 +37,64 @@ NormalizedFloat: TypeAlias = Annotated[float, Field(ge=0, le=1)]
 """C{NormalizedFloat} is a float that is restricted to the range [0,
 1]."""
 
-ParquetDict = TypedDict(
-    "ParquetDict",
-    {
-        "file": str,
-        "type": str,
-        "created_at": datetime,
-        "class": str,
-        "instance_id": int,
-        "task": str,
-        "annotation": str,
-    },
-)
+AnnotationName: TypeAlias = Literal[
+    "boundingbox", "keypoints", "segmentation", "array"
+]
 
 
 def load_annotation(name: str, data: Dict[str, Any]) -> "Annotation":
     return {
-        "ClassificationAnnotation": ClassificationAnnotation,
         "BBoxAnnotation": BBoxAnnotation,
         "KeypointAnnotation": KeypointAnnotation,
         "RLESegmentationAnnotation": RLESegmentationAnnotation,
         "PolylineSegmentationAnnotation": PolylineSegmentationAnnotation,
         "MaskSegmentationAnnotation": MaskSegmentationAnnotation,
         "ArrayAnnotation": ArrayAnnotation,
-        "LabelAnnotation": LabelAnnotation,
     }[name](**data)
+
+
+class InstanceLabel(BaseModelExtraForbid):
+    class_name: Optional[str] = None
+    instance_id: Optional[int] = None
+    metadata: Dict[str, Union[int, float, str]] = {}
+    task_name: str
+
+    boundingbox: Optional["BBoxAnnotation"] = None
+    keypoints: Optional["KeypointAnnotation"] = None
+    segmentation: Optional["SegmentationAnnotation"] = None
+    array: Optional["ArrayAnnotation"] = None
+
+    @model_validator(mode="before")
+    def deserialize_annotations(
+        self, values: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        if "annotation" not in values:
+            return values
+        for name, value in json.loads(values.pop("annotation")).items():
+            values[name] = load_annotation(name, value)
+        return values
+
+    @model_serializer
+    def serialize_model(self) -> Dict[str, Any]:
+        model = {
+            "class": self.class_name,
+            "instance_id": self.instance_id,
+            "metadata": self.metadata,
+            "task": self.task_name,
+        }
+        for key in ["boundingbox", "keypoints", "segmentation", "array"]:
+            model[key] = None
+            if getattr(self, key, None) is not None:
+                model[key] = getattr(self, key).model_dump()
+
+        return model
+
+    def to_numpy(self) -> Dict[AnnotationName, np.ndarray]:
+        arrays = {}
+        for key in ["boundingbox", "keypoints", "segmentation", "array"]:
+            if getattr(self, key, None) is not None:
+                arrays[key] = getattr(self, key).to_numpy(self.class_name)
+        return arrays
 
 
 class Annotation(ABC, BaseModelExtraForbid):
@@ -81,64 +113,10 @@ class Annotation(ABC, BaseModelExtraForbid):
     @ivar _label_type: The label type of the annotation.
     """
 
-    _label_type: ClassVar[LabelType]
-
     task: str
-    class_: str = Field("", alias="class")
-    instance_id: int = -1
 
-    @model_validator(mode="before")
-    @classmethod
-    def validate_task(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        if "task" not in values:
-            values = {**values, "task": cls._label_type.value}
-        return values
-
-    def get_value(self) -> Dict[str, Any]:
-        """Converts the annotation to a dictionary that can be saved to
-        a parquet file."""
-        return self.dict(
-            exclude={"class_", "class_id", "instance_id", "task", "type_"}
-        )
-
-    @staticmethod
     @abstractmethod
-    def combine_to_numpy(
-        annotations: List["Annotation"],
-        class_mapping: Dict[str, int],
-        height: int,
-        width: int,
-    ) -> np.ndarray:
-        """Combines multiple instance annotations into a single numpy
-        array.
-
-        @type annotations: List[Annotation]
-        @param annotations: List of annotations to combine.
-        @type class_mapping: Dict[str, int]
-        @param class_mapping: Mapping of class names to class indices.
-        @type height: int
-        @param height: The height of the image.
-        @type width: int
-        @param width: The width of the image.
-        """
-        pass
-
-
-class ClassificationAnnotation(Annotation):
-    _label_type = LabelType.CLASSIFICATION
-    type_: Literal["classification"] = Field("classification", alias="type")
-
-    @staticmethod
-    def combine_to_numpy(
-        annotations: List["ClassificationAnnotation"],
-        class_mapping: Dict[str, int],
-        **_,
-    ) -> np.ndarray:
-        classify_vector = np.zeros(len(class_mapping))
-        for ann in annotations:
-            class_ = class_mapping.get(ann.class_, 0)
-            classify_vector[class_] = 1
-        return classify_vector
+    def to_numpy(self, class_id: int) -> np.ndarray: ...
 
 
 class BBoxAnnotation(Annotation):
@@ -164,8 +142,6 @@ class BBoxAnnotation(Annotation):
     y: NormalizedFloat
     w: NormalizedFloat
     h: NormalizedFloat
-
-    _label_type = LabelType.BOUNDINGBOX
 
     @model_validator(mode="before")
     @classmethod
@@ -204,17 +180,16 @@ class BBoxAnnotation(Annotation):
             )
         return values
 
-    def to_numpy(self, class_mapping: Dict[str, int]) -> np.ndarray:
-        class_ = class_mapping.get(self.class_, 0)
-        return np.array([class_, self.x, self.y, self.w, self.h])
+    def to_numpy(self, class_id: int) -> np.ndarray:
+        return np.array([class_id, self.x, self.y, self.w, self.h])
 
     @staticmethod
     def combine_to_numpy(
-        annotations: List["BBoxAnnotation"], class_mapping: Dict[str, int], **_
+        annotations: List["BBoxAnnotation"], classes: List[int]
     ) -> np.ndarray:
         boxes = np.zeros((len(annotations), 5))
         for i, ann in enumerate(annotations):
-            boxes[i] = ann.to_numpy(class_mapping)
+            boxes[i] = ann.to_numpy(classes[i])
         return boxes
 
 
@@ -236,8 +211,6 @@ class KeypointAnnotation(Annotation):
     keypoints: List[
         Tuple[NormalizedFloat, NormalizedFloat, KeypointVisibility]
     ]
-
-    _label_type = LabelType.KEYPOINTS
 
     @model_validator(mode="before")
     @classmethod
@@ -266,22 +239,20 @@ class KeypointAnnotation(Annotation):
             )
         return values
 
-    def to_numpy(self, class_mapping: Dict[str, int]) -> np.ndarray:
-        class_ = class_mapping.get(self.class_, 0)
+    def to_numpy(self, class_id: int) -> np.ndarray:
         kps = np.array(self.keypoints).reshape((-1, 3)).astype(np.float32)
-        return np.concatenate([[class_], kps.flatten()])
+        return np.concatenate([[class_id], kps.flatten()])
 
     @staticmethod
     def combine_to_numpy(
         annotations: List["KeypointAnnotation"],
-        class_mapping: Dict[str, int],
-        **_,
+        classes: List[int],
     ) -> np.ndarray:
         keypoints = np.zeros(
             (len(annotations), len(annotations[0].keypoints) * 3 + 1)
         )
         for i, ann in enumerate(annotations):
-            keypoints[i] = ann.to_numpy(class_mapping)
+            keypoints[i] = ann.to_numpy(classes[i])
         return keypoints
 
 
@@ -290,35 +261,30 @@ class SegmentationAnnotation(Annotation):
 
     _label_type = LabelType.SEGMENTATION
 
-    @abstractmethod
-    def to_numpy(
-        self, class_mapping: Dict[str, int], width: int, height: int
-    ) -> np.ndarray:
-        """Converts the annotation to a numpy array."""
-        pass
-
     @staticmethod
     def combine_to_numpy(
         annotations: List["SegmentationAnnotation"],
-        class_mapping: Dict[str, int],
-        height: int,
-        width: int,
+        classes: List[int],
     ) -> np.ndarray:
-        seg = np.zeros((len(class_mapping), height, width), dtype=np.uint8)
+        width, height = annotations[0].get_size()
+        seg = np.zeros((len(classes), height, width), dtype=np.uint8)
 
         masks = np.stack(
-            [ann.to_numpy(class_mapping, width, height) for ann in annotations]
-        )
-        classes = np.array(
-            [class_mapping.get(ann.class_, 0) for ann in annotations]
+            [
+                ann.to_numpy(class_id)
+                for class_id, ann in zip(classes, annotations)
+            ]
         )
 
-        for i, class_ in enumerate(classes):
-            seg[class_, ...] = np.maximum(
-                seg[class_, ...], masks[i].astype(np.uint8)
+        for i, class_id in enumerate(classes):
+            seg[class_id, ...] = np.maximum(
+                seg[class_id, ...], masks[i].astype(np.uint8)
             )
 
         return seg
+
+    @abstractmethod
+    def get_size(self) -> Tuple[int, int]: ...
 
 
 class RLESegmentationAnnotation(SegmentationAnnotation):
@@ -366,13 +332,14 @@ class RLESegmentationAnnotation(SegmentationAnnotation):
             "counts": rle["counts"].decode("utf-8"),
         }
 
-    def to_numpy(
-        self, _: Dict[str, int], width: int, height: int
-    ) -> np.ndarray:
+    def to_numpy(self, _: int) -> np.ndarray:
         assert isinstance(self.counts, bytes)
         return mask_util.decode(
-            {"counts": self.counts, "size": [height, width]}
+            {"counts": self.counts, "size": [self.height, self.width]}
         ).astype(np.bool_)
+
+    def get_size(self) -> Tuple[int, int]:
+        return self.width, self.height
 
 
 class MaskSegmentationAnnotation(SegmentationAnnotation):
@@ -440,8 +407,12 @@ class MaskSegmentationAnnotation(SegmentationAnnotation):
             "counts": rle["counts"].decode("utf-8"),  # type: ignore
         }
 
-    def to_numpy(self, *_) -> np.ndarray:
+    def to_numpy(self, _: int) -> np.ndarray:
         return self.mask
+
+    def get_size(self) -> Tuple[int, int]:
+        w, h = self.mask.shape
+        return w, h
 
 
 class PolylineSegmentationAnnotation(SegmentationAnnotation):
@@ -456,6 +427,8 @@ class PolylineSegmentationAnnotation(SegmentationAnnotation):
     type_: Literal["polyline"] = Field("polyline", alias="type")
 
     points: List[Tuple[NormalizedFloat, NormalizedFloat]] = Field(min_length=3)
+    width: PositiveInt
+    height: PositiveInt
 
     @model_validator(mode="before")
     @classmethod
@@ -484,16 +457,18 @@ class PolylineSegmentationAnnotation(SegmentationAnnotation):
             )
         return values
 
-    def to_numpy(
-        self, _: Dict[str, int], width: int, height: int
-    ) -> np.ndarray:
+    def to_numpy(self, _: int) -> np.ndarray:
         polyline = [
-            (round(x * width), round(y * height)) for x, y in self.points
+            (round(x * self.width), round(y * self.height))
+            for x, y in self.points
         ]
-        mask = Image.new("L", (width, height), 0)
+        mask = Image.new("L", (self.width, self.height), 0)
         draw = ImageDraw.Draw(mask)
         draw.polygon(polyline, fill=1, outline=1)
         return np.array(mask).astype(np.bool_)
+
+    def get_size(self) -> Tuple[int, int]:
+        return self.width, self.height
 
 
 class ArrayAnnotation(Annotation):
@@ -513,20 +488,17 @@ class ArrayAnnotation(Annotation):
 
     @staticmethod
     def combine_to_numpy(
-        annotations: List["ArrayAnnotation"],
-        class_mapping: Dict[str, int],
-        **_,
+        annotations: List["ArrayAnnotation"], classes: List[int]
     ) -> np.ndarray:
         out_arr = np.zeros(
             (
                 len(annotations),
-                len(class_mapping),
+                len(classes),
                 *np.load(annotations[0].path).shape,
             )
         )
         for i, ann in enumerate(annotations):
-            class_ = class_mapping.get(ann.class_, 0)
-            out_arr[i, class_] = np.load(ann.path)
+            out_arr[i, classes[i]] = np.load(ann.path)
         return out_arr
 
     @field_serializer("path")
@@ -534,58 +506,24 @@ class ArrayAnnotation(Annotation):
         return str(value)
 
 
-class LabelAnnotation(Annotation):
-    """A custom unspecified annotation with a single primitive value.
-
-    @type value: Union[bool, int, float, str]
-    @ivar value: The value of the annotation.
-    """
-
-    type_: Literal["label"] = Field("label", alias="type")
-
-    value: Union[bool, int, float, str]
-
-    _label_type = LabelType.LABEL
-
-    @staticmethod
-    def combine_to_numpy(
-        annotations: List["LabelAnnotation"],
-        class_mapping: Dict[str, int],
-        **_,
-    ) -> np.ndarray:
-        out_arr = np.zeros((len(annotations), len(class_mapping))).astype(
-            type(annotations[0].value)
-        )
-        for i, ann in enumerate(annotations):
-            class_ = class_mapping.get(ann.class_, 0)
-            out_arr[i, class_] = ann.value
-        return out_arr
-
-
 class DatasetRecord(BaseModelExtraForbid):
-    """A record of an image and its annotation.
+    files: Dict[str, FilePath]
+    label: InstanceLabel
 
-    @type file: FilePath
-    @ivar file: A path to the image.
-    @type annotation: Optional[Annotation]
-    @ivar annotation: The annotation for the image.
-    """
+    @property
+    def file(self) -> FilePath:
+        if len(self.files) != 1:
+            raise ValueError("DatasetRecord must have exactly one file")
+        return next(iter(self.files.values()))
 
-    file: FilePath
-    annotation: Optional[
-        Union[
-            ClassificationAnnotation,
-            BBoxAnnotation,
-            KeypointAnnotation,
-            RLESegmentationAnnotation,
-            PolylineSegmentationAnnotation,
-            MaskSegmentationAnnotation,
-            ArrayAnnotation,
-            LabelAnnotation,
-        ]
-    ] = Field(None, discriminator="type_")
+    @model_validator(mode="before")
+    @classmethod
+    def validate_files(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        if "file" in values:
+            values["files"] = {"image": values.pop("file")}
+        return values
 
-    def to_parquet_dict(self) -> ParquetDict:
+    def to_parquet_dict(self) -> Dict[str, Any]:
         """Converts an annotation to a dictionary for writing to a
         parquet file.
 
@@ -593,26 +531,12 @@ class DatasetRecord(BaseModelExtraForbid):
         @return: A dictionary of annotation data.
         """
 
-        value = (
-            self.annotation.get_value() if self.annotation is not None else {}
-        )
-        json_value = json.dumps(value)
+        label_json = self.label.model_dump_json()
         return {
             "file": self.file.name,
-            "type": self.annotation.__class__.__name__,
             "created_at": datetime.now(timezone.utc),
-            "class": (
-                self.annotation.class_ or ""
-                if self.annotation is not None
-                else ""
-            ),
-            "instance_id": (
-                self.annotation.instance_id or -1
-                if self.annotation is not None
-                else -1
-            ),
-            "task": self.annotation.task
-            if self.annotation is not None
-            else "",
-            "annotation": json_value,
+            "class": self.label.class_name,
+            "instance_id": self.label.instance_id,
+            "task": self.label.task_name,
+            "annotation": label_json,
         }
