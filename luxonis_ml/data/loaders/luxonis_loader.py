@@ -324,7 +324,14 @@ class LuxonisLoader(BaseLoader):
             labels[task] = (array, anns[0]._label_type)
 
         missing_tasks = set(self.classes_by_task) - set(labels_by_task)
-        if missing_tasks:
+        if missing_tasks and missing_tasks.issubset(
+            {
+                LabelType.SEGMENTATION,
+                LabelType.BOUNDINGBOX,
+                LabelType.KEYPOINTS,
+                LabelType.CLASSIFICATION,
+            }
+        ):
             for task in missing_tasks:
                 class_mapping_len = len(self.class_mappings[task])
                 if task == LabelType.SEGMENTATION:
