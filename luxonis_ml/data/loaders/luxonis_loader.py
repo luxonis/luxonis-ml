@@ -323,11 +323,13 @@ class LuxonisLoader(BaseLoader):
 
             labels[task] = (array, anns[0]._label_type)
 
-        if not labels:
-            for task in self.classes_by_task.keys():
+        missing_tasks = set(self.classes_by_task) - set(labels_by_task)
+        if missing_tasks:
+            for task in missing_tasks:
+                class_mapping_len = len(self.class_mappings[task])
                 if task == LabelType.SEGMENTATION:
                     empty_array = np.zeros(
-                        (len(self.class_mappings[task]), height, width),
+                        (class_mapping_len, height, width),
                         dtype=np.uint8,
                     )
                 elif task == LabelType.BOUNDINGBOX:
@@ -336,7 +338,7 @@ class LuxonisLoader(BaseLoader):
                     empty_array = np.zeros((0, 3), dtype=np.float32)
                 elif task == LabelType.CLASSIFICATION:
                     empty_array = np.zeros(
-                        (0, len(self.class_mappings[task])), dtype=np.float32
+                        (0, class_mapping_len), dtype=np.float32
                     )
                 labels[task] = (empty_array, task)
 
