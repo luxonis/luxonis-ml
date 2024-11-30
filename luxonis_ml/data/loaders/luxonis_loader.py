@@ -10,7 +10,7 @@ import cv2
 import numpy as np
 
 from ..augmentations import Augmentations
-from ..datasets import LuxonisDataset, load_annotation
+from ..datasets import Annotation, LuxonisDataset, load_annotation
 from ..utils.enums import LabelType
 from .base_loader import BaseLoader, Labels, LuxonisLoaderOutput
 
@@ -92,8 +92,8 @@ class LuxonisLoader(BaseLoader):
             row_indexes = boolean_mask.arg_true().to_list()
             self.idx_to_df_row.append(row_indexes)
 
-        self.class_mappings = {}
-        for task in df["task"].unique():
+        self.class_mappings: Dict[str, Dict[str, int]] = {}
+        for task in df["task_name"].unique():
             if not task:
                 continue
             class_mapping = {
@@ -109,7 +109,7 @@ class LuxonisLoader(BaseLoader):
 
         self.add_background = False
         # TODO: possibly check more labels
-        test_image, test_labels = self._load_image_with_annotations(0)
+        _, test_labels = self._load_image_with_annotations(0)
         if LabelType.SEGMENTATION in test_labels:
             seg_masks = test_labels[LabelType.SEGMENTATION][0]
             if seg_masks.shape[0] > 1:
@@ -272,7 +272,7 @@ class LuxonisLoader(BaseLoader):
 
         ann_rows = [self.df.row(row) for row in ann_indices]
         if not self.dataset.is_remote:
-            img_path = ann_rows[0][8]
+            img_path = ann_rows[0][-1]
         elif not self.stream:
             uuid = ann_rows[0][0]
             file_extension = ann_rows[0][8].rsplit(".", 1)[-1]
@@ -284,43 +284,57 @@ class LuxonisLoader(BaseLoader):
             )
 
         img = cv2.cvtColor(cv2.imread(str(img_path)), cv2.COLOR_BGR2RGB)
-        height, width, _ = img.shape
 
-        labels_by_task = defaultdict(list)
-        instance_counters = defaultdict(int)
+        labels_by_task: Dict[str, List[Annotation]] = defaultdict(list)
+        class_ids_by_task: Dict[str, List[int]] = defaultdict(list)
+        instance_ids_by_task: Dict[str, List[int]] = defaultdict(list)
+
         for annotation_data in ann_rows:
-            _, _, type_, _, class_, instance_id, task, ann_str, _ = (
-                annotation_data
-            )
-            if instance_id < 0:
-                instance_counters[task] += 1
-                instance_id = instance_counters[task]
+            task_name: str = annotation_data[2]
+            class_name: str = annotation_data[4]
+            instance_id: int = annotation_data[5]
+            label_type: str = annotation_data[6]
+            ann_str: str = annotation_data[7]
+
             data = json.loads(ann_str)
-            if type_ == "ArrayAnnotation" and self.dataset.is_remote:
+            if label_type == "array" and self.dataset.is_remote:
                 data["path"] = self.dataset.arrays_path / data["path"]
-            data.update(
-                {
-                    "class": class_,
-                    "task": task,
-                    "instance_id": instance_id,
-                }
+
+            if "metadata" in label_type:
+                continue
+
+            annotation = load_annotation(label_type, data)
+            full_task_name = f"{task_name}/{label_type}"
+            labels_by_task[full_task_name].append(annotation)
+            class_ids_by_task[full_task_name].append(
+                self.class_mappings[task_name][class_name]
             )
-            if type_ != "NoneType":
-                annotation = load_annotation(type_, data)
-                labels_by_task[task].append(annotation)
+            instance_ids_by_task[full_task_name].append(instance_id)
 
         labels: Labels = {}
         for task, anns in labels_by_task.items():
-            assert anns, f"No annotations found for task {task}"
-            anns.sort(key=lambda x: x.instance_id)
+            assert anns, f"No annotations found for task {task_name}"
+            instance_ids = instance_ids_by_task[task]
+
+            anns = [
+                ann
+                for _, ann in sorted(
+                    zip(instance_ids, anns), key=lambda x: x[0]
+                )
+            ]
+
+            task_name = task.split("/")[0]
+            label_type = task.split("/")[-1]
             array = anns[0].combine_to_numpy(
-                anns, self.class_mappings[task], width=width, height=height
+                anns,
+                class_ids_by_task[task],
+                len(self.classes_by_task[task_name]),
             )
-            if self.add_background and task == LabelType.SEGMENTATION:
+            if self.add_background and label_type == "segmentation":
                 unassigned_pixels = ~np.any(array, axis=0)
-                background_idx = self.class_mappings[task]["background"]
+                background_idx = self.class_mappings[task_name]["background"]
                 array[background_idx, unassigned_pixels] = 1
 
-            labels[task] = (array, anns[0]._label_type)
+            labels[task] = array
 
         return img, labels

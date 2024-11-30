@@ -5,7 +5,6 @@ from typing import Dict, Iterator, List, Tuple
 import cv2
 import numpy as np
 
-from luxonis_ml.data import LabelType
 from luxonis_ml.data.loaders import Labels
 
 
@@ -118,9 +117,10 @@ def concat_images(
 
 
 def _label_type_iterator(
-    labels: Labels, label_type: LabelType
+    labels: Labels, label_type: str
 ) -> Iterator[Tuple[str, np.ndarray]]:
-    for task, (arr, lt) in labels.items():
+    for task, arr in labels.items():
+        lt = task.split("/")[-1]
         if lt == label_type:
             yield task, arr
 
@@ -143,35 +143,22 @@ def visualize(
     h, w, _ = image.shape
     images = {"image": image}
 
-    for task, arr in _label_type_iterator(labels, LabelType.BOUNDINGBOX):
+    for task, arr in _label_type_iterator(labels, "boundingbox"):
         curr_image = image.copy()
         for box in arr:
             cv2.rectangle(
                 curr_image,
                 (int(box[1] * w), int(box[2] * h)),
                 (int(box[1] * w + box[3] * w), int(box[2] * h + box[4] * h)),
-                _task_to_rgb(class_names[task][int(box[0])]),
+                _task_to_rgb(class_names[task.split("/")[0]][int(box[0])]),
                 2,
             )
         images[task] = curr_image
 
-    for task, arr in _label_type_iterator(labels, LabelType.KEYPOINTS):
+    for task, arr in _label_type_iterator(labels, "keypoints"):
         curr_image = image.copy()
-        task_classes = class_names[task]
+        task_classes = class_names[task.split("/")[0]]
 
-        *prefix, suffix = task.split("-")
-        prefix = "".join(prefix)
-        if suffix == "keypoints":
-            if not prefix:
-                bbox_task = "boundingbox"
-            else:
-                bbox_task = f"{prefix}-boundingbox"
-            if bbox_task in images:
-                curr_image = images.pop(bbox_task)
-                if prefix:
-                    task = f"{prefix} (keypoints + boundingbox)"
-                else:
-                    task = "keypoints + boundingbox"
         for kp in arr:
             cls_ = int(kp[0])
             kp = kp[1:].reshape(-1, 3)
@@ -185,12 +172,12 @@ def visualize(
                 )
         images[task] = curr_image
 
-    for task, arr in _label_type_iterator(labels, LabelType.SEGMENTATION):
+    for task, arr in _label_type_iterator(labels, "segmentation"):
         mask_viz = np.zeros((h, w, 3)).astype(np.uint8)
         for i, mask in enumerate(arr):
             mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST)
             mask_viz[mask == 1] = (
-                _task_to_rgb(class_names[task][i])
+                _task_to_rgb(class_names[task.split("/")[0]][i])
                 if (i != 0 or len(arr) == 1)
                 else (0, 0, 0)
             )

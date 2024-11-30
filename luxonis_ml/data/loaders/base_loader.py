@@ -6,11 +6,8 @@ from typing_extensions import TypeAlias
 
 from luxonis_ml.utils import AutoRegisterMeta, Registry
 
-from ..utils.enums import LabelType
-
-Labels: TypeAlias = Dict[str, Tuple[np.ndarray, LabelType]]
-"""C{Labels} is a dictionary mappping task names to a tuple composed of
-the annotation as C{np.ndarray} and its corresponding C{LabelType}"""
+Labels: TypeAlias = Dict[str, np.ndarray]
+"""Dictionary mappping task names to the annotations as C{np.ndarray}"""
 
 
 LuxonisLoaderOutput: TypeAlias = Tuple[np.ndarray, Labels]
