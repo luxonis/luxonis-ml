@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 
 from luxonis_ml.data.loaders import Labels
+from luxonis_ml.data.utils.label_utils import get_task_name, get_task_type
 
 
 def _task_to_rgb(string: str) -> tuple:
@@ -120,8 +121,8 @@ def _label_type_iterator(
     labels: Labels, label_type: str
 ) -> Iterator[Tuple[str, np.ndarray]]:
     for task, arr in labels.items():
-        lt = task.split("/")[-1]
-        if lt == label_type:
+        task_type = get_task_type(task)
+        if task_type == label_type:
             yield task, arr
 
 
@@ -150,14 +151,14 @@ def visualize(
                 curr_image,
                 (int(box[1] * w), int(box[2] * h)),
                 (int(box[1] * w + box[3] * w), int(box[2] * h + box[4] * h)),
-                _task_to_rgb(class_names[task.split("/")[0]][int(box[0])]),
+                _task_to_rgb(class_names[get_task_name(task)][int(box[0])]),
                 2,
             )
         images[task] = curr_image
 
     for task, arr in _label_type_iterator(labels, "keypoints"):
         curr_image = image.copy()
-        task_classes = class_names[task.split("/")[0]]
+        task_classes = class_names[get_task_name(task)]
 
         for kp in arr:
             cls_ = int(kp[0])
@@ -177,7 +178,7 @@ def visualize(
         for i, mask in enumerate(arr):
             mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST)
             mask_viz[mask == 1] = (
-                _task_to_rgb(class_names[task.split("/")[0]][i])
+                _task_to_rgb(class_names[get_task_name(task)][i])
                 if (i != 0 or len(arr) == 1)
                 else (0, 0, 0)
             )

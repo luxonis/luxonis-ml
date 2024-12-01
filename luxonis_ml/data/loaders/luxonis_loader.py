@@ -9,10 +9,19 @@ from typing import Dict, List, Optional, Tuple, Union
 import cv2
 import numpy as np
 
-from ..augmentations import Augmentations
-from ..datasets import Annotation, LuxonisDataset, load_annotation
-from ..utils.enums import LabelType
-from .base_loader import BaseLoader, Labels, LuxonisLoaderOutput
+from luxonis_ml.data.augmentations import Augmentations
+from luxonis_ml.data.datasets import (
+    Annotation,
+    LuxonisDataset,
+    load_annotation,
+)
+from luxonis_ml.data.loaders.base_loader import (
+    BaseLoader,
+    Labels,
+    LuxonisLoaderOutput,
+)
+from luxonis_ml.data.utils.enums import LabelType
+from luxonis_ml.data.utils.label_utils import split_task
 
 logger = logging.getLogger(__name__)
 
@@ -182,7 +191,7 @@ class LuxonisLoader(BaseLoader):
 
             indices.extend(picked_indices)
 
-        out_dict: Dict[str, Tuple[np.ndarray, LabelType]] = {}
+        out_dict: Labels = {}
         loaded_anns = [self._load_image_with_annotations(i) for i in indices]
         random_state = random.getstate()
         np_random_state = np.random.get_state()
@@ -293,18 +302,18 @@ class LuxonisLoader(BaseLoader):
             task_name: str = annotation_data[2]
             class_name: str = annotation_data[4]
             instance_id: int = annotation_data[5]
-            label_type: str = annotation_data[6]
+            task_type: str = annotation_data[6]
             ann_str: str = annotation_data[7]
 
             data = json.loads(ann_str)
-            if label_type == "array" and self.dataset.is_remote:
+            if task_type == "array" and self.dataset.is_remote:
                 data["path"] = self.dataset.arrays_path / data["path"]
 
-            if "metadata" in label_type:
+            if "metadata" in task_type:
                 continue
 
-            annotation = load_annotation(label_type, data)
-            full_task_name = f"{task_name}/{label_type}"
+            annotation = load_annotation(task_type, data)
+            full_task_name = f"{task_name}/{task_type}"
             labels_by_task[full_task_name].append(annotation)
             class_ids_by_task[full_task_name].append(
                 self.class_mappings[task_name][class_name]
@@ -323,14 +332,13 @@ class LuxonisLoader(BaseLoader):
                 )
             ]
 
-            task_name = task.split("/")[0]
-            label_type = task.split("/")[-1]
+            task_name, task_type = split_task(task)
             array = anns[0].combine_to_numpy(
                 anns,
                 class_ids_by_task[task],
                 len(self.classes_by_task[task_name]),
             )
-            if self.add_background and label_type == "segmentation":
+            if self.add_background and task_type == "segmentation":
                 unassigned_pixels = ~np.any(array, axis=0)
                 background_idx = self.class_mappings[task_name]["background"]
                 array[background_idx, unassigned_pixels] = 1
