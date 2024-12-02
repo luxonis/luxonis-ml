@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional
 
 import numpy as np
 from albumentations.core.bbox_utils import BboxParams
@@ -19,18 +19,6 @@ from .batch_utils import (
     to_unbatched_name,
     unbatch_all,
 )
-
-
-def get_always_apply(
-    transforms: Union["BaseCompose", TransformsSeqType],
-) -> TransformsSeqType:
-    new_transforms: TransformsSeqType = []
-    for transform in transforms:
-        if isinstance(transform, BaseCompose):
-            new_transforms.extend(get_always_apply(transform))
-        elif transform.p == 1:
-            new_transforms.append(transform)
-    return new_transforms
 
 
 class BatchCompose(BaseCompose):
@@ -110,6 +98,7 @@ class BatchCompose(BaseCompose):
             if check_each_transform:
                 data = self._check_data_post_transform(data)
 
+        # TODO: why?
         data = self._make_targets_contiguous(data)
 
         for p in self.processors.values():
