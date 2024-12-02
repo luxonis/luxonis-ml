@@ -187,6 +187,15 @@ def inspect(
             show_default=False,
         ),
     ] = 1.0,
+    keep_aspect_ratio: Annotated[
+        bool,
+        typer.Option(
+            ...,
+            "--keep-aspect-ratio",
+            "-k",
+            help="Keep the aspect ratio of the images.",
+        ),
+    ] = False,
 ):
     """Inspects images and annotations in a dataset."""
 
@@ -203,7 +212,7 @@ def inspect(
                 else json.load(file)
             )
         augmentations = Augmentations.from_config(
-            h, w, config, keep_aspect_ratio=False
+            h, w, config, keep_aspect_ratio=keep_aspect_ratio
         )
 
     if len(dataset) == 0:
