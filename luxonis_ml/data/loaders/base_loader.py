@@ -1,19 +1,8 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Iterator, Tuple, Type
+from typing import Iterator, Type
 
-import numpy as np
-from typing_extensions import TypeAlias
-
+from luxonis_ml.data.utils.types import LuxonisLoaderOutput
 from luxonis_ml.utils import AutoRegisterMeta, Registry
-
-Labels: TypeAlias = Dict[str, np.ndarray]
-"""Dictionary mappping task names to the annotations as C{np.ndarray}"""
-
-
-LuxonisLoaderOutput: TypeAlias = Tuple[np.ndarray, Labels]
-"""C{LuxonisLoaderOutput} is a tuple of an image as a C{np.ndarray>} and
-a dictionary of task group names and their annotations as
-L{Annotations}."""
 
 LOADERS_REGISTRY: Registry[Type["BaseLoader"]] = Registry(name="loaders")
 

@@ -1,15 +1,16 @@
 import hashlib
 import math
-from typing import Dict, Iterator, List, Tuple
+from typing import Dict, List, Tuple
 
 import cv2
 import numpy as np
 
-from luxonis_ml.data.loaders import Labels
-from luxonis_ml.data.utils.label_utils import get_task_name, get_task_type
+from luxonis_ml.data.utils.label_utils import get_task_name, task_type_iterator
+
+from .types import Labels
 
 
-def _task_to_rgb(string: str) -> tuple:
+def _str_to_rgb(string: str) -> tuple:
     h = int(hashlib.md5(string.encode()).hexdigest(), 16)
     r = (h & 0xFF0000) >> 16
     g = (h & 0x00FF00) >> 8
@@ -117,17 +118,11 @@ def concat_images(
     return output
 
 
-def _label_type_iterator(
-    labels: Labels, label_type: str
-) -> Iterator[Tuple[str, np.ndarray]]:
-    for task, arr in labels.items():
-        task_type = get_task_type(task)
-        if task_type == label_type:
-            yield task, arr
-
-
 def visualize(
-    image: np.ndarray, labels: Labels, class_names: Dict[str, List[str]]
+    image: np.ndarray,
+    labels: Labels,
+    class_names: Dict[str, List[str]],
+    join: bool = True,
 ) -> np.ndarray:
     """Visualizes the labels on the image.
 
@@ -144,21 +139,30 @@ def visualize(
     h, w, _ = image.shape
     images = {"image": image}
 
-    for task, arr in _label_type_iterator(labels, "boundingbox"):
+    bbox_names = []
+    for task, arr in task_type_iterator(labels, "boundingbox"):
         curr_image = image.copy()
         for box in arr:
             cv2.rectangle(
                 curr_image,
                 (int(box[1] * w), int(box[2] * h)),
                 (int(box[1] * w + box[3] * w), int(box[2] * h + box[4] * h)),
-                _task_to_rgb(class_names[get_task_name(task)][int(box[0])]),
+                _str_to_rgb(class_names[get_task_name(task)][int(box[0])]),
                 2,
             )
         images[task] = curr_image
+        bbox_names.append(task)
 
-    for task, arr in _label_type_iterator(labels, "keypoints"):
-        curr_image = image.copy()
+    for task, arr in task_type_iterator(labels, "keypoints"):
         task_classes = class_names[get_task_name(task)]
+
+        if not join:
+            curr_image = image.copy()
+        else:
+            curr_image = images.pop(
+                task.replace("keypoints", "boundingbox"), image.copy()
+            )
+            task = task.replace("keypoints", "detection")
 
         for kp in arr:
             cls_ = int(kp[0])
@@ -168,17 +172,17 @@ def visualize(
                     curr_image,
                     (int(k[0] * w), int(k[1] * h)),
                     2,
-                    _task_to_rgb(task_classes[cls_]),
+                    _str_to_rgb(task_classes[cls_]),
                     2,
                 )
         images[task] = curr_image
 
-    for task, arr in _label_type_iterator(labels, "segmentation"):
+    for task, arr in task_type_iterator(labels, "segmentation"):
         mask_viz = np.zeros((h, w, 3)).astype(np.uint8)
         for i, mask in enumerate(arr):
             mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST)
             mask_viz[mask == 1] = (
-                _task_to_rgb(class_names[get_task_name(task)][i])
+                _str_to_rgb(class_names[get_task_name(task)][i])
                 if (i != 0 or len(arr) == 1)
                 else (0, 0, 0)
             )

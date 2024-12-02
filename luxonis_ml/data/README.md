@@ -557,7 +557,6 @@ The following example demonstrates a simple augmentation pipeline:
       'mask_pad_val': 0,
       'fit_output': False,
       'interpolation': 1,
-      'always_apply': False,
     }
   },
   {
@@ -577,7 +576,6 @@ The following example demonstrates a simple augmentation pipeline:
       'fit_output': False,
       'keep_ratio': False,
       'rotate_method': 'largest_box',
-      'always_apply': False,
     }
   },
 ]

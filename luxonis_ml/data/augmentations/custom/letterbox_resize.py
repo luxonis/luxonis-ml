@@ -1,15 +1,13 @@
 from typing import Any, Dict, Tuple
 
+import albumentations as A
 import cv2
 import numpy as np
-from albumentations import BoxType, DualTransform, KeypointType
-from albumentations.core.bbox_utils import denormalize_bbox, normalize_bbox
-
-from ..utils import AUGMENTATIONS
+from albumentations.core.bbox_utils import denormalize_bboxes, normalize_bboxes
+from typing_extensions import override
 
 
-@AUGMENTATIONS.register_module()
-class LetterboxResize(DualTransform):
+class LetterboxResize(A.DualTransform):
     def __init__(
         self,
         height: int,
@@ -17,7 +15,6 @@ class LetterboxResize(DualTransform):
         interpolation: int = cv2.INTER_LINEAR,
         border_value: int = 0,
         mask_value: int = 0,
-        always_apply: bool = False,
         p: float = 1.0,
     ):
         """Augmentation to apply letterbox resizing to images. Also
@@ -34,15 +31,12 @@ class LetterboxResize(DualTransform):
         @param border_value: Padding value for images. Defaults to C{0}.
         @type mask_value: int, optional
         @param mask_value: Padding value for masks. Defaults to C{0}.
-        @type always_apply: bool, optional
-        @param always_apply: Whether to always apply the transform.
-            Defaults to C{False}.
         @type p: float, optional
         @param p: Probability of applying the transform. Defaults to
             C{1.0}.
         """
 
-        super().__init__(always_apply, p)
+        super().__init__(p)
 
         if not (0 <= border_value <= 255):
             raise ValueError("Border value must be in range [0,255].")
@@ -56,6 +50,7 @@ class LetterboxResize(DualTransform):
         self.border_value = border_value
         self.mask_value = mask_value
 
+    @override
     def update_params(
         self, params: Dict[str, Any], **kwargs
     ) -> Dict[str, Any]:
@@ -72,12 +67,12 @@ class LetterboxResize(DualTransform):
 
         params = super().update_params(params, **kwargs)
 
-        img_height = params["rows"]
-        img_width = params["cols"]
+        height = params["rows"]
+        width = params["cols"]
 
-        ratio = min(self.height / img_height, self.width / img_width)
-        new_height = int(img_height * ratio)
-        new_width = int(img_width * ratio)
+        ratio = min(self.height / height, self.width / width)
+        new_height = int(height * ratio)
+        new_width = int(width * ratio)
 
         # only supports center alignment
         pad_top = (self.height - new_height) // 2
@@ -97,6 +92,7 @@ class LetterboxResize(DualTransform):
 
         return params
 
+    @override
     def apply(
         self,
         img: np.ndarray,
@@ -104,7 +100,7 @@ class LetterboxResize(DualTransform):
         pad_bottom: int,
         pad_left: int,
         pad_right: int,
-        **kwargs,
+        **_,
     ) -> np.ndarray:
         """Applies the letterbox augmentation to an image.
 
@@ -118,32 +114,20 @@ class LetterboxResize(DualTransform):
         @param pad_left: Number of pixels to pad on the left.
         @type pad_right: int
         @param pad_right: Number of pixels to pad on the right.
-        @type kwargs: Any
-        @param kwargs: Additional parameters for the padding operation.
         @rtype: np.ndarray
         @return: Image with applied letterbox resize.
         """
-
-        resized_img = cv2.resize(
+        return self._apply_to_image_data(
             img,
-            (
-                self.width - pad_left - pad_right,
-                self.height - pad_top - pad_bottom,
-            ),
-            interpolation=self.interpolation,
-        )
-        img_out = cv2.copyMakeBorder(
-            resized_img,
             pad_top,
             pad_bottom,
             pad_left,
             pad_right,
-            cv2.BORDER_CONSTANT,
+            self.interpolation,
             self.border_value,
         )
-        img_out = img_out.astype(img.dtype)
-        return img_out
 
+    @override
     def apply_to_mask(
         self,
         img: np.ndarray,
@@ -151,7 +135,7 @@ class LetterboxResize(DualTransform):
         pad_bottom: int,
         pad_left: int,
         pad_right: int,
-        **params,
+        **_,
     ) -> np.ndarray:
         """Applies letterbox augmentation to the input mask.
 
@@ -170,39 +154,29 @@ class LetterboxResize(DualTransform):
         @rtype: np.ndarray
         @return: Mask with applied letterbox resize.
         """
-
-        resized_img = cv2.resize(
+        return self._apply_to_image_data(
             img,
-            (
-                self.width - pad_left - pad_right,
-                self.height - pad_top - pad_bottom,
-            ),
-            interpolation=cv2.INTER_NEAREST,
-        )
-        img_out = cv2.copyMakeBorder(
-            resized_img,
             pad_top,
             pad_bottom,
             pad_left,
             pad_right,
-            cv2.BORDER_CONSTANT,
+            cv2.INTER_NEAREST,
             self.mask_value,
         )
-        img_out = img_out.astype(img.dtype)
-        return img_out
 
-    def apply_to_bbox(
+    @override
+    def apply_to_bboxes(
         self,
-        bbox: BoxType,
+        bbox: np.ndarray,
         pad_top: int,
         pad_bottom: int,
         pad_left: int,
         pad_right: int,
-        **params,
-    ) -> BoxType:
+        **_,
+    ) -> np.ndarray:
         """Applies letterbox augmentation to the bounding box.
 
-        @type bbox: BoxType
+        @type bbox: np.ndarray
         @param bbox: Bounding box to which resize is applied.
         @type pad_top: int
         @param pad_top: Number of pixels to pad at the top.
@@ -212,44 +186,40 @@ class LetterboxResize(DualTransform):
         @param pad_left: Number of pixels to pad on the left.
         @type pad_right: int
         @param pad_right: Number of pixels to pad on the right.
-        @type params: Any
-        @param params: Additional parameters for the padding operation.
-        @rtype: BoxType
+        @rtype: np.ndarray
         @return: Bounding box with applied letterbox resize.
         """
 
-        x_min, y_min, x_max, y_max = denormalize_bbox(
+        if bbox.shape[0] == 0:
+            return bbox
+
+        bbox = denormalize_bboxes(
             bbox,
-            self.height - pad_top - pad_bottom,
-            self.width - pad_left - pad_right,
-        )[:4]
-        bbox = np.array(
-            [
-                x_min + pad_left,
-                y_min + pad_top,
-                x_max + pad_left,
-                y_max + pad_top,
-            ]
-        )
-        # clip bbox to image, ignoring padding
+            (
+                self.height - pad_top - pad_bottom,
+                self.width - pad_left - pad_right,
+            ),
+        )[:, :4]
+        bbox[...] += np.array([pad_left, pad_top] * 2)
         bbox = bbox.clip(
             min=[pad_left, pad_top] * 2,
             max=[self.width - pad_left, self.height - pad_top] * 2,
-        ).tolist()
-        return normalize_bbox(bbox, self.height, self.width)
+        )
+        return normalize_bboxes(bbox, (self.height, self.width))
 
-    def apply_to_keypoint(
+    @override
+    def apply_to_keypoints(
         self,
-        keypoint: KeypointType,
+        keypoint: np.ndarray,
         pad_top: int,
         pad_bottom: int,
         pad_left: int,
         pad_right: int,
         **kwargs,
-    ) -> KeypointType:
+    ) -> np.ndarray:
         """Applies letterbox augmentation to the keypoint.
 
-        @type keypoint: KeypointType
+        @type keypoint: np.ndarray
         @param keypoint: Keypoint to which resize is applied.
         @type pad_top: int
         @param pad_top: Number of pixels to pad at the top.
@@ -261,28 +231,38 @@ class LetterboxResize(DualTransform):
         @param pad_right: Number of pixels to pad on the right.
         @type kwargs: Any
         @param kwargs: Additional parameters for the padding operation.
-        @rtype: KeypointType
+        @rtype: np.ndarray
         @return: Keypoint with applied letterbox resize.
         """
 
-        x, y, angle, scale = keypoint[:4]
+        if keypoint.shape[0] == 0:
+            return keypoint
+
         scale_x = (self.width - pad_left - pad_right) / kwargs["cols"]
         scale_y = (self.height - pad_top - pad_bottom) / kwargs["rows"]
-        new_x = (x * scale_x) + pad_left
-        new_y = (y * scale_y) + pad_top
-        # if keypoint is in the padding then set coordinates to -1
-        out_keypoint = (
-            new_x
-            if not self._out_of_bounds(new_x, pad_left, self.width - pad_left)
-            else -1,
-            new_y
-            if not self._out_of_bounds(new_y, pad_top, self.height - pad_top)
-            else -1,
-            angle,
-            scale * max(scale_x, scale_y),
-        )
-        return out_keypoint
+        keypoint[:, 0] *= scale_x
+        keypoint[:, 1] *= scale_y
+        keypoint[:, 0] += pad_left
+        keypoint[:, 1] += pad_top
+        return keypoint
+        # return np.array(
+        #     [
+        #         new_x
+        #         if not self._out_of_bounds(
+        #             new_x, pad_left, self.width - pad_left
+        #         )
+        #         else -1,
+        #         new_y
+        #         if not self._out_of_bounds(
+        #             new_y, pad_top, self.height - pad_top
+        #         )
+        #         else -1,
+        #         angle,
+        #         scale * max(scale_x, scale_y),
+        #     ]
+        # )
 
+    @override
     def get_transform_init_args_names(self) -> Tuple[str, ...]:
         """Gets the default arguments for the letterbox augmentation.
 
@@ -297,6 +277,34 @@ class LetterboxResize(DualTransform):
             "border_value",
             "mask_value",
         )
+
+    def _apply_to_image_data(
+        self,
+        img: np.ndarray,
+        pad_top: int,
+        pad_bottom: int,
+        pad_left: int,
+        pad_right: int,
+        interpolation: int,
+        fill_value: int,
+    ) -> np.ndarray:
+        resized_img = cv2.resize(
+            img,
+            (
+                self.width - pad_left - pad_right,
+                self.height - pad_top - pad_bottom,
+            ),
+            interpolation=interpolation,
+        )
+        return cv2.copyMakeBorder(
+            resized_img,
+            pad_top,
+            pad_bottom,
+            pad_left,
+            pad_right,
+            cv2.BORDER_CONSTANT,
+            value=fill_value,
+        ).astype(img.dtype)
 
     def _out_of_bounds(
         self, value: float, min_limit: float, max_limit: float

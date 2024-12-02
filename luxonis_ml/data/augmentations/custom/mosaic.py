@@ -2,30 +2,22 @@ import random
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
-from albumentations import BoxType, KeypointType
 from albumentations.core.bbox_utils import (
-    denormalize_bbox,
-    normalize_bbox,
+    denormalize_bboxes,
+    normalize_bboxes,
 )
-from albumentations.core.transforms_interface import (
-    BoxInternalType,
-    KeypointInternalType,
-)
+from typing_extensions import override
 
 from ..batch_transform import BatchBasedTransform
-from ..utils import AUGMENTATIONS
 
 
-@AUGMENTATIONS.register_module()
 class Mosaic4(BatchBasedTransform):
     def __init__(
         self,
         out_height: int,
         out_width: int,
         value: Optional[Union[int, float, List[int], List[float]]] = None,
-        out_batch_size: int = 1,
         mask_value: Optional[Union[int, float, List[int], List[float]]] = None,
-        always_apply: bool = False,
         p: float = 0.5,
     ):
         """Mosaic augmentation arranges selected four images into single
@@ -49,21 +41,15 @@ class Mosaic4(BatchBasedTransform):
             filled by the C{value}.
         @type value: Optional[Union[int, float, List[int], List[float]]]
         @param value: Padding value. Defaults to C{None}.
-        @type out_batch_size: int
-        @param out_batch_size: Number of output images in the batch.
-            Defaults to C{1}.
         @type mask_value: Optional[Union[int, float, List[int],
             List[float]]]
         @param mask_value: Padding value for masks. Defaults to C{None}.
-        @type always_apply: bool
-        @param always_apply: Whether to always apply the transform.
-            Defaults to C{False}.
         @type p: float
         @param p: Probability of applying the transform. Defaults to
             C{0.5}.
         """
 
-        super().__init__(batch_size=4, always_apply=always_apply, p=p)
+        super().__init__(batch_size=4, p=p)
 
         if out_height <= 0:
             raise ValueError(
@@ -73,18 +59,14 @@ class Mosaic4(BatchBasedTransform):
             raise ValueError(
                 f"out_width should be larger than 0, got {out_width}"
             )
-        if out_batch_size <= 0:
-            raise ValueError(
-                f"out_batch_size should be larger than 0, got {out_batch_size}"
-            )
 
-        self.n_tiles = self.batch_size  # 4: 2x2
+        self.n_tiles = 4
         self.out_height = out_height
         self.out_width = out_width
         self.value = value
         self.mask_value = mask_value
-        self.out_batch_size = out_batch_size
 
+    @override
     def get_transform_init_args_names(self) -> Tuple[str, ...]:
         """Gets the default arguments for the mixup augmentation.
 
@@ -96,7 +78,6 @@ class Mosaic4(BatchBasedTransform):
             "out_width",
             "replace",
             "value",
-            "out_batch_size",
             "mask_value",
         )
 
@@ -107,23 +88,14 @@ class Mosaic4(BatchBasedTransform):
         crop_y = random.randint(0, max(0, self.out_height))
         return crop_x, crop_y
 
-    @property
-    def targets_as_params(self):
-        """List of augmentation targets.
-
-        @rtype: List[str]
-        @return: Output list of augmentation targets.
-        """
-        return ["image_batch"]
-
+    @override
     def apply_to_image_batch(
         self,
         image_batch: List[np.ndarray],
-        indices: List[int],
         x_crop: int,
         y_crop: int,
-        **params,
-    ) -> List[np.ndarray]:
+        **_,
+    ) -> np.ndarray:
         """Applies the transformation to a batch of images.
 
         @type image_batch: List[np.ndarray]
@@ -140,31 +112,23 @@ class Mosaic4(BatchBasedTransform):
         @rtype: List[np.ndarray]
         @return: List of transformed images.
         """
-        output_batch = []
-        for i_batch in range(self.out_batch_size):
-            idx_chunk = indices[
-                self.n_tiles * i_batch : self.n_tiles * (i_batch + 1)
-            ]
-            image_chunk = [image_batch[i] for i in idx_chunk]
-            mosaiced = mosaic4(
-                image_chunk,
-                self.out_height,
-                self.out_width,
-                x_crop,
-                y_crop,
-                self.value,
-            )
-            output_batch.append(mosaiced)
-        return output_batch
+        return mosaic4(
+            image_batch,
+            self.out_height,
+            self.out_width,
+            x_crop,
+            y_crop,
+            self.value,
+        )
 
+    @override
     def apply_to_mask_batch(
         self,
         mask_batch: List[np.ndarray],
-        indices: List[int],
         x_crop: int,
         y_crop: int,
-        **params,
-    ) -> List[np.ndarray]:
+        **_,
+    ) -> np.ndarray:
         """Applies the transformation to a batch of masks.
 
         @type mask_batch: List[np.ndarray]
@@ -181,35 +145,27 @@ class Mosaic4(BatchBasedTransform):
         @rtype: List[np.ndarray]
         @return: List of transformed masks.
         """
-        output_batch = []
-        for i_batch in range(self.out_batch_size):
-            idx_chunk = indices[
-                self.n_tiles * i_batch : self.n_tiles * (i_batch + 1)
-            ]
-            mask_chunk = [mask_batch[i] for i in idx_chunk]
-            mosaiced = mosaic4(
-                mask_chunk,
-                self.out_height,
-                self.out_width,
-                x_crop,
-                y_crop,
-                self.mask_value,
-            )
-            output_batch.append(mosaiced)
-        return output_batch
+        return mosaic4(
+            mask_batch,
+            self.out_height,
+            self.out_width,
+            x_crop,
+            y_crop,
+            self.mask_value,
+        )
 
+    @override
     def apply_to_bboxes_batch(
         self,
-        bboxes_batch: List[BoxType],
-        indices: List[int],
+        bboxes_batch: List[np.ndarray],
         image_shapes: List[Tuple[int, int]],
         x_crop: int,
         y_crop: int,
-        **params,
-    ) -> List[BoxType]:
+        **_,
+    ) -> np.ndarray:
         """Applies the transformation to a batch of bboxes.
 
-        @type bboxes_batch: List[BboxType]
+        @type bboxes_batch: List[np.ndarray]
         @param bboxes_batch: Batch of input bboxes to which the
             transformation is applied.
         @type indices: List[Tuple[int, int]]
@@ -222,44 +178,36 @@ class Mosaic4(BatchBasedTransform):
         @param x_crop: x-coordinate of the croping start point
         @type y_crop: int
         @param y_crop: y-coordinate of the croping start point
-        @rtype: List[BoxType]
+        @rtype: List[np.ndarray]
         @return: List of transformed bboxes.
         """
-        output_batch = []
-        for i_batch in range(self.out_batch_size):
-            idx_chunk = indices[
-                self.n_tiles * i_batch : self.n_tiles * (i_batch + 1)
-            ]
-            bboxes_chunk = [bboxes_batch[i] for i in idx_chunk]
-            shape_chunk = [image_shapes[i] for i in idx_chunk]
-            new_bboxes = []
-            for i in range(self.n_tiles):
-                bboxes = bboxes_chunk[i]
-                rows, cols = shape_chunk[i]
-                for bbox in bboxes:
-                    new_bbox = bbox_mosaic4(
-                        bbox[:4],
-                        rows,
-                        cols,
-                        i,
-                        self.out_height,
-                        self.out_width,
-                        x_crop,
-                        y_crop,
-                    )
-                    new_bboxes.append(tuple(new_bbox) + tuple(bbox[4:]))
-            output_batch.append(new_bboxes)
-        return output_batch
+        new_bboxes = []
+        for i, (bboxes, (rows, cols)) in enumerate(
+            zip(bboxes_batch, image_shapes)
+        ):
+            new_bboxes.append(
+                bbox_mosaic4(
+                    bboxes,
+                    rows,
+                    cols,
+                    i,
+                    self.out_height,
+                    self.out_width,
+                    x_crop,
+                    y_crop,
+                )
+            )
+        return np.concatenate(new_bboxes, axis=0)
 
+    @override
     def apply_to_keypoints_batch(
         self,
-        keypoints_batch: List[KeypointType],
-        indices: List[int],
+        keypoints_batch: List[np.ndarray],
         image_shapes: List[Tuple[int, int]],
         x_crop: int,
         y_crop: int,
-        **params,
-    ) -> List[KeypointType]:
+        **_,
+    ) -> np.ndarray:
         """Applies the transformation to a batch of keypoints.
 
         @type keypoints_batch: List[KeypointType]
@@ -278,34 +226,26 @@ class Mosaic4(BatchBasedTransform):
         @rtype: List[KeypointType]
         @return: List of transformed keypoints.
         """
-        output_batch = []
-        for i_batch in range(self.out_batch_size):
-            idx_chunk = indices[
-                self.n_tiles * i_batch : self.n_tiles * (i_batch + 1)
-            ]
-            keypoints_chunk = [keypoints_batch[i] for i in idx_chunk]
-            shape_chunk = [image_shapes[i] for i in idx_chunk]
-            new_keypoints = []
-            for i in range(self.n_tiles):
-                keypoints = keypoints_chunk[i]
-                rows, cols = shape_chunk[i]
-                for keypoint in keypoints:
-                    new_keypoint = keypoint_mosaic4(
-                        keypoint[:4],
-                        rows,
-                        cols,
-                        i,
-                        self.out_height,
-                        self.out_width,
-                        x_crop,
-                        y_crop,
-                    )
-                    new_keypoints.append(new_keypoint + tuple(keypoint[4:]))
-            output_batch.append(new_keypoints)
-        return output_batch
+        new_keypoints = []
+        for i, (keypoints, (rows, cols)) in enumerate(
+            zip(keypoints_batch, image_shapes)
+        ):
+            new_keypoint = keypoint_mosaic4(
+                keypoints,
+                rows,
+                cols,
+                i,
+                self.out_height,
+                self.out_width,
+                x_crop,
+                y_crop,
+            )
+            new_keypoints.append(new_keypoint)
+        return np.concatenate(new_keypoints, axis=0)
 
-    def get_params_dependent_on_targets(
-        self, params: Dict[str, Any]
+    @override
+    def get_params_dependent_on_data(
+        self, params: Dict[str, Any], data: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Get parameters dependent on the targets.
 
@@ -315,18 +255,10 @@ class Mosaic4(BatchBasedTransform):
         @return: Dictionary containing parameters dependent on the
             targets.
         """
-        image_batch = params["image_batch"]
-        n = len(image_batch)
-        if self.n_tiles * self.out_batch_size > n:
-            raise ValueError(
-                f"The batch size (= {n}) should be larger than "
-                + f"{self.n_tiles} x out_batch_size (= {self.n_tiles * self.out_batch_size})"
-            )
-        indices = [0, 1, 2, 3]
+        image_batch = data["image_batch"]
         image_shapes = [tuple(image.shape[:2]) for image in image_batch]
         x_crop, y_crop = self._generate_random_crop_center()
         return {
-            "indices": indices,
             "image_shapes": image_shapes,
             "x_crop": x_crop,
             "y_crop": y_crop,
@@ -339,7 +271,7 @@ def mosaic4(
     width: int,
     x_crop: int,
     y_crop: int,
-    value: Optional[int] = None,
+    value: Optional[Union[int, float, List[int], List[float]]] = None,
 ) -> np.ndarray:
     """Arrange the images in a 2x2 grid layout. The input images should
     have the same number of channels but can have different widths and
@@ -441,7 +373,7 @@ def mosaic4(
 
 
 def bbox_mosaic4(
-    bbox: BoxInternalType,
+    bbox: np.ndarray,
     rows: int,
     cols: int,
     position_index: int,
@@ -449,7 +381,7 @@ def bbox_mosaic4(
     width: int,
     x_crop: int,
     y_crop: int,
-) -> BoxInternalType:
+) -> np.ndarray:
     """Adjust bounding box coordinates to account for mosaic grid
     position.
 
@@ -457,7 +389,7 @@ def bbox_mosaic4(
     in a 2x2 grid mosaic, shifting their coordinates based on the tile's
     relative position within the mosaic.
 
-    @type bbox: BoxInternalType
+    @type bbox: np.ndarray
     @param bbox: Bounding box coordinates to be transformed.
     @type rows: int
     @param rows: Height of the original image.
@@ -474,11 +406,11 @@ def bbox_mosaic4(
     @param x_crop: x-coordinate of the croping start point
     @type y_crop: int
     @param y_crop: y-coordinate of the croping start point
-    @rtype: BoxInternalType
+    @rtype: np.ndarray
     @return: Transformed bounding box coordinates.
     """
 
-    bbox = denormalize_bbox(bbox, rows, cols)
+    bbox = denormalize_bboxes(bbox, (rows, cols))
 
     if position_index == 0:
         shift_x = width - cols
@@ -493,20 +425,18 @@ def bbox_mosaic4(
         shift_x = width
         shift_y = height
 
-    bbox = (
-        bbox[0] + shift_x - x_crop,
-        bbox[1] + shift_y - y_crop,
-        bbox[2] + shift_x - x_crop,
-        bbox[3] + shift_y - y_crop,
-    )
+    bbox[:, 0] += shift_x - x_crop
+    bbox[:, 1] += shift_y - y_crop
+    bbox[:, 2] += shift_x - x_crop
+    bbox[:, 3] += shift_y - y_crop
 
-    bbox = normalize_bbox(bbox, height, width)
+    bbox = normalize_bboxes(bbox, (height, width))
 
     return bbox
 
 
 def keypoint_mosaic4(
-    keypoint: KeypointInternalType,
+    keypoints: np.ndarray,
     rows: int,
     cols: int,
     position_index: int,
@@ -514,16 +444,15 @@ def keypoint_mosaic4(
     width: int,
     x_crop: int,
     y_crop: int,
-) -> KeypointInternalType:
+) -> np.ndarray:
     """Adjust keypoint coordinates based on mosaic grid position.
 
     This function adjusts the keypoint coordinates by placing them in
     one of the 2x2 mosaic grid cells, with shifts relative to the mosaic
     center.
 
-    @type keypoint: KeypointInternalType
-    @param keypoint: Keypoint coordinates and attributes (x, y, angle,
-        scale).
+    @type keypoints: np.ndarray
+    @param keypoint: Keypoint coordinates and attributes (x, y).
     @type rows: int
     @param rows: Height of the original image.
     @type cols: int
@@ -539,11 +468,9 @@ def keypoint_mosaic4(
     @param x_crop: x-coordinate of the croping start point
     @type y_crop: int
     @param y_crop: y-coordinate of the croping start point
-    @rtype: KeypointInternalType
+    @rtype: np.ndarray
     @return: Adjusted keypoint coordinates.
     """
-    x, y, angle, scale = keypoint
-
     if position_index == 0:
         shift_x = width - cols
         shift_y = height - rows
@@ -557,4 +484,7 @@ def keypoint_mosaic4(
         shift_x = width
         shift_y = height
 
-    return x + shift_x - x_crop, y + shift_y - y_crop, angle, scale
+    keypoints[:, 0] += shift_x - x_crop
+    keypoints[:, 1] += shift_y - y_crop
+
+    return keypoints

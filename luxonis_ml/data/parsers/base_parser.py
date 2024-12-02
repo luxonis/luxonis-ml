@@ -5,7 +5,6 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from luxonis_ml.data import BaseDataset, DatasetIterator
 from luxonis_ml.data.datasets import DatasetRecord
-from luxonis_ml.data.utils.enums import LabelType
 from luxonis_ml.utils.filesystem import PathType
 
 ParserOutput = Tuple[DatasetIterator, List[str], Dict[str, Dict], List[str]]
@@ -19,7 +18,7 @@ names, skeleton dictionary for keypoints and list of added images.
 @dataclass
 class BaseParser(ABC):
     dataset: BaseDataset
-    task_mapping: Dict[LabelType, str] = field(default_factory=dict)
+    task_mapping: Dict[str, str] = field(default_factory=dict)
 
     @staticmethod
     @abstractmethod

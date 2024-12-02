@@ -135,7 +135,6 @@ def test_dataset(
         pytest.exit("Dataset creation failed")
 
     with subtests.test("test_source"):
-        print(dataset.source.to_document())
         assert dataset.source.to_document() == LuxonisSource().to_document()
         dataset.update_source(LuxonisSource("test"))
         assert (

@@ -3,7 +3,6 @@ import logging
 import random
 import warnings
 from collections import defaultdict
-from operator import itemgetter
 from typing import Dict, List, Optional, Tuple, Union
 
 import cv2
@@ -17,11 +16,10 @@ from luxonis_ml.data.datasets import (
 )
 from luxonis_ml.data.loaders.base_loader import (
     BaseLoader,
-    Labels,
     LuxonisLoaderOutput,
 )
-from luxonis_ml.data.utils.enums import LabelType
-from luxonis_ml.data.utils.label_utils import split_task
+from luxonis_ml.data.utils import Labels
+from luxonis_ml.data.utils.label_utils import split_task, task_type_iterator
 
 logger = logging.getLogger(__name__)
 
@@ -117,10 +115,8 @@ class LuxonisLoader(BaseLoader):
             self.class_mappings[task] = class_mapping
 
         self.add_background = False
-        # TODO: possibly check more labels
         _, test_labels = self._load_image_with_annotations(0)
-        if LabelType.SEGMENTATION in test_labels:
-            seg_masks = test_labels[LabelType.SEGMENTATION][0]
+        for task, seg_masks in task_type_iterator(test_labels, "segmentation"):
             if seg_masks.shape[0] > 1:
                 unassigned_pixels = np.sum(seg_masks, axis=0) == 0
 
@@ -129,22 +125,15 @@ class LuxonisLoader(BaseLoader):
                         "Found unassigned pixels in segmentation masks. Assigning them to `background` class (class index 0). If this is not desired then make sure all pixels are assigned to one class or rename your background class."
                     )
                     self.add_background = True
-                    if (
-                        "background"
-                        not in self.classes_by_task[LabelType.SEGMENTATION]
-                    ):
-                        self.classes_by_task[LabelType.SEGMENTATION].append(
-                            "background"
-                        )
-                        self.class_mappings[LabelType.SEGMENTATION] = {
+                    if "background" not in self.classes_by_task[task]:
+                        self.classes_by_task[task].append("background")
+                        self.class_mappings[task] = {
                             class_: idx + 1
                             for class_, idx in self.class_mappings[
                                 task
                             ].items()
                         }
-                        self.class_mappings[LabelType.SEGMENTATION][
-                            "background"
-                        ] = 0
+                        self.class_mappings[task]["background"] = 0
 
     def __len__(self) -> int:
         """Returns length of the dataset.
@@ -170,20 +159,18 @@ class LuxonisLoader(BaseLoader):
 
         indices = [idx]
         if self.augmentations.is_batched:
-            if self.augmentations.aug_batch_size > len(self):
+            if self.augmentations.batch_size > len(self):
                 warnings.warn(
-                    f"Augmentations batch_size ({self.augmentations.aug_batch_size}) is larger than dataset size ({len(self)}), samples will include repetitions."
+                    f"Augmentations batch_size ({self.augmentations.batch_size}) is larger than dataset size ({len(self)}), samples will include repetitions."
                 )
                 other_indices = [i for i in range(len(self)) if i != idx]
                 picked_indices = random.choices(
-                    other_indices, k=self.augmentations.aug_batch_size - 1
+                    other_indices, k=self.augmentations.batch_size - 1
                 )
             else:
                 picked_indices = set()
                 max_val = len(self)
-                while (
-                    len(picked_indices) < self.augmentations.aug_batch_size - 1
-                ):
+                while len(picked_indices) < self.augmentations.batch_size - 1:
                     rand_idx = random.randint(0, max_val - 1)
                     if rand_idx != idx and rand_idx not in picked_indices:
                         picked_indices.add(rand_idx)
@@ -191,74 +178,8 @@ class LuxonisLoader(BaseLoader):
 
             indices.extend(picked_indices)
 
-        out_dict: Labels = {}
         loaded_anns = [self._load_image_with_annotations(i) for i in indices]
-        random_state = random.getstate()
-        np_random_state = np.random.get_state()
-        if not loaded_anns[0][1]:
-            img, aug_annotations = self.augmentations(
-                [(loaded_anns[i][0], {}) for i in range(len(loaded_anns))],
-            )
-
-        while loaded_anns[0][1]:
-            aug_input_data = []
-            label_to_task = {}
-            nk = 0
-            ns = 0
-            for img, annotations in loaded_anns:
-                label_dict: Dict[LabelType, np.ndarray] = {}
-                task_dict: Dict[LabelType, str] = {}
-                for task in sorted(list(annotations.keys())):
-                    array, label_type = annotations[task]
-                    if label_type not in label_dict:
-                        # ensure that bounding box annotations are added to the
-                        # `label_dict` before keypoints
-                        if label_type == LabelType.KEYPOINTS:
-                            if (
-                                LabelType.BOUNDINGBOX
-                                in map(
-                                    itemgetter(1), list(annotations.values())
-                                )
-                                and LabelType.BOUNDINGBOX not in label_dict  # type: ignore
-                            ):
-                                continue
-
-                            if (
-                                LabelType.BOUNDINGBOX in label_dict  # type: ignore
-                                and LabelType.BOUNDINGBOX
-                                in map(
-                                    itemgetter(1), list(annotations.values())
-                                )
-                            ):
-                                bbox_task = task_dict[LabelType.BOUNDINGBOX]
-                                *_, bbox_suffix = bbox_task.split("-", 1)
-                                *_, kp_suffix = task.split("-", 1)
-                                if bbox_suffix != kp_suffix:
-                                    continue
-
-                        label_dict[label_type] = array
-                        label_to_task[label_type] = task
-                        task_dict[label_type] = task
-                        annotations.pop(task)
-                        if label_type == LabelType.KEYPOINTS:
-                            nk = (array.shape[1] - 1) // 3
-                        if label_type == LabelType.SEGMENTATION:
-                            ns = array.shape[0]
-
-                aug_input_data.append((img, label_dict))
-
-            # NOTE: To ensure the same augmentation is applied to all samples
-            # in case of multiple tasks per LabelType
-            random.setstate(random_state)
-            np.random.set_state(np_random_state)
-
-            img, aug_annotations = self.augmentations(
-                aug_input_data, nk=nk, ns=ns
-            )
-            for label_type, array in aug_annotations.items():
-                out_dict[label_to_task[label_type]] = (array, label_type)
-
-        return img, out_dict
+        return self.augmentations.apply(loaded_anns)
 
     def _load_image_with_annotations(
         self, idx: int

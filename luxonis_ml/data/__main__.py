@@ -17,11 +17,11 @@ from typing_extensions import Annotated
 
 from luxonis_ml.data import (
     Augmentations,
-    LabelType,
     LuxonisDataset,
     LuxonisLoader,
     LuxonisParser,
 )
+from luxonis_ml.data.utils.enums import LabelType
 from luxonis_ml.data.utils.visualizations import visualize
 from luxonis_ml.enums import DatasetType
 
@@ -202,7 +202,9 @@ def inspect(
                 if Path(aug_config).suffix == ".yaml"
                 else json.load(file)
             )
-        augmentations = Augmentations([h, w], config)
+        augmentations = Augmentations.from_config(
+            h, w, config, keep_aspect_ratio=False
+        )
 
     if len(dataset) == 0:
         raise ValueError(f"Dataset '{name}' is empty.")

@@ -51,8 +51,6 @@ def test_keypoint_mosaic4():
 
 def test_Mosaic4():
     img = (np.random.rand(HEIGHT, WIDTH, 3) * 255).astype(np.uint8)
-    mosaic4 = Mosaic4(
-        out_height=HEIGHT, out_width=WIDTH, always_apply=True, p=1.0
-    )
+    mosaic4 = Mosaic4(out_height=HEIGHT, out_width=WIDTH, p=1.0)
     m = mosaic4(image_batch=[img, img, img, img], labels={})
     assert m["image_batch"][0].shape == (HEIGHT, WIDTH, 3)

@@ -1,230 +1,239 @@
-from typing import Any, Dict, List, Optional, Tuple
+import random
+from abc import ABC, abstractmethod
+from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
 import albumentations as A
 import cv2
 import numpy as np
 
-from luxonis_ml.utils.registry import Registry
+from luxonis_ml.data.utils import (
+    LuxonisLoaderOutput,
+    get_task_name,
+    get_task_type,
+)
 
-from ..utils.enums import LabelType
 from .batch_compose import BatchCompose
 from .batch_transform import BatchBasedTransform
+from .batch_utils import unbatch_all
+from .custom import LetterboxResize, MixUp, Mosaic4
 
-AUGMENTATIONS = Registry(name="augmentations")
+
+class AugmentationConfiguration(TypedDict):
+    name: str
+    params: Dict[str, Any]
 
 
-class Augmentations:
+class BaseAugmentationPipeline(ABC):
+    @classmethod
+    @abstractmethod
+    def from_config(
+        cls,
+        height: int,
+        width: int,
+        config: List[AugmentationConfiguration],
+        out_rgb: bool,
+        keep_aspect_ratio: bool,
+        is_validation_pipeline: bool,
+    ) -> "BaseAugmentationPipeline":
+        """Create augmentation pipeline from configuration.
+
+        @type height: int
+        @param height: Target image height
+        @type width: int
+        @param width: Target image width
+        @type config: List[Dict[str, Any]]
+        @param config: List of dictionaries with augmentation
+            configurations.
+        @type out_rgb: bool
+        @param out_rgb: Whether to output RGB images
+        @type keep_aspect_ratio: bool
+        @param keep_aspect_ratio: Whether to keep aspect ratio
+        @type is_validation_pipeline: bool
+        @param is_validation_pipeline: Whether this is a validation
+            pipeline (in which case some augmentations are skipped)
+        @rtype: BaseAugmentationPipeline
+        @return: Initialized augmentation pipeline
+        """
+        ...
+
+    @abstractmethod
+    def apply(
+        self, data: List[LuxonisLoaderOutput]
+    ) -> LuxonisLoaderOutput: ...
+
+    @property
+    @abstractmethod
+    def batch_size(self) -> int:
+        """Getter for the batch size.
+
+        The batch size is the number of images necessary for the
+        augmentation pipeline to work in case of batch-based
+        augmentations.
+
+        For example, if the augmentation pipeline contains the MixUp
+        augmentation, the batch size should be 2.
+
+        If the pipeline requires MixUp and also Mosaic4 augmentations,
+        the batch size should be 6 (2 + 4).
+        """
+        ...
+
+    @property
+    def is_batched(self) -> bool:
+        return self.batch_size > 1
+
+
+class Augmentations(BaseAugmentationPipeline):
     def __init__(
         self,
-        image_size: List[int],
-        augmentations: List[Dict[str, Any]],
-        train_rgb: bool = True,
-        keep_aspect_ratio: bool = True,
-        only_normalize: bool = False,
+        height: int,
+        width: int,
+        out_rgb: bool,
+        batch_size: int,
+        batch_transform: BatchCompose,
+        spatial_transform: A.Compose,
+        pixel_transform: A.Compose,
+        resize_transform: A.Compose,
     ):
-        """Base class for augmentations that are used in LuxonisLoader.
+        self.image_size = (height, width)
+        self.out_rgb = out_rgb
+        self._batch_size = batch_size
 
-        @type train_rgb: bool
-        @param train_rgb: Whether should use RGB or BGR images.
-        """
+        self.batch_transform = batch_transform
+        self.spatial_transform = spatial_transform
+        self.pixel_transform = pixel_transform
+        self.resize_transform = resize_transform
 
-        self.image_size = image_size
-        self.train_rgb = train_rgb
-        self.only_normalize = only_normalize
-
-        self.is_batched = False
-        self.aug_batch_size = 1
-
-        (
-            self.batch_transform,
-            self.spatial_transform,
-            self.pixel_transform,
-            self.resize_transform,
-        ) = self._parse_cfg(
-            image_size=image_size,
-            augmentations=[
-                a for a in augmentations if a["name"] == "Normalize"
-            ]
-            if only_normalize
-            else augmentations,
-            keep_aspect_ratio=keep_aspect_ratio,
-        )
-
-    def _parse_cfg(
-        self,
-        image_size: List[int],
-        augmentations: List[Dict[str, Any]],
+    @classmethod
+    def from_config(
+        cls,
+        height: int,
+        width: int,
+        config: List[AugmentationConfiguration],
+        out_rgb: bool = True,
         keep_aspect_ratio: bool = True,
-    ) -> Tuple[BatchCompose, A.Compose, A.Compose, A.Compose]:
-        """Parses provided config and returns Albumentations
-        BatchedCompose object and Compose object for default transforms.
-
-        @type image_size: List[int]
-        @param image_size: Desired image size [H,W]
-        @type augmentations: List[Dict[str, Any]]
-        @param augmentations: List of augmentations to use and their
-            params
-        @type keep_aspect_ratio: bool
-        @param keep_aspect_ratio: Whether should use resize that keeps
-            aspect ratio of original image.
-        @rtype: Tuple[BatchCompose, A.Compose, A.Compose, A.Compose]
-        @return: Objects for batched, spatial, pixel and resize
-            transforms
-        """
-
-        # NOTE: Always perform Resize
+        is_validation_pipeline: bool = False,
+    ) -> "Augmentations":
         if keep_aspect_ratio:
-            resize = AUGMENTATIONS.get("LetterboxResize")(
-                height=image_size[0], width=image_size[1]
-            )
+            resize = LetterboxResize(height=height, width=width)
         else:
-            resize = A.Resize(image_size[0], image_size[1])
+            resize = A.Resize(height=height, width=width)
+
+        if is_validation_pipeline:
+            config = [a for a in config if a.get("name") == "Normalize"]
 
         pixel_augs = []
         spatial_augs = []
         batched_augs = []
-        if augmentations:
-            for aug in augmentations:
-                curr_aug = AUGMENTATIONS.get(aug["name"])(
-                    **aug.get("params", {})
-                )
-                if isinstance(curr_aug, A.ImageOnlyTransform):
-                    pixel_augs.append(curr_aug)
-                elif isinstance(curr_aug, A.DualTransform):
-                    spatial_augs.append(curr_aug)
-                elif isinstance(curr_aug, BatchBasedTransform):
-                    self.is_batched = True
-                    self.aug_batch_size = max(
-                        self.aug_batch_size, curr_aug.batch_size
-                    )
-                    batched_augs.append(curr_aug)
+        batch_size = 1
+        for aug in config:
+            curr_aug = cls._get_augmentation(
+                aug["name"], **aug.get("params", {})
+            )
+            if isinstance(curr_aug, A.ImageOnlyTransform):
+                pixel_augs.append(curr_aug)
+            elif isinstance(curr_aug, A.DualTransform):
+                spatial_augs.append(curr_aug)
+            elif isinstance(curr_aug, BatchBasedTransform):
+                batch_size *= curr_aug.batch_size
+                batched_augs.append(curr_aug)
 
-        batch_transform = BatchCompose(
-            [
-                *batched_augs,
-            ],
-            bbox_params=A.BboxParams(
-                format="coco",
-                label_fields=[
-                    "bboxes_classes_batch",
-                    "bboxes_visibility_batch",
-                ],
+        def _get_params(batch: bool = False):
+            suffix = "_batch" if batch else ""
+            return {
+                "bbox_params": A.BboxParams(
+                    format="coco",
+                    label_fields=[
+                        f"bboxes_classes{suffix}",
+                        f"bboxes_visibility{suffix}",
+                    ],
+                    min_visibility=0.01,
+                ),
+                "keypoint_params": A.KeypointParams(
+                    format="xy",
+                    label_fields=[
+                        f"keypoints_visibility{suffix}",
+                        f"keypoints_classes{suffix}",
+                    ],
+                    remove_invisible=False,
+                ),
+            }
+
+        return cls(
+            height=height,
+            width=width,
+            out_rgb=out_rgb,
+            batch_size=batch_size,
+            batch_transform=BatchCompose(
+                batched_augs, **_get_params(batch=True)
             ),
-            keypoint_params=A.KeypointParams(
-                format="xy",
-                label_fields=[
-                    "keypoints_visibility_batch",
-                    "keypoints_classes_batch",
-                ],
-                remove_invisible=False,
-            ),
+            spatial_transform=A.Compose(spatial_augs, **_get_params()),
+            pixel_transform=A.Compose(pixel_augs),
+            resize_transform=A.Compose([resize], **_get_params()),
         )
 
-        spatial_transform = A.Compose(
-            spatial_augs,
-            bbox_params=A.BboxParams(
-                format="coco",
-                label_fields=["bboxes_classes", "bboxes_visibility"],
-            ),
-            keypoint_params=A.KeypointParams(
-                format="xy",
-                label_fields=["keypoints_visibility", "keypoints_classes"],
-                remove_invisible=False,
-            ),
-        )
+    @property
+    def batch_size(self) -> int:
+        return self._batch_size
 
-        pixel_transform = A.Compose(
-            pixel_augs,
-            bbox_params=A.BboxParams(
-                format="coco",
-                label_fields=["bboxes_classes", "bboxes_visibility"],
-            ),
-            keypoint_params=A.KeypointParams(
-                format="xy",
-                label_fields=["keypoints_visibility", "keypoints_classes"],
-                remove_invisible=False,
-            ),
-        )
+    @staticmethod
+    def _get_augmentation(name: str, **kwargs) -> A.BasicTransform:
+        # TODO: Registry
+        if name == "MixUp":
+            return MixUp(**kwargs)
+        if name == "Mosaic4":
+            return Mosaic4(**kwargs)
+        if not hasattr(A, name):
+            raise ValueError(
+                f"Augmentation {name} not found in Albumentations"
+            )
+        return getattr(A, name)(**kwargs)
 
-        resize_transform = A.Compose(
-            [resize],
-            bbox_params=A.BboxParams(
-                format="coco",
-                label_fields=["bboxes_classes", "bboxes_visibility"],
-            ),
-            keypoint_params=A.KeypointParams(
-                format="xy",
-                label_fields=["keypoints_visibility", "keypoints_classes"],
-                remove_invisible=False,
-            ),
-        )
+    def apply(self, data: List[LuxonisLoaderOutput]) -> LuxonisLoaderOutput:
+        random_state = random.getstate()
+        np_random_state = np.random.get_state()
 
-        return (
-            batch_transform,
-            spatial_transform,
-            pixel_transform,
-            resize_transform,
-        )
+        reference_labels = data[0][1]
+        task_names = {get_task_name(task) for task in reference_labels.keys()}
+        out_labels = {}
 
-    def _apply_transform(
-        self,
-        transformed: Dict[str, np.ndarray],
-        arg_names: List[str],
-        transform_func: A.Compose,
-        return_mask: bool = False,
-        arg_suffix: str = "",
-    ) -> Dict[str, np.ndarray]:
-        """Apply transform function.
+        for task_name in sorted(list(task_names)):
+            task_types_to_names = {}
+            data_subset: List[LuxonisLoaderOutput] = []
+            nk = 0
+            ns = 0
+            for img, labels in data:
+                label_subset = {}
+                for task, label in labels.items():
+                    if get_task_name(task) == task_name:
+                        task_type = get_task_type(task)
+                        label_subset[task_type] = label
+                        task_types_to_names[task_type] = task
+                        if task_type == "keypoints":
+                            nk = (label.shape[1] - 1) // 3
+                        elif task_type == "segmentation":
+                            ns = label.shape[0]
+                data_subset.append((img, label_subset))
 
-        @type transformed: Dict[str, np.ndarray]
-        @param transformed: Transformed data
-        @type arg_names: List[str]
-        @param arg_names: Names of arguments to pass to transform
-            function
-        @type transform_func: Callable
-        @param transform_func: Transform function to apply
-        @type return_mask: bool
-        @param return_mask: Whether to return mask
-        @type arg_suffix: str
-        @param arg_suffix: Suffix to add to argument names
-        @rtype: Dict[str, np.ndarray]
-        @return: Transformed data
-        """
+            random.setstate(random_state)
+            np.random.set_state(np_random_state)
 
-        transform_args = {
-            arg_name: transformed[f"{arg_name}{arg_suffix}"]
-            for arg_name in arg_names
-        }
-        if return_mask:
-            transform_args["mask"] = transformed[f"mask{arg_suffix}"]
+            # TODO: Optimize
+            aug_img, aug_labels = self._apply(data_subset, ns, nk)
+            for task_type, label in aug_labels.items():
+                out_labels[task_types_to_names[task_type]] = label
 
-        transformed = transform_func(force_apply=False, **transform_args)
+        return aug_img, out_labels
 
-        return transformed
-
-    def __call__(
-        self,
-        data: List[Tuple[np.ndarray, Dict[LabelType, np.ndarray]]],
-        ns: int = 1,
-        nk: int = 1,
-    ) -> Tuple[np.ndarray, Dict[LabelType, np.ndarray]]:
-        """Performs augmentations on provided data.
-
-        @type data: List[Tuple[np.ndarray, Dict[LabelType, np.ndarray]]]
-        @param data: Data with list of input images and their
-            annotations
-        @type ns: int
-        @param ns: Number of segmentation classes
-        @type nk: int
-        @param nk: Number of keypoints per instance
-        @rtype: Tuple[np.ndarray, Dict[LabelType, np.ndarray]]
-        @return: Output image and its annotations
-        """
-
+    def _apply(
+        self, data: List[LuxonisLoaderOutput], ns: int, nk: int
+    ) -> LuxonisLoaderOutput:
         present_annotations = {
-            key for _, annotations in data for key in annotations.keys()
+            get_task_type(key)
+            for _, annotations in data
+            for key in annotations.keys()
         }
-        return_mask = LabelType.SEGMENTATION in present_annotations
+        return_mask = "segmentation" in present_annotations
         image_batch = []
         mask_batch = []
         bboxes_batch = []
@@ -263,8 +272,7 @@ class Augmentations:
             keypoints_visibility_batch.append(keypoints_visibility)
             keypoints_classes_batch.append(keypoints_classes)
 
-        # Apply batch transform
-        transform_args = {
+        transformed: Dict[str, Any] = {
             "image_batch": image_batch,
             "bboxes_batch": bboxes_batch,
             "bboxes_visibility_batch": bboxes_visibility_batch,
@@ -273,73 +281,55 @@ class Augmentations:
             "keypoints_visibility_batch": keypoints_visibility_batch,
             "keypoints_classes_batch": keypoints_classes_batch,
         }
+
         if return_mask:
-            transform_args["mask_batch"] = mask_batch
+            transformed["mask_batch"] = mask_batch
 
-        transformed = self.batch_transform(force_apply=False, **transform_args)
-        transformed = {
-            key: np.array(value[0]) for key, value in transformed.items()
-        }
+        if self.batch_transform.transforms:
+            transformed = self.batch_transform(
+                force_apply=False, **transformed
+            )
+        else:
+            transformed = unbatch_all(transformed)
 
-        arg_names = [
-            "image",
-            "bboxes",
-            "bboxes_visibility",
-            "bboxes_classes",
-            "keypoints",
-            "keypoints_visibility",
-            "keypoints_classes",
-        ]
+        transformed = self.spatial_transform(**transformed, force_apply=False)
 
-        # Apply spatial transform
-        transformed = self._apply_transform(
-            transformed,
-            arg_names,
-            self.spatial_transform,
-            return_mask,
-            "_batch",
-        )
-
-        # Resize if necessary
         if transformed["image"].shape[:2] != self.image_size:
-            transformed = self._apply_transform(
-                transformed, arg_names, self.resize_transform, return_mask
+            transformed = self.resize_transform(
+                **transformed, force_apply=False
             )
 
-        # Apply pixel transform
-        transformed = self._apply_transform(
-            transformed, arg_names, self.pixel_transform, return_mask
-        )
+        transformed["image"] = self.pixel_transform(
+            image=transformed["image"], force_apply=False
+        )["image"]
 
         out_image, out_mask, out_bboxes, out_keypoints = (
             self.post_transform_process(
                 transformed,
                 ns=ns,
                 nk=nk,
-                filter_kpts_by_bbox=(
-                    LabelType.BOUNDINGBOX in present_annotations
-                )
-                and (LabelType.KEYPOINTS in present_annotations),
+                filter_kpts_by_bbox="boundingbox" in present_annotations
+                and "keypoints" in present_annotations,
                 return_mask=return_mask,
             )
         )
 
         out_annotations = {}
         for key in present_annotations:
-            if key == LabelType.CLASSIFICATION:
-                out_annotations[LabelType.CLASSIFICATION] = classes  # type: ignore
-            elif key == LabelType.SEGMENTATION:
-                out_annotations[LabelType.SEGMENTATION] = out_mask
-            elif key == LabelType.BOUNDINGBOX:
-                out_annotations[LabelType.BOUNDINGBOX] = out_bboxes
-            elif key == LabelType.KEYPOINTS:
-                out_annotations[LabelType.KEYPOINTS] = out_keypoints
+            if key == "classification":
+                out_annotations["classification"] = classes
+            elif key == "segmentation":
+                out_annotations["segmentation"] = out_mask
+            elif key == "boundingbox":
+                out_annotations["boundingbox"] = out_bboxes
+            elif key == "keypoints":
+                out_annotations["keypoints"] = out_keypoints
 
         return out_image, out_annotations
 
     def prepare_img_annotations(
         self,
-        annotations: Dict[LabelType, np.ndarray],
+        annotations: Dict[str, np.ndarray],
         ih: int,
         iw: int,
         nk: int,
@@ -368,28 +358,24 @@ class Augmentations:
         @return: Annotations in albumentations format
         """
 
-        classes = annotations.get(LabelType.CLASSIFICATION, np.zeros(1))
+        classes = annotations.get("classification", np.zeros(1))
 
         mask = None
         if return_mask:
-            seg = annotations.get(
-                LabelType.SEGMENTATION, np.zeros((1, ih, iw))
-            )
+            seg = annotations.get("segmentation", np.zeros((1, ih, iw)))
             mask = np.argmax(seg, axis=0) + 1
             mask[np.sum(seg, axis=0) == 0] = 0  # only background has value 0
 
         # COCO format in albumentations is [x,y,w,h] non-normalized
-        bboxes = annotations.get(LabelType.BOUNDINGBOX, np.zeros((0, 5)))
+        bboxes = annotations.get("boundingbox", np.zeros((0, 5)))
         bboxes_points = bboxes[:, 1:]
         bboxes_points[:, 0::2] *= iw
         bboxes_points[:, 1::2] *= ih
-        bboxes_points = self.check_bboxes(bboxes_points)
-        bboxes_classes = bboxes[:, 0]
+        bboxes_points = self.check_bboxes(bboxes_points).astype(np.int32)
+        bboxes_classes = bboxes[:, 0].astype(np.int32)
 
         # albumentations expects list of keypoints e.g. [(x,y),(x,y),(x,y),(x,y)]
-        keypoints = annotations.get(
-            LabelType.KEYPOINTS, np.zeros((1, nk * 3 + 1))
-        )
+        keypoints = annotations.get("keypoints", np.zeros((1, nk * 3 + 1)))
         keypoints_unflat = np.reshape(keypoints[:, 1:], (-1, 3))
         keypoints_points = keypoints_unflat[:, :2]
         keypoints_points[:, 0] *= iw
@@ -436,20 +422,21 @@ class Augmentations:
 
         out_image = transformed_data["image"]
         ih, iw, _ = out_image.shape
-        if not self.train_rgb:
+        if not self.out_rgb:
             out_image = cv2.cvtColor(out_image, cv2.COLOR_RGB2BGR)
         out_image = out_image.astype(np.float32)
 
         out_mask = None
         if return_mask:
             transformed_mask = transformed_data.get("mask")
+            assert transformed_mask is not None
             out_mask = np.zeros((ns, *transformed_mask.shape))
             for key in np.unique(transformed_mask):
                 if key != 0:
                     out_mask[int(key) - 1, ...] = transformed_mask == key
             out_mask[out_mask > 0] = 1
 
-        if transformed_data["bboxes"]:
+        if transformed_data["bboxes"].shape[0] > 0:
             transformed_bboxes_classes = np.expand_dims(
                 transformed_data["bboxes_classes"], axis=-1
             )
@@ -468,7 +455,7 @@ class Augmentations:
 
         if nk == 0:
             nk = 1  # done for easier postprocessing
-        if transformed_data["keypoints"]:
+        if transformed_data["keypoints"].shape[0] > 0:
             out_keypoints = np.concatenate(
                 (transformed_data["keypoints"], transformed_keypoints_vis),
                 axis=1,
@@ -488,7 +475,7 @@ class Augmentations:
         )
         if filter_kpts_by_bbox:
             out_keypoints = out_keypoints[
-                transformed_data["bboxes_visibility"]
+                [int(v) for v in transformed_data["bboxes_visibility"]]
             ]  # keep only keypoints of visible instances
 
         return out_image, out_mask, out_bboxes, out_keypoints
@@ -532,96 +519,3 @@ class Augmentations:
             if kp[2] == 0:  # per COCO format invisible points have x=y=0
                 kp[0] = kp[1] = 0
         return keypoints
-
-
-# Registering all supported transforms
-# Pixel-level transforms
-AUGMENTATIONS.register_module(module=A.AdvancedBlur)
-AUGMENTATIONS.register_module(module=A.Blur)
-AUGMENTATIONS.register_module(module=A.CLAHE)
-AUGMENTATIONS.register_module(module=A.ChannelDropout)
-AUGMENTATIONS.register_module(module=A.ChannelShuffle)
-AUGMENTATIONS.register_module(module=A.ColorJitter)
-AUGMENTATIONS.register_module(module=A.Defocus)
-AUGMENTATIONS.register_module(module=A.Downscale)
-AUGMENTATIONS.register_module(module=A.Emboss)
-AUGMENTATIONS.register_module(module=A.Equalize)
-AUGMENTATIONS.register_module(module=A.FDA)
-AUGMENTATIONS.register_module(module=A.FancyPCA)
-AUGMENTATIONS.register_module(module=A.FromFloat)
-AUGMENTATIONS.register_module(module=A.GaussNoise)
-AUGMENTATIONS.register_module(module=A.GaussianBlur)
-AUGMENTATIONS.register_module(module=A.GlassBlur)
-AUGMENTATIONS.register_module(module=A.HistogramMatching)
-AUGMENTATIONS.register_module(module=A.HueSaturationValue)
-AUGMENTATIONS.register_module(module=A.ISONoise)
-AUGMENTATIONS.register_module(module=A.ImageCompression)
-AUGMENTATIONS.register_module(module=A.InvertImg)
-AUGMENTATIONS.register_module(module=A.MedianBlur)
-AUGMENTATIONS.register_module(module=A.MotionBlur)
-AUGMENTATIONS.register_module(module=A.MultiplicativeNoise)
-AUGMENTATIONS.register_module(module=A.Normalize)
-AUGMENTATIONS.register_module(module=A.PixelDistributionAdaptation)
-AUGMENTATIONS.register_module(module=A.Posterize)
-AUGMENTATIONS.register_module(module=A.RGBShift)
-AUGMENTATIONS.register_module(module=A.RandomBrightnessContrast)
-AUGMENTATIONS.register_module(module=A.RandomFog)
-AUGMENTATIONS.register_module(module=A.RandomGamma)
-AUGMENTATIONS.register_module(module=A.RandomGravel)
-AUGMENTATIONS.register_module(module=A.RandomRain)
-AUGMENTATIONS.register_module(module=A.RandomShadow)
-AUGMENTATIONS.register_module(module=A.RandomSnow)
-AUGMENTATIONS.register_module(module=A.RandomSunFlare)
-AUGMENTATIONS.register_module(module=A.RandomToneCurve)
-AUGMENTATIONS.register_module(module=A.RingingOvershoot)
-AUGMENTATIONS.register_module(module=A.Sharpen)
-AUGMENTATIONS.register_module(module=A.Solarize)
-AUGMENTATIONS.register_module(module=A.Spatter)
-AUGMENTATIONS.register_module(module=A.Superpixels)
-AUGMENTATIONS.register_module(module=A.TemplateTransform)
-AUGMENTATIONS.register_module(module=A.ToFloat)
-AUGMENTATIONS.register_module(module=A.ToGray)
-AUGMENTATIONS.register_module(module=A.ToRGB)
-AUGMENTATIONS.register_module(module=A.ToSepia)
-AUGMENTATIONS.register_module(module=A.UnsharpMask)
-AUGMENTATIONS.register_module(module=A.ZoomBlur)
-
-# Spatial.level transforms
-# NOTE: only augmentations that are supported for all targets
-AUGMENTATIONS.register_module(module=A.Affine)
-# AUGMENTATIONS.register_module(module=A.BBoxSafeRandomCrop)
-AUGMENTATIONS.register_module(module=A.CenterCrop)
-AUGMENTATIONS.register_module(module=A.CoarseDropout)
-AUGMENTATIONS.register_module(module=A.Crop)
-AUGMENTATIONS.register_module(module=A.CropAndPad)
-AUGMENTATIONS.register_module(module=A.CropNonEmptyMaskIfExists)
-# AUGMENTATIONS.register_module(module=A.ElasticTransform)
-AUGMENTATIONS.register_module(module=A.Flip)
-# AUGMENTATIONS.register_module(module=A.GridDistortion)
-# AUGMENTATIONS.register_module(module=A.GridDropout)
-AUGMENTATIONS.register_module(module=A.HorizontalFlip)
-AUGMENTATIONS.register_module(module=A.Lambda)
-AUGMENTATIONS.register_module(module=A.LongestMaxSize)
-# AUGMENTATIONS.register_module(module=A.MaskDropout)
-AUGMENTATIONS.register_module(module=A.NoOp)
-# AUGMENTATIONS.register_module(module=A.OpticalDistortion)
-AUGMENTATIONS.register_module(module=A.PadIfNeeded)
-AUGMENTATIONS.register_module(module=A.Perspective)
-AUGMENTATIONS.register_module(module=A.PiecewiseAffine)
-AUGMENTATIONS.register_module(module=A.PixelDropout)
-AUGMENTATIONS.register_module(module=A.RandomCrop)
-AUGMENTATIONS.register_module(module=A.RandomCropFromBorders)
-AUGMENTATIONS.register_module(module=A.RandomCropNearBBox)
-AUGMENTATIONS.register_module(module=A.RandomGridShuffle)
-AUGMENTATIONS.register_module(module=A.RandomResizedCrop)
-AUGMENTATIONS.register_module(module=A.RandomRotate90)
-AUGMENTATIONS.register_module(module=A.RandomScale)
-# AUGMENTATIONS.register_module(module=A.RandomSizedBBoxSafeCrop)
-AUGMENTATIONS.register_module(module=A.RandomSizedCrop)
-AUGMENTATIONS.register_module(module=A.Resize)
-AUGMENTATIONS.register_module(module=A.Rotate)
-AUGMENTATIONS.register_module(module=A.SafeRotate)
-AUGMENTATIONS.register_module(module=A.ShiftScaleRotate)
-AUGMENTATIONS.register_module(module=A.SmallestMaxSize)
-AUGMENTATIONS.register_module(module=A.Transpose)
-AUGMENTATIONS.register_module(module=A.VerticalFlip)
