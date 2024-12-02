@@ -114,6 +114,11 @@ class MixUp(BatchBasedTransform):
         @rtype: np.ndarray
         @return: Transformed bboxes.
         """
+        for i in range(len(bboxes_batch)):
+            bbox = bboxes_batch[i]
+            if bbox.shape[1] == 4:
+                bboxes_batch[i] = np.zeros((0, 6), dtype=bbox.dtype)
+
         return np.concatenate(bboxes_batch, axis=0)
 
     @override

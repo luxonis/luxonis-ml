@@ -14,7 +14,6 @@ from luxonis_ml.data.utils import (
 
 from .batch_compose import BatchCompose
 from .batch_transform import BatchBasedTransform
-from .batch_utils import unbatch_all
 from .custom import LetterboxResize, MixUp, Mosaic4
 
 
@@ -234,16 +233,9 @@ class Augmentations(BaseAugmentationPipeline):
             for key in annotations.keys()
         }
         return_mask = "segmentation" in present_annotations
-        image_batch = []
-        mask_batch = []
-        bboxes_batch = []
-        bboxes_visibility_batch = []
-        bboxes_classes_batch = []
-        keypoints_batch = []
-        keypoints_visibility_batch = []
-        keypoints_classes_batch = []
 
         bbox_counter = 0
+        batch_data = []
         for img, annotations in data:
             (
                 classes,
@@ -256,51 +248,36 @@ class Augmentations(BaseAugmentationPipeline):
             ) = self.prepare_img_annotations(
                 annotations, *img.shape[:-1], nk=nk, return_mask=return_mask
             )
+            t = {
+                "image": img,
+                "bboxes": bboxes_points,
+                "bboxes_classes": bboxes_classes,
+                "bboxes_visibility": list(
+                    range(bbox_counter, bboxes_points.shape[0] + bbox_counter)
+                ),
+                "keypoints": keypoints_points,
+                "keypoints_visibility": keypoints_visibility,
+                "keypoints_classes": keypoints_classes,
+            }
 
-            image_batch.append(img)
             if return_mask:
-                mask_batch.append(mask)
+                t["mask"] = mask
 
-            bboxes_batch.append(bboxes_points)
-            bboxes_visibility_batch.append(
-                [i + bbox_counter for i in range(bboxes_points.shape[0])]
-            )
-            bboxes_classes_batch.append(bboxes_classes)
             bbox_counter += bboxes_points.shape[0]
-
-            keypoints_batch.append(keypoints_points)
-            keypoints_visibility_batch.append(keypoints_visibility)
-            keypoints_classes_batch.append(keypoints_classes)
-
-        transformed: Dict[str, Any] = {
-            "image_batch": image_batch,
-            "bboxes_batch": bboxes_batch,
-            "bboxes_visibility_batch": bboxes_visibility_batch,
-            "bboxes_classes_batch": bboxes_classes_batch,
-            "keypoints_batch": keypoints_batch,
-            "keypoints_visibility_batch": keypoints_visibility_batch,
-            "keypoints_classes_batch": keypoints_classes_batch,
-        }
-
-        if return_mask:
-            transformed["mask_batch"] = mask_batch
+            batch_data.append(t)
 
         if self.batch_transform.transforms:
-            transformed = self.batch_transform(
-                force_apply=False, **transformed
-            )
+            transformed = self.batch_transform(batch_data)
         else:
-            transformed = unbatch_all(transformed)
+            transformed = batch_data[0]
 
-        transformed = self.spatial_transform(**transformed, force_apply=False)
+        transformed = self.spatial_transform(**transformed)
 
         if transformed["image"].shape[:2] != self.image_size:
-            transformed = self.resize_transform(
-                **transformed, force_apply=False
-            )
+            transformed = self.resize_transform(**transformed)
 
         transformed["image"] = self.pixel_transform(
-            image=transformed["image"], force_apply=False
+            image=transformed["image"]
         )["image"]
 
         out_image, out_mask, out_bboxes, out_keypoints = (

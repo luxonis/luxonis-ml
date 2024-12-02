@@ -1,5 +1,5 @@
 import copy
-from typing import Any, Dict, Optional, Tuple, Type
+from typing import Dict, Optional, Tuple, Type
 
 import numpy as np
 from albumentations.core.bbox_utils import BboxParams, BboxProcessor
@@ -10,13 +10,7 @@ from albumentations.core.keypoints_utils import (
 from albumentations.core.utils import DataProcessor, Params
 from typing_extensions import override
 
-from .batch_utils import (
-    batch2list,
-    batch_all,
-    list2batch,
-    to_unbatched_name,
-    unbatch_all,
-)
+from .batch_utils import to_unbatched_name
 
 
 class BatchProcessor(DataProcessor):
@@ -51,24 +45,6 @@ class BatchProcessor(DataProcessor):
     @override
     def default_data_name(self) -> str:
         return self._default_data_name
-
-    @override
-    def ensure_data_valid(self, data: Dict[str, Any]) -> None:
-        for item in batch2list(data):
-            self.item_processor.ensure_data_valid(item)
-
-    @override
-    def postprocess(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        return batch_all(self.item_processor.postprocess(unbatch_all(data)))
-
-    @override
-    def preprocess(self, data: Dict[str, Any]) -> None:
-        processed = batch2list(data)
-        for item in processed:
-            self.item_processor.preprocess(item)
-        processed_data = list2batch(processed)
-        for k in processed_data.keys():
-            data[k] = processed_data[k]
 
     @override
     def filter(

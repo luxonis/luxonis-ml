@@ -1,25 +1,14 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterator, List
 
 import numpy as np
 
 
-def batch2list(data: Dict[str, List[Any]]) -> List[Dict[str, Any]]:
-    """Convert from a batched target dict to list of normal target
-    dicts."""
-    batch_size = len(data["image_batch"])
-    items = []
-    for i in range(batch_size):
-        item = {}
-        for k, v in data.items():
-            if k.endswith("_batch"):
-                item_k = to_unbatched_name(k)
-                item[item_k] = v[i]
-            else:
-                raise ValueError(
-                    f"All key must have '_batch' suffix, got `{k}`"
-                )
-        items.append(item)
-    return items
+def yield_batches(
+    data: List[Dict[str, Any]], batch_size: int
+) -> Iterator[Dict[str, List[Any]]]:
+    """Yield batches of data."""
+    for i in range(0, len(data), batch_size):
+        yield list2batch(data[i : i + batch_size])
 
 
 def list2batch(data: List[Dict[str, Any]]) -> Dict[str, List[Any]]:
