@@ -199,12 +199,13 @@ class LetterboxResize(A.DualTransform):
                 self.height - pad_top - pad_bottom,
                 self.width - pad_left - pad_right,
             ),
-        )[:, :4]
-        bbox[...] += np.array([pad_left, pad_top] * 2)
-        bbox = bbox.clip(
+        )
+        bbox[..., :4] += np.array([pad_left, pad_top] * 2)
+        bbox[..., :4] = bbox[..., :4].clip(
             min=[pad_left, pad_top] * 2,
             max=[self.width - pad_left, self.height - pad_top] * 2,
         )
+
         return normalize_bboxes(bbox, (self.height, self.width))
 
     @override
@@ -215,7 +216,9 @@ class LetterboxResize(A.DualTransform):
         pad_bottom: int,
         pad_left: int,
         pad_right: int,
-        **kwargs,
+        cols: int,
+        rows: int,
+        **_,
     ) -> np.ndarray:
         """Applies letterbox augmentation to the keypoint.
 
@@ -238,29 +241,23 @@ class LetterboxResize(A.DualTransform):
         if keypoint.shape[0] == 0:
             return keypoint
 
-        scale_x = (self.width - pad_left - pad_right) / kwargs["cols"]
-        scale_y = (self.height - pad_top - pad_bottom) / kwargs["rows"]
+        scale_x = (self.width - pad_left - pad_right) / cols
+        scale_y = (self.height - pad_top - pad_bottom) / rows
         keypoint[:, 0] *= scale_x
-        keypoint[:, 1] *= scale_y
         keypoint[:, 0] += pad_left
+
+        keypoint[:, 1] *= scale_y
         keypoint[:, 1] += pad_top
+
+        out_of_bounds_x = np.logical_or(
+            keypoint[:, 0] < pad_left, keypoint[:, 0] > self.width - pad_right
+        )
+        out_of_bounds_y = np.logical_or(
+            keypoint[:, 1] < pad_top, keypoint[:, 1] > self.height - pad_bottom
+        )
+        keypoint[out_of_bounds_x | out_of_bounds_y] = -1
+
         return keypoint
-        # return np.array(
-        #     [
-        #         new_x
-        #         if not self._out_of_bounds(
-        #             new_x, pad_left, self.width - pad_left
-        #         )
-        #         else -1,
-        #         new_y
-        #         if not self._out_of_bounds(
-        #             new_y, pad_top, self.height - pad_top
-        #         )
-        #         else -1,
-        #         angle,
-        #         scale * max(scale_x, scale_y),
-        #     ]
-        # )
 
     @override
     def get_transform_init_args_names(self) -> Tuple[str, ...]:
@@ -309,16 +306,4 @@ class LetterboxResize(A.DualTransform):
     def _out_of_bounds(
         self, value: float, min_limit: float, max_limit: float
     ) -> bool:
-        """ "Check if the given value is outside the specified limits.
-
-        @type value: float
-        @param value: The value to be checked.
-        @type min_limit: float
-        @param min_limit: Minimum limit.
-        @type max_limit: float
-        @param max_limit: Maximum limit.
-        @rtype: bool
-        @return: True if the value is outside the specified limits,
-            False otherwise.
-        """
         return value < min_limit or value > max_limit
