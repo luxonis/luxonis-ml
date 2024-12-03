@@ -43,6 +43,8 @@ AnnotationName: TypeAlias = Literal[
 
 
 def load_annotation(label_type: str, data: Dict[str, Any]) -> "Annotation":
+    if label_type == "classification":
+        return ClassificationAnnotation(**data)
     if label_type == "boundingbox":
         return BBoxAnnotation(**data)
     if label_type == "keypoints":
@@ -90,6 +92,12 @@ class Detection(BaseModelExtraForbid):
                 "label_type": f"metadata/{key}",
                 "annotation": json.dumps(data),
             }
+        yield {
+            "class_name": self.class_name,
+            "instance_id": self.instance_id,
+            "label_type": "classification",
+            "annotation": "{}",
+        }
         for detection in self.sub_detections.values():
             yield from detection.to_parquet_rows()
 
@@ -104,6 +112,19 @@ class Annotation(ABC, BaseModelExtraForbid):
         classes: List[int],
         n_classes: int,
     ) -> np.ndarray: ...
+
+
+class ClassificationAnnotation(Annotation):
+    @staticmethod
+    def combine_to_numpy(
+        _: List["ClassificationAnnotation"],
+        classes: List[int],
+        n_classes: int,
+    ) -> np.ndarray:
+        classify_vector = np.zeros(n_classes)
+        for class_id in classes:
+            classify_vector[class_id] = 1
+        return classify_vector
 
 
 class BBoxAnnotation(Annotation):
