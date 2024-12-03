@@ -65,7 +65,7 @@ def to_unbatched_name(batched_name: str) -> str:
 
 
 def to_batched_name(name: str) -> str:
-    """Get a unbatched target name from a normal target name If the
+    """Get an unbatched target name from a normal target name If the
     given name already has had "_batched" suffix, ValueError will be
     raised."""
 
