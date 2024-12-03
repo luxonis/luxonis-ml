@@ -19,8 +19,8 @@ from luxonis_ml.data.loaders.base_loader import (
     BaseLoader,
     LuxonisLoaderOutput,
 )
-from luxonis_ml.data.utils import Labels
-from luxonis_ml.data.utils.label_utils import (
+from luxonis_ml.data.utils import (
+    Labels,
     get_task_name,
     get_task_type,
     split_task,
@@ -236,7 +236,10 @@ class LuxonisLoader(BaseLoader):
             class_name: Optional[str] = annotation_data[4]
             instance_id: int = annotation_data[5]
             task_type: str = annotation_data[6]
-            ann_str: str = annotation_data[7]
+            ann_str: Optional[str] = annotation_data[7]
+
+            if ann_str is None:
+                continue
 
             data = json.loads(ann_str)
             full_task_name = f"{task_name}/{task_type}"

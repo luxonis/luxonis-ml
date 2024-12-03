@@ -9,11 +9,11 @@ import numpy as np
 from typing_extensions import override
 
 from luxonis_ml.data.utils import (
+    Labels,
     LuxonisLoaderOutput,
+    get_qualified_task_name,
     get_task_type,
 )
-from luxonis_ml.data.utils.label_utils import get_qualified_task_name
-from luxonis_ml.data.utils.types import Labels
 
 from .base_pipeline import BaseAugmentationPipeline
 from .batch_compose import BatchCompose

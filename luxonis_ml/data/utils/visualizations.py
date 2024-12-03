@@ -5,7 +5,7 @@ from typing import Dict, List, Tuple
 import cv2
 import numpy as np
 
-from luxonis_ml.data.utils.label_utils import (
+from luxonis_ml.data.utils import (
     get_qualified_task_name,
     get_task_name,
     task_type_iterator,

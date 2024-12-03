@@ -3,7 +3,7 @@ from typing import Final, List
 import pytest
 
 from luxonis_ml.data import LuxonisLoader, LuxonisParser
-from luxonis_ml.data.utils.label_utils import get_task_type
+from luxonis_ml.data.utils import get_task_type
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.utils import environ
 
