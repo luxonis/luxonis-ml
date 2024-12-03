@@ -1,21 +1,32 @@
 import random
 from collections import defaultdict
-from typing import Any, Dict, List, Optional, Tuple
+from math import prod
+from typing import Any, Dict, List, Set, Tuple
 
 import albumentations as A
 import cv2
 import numpy as np
+from typing_extensions import override
 
 from luxonis_ml.data.utils import (
     LuxonisLoaderOutput,
     get_task_name,
     get_task_type,
 )
+from luxonis_ml.data.utils.types import Labels
 
 from .base_pipeline import BaseAugmentationPipeline
 from .batch_compose import BatchCompose
 from .batch_transform import BatchBasedTransform
 from .custom import LetterboxResize, MixUp, Mosaic4
+from .utils import (
+    post_process_bboxes,
+    post_process_keypoints,
+    post_process_mask,
+    prepare_bboxes,
+    prepare_keypoints,
+    prepare_mask,
+)
 
 
 class Augmentations(BaseAugmentationPipeline):
@@ -36,10 +47,16 @@ class Augmentations(BaseAugmentationPipeline):
 
         self.batch_transform = batch_transform
         self.spatial_transform = spatial_transform
-        self.pixel_transform = pixel_transform
+
+        def apply_pixel_transform(data: Dict[str, Any]) -> Dict[str, Any]:
+            data["image"] = pixel_transform(image=data["image"])["image"]
+            return data
+
+        self.pixel_transform = apply_pixel_transform
         self.resize_transform = resize_transform
 
     @classmethod
+    @override
     def from_config(
         cls,
         height: int,
@@ -108,22 +125,11 @@ class Augmentations(BaseAugmentationPipeline):
         )
 
     @property
+    @override
     def batch_size(self) -> int:
         return self._batch_size
 
-    @staticmethod
-    def _get_augmentation(name: str, **kwargs) -> A.BasicTransform:
-        # TODO: Registry
-        if name == "MixUp":
-            return MixUp(**kwargs)
-        if name == "Mosaic4":
-            return Mosaic4(**kwargs)
-        if not hasattr(A, name):
-            raise ValueError(
-                f"Augmentation {name} not found in Albumentations"
-            )
-        return getattr(A, name)(**kwargs)
-
+    @override
     def apply(self, data: List[LuxonisLoaderOutput]) -> LuxonisLoaderOutput:
         random_state = random.getstate()
         np_random_state = np.random.get_state()
@@ -167,43 +173,32 @@ class Augmentations(BaseAugmentationPipeline):
         return aug_img, out_labels
 
     def _apply(
-        self, data: List[LuxonisLoaderOutput], ns: int, nk: int
+        self,
+        data: List[LuxonisLoaderOutput],
+        n_segmentation_classes: int,
+        n_keypoints: int,
     ) -> LuxonisLoaderOutput:
-        present_annotations = {
-            key for _, annotations in data for key in annotations.keys()
-        }
-        return_mask = "segmentation" in present_annotations
+        present_labels = {key for _, label in data for key in label.keys()}
+        return_mask = "segmentation" in present_labels
 
         bbox_counter = 0
         batch_data = []
-        for img, annotations in data:
-            (
-                classes,
-                mask,
-                bboxes_points,
-                bboxes_classes,
-                keypoints_points,
-                keypoints_visibility,
-                keypoints_classes,
-            ) = self.prepare_img_annotations(
-                annotations, *img.shape[:-1], nk=nk, return_mask=return_mask
+        for img, labels in data:
+            # TODO: how to deal with classes for batch augmentations?
+            classes = labels.get("classification", np.zeros(1))
+
+            t = self.prepare_img_labels(
+                labels,
+                *img.shape[:-1],
+                n_keypoints=n_keypoints,
+                return_mask=return_mask,
             )
-            t = {
-                "image": img,
-                "bboxes": bboxes_points,
-                "bboxes_classes": bboxes_classes,
-                "bboxes_visibility": list(
-                    range(bbox_counter, bboxes_points.shape[0] + bbox_counter)
-                ),
-                "keypoints": keypoints_points,
-                "keypoints_visibility": keypoints_visibility,
-                "keypoints_classes": keypoints_classes,
-            }
+            t["image"] = img
+            t["bboxes_visibility"] = np.arange(
+                bbox_counter, t["bboxes"].shape[0] + bbox_counter
+            )
 
-            if return_mask:
-                t["mask"] = mask
-
-            bbox_counter += bboxes_points.shape[0]
+            bbox_counter += t["bboxes"].shape[0]
             batch_data.append(t)
 
         metadata = defaultdict(list)
@@ -221,240 +216,158 @@ class Augmentations(BaseAugmentationPipeline):
         transformed = self.spatial_transform(**transformed)
 
         if transformed["image"].shape[:2] != self.image_size:
-            transformed = self.resize_transform(**transformed)
+            transformed_size = prod(transformed["image"].shape[:2])
+            target_size = prod(self.image_size)
 
-        transformed["image"] = self.pixel_transform(
-            image=transformed["image"]
-        )["image"]
+            if transformed_size > target_size:
+                transformed = self.resize_transform(**transformed)
+                transformed = self.pixel_transform(transformed)
+            elif transformed_size < target_size:
+                transformed = self.pixel_transform(transformed)
+                transformed = self.resize_transform(**transformed)
+        else:
+            transformed = self.pixel_transform(transformed)
 
-        out_image, out_mask, out_bboxes, out_keypoints, out_metadata = (
-            self.post_transform_process(
-                transformed,
-                metadata,
-                ns=ns,
-                nk=nk,
-                filter_kpts_by_bbox="boundingbox" in present_annotations
-                and "keypoints" in present_annotations,
-                return_mask=return_mask,
-            )
+        out_image, out_labels = self._post_transform(
+            transformed,
+            metadata,
+            n_segmentation_classes,
+            n_keypoints,
+            present_labels,
         )
 
-        out_annotations = {}
-        for key in present_annotations:
-            if key == "classification":
-                out_annotations["classification"] = classes
-            elif key == "segmentation":
-                out_annotations["segmentation"] = out_mask
-            elif key == "boundingbox":
-                out_annotations["boundingbox"] = out_bboxes
-            elif key == "keypoints":
-                out_annotations["keypoints"] = out_keypoints
+        if "classification" in present_labels:
+            out_labels["classification"] = classes
 
-        out_annotations.update(out_metadata)
+        return out_image, out_labels
 
-        return out_image, out_annotations
-
-    def prepare_img_annotations(
+    def prepare_img_labels(
         self,
-        annotations: Dict[str, np.ndarray],
-        ih: int,
-        iw: int,
-        nk: int,
+        labels: Labels,
+        height: int,
+        width: int,
+        n_keypoints: int,
         return_mask: bool = True,
-    ) -> Tuple[
-        np.ndarray,
-        Optional[np.ndarray],
-        np.ndarray,
-        np.ndarray,
-        np.ndarray,
-        np.ndarray,
-        np.ndarray,
-    ]:
-        """Prepare annotations to be compatible with albumentations.
+    ) -> Dict[str, np.ndarray]:
+        """Prepare labels to be compatible with albumentations.
 
-        @type annotations: Dict[str, np.ndarray]
-        @param annotations: Dict with annotations
-        @type ih: int
-        @param ih: Input image height
-        @type iw: int
-        @param iw: Input image width
+        @type labels: Dict[str, np.ndarray]
+        @param labels: Dict with labels
+        @type height: int
+        @param height: Input image height
+        @type width: int
+        @param width: Input image width
+        @type n_keypoints: int
+        @param n_keypoints: Number of keypoints per instance
         @type return_mask: bool
         @param return_mask: Whether to compute and return mask
         @rtype: Tuple[np.ndarray, Optional[np.ndarray], np.ndarray,
             np.ndarray, np.ndarray, np.ndarray, np.ndarray]
-        @return: Annotations in albumentations format
+        @return: Labels in albumentations format
         """
-
-        classes = annotations.get("classification", np.zeros(1))
 
         mask = None
         if return_mask:
-            seg = annotations.get("segmentation", np.zeros((1, ih, iw)))
-            mask = np.argmax(seg, axis=0) + 1
-            mask[np.sum(seg, axis=0) == 0] = 0  # only background has value 0
+            mask = prepare_mask(labels, height, width)
 
-        # COCO format in albumentations is [x,y,w,h] non-normalized
-        bboxes = annotations.get("boundingbox", np.zeros((0, 5)))
-        bboxes_points = bboxes[:, 1:]
-        bboxes_points[:, 0::2] *= iw
-        bboxes_points[:, 1::2] *= ih
-        bboxes_points = self.check_bboxes(bboxes_points).astype(np.int32)
-        bboxes_classes = bboxes[:, 0].astype(np.int32)
-
-        # albumentations expects list of keypoints e.g. [(x,y),(x,y),(x,y),(x,y)]
-        keypoints = annotations.get("keypoints", np.zeros((1, nk * 3 + 1)))
-        keypoints_unflat = np.reshape(keypoints[:, 1:], (-1, 3))
-        keypoints_points = keypoints_unflat[:, :2]
-        keypoints_points[:, 0] *= iw
-        keypoints_points[:, 1] *= ih
-        keypoints_visibility = keypoints_unflat[:, 2]
-        # albumentations expects classes to be same length as keypoints
-        # (use case: each kpt separate class - not supported in LuxonisDataset)
-        keypoints_classes = np.repeat(keypoints[:, 0], nk)
-
-        return (
-            classes,
-            mask,
-            bboxes_points,
-            bboxes_classes,
-            keypoints_points,
-            keypoints_visibility,
-            keypoints_classes,
+        bboxes, bboxes_classes = prepare_bboxes(labels, height, width)
+        keypoints_points, keypoints_visibility, keypoints_classes = (
+            prepare_keypoints(labels, height, width, n_keypoints)
         )
 
-    def post_transform_process(
+        data = {
+            "bboxes": bboxes,
+            "bboxes_classes": bboxes_classes,
+            "keypoints": keypoints_points,
+            "keypoints_visibility": keypoints_visibility,
+            "keypoints_classes": keypoints_classes,
+        }
+        if mask is not None:
+            data["mask"] = mask
+
+        return data
+
+    def _post_transform(
         self,
-        transformed_data: Dict[str, np.ndarray],
+        data: Dict[str, np.ndarray],
         metadata: Dict[str, np.ndarray],
-        ns: int,
-        nk: int,
-        filter_kpts_by_bbox: bool,
-        return_mask: bool = True,
+        n_segmentation_classes: int,
+        n_keypoints: int,
+        present_labels: Set[str],
     ) -> Tuple[
-        np.ndarray,
-        Optional[np.ndarray],
-        np.ndarray,
         np.ndarray,
         Dict[str, np.ndarray],
     ]:
         """Postprocessing of albumentations output to LuxonisLoader
         format.
 
-        @type transformed_data: Dict[str, np.ndarray]
-        @param transformed_data: Output data from albumentations
-        @type ns: int
-        @param ns: Number of segmentation classes
-        @type nk: int
-        @param nk: Number of keypoints per instance
-        @type filter_kpts_by_bbox: bool
-        @param filter_kpts_by_bbox: If True removes keypoint instances
-            if its bounding box was removed.
-        @rtype: Tuple[np.ndarray, Optional[np.ndarray], np.ndarray,
-            np.ndarray]
-        @return: Postprocessed annotations
+        @type data: Dict[str, np.ndarray]
+        @param data: Output data from albumentations
+        @type metadata: Dict[str, np.ndarray]
+        @param metadata: Metadata
+        @type n_segmentation_classes: int
+        @param n_segmentation_classes: Number of segmentation classes
+        @type n_keypoints: int
+        @param n_keypoints: Number of keypoints per instance
+        @type present_labels: Set[str]
+        @param present_labels: Set of present labels
+        @rtype: Tuple[np.ndarray, Dict[str, np.ndarray]]
+        @return: Image and labels
         """
 
-        out_image = transformed_data["image"]
-        ih, iw, _ = out_image.shape
+        out_image = data["image"]
+        image_height, image_width, _ = out_image.shape
         if not self.out_rgb:
             out_image = cv2.cvtColor(out_image, cv2.COLOR_RGB2BGR)
         out_image = out_image.astype(np.float32)
 
         out_mask = None
-        if return_mask:
-            transformed_mask = transformed_data.get("mask")
-            assert transformed_mask is not None
-            out_mask = np.zeros((ns, *transformed_mask.shape))
-            for key in np.unique(transformed_mask):
-                if key != 0:
-                    out_mask[int(key) - 1, ...] = transformed_mask == key
-            out_mask[out_mask > 0] = 1
+        if "mask" in data:
+            out_mask = post_process_mask(data["mask"], n_segmentation_classes)
 
-        if transformed_data["bboxes"].shape[0] > 0:
-            transformed_bboxes_classes = np.expand_dims(
-                transformed_data["bboxes_classes"], axis=-1
-            )
-            out_bboxes = np.concatenate(
-                (transformed_bboxes_classes, transformed_data["bboxes"]),
-                axis=1,
-            )
-        else:  # if no bboxes after transform
-            out_bboxes = np.zeros((0, 5))
-        out_bboxes[:, 1::2] /= iw
-        out_bboxes[:, 2::2] /= ih
-
-        transformed_keypoints_vis = np.expand_dims(
-            transformed_data["keypoints_visibility"], axis=-1
+        out_bboxes = post_process_bboxes(
+            data["bboxes"],
+            np.expand_dims(data["bboxes_classes"], axis=-1),
+            image_height,
+            image_width,
+        )
+        out_keypoints = post_process_keypoints(
+            data["keypoints"],
+            data["keypoints_visibility"],
+            data["keypoints_classes"],
+            n_keypoints,
+            image_height,
+            image_width,
         )
 
-        if nk == 0:
-            nk = 1  # done for easier postprocessing
-        if transformed_data["keypoints"].shape[0] > 0:
-            out_keypoints = np.concatenate(
-                (transformed_data["keypoints"], transformed_keypoints_vis),
-                axis=1,
-            )
-        else:
-            out_keypoints = np.zeros((0, nk * 3 + 1))
+        visible_bboxes = [int(v) for v in data["bboxes_visibility"]]
 
-        out_keypoints = self.mark_invisible_keypoints(out_keypoints, ih, iw)
-        out_keypoints[..., 0] /= iw
-        out_keypoints[..., 1] /= ih
-        out_keypoints = np.reshape(out_keypoints, (-1, nk * 3))
-        keypoints_classes = transformed_data["keypoints_classes"]
-        keypoints_classes = keypoints_classes[0::nk]
-        keypoints_classes = np.expand_dims(keypoints_classes, axis=-1)
-        out_keypoints = np.concatenate(
-            (keypoints_classes, out_keypoints), axis=1
-        )
-        visibility_vector = [
-            int(v) for v in transformed_data["bboxes_visibility"]
-        ]
-        if filter_kpts_by_bbox:
-            out_keypoints = out_keypoints[visibility_vector]
+        if {"boundingbox", "keypoints"} < present_labels:
+            out_keypoints = out_keypoints[visible_bboxes]
 
         out_metadata = {}
         for key, value in metadata.items():
-            out_metadata[key] = value[visibility_vector]
+            out_metadata[key] = value[visible_bboxes]
 
-        return out_image, out_mask, out_bboxes, out_keypoints, out_metadata
+        out_labels = {}
+        if "boundingbox" in present_labels:
+            out_labels["boundingbox"] = out_bboxes
+        if "keypoints" in present_labels:
+            out_labels["keypoints"] = out_keypoints
+        if out_mask is not None:
+            out_labels["segmentation"] = out_mask
+        out_labels.update(out_metadata)
+        return out_image, out_labels
 
-    def check_bboxes(self, bboxes: np.ndarray) -> np.ndarray:
-        """Check bbox annotations and correct those with width or height
-        0.
-
-        @type bboxes: np.ndarray
-        @param bboxes: A numpy array representing bounding boxes.
-        @rtype: np.ndarray
-        @return: The same bounding boxes with any out-of-bounds
-            coordinate corrections.
-        """
-
-        for i in range(bboxes.shape[0]):
-            if bboxes[i, 2] == 0:
-                bboxes[i, 2] = 1
-            if bboxes[i, 3] == 0:
-                bboxes[i, 3] = 1
-        return bboxes
-
-    def mark_invisible_keypoints(
-        self, keypoints: np.ndarray, ih: int, iw: int
-    ) -> np.ndarray:
-        """Mark invisible keypoints with label == 0.
-
-        @type keypoints: np.ndarray
-        @param keypoints: A numpy array representing keypoints.
-        @type ih: int
-        @param ih: The image height.
-        @type iw: int
-        @param iw: The image width.
-        @rtype: np.ndarray
-        @return: The same keypoints with corrections to mark keypoints
-            out-of-bounds as invisible.
-        """
-        for kp in keypoints:
-            if not (0 <= kp[0] < iw and 0 <= kp[1] < ih):
-                kp[2] = 0
-            if kp[2] == 0:  # per COCO format invisible points have x=y=0
-                kp[0] = kp[1] = 0
-        return keypoints
+    @staticmethod
+    def _get_augmentation(name: str, **kwargs) -> A.BasicTransform:
+        # TODO: Registry
+        if name == "MixUp":
+            return MixUp(**kwargs)
+        if name == "Mosaic4":
+            return Mosaic4(**kwargs)
+        if not hasattr(A, name):
+            raise ValueError(
+                f"Augmentation {name} not found in Albumentations"
+            )
+        return getattr(A, name)(**kwargs)
