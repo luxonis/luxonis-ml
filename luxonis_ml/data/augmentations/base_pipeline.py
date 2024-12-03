@@ -2,9 +2,19 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, List
 
 from luxonis_ml.data.utils import LuxonisLoaderOutput
+from luxonis_ml.utils import AutoRegisterMeta, Registry
+
+AUGMENTATION_ENGINES: Registry["BaseAugmentationPipeline"] = Registry(
+    name="augmentations"
+)
 
 
-class BaseAugmentationPipeline(ABC):
+class BaseAugmentationPipeline(
+    ABC,
+    metaclass=AutoRegisterMeta,
+    registry=AUGMENTATION_ENGINES,
+    register=False,
+):
     @classmethod
     @abstractmethod
     def from_config(
