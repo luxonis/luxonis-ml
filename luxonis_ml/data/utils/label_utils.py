@@ -1,3 +1,4 @@
+from functools import lru_cache
 from typing import Iterator, Tuple
 
 import numpy as np
@@ -5,6 +6,7 @@ import numpy as np
 from .types import Labels
 
 
+@lru_cache()
 def split_task(task: str) -> Tuple[str, str]:
     """Splits a task into its task name and type.
 
@@ -16,6 +18,15 @@ def split_task(task: str) -> Tuple[str, str]:
     return task.split("/")[0], task.split("/")[1]
 
 
+@lru_cache()
+def get_qualified_task_name(task: str) -> str:
+    parts = task.split("/")
+    if "metadata" in parts:
+        return "/".join(parts[:-2])
+    return "/".join(parts[:-1])
+
+
+@lru_cache()
 def get_task_name(task: str) -> str:
     """Returns the task name from a task.
 
@@ -27,6 +38,7 @@ def get_task_name(task: str) -> str:
     return task.split("/")[0]
 
 
+@lru_cache()
 def get_task_type(task: str) -> str:
     """Returns the task type from a task.
 
@@ -35,7 +47,14 @@ def get_task_type(task: str) -> str:
     @rtype: str
     @return: The task type.
     """
-    return task.split("/")[1]
+    parts = task.split("/")
+    if len(parts) == 1:
+        return parts[0]
+    if len(parts) == 2:
+        return parts[1]
+    if parts[-2] == "metadata":
+        return f"metadata/{parts[-1]}"
+    return task.split("/")[-1]
 
 
 def task_type_iterator(

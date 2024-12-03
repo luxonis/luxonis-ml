@@ -22,6 +22,7 @@ from luxonis_ml.data.loaders.base_loader import (
 from luxonis_ml.data.utils import Labels
 from luxonis_ml.data.utils.label_utils import (
     get_task_name,
+    get_task_type,
     split_task,
     task_type_iterator,
 )
@@ -237,23 +238,23 @@ class LuxonisLoader(BaseLoader):
             task_type: str = annotation_data[6]
             ann_str: str = annotation_data[7]
 
-            if class_name is None:
-                continue
-
             data = json.loads(ann_str)
+            full_task_name = f"{task_name}/{task_type}"
+            task_type = get_task_type(full_task_name)
             if task_type == "array" and self.dataset.is_remote:
                 data["path"] = self.dataset.arrays_path / data["path"]
-
-            full_task_name = f"{task_name}/{task_type}"
 
             if task_type.startswith("metadata/"):
                 metadata_by_task[full_task_name].append(data)
             else:
                 annotation = load_annotation(task_type, data)
                 labels_by_task[full_task_name].append(annotation)
-                class_ids_by_task[full_task_name].append(
-                    self.class_mappings[task_name][class_name]
-                )
+                if class_name is not None:
+                    class_ids_by_task[full_task_name].append(
+                        self.class_mappings[task_name][class_name]
+                    )
+                else:
+                    class_ids_by_task[full_task_name].append(0)
                 instance_ids_by_task[full_task_name].append(instance_id)
 
         labels: Labels = {}

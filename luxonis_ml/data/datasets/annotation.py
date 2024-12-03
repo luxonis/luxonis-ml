@@ -50,8 +50,8 @@ def load_annotation(label_type: str, data: Dict[str, Any]) -> "Annotation":
 
 
 class Detection(BaseModelExtraForbid):
-    class_name: str = Field(
-        validation_alias=AliasChoices("class", "class_name")
+    class_name: Optional[str] = Field(
+        None, validation_alias=AliasChoices("class", "class_name")
     )
     instance_id: int = -1
 
@@ -66,7 +66,7 @@ class Detection(BaseModelExtraForbid):
 
     sub_detections: Dict[str, "Detection"] = {}
 
-    def to_parquet_rows(self) -> Iterable[ParquetDetection]:
+    def to_parquet_rows(self, prefix: str = "") -> Iterable[ParquetDetection]:
         for label_type in [
             "boundingbox",
             "keypoints",
@@ -78,24 +78,25 @@ class Detection(BaseModelExtraForbid):
                 yield {
                     "class_name": self.class_name,
                     "instance_id": self.instance_id,
-                    "label_type": label_type,
+                    "label_type": f"{prefix}{label_type}",
                     "annotation": label.model_dump_json(),
                 }
         for key, data in self.metadata.items():
             yield {
                 "class_name": self.class_name,
                 "instance_id": self.instance_id,
-                "label_type": f"metadata/{key}",
+                "label_type": f"{prefix}metadata/{key}",
                 "annotation": json.dumps(data),
             }
-        yield {
-            "class_name": self.class_name,
-            "instance_id": self.instance_id,
-            "label_type": "classification",
-            "annotation": "{}",
-        }
-        for detection in self.sub_detections.values():
-            yield from detection.to_parquet_rows()
+        if self.class_name is not None:
+            yield {
+                "class_name": self.class_name,
+                "instance_id": self.instance_id,
+                "label_type": f"{prefix}classification",
+                "annotation": "{}",
+            }
+        for name, detection in self.sub_detections.items():
+            yield from detection.to_parquet_rows(f"{prefix}{name}/")
 
     @model_validator(mode="after")
     def rescale_values(self) -> Self:

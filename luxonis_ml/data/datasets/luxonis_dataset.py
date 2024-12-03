@@ -523,7 +523,10 @@ class LuxonisDataset(BaseDataset):
                             ann.class_name,
                             self.get_classes()[1],
                         )
-                    classes_per_task[record.task_name].add(ann.class_name)
+                    if ann.class_name is not None:
+                        classes_per_task[record.task_name].add(ann.class_name)
+                    else:
+                        classes_per_task[record.task_name] = OrderedSet([])
                     if ann.keypoints is not None:
                         num_kpts_per_task[record.task_name] = len(
                             ann.keypoints.keypoints
@@ -547,7 +550,7 @@ class LuxonisDataset(BaseDataset):
         for task, classes in classes_per_task.items():
             old_classes = set(curr_classes.get(task, []))
             new_classes = list(classes - old_classes)
-            if new_classes:
+            if new_classes or task not in curr_classes:
                 logger.info(
                     f"Detected new classes for task {task}: {new_classes}"
                 )

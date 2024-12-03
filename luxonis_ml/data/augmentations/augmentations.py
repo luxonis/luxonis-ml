@@ -10,9 +10,9 @@ from typing_extensions import override
 
 from luxonis_ml.data.utils import (
     LuxonisLoaderOutput,
-    get_task_name,
     get_task_type,
 )
+from luxonis_ml.data.utils.label_utils import get_qualified_task_name
 from luxonis_ml.data.utils.types import Labels
 
 from .base_pipeline import BaseAugmentationPipeline
@@ -135,7 +135,9 @@ class Augmentations(BaseAugmentationPipeline):
         np_random_state = np.random.get_state()
 
         task_names = {
-            get_task_name(task) for _, label in data for task in label
+            get_qualified_task_name(task)
+            for _, label in data
+            for task in label
         }
         out_labels = {}
 
@@ -150,7 +152,7 @@ class Augmentations(BaseAugmentationPipeline):
             for img, labels in data:
                 label_subset = {}
                 for task, label in labels.items():
-                    if get_task_name(task) == task_name:
+                    if get_qualified_task_name(task) == task_name:
                         task_type = get_task_type(task)
                         if task_type == "metadata":
                             task_type = task.split("/", 1)[1]

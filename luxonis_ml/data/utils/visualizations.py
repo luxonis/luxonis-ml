@@ -5,7 +5,11 @@ from typing import Dict, List, Tuple
 import cv2
 import numpy as np
 
-from luxonis_ml.data.utils.label_utils import get_task_name, task_type_iterator
+from luxonis_ml.data.utils.label_utils import (
+    get_qualified_task_name,
+    get_task_name,
+    task_type_iterator,
+)
 
 from .types import Labels
 
@@ -151,45 +155,46 @@ def visualize(
     images = {"image": image}
 
     for task, arr in task_type_iterator(labels, "segmentation"):
+        task_name = get_task_name(task)
         mask_viz = np.zeros((h, w, 3)).astype(np.uint8)
         for i, mask in enumerate(arr):
             mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST)
             mask_viz[mask == 1] = (
-                _str_to_rgb(class_names[get_task_name(task)][i])
+                _str_to_rgb(class_names[task_name][i])
                 if (i != 0 or len(arr) == 1)
                 else (0, 0, 0)
             )
-        images[task] = mask_viz
+        binary_mask = (mask_viz > 0).astype(np.uint8)
+
+        blended = np.where(
+            binary_mask > 0,
+            cv2.addWeighted(image, 0.3, mask_viz, 0.7, 0),
+            image,
+        )
+        images[task_name] = blended
 
     for task, arr in task_type_iterator(labels, "boundingbox"):
-        curr_image = image.copy()
-
-        if task.replace("boundingbox", "segmentation") in images:
-            seg_image = images.pop(task.replace("boundingbox", "segmentation"))
-            curr_image = cv2.addWeighted(curr_image, 0.65, seg_image, 0.35, 0)
-            task = task.replace("boundingbox", "detection")
+        task_name = get_task_name(task)
+        curr_image = images.get(task_name, image.copy())
 
         for box in arr:
             cv2.rectangle(
                 curr_image,
                 (int(box[1] * w), int(box[2] * h)),
                 (int(box[1] * w + box[3] * w), int(box[2] * h + box[4] * h)),
-                _str_to_rgb(class_names[get_task_name(task)][int(box[0])]),
+                _str_to_rgb(
+                    get_qualified_task_name(task)
+                    + class_names[task_name][int(box[0])]
+                ),
                 2,
             )
-        images[task] = curr_image
+        images[task_name] = curr_image
 
     for task, arr in task_type_iterator(labels, "keypoints"):
-        task_classes = class_names[get_task_name(task)]
+        task_name = get_task_name(task)
+        curr_image = images.get(task_name, image.copy())
 
-        for alias in ["detection", "boundingbox"]:
-            new_task = task.replace("keypoints", alias)
-            if new_task in images:
-                curr_image = images.pop(new_task)
-                task = task.replace("keypoints", "detection")
-                break
-        else:
-            curr_image = image.copy()
+        task_classes = class_names[task_name]
 
         for kp in arr:
             cls_ = int(kp[0])
@@ -211,6 +216,6 @@ def visualize(
                         color=_str_to_rgb(task_classes[cls_]),
                         thickness=2,
                     )
-        images[task] = curr_image
+        images[task_name] = curr_image
 
     return concat_images(images)

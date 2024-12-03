@@ -20,6 +20,8 @@ from luxonis_ml.data import (
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.utils import LuxonisFileSystem
 
+# TODO: Test array
+
 SKELETONS: Final[dict] = {
     "detection": (
         [
@@ -73,6 +75,17 @@ TASKS: Final[Set[str]] = {
     "detection/boundingbox",
 }
 DATA_DIR = Path("tests/data/test_dataset")
+
+AUG_CONFIG = [
+    {
+        "name": "Mosaic4",
+        "params": {"out_width": 416, "out_height": 416, "p": 1.0},
+    },
+    {"name": "Defocus", "params": {"p": 1.0}},
+    {"name": "Sharpen", "params": {"p": 1.0}},
+    {"name": "Flip", "params": {"p": 1.0}},
+    {"name": "RandomRotate90", "params": {"p": 1.0}},
+]
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -148,17 +161,7 @@ def test_dataset(
                 assert task in labels
 
     with subtests.test("test_load_aug", bucket_storage=bucket_storage):
-        aug_config = [
-            {
-                "name": "Mosaic4",
-                "params": {"out_width": 416, "out_height": 416, "p": 1.0},
-            },
-            {"name": "Defocus", "params": {"p": 1.0}},
-            {"name": "Sharpen", "params": {"p": 1.0}},
-            {"name": "Flip", "params": {"p": 1.0}},
-            {"name": "RandomRotate90", "params": {"p": 1.0}},
-        ]
-        augmentations = Augmentations.from_config(512, 512, aug_config)
+        augmentations = Augmentations.from_config(512, 512, AUG_CONFIG)
         loader = LuxonisLoader(dataset, augmentations=augmentations)
         for img, labels in loader:
             assert img is not None
@@ -500,3 +503,60 @@ def test_no_labels():
     loader = LuxonisLoader(dataset, augmentations=augments)
     for _, labels in loader:
         assert labels == {}
+
+
+def test_deep_nested_labels():
+    def generator():
+        for i in range(10):
+            yield {
+                "file": make_image(i),
+                "annotation": {
+                    "class": "car",
+                    "boundingbox": {
+                        "x": 0.1,
+                        "y": 0.1,
+                        "w": 0.1,
+                        "h": 0.1,
+                    },
+                    "sub_detections": {
+                        "license_plate": {
+                            "boundingbox": {
+                                "x": 0.2,
+                                "y": 0.2,
+                                "w": 0.1,
+                                "h": 0.1,
+                            },
+                            "metadata": {
+                                "text": "ABC123",
+                            },
+                        },
+                        "driver": {
+                            "boundingbox": {
+                                "x": 0.3,
+                                "y": 0.3,
+                                "w": 0.1,
+                                "h": 0.1,
+                            },
+                            "keypoints": {
+                                "keypoints": [(0.1, 0.1, 2), (0.2, 0.2, 2)]
+                            },
+                        },
+                    },
+                },
+            }
+
+    dataset = LuxonisDataset("__deep_nested_labels", delete_existing=True)
+    dataset.add(generator())
+    dataset.make_splits()
+
+    augmentations = Augmentations.from_config(512, 512, AUG_CONFIG)
+    loader = LuxonisLoader(dataset, augmentations=augmentations)
+    _, labels = next(iter(loader))
+    assert {
+        "detection/classification",
+        "detection/boundingbox",
+        "detection/driver/boundingbox",
+        "detection/driver/keypoints",
+        "detection/license_plate/boundingbox",
+        "detection/license_plate/metadata/text",
+    } == set(labels.keys())

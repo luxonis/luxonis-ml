@@ -1,7 +1,7 @@
 import logging
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, Iterator, List, Tuple
+from typing import Dict, Iterator, List, Optional, Tuple
 
 import numpy as np
 import polars as pl
@@ -96,12 +96,16 @@ def rgb_to_bool_masks(
 
 
 def infer_task(
-    old_task: str, class_name: str, current_classes: Dict[str, List[str]]
+    old_task: str,
+    class_name: Optional[str],
+    current_classes: Dict[str, List[str]],
 ) -> str:
     if not hasattr(infer_task, "_logged_infered_classes"):
         infer_task._logged_infered_classes = defaultdict(bool)
 
-    def _log_once(cls_: str, task: str, message: str, level: str = "info"):
+    def _log_once(
+        cls_: Optional[str], task: str, message: str, level: str = "info"
+    ):
         if not infer_task._logged_infered_classes[(cls_, task)]:
             infer_task._logged_infered_classes[(cls_, task)] = True
             getattr(logger, level)(message, extra={"markup": True})
