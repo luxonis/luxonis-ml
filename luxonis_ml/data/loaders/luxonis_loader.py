@@ -19,7 +19,11 @@ from luxonis_ml.data.loaders.base_loader import (
     LuxonisLoaderOutput,
 )
 from luxonis_ml.data.utils import Labels
-from luxonis_ml.data.utils.label_utils import split_task, task_type_iterator
+from luxonis_ml.data.utils.label_utils import (
+    get_task_name,
+    split_task,
+    task_type_iterator,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +121,7 @@ class LuxonisLoader(BaseLoader):
         self.add_background = False
         _, test_labels = self._load_image_with_annotations(0)
         for task, seg_masks in task_type_iterator(test_labels, "segmentation"):
+            task = get_task_name(task)
             if seg_masks.shape[0] > 1:
                 unassigned_pixels = np.sum(seg_masks, axis=0) == 0
 
@@ -224,12 +229,12 @@ class LuxonisLoader(BaseLoader):
 
         for annotation_data in ann_rows:
             task_name: str = annotation_data[2]
-            class_name: str = annotation_data[4]
+            class_name: Optional[str] = annotation_data[4]
             instance_id: int = annotation_data[5]
             task_type: str = annotation_data[6]
-            ann_str: Optional[str] = annotation_data[7]
+            ann_str: str = annotation_data[7]
 
-            if ann_str is None:
+            if class_name is None:
                 continue
 
             data = json.loads(ann_str)

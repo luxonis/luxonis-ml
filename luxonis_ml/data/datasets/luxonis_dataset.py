@@ -11,6 +11,7 @@ from typing import (
     Dict,
     List,
     Literal,
+    Mapping,
     Optional,
     Sequence,
     Set,
@@ -632,8 +633,8 @@ class LuxonisDataset(BaseDataset):
         self,
         splits: Optional[
             Union[
-                Dict[str, Sequence[PathType]],
-                Dict[str, float],
+                Mapping[str, Sequence[PathType]],
+                Mapping[str, float],
                 Tuple[float, float, float],
             ]
         ] = None,
