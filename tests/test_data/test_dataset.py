@@ -68,7 +68,7 @@ URL_PREFIX: Final[str] = "gs://luxonis-test-bucket/luxonis-ml-test-data"
 WORK_DIR: Final[str] = "tests/data/parser_datasets"
 DATASET_NAME: Final[str] = "test-dataset"
 TASKS: Final[Set[str]] = {
-    "detection/segmentation",
+    "segmentation/segmentation",
     "detection/keypoints",
     "detection/boundingbox",
 }
@@ -126,7 +126,7 @@ def test_dataset(
             dataset_name, bucket_storage=bucket_storage
         )
         assert dataset.get_classes()[0] == ["person"]
-        assert set(dataset.get_tasks()) == {"detection"}
+        assert set(dataset.get_tasks()) == {"detection", "segmentation"}
         assert dataset.get_skeletons() == SKELETONS
         assert dataset.identifier == dataset_name
 
