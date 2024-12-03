@@ -3,16 +3,7 @@ import logging
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import (
-    Any,
-    Dict,
-    Iterable,
-    List,
-    Literal,
-    Optional,
-    Tuple,
-    Union,
-)
+from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple, Union
 
 import numpy as np
 import pycocotools.mask as mask_util
@@ -26,7 +17,7 @@ from pydantic import (
 )
 from pydantic.types import FilePath, NonNegativeInt, PositiveInt
 from typeguard import check_type
-from typing_extensions import Annotated, TypeAlias
+from typing_extensions import Annotated, Self, TypeAlias, override
 
 from luxonis_ml.data.utils.parquet import ParquetDetection, ParquetRecord
 from luxonis_ml.utils import BaseModelExtraForbid
@@ -69,6 +60,8 @@ class Detection(BaseModelExtraForbid):
     segmentation: Optional["SegmentationAnnotation"] = None
     array: Optional["ArrayAnnotation"] = None
 
+    scale_to_boxes: bool = False
+
     sub_detections: Dict[str, "Detection"] = {}
 
     def to_parquet_rows(self) -> Iterable[ParquetDetection]:
@@ -102,6 +95,31 @@ class Detection(BaseModelExtraForbid):
         for detection in self.sub_detections.values():
             yield from detection.to_parquet_rows()
 
+    @model_validator(mode="after")
+    def rescale_values(self) -> Self:
+        if not self.scale_to_boxes:
+            return self
+        elif self.boundingbox is None:
+            raise ValueError(
+                "`scaled_to_boxes` is set to True, "
+                "but no bounding box is provided."
+            )
+        x, y, w, h = (
+            self.boundingbox.x,
+            self.boundingbox.y,
+            self.boundingbox.w,
+            self.boundingbox.h,
+        )
+
+        if self.keypoints is not None:
+            self.keypoints = KeypointAnnotation(
+                keypoints=[
+                    (x + w * kp[0], y + h * kp[1], kp[2])
+                    for kp in self.keypoints.keypoints
+                ]
+            )
+        return self
+
 
 class Annotation(ABC, BaseModelExtraForbid):
     """Base class for an annotation."""
@@ -117,6 +135,7 @@ class Annotation(ABC, BaseModelExtraForbid):
 
 class ClassificationAnnotation(Annotation):
     @staticmethod
+    @override
     def combine_to_numpy(
         _: List["ClassificationAnnotation"],
         classes: List[int],
@@ -150,6 +169,19 @@ class BBoxAnnotation(Annotation):
     w: NormalizedFloat
     h: NormalizedFloat
 
+    def to_numpy(self, class_id: int) -> np.ndarray:
+        return np.array([class_id, self.x, self.y, self.w, self.h])
+
+    @staticmethod
+    @override
+    def combine_to_numpy(
+        annotations: List["BBoxAnnotation"], classes: List[int], _: int
+    ) -> np.ndarray:
+        boxes = np.zeros((len(annotations), 5))
+        for i, ann in enumerate(annotations):
+            boxes[i] = ann.to_numpy(classes[i])
+        return boxes
+
     @model_validator(mode="before")
     @classmethod
     def validate_values(cls, values: Dict[str, Any]) -> Dict[str, Any]:
@@ -168,11 +200,11 @@ class BBoxAnnotation(Annotation):
                 "BBox annotation has values outside of [0, 1] range. Clipping them to [0, 1]."
             )
 
-        values = cls.clip_sum(values)
+        values = cls._clip_sum(values)
         return values
 
-    @classmethod
-    def clip_sum(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+    @staticmethod
+    def _clip_sum(values: Dict[str, Any]) -> Dict[str, Any]:
         if values["x"] + values["w"] > 1:
             values["w"] = 1 - values["x"]
             logger.warning(
@@ -184,18 +216,6 @@ class BBoxAnnotation(Annotation):
                 "BBox annotation has y + height > 1. Clipping height so the sum is 1."
             )
         return values
-
-    def to_numpy(self, class_id: int) -> np.ndarray:
-        return np.array([class_id, self.x, self.y, self.w, self.h])
-
-    @staticmethod
-    def combine_to_numpy(
-        annotations: List["BBoxAnnotation"], classes: List[int], _: int
-    ) -> np.ndarray:
-        boxes = np.zeros((len(annotations), 5))
-        for i, ann in enumerate(annotations):
-            boxes[i] = ann.to_numpy(classes[i])
-        return boxes
 
 
 class KeypointAnnotation(Annotation):
@@ -214,6 +234,22 @@ class KeypointAnnotation(Annotation):
     keypoints: List[
         Tuple[NormalizedFloat, NormalizedFloat, KeypointVisibility]
     ]
+
+    def to_numpy(self, class_id: int) -> np.ndarray:
+        kps = np.array(self.keypoints).reshape((-1, 3)).astype(np.float32)
+        return np.concatenate([[class_id], kps.flatten()])
+
+    @staticmethod
+    @override
+    def combine_to_numpy(
+        annotations: List["KeypointAnnotation"], classes: List[int], _: int
+    ) -> np.ndarray:
+        keypoints = np.zeros(
+            (len(annotations), len(annotations[0].keypoints) * 3 + 1)
+        )
+        for i, ann in enumerate(annotations):
+            keypoints[i] = ann.to_numpy(classes[i])
+        return keypoints
 
     @model_validator(mode="before")
     @classmethod
@@ -242,21 +278,6 @@ class KeypointAnnotation(Annotation):
             )
         return values
 
-    def to_numpy(self, class_id: int) -> np.ndarray:
-        kps = np.array(self.keypoints).reshape((-1, 3)).astype(np.float32)
-        return np.concatenate([[class_id], kps.flatten()])
-
-    @staticmethod
-    def combine_to_numpy(
-        annotations: List["KeypointAnnotation"], classes: List[int], _: int
-    ) -> np.ndarray:
-        keypoints = np.zeros(
-            (len(annotations), len(annotations[0].keypoints) * 3 + 1)
-        )
-        for i, ann in enumerate(annotations):
-            keypoints[i] = ann.to_numpy(classes[i])
-        return keypoints
-
 
 class SegmentationAnnotation(Annotation):
     """Run-length encoded segmentation mask.
@@ -278,7 +299,14 @@ class SegmentationAnnotation(Annotation):
     width: PositiveInt
     counts: Union[List[NonNegativeInt], bytes]
 
+    def to_numpy(self, _: int) -> np.ndarray:
+        assert isinstance(self.counts, bytes)
+        return mask_util.decode(
+            {"counts": self.counts, "size": [self.height, self.width]}
+        ).astype(np.bool_)
+
     @staticmethod
+    @override
     def combine_to_numpy(
         annotations: List["SegmentationAnnotation"],
         classes: List[int],
@@ -300,12 +328,6 @@ class SegmentationAnnotation(Annotation):
             )
 
         return seg
-
-    def to_numpy(self, _: int) -> np.ndarray:
-        assert isinstance(self.counts, bytes)
-        return mask_util.decode(
-            {"counts": self.counts, "size": [self.height, self.width]}
-        ).astype(np.bool_)
 
     @model_serializer
     def serialize_model(self) -> Dict[str, Any]:
@@ -420,6 +442,7 @@ class ArrayAnnotation(Annotation):
     path: FilePath
 
     @staticmethod
+    @override
     def combine_to_numpy(
         annotations: List["ArrayAnnotation"], classes: List[int], _: int
     ) -> np.ndarray:

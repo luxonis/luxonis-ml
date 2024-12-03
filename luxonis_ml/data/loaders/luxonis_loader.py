@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import cv2
 import numpy as np
+from typing_extensions import override
 
 from luxonis_ml.data.augmentations import Augmentations
 from luxonis_ml.data.datasets import (
@@ -140,6 +141,7 @@ class LuxonisLoader(BaseLoader):
                         }
                         self.class_mappings[task]["background"] = 0
 
+    @override
     def __len__(self) -> int:
         """Returns length of the dataset.
 
@@ -148,6 +150,7 @@ class LuxonisLoader(BaseLoader):
         """
         return len(self.instances)
 
+    @override
     def __getitem__(self, idx: int) -> LuxonisLoaderOutput:
         """Function to load a sample consisting of an image and its
         annotations.

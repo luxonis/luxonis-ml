@@ -1,4 +1,9 @@
-from .data_utils import check_array, rgb_to_bool_masks
+from .data_utils import (
+    check_array,
+    infer_task,
+    rgb_to_bool_masks,
+    warn_on_duplicates,
+)
 from .enums import BucketStorage, BucketType, ImageType, MediaType
 from .label_utils import (
     get_task_name,
@@ -17,6 +22,8 @@ __all__ = [
     "concat_images",
     "visualize",
     "check_array",
+    "infer_task",
+    "warn_on_duplicates",
     "rgb_to_bool_masks",
     "ParquetRecord",
     "ParquetDetection",
