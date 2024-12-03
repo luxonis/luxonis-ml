@@ -96,14 +96,6 @@ def make_image(i) -> Path:
     return path
 
 
-@pytest.mark.parametrize(
-    ("bucket_storage",),
-    [
-        (BucketStorage.LOCAL,),
-        (BucketStorage.S3,),
-        (BucketStorage.GCS,),
-    ],
-)
 def test_dataset(
     bucket_storage: BucketStorage,
     platform_name: str,
@@ -214,13 +206,6 @@ def test_loader_iterator():
         _ = loader[0]
 
 
-@pytest.mark.parametrize(
-    ("bucket_storage",),
-    [
-        (BucketStorage.LOCAL,),
-        (BucketStorage.GCS,),
-    ],
-)
 def test_make_splits(
     bucket_storage: BucketStorage, platform_name: str, python_version: str
 ):
@@ -517,15 +502,6 @@ def test_complex_dataset():
         "color_segmentation": ["background", "blue", "green", "red"],
         "vehicle_segmentation": ["vehicle"],
     }
-
-
-@pytest.mark.parametrize(
-    ("bucket_storage",),
-    [
-        (BucketStorage.LOCAL,),
-        (BucketStorage.GCS,),
-    ],
-)
 def test_uncommon_label_types(
     bucket_storage: BucketStorage, platform_name: str, python_version: str
 ):

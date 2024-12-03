@@ -44,14 +44,6 @@ def compute_histogram(dataset: LuxonisDataset) -> Dict[str, int]:
     return dict(classes)
 
 
-@pytest.mark.parametrize(
-    ("bucket_storage",),
-    [
-        (BucketStorage.LOCAL,),
-        (BucketStorage.S3,),
-        (BucketStorage.GCS,),
-    ],
-)
 def test_task_ingestion(
     bucket_storage: BucketStorage, platform_name: str, python_version: str
 ):
