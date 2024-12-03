@@ -110,22 +110,16 @@ class SegmentationMaskDirectoryParser(BaseParser):
                 ids = np.unique(mask)
                 for id in ids:
                     class_name = class_names[id]
-                    yield {
-                        "file": file,
-                        "annotation": {
-                            "type": "classification",
-                            "class": class_name,
-                        },
-                    }
 
                     curr_seg_mask = np.zeros_like(mask)
                     curr_seg_mask[mask == id] = 1
                     yield {
                         "file": file,
                         "annotation": {
-                            "type": "mask",
                             "class": class_name,
-                            "mask": curr_seg_mask,
+                            "segmentation": {
+                                "mask": curr_seg_mask,
+                            },
                         },
                     }
 

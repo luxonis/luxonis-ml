@@ -124,24 +124,17 @@ class VOCParser(BaseParser):
         def generator() -> DatasetIterator:
             for curr_annotations in images_annotations:
                 path = str(curr_annotations["path"])
-                for class_name in curr_annotations["classes"]:
-                    yield {
-                        "file": path,
-                        "annotation": {
-                            "type": "classification",
-                            "class": class_name,
-                        },
-                    }
                 for bbox_class, bbox in curr_annotations["bboxes"]:
                     yield {
                         "file": path,
                         "annotation": {
-                            "type": "boundingbox",
                             "class": bbox_class,
-                            "x": bbox[0],
-                            "y": bbox[1],
-                            "w": bbox[2],
-                            "h": bbox[3],
+                            "boundingbox": {
+                                "x": bbox[0],
+                                "y": bbox[1],
+                                "w": bbox[2],
+                                "h": bbox[3],
+                            },
                         },
                     }
 

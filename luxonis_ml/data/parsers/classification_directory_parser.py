@@ -79,7 +79,6 @@ class ClassificationDirectoryParser(BaseParser):
                     yield {
                         "file": str(img_path.absolute().resolve()),
                         "annotation": {
-                            "type": "classification",
                             "class": class_name,
                         },
                     }
