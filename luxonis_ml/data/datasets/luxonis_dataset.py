@@ -23,7 +23,7 @@ import numpy as np
 import polars as pl
 import pyarrow.parquet as pq
 from ordered_set import OrderedSet
-from typing_extensions import Self
+from typing_extensions import Self, override
 
 import luxonis_ml.data.utils.data_utils as data_utils
 from luxonis_ml.utils import (
@@ -37,7 +37,7 @@ from luxonis_ml.utils.filesystem import PathType
 from ..utils.constants import LDF_VERSION
 from ..utils.enums import BucketStorage, BucketType
 from ..utils.parquet import ParquetFileManager
-from .annotation import DatasetRecord
+from .annotation import DatasetRecord, Detection
 from .base_dataset import BaseDataset, DatasetIterator
 from .source import LuxonisSource
 from .utils import find_filepath_uuid, get_dir, get_file
@@ -122,6 +122,7 @@ class LuxonisDataset(BaseDataset):
         return LuxonisSource.from_document(self.metadata["source"])
 
     @property
+    @override
     def identifier(self) -> str:
         return self.dataset_name
 
@@ -279,6 +280,7 @@ class LuxonisDataset(BaseDataset):
     def is_remote(self) -> bool:
         return self.bucket_storage != BucketStorage.LOCAL
 
+    @override
     def update_source(self, source: LuxonisSource) -> None:
         """Updates underlying source of the dataset with a new
         L{LuxonisSource}.
@@ -290,6 +292,7 @@ class LuxonisDataset(BaseDataset):
         self.metadata["source"] = source.to_document()
         self._write_metadata()
 
+    @override
     def set_classes(
         self, classes: List[str], task: Optional[str] = None
     ) -> None:
@@ -302,6 +305,7 @@ class LuxonisDataset(BaseDataset):
             )
         self._write_metadata()
 
+    @override
     def get_classes(self) -> Tuple[List[str], Dict[str, List[str]]]:
         all_classes = list(
             {
@@ -316,6 +320,7 @@ class LuxonisDataset(BaseDataset):
             )
         return sorted(all_classes), self.metadata["classes"]
 
+    @override
     def set_skeletons(
         self,
         labels: Optional[List[str]] = None,
@@ -336,6 +341,7 @@ class LuxonisDataset(BaseDataset):
             }
         self._write_metadata()
 
+    @override
     def get_skeletons(
         self,
     ) -> Dict[str, Tuple[List[str], List[Tuple[int, int]]]]:
@@ -344,6 +350,7 @@ class LuxonisDataset(BaseDataset):
             for task, skel in self.metadata["skeletons"].items()
         }
 
+    @override
     def get_tasks(self) -> List[str]:
         return list(self.get_classes()[1].keys())
 
@@ -364,6 +371,7 @@ class LuxonisDataset(BaseDataset):
             else:
                 self.logger.warning("Already synced. Use force=True to resync")
 
+    @override
     def delete_dataset(self, *, delete_remote: bool = False) -> None:
         """Deletes the dataset from local storage and optionally from
         the cloud.
@@ -503,7 +511,7 @@ class LuxonisDataset(BaseDataset):
                     record = DatasetRecord(**record)
                 ann = record.annotation
                 if ann is not None:
-                    #         ann.task = self._infer_task(ann)
+                    record.task_name = self._infer_task(record.task_name, ann)
                     classes_per_task[record.task_name].add(ann.class_name)
                     if ann.keypoints is not None:
                         num_kpts_per_task[record.task_name] = len(
@@ -619,6 +627,7 @@ class LuxonisDataset(BaseDataset):
         "definitions",
         suggest={"ratios": "splits", "definitions": "splits"},
     )
+    @override
     def make_splits(
         self,
         splits: Optional[
@@ -753,6 +762,7 @@ class LuxonisDataset(BaseDataset):
             self.fs.put_file(splits_path, "metadata/splits.json")
 
     @staticmethod
+    @override
     def exists(
         dataset_name: str,
         team_id: Optional[str] = None,
@@ -813,3 +823,54 @@ class LuxonisDataset(BaseDataset):
             LuxonisDataset._construct_url(bucket_storage, bucket, team_id, "")
         )
         return list(fs.walk_dir("", recursive=False, typ="directory"))
+
+    def _infer_task(self, old_task: str, ann: Detection) -> str:
+        if not hasattr(LuxonisDataset._infer_task, "_logged_infered_classes"):
+            LuxonisDataset._infer_task._logged_infered_classes = defaultdict(
+                bool
+            )
+
+        def _log_once(cls_: str, task: str, message: str, level: str = "info"):
+            if not LuxonisDataset._infer_task._logged_infered_classes[
+                (cls_, task)
+            ]:
+                LuxonisDataset._infer_task._logged_infered_classes[
+                    (cls_, task)
+                ] = True
+                getattr(self.logger, level)(message, extra={"markup": True})
+
+        class_name = ann.class_name
+        _, current_classes = self.get_classes()
+        infered_task = None
+
+        for task, classes in current_classes.items():
+            if class_name in classes:
+                if infered_task is not None:
+                    _log_once(
+                        class_name,
+                        infered_task,
+                        f"Class [red italic]{class_name}[reset] is ambiguous between "
+                        "tasks [magenta italic]{infered_task}[reset] and [magenta italic]{task}[reset]. "
+                        "Task inference failed.",
+                        "warning",
+                    )
+                    infered_task = None
+                    break
+                infered_task = task
+        if infered_task is None:
+            _log_once(
+                class_name,
+                old_task,
+                f"Class [red italic]{class_name}[reset] doesn't belong to any existing task. "
+                f"Autogenerated task [magenta italic]{old_task}[reset] will be used.",
+                "info",
+            )
+        else:
+            _log_once(
+                class_name,
+                infered_task,
+                f"Class [red italic]{class_name}[reset] infered to belong to task [magenta italic]{infered_task}[reset]",
+            )
+            return infered_task
+
+        return old_task

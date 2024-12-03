@@ -166,7 +166,7 @@ def visualize(
 
         if task.replace("boundingbox", "segmentation") in images:
             seg_image = images.pop(task.replace("boundingbox", "segmentation"))
-            curr_image = cv2.addWeighted(curr_image, 0.8, seg_image, 0.2, 0)
+            curr_image = cv2.addWeighted(curr_image, 0.65, seg_image, 0.35, 0)
             task = task.replace("boundingbox", "detection")
 
         for box in arr:

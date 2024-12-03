@@ -1,10 +1,9 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from luxonis_ml.data import BaseDataset, DatasetIterator
-from luxonis_ml.data.datasets import DatasetRecord
 from luxonis_ml.utils.filesystem import PathType
 
 ParserOutput = Tuple[DatasetIterator, List[str], Dict[str, Dict], List[str]]
@@ -18,7 +17,6 @@ names, skeleton dictionary for keypoints and list of added images.
 @dataclass
 class BaseParser(ABC):
     dataset: BaseDataset
-    task_mapping: Dict[str, str] = field(default_factory=dict)
 
     @staticmethod
     @abstractmethod
@@ -90,11 +88,11 @@ class BaseParser(ABC):
         @return: List of added images.
         """
         generator, _, skeletons, added_images = self.from_split(**kwargs)
-        self.dataset.add(self.task_wrapper(generator))
+        self.dataset.add(generator)
         if skeletons:
             for skeleton in skeletons.values():
                 self.dataset.set_skeletons(
-                    skeleton.get("labels"), skeleton.get("edges"), "keypoints"
+                    skeleton.get("labels"), skeleton.get("edges"), "detection"
                 )
 
         return added_images
@@ -145,32 +143,13 @@ class BaseParser(ABC):
         train, val, test = self.from_dir(dataset_dir, **kwargs)
 
         self.dataset.make_splits(
-            definitions={
+            {
                 "train": train,
                 "val": val,
                 "test": test,
             }
         )
         return self.dataset
-
-    def task_wrapper(self, generator: DatasetIterator) -> DatasetIterator:
-        """Wraps the generator with a function that adds custom task
-        information.
-
-        @type generator: DatasetIterator
-        @param generator: Generator function
-        @rtype: DatasetIterator
-        @return: Generator function with added task attribute
-        """
-        for record in generator:
-            if isinstance(record, dict):
-                record = DatasetRecord(**record)
-            if record.annotation is not None:
-                if record.annotation._label_type in self.task_mapping:
-                    record.annotation.task = self.task_mapping[
-                        record.annotation._label_type
-                    ]
-            yield record
 
     @staticmethod
     def _get_added_images(generator: DatasetIterator) -> List[PathType]:

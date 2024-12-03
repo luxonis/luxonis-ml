@@ -21,17 +21,17 @@ def test_mosaic4():
 
 
 def test_bbox_mosaic4():
-    bbox = (0, 0, WIDTH, HEIGHT)
+    bbox = np.array([0, 0, WIDTH, HEIGHT])[np.newaxis, ...]
     for i in range(4):
         mosaic_bbox = bbox_mosaic4(
             bbox, HEIGHT // 2, WIDTH // 2, i, HEIGHT, WIDTH, 0, 0
-        )
-        assert pytest.approx(mosaic_bbox, abs=1) == (
+        )[0].tolist()
+        assert pytest.approx(mosaic_bbox, abs=1) == [
             0,
             0,
             WIDTH // 2,
             HEIGHT // 2,
-        )
+        ]
 
 
 def test_keypoint_mosaic4():
@@ -44,13 +44,20 @@ def test_keypoint_mosaic4():
         ]
     ):
         mosaic_keypoint = keypoint_mosaic4(
-            (w, h, 0, 0), HEIGHT // 2, WIDTH // 2, i, HEIGHT, WIDTH, 0, 0
-        )
-        assert pytest.approx(mosaic_keypoint, abs=0.25) == (w * 2, h * 2, 0, 0)
+            np.array([w, h, 0, 0])[np.newaxis, ...],
+            HEIGHT // 2,
+            WIDTH // 2,
+            i,
+            HEIGHT,
+            WIDTH,
+            0,
+            0,
+        )[0].tolist()
+        assert pytest.approx(mosaic_keypoint, abs=0.25) == [w * 2, h * 2, 0, 0]
 
 
 def test_Mosaic4():
     img = (np.random.rand(HEIGHT, WIDTH, 3) * 255).astype(np.uint8)
     mosaic4 = Mosaic4(out_height=HEIGHT, out_width=WIDTH, p=1.0)
     m = mosaic4(image_batch=[img, img, img, img], labels={})
-    assert m["image_batch"][0].shape == (HEIGHT, WIDTH, 3)
+    assert m["image_batch"].shape == (HEIGHT, WIDTH, 3)

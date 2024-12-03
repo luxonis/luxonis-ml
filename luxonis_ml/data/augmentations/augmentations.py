@@ -1,7 +1,7 @@
 import random
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from typing import Any, Dict, List, Optional, Tuple, TypedDict
+from typing import Any, Dict, List, Optional, Tuple
 
 import albumentations as A
 import cv2
@@ -18,11 +18,6 @@ from .batch_transform import BatchBasedTransform
 from .custom import LetterboxResize, MixUp, Mosaic4
 
 
-class AugmentationConfiguration(TypedDict):
-    name: str
-    params: Dict[str, Any]
-
-
 class BaseAugmentationPipeline(ABC):
     @classmethod
     @abstractmethod
@@ -30,7 +25,7 @@ class BaseAugmentationPipeline(ABC):
         cls,
         height: int,
         width: int,
-        config: List[AugmentationConfiguration],
+        config: List[Dict[str, Any]],
         out_rgb: bool,
         keep_aspect_ratio: bool,
         is_validation_pipeline: bool,
@@ -109,7 +104,7 @@ class Augmentations(BaseAugmentationPipeline):
         cls,
         height: int,
         width: int,
-        config: List[AugmentationConfiguration],
+        config: List[Dict[str, Any]],
         out_rgb: bool = True,
         keep_aspect_ratio: bool = True,
         is_validation_pipeline: bool = False,
@@ -198,7 +193,10 @@ class Augmentations(BaseAugmentationPipeline):
         }
         out_labels = {}
 
-        for task_name in sorted(list(task_names)):
+        if not task_names:
+            return self._apply(data, 0, 0)
+
+        for task_name in task_names:
             task_types_to_names = {}
             batch_data: List[LuxonisLoaderOutput] = []
             nk = 0
@@ -334,7 +332,7 @@ class Augmentations(BaseAugmentationPipeline):
     ]:
         """Prepare annotations to be compatible with albumentations.
 
-        @type annotations: Dict[LabelType, np.ndarray]
+        @type annotations: Dict[str, np.ndarray]
         @param annotations: Dict with annotations
         @type ih: int
         @param ih: Input image height

@@ -21,7 +21,7 @@ from luxonis_ml.enums import DatasetType
 from luxonis_ml.utils import LuxonisFileSystem
 
 SKELETONS: Final[dict] = {
-    "keypoints": (
+    "detection": (
         [
             "nose",
             "left_eye",
@@ -68,10 +68,9 @@ URL_PREFIX: Final[str] = "gs://luxonis-test-bucket/luxonis-ml-test-data"
 WORK_DIR: Final[str] = "tests/data/parser_datasets"
 DATASET_NAME: Final[str] = "test-dataset"
 TASKS: Final[Set[str]] = {
-    "segmentation",
-    "classification",
-    "keypoints",
-    "boundingbox",
+    "detection/segmentation",
+    "detection/keypoints",
+    "detection/boundingbox",
 }
 DATA_DIR = Path("tests/data/test_dataset")
 
@@ -85,7 +84,7 @@ def prepare_dir():
     shutil.rmtree(DATA_DIR)
 
 
-def make_image(i) -> Path:
+def make_image(i: int) -> Path:
     path = DATA_DIR / f"img_{i}.jpg"
     if not path.exists():
         img = np.zeros((512, 512, 3), dtype=np.uint8)
@@ -127,7 +126,7 @@ def test_dataset(
             dataset_name, bucket_storage=bucket_storage
         )
         assert dataset.get_classes()[0] == ["person"]
-        assert set(dataset.get_tasks()) == TASKS
+        assert set(dataset.get_tasks()) == {"detection"}
         assert dataset.get_skeletons() == SKELETONS
         assert dataset.identifier == dataset_name
 
@@ -159,7 +158,7 @@ def test_dataset(
             {"name": "Flip", "params": {"p": 1.0}},
             {"name": "RandomRotate90", "params": {"p": 1.0}},
         ]
-        augmentations = Augmentations([512, 512], aug_config)
+        augmentations = Augmentations.from_config(512, 512, aug_config)
         loader = LuxonisLoader(dataset, augmentations=augmentations)
         for img, labels in loader:
             assert img is not None
@@ -183,7 +182,6 @@ def test_dataset_fail():
             yield {
                 "file": img,
                 "annotation": {
-                    "type": "classification",
                     "class": "person",
                 },
             }
@@ -208,7 +206,7 @@ def test_loader_iterator():
     def _raise(*_):
         raise IndexError
 
-    loader._load_image_with_annotations = _raise
+    loader._load_image_with_annotations = _raise  # type: ignore
     with pytest.raises(IndexError):
         _ = loader[0]
 
@@ -590,7 +588,9 @@ def test_no_labels():
     for _, labels in loader:
         assert labels == {}
 
-    augments = Augmentations([512, 512], [{"name": "Flip", "params": {}}])
+    augments = Augmentations.from_config(
+        512, 512, [{"name": "Flip", "params": {}}]
+    )
     loader = LuxonisLoader(dataset, augmentations=augments)
     for _, labels in loader:
         assert labels == {}

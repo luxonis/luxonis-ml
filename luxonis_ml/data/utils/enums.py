@@ -1,16 +1,6 @@
 from enum import Enum
 
 
-class LabelType(str, Enum):
-    """Type of label."""
-
-    CLASSIFICATION = "classification"
-    BOUNDINGBOX = "boundingbox"
-    KEYPOINTS = "keypoints"
-    SEGMENTATION = "segmentation"
-    ARRAY = "array"
-
-
 class MediaType(Enum):
     """Individual file type."""
 

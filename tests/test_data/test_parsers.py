@@ -2,7 +2,8 @@ from typing import Final, List
 
 import pytest
 
-from luxonis_ml.data import LabelType, LuxonisLoader, LuxonisParser
+from luxonis_ml.data import LuxonisLoader, LuxonisParser
+from luxonis_ml.data.utils.label_utils import get_task_type
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.utils import environ
 
@@ -27,71 +28,71 @@ def prepare_dir():
             DatasetType.COCO,
             "COCO_people_subset.zip",
             [
-                LabelType.BOUNDINGBOX,
-                LabelType.KEYPOINTS,
-                LabelType.SEGMENTATION,
-                LabelType.CLASSIFICATION,
+                "boundingbox",
+                "keypoints",
+                "segmentation",
+                "classification",
             ],
         ),
         (
             DatasetType.COCO,
             "Thermal_Dogs_and_People.v1-resize-416x416.coco.zip",
-            [LabelType.BOUNDINGBOX, LabelType.CLASSIFICATION],
+            ["boundingbox", "classification"],
         ),
         (
             DatasetType.VOC,
             "Thermal_Dogs_and_People.v1-resize-416x416.voc.zip",
-            [LabelType.BOUNDINGBOX, LabelType.CLASSIFICATION],
+            ["boundingbox", "classification"],
         ),
         (
             DatasetType.DARKNET,
             "Thermal_Dogs_and_People.v1-resize-416x416.darknet.zip",
-            [LabelType.BOUNDINGBOX, LabelType.CLASSIFICATION],
+            ["boundingbox", "classification"],
         ),
         (
             DatasetType.YOLOV4,
             "Thermal_Dogs_and_People.v1-resize-416x416.yolov4pytorch.zip",
-            [LabelType.BOUNDINGBOX, LabelType.CLASSIFICATION],
+            ["boundingbox", "classification"],
         ),
         (
             DatasetType.YOLOV6,
             "Thermal_Dogs_and_People.v1-resize-416x416.mt-yolov6.zip",
-            [LabelType.BOUNDINGBOX, LabelType.CLASSIFICATION],
+            ["boundingbox", "classification"],
         ),
         (
             DatasetType.CREATEML,
             "Thermal_Dogs_and_People.v1-resize-416x416.createml.zip",
-            [LabelType.BOUNDINGBOX, LabelType.CLASSIFICATION],
+            ["boundingbox", "classification"],
         ),
         (
             DatasetType.TFCSV,
             "Thermal_Dogs_and_People.v1-resize-416x416.tensorflow.zip",
-            [LabelType.BOUNDINGBOX, LabelType.CLASSIFICATION],
+            ["boundingbox", "classification"],
         ),
         (
             DatasetType.SEGMASK,
             "D2_Tile.png-mask-semantic.zip",
-            [LabelType.SEGMENTATION, LabelType.CLASSIFICATION],
+            ["segmentation", "classification"],
         ),
         (
             DatasetType.CLSDIR,
             "Flowers_Classification.v2-raw.folder.zip",
-            [LabelType.CLASSIFICATION],
+            ["classification"],
         ),
         (
             DatasetType.SOLO,
             "D1_ParkingSlot-solo.zip",
-            [LabelType.BOUNDINGBOX, LabelType.SEGMENTATION],
+            ["boundingbox", "segmentation"],
         ),
         (
             DatasetType.COCO,
             "roboflow://team-roboflow/coco-128/2/coco",
-            [LabelType.BOUNDINGBOX, LabelType.CLASSIFICATION],
+            ["boundingbox", "classification"],
         ),
     ],
 )
 def test_dir_parser(
-    dataset_type: DatasetType, url: str, expected_label_types: List[LabelType]
+    dataset_type: DatasetType, url: str, expected_label_types: List[str]
 ):
     if not url.startswith("roboflow://"):
         url = f"{URL_PREFIX}/{url}"
@@ -109,20 +110,6 @@ def test_dir_parser(
     assert len(dataset) > 0
     loader = LuxonisLoader(dataset)
     _, ann = next(iter(loader))
-    label_types = {label_type for _, label_type in ann.values()}
+    label_types = {get_task_type(task) for task in ann}
     assert label_types == set(expected_label_types)
     dataset.delete_dataset()
-
-
-def test_custom_tasks():
-    parser = LuxonisParser(
-        f"{URL_PREFIX}/Thermal_Dogs_and_People.v1-resize-416x416.coco.zip",
-        dataset_name="test-custom-tasks",
-        delete_existing=True,
-        save_dir=WORK_DIR,
-        task_mapping={LabelType.BOUNDINGBOX: "object_detection"},
-    )
-    dataset = parser.parse()
-    assert len(dataset) > 0
-    tasks = dataset.get_tasks()
-    assert set(tasks) == {"object_detection", "classification"}

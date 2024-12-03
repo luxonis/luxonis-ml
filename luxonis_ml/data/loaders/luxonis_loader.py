@@ -107,7 +107,7 @@ class LuxonisLoader(BaseLoader):
                 class_: i
                 for i, class_ in enumerate(
                     sorted(
-                        self.classes_by_task[task],
+                        self.classes_by_task.get(task, []),
                         key=lambda x: {"background": -1}.get(x, 0),
                     )
                 )
@@ -204,8 +204,8 @@ class LuxonisLoader(BaseLoader):
         if not self.dataset.is_remote:
             img_path = ann_rows[0][-1]
         elif not self.stream:
-            uuid = ann_rows[0][0]
-            file_extension = ann_rows[0][8].rsplit(".", 1)[-1]
+            uuid = ann_rows[0][8]
+            file_extension = ann_rows[0][0].rsplit(".", 1)[-1]
             img_path = self.dataset.media_path / f"{uuid}.{file_extension}"
         else:
             # TODO: add support for streaming remote storage
@@ -227,7 +227,10 @@ class LuxonisLoader(BaseLoader):
             class_name: str = annotation_data[4]
             instance_id: int = annotation_data[5]
             task_type: str = annotation_data[6]
-            ann_str: str = annotation_data[7]
+            ann_str: Optional[str] = annotation_data[7]
+
+            if ann_str is None:
+                continue
 
             data = json.loads(ann_str)
             if task_type == "array" and self.dataset.is_remote:

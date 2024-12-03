@@ -95,18 +95,7 @@ class Detection(BaseModelExtraForbid):
 
 
 class Annotation(ABC, BaseModelExtraForbid):
-    """Base class for an annotation.
-
-    @type task: str
-    @ivar task: The task name. By default it is the string
-        representation of the L{LabelType}.
-    @type class_: str
-    @ivar class_: The class name for the annotation.
-    @type instance_id: int
-    @ivar instance_id: The instance id of the annotation. This
-        determines the order in which individual instances are loaded in
-        L{luxonis_ml.data.LuxonisLoader}.
-    """
+    """Base class for an annotation."""
 
     @staticmethod
     @abstractmethod
@@ -431,7 +420,7 @@ class ArrayAnnotation(Annotation):
 class DatasetRecord(BaseModelExtraForbid):
     files: Dict[str, FilePath]
     annotation: Optional[Detection] = None
-    task_name: str = Field(alias="task")
+    task_name: str = Field("detection", alias="task")
 
     @property
     def file(self) -> FilePath:
