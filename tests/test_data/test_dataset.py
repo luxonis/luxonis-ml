@@ -502,6 +502,8 @@ def test_complex_dataset():
         "color_segmentation": ["background", "blue", "green", "red"],
         "vehicle_segmentation": ["vehicle"],
     }
+
+
 def test_uncommon_label_types(
     bucket_storage: BucketStorage, platform_name: str, python_version: str
 ):
