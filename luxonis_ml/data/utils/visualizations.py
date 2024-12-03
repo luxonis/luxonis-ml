@@ -19,6 +19,18 @@ def _str_to_rgb(string: str) -> tuple:
     return (r, g, b)
 
 
+def draw_cross(
+    img: np.ndarray,
+    center: Tuple[int, int],
+    size: int = 5,
+    color: Tuple[int, int, int] = (0, 255, 0),
+    thickness: int = 1,
+):
+    x, y = center
+    cv2.line(img, (x - size, y), (x + size, y), color, thickness)
+    cv2.line(img, (x, y - size), (x, y + size), color, thickness)
+
+
 def create_text_image(
     text: str,
     width: int,
@@ -122,7 +134,6 @@ def visualize(
     image: np.ndarray,
     labels: Labels,
     class_names: Dict[str, List[str]],
-    join: bool = True,
 ) -> np.ndarray:
     """Visualizes the labels on the image.
 
@@ -139,44 +150,6 @@ def visualize(
     h, w, _ = image.shape
     images = {"image": image}
 
-    bbox_names = []
-    for task, arr in task_type_iterator(labels, "boundingbox"):
-        curr_image = image.copy()
-        for box in arr:
-            cv2.rectangle(
-                curr_image,
-                (int(box[1] * w), int(box[2] * h)),
-                (int(box[1] * w + box[3] * w), int(box[2] * h + box[4] * h)),
-                _str_to_rgb(class_names[get_task_name(task)][int(box[0])]),
-                2,
-            )
-        images[task] = curr_image
-        bbox_names.append(task)
-
-    for task, arr in task_type_iterator(labels, "keypoints"):
-        task_classes = class_names[get_task_name(task)]
-
-        if not join:
-            curr_image = image.copy()
-        else:
-            curr_image = images.pop(
-                task.replace("keypoints", "boundingbox"), image.copy()
-            )
-            task = task.replace("keypoints", "detection")
-
-        for kp in arr:
-            cls_ = int(kp[0])
-            kp = kp[1:].reshape(-1, 3)
-            for k in kp:
-                cv2.circle(
-                    curr_image,
-                    (int(k[0] * w), int(k[1] * h)),
-                    2,
-                    _str_to_rgb(task_classes[cls_]),
-                    2,
-                )
-        images[task] = curr_image
-
     for task, arr in task_type_iterator(labels, "segmentation"):
         mask_viz = np.zeros((h, w, 3)).astype(np.uint8)
         for i, mask in enumerate(arr):
@@ -187,5 +160,57 @@ def visualize(
                 else (0, 0, 0)
             )
         images[task] = mask_viz
+
+    for task, arr in task_type_iterator(labels, "boundingbox"):
+        curr_image = image.copy()
+
+        if task.replace("boundingbox", "segmentation") in images:
+            seg_image = images.pop(task.replace("boundingbox", "segmentation"))
+            curr_image = cv2.addWeighted(curr_image, 0.8, seg_image, 0.2, 0)
+            task = task.replace("boundingbox", "detection")
+
+        for box in arr:
+            cv2.rectangle(
+                curr_image,
+                (int(box[1] * w), int(box[2] * h)),
+                (int(box[1] * w + box[3] * w), int(box[2] * h + box[4] * h)),
+                _str_to_rgb(class_names[get_task_name(task)][int(box[0])]),
+                2,
+            )
+        images[task] = curr_image
+
+    for task, arr in task_type_iterator(labels, "keypoints"):
+        task_classes = class_names[get_task_name(task)]
+
+        for alias in ["detection", "boundingbox"]:
+            new_task = task.replace("keypoints", alias)
+            if new_task in images:
+                curr_image = images.pop(new_task)
+                task = task.replace("keypoints", "detection")
+                break
+        else:
+            curr_image = image.copy()
+
+        for kp in arr:
+            cls_ = int(kp[0])
+            kp = kp[1:].reshape(-1, 3)
+            for k in kp:
+                if k[-1] == 2:
+                    cv2.circle(
+                        curr_image,
+                        (int(k[0] * w), int(k[1] * h)),
+                        2,
+                        _str_to_rgb(task_classes[cls_]),
+                        2,
+                    )
+                else:
+                    draw_cross(
+                        curr_image,
+                        (int(k[0] * w), int(k[1] * h)),
+                        size=5,
+                        color=_str_to_rgb(task_classes[cls_]),
+                        thickness=2,
+                    )
+        images[task] = curr_image
 
     return concat_images(images)
