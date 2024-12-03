@@ -193,8 +193,9 @@ class Augmentations(BaseAugmentationPipeline):
         random_state = random.getstate()
         np_random_state = np.random.get_state()
 
-        reference_labels = data[0][1]
-        task_names = {get_task_name(task) for task in reference_labels.keys()}
+        task_names = {
+            get_task_name(task) for _, label in data for task in label
+        }
         out_labels = {}
 
         for task_name in sorted(list(task_names)):
