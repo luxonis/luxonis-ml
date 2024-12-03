@@ -18,6 +18,7 @@ import numpy as np
 import pycocotools.mask as mask_util
 from PIL import Image, ImageDraw
 from pydantic import (
+    AliasChoices,
     Field,
     field_serializer,
     model_serializer,
@@ -441,7 +442,7 @@ class ArrayAnnotation(Annotation):
 class DatasetRecord(BaseModelExtraForbid):
     files: Dict[str, FilePath]
     annotation: Optional[Detection] = None
-    task_name: str = Field("detection", alias="task")
+    task_name: str = Field(validation_alias=AliasChoices("task", "task_name"))
 
     @property
     def file(self) -> FilePath:
@@ -454,6 +455,16 @@ class DatasetRecord(BaseModelExtraForbid):
     def validate_files(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         if "file" in values:
             values["files"] = {"image": values.pop("file")}
+        return values
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_task_name(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        if "task_name" not in values and "task" not in values:
+            if "segmentation" in values.get("annotation", {}):
+                values["task_name"] = "segmentation"
+            else:
+                values["task_name"] = "detection"
         return values
 
     def to_parquet_rows(self) -> Iterable[ParquetRecord]:

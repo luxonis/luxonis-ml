@@ -274,7 +274,11 @@ class LuxonisLoader(BaseLoader):
                 class_ids_by_task[task],
                 len(self.classes_by_task[task_name]),
             )
-            if self.add_background and task_type == "segmentation":
+            if (
+                self.add_background
+                and task_type == "segmentation"
+                and len(self.class_mappings[task_name]) > 1
+            ):
                 unassigned_pixels = ~np.any(array, axis=0)
                 background_idx = self.class_mappings[task_name]["background"]
                 array[background_idx, unassigned_pixels] = 1

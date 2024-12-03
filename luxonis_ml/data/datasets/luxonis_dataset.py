@@ -38,7 +38,7 @@ from luxonis_ml.utils.filesystem import PathType
 from ..utils.constants import LDF_VERSION
 from ..utils.enums import BucketStorage, BucketType
 from ..utils.parquet import ParquetFileManager
-from .annotation import DatasetRecord, Detection
+from .annotation import DatasetRecord
 from .base_dataset import BaseDataset, DatasetIterator
 from .source import LuxonisSource
 from .utils import find_filepath_uuid, get_dir, get_file
@@ -508,11 +508,16 @@ class LuxonisDataset(BaseDataset):
 
         with ParquetFileManager(annotations_path) as pfm:
             for i, record in enumerate(generator, start=1):
+                explicit_task = False
                 if not isinstance(record, DatasetRecord):
+                    explicit_task = "task_name" in record or "task" in record
                     record = DatasetRecord(**record)
                 ann = record.annotation
                 if ann is not None:
-                    record.task_name = self._infer_task(record.task_name, ann)
+                    if not explicit_task:
+                        record.task_name = self._infer_task(
+                            record.task_name, ann.class_name
+                        )
                     classes_per_task[record.task_name].add(ann.class_name)
                     if ann.keypoints is not None:
                         num_kpts_per_task[record.task_name] = len(
@@ -825,7 +830,7 @@ class LuxonisDataset(BaseDataset):
         )
         return list(fs.walk_dir("", recursive=False, typ="directory"))
 
-    def _infer_task(self, old_task: str, ann: Detection) -> str:
+    def _infer_task(self, old_task: str, class_name: str) -> str:
         if not hasattr(LuxonisDataset._infer_task, "_logged_infered_classes"):
             LuxonisDataset._infer_task._logged_infered_classes = defaultdict(
                 bool
@@ -840,7 +845,6 @@ class LuxonisDataset(BaseDataset):
                 ] = True
                 getattr(self.logger, level)(message, extra={"markup": True})
 
-        class_name = ann.class_name
         _, current_classes = self.get_classes()
         infered_task = None
 
