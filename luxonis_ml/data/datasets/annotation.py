@@ -50,7 +50,9 @@ def load_annotation(label_type: str, data: Dict[str, Any]) -> "Annotation":
 
 
 class Detection(BaseModelExtraForbid):
-    class_name: str = Field(alias="class")
+    class_name: str = Field(
+        validation_alias=AliasChoices("class", "class_name")
+    )
     instance_id: int = -1
 
     metadata: Dict[str, Union[int, float, str]] = {}
