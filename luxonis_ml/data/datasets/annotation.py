@@ -68,9 +68,6 @@ class Detection(BaseModelExtraForbid):
 
     sub_detections: Dict[str, "Detection"] = {}
 
-    @classmethod
-    def from_parquet(cls) -> "Detection": ...
-
     def to_parquet_rows(self) -> Iterable[ParquetDetection]:
         for label_type in [
             "boundingbox",
@@ -95,42 +92,6 @@ class Detection(BaseModelExtraForbid):
             }
         for detection in self.sub_detections.values():
             yield from detection.to_parquet_rows()
-
-    # @staticmethod
-    # def combine_to_numpy(
-    #     labels: List["Detection"],
-    #     class_mapping: Dict[str, int],
-    #     task_name: str,
-    # ) -> Dict[str, np.ndarray]:
-    #     array_labels = {}
-    #
-    #     for key in ["boundingbox", "keypoints", "segmentation", "array"]:
-    #         annotations: List[Annotation] = []
-    #         for label in labels:
-    #             ann = getattr(label, key)
-    #             if ann is not None:
-    #                 annotations.append(ann)
-    #         if annotations:
-    #             task_name = f"{task_name}/{key}"
-    #             array_labels[task_name] = annotations[0].combine_to_numpy(
-    #                 annotations,
-    #                 [class_mapping[label.class_name] for label in labels],
-    #             )
-    #     array_labels.update(Detection.combine_metadata(labels, task_name))
-    #
-    #     return array_labels
-
-    @staticmethod
-    def combine_metadata(
-        labels: List["Detection"], task_name: str
-    ) -> Dict[str, np.ndarray]:
-        metadata = {}
-        for key in labels[0].metadata:
-            task = f"{task_name}/metadata/{key}"
-            metadata[task] = np.array(
-                [label.metadata[key] for label in labels]
-            )
-        return metadata
 
 
 class Annotation(ABC, BaseModelExtraForbid):

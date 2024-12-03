@@ -218,6 +218,9 @@ class LuxonisLoader(BaseLoader):
         labels_by_task: Dict[str, List[Annotation]] = defaultdict(list)
         class_ids_by_task: Dict[str, List[int]] = defaultdict(list)
         instance_ids_by_task: Dict[str, List[int]] = defaultdict(list)
+        metadata_by_task: Dict[str, List[Union[str, int, float]]] = (
+            defaultdict(list)
+        )
 
         for annotation_data in ann_rows:
             task_name: str = annotation_data[2]
@@ -230,18 +233,22 @@ class LuxonisLoader(BaseLoader):
             if task_type == "array" and self.dataset.is_remote:
                 data["path"] = self.dataset.arrays_path / data["path"]
 
-            if "metadata" in task_type:
-                continue
-
-            annotation = load_annotation(task_type, data)
             full_task_name = f"{task_name}/{task_type}"
-            labels_by_task[full_task_name].append(annotation)
-            class_ids_by_task[full_task_name].append(
-                self.class_mappings[task_name][class_name]
-            )
-            instance_ids_by_task[full_task_name].append(instance_id)
+
+            if task_type.startswith("metadata/"):
+                metadata_by_task[full_task_name].append(data)
+            else:
+                annotation = load_annotation(task_type, data)
+                labels_by_task[full_task_name].append(annotation)
+                class_ids_by_task[full_task_name].append(
+                    self.class_mappings[task_name][class_name]
+                )
+                instance_ids_by_task[full_task_name].append(instance_id)
 
         labels: Labels = {}
+        for task, metadata in metadata_by_task.items():
+            labels[task] = np.array(metadata)
+
         for task, anns in labels_by_task.items():
             assert anns, f"No annotations found for task {task_name}"
             instance_ids = instance_ids_by_task[task]

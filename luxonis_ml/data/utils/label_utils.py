@@ -13,7 +13,7 @@ def split_task(task: str) -> Tuple[str, str]:
     @rtype: Tuple[str, str]
     @return: A tuple containing the task name and type.
     """
-    return task.split("/")[0], task.split("/")[-1]
+    return task.split("/")[0], task.split("/")[1]
 
 
 def get_task_name(task: str) -> str:
@@ -35,7 +35,7 @@ def get_task_type(task: str) -> str:
     @rtype: str
     @return: The task type.
     """
-    return task.split("/")[-1]
+    return task.split("/")[1]
 
 
 def task_type_iterator(

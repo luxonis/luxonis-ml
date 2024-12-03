@@ -1,5 +1,6 @@
 import random
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
 import albumentations as A
@@ -198,7 +199,7 @@ class Augmentations(BaseAugmentationPipeline):
 
         for task_name in sorted(list(task_names)):
             task_types_to_names = {}
-            data_subset: List[LuxonisLoaderOutput] = []
+            batch_data: List[LuxonisLoaderOutput] = []
             nk = 0
             ns = 0
             for img, labels in data:
@@ -206,19 +207,21 @@ class Augmentations(BaseAugmentationPipeline):
                 for task, label in labels.items():
                     if get_task_name(task) == task_name:
                         task_type = get_task_type(task)
+                        if task_type == "metadata":
+                            task_type = task.split("/", 1)[1]
                         label_subset[task_type] = label
                         task_types_to_names[task_type] = task
                         if task_type == "keypoints":
                             nk = (label.shape[1] - 1) // 3
                         elif task_type == "segmentation":
                             ns = label.shape[0]
-                data_subset.append((img, label_subset))
+                batch_data.append((img, label_subset))
 
             random.setstate(random_state)
             np.random.set_state(np_random_state)
 
             # TODO: Optimize
-            aug_img, aug_labels = self._apply(data_subset, ns, nk)
+            aug_img, aug_labels = self._apply(batch_data, ns, nk)
             for task_type, label in aug_labels.items():
                 out_labels[task_types_to_names[task_type]] = label
 
@@ -228,9 +231,7 @@ class Augmentations(BaseAugmentationPipeline):
         self, data: List[LuxonisLoaderOutput], ns: int, nk: int
     ) -> LuxonisLoaderOutput:
         present_annotations = {
-            get_task_type(key)
-            for _, annotations in data
-            for key in annotations.keys()
+            key for _, annotations in data for key in annotations.keys()
         }
         return_mask = "segmentation" in present_annotations
 
@@ -266,6 +267,13 @@ class Augmentations(BaseAugmentationPipeline):
             bbox_counter += bboxes_points.shape[0]
             batch_data.append(t)
 
+        metadata = defaultdict(list)
+        for _, ann in data:
+            for task, label in ann.items():
+                if task.startswith("metadata/"):
+                    metadata[task].append(label)
+        metadata = {k: np.concatenate(v) for k, v in metadata.items()}
+
         if self.batch_transform.transforms:
             transformed = self.batch_transform(batch_data)
         else:
@@ -280,9 +288,10 @@ class Augmentations(BaseAugmentationPipeline):
             image=transformed["image"]
         )["image"]
 
-        out_image, out_mask, out_bboxes, out_keypoints = (
+        out_image, out_mask, out_bboxes, out_keypoints, out_metadata = (
             self.post_transform_process(
                 transformed,
+                metadata,
                 ns=ns,
                 nk=nk,
                 filter_kpts_by_bbox="boundingbox" in present_annotations
@@ -301,6 +310,8 @@ class Augmentations(BaseAugmentationPipeline):
                 out_annotations["boundingbox"] = out_bboxes
             elif key == "keypoints":
                 out_annotations["keypoints"] = out_keypoints
+
+        out_annotations.update(out_metadata)
 
         return out_image, out_annotations
 
@@ -375,11 +386,18 @@ class Augmentations(BaseAugmentationPipeline):
     def post_transform_process(
         self,
         transformed_data: Dict[str, np.ndarray],
+        metadata: Dict[str, np.ndarray],
         ns: int,
         nk: int,
         filter_kpts_by_bbox: bool,
         return_mask: bool = True,
-    ) -> Tuple[np.ndarray, Optional[np.ndarray], np.ndarray, np.ndarray]:
+    ) -> Tuple[
+        np.ndarray,
+        Optional[np.ndarray],
+        np.ndarray,
+        np.ndarray,
+        Dict[str, np.ndarray],
+    ]:
         """Postprocessing of albumentations output to LuxonisLoader
         format.
 
@@ -450,12 +468,17 @@ class Augmentations(BaseAugmentationPipeline):
         out_keypoints = np.concatenate(
             (keypoints_classes, out_keypoints), axis=1
         )
+        visibility_vector = [
+            int(v) for v in transformed_data["bboxes_visibility"]
+        ]
         if filter_kpts_by_bbox:
-            out_keypoints = out_keypoints[
-                [int(v) for v in transformed_data["bboxes_visibility"]]
-            ]  # keep only keypoints of visible instances
+            out_keypoints = out_keypoints[visibility_vector]
 
-        return out_image, out_mask, out_bboxes, out_keypoints
+        out_metadata = {}
+        for key, value in metadata.items():
+            out_metadata[key] = value[visibility_vector]
+
+        return out_image, out_mask, out_bboxes, out_keypoints, out_metadata
 
     def check_bboxes(self, bboxes: np.ndarray) -> np.ndarray:
         """Check bbox annotations and correct those with width or height

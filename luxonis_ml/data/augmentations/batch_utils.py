@@ -1,3 +1,4 @@
+from collections import defaultdict
 from typing import Any, Dict, Iterator, List
 
 import numpy as np
@@ -19,13 +20,13 @@ def list2batch(data: List[Dict[str, Any]]) -> Dict[str, List[Any]]:
         raise ValueError("The input should have at least one item.")
 
     item = data[0]
-    batch: Dict[str, Any] = {f"{k}_batch": [] for k in item.keys()}
+    batch = defaultdict(list)
     for item in data:
         for k, v in item.items():
             batch_k = to_batched_name(k)
             batch[batch_k].append(v)
 
-    return batch
+    return dict(batch)
 
 
 def unbatch_all(data: Dict[str, Any]) -> Dict[str, Any]:

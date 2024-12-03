@@ -185,18 +185,20 @@ class Mosaic4(BatchBasedTransform):
         for i, (bboxes, (rows, cols)) in enumerate(
             zip(bboxes_batch, image_shapes)
         ):
-            new_bboxes.append(
-                bbox_mosaic4(
-                    bboxes,
-                    rows,
-                    cols,
-                    i,
-                    self.out_height,
-                    self.out_width,
-                    x_crop,
-                    y_crop,
-                )
+            bbox = bbox_mosaic4(
+                bboxes,
+                rows,
+                cols,
+                i,
+                self.out_height,
+                self.out_width,
+                x_crop,
+                y_crop,
             )
+            if bbox.shape[0] == 0:
+                bbox = np.zeros((0, 6), dtype=bboxes.dtype)
+            new_bboxes.append(bbox)
+
         return np.concatenate(new_bboxes, axis=0)
 
     @override
