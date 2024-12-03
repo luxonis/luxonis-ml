@@ -99,15 +99,18 @@ class BatchCompose(BaseCompose):
                 new_batch.append(unbatch_all(data))
             batch_data = new_batch
 
+        assert len(batch_data) == 1
+        data = batch_data[0]
+
         # TODO: why?
         self._make_targets_contiguous(data)
 
-        data = unbatch_all(data)
         for p in self.processors.values():
             data = p.item_processor.postprocess(data)
         return data
 
-    def _make_targets_contiguous(self, data: Dict[str, Any]):
+    @staticmethod
+    def _make_targets_contiguous(data: Dict[str, Any]):
         for key, value in data.items():
             if isinstance(value, np.ndarray):
                 value = np.ascontiguousarray(value)
