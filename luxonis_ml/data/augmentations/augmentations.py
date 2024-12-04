@@ -346,7 +346,7 @@ class Augmentations(BaseAugmentationPipeline):
 
         visible_bboxes = [int(v) for v in data["bboxes_visibility"]]
 
-        if {"boundingbox", "keypoints"} < present_labels:
+        if {"boundingbox", "keypoints"} <= present_labels:
             out_keypoints = out_keypoints[visible_bboxes]
 
         out_metadata = {}
