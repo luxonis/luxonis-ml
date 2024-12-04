@@ -241,17 +241,10 @@ class COCOParser(BaseParser):
                     if ann.get("iscrowd", True):
                         continue
                     class_name = categories[ann["category_id"]]
-                    yield {
-                        "file": path,
-                        "annotation": {
-                            "type": "classification",
-                            "class": class_name,
-                        },
-                    }
 
                     seg = ann["segmentation"]
                     if isinstance(seg, list):
-                        if len(seg) > 0:
+                        if seg:
                             poly = []
                             for s in seg:
                                 poly_arr = np.array(s).reshape(-1, 2)
@@ -265,34 +258,39 @@ class COCOParser(BaseParser):
                             yield {
                                 "file": path,
                                 "annotation": {
-                                    "type": "polyline",
                                     "class": class_name,
-                                    "points": poly,
+                                    "segmentation": {
+                                        "height": img_h,
+                                        "width": img_w,
+                                        "points": poly,
+                                    },
                                 },
                             }
                     else:
                         yield {
                             "file": path,
                             "annotation": {
-                                "type": "rle",
                                 "class": "person",
-                                "height": seg["size"][0],
-                                "width": seg["size"][1],
-                                "counts": seg["counts"],
+                                "segmentation": {
+                                    "height": seg["size"][0],
+                                    "width": seg["size"][1],
+                                    "counts": seg["counts"],
+                                },
                             },
                         }
 
                     x, y, w, h = ann["bbox"]
-                    yield {
+                    record = {
                         "file": path,
                         "annotation": {
-                            "type": "boundingbox",
                             "class": class_name,
                             "instance_id": i,
-                            "x": x / img_w,
-                            "y": y / img_h,
-                            "w": w / img_w,
-                            "h": h / img_h,
+                            "boundingbox": {
+                                "x": x / img_w,
+                                "y": y / img_h,
+                                "w": w / img_w,
+                                "h": h / img_h,
+                            },
                         },
                     }
 
@@ -307,15 +305,11 @@ class COCOParser(BaseParser):
                             keypoints.append(
                                 (kp[0] / img_w, kp[1] / img_h, int(kp[2]))
                             )
-                        yield {
-                            "file": path,
-                            "annotation": {
-                                "type": "keypoints",
-                                "class": class_name,
-                                "instance_id": i,
-                                "keypoints": keypoints,
-                            },
+
+                        record["annotation"]["keypoints"] = {
+                            "keypoints": keypoints
                         }
+                    yield record
 
         added_images = self._get_added_images(generator())
 

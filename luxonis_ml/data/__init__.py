@@ -15,16 +15,14 @@ with guard_missing_extra("data"):
     from .loaders import (
         LOADERS_REGISTRY,
         BaseLoader,
-        Labels,
         LuxonisLoader,
-        LuxonisLoaderOutput,
     )
     from .parsers import LuxonisParser
+    from .utils import Labels, LuxonisLoaderOutput
     from .utils.enums import (
         BucketStorage,
         BucketType,
         ImageType,
-        LabelType,
         MediaType,
     )
 
@@ -56,7 +54,6 @@ __all__ = [
     "DATASETS_REGISTRY",
     "LOADERS_REGISTRY",
     "ImageType",
-    "LabelType",
     "Labels",
     "LuxonisComponent",
     "LuxonisDataset",

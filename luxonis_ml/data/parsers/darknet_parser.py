@@ -97,20 +97,13 @@ class DarknetParser(BaseParser):
                     yield {
                         "file": file,
                         "annotation": {
-                            "type": "classification",
                             "class": class_name,
-                        },
-                    }
-
-                    yield {
-                        "file": file,
-                        "annotation": {
-                            "type": "boundingbox",
-                            "class": class_name,
-                            "x": float(x_center) - float(width) / 2,
-                            "y": float(y_center) - float(height) / 2,
-                            "w": float(width),
-                            "h": float(height),
+                            "boundingbox": {
+                                "x": float(x_center) - float(width) / 2,
+                                "y": float(y_center) - float(height) / 2,
+                                "w": float(width),
+                                "h": float(height),
+                            },
                         },
                     }
 

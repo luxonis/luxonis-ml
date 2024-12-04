@@ -9,7 +9,7 @@ app = typer.Typer(
     add_completion=True,
     pretty_exceptions_show_locals=False,
 )
-setup_logging(use_rich=True)
+setup_logging(use_rich=True, rich_print=True)
 
 try:
     from luxonis_ml.data.__main__ import app as data_app

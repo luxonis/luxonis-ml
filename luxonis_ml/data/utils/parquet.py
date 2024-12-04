@@ -1,9 +1,24 @@
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict
+from typing import Optional, TypedDict
 
 import polars as pl
 
 from luxonis_ml.utils.filesystem import PathType
+
+
+class ParquetDetection(TypedDict):
+    class_name: Optional[str]
+    instance_id: Optional[int]
+    label_type: Optional[str]
+    annotation: Optional[str]
+
+
+class ParquetRecord(ParquetDetection):
+    file: str
+    source_name: str
+    task_name: str
+    created_at: datetime
 
 
 class ParquetFileManager:
@@ -42,25 +57,26 @@ class ParquetFileManager:
             self.row_count = 0
             self.buffer = {}
 
-    def _initialize_data(self, data: Dict) -> None:
+    def _initialize_data(self, data: ParquetRecord) -> None:
         for key in data:
             self.buffer[key] = []
+        self.buffer["uuid"] = []
 
-    def write(self, add_data: Dict[str, Any]) -> None:
+    def write(self, uuid: str, data: ParquetRecord) -> None:
         """Writes a row to the current working parquet file.
 
-        @type add_data: Dict
-        @param add_data: A dictionary representing annotations, mapping
+        @type data: Dict
+        @param data: A dictionary representing annotations, mapping
             annotation types to values.
         """
 
         if not self.buffer:
-            self._initialize_data(add_data)
+            self._initialize_data(data)
 
-        for key in add_data:
-            if key not in self.buffer:
-                raise KeyError(f"Key {key} Not Found")
-            self.buffer[key].append(add_data[key])
+        for key in data:
+            self.buffer[key].append(data[key])
+
+        self.buffer["uuid"].append(uuid)
 
         self.row_count += 1
         if self.row_count % self.num_rows == 0:

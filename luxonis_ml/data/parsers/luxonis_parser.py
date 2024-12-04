@@ -15,7 +15,6 @@ from typing import (
 )
 
 from luxonis_ml.data import DATASETS_REGISTRY, BaseDataset, LuxonisDataset
-from luxonis_ml.data.utils.enums import LabelType
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.utils import LuxonisFileSystem, environ
 from luxonis_ml.utils.filesystem import _pip_install
@@ -65,7 +64,6 @@ class LuxonisParser(Generic[T]):
         save_dir: Optional[Union[Path, str]] = None,
         dataset_plugin: T = None,
         dataset_type: Optional[DatasetType] = None,
-        task_mapping: Optional[Dict[LabelType, str]] = None,
         **kwargs,
     ):
         """High-level abstraction over various parsers.
@@ -101,9 +99,6 @@ class LuxonisParser(Generic[T]):
         @type kwargs: Dict[str, Any]
         @param kwargs: Additional C{kwargs} to be passed to the
             constructor of specific L{BaseDataset} implementation.
-        @type task_mapping: Optional[Dict[LabelType, str]]
-        @param task_mapping: Dictionary mapping label types to task
-            names.
         """
         save_dir = Path(save_dir) if save_dir else None
         if dataset_dir.startswith("roboflow://"):
@@ -145,9 +140,7 @@ class LuxonisParser(Generic[T]):
         self.dataset = self.dataset_constructor(
             dataset_name=dataset_name, **kwargs
         )
-        self.parser = self.parsers[self.dataset_type](
-            self.dataset, task_mapping or {}
-        )
+        self.parser = self.parsers[self.dataset_type](self.dataset)
 
     @overload
     def parse(self: "LuxonisParser[str]", **kwargs) -> BaseDataset:

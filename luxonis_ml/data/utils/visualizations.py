@@ -1,21 +1,89 @@
+import colorsys
 import hashlib
 import math
-from typing import Dict, Iterator, List, Tuple
+from typing import Dict, List, Tuple
 
 import cv2
 import numpy as np
 
-from luxonis_ml.data import LabelType
-from luxonis_ml.data.loaders import Labels
+from luxonis_ml.data.utils import get_task_name, task_type_iterator
+
+from .types import Labels
+
+font = cv2.FONT_HERSHEY_SIMPLEX
 
 
-def _task_to_rgb(string: str) -> tuple:
+def rgb_to_hsb(r: int, g: int, b: int) -> Tuple[float, float, float]:
+    h, s, br = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
+    return h * 360, s, br
+
+
+def hsb_to_rgb(h: float, s: float, b: float) -> Tuple[int, int, int]:
+    r, g, b = colorsys.hsv_to_rgb(h / 360, s, b)
+    return int(r * 255), int(g * 255), int(b * 255)
+
+
+def get_contrast_color(r: int, g: int, b: int) -> Tuple[int, int, int]:
+    h, s, v = rgb_to_hsb(r, g, b)
+    h = (h + 180) % 360
+    return hsb_to_rgb(h, s, v)
+
+
+def str_to_rgb(string: str) -> Tuple[int, int, int]:
     h = int(hashlib.md5(string.encode()).hexdigest(), 16)
     r = (h & 0xFF0000) >> 16
     g = (h & 0x00FF00) >> 8
     b = h & 0x0000FF
 
-    return (r, g, b)
+    return r, g, b
+
+
+def draw_dashed_rectangle(
+    image: np.ndarray,
+    pt1: Tuple[int, int],
+    pt2: Tuple[int, int],
+    color: Tuple[int, int, int],
+    thickness: int = 1,
+    dash_length: int = 10,
+):
+    x1, y1 = pt1
+    x2, y2 = pt2
+
+    def draw_dashed_line(p1, p2):
+        line_length = int(np.hypot(p2[0] - p1[0], p2[1] - p1[1]))
+        dashes = [
+            (i, i + dash_length)
+            for i in range(0, line_length, 2 * dash_length)
+        ]
+        for start, end in dashes:
+            if end > line_length:
+                end = line_length
+            start_point = (
+                int(p1[0] + (p2[0] - p1[0]) * start / line_length),
+                int(p1[1] + (p2[1] - p1[1]) * start / line_length),
+            )
+            end_point = (
+                int(p1[0] + (p2[0] - p1[0]) * end / line_length),
+                int(p1[1] + (p2[1] - p1[1]) * end / line_length),
+            )
+            cv2.line(image, start_point, end_point, color, thickness)
+
+    draw_dashed_line((x1, y1), (x2, y1))
+    draw_dashed_line((x2, y1), (x2, y2))
+    draw_dashed_line((x2, y2), (x1, y2))
+    draw_dashed_line((x1, y2), (x1, y1))
+
+
+def draw_cross(
+    img: np.ndarray,
+    center: Tuple[int, int],
+    size: int = 5,
+    color: Tuple[int, int, int] = (0, 255, 0),
+    thickness: int = 1,
+):
+    x, y = center
+    cv2.line(img, (x - size, y), (x + size, y), color, thickness)
+    cv2.line(img, (x, y - size), (x, y + size), color, thickness)
 
 
 def create_text_image(
@@ -117,16 +185,10 @@ def concat_images(
     return output
 
 
-def _label_type_iterator(
-    labels: Labels, label_type: LabelType
-) -> Iterator[Tuple[str, np.ndarray]]:
-    for task, (arr, lt) in labels.items():
-        if lt == label_type:
-            yield task, arr
-
-
 def visualize(
-    image: np.ndarray, labels: Labels, class_names: Dict[str, List[str]]
+    image: np.ndarray,
+    labels: Labels,
+    class_names: Dict[str, List[str]],
 ) -> np.ndarray:
     """Visualizes the labels on the image.
 
@@ -143,57 +205,82 @@ def visualize(
     h, w, _ = image.shape
     images = {"image": image}
 
-    for task, arr in _label_type_iterator(labels, LabelType.BOUNDINGBOX):
-        curr_image = image.copy()
-        for box in arr:
-            cv2.rectangle(
-                curr_image,
-                (int(box[1] * w), int(box[2] * h)),
-                (int(box[1] * w + box[3] * w), int(box[2] * h + box[4] * h)),
-                _task_to_rgb(class_names[task][int(box[0])]),
-                2,
-            )
-        images[task] = curr_image
-
-    for task, arr in _label_type_iterator(labels, LabelType.KEYPOINTS):
-        curr_image = image.copy()
-        task_classes = class_names[task]
-
-        *prefix, suffix = task.split("-")
-        prefix = "".join(prefix)
-        if suffix == "keypoints":
-            if not prefix:
-                bbox_task = "boundingbox"
-            else:
-                bbox_task = f"{prefix}-boundingbox"
-            if bbox_task in images:
-                curr_image = images.pop(bbox_task)
-                if prefix:
-                    task = f"{prefix} (keypoints + boundingbox)"
-                else:
-                    task = "keypoints + boundingbox"
-        for kp in arr:
-            cls_ = int(kp[0])
-            kp = kp[1:].reshape(-1, 3)
-            for k in kp:
-                cv2.circle(
-                    curr_image,
-                    (int(k[0] * w), int(k[1] * h)),
-                    2,
-                    _task_to_rgb(task_classes[cls_]),
-                    2,
-                )
-        images[task] = curr_image
-
-    for task, arr in _label_type_iterator(labels, LabelType.SEGMENTATION):
+    for task, arr in task_type_iterator(labels, "segmentation"):
+        task_name = get_task_name(task)
         mask_viz = np.zeros((h, w, 3)).astype(np.uint8)
         for i, mask in enumerate(arr):
             mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST)
             mask_viz[mask == 1] = (
-                _task_to_rgb(class_names[task][i])
+                str_to_rgb(class_names[task_name][i])
                 if (i != 0 or len(arr) == 1)
                 else (0, 0, 0)
             )
-        images[task] = mask_viz
+        binary_mask = (mask_viz > 0).astype(np.uint8)
+
+        blended = np.where(
+            binary_mask > 0,
+            cv2.addWeighted(image, 0.4, mask_viz, 0.6, 0),
+            image,
+        )
+        images[task_name] = blended
+
+    for task, arr in task_type_iterator(labels, "boundingbox"):
+        task_name = get_task_name(task)
+        curr_image = images.get(task_name, image.copy())
+
+        draw_function = cv2.rectangle
+
+        is_sublabel = len(task.split("/")) > 2
+
+        if is_sublabel:
+            draw_function = draw_dashed_rectangle
+
+        arr[:, [1, 3]] *= w
+        arr[:, [2, 4]] *= h
+        arr[:, 3] = arr[:, 1] + arr[:, 3]
+        arr[:, 4] = arr[:, 2] + arr[:, 4]
+        arr = arr.astype(int)
+
+        for box in arr:
+            color = get_contrast_color(
+                *str_to_rgb(class_names[task_name][int(box[0])])
+            )
+            draw_function(
+                curr_image,
+                (box[1], box[2]),
+                (box[3], box[4]),
+                color,
+                2,
+            )
+        images[task_name] = curr_image
+
+    for task, arr in task_type_iterator(labels, "keypoints"):
+        task_name = get_task_name(task)
+        curr_image = images.get(task_name, image.copy())
+
+        task_classes = class_names[task_name]
+
+        for kp in arr:
+            cls_ = int(kp[0])
+            kp = kp[1:].reshape(-1, 3)
+            color = get_contrast_color(*str_to_rgb(task_classes[cls_]))
+            for k in kp:
+                if k[-1] == 2:
+                    cv2.circle(
+                        curr_image,
+                        (int(k[0] * w), int(k[1] * h)),
+                        radius=2,
+                        color=color,
+                        thickness=2,
+                    )
+                else:
+                    draw_cross(
+                        curr_image,
+                        (int(k[0] * w), int(k[1] * h)),
+                        size=5,
+                        color=color,
+                        thickness=2,
+                    )
+        images[task_name] = curr_image
 
     return concat_images(images)
