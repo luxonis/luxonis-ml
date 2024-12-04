@@ -595,3 +595,63 @@ def test_no_labels():
     loader = LuxonisLoader(dataset, augmentations=augments)
     for _, labels in loader:
         assert labels == {}
+
+
+def test_partial_labels():
+    dataset = LuxonisDataset("__partial_labels", delete_existing=True)
+
+    def generator():
+        for i in range(8):
+            img = make_image(i)
+            if i < 2:
+                yield {
+                    "file": img,
+                }
+            elif i < 4:
+                yield {
+                    "file": img,
+                    "annotation": {
+                        "type": "classification",
+                        "class": "dog",
+                    },
+                }
+            elif i < 6:
+                yield {
+                    "file": img,
+                    "annotation": {
+                        "type": "boundingbox",
+                        "class": "dog",
+                        "x": 0.1,
+                        "y": 0.1,
+                        "w": 0.1,
+                        "h": 0.1,
+                    },
+                }
+                yield {
+                    "file": img,
+                    "annotation": {
+                        "type": "keypoints",
+                        "class": "dog",
+                        "keypoints": [[0.1, 0.1, 0], [0.2, 0.2, 1]],
+                    },
+                }
+            elif i < 8:
+                yield {
+                    "file": img,
+                    "annotation": {
+                        "type": "mask",
+                        "class": "dog",
+                        "mask": np.random.rand(512, 512) > 0.5,
+                    },
+                }
+
+    dataset.add(generator())
+    dataset.make_splits([1, 0, 0])
+
+    augments = Augmentations([512, 512], [{"name": "Rotate", "params": {}}])
+    loader = LuxonisLoader(dataset, augmentations=augments, view="train")
+    for _, labels in loader:
+        assert labels.get("boundingbox") is not None
+        assert labels.get("classification") is not None
+        assert labels.get("segmentation") is not None
+        assert labels.get("keypoints") is not None
