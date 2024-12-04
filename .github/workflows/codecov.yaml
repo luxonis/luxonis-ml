@@ -18,10 +18,11 @@ jobs:
         ref: ${{ github.head_ref }}
 
     - name: Download artifacts
-      uses: actions/download-artifact@v4
+      uses: dawidd6/action-download-artifact@v7
       with:
         name: coverage
         path: coverage.xml
+        workflow: CI
 
     - name: Upload coverage results to Codecov
       uses: codecov/codecov-action@v4
