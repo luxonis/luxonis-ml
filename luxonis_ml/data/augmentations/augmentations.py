@@ -49,7 +49,8 @@ class Augmentations(BaseAugmentationPipeline):
         self.spatial_transform = spatial_transform
 
         def apply_pixel_transform(data: Dict[str, Any]) -> Dict[str, Any]:
-            data["image"] = pixel_transform(image=data["image"])["image"]
+            if pixel_transform.transforms:
+                data["image"] = pixel_transform(image=data["image"])["image"]
             return data
 
         self.pixel_transform = apply_pixel_transform
@@ -215,7 +216,8 @@ class Augmentations(BaseAugmentationPipeline):
         else:
             transformed = batch_data[0]
 
-        transformed = self.spatial_transform(**transformed)
+        if self.spatial_transform.transforms:
+            transformed = self.spatial_transform(**transformed)
 
         if transformed["image"].shape[:2] != self.image_size:
             transformed_size = prod(transformed["image"].shape[:2])
