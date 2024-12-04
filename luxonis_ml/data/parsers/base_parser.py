@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from luxonis_ml.data import BaseDataset, DatasetIterator
+from luxonis_ml.enums.enums import DatasetType
 from luxonis_ml.utils.filesystem import PathType
 
 ParserOutput = Tuple[DatasetIterator, List[str], Dict[str, Dict], List[str]]
@@ -17,6 +18,7 @@ names, skeleton dictionary for keypoints and list of added images.
 @dataclass
 class BaseParser(ABC):
     dataset: BaseDataset
+    dataset_type: DatasetType
 
     @staticmethod
     @abstractmethod
@@ -88,7 +90,7 @@ class BaseParser(ABC):
         @return: List of added images.
         """
         generator, _, skeletons, added_images = self.from_split(**kwargs)
-        self.dataset.add(generator)
+        self.dataset.add(self._add_task(generator))
         if skeletons:
             for skeleton in skeletons.values():
                 self.dataset.set_skeletons(
@@ -232,3 +234,19 @@ class BaseParser(ABC):
             for img in image_dir.glob("*")
             if img.suffix in cv2_supported_image_formats
         ]
+
+    def _add_task(self, generator: DatasetIterator) -> DatasetIterator:
+        """Adds task to the generator.
+
+        @type generator: DatasetIterator
+        @param generator: Generator function
+        @rtype: DatasetIterator
+        @return: Generator function with added task
+        """
+
+        for item in generator:
+            if isinstance(item, dict):
+                item["task"] = self.dataset_type.value
+            else:
+                item.task_name = self.dataset_type.value
+            yield item

@@ -243,34 +243,33 @@ class COCOParser(BaseParser):
                     class_name = categories[ann["category_id"]]
 
                     seg = ann["segmentation"]
-                    if isinstance(seg, list):
-                        if seg:
-                            poly = []
-                            for s in seg:
-                                poly_arr = np.array(s).reshape(-1, 2)
-                                poly += [
-                                    (
-                                        poly_arr[i, 0] / img_w,
-                                        poly_arr[i, 1] / img_h,
-                                    )
-                                    for i in range(len(poly_arr))
-                                ]
-                            yield {
-                                "file": path,
-                                "annotation": {
-                                    "class": class_name,
-                                    "segmentation": {
-                                        "height": img_h,
-                                        "width": img_w,
-                                        "points": poly,
-                                    },
-                                },
-                            }
-                    else:
+                    if isinstance(seg, list) and seg:
+                        poly = []
+                        for s in seg:
+                            poly_arr = np.array(s).reshape(-1, 2)
+                            poly += [
+                                (
+                                    poly_arr[i, 0] / img_w,
+                                    poly_arr[i, 1] / img_h,
+                                )
+                                for i in range(len(poly_arr))
+                            ]
                         yield {
                             "file": path,
                             "annotation": {
-                                "class": "person",
+                                "class": class_name,
+                                "segmentation": {
+                                    "height": img_h,
+                                    "width": img_w,
+                                    "points": poly,
+                                },
+                            },
+                        }
+                    elif isinstance(seg, dict):
+                        yield {
+                            "file": path,
+                            "annotation": {
+                                "class": class_name,
                                 "segmentation": {
                                     "height": seg["size"][0],
                                     "width": seg["size"][1],

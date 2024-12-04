@@ -140,7 +140,9 @@ class LuxonisParser(Generic[T]):
         self.dataset = self.dataset_constructor(
             dataset_name=dataset_name, **kwargs
         )
-        self.parser = self.parsers[self.dataset_type](self.dataset)
+        self.parser = self.parsers[self.dataset_type](
+            self.dataset, self.dataset_type
+        )
 
     @overload
     def parse(self: "LuxonisParser[str]", **kwargs) -> BaseDataset:
