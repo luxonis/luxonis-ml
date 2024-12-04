@@ -22,7 +22,7 @@ jobs:
       with:
         name: coverage
         path: coverage.xml
-        workflow: CI
+        workflow: ci.yaml
 
     - name: Upload coverage results to Codecov
       uses: codecov/codecov-action@v4
