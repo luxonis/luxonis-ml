@@ -1,9 +1,13 @@
+name: Codecov
+
 on:
   push:
     branches: [ main ]
     paths:
       - 'luxonis_ml/**'
       - 'tests/**'
+  workflow_dispatch:
+
 jobs:
   update-base-report:
     runs-on: ubuntu-latest
