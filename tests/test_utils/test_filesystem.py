@@ -39,7 +39,9 @@ def get_os_python_specific_url(
 
 
 @pytest.fixture
-def fs(request, python_version: str, platform_name: str):
+def fs(
+    request: pytest.FixtureRequest, python_version: str, platform_name: str
+):
     url_path = get_os_python_specific_url(
         request.param, platform_name, python_version
     )
