@@ -94,6 +94,13 @@ jobs:
         token: ${{ secrets.CODECOV_TOKEN }}
         fail_ci_if_error: false
 
+    - name: Upload coverage results to Codecov
+      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8'
+      uses: codecov/codecov-action@v4
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        fail_ci_if_error: false
+
     - name: Upload coverage as artifact
       if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8'
       uses: actions/upload-artifact@v4
@@ -101,10 +108,3 @@ jobs:
         name: coverage
         path: coverage.xml
         overwrite: true
-
-    - name: Upload coverage results to Codecov
-      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8'
-      uses: codecov/codecov-action@v4
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        fail_ci_if_error: false
