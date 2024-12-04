@@ -316,10 +316,24 @@ class LuxonisLoader(BaseLoader):
             array = anns[0].combine_to_numpy(
                 anns, self.class_mappings[task], width=width, height=height
             )
-            if self.add_background and task == LabelType.SEGMENTATION:
-                unassigned_pixels = ~np.any(array, axis=0)
-                background_idx = self.class_mappings[task]["background"]
-                array[background_idx, unassigned_pixels] = 1
+
+            if task == LabelType.SEGMENTATION:
+                mask_sum = np.sum(array, axis=0)
+
+                if self.add_background:
+                    unassigned_pixels = mask_sum == 0
+                    background_idx = self.class_mappings[task]["background"]
+                    array[background_idx, unassigned_pixels] = 1
+
+                # Check if there are overlaps in the masks
+                if np.any(mask_sum > 1):
+                    max_indices = np.argmax(array, axis=0)
+                    array.fill(0)
+                    array[
+                        max_indices,
+                        np.arange(array.shape[1])[:, None],
+                        np.arange(array.shape[2]),
+                    ] = 1
 
             labels[task] = (array, anns[0]._label_type)
 
