@@ -458,6 +458,18 @@ class LuxonisFileSystem:
                 if recursive and file["type"] == "directory":
                     yield from self.walk_dir(name, recursive, typ)
 
+    def read_text(self, remote_path: PathType) -> Union[str, bytes]:
+        """Reads a file into a string.
+
+        @type remote_path: PathType
+        @param remote_path: Relative path to remote file.
+        @rtype: Union[str, bytes]
+        @return: The string containing the file contents.
+        """
+        if self.is_mlflow:
+            raise NotImplementedError
+        return self.fs.read_text(str(self.path / remote_path))
+
     def read_to_byte_buffer(
         self, remote_path: Optional[PathType] = None
     ) -> BytesIO:

@@ -24,6 +24,7 @@ import numpy as np
 import polars as pl
 import pyarrow.parquet as pq
 from ordered_set import OrderedSet
+from semver.version import Version
 from typing_extensions import Self, override
 
 from luxonis_ml.data.utils import (
@@ -119,6 +120,14 @@ class LuxonisDataset(BaseDataset):
 
         self.metadata = defaultdict(dict, self._get_metadata())
 
+        if not self._compare_versions(
+            self.metadata["ldf_version"], LDF_VERSION
+        ):
+            raise ValueError(
+                f"LDF version mismatch. This version of `luxonis-ml` "
+                f"supports only LDF v{LDF_VERSION}. "
+                f"Got v{self.metadata['ldf_version']}"
+            )
         self.progress = make_progress_bar()
 
     @property
@@ -279,7 +288,7 @@ class LuxonisDataset(BaseDataset):
         else:
             return {
                 "source": LuxonisSource().to_document(),
-                "ldf_version": LDF_VERSION,
+                "ldf_version": str(LDF_VERSION),
                 "classes": {},
             }
 
@@ -776,18 +785,47 @@ class LuxonisDataset(BaseDataset):
         base_path = environ.LUXONISML_BASE_PATH
 
         team_id = team_id or environ.LUXONISML_TEAM_ID
+        names = []
 
         if bucket_storage == BucketStorage.LOCAL:
-            local_path = base_path / "data" / team_id / "datasets"
-            if not local_path.exists():
-                return []
-            return [d.name for d in local_path.iterdir() if d.is_dir()]
+            fs = LuxonisFileSystem(
+                f"file://{base_path}/data/{team_id}/datasets"
+            )
+        else:
+            bucket = bucket or environ.LUXONISML_BUCKET
+            if bucket is None:
+                raise ValueError(
+                    "Must set LUXONISML_BUCKET environment variable!"
+                )
+            fs = LuxonisFileSystem(
+                LuxonisDataset._construct_url(
+                    bucket_storage, bucket, team_id, ""
+                )
+            )
+        if not fs.exists():
+            return []
 
-        bucket = bucket or environ.LUXONISML_BUCKET
-        if bucket is None:
-            raise ValueError("Must set LUXONISML_BUCKET environment variable!")
+        for path in fs.walk_dir("", recursive=False, typ="directory"):
+            path = Path(path)
+            metadata_path = path / "metadata" / "metadata.json"
+            if not fs.exists(metadata_path):
+                continue
+            metadata_text = fs.read_text(metadata_path)
+            if isinstance(metadata_text, bytes):
+                metadata_text = metadata_text.decode()
+            metadata = json.loads(metadata_text)
+            if LuxonisDataset._compare_versions(
+                metadata["ldf_version"], LDF_VERSION
+            ):
+                names.append(path.name)
+        return names
 
-        fs = LuxonisFileSystem(
-            LuxonisDataset._construct_url(bucket_storage, bucket, team_id, "")
-        )
-        return list(fs.walk_dir("", recursive=False, typ="directory"))
+    @staticmethod
+    def _compare_versions(
+        v1: Union[str, Version], v2: Union[str, Version]
+    ) -> bool:
+        if isinstance(v1, str):
+            v1 = Version.parse(v1)
+        if isinstance(v2, str):
+            v2 = Version.parse(v2)
+        return v1.major == v2.major

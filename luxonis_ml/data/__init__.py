@@ -12,18 +12,9 @@ with guard_missing_extra("data"):
         LuxonisDataset,
         LuxonisSource,
     )
-    from .loaders import (
-        LOADERS_REGISTRY,
-        BaseLoader,
-        LuxonisLoader,
-    )
+    from .loaders import LOADERS_REGISTRY, BaseLoader, LuxonisLoader
     from .parsers import LuxonisParser
-    from .utils.enums import (
-        BucketStorage,
-        BucketType,
-        ImageType,
-        MediaType,
-    )
+    from .utils.enums import BucketStorage, BucketType, ImageType, MediaType
 
 
 def load_dataset_plugins() -> None:
