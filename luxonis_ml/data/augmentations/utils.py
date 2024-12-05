@@ -2,7 +2,7 @@ from typing import Tuple
 
 import numpy as np
 
-from luxonis_ml.data.utils.types import Labels
+from luxonis_ml.typing import Labels
 
 
 def prepare_mask(labels: Labels, height: int, width: int) -> np.ndarray:

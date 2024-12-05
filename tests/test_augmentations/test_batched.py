@@ -1,7 +1,7 @@
 import numpy as np
 
 from luxonis_ml.data import Augmentations
-from luxonis_ml.data.utils import Labels
+from luxonis_ml.typing import Labels
 
 
 def get_img() -> np.ndarray:

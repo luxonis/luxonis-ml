@@ -20,18 +20,14 @@ from luxonis_ml.data.datasets import (
     LuxonisDataset,
     load_annotation,
 )
-from luxonis_ml.data.loaders.base_loader import (
-    BaseLoader,
-    LuxonisLoaderOutput,
-)
+from luxonis_ml.data.loaders.base_loader import BaseLoader
 from luxonis_ml.data.utils import (
-    Labels,
     get_task_name,
     get_task_type,
     split_task,
     task_type_iterator,
 )
-from luxonis_ml.typing import ConfigItem, PathType
+from luxonis_ml.typing import ConfigItem, Labels, LoaderOutput, PathType
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +162,7 @@ class LuxonisLoader(BaseLoader):
         return len(self.instances)
 
     @override
-    def __getitem__(self, idx: int) -> LuxonisLoaderOutput:
+    def __getitem__(self, idx: int) -> LoaderOutput:
         """Function to load a sample consisting of an image and its
         annotations.
 
@@ -284,7 +280,7 @@ class LuxonisLoader(BaseLoader):
 
         return img, labels
 
-    def _load_with_augmentations(self, idx: int) -> LuxonisLoaderOutput:
+    def _load_with_augmentations(self, idx: int) -> LoaderOutput:
         indices = [idx]
         assert self.augmentations is not None
         if self.augmentations.is_batched:

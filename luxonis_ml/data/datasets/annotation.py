@@ -29,10 +29,6 @@ NormalizedFloat: TypeAlias = Annotated[float, Field(ge=0, le=1)]
 """C{NormalizedFloat} is a float that is restricted to the range [0,
 1]."""
 
-AnnotationName: TypeAlias = Literal[
-    "boundingbox", "keypoints", "segmentation", "array"
-]
-
 
 def load_annotation(label_type: str, data: Dict[str, Any]) -> "Annotation":
     if label_type == "classification":

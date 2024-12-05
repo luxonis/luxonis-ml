@@ -1,8 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import List, Type
 
-from luxonis_ml.data.utils import LuxonisLoaderOutput
-from luxonis_ml.typing import ConfigItem
+from luxonis_ml.typing import ConfigItem, LoaderOutput
 from luxonis_ml.utils import AutoRegisterMeta, Registry
 
 AUGMENTATION_ENGINES: Registry[Type["AugmentationEngine"]] = Registry(
@@ -46,7 +45,7 @@ class AugmentationEngine(
         ...
 
     @abstractmethod
-    def apply(self, data: List[LuxonisLoaderOutput]) -> LuxonisLoaderOutput:
+    def apply(self, data: List[LoaderOutput]) -> LoaderOutput:
         """Apply the augmentation pipeline to the data.
 
         @type data: List[LuxonisLoaderOutput]

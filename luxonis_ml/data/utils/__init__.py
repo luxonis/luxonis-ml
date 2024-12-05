@@ -13,12 +13,9 @@ from .task_utils import (
     split_task,
     task_type_iterator,
 )
-from .types import Labels, LuxonisLoaderOutput
 from .visualizations import concat_images, create_text_image, visualize
 
 __all__ = [
-    "Labels",
-    "LuxonisLoaderOutput",
     "create_text_image",
     "concat_images",
     "visualize",

@@ -180,13 +180,13 @@ def warn_on_duplicates(df: pl.LazyFrame) -> None:
     for (
         file_name,
         task,
-        label_type,
+        task_type,
         annotation,
         count,
     ) in duplicate_annotation.iter_rows():
-        if label_type == "segmentation":
+        if task_type == "segmentation":
             annotation = "<binary mask>"
         logger.warning(
-            f"File '{file_name}' has the same '{label_type}' annotation "
+            f"File '{file_name}' has the same '{task_type}' annotation "
             f"'{annotation}' ({task=}) added {count} times."
         )

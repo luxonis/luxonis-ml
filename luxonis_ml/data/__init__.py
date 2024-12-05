@@ -18,7 +18,6 @@ with guard_missing_extra("data"):
         LuxonisLoader,
     )
     from .parsers import LuxonisParser
-    from .utils import Labels, LuxonisLoaderOutput
     from .utils.enums import (
         BucketStorage,
         BucketType,
@@ -54,11 +53,9 @@ __all__ = [
     "DATASETS_REGISTRY",
     "LOADERS_REGISTRY",
     "ImageType",
-    "Labels",
     "LuxonisComponent",
     "LuxonisDataset",
     "LuxonisLoader",
-    "LuxonisLoaderOutput",
     "LuxonisParser",
     "LuxonisSource",
     "MediaType",

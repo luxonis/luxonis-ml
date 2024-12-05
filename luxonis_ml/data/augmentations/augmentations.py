@@ -7,12 +7,8 @@ import albumentations as A
 import numpy as np
 from typing_extensions import override
 
-from luxonis_ml.data.utils import (
-    Labels,
-    LuxonisLoaderOutput,
-    get_qualified_task_name,
-    get_task_type,
-)
+from luxonis_ml.data.utils import get_qualified_task_name, get_task_type
+from luxonis_ml.typing import Labels, LoaderOutput
 
 from .base_pipeline import AugmentationEngine
 from .batch_compose import BatchCompose
@@ -126,7 +122,7 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
         return self._batch_size
 
     @override
-    def apply(self, data: List[LuxonisLoaderOutput]) -> LuxonisLoaderOutput:
+    def apply(self, data: List[LoaderOutput]) -> LoaderOutput:
         random_state = random.getstate()
         np_random_state = np.random.get_state()
 
@@ -142,7 +138,7 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
 
         for task_name in task_names:
             task_types_to_names = {}
-            batch_data: List[LuxonisLoaderOutput] = []
+            batch_data: List[LoaderOutput] = []
             nk = 0
             ns = 0
             for img, labels in data:
@@ -172,10 +168,10 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
 
     def _apply(
         self,
-        data: List[LuxonisLoaderOutput],
+        data: List[LoaderOutput],
         n_segmentation_classes: int,
         n_keypoints: int,
-    ) -> LuxonisLoaderOutput:
+    ) -> LoaderOutput:
         present_labels = {key for _, label in data for key in label.keys()}
         return_mask = "segmentation" in present_labels
 

@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Iterator, Type
 
-from luxonis_ml.data.utils.types import LuxonisLoaderOutput
+from luxonis_ml.typing import LoaderOutput
 from luxonis_ml.utils import AutoRegisterMeta, Registry
 
 LOADERS_REGISTRY: Registry[Type["BaseLoader"]] = Registry(name="loaders")
@@ -25,7 +25,7 @@ class BaseLoader(
         pass
 
     @abstractmethod
-    def __getitem__(self, idx: int) -> LuxonisLoaderOutput:
+    def __getitem__(self, idx: int) -> LoaderOutput:
         """Loads sample from dataset.
 
         @type idx: int
@@ -35,7 +35,7 @@ class BaseLoader(
         """
         pass
 
-    def __iter__(self) -> Iterator[LuxonisLoaderOutput]:
+    def __iter__(self) -> Iterator[LoaderOutput]:
         """Iterates over the dataset.
 
         @rtype: Iterator[L{LuxonisLoaderOutput}]

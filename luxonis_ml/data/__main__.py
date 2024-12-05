@@ -242,7 +242,8 @@ def parse(
             ...,
             "--type",
             "-t",
-            help="Type of the dataset. If not provided, the parser will try to recognize it automatically.",
+            help="Type of the dataset. If not provided, "
+            "the parser will try to recognize it automatically.",
             show_default=False,
         ),
     ] = None,
@@ -262,9 +263,10 @@ def parse(
             ...,
             "--save-dir",
             "-s",
-            help="If a remote URL is provided in 'dataset_dir', the dataset will "
-            "be downloaded to this directory. Otherwise, the dataset will be "
-            "downloaded to the current working directory.",
+            help="If a remote URL is provided in 'dataset_dir', "
+            "the dataset will be downloaded to this directory. "
+            "Otherwise, the dataset will be downloaded to the "
+            "current working directory.",
             show_default=False,
         ),
     ] = None,

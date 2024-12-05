@@ -3,7 +3,7 @@ from typing import Iterator, Tuple
 
 import numpy as np
 
-from .types import Labels
+from luxonis_ml.typing import Labels, TaskType
 
 
 @lru_cache()
@@ -59,7 +59,7 @@ def get_task_type(task: str) -> str:
 
 
 def task_type_iterator(
-    labels: Labels, label_type: str
+    labels: Labels, task_type: TaskType
 ) -> Iterator[Tuple[str, np.ndarray]]:
     """Iterates over labels of a specific type.
 
@@ -71,6 +71,5 @@ def task_type_iterator(
     @return: An iterator over the labels of the specified type.
     """
     for task, arr in labels.items():
-        task_type = get_task_type(task)
-        if task_type == label_type:
+        if get_task_type(task) == task_type:
             yield task, arr

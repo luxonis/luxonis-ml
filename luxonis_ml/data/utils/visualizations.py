@@ -7,8 +7,7 @@ import cv2
 import numpy as np
 
 from luxonis_ml.data.utils import get_task_name, task_type_iterator
-
-from .types import Labels
+from luxonis_ml.typing import Labels
 
 font = cv2.FONT_HERSHEY_SIMPLEX
 
