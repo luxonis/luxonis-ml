@@ -88,6 +88,9 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
                 "bbox_params": A.BboxParams(
                     format="coco",
                     label_fields=["bboxes_classes", "bboxes_visibility"],
+                    # Bug in albumentations v1.4.18 (the latest installable
+                    # on python 3.8) causes the pipeline to eventually
+                    # crash when set to 0.
                     min_visibility=0.01,
                 ),
                 "keypoint_params": A.KeypointParams(
