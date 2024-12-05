@@ -86,7 +86,7 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
         def _get_params():
             return {
                 "bbox_params": A.BboxParams(
-                    format="coco",
+                    format="albumentations",
                     label_fields=["bboxes_classes", "bboxes_visibility"],
                     # Bug in albumentations v1.4.18 (the latest installable
                     # on python 3.8) causes the pipeline to eventually
@@ -259,7 +259,7 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
         if return_mask:
             mask = prepare_mask(labels, height, width)
 
-        bboxes, bboxes_classes = prepare_bboxes(labels, height, width)
+        bboxes, bboxes_classes = prepare_bboxes(labels)
         keypoints_points, keypoints_visibility, keypoints_classes = (
             prepare_keypoints(labels, height, width, n_keypoints)
         )
@@ -313,10 +313,7 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
             out_mask = post_process_mask(data["mask"], n_segmentation_classes)
 
         out_bboxes = post_process_bboxes(
-            data["bboxes"],
-            np.expand_dims(data["bboxes_classes"], axis=-1),
-            image_height,
-            image_width,
+            data["bboxes"], np.expand_dims(data["bboxes_classes"], axis=-1)
         )
         out_keypoints = post_process_keypoints(
             data["keypoints"],

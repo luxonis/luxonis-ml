@@ -15,14 +15,11 @@ def prepare_mask(labels: Labels, height: int, width: int) -> np.ndarray:
     return mask
 
 
-def prepare_bboxes(
-    labels: Labels, height: int, width: int
-) -> Tuple[np.ndarray, np.ndarray]:
+def prepare_bboxes(labels: Labels) -> Tuple[np.ndarray, np.ndarray]:
     bboxes = labels.get("boundingbox", np.zeros((0, 5)))
     bboxes_points = bboxes[:, 1:]
-    bboxes_points[:, 0::2] *= width
-    bboxes_points[:, 1::2] *= height
-    bboxes_points = _check_bboxes(bboxes_points)
+    bboxes_points[:, 2] += bboxes_points[:, 0]
+    bboxes_points[:, 3] += bboxes_points[:, 1]
     bboxes_classes = bboxes[:, 0]
     return bboxes_points, bboxes_classes
 
@@ -51,16 +48,11 @@ def post_process_mask(mask: np.ndarray, n_classes: int) -> np.ndarray:
     return out_mask
 
 
-def post_process_bboxes(
-    bboxes: np.ndarray,
-    classes: np.ndarray,
-    image_height: int,
-    image_width: int,
-) -> np.ndarray:
+def post_process_bboxes(bboxes: np.ndarray, classes: np.ndarray) -> np.ndarray:
     if bboxes.shape[0] > 0:
         out_bboxes = np.concatenate([classes, bboxes], axis=1)
-        out_bboxes[:, 1::2] /= image_width
-        out_bboxes[:, 2::2] /= image_height
+        out_bboxes[..., 3] -= out_bboxes[..., 1]
+        out_bboxes[..., 4] -= out_bboxes[..., 2]
         return out_bboxes
     return np.zeros((0, 5))
 
