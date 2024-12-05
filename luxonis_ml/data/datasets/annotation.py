@@ -313,10 +313,11 @@ class SegmentationAnnotation(Annotation):
             [class_mapping.get(ann.class_, 0) for ann in annotations]
         )
 
+        assigned_pixels = np.zeros((height, width), dtype=bool)
         for i, class_ in enumerate(classes):
-            seg[class_, ...] = np.maximum(
-                seg[class_, ...], masks[i].astype(np.uint8)
-            )
+            mask = masks[i] & (assigned_pixels == 0)
+            seg[class_, ...] |= mask
+            assigned_pixels |= mask
 
         return seg
 
