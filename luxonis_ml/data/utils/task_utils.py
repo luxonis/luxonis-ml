@@ -65,8 +65,8 @@ def task_type_iterator(
 
     @type labels: Labels
     @param labels: The labels to iterate over.
-    @type label_type: str
-    @param label_type: The type of label to iterate over.
+    @type task_type: str
+    @param task_type: The type of label to iterate over.
     @rtype: Iterator[Tuple[str, np.ndarray]]
     @return: An iterator over the labels of the specified type.
     """

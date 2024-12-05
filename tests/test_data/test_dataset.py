@@ -464,7 +464,7 @@ def test_metadata(
                 },
             }
 
-    dataset_name = f"__uncommon_label_types-{bucket_storage.value}-{platform_name}-{python_version}"
+    dataset_name = f"__uncommon_task_types-{bucket_storage.value}-{platform_name}-{python_version}"
     dataset = LuxonisDataset(
         dataset_name,
         delete_existing=True,

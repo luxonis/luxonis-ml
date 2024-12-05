@@ -167,7 +167,7 @@ def warn_on_duplicates(df: pl.LazyFrame) -> None:
         df.group_by(
             "original_filepath",
             "task_name",
-            "label_type",
+            "task_type",
             "annotation",
             "instance_id",
         )

@@ -73,21 +73,21 @@ class Detection(BaseModelExtraForbid):
                 yield {
                     "class_name": self.class_name,
                     "instance_id": self.instance_id,
-                    "label_type": f"{prefix}{task_type}",
+                    "task_type": f"{prefix}{task_type}",
                     "annotation": label.model_dump_json(),
                 }
         for key, data in self.metadata.items():
             yield {
                 "class_name": self.class_name,
                 "instance_id": self.instance_id,
-                "label_type": f"{prefix}metadata/{key}",
+                "task_type": f"{prefix}metadata/{key}",
                 "annotation": json.dumps(data),
             }
         if self.class_name is not None:
             yield {
                 "class_name": self.class_name,
                 "instance_id": self.instance_id,
-                "label_type": f"{prefix}classification",
+                "task_type": f"{prefix}classification",
                 "annotation": "{}",
             }
         for name, detection in self.sub_detections.items():
@@ -482,6 +482,14 @@ class DatasetRecord(BaseModelExtraForbid):
             raise ValueError("DatasetRecord must have exactly one file")
         return next(iter(self.files.values()))
 
+    @model_validator(mode="after")
+    def validate_task_name(self) -> Self:
+        if not self.task.isidentifier():
+            raise ValueError(
+                f"Task name ({self.task}) must be a valid Python identifier"
+            )
+        return self
+
     @model_validator(mode="before")
     @classmethod
     def validate_files(cls, values: Dict[str, Any]) -> Dict[str, Any]:
@@ -491,7 +499,7 @@ class DatasetRecord(BaseModelExtraForbid):
 
     @model_validator(mode="before")
     @classmethod
-    def validate_task_name(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+    def auto_populate_task(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         if "task" not in values:
             annotations = values.get("annotation", {})
             if (
@@ -529,6 +537,6 @@ class DatasetRecord(BaseModelExtraForbid):
                     "created_at": timestamp,
                     "class_name": None,
                     "instance_id": None,
-                    "label_type": None,
+                    "task_type": None,
                     "annotation": None,
                 }

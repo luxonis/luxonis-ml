@@ -22,7 +22,7 @@ def prepare_dir():
 
 
 @pytest.mark.parametrize(
-    ("dataset_type", "url", "expected_label_types"),
+    ("dataset_type", "url", "expected_task_types"),
     [
         (
             DatasetType.COCO,
@@ -92,7 +92,7 @@ def prepare_dir():
     ],
 )
 def test_dir_parser(
-    dataset_type: DatasetType, url: str, expected_label_types: List[str]
+    dataset_type: DatasetType, url: str, expected_task_types: List[str]
 ):
     if not url.startswith("roboflow://"):
         url = f"{URL_PREFIX}/{url}"
@@ -110,6 +110,6 @@ def test_dir_parser(
     assert len(dataset) > 0
     loader = LuxonisLoader(dataset)
     _, ann = next(iter(loader))
-    label_types = {get_task_type(task) for task in ann}
-    assert label_types == set(expected_label_types)
+    task_types = {get_task_type(task) for task in ann}
+    assert task_types == set(expected_task_types)
     dataset.delete_dataset()

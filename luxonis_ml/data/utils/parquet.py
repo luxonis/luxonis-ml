@@ -10,7 +10,7 @@ from luxonis_ml.typing import PathType
 class ParquetDetection(TypedDict):
     class_name: Optional[str]
     instance_id: Optional[int]
-    label_type: Optional[str]
+    task_type: Optional[str]
     annotation: Optional[str]
 
 
