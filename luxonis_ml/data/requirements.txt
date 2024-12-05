@@ -12,4 +12,5 @@ pycocotools>=2.0.7
 typeguard>=4.1.0
 polars[timezone]>=0.20.31
 ordered-set>=4.0.0
+semver>=3.0.0
 # roboflow>=0.1.1
