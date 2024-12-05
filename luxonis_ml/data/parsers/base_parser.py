@@ -250,5 +250,5 @@ class BaseParser(ABC):
             if isinstance(item, dict):
                 item["task"] = self.dataset_type.value
             else:
-                item.task_name = self.dataset_type.value
+                item.task = self.dataset_type.value
             yield item
