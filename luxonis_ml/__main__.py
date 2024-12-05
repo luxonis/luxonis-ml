@@ -35,7 +35,7 @@ except ImportError:
 
 def version_callback(value: bool):
     if value:
-        print(f"LuxonisML: {version(__package__)}")
+        typer.echo(f"LuxonisML: {version('luxonis_ml')}")
         raise typer.Exit()
 
 
