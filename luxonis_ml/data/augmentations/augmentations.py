@@ -83,23 +83,16 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
                 batch_size *= curr_aug.batch_size
                 batched_augs.append(curr_aug)
 
-        def _get_params(batch: bool = False):
-            suffix = "_batch" if batch else ""
+        def _get_params():
             return {
                 "bbox_params": A.BboxParams(
                     format="coco",
-                    label_fields=[
-                        f"bboxes_classes{suffix}",
-                        f"bboxes_visibility{suffix}",
-                    ],
+                    label_fields=["bboxes_classes", "bboxes_visibility"],
                     min_visibility=0.01,
                 ),
                 "keypoint_params": A.KeypointParams(
                     format="xy",
-                    label_fields=[
-                        f"keypoints_visibility{suffix}",
-                        f"keypoints_classes{suffix}",
-                    ],
+                    label_fields=["keypoints_visibility", "keypoints_classes"],
                     remove_invisible=False,
                 ),
             }
@@ -108,9 +101,7 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
             height=height,
             width=width,
             batch_size=batch_size,
-            batch_transform=BatchCompose(
-                batched_augs, **_get_params(batch=True)
-            ),
+            batch_transform=BatchCompose(batched_augs, **_get_params()),
             spatial_transform=A.Compose(spatial_augs, **_get_params()),
             pixel_transform=A.Compose(pixel_augs),
             resize_transform=A.Compose([resize], **_get_params()),
