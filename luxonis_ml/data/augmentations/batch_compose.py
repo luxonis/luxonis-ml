@@ -10,6 +10,8 @@ from .batch_utils import yield_batches
 
 
 class BatchCompose(A.Compose):
+    transforms: List[BatchBasedTransform]
+
     def __init__(self, transforms: TransformsSeqType, **kwargs):
         """Compose transforms and handle all transformations regarding
         bounding boxes.
@@ -22,8 +24,7 @@ class BatchCompose(A.Compose):
 
         self.batch_size = 1
         for transform in self.transforms:
-            if isinstance(transform, BatchBasedTransform):
-                self.batch_size *= transform.batch_size
+            self.batch_size *= transform.batch_size
 
     @override
     def __call__(self, batch_data: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -37,10 +38,9 @@ class BatchCompose(A.Compose):
             self.preprocess(data)
 
         for transform in self.transforms:
-            assert isinstance(transform, BatchBasedTransform)
             new_batch = []
-            for data in yield_batches(batch_data, transform.batch_size):
-                data = transform(**data, force_apply=False)
+            for batch in yield_batches(batch_data, transform.batch_size):
+                data = transform(**batch, force_apply=False)
 
                 data = self.check_data_post_transform(data)
                 new_batch.append(data)
