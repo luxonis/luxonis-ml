@@ -2,6 +2,7 @@ from typing import Any, Dict, List
 
 import albumentations as A
 import numpy as np
+from albumentations.core.composition import TransformsSeqType
 from typing_extensions import override
 
 from .batch_transform import BatchBasedTransform
@@ -9,11 +10,7 @@ from .batch_utils import yield_batches
 
 
 class BatchCompose(A.Compose):
-    def __init__(
-        self,
-        transforms: A.TransformsSeqType,
-        **kwargs,
-    ):
+    def __init__(self, transforms: TransformsSeqType, **kwargs):
         """Compose transforms and handle all transformations regarding
         bounding boxes.
 
