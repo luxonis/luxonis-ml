@@ -9,7 +9,6 @@ import numpy as np
 import pycocotools.mask as mask_util
 from PIL import Image, ImageDraw
 from pydantic import (
-    AliasChoices,
     Field,
     field_serializer,
     model_serializer,
@@ -46,9 +45,7 @@ def load_annotation(label_type: str, data: Dict[str, Any]) -> "Annotation":
 
 
 class Detection(BaseModelExtraForbid):
-    class_name: Optional[str] = Field(
-        None, validation_alias=AliasChoices("class", "class_name")
-    )
+    class_name: Optional[str] = Field(None, alias="class")
     instance_id: int = -1
 
     metadata: Dict[str, Union[int, float, str]] = {}
@@ -464,7 +461,7 @@ class ArrayAnnotation(Annotation):
 class DatasetRecord(BaseModelExtraForbid):
     files: Dict[str, FilePath]
     annotation: Optional[Detection] = None
-    task_name: str = Field(validation_alias=AliasChoices("task", "task_name"))
+    task: str
 
     @property
     def file(self) -> FilePath:
@@ -503,7 +500,7 @@ class DatasetRecord(BaseModelExtraForbid):
                     yield {
                         "file": str(file_path.resolve()),
                         "source_name": source,
-                        "task_name": self.task_name,
+                        "task_name": self.task,
                         "created_at": timestamp,
                         **detection,
                     }
@@ -511,7 +508,7 @@ class DatasetRecord(BaseModelExtraForbid):
                 yield {
                     "file": str(file_path.resolve()),
                     "source_name": source,
-                    "task_name": self.task_name,
+                    "task_name": self.task,
                     "created_at": timestamp,
                     "class_name": None,
                     "instance_id": None,

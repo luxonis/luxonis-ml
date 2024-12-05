@@ -518,17 +518,17 @@ class LuxonisDataset(BaseDataset):
                 ann = record.annotation
                 if ann is not None:
                     if not explicit_task:
-                        record.task_name = infer_task(
-                            record.task_name,
+                        record.task = infer_task(
+                            record.task,
                             ann.class_name,
                             self.get_classes()[1],
                         )
                     if ann.class_name is not None:
-                        classes_per_task[record.task_name].add(ann.class_name)
+                        classes_per_task[record.task].add(ann.class_name)
                     else:
-                        classes_per_task[record.task_name] = OrderedSet([])
+                        classes_per_task[record.task] = OrderedSet([])
                     if ann.keypoints is not None:
-                        num_kpts_per_task[record.task_name] = len(
+                        num_kpts_per_task[record.task] = len(
                             ann.keypoints.keypoints
                         )
 
