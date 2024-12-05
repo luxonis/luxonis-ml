@@ -10,7 +10,12 @@ PathType: TypeAlias = Union[str, Path]
 
 
 TaskType: TypeAlias = Literal[
-    "classification", "boundingbox", "segmentation", "keypoints", "array"
+    "classification",
+    "boundingbox",
+    "segmentation",
+    "instance_segmentation",
+    "keypoints",
+    "array",
 ]
 
 

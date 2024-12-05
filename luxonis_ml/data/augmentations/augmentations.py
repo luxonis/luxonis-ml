@@ -140,6 +140,8 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
                 for task, label in labels.items():
                     if get_qualified_task_name(task) == task_name:
                         task_type = get_task_type(task)
+                        if task_type == "instance_segmentation":
+                            task_type = "segmentation"
                         if task_type == "metadata":
                             task_type = task.split("/", 1)[1]
                         label_subset[task_type] = label

@@ -204,24 +204,38 @@ def visualize(
     h, w, _ = image.shape
     images = {"image": image}
 
-    for task, arr in task_type_iterator(labels, "segmentation"):
-        task_name = get_task_name(task)
+    def create_mask(
+        arr: np.ndarray, task_name: str, is_instance: bool
+    ) -> np.ndarray:
         mask_viz = np.zeros((h, w, 3)).astype(np.uint8)
         for i, mask in enumerate(arr):
             mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST)
-            mask_viz[mask == 1] = (
-                str_to_rgb(class_names[task_name][i])
-                if (i != 0 or len(arr) == 1)
-                else (0, 0, 0)
-            )
+            if is_instance:
+                mask_viz[mask > 0] = str_to_rgb(
+                    class_names[task_name][int(mask.max() - 1)]
+                )
+            else:
+                mask_viz[mask == 1] = (
+                    str_to_rgb(class_names[task_name][i])
+                    if (i != 0 or len(arr) == 1)
+                    else (0, 0, 0)
+                )
+
         binary_mask = (mask_viz > 0).astype(np.uint8)
 
-        blended = np.where(
+        return np.where(
             binary_mask > 0,
             cv2.addWeighted(image, 0.4, mask_viz, 0.6, 0),
             image,
         )
-        images[task_name] = blended
+
+    for task, arr in task_type_iterator(labels, "segmentation"):
+        task_name = get_task_name(task)
+        images[task_name] = create_mask(arr, task_name, is_instance=False)
+
+    for task, arr in task_type_iterator(labels, "instance_segmentation"):
+        task_name = get_task_name(task)
+        images[task_name] = create_mask(arr, task_name, is_instance=True)
 
     for task, arr in task_type_iterator(labels, "boundingbox"):
         task_name = get_task_name(task)
@@ -241,9 +255,7 @@ def visualize(
         arr = arr.astype(int)
 
         for box in arr:
-            color = get_contrast_color(
-                *str_to_rgb(class_names[task_name][int(box[0])])
-            )
+            color = str_to_rgb(class_names[task_name][int(box[0])])
             draw_function(
                 curr_image,
                 (box[1], box[2]),
