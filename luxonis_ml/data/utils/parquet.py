@@ -4,7 +4,7 @@ from typing import Optional, TypedDict
 
 import polars as pl
 
-from luxonis_ml.utils.filesystem import PathType
+from luxonis_ml.typing import PathType
 
 
 class ParquetDetection(TypedDict):

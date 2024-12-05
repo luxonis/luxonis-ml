@@ -20,6 +20,7 @@ def split_task(task: str) -> Tuple[str, str]:
 
 @lru_cache()
 def get_qualified_task_name(task: str) -> str:
+    """Returns the qualified task name from a task."""
     parts = task.split("/")
     if "metadata" in parts:
         return "/".join(parts[:-2])

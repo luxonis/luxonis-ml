@@ -4,7 +4,6 @@ from math import prod
 from typing import Any, Dict, List, Set, Tuple
 
 import albumentations as A
-import cv2
 import numpy as np
 from typing_extensions import override
 
@@ -15,7 +14,7 @@ from luxonis_ml.data.utils import (
     get_task_type,
 )
 
-from .base_pipeline import BaseAugmentationPipeline
+from .base_pipeline import AugmentationEngine
 from .batch_compose import BatchCompose
 from .batch_transform import BatchBasedTransform
 from .custom import LetterboxResize, MixUp, Mosaic4
@@ -29,12 +28,11 @@ from .utils import (
 )
 
 
-class Augmentations(BaseAugmentationPipeline):
+class Augmentations(AugmentationEngine, register_name="albumentations"):
     def __init__(
         self,
         height: int,
         width: int,
-        out_rgb: bool,
         batch_size: int,
         batch_transform: BatchCompose,
         spatial_transform: A.Compose,
@@ -42,7 +40,6 @@ class Augmentations(BaseAugmentationPipeline):
         resize_transform: A.Compose,
     ):
         self.image_size = (height, width)
-        self.out_rgb = out_rgb
         self._batch_size = batch_size
 
         self.batch_transform = batch_transform
@@ -63,7 +60,6 @@ class Augmentations(BaseAugmentationPipeline):
         height: int,
         width: int,
         config: List[Dict[str, Any]],
-        out_rgb: bool = True,
         keep_aspect_ratio: bool = True,
         is_validation_pipeline: bool = False,
     ) -> "Augmentations":
@@ -115,7 +111,6 @@ class Augmentations(BaseAugmentationPipeline):
         return cls(
             height=height,
             width=width,
-            out_rgb=out_rgb,
             batch_size=batch_size,
             batch_transform=BatchCompose(
                 batched_augs, **_get_params(batch=True)
@@ -321,8 +316,6 @@ class Augmentations(BaseAugmentationPipeline):
 
         out_image = data["image"]
         image_height, image_width, _ = out_image.shape
-        if not self.out_rgb:
-            out_image = cv2.cvtColor(out_image, cv2.COLOR_RGB2BGR)
         out_image = out_image.astype(np.float32)
 
         out_mask = None

@@ -5,7 +5,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from luxonis_ml.data import BaseDataset, DatasetIterator
 from luxonis_ml.enums.enums import DatasetType
-from luxonis_ml.utils.filesystem import PathType
+from luxonis_ml.typing import PathType
 
 ParserOutput = Tuple[DatasetIterator, List[str], Dict[str, Dict], List[str]]
 """Type alias for parser output.
@@ -94,7 +94,9 @@ class BaseParser(ABC):
         if skeletons:
             for skeleton in skeletons.values():
                 self.dataset.set_skeletons(
-                    skeleton.get("labels"), skeleton.get("edges"), "detection"
+                    skeleton.get("labels"),
+                    skeleton.get("edges"),
+                    self.dataset_type.value,
                 )
 
         return added_images

@@ -2,7 +2,7 @@ import tarfile
 from pathlib import Path
 from typing import List
 
-from luxonis_ml.utils.filesystem import PathType
+from luxonis_ml.typing import PathType
 
 
 def is_nn_archive(path: PathType) -> bool:

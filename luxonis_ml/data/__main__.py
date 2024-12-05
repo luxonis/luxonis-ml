@@ -1,4 +1,3 @@
-import json
 import logging
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -7,7 +6,6 @@ import cv2
 import numpy as np
 import rich.box
 import typer
-import yaml
 from rich import print
 from rich.console import Console, group
 from rich.panel import Panel
@@ -15,12 +13,7 @@ from rich.rule import Rule
 from rich.table import Table
 from typing_extensions import Annotated
 
-from luxonis_ml.data import (
-    Augmentations,
-    LuxonisDataset,
-    LuxonisLoader,
-    LuxonisParser,
-)
+from luxonis_ml.data import LuxonisDataset, LuxonisLoader, LuxonisParser
 from luxonis_ml.data.utils.visualizations import visualize
 from luxonis_ml.enums import DatasetType
 
@@ -194,30 +187,25 @@ def inspect(
             "-k",
             help="Keep the aspect ratio of the images.",
         ),
-    ] = False,
+    ] = True,
 ):
     """Inspects images and annotations in a dataset."""
 
     view = view or ["train"]
     dataset = LuxonisDataset(name)
     h, w, _ = LuxonisLoader(dataset, view=view)[0][0].shape
-    augmentations = None
-
-    if aug_config is not None:
-        with open(aug_config) as file:
-            config = (
-                yaml.safe_load(file)
-                if Path(aug_config).suffix == ".yaml"
-                else json.load(file)
-            )
-        augmentations = Augmentations.from_config(
-            h, w, config, keep_aspect_ratio=keep_aspect_ratio
-        )
 
     if len(dataset) == 0:
         raise ValueError(f"Dataset '{name}' is empty.")
 
-    loader = LuxonisLoader(dataset, view=view, augmentations=augmentations)
+    loader = LuxonisLoader(
+        dataset,
+        view=view,
+        augmentation_config=aug_config,
+        height=h if aug_config is not None else None,
+        width=w if aug_config is not None else None,
+        keep_aspect_ratio=keep_aspect_ratio,
+    )
     class_names = dataset.get_classes()[1]
     for image, labels in loader:
         image = image.astype(np.uint8)

@@ -35,13 +35,13 @@ from luxonis_ml.data.utils import (
     warn_on_duplicates,
 )
 from luxonis_ml.data.utils.constants import LDF_VERSION
+from luxonis_ml.typing import PathType
 from luxonis_ml.utils import (
     LuxonisFileSystem,
     deprecated,
     environ,
     make_progress_bar,
 )
-from luxonis_ml.utils.filesystem import PathType
 
 from .annotation import DatasetRecord
 from .base_dataset import BaseDataset, DatasetIterator

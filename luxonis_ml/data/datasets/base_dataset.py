@@ -5,8 +5,8 @@ from typing_extensions import TypeAlias
 
 from luxonis_ml.data.datasets.annotation import DatasetRecord
 from luxonis_ml.data.datasets.source import LuxonisSource
+from luxonis_ml.typing import PathType
 from luxonis_ml.utils import AutoRegisterMeta, Registry
-from luxonis_ml.utils.filesystem import PathType
 
 DATASETS_REGISTRY: Registry[Type["BaseDataset"]] = Registry(name="datasets")
 

@@ -27,12 +27,12 @@ from typing import (
 import fsspec
 from typeguard import typechecked
 
+from luxonis_ml.typing import PathType
+
 from .environ import environ
 from .registry import Registry
 
 logger = getLogger(__name__)
-
-PathType = Union[str, Path]
 
 
 class PutFile(Protocol):

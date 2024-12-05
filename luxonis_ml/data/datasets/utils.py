@@ -1,11 +1,13 @@
 import shutil
 from pathlib import Path
+from types import ModuleType
 from typing import Literal, Optional
 
 import polars as pl
 from typing_extensions import overload
 
-from luxonis_ml.utils.filesystem import LuxonisFileSystem, ModuleType, PathType
+from luxonis_ml.typing import PathType
+from luxonis_ml.utils.filesystem import LuxonisFileSystem
 
 
 @overload

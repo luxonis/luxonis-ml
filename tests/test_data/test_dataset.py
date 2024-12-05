@@ -10,20 +10,23 @@ import numpy as np
 import pytest
 
 from luxonis_ml.data import (
-    Augmentations,
     BucketStorage,
     LuxonisDataset,
     LuxonisLoader,
     LuxonisParser,
     LuxonisSource,
 )
+from luxonis_ml.data.utils.task_utils import (
+    get_task_type,
+)
 from luxonis_ml.enums import DatasetType
+from luxonis_ml.typing import ConfigItem
 from luxonis_ml.utils import LuxonisFileSystem
 
 # TODO: Test array
 
 SKELETONS: Final[dict] = {
-    "detection": (
+    "coco": (
         [
             "nose",
             "left_eye",
@@ -70,13 +73,13 @@ URL_PREFIX: Final[str] = "gs://luxonis-test-bucket/luxonis-ml-test-data"
 WORK_DIR: Final[str] = "tests/data/parser_datasets"
 DATASET_NAME: Final[str] = "test-dataset"
 TASKS: Final[Set[str]] = {
-    "segmentation/segmentation",
-    "detection/keypoints",
-    "detection/boundingbox",
+    "segmentation",
+    "keypoints",
+    "boundingbox",
 }
 DATA_DIR = Path("tests/data/test_dataset")
 
-AUG_CONFIG = [
+AUG_CONFIG: List[ConfigItem] = [
     {
         "name": "Mosaic4",
         "params": {"out_width": 416, "out_height": 416, "p": 1.0},
@@ -139,7 +142,7 @@ def test_dataset(
             dataset_name, bucket_storage=bucket_storage
         )
         assert dataset.get_classes()[0] == ["person"]
-        assert set(dataset.get_tasks()) == {"detection", "segmentation"}
+        assert set(dataset.get_tasks()) == {"coco"}
         assert dataset.get_skeletons() == SKELETONS
         assert dataset.identifier == dataset_name
 
@@ -158,15 +161,20 @@ def test_dataset(
         for img, labels in loader:
             assert img is not None
             for task in TASKS:
-                assert task in labels
+                assert f"coco/{task}" in labels
 
     with subtests.test("test_load_aug", bucket_storage=bucket_storage):
-        augmentations = Augmentations.from_config(512, 512, AUG_CONFIG)
-        loader = LuxonisLoader(dataset, augmentations=augmentations)
+        loader = LuxonisLoader(
+            dataset,
+            width=512,
+            height=512,
+            augmentation_config=AUG_CONFIG,
+            augmentation_engine="albumentations",
+        )
         for img, labels in loader:
             assert img is not None
             for task in TASKS:
-                assert task in labels
+                assert f"coco/{task}" in labels
 
     with subtests.test("test_delete", bucket_storage=bucket_storage):
         dataset.delete_dataset(delete_remote=True)
@@ -209,7 +217,7 @@ def test_loader_iterator():
     def _raise(*_):
         raise IndexError
 
-    loader._load_image_with_annotations = _raise  # type: ignore
+    loader._load_data = _raise  # type: ignore
     with pytest.raises(IndexError):
         _ = loader[0]
 
@@ -467,17 +475,18 @@ def test_metadata(
     dataset.make_splits()
     loader = LuxonisLoader(dataset)
     for _, labels in loader:
-        assert "detection/metadata/color" in labels
-        assert "detection/metadata/distance" in labels
-        assert "detection/metadata/id" in labels
+        print(labels.keys())
+        labels = {get_task_type(k): v for k, v in labels.items()}
+        assert {
+            "metadata/color",
+            "metadata/distance",
+            "metadata/id",
+            "classification",
+        } == set(labels.keys())
 
-        assert (
-            labels["detection/metadata/color"].tolist() == ["red", "blue"] * 5
-        )
-        assert labels["detection/metadata/distance"].tolist() == [5.0] * 10
-        assert labels["detection/metadata/id"].tolist() == list(
-            range(127, 137)
-        )
+        assert labels["metadata/color"].tolist() == ["red", "blue"] * 5
+        assert labels["metadata/distance"].tolist() == [5.0] * 10
+        assert labels["metadata/id"].tolist() == list(range(127, 137))
 
 
 def test_no_labels():
@@ -497,10 +506,12 @@ def test_no_labels():
     for _, labels in loader:
         assert labels == {}
 
-    augments = Augmentations.from_config(
-        512, 512, [{"name": "Flip", "params": {}}]
+    loader = LuxonisLoader(
+        dataset,
+        width=512,
+        height=512,
+        augmentation_config=[{"name": "Flip", "params": {}}],
     )
-    loader = LuxonisLoader(dataset, augmentations=augments)
     for _, labels in loader:
         assert labels == {}
 
@@ -549,8 +560,13 @@ def test_deep_nested_labels():
     dataset.add(generator())
     dataset.make_splits()
 
-    augmentations = Augmentations.from_config(512, 512, AUG_CONFIG)
-    loader = LuxonisLoader(dataset, augmentations=augmentations)
+    loader = LuxonisLoader(
+        dataset,
+        height=512,
+        width=512,
+        augmentation_config=AUG_CONFIG,
+        augmentation_engine="albumentations",
+    )
     _, labels = next(iter(loader))
     assert {
         "detection/classification",

@@ -3,13 +3,18 @@ import logging
 import random
 import warnings
 from collections import defaultdict
-from typing import Dict, List, Optional, Tuple, Union
+from pathlib import Path
+from typing import Dict, List, Literal, Optional, Tuple, Union, cast
 
 import cv2
 import numpy as np
+import yaml
 from typing_extensions import override
 
-from luxonis_ml.data.augmentations import Augmentations
+from luxonis_ml.data.augmentations import (
+    AUGMENTATION_ENGINES,
+    AugmentationEngine,
+)
 from luxonis_ml.data.datasets import (
     Annotation,
     LuxonisDataset,
@@ -26,6 +31,7 @@ from luxonis_ml.data.utils import (
     split_task,
     task_type_iterator,
 )
+from luxonis_ml.typing import ConfigItem, PathType
 
 logger = logging.getLogger(__name__)
 
@@ -35,8 +41,16 @@ class LuxonisLoader(BaseLoader):
         self,
         dataset: LuxonisDataset,
         view: Union[str, List[str]] = "train",
-        stream: bool = False,
-        augmentations: Optional[Augmentations] = None,
+        augmentation_engine: Union[
+            Literal["albumentations"], str
+        ] = "albumentations",
+        augmentation_config: Optional[
+            Union[List[ConfigItem], PathType]
+        ] = None,
+        height: Optional[int] = None,
+        width: Optional[int] = None,
+        keep_aspect_ratio: bool = False,
+        out_image_format: Literal["RGB", "BGR"] = "RGB",
         *,
         force_resync: bool = False,
     ) -> None:
@@ -47,8 +61,6 @@ class LuxonisLoader(BaseLoader):
         @type view: Union[str, List[str]]
         @param view: What splits to use. Can be either a single split or
             a list of splits. Defaults to C{"train"}.
-        @type stream: bool
-        @param stream: Flag for data streaming. Defaults to C{False}.
         @type augmentations: Optional[luxonis_ml.loader.Augmentations]
         @param augmentations: Augmentation class that performs
             augmentations. Defaults to C{None}.
@@ -58,10 +70,10 @@ class LuxonisLoader(BaseLoader):
         """
 
         self.logger = logging.getLogger(__name__)
+        self.out_image_format = out_image_format
 
         self.dataset = dataset
-        self.stream = stream
-        self.sync_mode = self.dataset.is_remote and not self.stream
+        self.sync_mode = self.dataset.is_remote
 
         if self.sync_mode:
             self.dataset.sync_from_cloud(force=force_resync)
@@ -75,18 +87,20 @@ class LuxonisLoader(BaseLoader):
             raise FileNotFoundError("Cannot find dataframe")
         self.df = df
 
-        if not self.dataset.is_remote or not self.stream:
+        if not self.dataset.is_remote:
             file_index = self.dataset._get_file_index()
             if file_index is None:
                 raise FileNotFoundError("Cannot find file index")
             self.df = self.df.join(file_index, on="uuid").drop("file_right")
-        else:
-            raise NotImplementedError(
-                "Streaming for remote bucket storage not implemented yet"
-            )
 
         self.classes, self.classes_by_task = self.dataset.get_classes()
-        self.augmentations = augmentations
+        self.augmentations = self._init_augmentations(
+            augmentation_engine,
+            augmentation_config or [],
+            height,
+            width,
+            keep_aspect_ratio,
+        )
         self.instances = []
         splits_path = self.dataset.metadata_path / "splits.json"
         if not splits_path.exists():
@@ -121,7 +135,7 @@ class LuxonisLoader(BaseLoader):
             self.class_mappings[task] = class_mapping
 
         self.add_background = False
-        _, test_labels = self._load_image_with_annotations(0)
+        _, test_labels = self._load_data(0)
         for task, seg_masks in task_type_iterator(test_labels, "segmentation"):
             task = get_task_name(task)
             if seg_masks.shape[0] > 1:
@@ -164,35 +178,16 @@ class LuxonisLoader(BaseLoader):
         """
 
         if self.augmentations is None:
-            return self._load_image_with_annotations(idx)
+            img, labels = self._load_data(idx)
+        else:
+            img, labels = self._load_with_augmentations(idx)
 
-        indices = [idx]
-        if self.augmentations.is_batched:
-            if self.augmentations.batch_size > len(self):
-                warnings.warn(
-                    f"Augmentations batch_size ({self.augmentations.batch_size}) is larger than dataset size ({len(self)}), samples will include repetitions."
-                )
-                other_indices = [i for i in range(len(self)) if i != idx]
-                picked_indices = random.choices(
-                    other_indices, k=self.augmentations.batch_size - 1
-                )
-            else:
-                picked_indices = set()
-                max_val = len(self)
-                while len(picked_indices) < self.augmentations.batch_size - 1:
-                    rand_idx = random.randint(0, max_val - 1)
-                    if rand_idx != idx and rand_idx not in picked_indices:
-                        picked_indices.add(rand_idx)
-                picked_indices = list(picked_indices)
+        if self.out_image_format == "BGR":
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
-            indices.extend(picked_indices)
+        return img, labels
 
-        loaded_anns = [self._load_image_with_annotations(i) for i in indices]
-        return self.augmentations.apply(loaded_anns)
-
-    def _load_image_with_annotations(
-        self, idx: int
-    ) -> Tuple[np.ndarray, Labels]:
+    def _load_data(self, idx: int) -> Tuple[np.ndarray, Labels]:
         """Loads image and its annotations based on index.
 
         @type idx: int
@@ -212,15 +207,10 @@ class LuxonisLoader(BaseLoader):
         ann_rows = [self.df.row(row) for row in ann_indices]
         if not self.dataset.is_remote:
             img_path = ann_rows[0][-1]
-        elif not self.stream:
+        else:
             uuid = ann_rows[0][8]
             file_extension = ann_rows[0][0].rsplit(".", 1)[-1]
             img_path = self.dataset.media_path / f"{uuid}.{file_extension}"
-        else:
-            # TODO: add support for streaming remote storage
-            raise NotImplementedError(
-                "Streaming for remote bucket storage not implemented yet"
-            )
 
         img = cv2.cvtColor(cv2.imread(str(img_path)), cv2.COLOR_BGR2RGB)
 
@@ -293,3 +283,60 @@ class LuxonisLoader(BaseLoader):
             labels[task] = array
 
         return img, labels
+
+    def _load_with_augmentations(self, idx: int) -> LuxonisLoaderOutput:
+        indices = [idx]
+        assert self.augmentations is not None
+        if self.augmentations.is_batched:
+            if self.augmentations.batch_size > len(self):
+                warnings.warn(
+                    f"Augmentations batch_size ({self.augmentations.batch_size}) "
+                    f"is larger than dataset size ({len(self)}). "
+                    "Samples will include repetitions."
+                )
+                other_indices = [i for i in range(len(self)) if i != idx]
+                picked_indices = random.choices(
+                    other_indices, k=self.augmentations.batch_size - 1
+                )
+            else:
+                picked_indices = set()
+                max_val = len(self)
+                while len(picked_indices) < self.augmentations.batch_size - 1:
+                    rand_idx = random.randint(0, max_val - 1)
+                    if rand_idx != idx and rand_idx not in picked_indices:
+                        picked_indices.add(rand_idx)
+                picked_indices = list(picked_indices)
+
+            indices.extend(picked_indices)
+
+        loaded_anns = [self._load_data(i) for i in indices]
+        return self.augmentations.apply(loaded_anns)
+
+    def _init_augmentations(
+        self,
+        augmentation_engine: Union[Literal["albumentations"], str],
+        augmentation_config: Union[List[ConfigItem], PathType],
+        height: Optional[int],
+        width: Optional[int],
+        keep_aspect_ratio: bool,
+    ) -> Optional[AugmentationEngine]:
+        if isinstance(augmentation_config, (Path, str)):
+            with open(augmentation_config) as file:
+                augmentation_config = cast(
+                    List[ConfigItem], yaml.safe_load(file)
+                )
+        if augmentation_config and (width is None or height is None):
+            raise ValueError(
+                "Height and width must be provided when using augmentations"
+            )
+
+        if height is None or width is None:
+            return None
+
+        return AUGMENTATION_ENGINES.get(augmentation_engine).from_config(
+            height,
+            width,
+            augmentation_config,
+            keep_aspect_ratio=keep_aspect_ratio,
+            is_validation_pipeline="train" not in self.view,
+        )

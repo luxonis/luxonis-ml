@@ -1,15 +1,16 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List
+from typing import List, Type
 
 from luxonis_ml.data.utils import LuxonisLoaderOutput
+from luxonis_ml.typing import ConfigItem
 from luxonis_ml.utils import AutoRegisterMeta, Registry
 
-AUGMENTATION_ENGINES: Registry["BaseAugmentationPipeline"] = Registry(
+AUGMENTATION_ENGINES: Registry[Type["AugmentationEngine"]] = Registry(
     name="augmentations"
 )
 
 
-class BaseAugmentationPipeline(
+class AugmentationEngine(
     ABC,
     metaclass=AutoRegisterMeta,
     registry=AUGMENTATION_ENGINES,
@@ -21,11 +22,10 @@ class BaseAugmentationPipeline(
         cls,
         height: int,
         width: int,
-        config: List[Dict[str, Any]],
-        out_rgb: bool,
+        config: List[ConfigItem],
         keep_aspect_ratio: bool,
         is_validation_pipeline: bool,
-    ) -> "BaseAugmentationPipeline":
+    ) -> "AugmentationEngine":
         """Create augmentation pipeline from configuration.
 
         @type height: int
@@ -35,22 +35,27 @@ class BaseAugmentationPipeline(
         @type config: List[Dict[str, Any]]
         @param config: List of dictionaries with augmentation
             configurations.
-        @type out_rgb: bool
-        @param out_rgb: Whether to output RGB images
         @type keep_aspect_ratio: bool
         @param keep_aspect_ratio: Whether to keep aspect ratio
         @type is_validation_pipeline: bool
         @param is_validation_pipeline: Whether this is a validation
             pipeline (in which case some augmentations are skipped)
-        @rtype: BaseAugmentationPipeline
+        @rtype: AugmentationEngine
         @return: Initialized augmentation pipeline
         """
         ...
 
     @abstractmethod
-    def apply(
-        self, data: List[LuxonisLoaderOutput]
-    ) -> LuxonisLoaderOutput: ...
+    def apply(self, data: List[LuxonisLoaderOutput]) -> LuxonisLoaderOutput:
+        """Apply the augmentation pipeline to the data.
+
+        @type data: List[LuxonisLoaderOutput]
+        @param data: List of data to augment. The length of the list
+            must be equal to the batch size.
+        @rtype: LuxonisLoaderOutput
+        @return: Augmented data
+        """
+        ...
 
     @property
     @abstractmethod
@@ -65,10 +70,11 @@ class BaseAugmentationPipeline(
         augmentation, the batch size should be 2.
 
         If the pipeline requires MixUp and also Mosaic4 augmentations,
-        the batch size should be 6 (2 + 4).
+        the batch size should be 8 (2 * 4).
         """
         ...
 
     @property
     def is_batched(self) -> bool:
+        """Whether the augmentation pipeline is batched."""
         return self.batch_size > 1
