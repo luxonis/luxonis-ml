@@ -479,11 +479,11 @@ class DatasetRecord(BaseModelExtraForbid):
     @model_validator(mode="before")
     @classmethod
     def validate_task_name(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        if "task_name" not in values and "task" not in values:
+        if "task" not in values:
             if "segmentation" in values.get("annotation", {}):
-                values["task_name"] = "segmentation"
+                values["task"] = "segmentation"
             else:
-                values["task_name"] = "detection"
+                values["task"] = "detection"
         return values
 
     def to_parquet_rows(self) -> Iterable[ParquetRecord]:
