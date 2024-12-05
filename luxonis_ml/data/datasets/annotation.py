@@ -316,7 +316,7 @@ class SegmentationAnnotation(Annotation):
         assigned_pixels = np.zeros((height, width), dtype=bool)
         for i, class_ in enumerate(classes):
             mask = masks[i] & (assigned_pixels == 0)
-            seg[class_, ...] |= mask
+            seg[class_, ...] = np.maximum(seg[class_, ...], mask)
             assigned_pixels |= mask
 
         return seg
