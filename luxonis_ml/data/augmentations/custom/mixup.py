@@ -45,7 +45,7 @@ class MixUp(BatchBasedTransform):
         return ("alpha",)
 
     @override
-    def apply_to_image_batch(
+    def apply(
         self,
         image_batch: List[np.ndarray],
         image_shapes: List[Tuple[int, int]],
@@ -72,7 +72,7 @@ class MixUp(BatchBasedTransform):
         return cv2.addWeighted(image1, curr_alpha, image2, 1 - curr_alpha, 0.0)
 
     @override
-    def apply_to_mask_batch(
+    def apply_to_mask(
         self,
         mask_batch: List[np.ndarray],
         image_shapes: List[Tuple[int, int]],
@@ -101,7 +101,7 @@ class MixUp(BatchBasedTransform):
         return out_mask
 
     @override
-    def apply_to_bboxes_batch(
+    def apply_to_bboxes(
         self,
         bboxes_batch: List[np.ndarray],
         **_,
@@ -122,7 +122,7 @@ class MixUp(BatchBasedTransform):
         return np.concatenate(bboxes_batch, axis=0)
 
     @override
-    def apply_to_keypoints_batch(
+    def apply_to_keypoints(
         self,
         keypoints_batch: List[np.ndarray],
         **_,
@@ -149,5 +149,5 @@ class MixUp(BatchBasedTransform):
             targets.
         @rtype: Dict[str, Any]
         """
-        image_batch = data["image_batch"]
+        image_batch = data["image"]
         return {"image_shapes": [image.shape[:2] for image in image_batch]}

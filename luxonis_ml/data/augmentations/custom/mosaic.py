@@ -1,14 +1,13 @@
 import random
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, Final, List, Optional, Tuple, Union
 
 import numpy as np
-from albumentations.core.bbox_utils import (
-    denormalize_bboxes,
-    normalize_bboxes,
-)
+from albumentations.core.bbox_utils import denormalize_bboxes, normalize_bboxes
 from typing_extensions import override
 
 from ..batch_transform import BatchBasedTransform
+
+N_TILES: Final[int] = 4
 
 
 class Mosaic4(BatchBasedTransform):
@@ -60,7 +59,6 @@ class Mosaic4(BatchBasedTransform):
                 f"out_width should be larger than 0, got {out_width}"
             )
 
-        self.n_tiles = 4
         self.out_height = out_height
         self.out_width = out_width
         self.value = value
@@ -89,7 +87,7 @@ class Mosaic4(BatchBasedTransform):
         return crop_x, crop_y
 
     @override
-    def apply_to_image_batch(
+    def apply(
         self,
         image_batch: List[np.ndarray],
         x_crop: int,
@@ -122,7 +120,7 @@ class Mosaic4(BatchBasedTransform):
         )
 
     @override
-    def apply_to_mask_batch(
+    def apply_to_mask(
         self,
         mask_batch: List[np.ndarray],
         x_crop: int,
@@ -155,7 +153,7 @@ class Mosaic4(BatchBasedTransform):
         )
 
     @override
-    def apply_to_bboxes_batch(
+    def apply_to_bboxes(
         self,
         bboxes_batch: List[np.ndarray],
         image_shapes: List[Tuple[int, int]],
@@ -202,7 +200,7 @@ class Mosaic4(BatchBasedTransform):
         return np.concatenate(new_bboxes, axis=0)
 
     @override
-    def apply_to_keypoints_batch(
+    def apply_to_keypoints(
         self,
         keypoints_batch: List[np.ndarray],
         image_shapes: List[Tuple[int, int]],
@@ -257,7 +255,7 @@ class Mosaic4(BatchBasedTransform):
         @return: Dictionary containing parameters dependent on the
             targets.
         """
-        image_batch = data["image_batch"]
+        image_batch = data["image"]
         image_shapes = [tuple(image.shape[:2]) for image in image_batch]
         x_crop, y_crop = self._generate_random_crop_center()
         return {
@@ -295,7 +293,6 @@ def mosaic4(
     @rtype: np.ndarray
     @return: Final output image
     """
-    N_TILES = 4
     if len(image_batch) != N_TILES:
         raise ValueError(
             f"Length of image_batch should be 4. Got {len(image_batch)}"

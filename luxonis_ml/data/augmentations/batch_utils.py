@@ -23,8 +23,7 @@ def list2batch(data: List[Dict[str, Any]]) -> Dict[str, List[Any]]:
     batch = defaultdict(list)
     for item in data:
         for k, v in item.items():
-            batch_k = to_batched_name(k)
-            batch[batch_k].append(v)
+            batch[k].append(v)
 
     return dict(batch)
 

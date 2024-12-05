@@ -1,17 +1,17 @@
 from typing import Any, Dict, List
 
+import albumentations as A
 import numpy as np
-from albumentations.core.composition import Compose, TransformsSeqType
 from typing_extensions import override
 
 from .batch_transform import BatchBasedTransform
-from .batch_utils import batch_all, unbatch_all, yield_batches
+from .batch_utils import yield_batches
 
 
-class BatchCompose(Compose):
+class BatchCompose(A.Compose):
     def __init__(
         self,
-        transforms: TransformsSeqType,
+        transforms: A.TransformsSeqType,
         **kwargs,
     ):
         """Compose transforms and handle all transformations regarding
@@ -45,16 +45,13 @@ class BatchCompose(Compose):
             for data in yield_batches(batch_data, transform.batch_size):
                 data = transform(**data, force_apply=False)
 
-                data = batch_all(
-                    self.check_data_post_transform(unbatch_all(data))
-                )
-                new_batch.append(unbatch_all(data))
+                data = self.check_data_post_transform(data)
+                new_batch.append(data)
             batch_data = new_batch
 
         assert len(batch_data) == 1
         data = batch_data[0]
 
-        # TODO: why?
         self._make_targets_contiguous(data)
 
         return self.postprocess(data)

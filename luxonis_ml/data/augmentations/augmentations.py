@@ -77,11 +77,11 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
             )
             if isinstance(curr_aug, A.ImageOnlyTransform):
                 pixel_augs.append(curr_aug)
-            elif isinstance(curr_aug, A.DualTransform):
-                spatial_augs.append(curr_aug)
             elif isinstance(curr_aug, BatchBasedTransform):
                 batch_size *= curr_aug.batch_size
                 batched_augs.append(curr_aug)
+            elif isinstance(curr_aug, A.DualTransform):
+                spatial_augs.append(curr_aug)
 
         def _get_params():
             return {
