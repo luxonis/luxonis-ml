@@ -142,7 +142,7 @@ def test_dataset(
             dataset_name, bucket_storage=bucket_storage
         )
         assert dataset.get_classes()[0] == ["person"]
-        assert set(dataset.get_tasks()) == {"coco"}
+        assert set(dataset.get_task_names()) == {"coco"}
         assert dataset.get_skeletons() == SKELETONS
         assert dataset.identifier == dataset_name
 
@@ -418,7 +418,7 @@ def test_complex_dataset():
     dataset.add(generator())
     dataset.make_splits()
     assert len(dataset) == 156
-    assert set(dataset.get_tasks()) == {"motorbike", "car"}
+    assert set(dataset.get_task_names()) == {"motorbike", "car"}
     assert dataset.get_classes()[1] == {
         "motorbike": ["motorbike"],
         "car": ["car"],
