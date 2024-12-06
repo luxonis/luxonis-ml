@@ -1,3 +1,4 @@
+import numpy as np
 import pydantic
 import pytest
 
@@ -73,10 +74,52 @@ def test_poly_no_auto_clip():
         )
 
 
-def test_poly_auto_clip():
-    poly_ann = PolylineSegmentationAnnotation(
-        **{"points": [(-0.1, 1.1), (-2, 2), (-0.1, -1.1)]}
+def test_combine_to_numpy_handle_overlaps():
+    class_mapping = {"class1": 0, "class2": 1, "class3": 2}
+    height, width = 4, 4
+
+    polylines = [
+        np.array([(0, 0), (1, 0), (1, 1), (0, 1)], dtype=float)
+        / [width, height],
+        np.array([(1, 0), (2, 0), (2, 1), (1, 1)], dtype=float)
+        / [width, height],
+        np.array([(2, 2), (3, 2), (3, 3), (2, 3)], dtype=float)
+        / [width, height],
+    ]
+
+    annotations = [
+        PolylineSegmentationAnnotation(
+            **{"points": polylines[0], "class": "class1"}
+        ),
+        PolylineSegmentationAnnotation(
+            **{"points": polylines[1], "class": "class2"}
+        ),
+        PolylineSegmentationAnnotation(
+            **{"points": polylines[2], "class": "class3"}
+        ),
+    ]
+
+    combined = PolylineSegmentationAnnotation.combine_to_numpy(
+        annotations, class_mapping, height=height, width=width
     )
-    assert 0 <= poly_ann.points[0][0] <= 1 and 0 <= poly_ann.points[0][1] <= 1
-    assert 0 <= poly_ann.points[1][0] <= 1 and 0 <= poly_ann.points[1][1] <= 1
-    assert 0 <= poly_ann.points[2][0] <= 1 and 0 <= poly_ann.points[2][1] <= 1
+
+    expected_combined = np.zeros(
+        (len(class_mapping), height, width), dtype=np.uint8
+    )
+    expected_combined[0, :, :] = np.array(
+        [[1, 1, 0, 0], [1, 1, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+        dtype=np.uint8,
+    )
+    expected_combined[1, :, :] = np.array(
+        [[0, 0, 1, 0], [0, 0, 1, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+        dtype=np.uint8,
+    )
+    expected_combined[2, :, :] = np.array(
+        [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 1, 1], [0, 0, 1, 1]],
+        dtype=np.uint8,
+    )
+
+    assert combined.shape == (len(class_mapping), height, width)
+    assert np.array_equal(
+        combined, expected_combined
+    ), f"Expected {expected_combined}, but got {combined}"
