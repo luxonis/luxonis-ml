@@ -1,6 +1,7 @@
 import colorsys
 import hashlib
 import math
+from collections import defaultdict
 from typing import Dict, List, Tuple
 
 import cv2
@@ -229,6 +230,8 @@ def visualize(
             image,
         )
 
+    bbox_classes = defaultdict(list)
+
     for task, arr in task_type_iterator(labels, "segmentation"):
         task_name = get_task_name(task)
         images[task_name] = create_mask(arr, task_name, is_instance=False)
@@ -255,7 +258,9 @@ def visualize(
         arr = arr.astype(int)
 
         for box in arr:
-            color = str_to_rgb(class_names[task_name][int(box[0])])
+            class_id = int(box[0])
+            bbox_classes[task_name].append(class_id)
+            color = str_to_rgb(class_names[task_name][class_id])
             draw_function(
                 curr_image,
                 (box[1], box[2]),
@@ -271,27 +276,28 @@ def visualize(
 
         task_classes = class_names[task_name]
 
-        for kp in arr:
-            cls_ = int(kp[0])
-            kp = kp[1:].reshape(-1, 3)
-            color = get_contrast_color(*str_to_rgb(task_classes[cls_]))
+        for i, kp in enumerate(arr):
+            kp = kp.reshape(-1, 3)
+            class_id = bbox_classes[task_name][i]
+            color = get_contrast_color(*str_to_rgb(task_classes[class_id]))
             for k in kp:
-                if k[-1] == 2:
-                    cv2.circle(
-                        curr_image,
-                        (int(k[0] * w), int(k[1] * h)),
-                        radius=2,
-                        color=color,
-                        thickness=2,
-                    )
+                visibility = k[-1]
+                if visibility == 2:
+                    draw_function = cv2.circle
+                    size = 2
+                elif visibility == 1:
+                    draw_function = draw_cross
+                    size = 5
                 else:
-                    draw_cross(
-                        curr_image,
-                        (int(k[0] * w), int(k[1] * h)),
-                        size=5,
-                        color=color,
-                        thickness=2,
-                    )
+                    continue
+
+                draw_function(
+                    curr_image,
+                    (int(k[0] * w), int(k[1] * h)),
+                    size,
+                    color=color,
+                    thickness=2,
+                )
         images[task_name] = curr_image
 
     return concat_images(images)

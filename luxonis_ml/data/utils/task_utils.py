@@ -7,7 +7,19 @@ from luxonis_ml.typing import Labels, TaskType
 
 
 @lru_cache()
-def split_task(task: str) -> Tuple[str, str]:
+def task_is_metadata(task: str) -> bool:
+    """Returns whether a task is a metadata task.
+
+    @type task: str
+    @param task: The task to check.
+    @rtype: bool
+    @return: Whether the task is a metadata task.
+    """
+    return get_task_type(task).startswith("metadata/")
+
+
+@lru_cache()
+def split_task(task: str, qualified: bool = False) -> Tuple[str, str]:
     """Splits a task into its task name and type.
 
     @type task: str
@@ -15,7 +27,12 @@ def split_task(task: str) -> Tuple[str, str]:
     @rtype: Tuple[str, str]
     @return: A tuple containing the task name and type.
     """
-    return task.split("/")[0], task.split("/")[1]
+    if qualified:
+        return get_qualified_task_name(task), get_task_type(task)
+    splits = task.split("/", 1)
+    if len(splits) == 1:
+        return "", splits[0]
+    return splits[0], splits[1]
 
 
 @lru_cache()

@@ -329,10 +329,16 @@ class LuxonisLoader(BaseLoader):
         if height is None or width is None:
             return None
 
+        targets = {}
+        for task in self.dataset.get_tasks():
+            task_type = get_task_type(task)
+            targets[task] = task_type
+
         return AUGMENTATION_ENGINES.get(augmentation_engine).from_config(
-            height,
-            width,
-            augmentation_config,
+            height=height,
+            width=width,
+            config=augmentation_config,
+            targets=targets,
             keep_aspect_ratio=keep_aspect_ratio,
             is_validation_pipeline="train" not in self.view,
         )

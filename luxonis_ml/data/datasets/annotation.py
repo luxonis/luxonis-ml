@@ -29,20 +29,6 @@ NormalizedFloat: TypeAlias = Annotated[float, Field(ge=0, le=1)]
 1]."""
 
 
-def load_annotation(task_type: str, data: Dict[str, Any]) -> "Annotation":
-    classes = {
-        "classification": ClassificationAnnotation,
-        "boundingbox": BBoxAnnotation,
-        "keypoints": KeypointAnnotation,
-        "segmentation": SegmentationAnnotation,
-        "instance_segmentation": InstanceSegmentationAnnotation,
-        "array": ArrayAnnotation,
-    }
-    if task_type not in classes:
-        raise ValueError(f"Unknown label type: {task_type}")
-    return classes[task_type](**data)
-
-
 class Detection(BaseModelExtraForbid):
     class_name: Optional[str] = Field(None, alias="class")
     instance_id: int = -1
@@ -51,9 +37,8 @@ class Detection(BaseModelExtraForbid):
 
     boundingbox: Optional["BBoxAnnotation"] = None
     keypoints: Optional["KeypointAnnotation"] = None
-    instance_segmentation: Optional["InstanceSegmentationAnnotation"] = Field(
-        None, alias="segmentation"
-    )
+    instance_segmentation: Optional["InstanceSegmentationAnnotation"] = None
+    segmentation: Optional["SegmentationAnnotation"] = None
     array: Optional["ArrayAnnotation"] = None
 
     scale_to_boxes: bool = False
@@ -64,6 +49,7 @@ class Detection(BaseModelExtraForbid):
         for task_type in [
             "boundingbox",
             "keypoints",
+            "segmentation",
             "instance_segmentation",
             "array",
         ]:
@@ -92,6 +78,14 @@ class Detection(BaseModelExtraForbid):
             }
         for name, detection in self.sub_detections.items():
             yield from detection.to_parquet_rows(f"{prefix}{name}/")
+
+    @model_validator(mode="after")
+    def validate_names(self) -> Self:
+        for name in self.sub_detections:
+            check_valid_identifier("Sub-detection name", name)
+        for key in self.metadata:
+            check_valid_identifier("Metadata key", key)
+        return self
 
     @model_validator(mode="after")
     def rescale_values(self) -> Self:
@@ -234,8 +228,7 @@ class KeypointAnnotation(Annotation):
     ]
 
     def to_numpy(self, class_id: int) -> np.ndarray:
-        kps = np.array(self.keypoints).reshape((-1, 3)).astype(np.float32)
-        return np.concatenate([[class_id], kps.flatten()])
+        return np.array(self.keypoints).reshape((-1, 3)).flatten()
 
     @staticmethod
     @override
@@ -243,7 +236,7 @@ class KeypointAnnotation(Annotation):
         annotations: List["KeypointAnnotation"], classes: List[int], _: int
     ) -> np.ndarray:
         keypoints = np.zeros(
-            (len(annotations), len(annotations[0].keypoints) * 3 + 1)
+            (len(annotations), len(annotations[0].keypoints) * 3)
         )
         for i, ann in enumerate(annotations):
             keypoints[i] = ann.to_numpy(classes[i])
@@ -484,10 +477,7 @@ class DatasetRecord(BaseModelExtraForbid):
 
     @model_validator(mode="after")
     def validate_task_name(self) -> Self:
-        if not self.task.isidentifier():
-            raise ValueError(
-                f"Task name ({self.task}) must be a valid Python identifier"
-            )
+        check_valid_identifier("Task name", self.task)
         return self
 
     @model_validator(mode="before")
@@ -540,3 +530,32 @@ class DatasetRecord(BaseModelExtraForbid):
                     "task_type": None,
                     "annotation": None,
                 }
+
+
+def check_valid_identifier(label: str, name: str) -> None:
+    """Check if a name is a valid Python identifier after converting
+    dashes to underscores.
+
+    Albumentations requires that the names of the targets
+    passed as `additional_targets` are valid Python identifiers.
+    """
+    if not name.replace("-", "_").isidentifier():
+        raise ValueError(
+            f"{label} can only contain alphanumeric characters, "
+            "underscores, and dashes. Additionaly, the first character "
+            f"must be a letter or underscore. Got {name}"
+        )
+
+
+def load_annotation(task_type: str, data: Dict[str, Any]) -> "Annotation":
+    classes = {
+        "classification": ClassificationAnnotation,
+        "boundingbox": BBoxAnnotation,
+        "keypoints": KeypointAnnotation,
+        "segmentation": SegmentationAnnotation,
+        "instance_segmentation": InstanceSegmentationAnnotation,
+        "array": ArrayAnnotation,
+    }
+    if task_type not in classes:
+        raise ValueError(f"Unknown label type: {task_type}")
+    return classes[task_type](**data)

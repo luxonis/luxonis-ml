@@ -36,6 +36,7 @@ from luxonis_ml.data.utils import (
     warn_on_duplicates,
 )
 from luxonis_ml.data.utils.constants import LDF_VERSION
+from luxonis_ml.data.utils.task_utils import get_task_name
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import (
     LuxonisFileSystem,
@@ -290,6 +291,7 @@ class LuxonisDataset(BaseDataset):
                 "source": LuxonisSource().to_document(),
                 "ldf_version": str(LDF_VERSION),
                 "classes": {},
+                "tasks": [],
             }
 
     @property
@@ -330,10 +332,6 @@ class LuxonisDataset(BaseDataset):
                 for c in classes
             }
         )
-        for task in self.metadata["classes"]:
-            self.metadata["classes"][task] = sorted(
-                self.metadata["classes"][task]
-            )
         return sorted(all_classes), self.metadata["classes"]
 
     @override
@@ -347,7 +345,7 @@ class LuxonisDataset(BaseDataset):
             raise ValueError("Must provide either keypoint names or edges")
 
         if task is None:
-            tasks = self.get_tasks()
+            tasks = self.get_task_names()
         else:
             tasks = [task]
         for task in tasks:
@@ -368,7 +366,10 @@ class LuxonisDataset(BaseDataset):
 
     @override
     def get_tasks(self) -> List[str]:
-        return list(self.get_classes()[1].keys())
+        return self.metadata.get("tasks", [])
+
+    def get_task_names(self) -> List[str]:
+        return [get_task_name(task) for task in self.get_tasks()]
 
     def sync_from_cloud(self, force: bool = False) -> None:
         """Downloads data from a remote cloud bucket."""
@@ -577,7 +578,20 @@ class LuxonisDataset(BaseDataset):
         self.fs.put_file(tmp_file.name, "metadata/file_index.parquet")
         self._write_metadata()
         self._warn_on_duplicates()
+        self._save_tasks_to_metadata()
         return self
+
+    def _save_tasks_to_metadata(self) -> None:
+        df = self._load_df_offline()
+        if df is None:
+            return
+        tasks = []
+        for task_name, task_type in (
+            df.select("task_name", "task_type").unique().iter_rows()
+        ):
+            tasks.append(f"{task_name}/{task_type}")
+        self.metadata["tasks"] = tasks
+        self._write_metadata()
 
     def _warn_on_duplicates(self) -> None:
         df = self._load_df_offline(lazy=True)
