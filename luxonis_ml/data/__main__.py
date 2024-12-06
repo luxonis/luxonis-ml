@@ -14,6 +14,7 @@ from rich.table import Table
 from typing_extensions import Annotated
 
 from luxonis_ml.data import LuxonisDataset, LuxonisLoader, LuxonisParser
+from luxonis_ml.data.utils.task_utils import split_task, task_is_metadata
 from luxonis_ml.data.utils.visualizations import visualize
 from luxonis_ml.enums import DatasetType
 
@@ -45,19 +46,35 @@ def get_dataset_info(name: str) -> Tuple[int, List[str], List[str]]:
     dataset = LuxonisDataset(name)
     size = len(dataset)
     classes, _ = dataset.get_classes()
-    return size, classes, dataset.get_tasks()
+    return size, classes, dataset.get_task_names()
 
 
 def print_info(name: str) -> None:
     dataset = LuxonisDataset(name)
     _, classes = dataset.get_classes()
-    table = Table(
+    class_table = Table(
         title="Classes", box=rich.box.ROUNDED, row_styles=["yellow", "cyan"]
     )
-    table.add_column("Task", header_style="magenta i", max_width=30)
-    table.add_column("Class Names", header_style="magenta i", max_width=50)
-    for task, c in classes.items():
-        table.add_row(task, ", ".join(c))
+    class_table.add_column("Task Name", header_style="magenta i", max_width=30)
+    class_table.add_column("Classes", header_style="magenta i", max_width=50)
+    for task_name, c in classes.items():
+        class_table.add_row(task_name, ", ".join(c))
+
+    tasks = dataset.get_tasks()
+    tasks.sort(key=task_is_metadata)
+    task_table = Table(
+        title="Tasks", box=rich.box.ROUNDED, row_styles=["yellow", "cyan"]
+    )
+    task_table.add_column("Task Name", header_style="magenta i", max_width=30)
+    task_table.add_column("Task Type", header_style="magenta i", max_width=50)
+    separated = False
+    for task in tasks:
+        if task_is_metadata(task):
+            if not separated:
+                task_table.add_section()
+                separated = True
+        task_name, task_type = split_task(task)
+        task_table.add_row(task_name, task_type)
 
     splits = dataset.get_splits()
 
@@ -76,7 +93,8 @@ def print_info(name: str) -> None:
         yield f"[magenta b]Name: [not b cyan]{name}"
         yield ""
         yield Panel.fit(get_sizes_panel(), title="Split Sizes")
-        yield table
+        yield class_table
+        yield task_table
 
     print(
         Panel.fit(
@@ -208,6 +226,9 @@ def inspect(
     )
     class_names = dataset.get_classes()[1]
     for image, labels in loader:
+        # print(labels)
+        # print(labels["detection/metadata/color"])
+        # print(labels["detection/classification"])
         image = image.astype(np.uint8)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
