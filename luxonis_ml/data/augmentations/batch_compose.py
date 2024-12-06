@@ -6,7 +6,7 @@ from albumentations.core.composition import TransformsSeqType
 from typing_extensions import override
 
 from .batch_transform import BatchBasedTransform
-from .batch_utils import yield_batches
+from .utils import yield_batches
 
 
 class BatchCompose(A.Compose):

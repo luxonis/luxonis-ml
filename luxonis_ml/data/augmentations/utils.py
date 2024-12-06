@@ -1,12 +1,10 @@
-from typing import Tuple
+from collections import defaultdict
+from typing import Any, Dict, Iterator, List, Tuple, TypeVar
 
 import numpy as np
 
-from luxonis_ml.typing import Labels
 
-
-def prepare_mask(labels: Labels, height: int, width: int) -> np.ndarray:
-    seg = labels.get("segmentation", np.zeros((1, height, width)))
+def preprocess_mask(seg: np.ndarray) -> np.ndarray:
     mask = np.argmax(seg, axis=0) + 1
 
     # only background has value 0
@@ -15,31 +13,24 @@ def prepare_mask(labels: Labels, height: int, width: int) -> np.ndarray:
     return mask
 
 
-def prepare_bboxes(labels: Labels) -> Tuple[np.ndarray, np.ndarray]:
-    bboxes = labels.get("boundingbox", np.zeros((0, 5)))
-    bboxes_points = bboxes[:, 1:]
-    bboxes_points[:, 2] += bboxes_points[:, 0]
-    bboxes_points[:, 3] += bboxes_points[:, 1]
-    bboxes_classes = bboxes[:, 0]
-    return bboxes_points, bboxes_classes
+def preprocess_bboxes(bboxes: np.ndarray, bbox_counter: int) -> np.ndarray:
+    bboxes = bboxes[:, [1, 2, 3, 4, 0]]
+    bboxes[:, 2] += bboxes[:, 0]
+    bboxes[:, 3] += bboxes[:, 1]
+    ordering = np.arange(bbox_counter, bboxes.shape[0] + bbox_counter)
+    return np.concatenate((bboxes, ordering[:, None]), axis=1)
 
 
-def prepare_keypoints(
-    labels: Labels, height: int, width: int, n_keypoints: int
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    keypoints = labels.get("keypoints", np.zeros((1, n_keypoints * 3 + 1)))
-    keypoints_unflat = np.reshape(keypoints[:, 1:], (-1, 3))
-    keypoints_points = keypoints_unflat[:, :2]
-    keypoints_points[:, 0] *= width
-    keypoints_points[:, 1] *= height
-    keypoints_visibility = keypoints_unflat[:, 2]
-
-    keypoints_classes = np.repeat(keypoints[:, 0], n_keypoints)
-
-    return keypoints_points, keypoints_visibility, keypoints_classes
+def preprocess_keypoints(
+    keypoints: np.ndarray, height: int, width: int
+) -> np.ndarray:
+    keypoints = np.reshape(keypoints, (-1, 3))
+    keypoints[:, 0] *= width
+    keypoints[:, 1] *= height
+    return keypoints
 
 
-def post_process_mask(mask: np.ndarray, n_classes: int) -> np.ndarray:
+def postprocess_mask(mask: np.ndarray, n_classes: int) -> np.ndarray:
     out_mask = np.zeros((n_classes, *mask.shape))
     for key in np.unique(mask):
         if key != 0:
@@ -48,46 +39,31 @@ def post_process_mask(mask: np.ndarray, n_classes: int) -> np.ndarray:
     return out_mask
 
 
-def post_process_bboxes(bboxes: np.ndarray, classes: np.ndarray) -> np.ndarray:
-    if bboxes.shape[0] > 0:
-        out_bboxes = np.concatenate([classes, bboxes], axis=1)
-        out_bboxes[..., 3] -= out_bboxes[..., 1]
-        out_bboxes[..., 4] -= out_bboxes[..., 2]
-        return out_bboxes
-    return np.zeros((0, 5))
+def postprocess_bboxes(bboxes: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    if bboxes.shape[0] == 0:
+        return np.zeros((0, 6)), np.zeros((0, 1))
+    ordering = bboxes[:, -1]
+    out_bboxes = bboxes[:, :-1]
+    out_bboxes[:, 2] -= out_bboxes[:, 0]
+    out_bboxes[:, 3] -= out_bboxes[:, 1]
+
+    return out_bboxes[:, [4, 0, 1, 2, 3]], ordering.astype(np.uint8)
 
 
-def post_process_keypoints(
+def postprocess_keypoints(
     keypoints: np.ndarray,
-    visibility: np.ndarray,
-    classes: np.ndarray,
-    n_keypoints: int,
+    bboxes_ordering: np.ndarray,
     image_height: int,
     image_width: int,
+    n_keypoints: int,
 ) -> np.ndarray:
-    visibility = np.expand_dims(visibility, axis=-1)
-
-    if n_keypoints == 0:
-        n_keypoints = 1
-
-    if keypoints.shape[0] > 0:
-        out_keypoints = np.concatenate(
-            (keypoints, visibility),
-            axis=1,
-        )
-    else:
-        out_keypoints = np.zeros((0, n_keypoints * 3 + 1))
-
-    out_keypoints = _mark_invisible_keypoints(
-        out_keypoints, image_height, image_width
-    )
-    out_keypoints[..., 0] /= image_width
-    out_keypoints[..., 1] /= image_height
-    out_keypoints = np.reshape(out_keypoints, (-1, n_keypoints * 3))
-    classes = classes[0::n_keypoints]
-    classes = np.expand_dims(classes, axis=-1)
-    out_keypoints = np.concatenate((classes, out_keypoints), axis=1)
-    return out_keypoints
+    keypoints = _mark_invisible_keypoints(keypoints, image_height, image_width)
+    keypoints[..., 0] /= image_width
+    keypoints[..., 1] /= image_height
+    keypoints = np.reshape(keypoints[:, :3], (-1, n_keypoints * 3))[
+        bboxes_ordering
+    ]
+    return keypoints
 
 
 def _mark_invisible_keypoints(
@@ -104,10 +80,29 @@ def _mark_invisible_keypoints(
     return keypoints
 
 
-def _check_bboxes(bboxes: np.ndarray) -> np.ndarray:
-    for i in range(bboxes.shape[0]):
-        if bboxes[i, 2] == 0:
-            bboxes[i, 2] = 1
-        if bboxes[i, 3] == 0:
-            bboxes[i, 3] = 1
-    return bboxes
+K = TypeVar("K")
+V = TypeVar("V")
+
+
+def reverse_dictionary(d: Dict[K, V]) -> Dict[V, K]:
+    return {v: k for k, v in d.items()}
+
+
+def yield_batches(
+    data: List[Dict[str, Any]], batch_size: int
+) -> Iterator[Dict[str, List[Any]]]:
+    """Yield batches of data."""
+    for i in range(0, len(data), batch_size):
+        yield list2batch(data[i : i + batch_size])
+
+
+def list2batch(data: List[Dict[str, Any]]) -> Dict[str, List[Any]]:
+    """Convert from a list of normal target dicts to a batched target
+    dict."""
+
+    batch = defaultdict(list)
+    for item in data:
+        for k, v in item.items():
+            batch[k].append(v)
+
+    return dict(batch)

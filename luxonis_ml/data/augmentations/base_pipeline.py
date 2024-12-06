@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List, Type
+from typing import Dict, List, Type
 
 from luxonis_ml.typing import ConfigItem, LoaderOutput
 from luxonis_ml.utils import AutoRegisterMeta, Registry
@@ -21,6 +21,7 @@ class AugmentationEngine(
         cls,
         height: int,
         width: int,
+        targets: Dict[str, str],
         config: List[ConfigItem],
         keep_aspect_ratio: bool,
         is_validation_pipeline: bool,

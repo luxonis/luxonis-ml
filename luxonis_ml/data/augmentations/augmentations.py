@@ -1,27 +1,43 @@
-import random
 from collections import defaultdict
 from math import prod
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any, Callable, Dict, List, Literal, Set, Tuple
 
 import albumentations as A
 import numpy as np
-from typing_extensions import override
+from typing_extensions import TypeAlias, override
 
-from luxonis_ml.data.utils import get_qualified_task_name, get_task_type
-from luxonis_ml.typing import Labels, LoaderOutput
+from luxonis_ml.data.utils.task_utils import get_task_name, task_is_metadata
+from luxonis_ml.typing import ConfigItem, LoaderOutput, TaskType
 
 from .base_pipeline import AugmentationEngine
 from .batch_compose import BatchCompose
 from .batch_transform import BatchBasedTransform
 from .custom import LetterboxResize, MixUp, Mosaic4
 from .utils import (
-    post_process_bboxes,
-    post_process_keypoints,
-    post_process_mask,
-    prepare_bboxes,
-    prepare_keypoints,
-    prepare_mask,
+    postprocess_bboxes,
+    postprocess_keypoints,
+    postprocess_mask,
+    preprocess_bboxes,
+    preprocess_keypoints,
+    preprocess_mask,
 )
+
+# TODO: properly document
+
+Data: TypeAlias = Dict[str, np.ndarray]
+
+Transform: TypeAlias = Callable[[Dict[str, Any]], Data]
+
+
+def transform_wrapper(
+    transform: A.BaseCompose,
+) -> Callable[[Dict[str, Any]], Data]:
+    def wrapper(data: Dict[str, Any]) -> Data:
+        if transform.transforms:
+            return transform(**data)
+        return data
+
+    return wrapper
 
 
 class Augmentations(AugmentationEngine, register_name="albumentations"):
@@ -34,9 +50,16 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
         spatial_transform: A.Compose,
         pixel_transform: A.Compose,
         resize_transform: A.Compose,
+        targets: Dict[str, str],
+        targets_to_tasks: Dict[str, str],
+        special_targets: Dict[Literal["metadata", "classification"], Set[str]],
     ):
         self.image_size = (height, width)
         self._batch_size = batch_size
+        self.special_targets = special_targets
+        self.targets = targets
+        self.targets_to_tasks = targets_to_tasks
+        """Albumentation names to LDF."""
 
         self.batch_transform = batch_transform
         self.spatial_transform = spatial_transform
@@ -55,7 +78,8 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
         cls,
         height: int,
         width: int,
-        config: List[Dict[str, Any]],
+        targets: Dict[str, TaskType],
+        config: List[ConfigItem],
         keep_aspect_ratio: bool = True,
         is_validation_pipeline: bool = False,
     ) -> "Augmentations":
@@ -72,9 +96,7 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
         batched_augs = []
         batch_size = 1
         for aug in config:
-            curr_aug = cls._get_augmentation(
-                aug["name"], **aug.get("params", {})
-            )
+            curr_aug = cls._get_transform(aug)
             if isinstance(curr_aug, A.ImageOnlyTransform):
                 pixel_augs.append(curr_aug)
             elif isinstance(curr_aug, BatchBasedTransform):
@@ -83,21 +105,49 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
             elif isinstance(curr_aug, A.DualTransform):
                 spatial_augs.append(curr_aug)
 
+        main_task_names = set()
+        alb_targets = {}
+        alb_targets_to_tasks = {}
+        special_targets: Dict[
+            Literal["metadata", "classification"], Set[str]
+        ] = {
+            "metadata": set(),
+            "classification": set(),
+        }
+        for task, task_type in targets.items():
+            if task_type == "classification":
+                special_targets["classification"].add(task)
+                continue
+            elif task_is_metadata(task):
+                special_targets["metadata"].add(task)
+                continue
+
+            if task_type in {"segmentation", "instance_segmentation"}:
+                task_type = "mask"
+            elif task_type == "boundingbox":
+                task_type = "bboxes"
+
+            task_name = get_task_name(task)
+
+            safe_task = task.replace("/", "_").replace("-", "_")
+            assert safe_task.isidentifier()
+            alb_targets[safe_task] = task_type
+            alb_targets_to_tasks[safe_task] = task
+            main_task_names.add(task_name)
+
         def _get_params():
             return {
                 "bbox_params": A.BboxParams(
                     format="albumentations",
-                    label_fields=["bboxes_classes", "bboxes_visibility"],
                     # Bug in albumentations v1.4.18 (the latest installable
                     # on python 3.8) causes the pipeline to eventually
                     # crash when set to 0.
-                    min_visibility=0.01,
+                    min_visibility=0.001,
                 ),
                 "keypoint_params": A.KeypointParams(
-                    format="xy",
-                    label_fields=["keypoints_visibility", "keypoints_classes"],
-                    remove_invisible=False,
+                    format="xy", remove_invisible=False
                 ),
+                "additional_targets": alb_targets,
             }
 
         return cls(
@@ -108,6 +158,9 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
             spatial_transform=A.Compose(spatial_augs, **_get_params()),
             pixel_transform=A.Compose(pixel_augs),
             resize_transform=A.Compose([resize], **_get_params()),
+            targets=alb_targets,
+            targets_to_tasks=alb_targets_to_tasks,
+            special_targets=special_targets,
         )
 
     @property
@@ -117,91 +170,36 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
 
     @override
     def apply(self, data: List[LoaderOutput]) -> LoaderOutput:
-        random_state = random.getstate()
-        np_random_state = np.random.get_state()
-
-        task_names = {
-            get_qualified_task_name(task)
-            for _, label in data
-            for task in label
-        }
-        out_labels = {}
-
-        if not task_names:
-            return self._apply(data, 0, 0)
-
-        for task_name in task_names:
-            task_types_to_names = {}
-            batch_data: List[LoaderOutput] = []
-            nk = 0
-            ns = 0
-            for img, labels in data:
-                label_subset = {}
-                for task, label in labels.items():
-                    if get_qualified_task_name(task) == task_name:
-                        task_type = get_task_type(task)
-                        if task_type == "instance_segmentation":
-                            task_type = "segmentation"
-                        if task_type == "metadata":
-                            task_type = task.split("/", 1)[1]
-                        label_subset[task_type] = label
-                        task_types_to_names[task_type] = task
-                        if task_type == "keypoints":
-                            nk = (label.shape[1] - 1) // 3
-                        elif task_type == "segmentation":
-                            ns = label.shape[0]
-                batch_data.append((img, label_subset))
-
-            random.setstate(random_state)
-            np.random.set_state(np_random_state)
-
-            # TODO: Optimize
-            aug_img, aug_labels = self._apply(batch_data, ns, nk)
-            for task_type, label in aug_labels.items():
-                out_labels[task_types_to_names[task_type]] = label
-
-        return aug_img, out_labels
-
-    def _apply(
-        self,
-        data: List[LoaderOutput],
-        n_segmentation_classes: int,
-        n_keypoints: int,
-    ) -> LoaderOutput:
-        present_labels = {key for _, label in data for key in label.keys()}
-        return_mask = "segmentation" in present_labels
-
-        bbox_counter = 0
-        batch_data = []
+        new_data = []
         for img, labels in data:
-            # TODO: how to deal with classes for batch augmentations?
-            classes = labels.get("classification", np.zeros(1))
+            labels["image"] = img
+            new_data.append(labels)
 
-            t = self.prepare_img_labels(
-                labels,
-                *img.shape[:-1],
-                n_keypoints=n_keypoints,
-                return_mask=return_mask,
-            )
-            t["image"] = img
-            t["bboxes_visibility"] = np.arange(
-                bbox_counter, t["bboxes"].shape[0] + bbox_counter
-            )
+        return self._apply(new_data)
 
-            bbox_counter += t["bboxes"].shape[0]
-            batch_data.append(t)
+    def _apply(self, data: List[Data]) -> LoaderOutput:
+        # TODO: Classification
 
         metadata = defaultdict(list)
-        for _, ann in data:
-            for task, label in ann.items():
-                if task.startswith("metadata/"):
-                    metadata[task].append(label)
+        classification = defaultdict(list)
+        for labels in data:
+            for metadata_task in self.special_targets["metadata"]:
+                metadata[metadata_task].append(labels[metadata_task])
+            for classification_task in self.special_targets["classification"]:
+                classification[classification_task].append(
+                    labels[classification_task]
+                )
         metadata = {k: np.concatenate(v) for k, v in metadata.items()}
+        classification = {
+            k: np.clip(sum(v), 0, 1) for k, v in classification.items()
+        }
+
+        data, n_keypoints, n_mask_classes = self.preprocess(data)
 
         if self.batch_transform.transforms:
-            transformed = self.batch_transform(batch_data)
+            transformed = self.batch_transform(data)
         else:
-            transformed = batch_data[0]
+            transformed = data[0]
 
         if self.spatial_transform.transforms:
             transformed = self.spatial_transform(**transformed)
@@ -219,141 +217,111 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
         else:
             transformed = self.pixel_transform(transformed)
 
-        out_image, out_labels = self._post_transform(
-            transformed,
-            metadata,
-            n_segmentation_classes,
-            n_keypoints,
-            present_labels,
+        return self.postprocess(
+            transformed, metadata, classification, n_keypoints, n_mask_classes
         )
 
-        if "classification" in present_labels:
-            out_labels["classification"] = classes
+    def preprocess_data(
+        self, labels: Data, bbox_counter: int
+    ) -> Tuple[Data, Dict[str, int], Dict[str, int]]:
+        img = labels.pop("image")
+        height, width = img.shape[:2]
+        data = {"image": img}
+        n_keypoints = {}
+        n_segmentation_classes = {}
+        for task, task_type in self.targets.items():
+            override_name = task
+            task = self.targets_to_tasks[task]
 
-        return out_image, out_labels
+            array = labels[task]
+            if task_type == "mask":
+                n_segmentation_classes[override_name] = array.shape[0]
+                data[override_name] = preprocess_mask(array)
+            elif task_type == "bboxes":
+                data[override_name] = preprocess_bboxes(array, bbox_counter)
+            elif task_type == "keypoints":
+                n_keypoints[override_name] = array.shape[1] // 3
+                data[override_name] = preprocess_keypoints(
+                    array, height, width
+                )
+        return data, n_keypoints, n_segmentation_classes
 
-    def prepare_img_labels(
+    def preprocess(
+        self, data: List[Data]
+    ) -> Tuple[List[Data], Dict[str, int], Dict[str, int]]:
+        batch_data = []
+        bbox_counter = 0
+        n_keypoints = {}
+        n_segmentation_classes = {}
+
+        for d in data:
+            d, _n_keypoints, _n_segmentation_classes = self.preprocess_data(
+                d, bbox_counter
+            )
+            n_keypoints.update(_n_keypoints)
+            n_segmentation_classes.update(_n_segmentation_classes)
+            if "bboxes" in d:
+                bbox_counter += d["bboxes"].shape[0]
+            batch_data.append(d)
+        return batch_data, n_keypoints, n_segmentation_classes
+
+    def postprocess(
         self,
-        labels: Labels,
-        height: int,
-        width: int,
-        n_keypoints: int,
-        return_mask: bool = True,
-    ) -> Dict[str, np.ndarray]:
-        """Prepare labels to be compatible with albumentations.
-
-        @type labels: Dict[str, np.ndarray]
-        @param labels: Dict with labels
-        @type height: int
-        @param height: Input image height
-        @type width: int
-        @param width: Input image width
-        @type n_keypoints: int
-        @param n_keypoints: Number of keypoints per instance
-        @type return_mask: bool
-        @param return_mask: Whether to compute and return mask
-        @rtype: Tuple[np.ndarray, Optional[np.ndarray], np.ndarray,
-            np.ndarray, np.ndarray, np.ndarray, np.ndarray]
-        @return: Labels in albumentations format
-        """
-
-        mask = None
-        if return_mask:
-            mask = prepare_mask(labels, height, width)
-
-        bboxes, bboxes_classes = prepare_bboxes(labels)
-        keypoints_points, keypoints_visibility, keypoints_classes = (
-            prepare_keypoints(labels, height, width, n_keypoints)
-        )
-
-        data = {
-            "bboxes": bboxes,
-            "bboxes_classes": bboxes_classes,
-            "keypoints": keypoints_points,
-            "keypoints_visibility": keypoints_visibility,
-            "keypoints_classes": keypoints_classes,
-        }
-        if mask is not None:
-            data["mask"] = mask
-
-        return data
-
-    def _post_transform(
-        self,
-        data: Dict[str, np.ndarray],
-        metadata: Dict[str, np.ndarray],
-        n_segmentation_classes: int,
-        n_keypoints: int,
-        present_labels: Set[str],
-    ) -> Tuple[
-        np.ndarray,
-        Dict[str, np.ndarray],
-    ]:
-        """Postprocessing of albumentations output to LuxonisLoader
-        format.
-
-        @type data: Dict[str, np.ndarray]
-        @param data: Output data from albumentations
-        @type metadata: Dict[str, np.ndarray]
-        @param metadata: Metadata
-        @type n_segmentation_classes: int
-        @param n_segmentation_classes: Number of segmentation classes
-        @type n_keypoints: int
-        @param n_keypoints: Number of keypoints per instance
-        @type present_labels: Set[str]
-        @param present_labels: Set of present labels
-        @rtype: Tuple[np.ndarray, Dict[str, np.ndarray]]
-        @return: Image and labels
-        """
-
-        out_image = data["image"]
+        data: Data,
+        metadata: Data,
+        classification: Data,
+        n_keypoints: Dict[str, int],
+        n_segmentation_classes: Dict[str, int],
+    ) -> LoaderOutput:
+        out_labels = {}
+        out_image = data.pop("image")
         image_height, image_width, _ = out_image.shape
-        out_image = out_image.astype(np.float32)
 
-        out_mask = None
-        if "mask" in data:
-            out_mask = post_process_mask(data["mask"], n_segmentation_classes)
-
-        out_bboxes = post_process_bboxes(
-            data["bboxes"], np.expand_dims(data["bboxes_classes"], axis=-1)
-        )
-        out_keypoints = post_process_keypoints(
-            data["keypoints"],
-            data["keypoints_visibility"],
-            data["keypoints_classes"],
-            n_keypoints,
-            image_height,
-            image_width,
+        bboxes_orderings = {}
+        targets = sorted(
+            list(data.keys()), key=lambda x: self.targets[x] != "bboxes"
         )
 
-        visible_bboxes = [int(v) for v in data["bboxes_visibility"]]
-
-        if {"boundingbox", "keypoints"} <= present_labels:
-            out_keypoints = out_keypoints[visible_bboxes]
+        for target in targets:
+            array = data[target]
+            task = self.targets_to_tasks[target]
+            task_name = get_task_name(task)
+            task_type = self.targets[target]
+            if task_type == "mask":
+                out_labels[task] = postprocess_mask(
+                    array, n_segmentation_classes[target]
+                )
+            elif task_type == "bboxes":
+                out_labels[task], ordering = postprocess_bboxes(array)
+                bboxes_orderings[task_name] = ordering
+            elif task_type == "keypoints" and task_name in bboxes_orderings:
+                out_labels[task] = postprocess_keypoints(
+                    array,
+                    bboxes_orderings[task_name],
+                    image_height,
+                    image_width,
+                    n_keypoints[target],
+                )
 
         out_metadata = {}
-        for key, value in metadata.items():
-            out_metadata[key] = value[visible_bboxes]
+        for task, value in metadata.items():
+            task_name = get_task_name(task)
+            out_metadata[task] = value[bboxes_orderings[task_name]]
 
-        out_labels = {}
-        if "boundingbox" in present_labels:
-            out_labels["boundingbox"] = out_bboxes
-        if "keypoints" in present_labels:
-            out_labels["keypoints"] = out_keypoints
-        if out_mask is not None:
-            out_labels["segmentation"] = out_mask
-        out_labels.update(out_metadata)
+        out_labels.update(**out_metadata, **classification)
         return out_image, out_labels
 
     @staticmethod
-    def _get_augmentation(name: str, **kwargs) -> A.BasicTransform:
+    def _get_transform(config: ConfigItem) -> A.BasicTransform:
+        name = config["name"]
+        params = config.get("params", {})
         # TODO: Registry
         if name == "MixUp":
-            return MixUp(**kwargs)
+            return MixUp(**params)  # type: ignore
         if name == "Mosaic4":
-            return Mosaic4(**kwargs)
+            return Mosaic4(**params)  # type: ignore
         if not hasattr(A, name):
             raise ValueError(
                 f"Augmentation {name} not found in Albumentations"
             )
-        return getattr(A, name)(**kwargs)
+        return getattr(A, name)(**params)

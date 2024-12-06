@@ -98,13 +98,12 @@ class MixUp(BatchBasedTransform):
         # if masks intersect keep the one from the first image
         mask_inter = mask1 > 0
         out_mask[mask_inter] = mask1[mask_inter]
+
         return out_mask
 
     @override
     def apply_to_bboxes(
-        self,
-        bboxes_batch: List[np.ndarray],
-        **_,
+        self, bboxes_batch: List[np.ndarray], **_
     ) -> np.ndarray:
         """Applies the transformation to a batch of bboxes.
 
@@ -123,9 +122,7 @@ class MixUp(BatchBasedTransform):
 
     @override
     def apply_to_keypoints(
-        self,
-        keypoints_batch: List[np.ndarray],
-        **_,
+        self, keypoints_batch: List[np.ndarray], **_
     ) -> np.ndarray:
         """Applies the transformation to a batch of keypoints.
 
