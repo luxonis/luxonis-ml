@@ -211,7 +211,7 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
             if transformed_size > target_size:
                 transformed = self.resize_transform(**transformed)
                 transformed = self.pixel_transform(transformed)
-            elif transformed_size < target_size:
+            else:
                 transformed = self.pixel_transform(transformed)
                 transformed = self.resize_transform(**transformed)
         else:
