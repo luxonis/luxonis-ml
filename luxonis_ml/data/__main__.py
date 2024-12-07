@@ -211,24 +211,19 @@ def inspect(
 
     view = view or ["train"]
     dataset = LuxonisDataset(name)
-    h, w, _ = LuxonisLoader(dataset, view=view)[0][0].shape
+    loader = LuxonisLoader(dataset, view=view)
+
+    if aug_config is not None:
+        h, w, _ = loader[0][0].shape
+        loader.augmentations = loader._init_augmentations(
+            "albumentations", aug_config, h, w, keep_aspect_ratio
+        )
 
     if len(dataset) == 0:
         raise ValueError(f"Dataset '{name}' is empty.")
 
-    loader = LuxonisLoader(
-        dataset,
-        view=view,
-        augmentation_config=aug_config,
-        height=h if aug_config is not None else None,
-        width=w if aug_config is not None else None,
-        keep_aspect_ratio=keep_aspect_ratio,
-    )
     class_names = dataset.get_classes()[1]
     for image, labels in loader:
-        # print(labels)
-        # print(labels["detection/metadata/color"])
-        # print(labels["detection/classification"])
         image = image.astype(np.uint8)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
