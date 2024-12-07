@@ -1,6 +1,6 @@
 from collections import defaultdict
 from math import prod
-from typing import Any, Callable, Dict, List, Literal, Set, Tuple
+from typing import Any, Dict, List, Literal, Set, Tuple
 
 import albumentations as A
 import numpy as np
@@ -26,19 +26,6 @@ from .utils import (
 
 Data: TypeAlias = Dict[str, np.ndarray]
 
-Transform: TypeAlias = Callable[[Dict[str, Any]], Data]
-
-
-def transform_wrapper(
-    transform: A.BaseCompose,
-) -> Callable[[Dict[str, Any]], Data]:
-    def wrapper(data: Dict[str, Any]) -> Data:
-        if transform.transforms:
-            return transform(**data)
-        return data
-
-    return wrapper
-
 
 class Augmentations(AugmentationEngine, register_name="albumentations"):
     def __init__(
@@ -59,7 +46,6 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
         self.special_targets = special_targets
         self.targets = targets
         self.targets_to_tasks = targets_to_tasks
-        """Albumentation names to LDF."""
 
         self.batch_transform = batch_transform
         self.spatial_transform = spatial_transform
@@ -178,8 +164,6 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
         return self._apply(new_data)
 
     def _apply(self, data: List[Data]) -> LoaderOutput:
-        # TODO: Classification
-
         metadata = defaultdict(list)
         classification = defaultdict(list)
         for labels in data:
@@ -204,8 +188,10 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
         if self.spatial_transform.transforms:
             transformed = self.spatial_transform(**transformed)
 
-        if transformed["image"].shape[:2] != self.image_size:
-            transformed_size = prod(transformed["image"].shape[:2])
+        transformed_size = transformed["image"].shape[:2]
+
+        if transformed_size != self.image_size:
+            transformed_size = prod(transformed_size)
             target_size = prod(self.image_size)
 
             if transformed_size > target_size:
