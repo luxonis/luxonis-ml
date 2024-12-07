@@ -57,9 +57,20 @@ class LuxonisLoader(BaseLoader):
         @type view: Union[str, List[str]]
         @param view: What splits to use. Can be either a single split or
             a list of splits. Defaults to C{"train"}.
-        @type augmentations: Optional[luxonis_ml.loader.Augmentations]
-        @param augmentations: Augmentation class that performs
-            augmentations. Defaults to C{None}.
+        @type augmentation_engine: Union[Literal["albumentations"], str]
+        @param augmentation_engine: The augmentation engine to use.
+            Defaults to C{"albumentations"}.
+        @type augmentation_config: Optional[Union[List[ConfigItem],
+            PathType]]
+        @param augmentation_config: The configuration for the
+            augmentations. This can be either a list of C{ConfigItem} or
+            a path to a configuration file.
+        @type height: Optional[int]
+        @param height: The height of the output images. Defaults to
+            C{None}.
+        @type width: Optional[int]
+        @param width: The width of the output images. Defaults to
+            C{None}.
         @type force_resync: bool
         @param force_resync: Flag to force resync from cloud. Defaults
             to C{False}.
@@ -97,7 +108,7 @@ class LuxonisLoader(BaseLoader):
             width,
             keep_aspect_ratio,
         )
-        self.instances = []
+        self.instances: List[str] = []
         splits_path = self.dataset.metadata_path / "splits.json"
         if not splits_path.exists():
             raise RuntimeError(
@@ -318,8 +329,8 @@ class LuxonisLoader(BaseLoader):
     ) -> Optional[AugmentationEngine]:
         if isinstance(augmentation_config, (Path, str)):
             with open(augmentation_config) as file:
-                augmentation_config = cast(
-                    List[ConfigItem], yaml.safe_load(file)
+                augmentation_config = (
+                    cast(List[ConfigItem], yaml.safe_load(file)) or []
                 )
         if augmentation_config and (width is None or height is None):
             raise ValueError(
@@ -329,10 +340,9 @@ class LuxonisLoader(BaseLoader):
         if height is None or width is None:
             return None
 
-        targets = {}
-        for task in self.dataset.get_tasks():
-            task_type = get_task_type(task)
-            targets[task] = task_type
+        targets = {
+            task: get_task_type(task) for task in self.dataset.get_tasks()
+        }
 
         return AUGMENTATION_ENGINES.get(augmentation_engine).from_config(
             height=height,
