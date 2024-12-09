@@ -22,7 +22,7 @@ class BaseLoader(
         @rtype: int
         @return: Length of the dataset.
         """
-        pass
+        ...
 
     @abstractmethod
     def __getitem__(self, idx: int) -> LoaderOutput:
@@ -33,7 +33,7 @@ class BaseLoader(
         @rtype: L{LuxonisLoaderOutput}
         @return: Sample's data in C{LuxonisLoaderOutput} format.
         """
-        pass
+        ...
 
     def __iter__(self) -> Iterator[LoaderOutput]:
         """Iterates over the dataset.

@@ -149,12 +149,10 @@ class LuxonisParser(Generic[T]):
         )
 
     @overload
-    def parse(self: "LuxonisParser[str]", **kwargs) -> BaseDataset:
-        pass
+    def parse(self: "LuxonisParser[str]", **kwargs) -> BaseDataset: ...
 
     @overload
-    def parse(self: "LuxonisParser[None]", **kwargs) -> LuxonisDataset:
-        pass
+    def parse(self: "LuxonisParser[None]", **kwargs) -> LuxonisDataset: ...
 
     def parse(self, **kwargs) -> BaseDataset:
         """Parses the dataset and returns it in LuxonisDataset format.

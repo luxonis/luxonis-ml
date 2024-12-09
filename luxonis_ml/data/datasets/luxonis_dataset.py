@@ -36,7 +36,6 @@ from luxonis_ml.data.utils import (
     warn_on_duplicates,
 )
 from luxonis_ml.data.utils.constants import LDF_VERSION
-from luxonis_ml.data.utils.task_utils import get_task_name
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import (
     LuxonisFileSystem,
@@ -367,9 +366,6 @@ class LuxonisDataset(BaseDataset):
     @override
     def get_tasks(self) -> List[str]:
         return self.metadata.get("tasks", [])
-
-    def get_task_names(self) -> List[str]:
-        return [get_task_name(task) for task in self.get_tasks()]
 
     def sync_from_cloud(self, force: bool = False) -> None:
         """Downloads data from a remote cloud bucket."""

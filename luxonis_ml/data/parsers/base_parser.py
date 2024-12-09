@@ -33,7 +33,7 @@ class BaseParser(ABC):
         @return: Dictionary with kwargs to pass to L{from_split} method
             or C{None} if the split is not in the expected format.
         """
-        pass
+        ...
 
     @staticmethod
     @abstractmethod
@@ -45,7 +45,7 @@ class BaseParser(ABC):
         @rtype: bool
         @return: If the dataset is in the expected format.
         """
-        pass
+        ...
 
     @abstractmethod
     def from_dir(
@@ -62,7 +62,7 @@ class BaseParser(ABC):
         @return: Tuple with added images for C{train}, C{val} and
             C{test} splits.
         """
-        pass
+        ...
 
     @abstractmethod
     def from_split(self, **kwargs) -> ParserOutput:
@@ -79,7 +79,7 @@ class BaseParser(ABC):
         @return: C{LDF} generator, list of class names,
             skeleton dictionary for keypoints and list of added images.
         """
-        pass
+        ...
 
     def _parse_split(self, **kwargs) -> List[str]:
         """Parses data in a split subdirectory.

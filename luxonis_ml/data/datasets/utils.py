@@ -17,8 +17,7 @@ def get_file(
     local_path: PathType,
     mlflow_instance: Optional[ModuleType] = ...,
     default: Literal[None] = ...,
-) -> Optional[Path]:
-    pass
+) -> Optional[Path]: ...
 
 
 @overload
@@ -28,8 +27,7 @@ def get_file(
     local_path: PathType,
     mlflow_instance: Optional[ModuleType] = ...,
     default: PathType = ...,
-) -> Path:
-    pass
+) -> Path: ...
 
 
 def get_file(
@@ -53,8 +51,7 @@ def find_filepath_uuid(
     index: Optional[pl.DataFrame],
     *,
     raise_on_missing: Literal[False] = ...,
-) -> Optional[str]:
-    pass
+) -> Optional[str]: ...
 
 
 @overload
@@ -63,8 +60,7 @@ def find_filepath_uuid(
     index: Optional[pl.DataFrame],
     *,
     raise_on_missing: Literal[True] = ...,
-) -> str:
-    pass
+) -> str: ...
 
 
 def find_filepath_uuid(
@@ -94,8 +90,7 @@ def get_dir(
     mlflow_instance: Optional[ModuleType] = ...,
     *,
     default: Literal[None] = None,
-) -> Optional[Path]:
-    pass
+) -> Optional[Path]: ...
 
 
 @overload
@@ -106,8 +101,7 @@ def get_dir(
     mlflow_instance: Optional[ModuleType] = ...,
     *,
     default: Path = ...,
-) -> Path:
-    pass
+) -> Path: ...
 
 
 def get_dir(
