@@ -278,8 +278,11 @@ def visualize(
 
         for i, kp in enumerate(arr):
             kp = kp.reshape(-1, 3)
-            class_id = bbox_classes[task_name][i]
-            color = get_contrast_color(*str_to_rgb(task_classes[class_id]))
+            if len(bbox_classes[task_name]) > i:
+                class_id = bbox_classes[task_name][i]
+                color = get_contrast_color(*str_to_rgb(task_classes[class_id]))
+            else:
+                color = (255, 0, 0)
             for k in kp:
                 visibility = k[-1]
                 if visibility == 2:

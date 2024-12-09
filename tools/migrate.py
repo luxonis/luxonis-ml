@@ -1,3 +1,4 @@
+import json
 from typing import Optional
 
 import polars as pl
@@ -50,17 +51,22 @@ def main(
         datasets = [dataset_name]
 
     for dataset_name in datasets:
-        path = (
+        base_path = (
             environ.LUXONISML_BASE_PATH
             / "data"
             / team_id
+            / "datasets"
             / dataset_name
-            / "annotations"
         )
-        for parquet_file in path.glob("*.parquet"):
+        for parquet_file in (base_path / "annotations").glob("*.parquet"):
             df = pl.read_parquet(parquet_file)
             new_df = migrate_dataframe(df)
             new_df.write_parquet(parquet_file)
+
+        metadata_path = base_path / "metadata" / "metadata.json"
+        metadata = json.loads(metadata_path.read_text())
+        metadata["ldf_version"] = str(LDF_VERSION)
+        metadata_path.write_text(json.dumps(metadata))
         typer.echo(f"Migration complete for '{dataset_name}'.")
 
     typer.echo(f"All datasets migrated to version {LDF_VERSION}")

@@ -239,6 +239,10 @@ class LuxonisLoader(BaseLoader):
                 continue
 
             data = json.loads(ann_str)
+            if "points" in data and "width" not in data:
+                data["width"] = img.shape[1]
+                data["height"] = img.shape[0]
+                data["points"] = [tuple(p) for p in data["points"]]
             full_task_name = f"{task_name}/{task_type}"
             task_type = get_task_type(full_task_name)
             if task_type == "array" and self.dataset.is_remote:
