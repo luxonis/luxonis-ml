@@ -89,7 +89,7 @@ class ParquetFileManager:
         """Writes buffered data to parquet."""
 
         if self.buffer:
-            df = pl.DataFrame(self.buffer).cast({"instance_id": pl.Int16})
+            df = pl.DataFrame(self.buffer)
             df.write_parquet(self.current_file)
 
     def __enter__(self) -> "ParquetFileManager":
