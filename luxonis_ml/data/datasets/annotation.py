@@ -513,7 +513,7 @@ class DatasetRecord(BaseModelExtraForbid):
             if self.annotation is not None:
                 for detection in self.annotation.to_parquet_rows():
                     yield {
-                        "file": str(file_path.resolve()),
+                        "file": str(file_path),
                         "source_name": source,
                         "task_name": self.task,
                         "created_at": timestamp,
@@ -521,7 +521,7 @@ class DatasetRecord(BaseModelExtraForbid):
                     }
             else:
                 yield {
-                    "file": str(file_path.resolve()),
+                    "file": str(file_path),
                     "source_name": source,
                     "task_name": self.task,
                     "created_at": timestamp,
