@@ -783,6 +783,8 @@ class LuxonisDataset(BaseDataset):
         team_id: Optional[str] = None,
         bucket_storage: BucketStorage = BucketStorage.LOCAL,
         bucket: Optional[str] = None,
+        *,
+        list_incompatible: bool = False,
     ) -> List[str]:
         """Returns a dictionary of all datasets.
 
@@ -793,6 +795,9 @@ class LuxonisDataset(BaseDataset):
             C{S3}, or C{GCS}. Default is C{local}.
         @type bucket: Optional[str]
         @param bucket: Name of the bucket. Default is C{None}.
+        @type list_incompatible: bool
+        @param list_incompatible: Whether to list incompatible datasets.
+            Default is C{False}.
         @rtype: List[str]
         @return: List of all dataset names.
         """
@@ -828,8 +833,11 @@ class LuxonisDataset(BaseDataset):
             if isinstance(metadata_text, bytes):
                 metadata_text = metadata_text.decode()
             metadata = json.loads(metadata_text)
-            if LuxonisDataset._compare_versions(
-                metadata["ldf_version"], LDF_VERSION
+            if (
+                LuxonisDataset._compare_versions(
+                    metadata["ldf_version"], LDF_VERSION
+                )
+                or list_incompatible
             ):
                 names.append(path.name)
         return names
