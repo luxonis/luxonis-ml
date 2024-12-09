@@ -1,6 +1,10 @@
 from importlib.metadata import version
 
+import rich
+import rich.box
 import typer
+from rich.markup import escape
+from rich.table import Table
 
 from luxonis_ml.utils import setup_logging
 
@@ -49,8 +53,36 @@ def main(
         help="Show version and exit.",
     ),
 ):
-    # Do other global stuff, handle other global options here
     return
+
+
+@app.command()
+def checkhealth():
+    """Check the health of the Luxonis ML library."""
+    table = Table(
+        title="Health Check",
+        box=rich.box.ROUNDED,
+    )
+    table.add_column("Module", header_style="magenta i")
+    table.add_column("Status", header_style="magenta i")
+    table.add_column("Error", header_style="magenta i", max_width=50)
+    for submodule in ["data", "utils", "nn_archive"]:
+        error_message = ""
+        try:
+            __import__(f"luxonis_ml.{submodule}")
+            status = "✅"
+            style = "green"
+        except ImportError as e:
+            status = "❌"
+            style = "red"
+            error_message = escape(str(e.args[0]))
+            if len(e.args) > 1:
+                error_message += f" [bold]{escape(e.args[1])}[/bold]"
+
+        table.add_row(submodule, status, error_message, style=style)
+
+    console = rich.console.Console()
+    console.print(table)
 
 
 if __name__ == "__main__":
