@@ -15,8 +15,9 @@ def preprocess_mask(seg: np.ndarray) -> np.ndarray:
 
 def preprocess_bboxes(bboxes: np.ndarray, bbox_counter: int) -> np.ndarray:
     bboxes = bboxes[:, [1, 2, 3, 4, 0]]
-    bboxes[:, 2] += bboxes[:, 0]
-    bboxes[:, 3] += bboxes[:, 1]
+    # adding 1e-6 to avoid zero width or height
+    bboxes[:, 2] += bboxes[:, 0] + 1e-6
+    bboxes[:, 3] += bboxes[:, 1] + 1e-6
     ordering = np.arange(bbox_counter, bboxes.shape[0] + bbox_counter)
     return np.concatenate((bboxes, ordering[:, None]), axis=1)
 
