@@ -1,3 +1,4 @@
+import warnings
 from collections import defaultdict
 from math import prod
 from typing import Any, Dict, List, Literal, Set, Tuple
@@ -68,6 +69,7 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
         config: List[ConfigItem],
         keep_aspect_ratio: bool = True,
         is_validation_pipeline: bool = False,
+        min_bbox_visibility: float = 0.001,
     ) -> "Augmentations":
         if keep_aspect_ratio:
             resize = LetterboxResize(height=height, width=width)
@@ -128,7 +130,7 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
                     # Bug in albumentations v1.4.18 (the latest installable
                     # on python 3.8) causes the pipeline to eventually
                     # crash when set to 0.
-                    min_visibility=0.001,
+                    min_visibility=min_bbox_visibility,
                 ),
                 "keypoint_params": A.KeypointParams(
                     format="xy", remove_invisible=False
@@ -136,18 +138,19 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
                 "additional_targets": alb_targets,
             }
 
-        return cls(
-            height=height,
-            width=width,
-            batch_size=batch_size,
-            batch_transform=BatchCompose(batched_augs, **_get_params()),
-            spatial_transform=A.Compose(spatial_augs, **_get_params()),
-            pixel_transform=A.Compose(pixel_augs),
-            resize_transform=A.Compose([resize], **_get_params()),
-            targets=alb_targets,
-            targets_to_tasks=alb_targets_to_tasks,
-            special_targets=special_targets,
-        )
+        with warnings.catch_warnings(record=True):
+            return cls(
+                height=height,
+                width=width,
+                batch_size=batch_size,
+                batch_transform=BatchCompose(batched_augs, **_get_params()),
+                spatial_transform=A.Compose(spatial_augs, **_get_params()),
+                pixel_transform=A.Compose(pixel_augs),
+                resize_transform=A.Compose([resize], **_get_params()),
+                targets=alb_targets,
+                targets_to_tasks=alb_targets_to_tasks,
+                special_targets=special_targets,
+            )
 
     @property
     @override

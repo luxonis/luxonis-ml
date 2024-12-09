@@ -25,6 +25,7 @@ class AugmentationEngine(
         config: List[ConfigItem],
         keep_aspect_ratio: bool,
         is_validation_pipeline: bool,
+        min_bbox_visibility: float,
     ) -> "AugmentationEngine":
         """Create augmentation pipeline from configuration.
 
@@ -40,6 +41,9 @@ class AugmentationEngine(
         @type is_validation_pipeline: bool
         @param is_validation_pipeline: Whether this is a validation
             pipeline (in which case some augmentations are skipped)
+        @type min_bbox_visibility: float
+        @param min_bbox_visibility: Minimum area of a bounding box to be
+            considered visible.
         @rtype: AugmentationEngine
         @return: Initialized augmentation pipeline
         """
