@@ -42,7 +42,7 @@ def postprocess_mask(mask: np.ndarray, n_classes: int) -> np.ndarray:
 
 def postprocess_bboxes(bboxes: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     if bboxes.shape[0] == 0:
-        return np.zeros((0, 6)), np.zeros((0, 1))
+        return np.zeros((0, 6)), np.zeros((0, 1), dtype=np.uint8)
     ordering = bboxes[:, -1]
     out_bboxes = bboxes[:, :-1]
     out_bboxes[:, 2] -= out_bboxes[:, 0]
@@ -58,26 +58,12 @@ def postprocess_keypoints(
     image_width: int,
     n_keypoints: int,
 ) -> np.ndarray:
-    keypoints = _mark_invisible_keypoints(keypoints, image_height, image_width)
-    keypoints[..., 0] /= image_width
-    keypoints[..., 1] /= image_height
     keypoints = np.reshape(keypoints[:, :3], (-1, n_keypoints * 3))[
         bboxes_ordering
     ]
-    return keypoints
-
-
-def _mark_invisible_keypoints(
-    keypoints: np.ndarray, height: int, width: int
-) -> np.ndarray:
-    for kp in keypoints:
-        if not (0 <= kp[0] < width and 0 <= kp[1] < height):
-            kp[2] = 0
-
-        # per COCO format invisible points have x=y=0
-        if kp[2] == 0:
-            kp[0] = kp[1] = 0
-
+    np.maximum(keypoints, 0, out=keypoints)
+    keypoints[..., ::3] /= image_width
+    keypoints[..., 1::3] /= image_height
     return keypoints
 
 
