@@ -124,7 +124,7 @@ class LuxonisDataset(BaseDataset):
         if not self._compare_versions(
             self.metadata["ldf_version"], LDF_VERSION
         ):
-            raise ValueError(
+            raise RuntimeError(
                 f"LDF version mismatch. This version of `luxonis-ml` "
                 f"supports only LDF v{LDF_VERSION}. "
                 f"Got v{self.metadata['ldf_version']}"
@@ -230,7 +230,7 @@ class LuxonisDataset(BaseDataset):
         self, lazy: bool = False
     ) -> Optional[Union[pl.DataFrame, pl.LazyFrame]]:
         path = get_file(
-            self.fs, "metadata/file_index.parquet", self.media_path
+            self.fs, "metadata/file_index.parquet", self.metadata_path
         )
         if path is not None and path.exists():
             if not lazy:
