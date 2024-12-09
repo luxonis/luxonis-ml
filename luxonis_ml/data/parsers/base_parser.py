@@ -19,6 +19,7 @@ names, skeleton dictionary for keypoints and list of added images.
 class BaseParser(ABC):
     dataset: BaseDataset
     dataset_type: DatasetType
+    task_name: Optional[str]
 
     @staticmethod
     @abstractmethod
@@ -246,9 +247,10 @@ class BaseParser(ABC):
         @return: Generator function with added task
         """
 
+        task_name = self.task_name or self.dataset_type.value
         for item in generator:
             if isinstance(item, dict):
-                item["task"] = self.dataset_type.value
+                item["task"] = task_name
             else:
-                item.task = self.dataset_type.value
+                item.task = task_name
             yield item

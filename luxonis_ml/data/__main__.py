@@ -286,6 +286,17 @@ def parse(
             show_default=False,
         ),
     ] = None,
+    task_name: Annotated[
+        Optional[str],
+        typer.Option(
+            ...,
+            "--task-name",
+            "-tn",
+            help="Name of the task that should be used with this dataset. "
+            "If not provided, the name of the dataset format will be used.",
+            show_default=False,
+        ),
+    ] = None,
 ):
     """Parses a directory with data and creates Luxonis dataset."""
     parser = LuxonisParser(
@@ -294,6 +305,7 @@ def parse(
         dataset_type=dataset_type,
         delete_existing=delete_existing,
         save_dir=save_dir,
+        task_name=task_name,
     )
     dataset = parser.parse()
 
