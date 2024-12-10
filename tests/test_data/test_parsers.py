@@ -40,6 +40,23 @@ def prepare_dir():
             ["boundingbox", "classification"],
         ),
         (
+            DatasetType.COCO,
+            "roboflow://team-roboflow/coco-128/2/coco",
+            ["boundingbox", "classification"],
+        ),
+        (
+            DatasetType.NATIVE,
+            "ParkingLot.zip",
+            [
+                "boundingbox",
+                "classification",
+                "instance_segmentation",
+                "keypoints",
+                "metadata/brand",
+                "metadata/color",
+            ],
+        ),
+        (
             DatasetType.VOC,
             "Thermal_Dogs_and_People.v1-resize-416x416.voc.zip",
             ["boundingbox", "classification"],
@@ -81,13 +98,8 @@ def prepare_dir():
         ),
         (
             DatasetType.SOLO,
-            "D1_ParkingSlot-solo.zip",
-            ["boundingbox", "segmentation", "classification"],
-        ),
-        (
-            DatasetType.COCO,
-            "roboflow://team-roboflow/coco-128/2/coco",
-            ["boundingbox", "classification"],
+            "D2_ParkingLot.zip",
+            ["boundingbox", "segmentation", "classification", "keypoints"],
         ),
     ],
 )

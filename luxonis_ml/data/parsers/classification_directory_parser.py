@@ -85,4 +85,4 @@ class ClassificationDirectoryParser(BaseParser):
 
         added_images = self._get_added_images(generator())
 
-        return generator(), class_names, {}, added_images
+        return generator(), {}, added_images
