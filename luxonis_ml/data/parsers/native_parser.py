@@ -56,14 +56,10 @@ class NativeParser(BaseParser):
         return added_train_imgs, added_val_imgs, added_test_imgs
 
     def from_split(self, annotation_path: Path) -> ParserOutput:
-        """Parses annotations from VOC format to LDF. Annotations
-        include classification and object detection.
+        """Parses annotations from LDF Format.
 
-        @type image_dir: Path
-        @param image_dir: Path to directory with images
-        @type annotation_dir: Path
-        @param annotation_dir: Path to directory with C{.xml}
-            annotations
+        @type annotation_path: C{Path}
+        @param annotation_dir: Path to the JSON file with annotations.
         @rtype: L{ParserOutput}
         @return: Annotation generator, list of classes names, skeleton
             dictionary for keypoints and list of added images.
