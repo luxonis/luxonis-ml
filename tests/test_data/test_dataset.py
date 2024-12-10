@@ -170,7 +170,7 @@ def test_dataset(
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_dataset_fail():
-    dataset = LuxonisDataset("__test_fail", delete_existing=True)
+    dataset = LuxonisDataset("test_fail", delete_existing=True)
 
     def generator():
         for i in range(10):
@@ -354,7 +354,7 @@ def test_metadata(bucket_storage: BucketStorage, dataset_name: str):
 
 
 def test_no_labels():
-    dataset = LuxonisDataset("__no_labels", delete_existing=True)
+    dataset = LuxonisDataset("no_labels", delete_existing=True)
 
     def generator():
         for i in range(10):
@@ -420,7 +420,7 @@ def test_deep_nested_labels():
                 },
             }
 
-    dataset = LuxonisDataset("__deep_nested_labels", delete_existing=True)
+    dataset = LuxonisDataset("deep_nested_labels", delete_existing=True)
     dataset.add(generator())
     dataset.make_splits()
 
@@ -443,7 +443,7 @@ def test_deep_nested_labels():
 
 
 def test_partial_labels():
-    dataset = LuxonisDataset("__partial_labels", delete_existing=True)
+    dataset = LuxonisDataset("partial_labels", delete_existing=True)
 
     def generator():
         for i in range(8):
