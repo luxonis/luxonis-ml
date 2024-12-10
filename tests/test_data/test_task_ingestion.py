@@ -10,7 +10,6 @@ import pytest
 from luxonis_ml.data import BucketStorage, LuxonisDataset, LuxonisLoader
 from luxonis_ml.data.utils import get_task_name, get_task_type
 
-DATASET_NAME = "test-task-ingestion"
 DATA_DIR = Path("tests/data/test_task_ingestion")
 STEP = 10
 
@@ -46,11 +45,9 @@ def compute_histogram(dataset: LuxonisDataset) -> Dict[str, int]:
     return dict(classes)
 
 
-def test_task_ingestion(
-    bucket_storage: BucketStorage, platform_name: str, python_version: str
-):
+def test_task_ingestion(bucket_storage: BucketStorage, dataset_name: str):
     dataset = LuxonisDataset(
-        f"{DATASET_NAME}-{bucket_storage.value}-{platform_name}-{python_version}",
+        dataset_name,
         bucket_storage=bucket_storage,
         delete_existing=True,
         delete_remote=True,

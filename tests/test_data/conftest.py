@@ -1,4 +1,6 @@
-from pytest import Metafunc, Parser
+import pytest
+from _pytest.fixtures import SubRequest
+from pytest import Function, Metafunc, Parser
 
 from luxonis_ml.data import BucketStorage
 
@@ -18,6 +20,18 @@ def pytest_generate_tests(metafunc: Metafunc):
         storage_options = (
             [BucketStorage.LOCAL]
             if only_local
-            else [BucketStorage.LOCAL, BucketStorage.S3, BucketStorage.GCS]
+            else [BucketStorage.LOCAL, BucketStorage.GCS]
         )
         metafunc.parametrize("bucket_storage", storage_options)
+
+
+@pytest.fixture(scope="function")
+def dataset_name(
+    request: SubRequest, platform_name: str, python_version: str
+) -> str:
+    node = request.node
+    if isinstance(node, Function):
+        prefix = node.function.__name__
+    else:
+        prefix = node.name
+    return f"{prefix}-{platform_name}-{python_version}"

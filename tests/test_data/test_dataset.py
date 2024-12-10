@@ -6,6 +6,7 @@ from typing import Dict, Final, List, Set
 import cv2
 import numpy as np
 import pytest
+from pytest_subtests.plugin import SubTests
 
 from luxonis_ml.data import (
     BucketStorage,
@@ -68,7 +69,6 @@ SKELETONS: Final[dict] = {
 }
 URL_PREFIX: Final[str] = "gs://luxonis-test-bucket/luxonis-ml-test-data"
 WORK_DIR: Final[str] = "tests/data/parser_datasets"
-DATASET_NAME: Final[str] = "test-dataset"
 TASKS: Final[Set[str]] = {
     "segmentation",
     "keypoints",
@@ -109,12 +109,8 @@ def make_image(i: int) -> Path:
 
 
 def test_dataset(
-    bucket_storage: BucketStorage,
-    platform_name: str,
-    python_version: str,
-    subtests,
+    bucket_storage: BucketStorage, dataset_name: str, subtests: SubTests
 ):
-    dataset_name = f"{DATASET_NAME}-{bucket_storage.value}-{platform_name}-{python_version}"
     with subtests.test("test_create", bucket_storage=bucket_storage):
         parser = LuxonisParser(
             f"{URL_PREFIX}/COCO_people_subset.zip",
@@ -211,9 +207,7 @@ def test_loader_iterator():
         _ = loader[0]
 
 
-def test_make_splits(
-    bucket_storage: BucketStorage, platform_name: str, python_version: str
-):
+def test_make_splits(bucket_storage: BucketStorage, dataset_name: str):
     definitions: Dict[str, List[str]] = defaultdict(list)
 
     _start_index: int = 0
@@ -233,7 +227,7 @@ def test_make_splits(
         _start_index += step
 
     dataset = LuxonisDataset(
-        f"_test_split-{bucket_storage.value}-{platform_name}-{python_version}",
+        dataset_name,
         delete_existing=True,
         delete_remote=True,
         bucket_storage=bucket_storage,
@@ -319,9 +313,7 @@ def test_make_splits(
 # TODO: Test array
 
 
-def test_metadata(
-    bucket_storage: BucketStorage, platform_name: str, python_version: str
-):
+def test_metadata(bucket_storage: BucketStorage, dataset_name: str):
     def generator():
         img = make_image(0)
         for i in range(10):
@@ -337,7 +329,6 @@ def test_metadata(
                 },
             }
 
-    dataset_name = f"metadata_task_types-{bucket_storage.value}-{platform_name}-{python_version}"
     dataset = LuxonisDataset(
         dataset_name,
         delete_existing=True,
