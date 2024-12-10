@@ -65,6 +65,19 @@ class LuxonisLoader(BaseLoader):
         @param augmentation_config: The configuration for the
             augmentations. This can be either a list of C{ConfigItem} or
             a path to a configuration file.
+            C{ConfigItem} is a dictionary with two keys: C{name} and
+            C{params}. C{name} is the name of the augmentation to
+            instantiate and C{params} is an optional dictionary
+            of parameters to pass to the augmentation.
+
+            Example::
+
+                [
+                    {"name": "HorizontalFlip", "params": {"p": 0.5}},
+                    {"name": "RandomBrightnessContrast", "params": {"p": 0.1}},
+                    {"name": "Defocus"}
+                ]
+
         @type height: Optional[int]
         @param height: The height of the output images. Defaults to
             C{None}.
