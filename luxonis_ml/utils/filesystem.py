@@ -450,9 +450,12 @@ class LuxonisFileSystem:
         elif self.is_fsspec:
             full_path = str(self.path / remote_dir)
             for file in self.fs.ls(full_path, detail=True):
-                name = str(
-                    PurePosixPath(str(file["name"])).relative_to(self.path)
-                )
+                if self.protocol == "file":
+                    name = str(Path(file["name"]).relative_to(self.path))
+                else:
+                    name = str(
+                        PurePosixPath(file["name"]).relative_to(self.path)
+                    )
                 if typ == "all" or file["type"] == typ:
                     yield name
                 if recursive and file["type"] == "directory":
