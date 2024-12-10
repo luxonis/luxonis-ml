@@ -109,4 +109,4 @@ class DarknetParser(BaseParser):
 
         added_images = self._get_added_images(generator())
 
-        return generator(), list(class_names.values()), {}, added_images
+        return generator(), {}, added_images

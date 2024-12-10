@@ -209,7 +209,6 @@ class COCOParser(BaseParser):
         coco_categories = annotation_data["categories"]
         categories = {cat["id"]: cat["name"] for cat in coco_categories}
 
-        class_names = list(categories.values())
         skeletons = {}
         for cat in coco_categories:
             if "keypoints" in cat.keys() and "skeleton" in cat.keys():
@@ -312,7 +311,7 @@ class COCOParser(BaseParser):
 
         added_images = self._get_added_images(generator())
 
-        return generator(), class_names, skeletons, added_images
+        return generator(), skeletons, added_images
 
 
 def clean_annotations(annotation_path: Path) -> Path:

@@ -84,7 +84,6 @@ class TensorflowCSVParser(BaseParser):
         )
         images_annotations = {}
 
-        class_names = set(df["class"])
         for row in df.rows(named=True):
             path = str(image_dir / str(row["filename"]))
             if path not in images_annotations:
@@ -129,4 +128,4 @@ class TensorflowCSVParser(BaseParser):
 
         added_images = self._get_added_images(generator())
 
-        return generator(), list(class_names), {}, added_images
+        return generator(), {}, added_images

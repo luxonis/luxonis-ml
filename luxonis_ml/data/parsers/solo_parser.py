@@ -260,7 +260,7 @@ class SOLOParser(BaseParser):
 
         added_images = self._get_added_images(generator())
 
-        return generator(), class_names, skeletons, added_images
+        return generator(), skeletons, added_images
 
     def _get_solo_annotation_types(
         self, annotation_definitions_dict: dict

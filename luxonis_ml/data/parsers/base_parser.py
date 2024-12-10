@@ -7,7 +7,7 @@ from luxonis_ml.data import BaseDataset, DatasetIterator
 from luxonis_ml.enums.enums import DatasetType
 from luxonis_ml.typing import PathType
 
-ParserOutput = Tuple[DatasetIterator, List[str], Dict[str, Dict], List[str]]
+ParserOutput = Tuple[DatasetIterator, Dict[str, Dict], List[PathType]]
 """Type alias for parser output.
 
 Contains a function to create the annotation generator, list of classes
@@ -90,7 +90,7 @@ class BaseParser(ABC):
         @rtype: List[str]
         @return: List of added images.
         """
-        generator, _, skeletons, added_images = self.from_split(**kwargs)
+        generator, skeletons, added_images = self.from_split(**kwargs)
         self.dataset.add(self._add_task(generator))
         if skeletons:
             for skeleton in skeletons.values():

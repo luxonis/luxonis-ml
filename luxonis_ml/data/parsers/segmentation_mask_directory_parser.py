@@ -96,7 +96,8 @@ class SegmentationMaskDirectoryParser(BaseParser):
             dictionary for keypoints and list of added images
         """
 
-        idx_class = " Class"  # NOTE: space prefix included
+        # NOTE: space prefix included
+        idx_class = " Class"
 
         df = pl.read_csv(classes_path).filter(pl.col(idx_class).is_not_null())
         class_names = df[idx_class].to_list()
@@ -124,4 +125,4 @@ class SegmentationMaskDirectoryParser(BaseParser):
                     }
 
         added_images = self._get_added_images(generator())
-        return generator(), class_names, {}, added_images
+        return generator(), {}, added_images
