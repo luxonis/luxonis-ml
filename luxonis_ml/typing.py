@@ -3,7 +3,7 @@ from typing import Dict, Literal, Tuple, TypedDict, Union
 
 import numpy as np
 from pydantic.config import JsonDict
-from typing_extensions import TypeAlias
+from typing_extensions import NotRequired, Required, TypeAlias
 
 PathType: TypeAlias = Union[str, Path]
 """A string or a `pathlib.Path` object."""
@@ -30,5 +30,18 @@ L{Annotations}."""
 
 
 class ConfigItem(TypedDict):
-    name: str
-    params: JsonDict
+    """Configuration dictionary for dynamic object instantiation.
+    Typically used to instantiate objects stored in registries.
+
+    A dictionary with a name and a dictionary of parameters.
+
+    @type name: str
+    @ivar name: The name of the object this configuration applies to.
+        Required.
+    @type params: JsonDict
+    @ivar params: Additional parameters for instantiating the object.
+        Not required.
+    """
+
+    name: Required[str]
+    params: NotRequired[JsonDict]
