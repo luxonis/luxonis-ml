@@ -171,11 +171,13 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
         classification = defaultdict(list)
         for labels in data:
             for metadata_task in self.special_targets["metadata"]:
-                metadata[metadata_task].append(labels[metadata_task])
+                if metadata_task in labels:
+                    metadata[metadata_task].append(labels[metadata_task])
             for classification_task in self.special_targets["classification"]:
-                classification[classification_task].append(
-                    labels[classification_task]
-                )
+                if classification_task in labels:
+                    classification[classification_task].append(
+                        labels[classification_task]
+                    )
         metadata = {k: np.concatenate(v) for k, v in metadata.items()}
         classification = {
             k: np.clip(sum(v), 0, 1) for k, v in classification.items()
@@ -221,6 +223,9 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
         for task, task_type in self.targets.items():
             override_name = task
             task = self.targets_to_tasks[task]
+
+            if task not in labels:
+                continue
 
             array = labels[task]
             if task_type == "mask":

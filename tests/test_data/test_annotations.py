@@ -1,3 +1,4 @@
+import numpy as np
 import pydantic
 import pytest
 
@@ -5,6 +6,7 @@ from luxonis_ml.data.datasets import Detection
 from luxonis_ml.data.datasets.annotation import (
     BBoxAnnotation,
     KeypointAnnotation,
+    SegmentationAnnotation,
 )
 
 
@@ -98,3 +100,50 @@ def test_kpt_auto_clip():
     assert (
         0 <= kpt_ann.keypoints[0][0] <= 1 and 0 <= kpt_ann.keypoints[0][1] <= 1
     )
+
+
+def test_combine_to_numpy_handle_overlaps():
+    class_mapping = {"class1": 0, "class2": 1, "class3": 2}
+    height, width = 4, 4
+
+    polylines = [
+        [(0, 0), (1 / 4, 0), (1 / 4, 1 / 4), (0, 1 / 4)],
+        [(1 / 4, 0), (1 / 2, 0), (1 / 2, 1 / 4), (1 / 4, 1 / 4)],
+        [(1 / 2, 1 / 2), (3 / 4, 1 / 2), (3 / 4, 3 / 4), (1 / 2, 3 / 4)],
+    ]
+
+    annotations = [
+        SegmentationAnnotation(
+            **{
+                "points": polylines[i],
+                "width": width,
+                "height": height,
+            }
+        )
+        for i in range(3)
+    ]
+
+    combined = SegmentationAnnotation.combine_to_numpy(
+        annotations, [0, 1, 2], 3
+    )
+
+    expected_combined = np.zeros(
+        (len(class_mapping), height, width), dtype=np.uint8
+    )
+    expected_combined[0, :, :] = np.array(
+        [[1, 1, 0, 0], [1, 1, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+        dtype=np.uint8,
+    )
+    expected_combined[1, :, :] = np.array(
+        [[0, 0, 1, 0], [0, 0, 1, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+        dtype=np.uint8,
+    )
+    expected_combined[2, :, :] = np.array(
+        [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 1, 1], [0, 0, 1, 1]],
+        dtype=np.uint8,
+    )
+
+    assert combined.shape == (len(class_mapping), height, width)
+    assert np.array_equal(
+        combined, expected_combined
+    ), f"Expected {expected_combined}, but got {combined}"

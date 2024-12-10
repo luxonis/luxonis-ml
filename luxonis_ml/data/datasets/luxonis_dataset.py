@@ -583,7 +583,10 @@ class LuxonisDataset(BaseDataset):
             return
         tasks = []
         for task_name, task_type in (
-            df.select("task_name", "task_type").unique().iter_rows()
+            df.select("task_name", "task_type")
+            .unique()
+            .drop_nulls()
+            .iter_rows()
         ):
             tasks.append(f"{task_name}/{task_type}")
         self.metadata["tasks"] = tasks

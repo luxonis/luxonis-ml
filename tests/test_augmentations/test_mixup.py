@@ -11,9 +11,9 @@ HEIGHT: Final[int] = 480
 def test_mixup():
     img = (np.random.rand(HEIGHT, WIDTH, 3) * 255).astype(np.uint8)
     mixup = MixUp(p=1.0)
-    m = mixup.apply_to_image_batch(
+    m = mixup.apply(
         image_batch=[img, img], image_shapes=[(HEIGHT, WIDTH), (HEIGHT, WIDTH)]
     )
     assert m.shape == (HEIGHT, WIDTH, 3)
-    result = mixup(image_batch=[img, img], labels={})
-    assert result["image_batch"].shape == (HEIGHT, WIDTH, 3)
+    result = mixup(image=[img, img], labels={})
+    assert result["image"].shape == (HEIGHT, WIDTH, 3)
