@@ -5,31 +5,88 @@ from collections import defaultdict
 from typing import Dict, List, Tuple
 
 import cv2
+import matplotlib.colors
 import numpy as np
 
 from luxonis_ml.data.utils import get_task_name, task_type_iterator
-from luxonis_ml.typing import Labels
+from luxonis_ml.typing import Color, Labels
 
 font = cv2.FONT_HERSHEY_SIMPLEX
 
 
-def rgb_to_hsb(r: int, g: int, b: int) -> Tuple[float, float, float]:
+def resolve_color(color: Color) -> Tuple[int, int, int]:
+    """Resolves a color to an RGB tuple.
+
+    @type color: Color
+    @param color: The color to resolve. Can be a string, an integer or a
+        tuple.
+    @rtype: Tuple[int, int, int]
+    @return: The RGB tuple.
+    """
+
+    def _check_range(val: int) -> None:
+        if val < 0 or val > 255:
+            raise ValueError(f"Color value {val} is out of range [0, 255]")
+
+    if isinstance(color, str):
+        return matplotlib.colors.to_rgb(color)
+    elif isinstance(color, int):
+        _check_range(color)
+        return color, color, color
+    else:
+        for c in color:
+            _check_range(c)
+        return color
+
+
+def rgb_to_hsb(color: Color) -> Tuple[float, float, float]:
+    """Converts an RGB color to HSB.
+
+    @type color: Color
+    @param color: The color to convert.
+    @rtype: Tuple[float, float, float]
+    @return: The HSB tuple.
+    """
+    r, g, b = resolve_color(color)
     h, s, br = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
     return h * 360, s, br
 
 
-def hsb_to_rgb(h: float, s: float, b: float) -> Tuple[int, int, int]:
+def hsb_to_rgb(color: Tuple[float, float, float]) -> Tuple[int, int, int]:
+    """Converts an HSB color to RGB.
+
+    @type color: Tuple[int, int, int]
+    @param color: The color to convert as an HSB tuple.
+    @rtype: Tuple[int, int, int]
+    @return: The RGB tuple.
+    """
+    h, s, b = color
     r, g, b = colorsys.hsv_to_rgb(h / 360, s, b)
     return int(r * 255), int(g * 255), int(b * 255)
 
 
-def get_contrast_color(r: int, g: int, b: int) -> Tuple[int, int, int]:
-    h, s, v = rgb_to_hsb(r, g, b)
+def get_contrast_color(color: Color) -> Tuple[int, int, int]:
+    """Returns a contrasting color for the given RGB color.
+
+    @type color: Color
+    @param color: The color to contrast.
+    @rtype: Tuple[int, int, int]
+    @return: The contrasting color.
+    """
+
+    h, s, v = rgb_to_hsb(resolve_color(color))
     h = (h + 180) % 360
-    return hsb_to_rgb(h, s, v)
+    return hsb_to_rgb((h, s, v))
 
 
 def str_to_rgb(string: str) -> Tuple[int, int, int]:
+    """Converts a string to its unique RGB color.
+
+    @type string: str
+    @param string: The string to convert.
+    @rtype: Tuple[int, int, int]
+    @return: The RGB tuple.
+    """
     h = int(hashlib.md5(string.encode()).hexdigest(), 16)
     r = (h & 0xFF0000) >> 16
     g = (h & 0x00FF00) >> 8
@@ -42,14 +99,31 @@ def draw_dashed_rectangle(
     image: np.ndarray,
     pt1: Tuple[int, int],
     pt2: Tuple[int, int],
-    color: Tuple[int, int, int],
+    color: Color,
     thickness: int = 1,
     dash_length: int = 10,
-):
+) -> None:
+    """Draws a dashed rectangle on the image.
+
+    Adheres to OpenCV's rectangle drawing convention.
+
+    @type image: np.ndarray
+    @param image: The image to draw on.
+    @type pt1: Tuple[int, int]
+    @param pt1: The top-left corner of the rectangle.
+    @type pt2: Tuple[int, int]
+    @param pt2: The bottom-right corner of the rectangle.
+    @type color: Color
+    @param color: The color of the rectangle.
+    @type thickness: int
+    @param thickness: The thickness of the rectangle. Default is 1.
+    @type dash_length: int
+    @param dash_length: The length of the dashes. Default is 10.
+    """
     x1, y1 = pt1
     x2, y2 = pt2
 
-    def draw_dashed_line(p1, p2):
+    def draw_dashed_line(p1: Tuple[int, int], p2: Tuple[int, int]) -> None:
         line_length = int(np.hypot(p2[0] - p1[0], p2[1] - p1[1]))
         dashes = [
             (i, i + dash_length)
@@ -66,7 +140,9 @@ def draw_dashed_rectangle(
                 int(p1[0] + (p2[0] - p1[0]) * end / line_length),
                 int(p1[1] + (p2[1] - p1[1]) * end / line_length),
             )
-            cv2.line(image, start_point, end_point, color, thickness)
+            cv2.line(
+                image, start_point, end_point, resolve_color(color), thickness
+            )
 
     draw_dashed_line((x1, y1), (x2, y1))
     draw_dashed_line((x2, y1), (x2, y2))
@@ -78,10 +154,24 @@ def draw_cross(
     img: np.ndarray,
     center: Tuple[int, int],
     size: int = 5,
-    color: Tuple[int, int, int] = (0, 255, 0),
+    color: Color = 0,
     thickness: int = 1,
-):
+) -> None:
+    """Draws a cross on the image.
+
+    @type img: np.ndarray
+    @param img: The image to draw on.
+    @type center: Tuple[int, int]
+    @param center: The center of the cross.
+    @type size: int
+    @param size: The size of the cross. Default is 5.
+    @type color: Color
+    @param color: The color of the cross. Default is black.
+    @type thickness: int
+    @param thickness: The thickness of the cross. Default is 1.
+    """
     x, y = center
+    color = resolve_color(color)
     cv2.line(img, (x - size, y), (x + size, y), color, thickness)
     cv2.line(img, (x, y - size), (x, y + size), color, thickness)
 
@@ -91,9 +181,9 @@ def create_text_image(
     width: int,
     height: int,
     font_size: float = 0.7,
-    bg_color: Tuple[int, int, int] = (255, 255, 255),
-    text_color: Tuple[int, int, int] = (0, 0, 0),
-):
+    bg_color: Color = 255,
+    text_color: Color = 0,
+) -> np.ndarray:
     """Creates an image with the given text centered in the image.
 
     @type text: str
@@ -110,7 +200,7 @@ def create_text_image(
     @type text_color: Tuple[int, int, int]
     @param text_color: The color of the text. Default is black.
     """
-    img = np.full((height, width, 3), bg_color, dtype=np.uint8)
+    img = np.full((height, width, 3), resolve_color(bg_color), dtype=np.uint8)
 
     font = cv2.FONT_HERSHEY_SIMPLEX
 
@@ -123,11 +213,11 @@ def create_text_image(
         img,
         text,
         (text_x, text_y),
-        font,
-        font_size,
-        text_color,
-        1,
-        cv2.LINE_AA,
+        fontFace=font,
+        fontScale=font_size,
+        color=resolve_color(text_color),
+        thickness=1,
+        lineType=cv2.LINE_AA,
     )
 
     return img
@@ -137,7 +227,7 @@ def concat_images(
     image_dict: Dict[str, np.ndarray],
     padding: int = 10,
     label_height: int = 30,
-):
+) -> np.ndarray:
     """Concatenates images into a single image with labels.
 
     It will attempt to create a square grid of images.
@@ -280,7 +370,7 @@ def visualize(
             kp = kp.reshape(-1, 3)
             if len(bbox_classes[task_name]) > i:
                 class_id = bbox_classes[task_name][i]
-                color = get_contrast_color(*str_to_rgb(task_classes[class_id]))
+                color = get_contrast_color(str_to_rgb(task_classes[class_id]))
             else:
                 color = (255, 0, 0)
             for k in kp:

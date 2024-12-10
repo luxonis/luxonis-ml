@@ -29,7 +29,16 @@ dictionary of task group names and their annotations as
 L{Annotations}."""
 
 
-class ConfigItem(TypedDict):
+Color = Union[str, int, Tuple[int, int, int]]
+"""Color type alias.
+
+Can be either a string (e.g. "red", "#FF5512"),  a tuple of RGB values,
+or a single value (in which case it is interpreted as a grayscale
+value).
+"""
+
+
+class ConfigItem(TypedDict, total=False):
     """Configuration dictionary for dynamic object instantiation.
     Typically used to instantiate objects stored in registries.
 
