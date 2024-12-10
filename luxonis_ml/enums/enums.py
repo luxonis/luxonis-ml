@@ -13,3 +13,4 @@ class DatasetType(str, Enum):
     CLSDIR = "clsdir"
     SEGMASK = "segmask"
     SOLO = "solo"
+    NATIVE = "native"

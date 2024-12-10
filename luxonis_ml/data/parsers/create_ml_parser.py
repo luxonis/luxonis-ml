@@ -89,7 +89,6 @@ class CreateMLParser(BaseParser):
         with open(annotation_path) as f:
             annotations_data = json.load(f)
 
-        class_names = set()
         images_annotations = []
         for annotations in annotations_data:
             path = image_dir.absolute().resolve() / annotations["image"]
@@ -103,7 +102,6 @@ class CreateMLParser(BaseParser):
             for curr_ann in annotations["annotations"]:
                 class_name = curr_ann["label"]
                 curr_annotations["classes"].append(class_name)
-                class_names.add(class_name)
 
                 bbox_ann = curr_ann["coordinates"]
                 bbox_xywh = [
@@ -134,4 +132,4 @@ class CreateMLParser(BaseParser):
 
         added_images = self._get_added_images(generator())
 
-        return generator(), list(class_names), {}, added_images
+        return generator(), {}, added_images
