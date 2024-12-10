@@ -81,8 +81,8 @@ def prepare_dir():
         ),
         (
             DatasetType.SOLO,
-            "D1_ParkingSlot-solo.zip",
-            ["boundingbox", "segmentation", "classification"],
+            "D2_ParkingLot.zip",
+            ["boundingbox", "segmentation", "classification", "keypoints"],
         ),
         (
             DatasetType.COCO,

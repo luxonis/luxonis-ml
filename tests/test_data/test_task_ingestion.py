@@ -228,6 +228,7 @@ def test_task_ingestion(
             }
             yield {
                 "file": str(path),
+                "task": "segmentation",
                 "annotation": {
                     "class": "body",
                     "segmentation": {
