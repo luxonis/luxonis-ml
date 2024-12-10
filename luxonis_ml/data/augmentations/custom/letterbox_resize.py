@@ -6,6 +6,9 @@ import numpy as np
 from albumentations.core.bbox_utils import denormalize_bboxes, normalize_bboxes
 from typing_extensions import override
 
+from luxonis_ml.data.utils.visualizations import resolve_color
+from luxonis_ml.typing import Color
+
 
 class LetterboxResize(A.DualTransform):
     def __init__(
@@ -13,8 +16,8 @@ class LetterboxResize(A.DualTransform):
         height: int,
         width: int,
         interpolation: int = cv2.INTER_LINEAR,
-        border_value: int = 0,
-        mask_value: int = 0,
+        image_fill_value: Color = "black",
+        mask_fill_value: int = 0,
         p: float = 1.0,
     ):
         """Augmentation to apply letterbox resizing to images. Also
@@ -24,31 +27,28 @@ class LetterboxResize(A.DualTransform):
         @param height: Desired height of the output.
         @type width: int
         @param width: Desired width of the output.
-        @type interpolation: int, optional
+        @type interpolation: int
         @param interpolation: cv2 flag to specify interpolation used
             when resizing. Defaults to C{cv2.INTER_LINEAR}.
-        @type border_value: int, optional
-        @param border_value: Padding value for images. Defaults to C{0}.
-        @type mask_value: int, optional
-        @param mask_value: Padding value for masks. Defaults to C{0}.
-        @type p: float, optional
+        @type image_fill_value: int
+        @param image_fill_value: Padding value for images. Defaults to
+            "black".
+        @type mask_fill_value: int
+        @param mask_fill_value: Padding value for masks. Must be an
+            integer representing the class label. Defaults to C{0}
+            (background class).
+        @type p: float
         @param p: Probability of applying the transform. Defaults to
             C{1.0}.
         """
 
         super().__init__(p)
 
-        if not (0 <= border_value <= 255):
-            raise ValueError("Border value must be in range [0,255].")
-
-        if not (0 <= mask_value <= 255):
-            raise ValueError("Mask value must be in range [0,255].")
-
-        self.height = height
-        self.width = width
-        self.interpolation = interpolation
-        self.border_value = border_value
-        self.mask_value = mask_value
+        self._height = height
+        self._width = width
+        self._interpolation = interpolation
+        self._image_fill_value = resolve_color(image_fill_value)
+        self._mask_fill_value = resolve_color(mask_fill_value)
 
     @override
     def update_params(
@@ -70,15 +70,15 @@ class LetterboxResize(A.DualTransform):
         height = params["rows"]
         width = params["cols"]
 
-        ratio = min(self.height / height, self.width / width)
+        ratio = min(self._height / height, self._width / width)
         new_height = int(height * ratio)
         new_width = int(width * ratio)
 
         # only supports center alignment
-        pad_top = (self.height - new_height) // 2
+        pad_top = (self._height - new_height) // 2
         pad_bottom = pad_top
 
-        pad_left = (self.width - new_width) // 2
+        pad_left = (self._width - new_width) // 2
         pad_right = pad_left
 
         params.update(
@@ -123,8 +123,8 @@ class LetterboxResize(A.DualTransform):
             pad_bottom,
             pad_left,
             pad_right,
-            self.interpolation,
-            self.border_value,
+            self._interpolation,
+            self._image_fill_value,
         )
 
     @override
@@ -161,7 +161,7 @@ class LetterboxResize(A.DualTransform):
             pad_left,
             pad_right,
             cv2.INTER_NEAREST,
-            self.mask_value,
+            self._mask_fill_value,
         )
 
     @override
@@ -178,6 +178,8 @@ class LetterboxResize(A.DualTransform):
 
         @type bbox: np.ndarray
         @param bbox: Bounding box to which resize is applied.
+            Shape: (N, 6) where N is the number of bounding boxes.
+            The bbox format is (x1, y1, x2, y2, class_id, instance_id).
         @type pad_top: int
         @param pad_top: Number of pixels to pad at the top.
         @type pad_bottom: int
@@ -196,17 +198,17 @@ class LetterboxResize(A.DualTransform):
         bbox = denormalize_bboxes(
             bbox,
             (
-                self.height - pad_top - pad_bottom,
-                self.width - pad_left - pad_right,
+                self._height - pad_top - pad_bottom,
+                self._width - pad_left - pad_right,
             ),
         )
         bbox[..., :4] += np.array([pad_left, pad_top] * 2)
         bbox[..., :4] = bbox[..., :4].clip(
             min=[pad_left, pad_top] * 2,
-            max=[self.width - pad_left, self.height - pad_top] * 2,
+            max=[self._width - pad_left, self._height - pad_top] * 2,
         )
 
-        return normalize_bboxes(bbox, (self.height, self.width))
+        return normalize_bboxes(bbox, (self._height, self._width))
 
     @override
     def apply_to_keypoints(
@@ -224,6 +226,8 @@ class LetterboxResize(A.DualTransform):
 
         @type keypoint: np.ndarray
         @param keypoint: Keypoint to which resize is applied.
+            Shape: (N, 5) where N is the number of keypoints.
+            The keypoint format is (x, y, angle, scale, visibility).
         @type pad_top: int
         @param pad_top: Number of pixels to pad at the top.
         @type pad_bottom: int
@@ -241,8 +245,8 @@ class LetterboxResize(A.DualTransform):
         if keypoint.shape[0] == 0:
             return keypoint
 
-        scale_x = (self.width - pad_left - pad_right) / cols
-        scale_y = (self.height - pad_top - pad_bottom) / rows
+        scale_x = (self._width - pad_left - pad_right) / cols
+        scale_y = (self._height - pad_top - pad_bottom) / rows
         keypoint[:, 0] *= scale_x
         keypoint[:, 0] += pad_left
 
@@ -250,12 +254,13 @@ class LetterboxResize(A.DualTransform):
         keypoint[:, 1] += pad_top
 
         out_of_bounds_x = np.logical_or(
-            keypoint[:, 0] < pad_left, keypoint[:, 0] > self.width - pad_right
+            keypoint[:, 0] < pad_left, keypoint[:, 0] > self._width - pad_right
         )
         out_of_bounds_y = np.logical_or(
-            keypoint[:, 1] < pad_top, keypoint[:, 1] > self.height - pad_bottom
+            keypoint[:, 1] < pad_top,
+            keypoint[:, 1] > self._height - pad_bottom,
         )
-        keypoint[out_of_bounds_x | out_of_bounds_y] = -1
+        keypoint[out_of_bounds_x | out_of_bounds_y, :2] = -1
 
         return keypoint
 
@@ -283,13 +288,13 @@ class LetterboxResize(A.DualTransform):
         pad_left: int,
         pad_right: int,
         interpolation: int,
-        fill_value: int,
+        fill_value: Tuple[int, int, int],
     ) -> np.ndarray:
         resized_img = cv2.resize(
             img,
             (
-                self.width - pad_left - pad_right,
-                self.height - pad_top - pad_bottom,
+                self._width - pad_left - pad_right,
+                self._height - pad_top - pad_bottom,
             ),
             interpolation=interpolation,
         )
@@ -302,8 +307,3 @@ class LetterboxResize(A.DualTransform):
             cv2.BORDER_CONSTANT,
             value=fill_value,
         ).astype(img.dtype)
-
-    def _out_of_bounds(
-        self, value: float, min_limit: float, max_limit: float
-    ) -> bool:
-        return value < min_limit or value > max_limit
