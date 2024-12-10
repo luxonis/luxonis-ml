@@ -309,10 +309,13 @@ class SegmentationAnnotation(Annotation):
 
         segmentation = np.zeros((n_classes, height, width), dtype=np.uint8)
 
+        assigned_pixels = np.zeros((height, width), dtype=bool)
         for i, class_id in enumerate(classes):
+            mask = masks[i] & (assigned_pixels == 0)
             segmentation[class_id, ...] = np.maximum(
-                segmentation[class_id, ...], masks[i]
+                segmentation[class_id, ...], mask
             )
+            assigned_pixels |= mask.astype(bool)
 
         return segmentation
 
@@ -467,7 +470,7 @@ class ArrayAnnotation(Annotation):
 class DatasetRecord(BaseModelExtraForbid):
     files: Dict[str, FilePath]
     annotation: Optional[Detection] = None
-    task: str
+    task: str = "detection"
 
     @property
     def file(self) -> FilePath:
@@ -485,20 +488,6 @@ class DatasetRecord(BaseModelExtraForbid):
     def validate_files(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         if "file" in values:
             values["files"] = {"image": values.pop("file")}
-        return values
-
-    @model_validator(mode="before")
-    @classmethod
-    def auto_populate_task(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        if "task" not in values:
-            annotations = values.get("annotation", {})
-            if (
-                "segmentation" in annotations
-                and "boundingbox" not in annotations
-            ):
-                values["task"] = "segmentation"
-            else:
-                values["task"] = "detection"
         return values
 
     def to_parquet_rows(self) -> Iterable[ParquetRecord]:

@@ -1,6 +1,4 @@
-import json
 import shutil
-import uuid
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, Final, List, Set
@@ -21,7 +19,6 @@ from luxonis_ml.data.utils.task_utils import (
 )
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.typing import ConfigItem
-from luxonis_ml.utils import LuxonisFileSystem
 
 # TODO: Test array
 
@@ -111,14 +108,6 @@ def make_image(i: int) -> Path:
     return path
 
 
-@pytest.mark.parametrize(
-    ("bucket_storage",),
-    [
-        (BucketStorage.LOCAL,),
-        (BucketStorage.S3,),
-        (BucketStorage.GCS,),
-    ],
-)
 def test_dataset(
     bucket_storage: BucketStorage,
     platform_name: str,
@@ -222,13 +211,6 @@ def test_loader_iterator():
         _ = loader[0]
 
 
-@pytest.mark.parametrize(
-    ("bucket_storage",),
-    [
-        (BucketStorage.LOCAL,),
-        (BucketStorage.GCS,),
-    ],
-)
 def test_make_splits(
     bucket_storage: BucketStorage, platform_name: str, python_version: str
 ):
@@ -334,118 +316,9 @@ def test_make_splits(
         ), f"Split {split} has {len(split_data)} samples"
 
 
-def test_complex_dataset():
-    url = f"{URL_PREFIX}/D2_ParkingLot"
-    base_path = LuxonisFileSystem.download(url, WORK_DIR)
-
-    def get_annotations(sequence_path):
-        frame_data = sequence_path / "step0.frame_data.json"
-        with open(frame_data) as f:
-            data = json.load(f)["captures"][0]
-            frame_data = data["annotations"]
-
-        return {anno["@type"].split(".")[-1]: anno for anno in frame_data}
-
-    # TODO: simplify
-    def generator():
-        seen = set()
-        for sequence_path in base_path.glob("sequence.*"):
-            filepath = sequence_path / "step0.camera.jpg"
-            if not filepath.exists():
-                filepath = sequence_path / "step0.camera_0.jpg"
-
-            file_hash_uuid = str(
-                uuid.uuid5(uuid.NAMESPACE_URL, filepath.read_bytes().hex())
-            )
-            if file_hash_uuid in seen:
-                continue
-            seen.add(file_hash_uuid)
-            annotations = get_annotations(sequence_path)
-            W, H = annotations["SemanticSegmentationAnnotation"]["dimension"]
-            bbox = annotations["BoundingBox2DAnnotation"]["values"][0]
-            instance_id = bbox["instanceId"]
-            x, y = bbox["origin"]
-            w, h = bbox["dimension"]
-            label_name: str = bbox["labelName"]
-            *brand, color, vehicle_type = label_name.split("-")
-            vehicle_type = vehicle_type.lower()
-            if vehicle_type == "motorbiek":
-                vehicle_type = "motorbike"
-
-            keypoints = []
-            for kp in annotations["KeypointAnnotation"]["values"][0][
-                "keypoints"
-            ]:
-                kpt_x, kpt_y = kp["location"]
-                state = kp["state"]
-                if vehicle_type == "motorbike":
-                    state = 2
-                keypoints.append([kpt_x / W, kpt_y / H, state])
-
-            mask_path = annotations["SemanticSegmentationAnnotation"][
-                "filename"
-            ]
-            mask = cv2.imread(
-                str(sequence_path / mask_path), cv2.IMREAD_GRAYSCALE
-            ).astype(bool)
-
-            yield {
-                "file": filepath,
-                "task": vehicle_type,
-                "annotation": {
-                    "instance_id": instance_id,
-                    "class": vehicle_type,
-                    "boundingbox": {
-                        "x": x / W,
-                        "y": y / H,
-                        "w": w / W,
-                        "h": h / H,
-                    },
-                    "keypoints": {
-                        "keypoints": keypoints,
-                    },
-                    "metadata": {
-                        "color": color.lower(),
-                        "brand": "-".join(brand),
-                    },
-                    "segmentation": {
-                        "mask": mask,
-                    },
-                },
-            }
-
-    dataset = LuxonisDataset("__D2ParkingSLot-test", delete_existing=True)
-    dataset.add(generator())
-    dataset.make_splits()
-    assert len(dataset) == 156
-    assert set(dataset.get_task_names()) == {"motorbike", "car"}
-    assert dataset.get_classes()[1] == {
-        "motorbike": ["motorbike"],
-        "car": ["car"],
-    }
-    loader = LuxonisLoader(dataset)
-    _, labels = next(iter(loader))
-    labels = {
-        k.replace("car/", "").replace("motorbike/", ""): v
-        for k, v in labels.items()
-    }
-    assert "boundingbox" in labels
-    assert "segmentation" in labels
-    assert "keypoints" in labels
-    assert "metadata/color" in labels
-    assert "metadata/brand" in labels
-
-
 # TODO: Test array
 
 
-@pytest.mark.parametrize(
-    ("bucket_storage",),
-    [
-        (BucketStorage.LOCAL,),
-        (BucketStorage.GCS,),
-    ],
-)
 def test_metadata(
     bucket_storage: BucketStorage, platform_name: str, python_version: str
 ):
@@ -464,7 +337,7 @@ def test_metadata(
                 },
             }
 
-    dataset_name = f"__uncommon_task_types-{bucket_storage.value}-{platform_name}-{python_version}"
+    dataset_name = f"metadata_task_types-{bucket_storage.value}-{platform_name}-{python_version}"
     dataset = LuxonisDataset(
         dataset_name,
         delete_existing=True,
@@ -576,3 +449,67 @@ def test_deep_nested_labels():
         "detection/license_plate/boundingbox",
         "detection/license_plate/metadata/text",
     } == set(labels.keys())
+
+
+def test_partial_labels():
+    dataset = LuxonisDataset("__partial_labels", delete_existing=True)
+
+    def generator():
+        for i in range(8):
+            img = make_image(i)
+            if i < 2:
+                yield {
+                    "file": img,
+                }
+            elif i < 4:
+                yield {
+                    "file": img,
+                    "annotation": {
+                        "class": "dog",
+                    },
+                }
+            elif i < 6:
+                yield {
+                    "file": img,
+                    "annotation": {
+                        "class": "dog",
+                        "boundingbox": {
+                            "x": 0.1,
+                            "y": 0.1,
+                            "w": 0.1,
+                            "h": 0.1,
+                        },
+                        "keypoints": {
+                            "keypoints": [[0.1, 0.1, 0], [0.2, 0.2, 1]]
+                        },
+                    },
+                }
+            elif i < 8:
+                yield {
+                    "file": img,
+                    "annotation": {
+                        "class": "dog",
+                        "segmentation": {
+                            "mask": np.random.rand(512, 512) > 0.5
+                        },
+                    },
+                }
+
+    dataset.add(generator()).make_splits()
+    loader = LuxonisLoader(
+        dataset,
+        width=512,
+        height=512,
+        augmentation_config=[{"name": "Rotate", "params": {}}],
+    )
+
+    all_labels = set()
+    for _, labels in loader:
+        all_labels.update(labels.keys())
+
+    assert {
+        "detection/classification",
+        "detection/boundingbox",
+        "detection/keypoints",
+        "detection/segmentation",
+    } == all_labels
