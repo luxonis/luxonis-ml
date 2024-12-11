@@ -220,6 +220,7 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
             task = self.targets_to_tasks[task]
 
             if task not in labels:
+                data[override_name] = np.array([])
                 continue
 
             array = labels[task]
@@ -278,10 +279,15 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
 
         for target in targets:
             array = data[target]
+            if array.shape[0] == 0:
+                continue
+
             task = self.targets_to_tasks[target]
             task_name = get_task_name(task)
             task_type = self.targets[target]
             if task_type == "mask":
+                if target not in n_segmentation_classes:
+                    continue
                 out_labels[task] = postprocess_mask(
                     array, n_segmentation_classes[target]
                 )
@@ -300,7 +306,9 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
         out_metadata = {}
         for task, value in metadata.items():
             task_name = get_task_name(task)
-            out_metadata[task] = value[bboxes_orderings[task_name]]
+            out_metadata[task] = value[
+                bboxes_orderings.get(task_name, np.array([], dtype=np.uint8))
+            ]
 
         out_labels.update(**out_metadata, **classification)
         return out_image, out_labels

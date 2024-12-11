@@ -108,6 +108,8 @@ class Mosaic4(BatchBasedTransform):
         mask_batch: List[np.ndarray],
         x_crop: int,
         y_crop: int,
+        cols: int,
+        rows: int,
         **_,
     ) -> np.ndarray:
         """Applies the transformation to a batch of masks.
@@ -126,6 +128,11 @@ class Mosaic4(BatchBasedTransform):
         @rtype: List[np.ndarray]
         @return: List of transformed masks.
         """
+        for i in range(len(mask_batch)):
+            if mask_batch[i].shape[0] == 0:
+                mask_batch[i] = np.zeros(
+                    (rows, cols), dtype=mask_batch[i].dtype
+                )
         return apply_mosaic4_to_images(
             mask_batch,
             self.out_height,
@@ -166,6 +173,9 @@ class Mosaic4(BatchBasedTransform):
         for i, (bboxes, (rows, cols)) in enumerate(
             zip(bboxes_batch, image_shapes)
         ):
+            if bboxes.shape[0] == 0:  # pragma: no cover
+                bboxes = np.zeros((0, 6), dtype=bboxes.dtype)
+
             bbox = apply_mosaic4_to_bboxes(
                 bboxes,
                 rows,
@@ -176,8 +186,6 @@ class Mosaic4(BatchBasedTransform):
                 x_crop,
                 y_crop,
             )
-            if bbox.shape[0] == 0:  # pragma: no cover
-                bbox = np.zeros((0, 6), dtype=bboxes.dtype)
             new_bboxes.append(bbox)
 
         return np.concatenate(new_bboxes, axis=0)
@@ -213,6 +221,9 @@ class Mosaic4(BatchBasedTransform):
         for i, (keypoints, (rows, cols)) in enumerate(
             zip(keypoints_batch, image_shapes)
         ):
+            if keypoints.shape[0] == 0:
+                keypoints = np.zeros((0, 5), dtype=keypoints.dtype)
+
             new_keypoint = apply_mosaic4_to_keypoints(
                 keypoints,
                 rows,

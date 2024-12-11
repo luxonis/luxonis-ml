@@ -86,8 +86,13 @@ class MixUp(BatchBasedTransform):
         @return: List of transformed masks.
         """
         padding = self._update_letterbox_params(image_shapes)
-        mask1 = mask_batch[0]
-        mask2 = self.letterbox.apply_to_mask(mask_batch[1], *padding)
+        mask1, mask2 = mask_batch
+        if mask2.shape[0] != 0:
+            mask2 = self.letterbox.apply_to_mask(mask2, *padding)
+        if mask1.shape[0] == 0:
+            return mask2
+        elif mask2.shape[0] == 0:
+            return mask1
         return np.minimum(mask1 + mask2, 1)
 
     @override
@@ -134,6 +139,11 @@ class MixUp(BatchBasedTransform):
         @rtype: np.ndarray
         @return: Transformed keypoints.
         """
+        for i in range(len(keypoints_batch)):
+            if keypoints_batch[i].shape[0] == 0:  # pragma: no cover
+                keypoints_batch[i] = np.zeros(
+                    (0, 5), dtype=keypoints_batch[i].dtype
+                )
         padding = self._update_letterbox_params(image_shapes)
         rows, cols = image_shapes[1]
         keypoints_batch[1] = self.letterbox.apply_to_keypoints(

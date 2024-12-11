@@ -20,7 +20,7 @@ class BatchCompose(A.Compose):
         @type transforms: TransformsSeqType
         @param kwargs: Additional arguments to pass to A.Compose
         """
-        super().__init__(transforms, **kwargs)
+        super().__init__(transforms, **kwargs, is_check_shapes=False)
 
         self.batch_size = 1
         for transform in self.transforms:
