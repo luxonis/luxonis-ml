@@ -177,6 +177,7 @@ class AutoRegisterMeta(ABCMeta):
         register: bool = True,
         register_name: Optional[str] = None,
         registry: Optional[Registry] = None,
+        mark_default: bool = False,
     ):
         """Automatically register the class.
 
@@ -200,6 +201,10 @@ class AutoRegisterMeta(ABCMeta):
         @type registry: Optional[Registry]
         @param registry: Registry to use for registration.
             Defaults to None. Has to be set in the base class.
+
+        @type mark_default: bool
+        @param mark_default: Whether to mark the module as default.
+            Default module can be retrieved with L{get_default} method.
         """
         new_class = super().__new__(cls, name, bases, attrs)
         if not hasattr(new_class, "REGISTRY"):
@@ -212,6 +217,8 @@ class AutoRegisterMeta(ABCMeta):
         if register:
             registry = registry if registry is not None else new_class.REGISTRY
             registry.register_module(
-                name=register_name or name, module=new_class
+                name=register_name or name,
+                module=new_class,
+                mark_default=mark_default,
             )
         return new_class
