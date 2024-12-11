@@ -23,8 +23,6 @@ from .utils import (
     preprocess_mask,
 )
 
-# TODO: properly document
-
 Data: TypeAlias = Dict[str, np.ndarray]
 
 
@@ -33,7 +31,6 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
         self,
         height: int,
         width: int,
-        batch_size: int,
         batch_transform: BatchCompose,
         spatial_transform: A.Compose,
         pixel_transform: A.Compose,
@@ -43,7 +40,6 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
         special_targets: Dict[Literal["metadata", "classification"], Set[str]],
     ):
         self.image_size = (height, width)
-        self._batch_size = batch_size
         self.special_targets = special_targets
         self.targets = targets
         self.targets_to_tasks = targets_to_tasks
@@ -142,7 +138,6 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
             return cls(
                 height=height,
                 width=width,
-                batch_size=batch_size,
                 batch_transform=BatchCompose(batched_augs, **_get_params()),
                 spatial_transform=A.Compose(spatial_augs, **_get_params()),
                 pixel_transform=A.Compose(pixel_augs),
@@ -155,7 +150,7 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
     @property
     @override
     def batch_size(self) -> int:
-        return self._batch_size
+        return self.batch_transform.batch_size
 
     @override
     def apply(self, data: List[LoaderOutput]) -> LoaderOutput:
@@ -213,7 +208,7 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
         )
 
     def preprocess_data(
-        self, labels: Data, bbox_counter: int
+        self, labels: Data, bbox_counters: Dict[str, int]
     ) -> Tuple[Data, Dict[str, int], Dict[str, int]]:
         img = labels.pop("image")
         height, width = img.shape[:2]
@@ -232,7 +227,9 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
                 n_segmentation_classes[override_name] = array.shape[0]
                 data[override_name] = preprocess_mask(array)
             elif task_type == "bboxes":
-                data[override_name] = preprocess_bboxes(array, bbox_counter)
+                data[override_name] = preprocess_bboxes(
+                    array, bbox_counters[override_name]
+                )
             elif task_type == "keypoints":
                 n_keypoints[override_name] = array.shape[1] // 3
                 data[override_name] = preprocess_keypoints(
@@ -244,18 +241,19 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
         self, data: List[Data]
     ) -> Tuple[List[Data], Dict[str, int], Dict[str, int]]:
         batch_data = []
-        bbox_counter = 0
+        bbox_counters = defaultdict(int)
         n_keypoints = {}
         n_segmentation_classes = {}
 
         for d in data:
             d, _n_keypoints, _n_segmentation_classes = self.preprocess_data(
-                d, bbox_counter
+                d, bbox_counters
             )
             n_keypoints.update(_n_keypoints)
             n_segmentation_classes.update(_n_segmentation_classes)
-            if "bboxes" in d:
-                bbox_counter += d["bboxes"].shape[0]
+            for task, task_type in self.targets.items():
+                if task_type == "bboxes":
+                    bbox_counters[task] += d[task].shape[0]
             batch_data.append(d)
         return batch_data, n_keypoints, n_segmentation_classes
 
