@@ -26,7 +26,7 @@ def python_version():
 
 
 @pytest.fixture(scope="session")
-def platform_name():
+def platform_name():  # pragma: no cover
     os_name = platform.system().lower()
     if "darwin" in os_name:
         return "mac"

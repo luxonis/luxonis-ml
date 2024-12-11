@@ -30,7 +30,7 @@ def dataset_name(
     request: SubRequest, platform_name: str, python_version: str
 ) -> str:
     node = request.node
-    if isinstance(node, Function):
+    if isinstance(node, Function):  # pragma: no cover
         prefix = node.function.__name__
     else:
         prefix = node.name
