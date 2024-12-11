@@ -1,4 +1,4 @@
-from typing import Final
+from typing import Dict, List
 
 import numpy as np
 import pytest
@@ -6,39 +6,53 @@ from pytest_subtests.plugin import SubTests
 
 from luxonis_ml.data.augmentations.custom.mixup import MixUp
 
-WIDTH: Final[int] = 640
-HEIGHT: Final[int] = 480
 
+@pytest.mark.parametrize("augmentation_data", [2], indirect=True)
+@pytest.mark.parametrize("alpha", [0.5, 0.1])
+def test_mixup(
+    height: int,
+    width: int,
+    augmentation_data: Dict[str, List[np.ndarray]],
+    subtests: SubTests,
+    alpha: float,
+):
+    mixup = MixUp(p=1.0, alpha=alpha)
+    transformed = mixup(**augmentation_data, force_apply=True)
+    assert set(transformed.keys()) == set(augmentation_data.keys())
+    for value in transformed.values():
+        assert isinstance(value, np.ndarray)
 
-def test_mixup(subtests: SubTests):
-    img = (np.random.rand(HEIGHT, WIDTH, 3) * 255).astype(np.uint8)
-    mixup = MixUp(p=1.0)
-    m = mixup.apply(
-        image_batch=[img, img], image_shapes=[(HEIGHT, WIDTH), (HEIGHT, WIDTH)]
-    )
-    assert m.shape == (HEIGHT, WIDTH, 3)
     with subtests.test("image"):
-        result = mixup(image=[img, img])
-        assert result["image"].shape == (HEIGHT, WIDTH, 3)
+        assert transformed["image"].shape == (height, width, 3)
+        assert np.allclose(
+            (
+                augmentation_data["image"][0] * alpha
+                + augmentation_data["image"][1] * (1 - alpha)
+            ),
+            transformed["image"],
+        )
 
     with subtests.test("bboxes"):
-        result = mixup(
-            image=[img, img],
-            bboxes=[
-                np.array(
-                    [
-                        [100, 100, 150, 175, 0, 0],
-                    ]
-                ),
-                np.array(
-                    [
-                        [0, 0, 10, 10, 1, 1],
-                    ]
-                ),
-            ],
+        assert transformed["bboxes"].shape == (2, 6)
+        assert np.allclose(
+            np.concatenate(augmentation_data["bboxes"]),
+            transformed["bboxes"],
         )
-        assert result["image"].shape == (HEIGHT, WIDTH, 3)
-        assert result["bboxes"].shape == (2, 6)
+
+    with subtests.test("keypoints"):
+        assert transformed["keypoints"].shape == (2, 5)
+        assert np.allclose(
+            np.concatenate(augmentation_data["keypoints"]),
+            transformed["keypoints"],
+        )
+
+    with subtests.test("mask"):
+        assert transformed["mask"].shape == (height, width)
+        assert np.allclose(
+            augmentation_data["mask"][0].astype(bool)
+            | augmentation_data["mask"][1].astype(bool),
+            transformed["mask"].astype(bool),
+        )
 
 
 def test_invalid():

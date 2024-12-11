@@ -69,6 +69,8 @@ def test_mosaic4():
     m = mosaic4(image=[img, img, img, img])
     assert m["image"].shape == (HEIGHT, WIDTH, 3)
 
+
+def test_invalid():
     with pytest.raises(ValueError):
         Mosaic4(out_height=0, out_width=WIDTH)
 
