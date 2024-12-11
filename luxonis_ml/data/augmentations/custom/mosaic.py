@@ -1,13 +1,11 @@
 import random
-from typing import Any, Dict, Final, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from albumentations.core.bbox_utils import denormalize_bboxes, normalize_bboxes
 from typing_extensions import override
 
-from ..batch_transform import BatchBasedTransform
-
-N_TILES: Final[int] = 4
+from luxonis_ml.data.augmentations.batch_transform import BatchBasedTransform
 
 
 class Mosaic4(BatchBasedTransform):
@@ -64,21 +62,6 @@ class Mosaic4(BatchBasedTransform):
         self.value = value
         self.mask_value = mask_value
 
-    @override
-    def get_transform_init_args_names(self) -> Tuple[str, ...]:
-        """Gets the default arguments for the mixup augmentation.
-
-        @rtype: Tuple[str, ...]
-        @return: The string keywords of the arguments.
-        """
-        return (
-            "out_height",
-            "out_width",
-            "replace",
-            "value",
-            "mask_value",
-        )
-
     def _generate_random_crop_center(self) -> Tuple[int, int]:
         """Generate a random crop center within the bounds of the mosaic
         image size."""
@@ -110,7 +93,7 @@ class Mosaic4(BatchBasedTransform):
         @rtype: List[np.ndarray]
         @return: List of transformed images.
         """
-        return mosaic4(
+        return apply_mosaic4_to_images(
             image_batch,
             self.out_height,
             self.out_width,
@@ -143,7 +126,7 @@ class Mosaic4(BatchBasedTransform):
         @rtype: List[np.ndarray]
         @return: List of transformed masks.
         """
-        return mosaic4(
+        return apply_mosaic4_to_images(
             mask_batch,
             self.out_height,
             self.out_width,
@@ -183,7 +166,7 @@ class Mosaic4(BatchBasedTransform):
         for i, (bboxes, (rows, cols)) in enumerate(
             zip(bboxes_batch, image_shapes)
         ):
-            bbox = bbox_mosaic4(
+            bbox = apply_mosaic4_to_bboxes(
                 bboxes,
                 rows,
                 cols,
@@ -230,7 +213,7 @@ class Mosaic4(BatchBasedTransform):
         for i, (keypoints, (rows, cols)) in enumerate(
             zip(keypoints_batch, image_shapes)
         ):
-            new_keypoint = keypoint_mosaic4(
+            new_keypoint = apply_mosaic4_to_keypoints(
                 keypoints,
                 rows,
                 cols,
@@ -255,17 +238,21 @@ class Mosaic4(BatchBasedTransform):
         @return: Dictionary containing parameters dependent on the
             targets.
         """
+        additional_params = super().get_params_dependent_on_data(params, data)
         image_batch = data["image"]
         image_shapes = [tuple(image.shape[:2]) for image in image_batch]
         x_crop, y_crop = self._generate_random_crop_center()
-        return {
-            "image_shapes": image_shapes,
-            "x_crop": x_crop,
-            "y_crop": y_crop,
-        }
+        additional_params.update(
+            {
+                "image_shapes": image_shapes,
+                "x_crop": x_crop,
+                "y_crop": y_crop,
+            }
+        )
+        return additional_params
 
 
-def mosaic4(
+def apply_mosaic4_to_images(
     image_batch: List[np.ndarray],
     height: int,
     width: int,
@@ -293,12 +280,12 @@ def mosaic4(
     @rtype: np.ndarray
     @return: Final output image
     """
-    if len(image_batch) != N_TILES:
+    if len(image_batch) != 4:
         raise ValueError(
             f"Length of image_batch should be 4. Got {len(image_batch)}"
         )
 
-    for i in range(N_TILES - 1):
+    for i in range(3):
         if image_batch[0].shape[2:] != image_batch[i + 1].shape[2:]:
             raise ValueError(
                 "All images should have the same number of channels."
@@ -344,7 +331,7 @@ def mosaic4(
                 min(height * 2, height + h),
             )
             x1b, y1b, x2b, y2b = w - (x2a - x1a), 0, w, min(y2a - y1a, h)
-        elif i == 3:  # bottom right
+        else:  # bottom right
             x1a, y1a, x2a, y2a = (
                 width,
                 height,
@@ -371,7 +358,7 @@ def mosaic4(
     return img4
 
 
-def bbox_mosaic4(
+def apply_mosaic4_to_bboxes(
     bbox: np.ndarray,
     rows: int,
     cols: int,
@@ -434,7 +421,7 @@ def bbox_mosaic4(
     return bbox
 
 
-def keypoint_mosaic4(
+def apply_mosaic4_to_keypoints(
     keypoints: np.ndarray,
     rows: int,
     cols: int,
