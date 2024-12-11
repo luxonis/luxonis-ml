@@ -268,6 +268,7 @@ class LuxonisLoader(BaseLoader):
                     data["width"] = img.shape[1]
                     data["height"] = img.shape[0]
                     data["points"] = [tuple(p) for p in data["points"]]
+
                 annotation = load_annotation(task_type, data)
                 labels_by_task[full_task_name].append(annotation)
                 if class_name is not None:

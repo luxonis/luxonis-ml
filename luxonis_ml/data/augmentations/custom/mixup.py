@@ -109,7 +109,7 @@ class MixUp(BatchBasedTransform):
         """
         for i in range(len(bboxes_batch)):
             bbox = bboxes_batch[i]
-            if bbox.shape[1] == 4:
+            if bbox.shape[0] == 0:  # pragma: no cover
                 bboxes_batch[i] = np.zeros((0, 6), dtype=bbox.dtype)
 
         padding = self._update_letterbox_params(image_shapes)

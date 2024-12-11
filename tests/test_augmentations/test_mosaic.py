@@ -76,3 +76,12 @@ def test_invalid():
 
     with pytest.raises(ValueError):
         Mosaic4(out_height=HEIGHT, out_width=0)
+
+    mosaic4 = Mosaic4(out_height=HEIGHT, out_width=WIDTH, p=1.0)
+
+    img = (np.random.rand(HEIGHT, WIDTH, 3) * 255).astype(np.uint8)
+    with pytest.raises(ValueError):
+        mosaic4(image=[img, img, img])
+
+    with pytest.raises(ValueError):
+        mosaic4(image=[img, img, img, np.zeros((HEIGHT, WIDTH, 4))])

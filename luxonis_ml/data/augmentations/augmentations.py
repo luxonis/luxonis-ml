@@ -73,7 +73,7 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
             resize = A.Resize(height=height, width=width)
 
         if is_validation_pipeline:
-            config = [a for a in config if a.get("name") == "Normalize"]
+            config = [a for a in config if a["name"] == "Normalize"]
 
         pixel_augs = []
         spatial_augs = []
@@ -251,9 +251,11 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
             )
             n_keypoints.update(_n_keypoints)
             n_segmentation_classes.update(_n_segmentation_classes)
-            for task, task_type in self.targets.items():
-                if task_type == "bboxes":
-                    bbox_counters[task] += d[task].shape[0]
+            for task, array in d.items():
+                if task == "image":
+                    continue
+                if self.targets[task] == "bboxes":
+                    bbox_counters[task] += array.shape[0]
             batch_data.append(d)
         return batch_data, n_keypoints, n_segmentation_classes
 

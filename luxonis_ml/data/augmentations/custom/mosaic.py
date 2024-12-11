@@ -176,7 +176,7 @@ class Mosaic4(BatchBasedTransform):
                 x_crop,
                 y_crop,
             )
-            if bbox.shape[0] == 0:
+            if bbox.shape[0] == 0:  # pragma: no cover
                 bbox = np.zeros((0, 6), dtype=bboxes.dtype)
             new_bboxes.append(bbox)
 

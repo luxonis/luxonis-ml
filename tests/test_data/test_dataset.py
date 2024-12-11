@@ -491,7 +491,7 @@ def test_partial_labels():
         dataset,
         width=512,
         height=512,
-        augmentation_config=[{"name": "Rotate", "params": {}}],
+        augmentation_config=[{"name": "Rotate"}],
     )
 
     all_labels = set()
