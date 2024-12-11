@@ -1,4 +1,5 @@
 import logging
+import random
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -31,7 +32,10 @@ def complete_dataset_name(incomplete: str):
 DatasetNameArgument = Annotated[
     str,
     typer.Argument(
-        ..., help="Name of the dataset.", autocompletion=complete_dataset_name
+        ...,
+        help="Name of the dataset.",
+        autocompletion=complete_dataset_name,
+        show_default=False,
     ),
 ]
 
@@ -171,6 +175,7 @@ def inspect(
             "-v",
             help="Which splits of the dataset to inspect.",
             case_sensitive=False,
+            show_default=False,
         ),
     ] = None,
     aug_config: Annotated[
@@ -182,6 +187,7 @@ def inspect(
             help="Path to a config defining augmentations. "
             "This can be either a json or a yaml file.",
             metavar="PATH",
+            show_default=False,
         ),
     ] = None,
     size_multiplier: Annotated[
@@ -197,17 +203,30 @@ def inspect(
             show_default=False,
         ),
     ] = 1.0,
-    keep_aspect_ratio: Annotated[
+    ignore_aspect_ratio: Annotated[
         bool,
         typer.Option(
             ...,
-            "--keep-aspect-ratio",
-            "-k",
-            help="Keep the aspect ratio of the images.",
+            "--ignore-aspect-ratio",
+            "-i",
+            help="Don't keep the aspect ratio when resizing images.",
         ),
-    ] = True,
+    ] = False,
+    deterministic: Annotated[
+        bool,
+        typer.Option(
+            ...,
+            "--deterministic",
+            "-d",
+            help="Deterministic mode. Useful for debugging.",
+        ),
+    ] = False,
 ):
     """Inspects images and annotations in a dataset."""
+
+    if deterministic:
+        np.random.seed(42)
+        random.seed(42)
 
     view = view or ["train"]
     dataset = LuxonisDataset(name)
@@ -216,7 +235,7 @@ def inspect(
     if aug_config is not None:
         h, w, _ = loader[0][0].shape
         loader.augmentations = loader._init_augmentations(
-            "albumentations", aug_config, h, w, keep_aspect_ratio
+            "albumentations", aug_config, h, w, not ignore_aspect_ratio
         )
 
     if len(dataset) == 0:
