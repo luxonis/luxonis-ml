@@ -163,7 +163,10 @@ class LuxonisLoader(BaseLoader):
 
                 if np.any(unassigned_pixels):
                     logger.warning(
-                        "Found unassigned pixels in segmentation masks. Assigning them to `background` class (class index 0). If this is not desired then make sure all pixels are assigned to one class or rename your background class."
+                        "Found unassigned pixels in segmentation masks. "
+                        "Assigning them to `background` class (class index 0). "
+                        "If this is not desired then make sure all pixels are "
+                        "assigned to one class or rename your background class."
                     )
                     self.add_background = True
                     if "background" not in self.classes_by_task[task]:
