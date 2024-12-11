@@ -3,7 +3,6 @@ from typing import Any, Dict, Tuple
 import albumentations as A
 import cv2
 import numpy as np
-from albumentations.core.bbox_utils import denormalize_bboxes, normalize_bboxes
 from typing_extensions import override
 
 from luxonis_ml.data.utils.visualizations import resolve_color
@@ -66,20 +65,9 @@ class LetterboxResize(A.DualTransform):
         """
 
         params = super().update_params(params, **kwargs)
-
-        height = params["rows"]
-        width = params["cols"]
-
-        ratio = min(self._height / height, self._width / width)
-        new_height = int(height * ratio)
-        new_width = int(width * ratio)
-
-        # only supports center alignment
-        pad_top = (self._height - new_height) // 2
-        pad_bottom = pad_top
-
-        pad_left = (self._width - new_width) // 2
-        pad_right = pad_left
+        pad_top, pad_bottom, pad_left, pad_right = self.compute_padding(
+            params["rows"], params["cols"], self._height, self._width
+        )
 
         params.update(
             {
@@ -91,6 +79,36 @@ class LetterboxResize(A.DualTransform):
         )
 
         return params
+
+    @staticmethod
+    def compute_padding(
+        orig_height: int, orig_width: int, out_height: int, out_width: int
+    ) -> Tuple[int, int, int, int]:
+        """Computes the padding required to resize an image to a
+        letterbox format.
+
+        @type orig_height: int
+        @param orig_height: Original height of the image.
+        @type orig_width: int
+        @param orig_width: Original width of the image.
+        @type out_height: int
+        @param out_height: Desired height of the output.
+        @type out_width: int
+        @param out_width: Desired width of the output.
+        @rtype: Tuple[int, int, int, int]
+        @return: Padding values for the top, bottom, left and right
+            sides of the image.
+        """
+        ratio = min(out_height / orig_height, out_width / orig_width)
+        new_height = int(orig_height * ratio)
+        new_width = int(orig_width * ratio)
+
+        pad_top = (out_height - new_height) // 2
+        pad_bottom = pad_top
+
+        pad_left = (out_width - new_width) // 2
+        pad_right = pad_left
+        return pad_top, pad_bottom, pad_left, pad_right
 
     @override
     def apply(
@@ -195,20 +213,31 @@ class LetterboxResize(A.DualTransform):
         if bbox.shape[0] == 0:
             return bbox
 
-        bbox = denormalize_bboxes(
-            bbox,
-            (
-                self._height - pad_top - pad_bottom,
-                self._width - pad_left - pad_right,
-            ),
+        pad_left_norm = pad_left / self._width
+        pad_right_norm = pad_right / self._width
+        pad_top_norm = pad_top / self._height
+        pad_bottom_norm = pad_bottom / self._height
+
+        bbox[:, [0, 2]] *= 1 - pad_left_norm - pad_right_norm
+        bbox[:, [0, 2]] += pad_left_norm
+
+        bbox[:, [1, 3]] *= 1 - pad_top_norm - pad_bottom_norm
+        bbox[:, [1, 3]] += pad_top_norm
+
+        np.clip(
+            bbox[:, [0, 2]],
+            pad_left_norm,
+            1 - pad_right_norm,
+            out=bbox[:, [0, 2]],
         )
-        bbox[..., :4] += np.array([pad_left, pad_top] * 2)
-        bbox[..., :4] = bbox[..., :4].clip(
-            min=[pad_left, pad_top] * 2,
-            max=[self._width - pad_left, self._height - pad_top] * 2,
+        np.clip(
+            bbox[:, [1, 3]],
+            pad_top_norm,
+            1 - pad_bottom_norm,
+            out=bbox[:, [1, 3]],
         )
 
-        return normalize_bboxes(bbox, (self._height, self._width))
+        return bbox
 
     @override
     def apply_to_keypoints(
@@ -263,22 +292,6 @@ class LetterboxResize(A.DualTransform):
         keypoint[out_of_bounds_x | out_of_bounds_y, :2] = -1
 
         return keypoint
-
-    @override
-    def get_transform_init_args_names(self) -> Tuple[str, ...]:
-        """Gets the default arguments for the letterbox augmentation.
-
-        @rtype: Tuple[str, ...]
-        @return: The string keywords of the arguments.
-        """
-
-        return (
-            "height",
-            "width",
-            "interpolation",
-            "border_value",
-            "mask_value",
-        )
 
     def _apply_to_image_data(
         self,
