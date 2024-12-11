@@ -11,7 +11,8 @@ import cv2
 import numpy as np
 from unique_names_generator import get_random_name
 
-from luxonis_ml.utils.filesystem import LuxonisFileSystem, PathType
+from luxonis_ml.typing import PathType
+from luxonis_ml.utils.filesystem import LuxonisFileSystem
 
 logger = logging.getLogger(__name__)
 

@@ -118,24 +118,17 @@ class CreateMLParser(BaseParser):
         def generator() -> DatasetIterator:
             for curr_annotations in images_annotations:
                 path = curr_annotations["path"]
-                for class_name in curr_annotations["classes"]:
-                    yield {
-                        "file": path,
-                        "annotation": {
-                            "type": "classification",
-                            "class": class_name,
-                        },
-                    }
                 for bbox_class, (x, y, w, h) in curr_annotations["bboxes"]:
                     yield {
                         "file": path,
                         "annotation": {
-                            "type": "boundingbox",
                             "class": bbox_class,
-                            "x": x,
-                            "y": y,
-                            "w": w,
-                            "h": h,
+                            "boundingbox": {
+                                "x": x,
+                                "y": y,
+                                "w": w,
+                                "h": h,
+                            },
                         },
                     }
 

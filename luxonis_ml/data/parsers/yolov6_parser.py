@@ -122,23 +122,17 @@ class YoloV6Parser(BaseParser):
                         x for x in ann_line.split()
                     ]
                     class_name = class_names[int(class_id)]
-                    yield {
-                        "file": str(img_path),
-                        "annotation": {
-                            "type": "classification",
-                            "class": class_name,
-                        },
-                    }
 
                     yield {
                         "file": str(img_path),
                         "annotation": {
-                            "type": "boundingbox",
                             "class": class_name,
-                            "x": float(x_center) - float(width) / 2,
-                            "y": float(y_center) - float(height) / 2,
-                            "w": float(width),
-                            "h": float(height),
+                            "boundingbox": {
+                                "x": float(x_center) - float(width) / 2,
+                                "y": float(y_center) - float(height) / 2,
+                                "w": float(width),
+                                "h": float(height),
+                            },
                         },
                     }
 

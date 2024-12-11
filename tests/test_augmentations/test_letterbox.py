@@ -12,6 +12,6 @@ HEIGHT: Final[int] = 480
 
 def test_letterbox():
     img = (np.random.rand(HEIGHT, WIDTH, 3) * 255).astype(np.uint8)
-    letterbox = LetterboxResize(HEIGHT, WIDTH, always_apply=True, p=1.0)
+    letterbox = LetterboxResize(HEIGHT, WIDTH, p=1.0)
     x = letterbox(image=img, labels={})
     assert x["image"].shape == (HEIGHT, WIDTH, 3)

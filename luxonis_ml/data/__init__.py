@@ -12,21 +12,9 @@ with guard_missing_extra("data"):
         LuxonisDataset,
         LuxonisSource,
     )
-    from .loaders import (
-        LOADERS_REGISTRY,
-        BaseLoader,
-        Labels,
-        LuxonisLoader,
-        LuxonisLoaderOutput,
-    )
+    from .loaders import LOADERS_REGISTRY, BaseLoader, LuxonisLoader
     from .parsers import LuxonisParser
-    from .utils.enums import (
-        BucketStorage,
-        BucketType,
-        ImageType,
-        LabelType,
-        MediaType,
-    )
+    from .utils.enums import BucketStorage, BucketType, ImageType, MediaType
 
 
 def load_dataset_plugins() -> None:
@@ -56,12 +44,9 @@ __all__ = [
     "DATASETS_REGISTRY",
     "LOADERS_REGISTRY",
     "ImageType",
-    "LabelType",
-    "Labels",
     "LuxonisComponent",
     "LuxonisDataset",
     "LuxonisLoader",
-    "LuxonisLoaderOutput",
     "LuxonisParser",
     "LuxonisSource",
     "MediaType",

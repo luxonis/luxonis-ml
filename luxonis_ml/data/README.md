@@ -130,18 +130,19 @@ def generator():
             w, h = bbox["dimension"]
 
             # get the class name of the bounding box
-            class_ = bbox["labelName"]
+            class_name = bbox["labelName"]
             yield {
                 "file": image_path,
                 "annotation": {
-                    "type": "boundingbox",
-                    "class": class_,
+                    "class": class_name,
 
-                    # normalized bounding box
-                    "x": x / W,
-                    "y": y / H,
-                    "w": w / W,
-                    "h": h / H,
+                    "boundingbox": {
+                      # normalized bounding box
+                      "x": x / W,
+                      "y": y / H,
+                      "w": w / W,
+                      "h": h / H,
+                    }
                 },
             }
 ```
@@ -557,7 +558,6 @@ The following example demonstrates a simple augmentation pipeline:
       'mask_pad_val': 0,
       'fit_output': False,
       'interpolation': 1,
-      'always_apply': False,
     }
   },
   {
@@ -577,7 +577,6 @@ The following example demonstrates a simple augmentation pipeline:
       'fit_output': False,
       'keep_ratio': False,
       'rotate_method': 'largest_box',
-      'always_apply': False,
     }
   },
 ]
