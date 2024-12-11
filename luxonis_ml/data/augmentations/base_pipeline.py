@@ -35,7 +35,22 @@ class AugmentationEngine(
         @param width: Target image width
         @type config: List[Dict[str, Any]]
         @param config: List of dictionaries with augmentation
-            configurations.
+            configurations. The configuration is a list of dictionaries
+            where each dictionary contains the name of the augmentation
+            and optionally its parameters. The name must be a valid
+            augmentation class name. The parameters are passed to the
+            constructor of the augmentation class.
+            The order of the augmentations is not guaranteed to be
+            preserved.
+
+            Example::
+
+                [
+                    {"name": "HorizontalFlip", "params": {"p": 0.5}},
+                    {"name": "RandomBrightnessContrast", "params": {"p": 0.1}},
+                    {"name": "Defocus"}
+                ]
+
         @type keep_aspect_ratio: bool
         @param keep_aspect_ratio: Whether to keep aspect ratio
         @type is_validation_pipeline: bool
