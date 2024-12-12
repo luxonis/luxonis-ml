@@ -134,13 +134,13 @@ def test_bbox_annotation(subtests: SubTests):
                     curr_dict[k] = v
                     BBoxAnnotation(**curr_dict)  # type: ignore
 
-        bbox_ann = BBoxAnnotation(**{"x": 0.9, "y": 0, "w": 0.2, "h": 0})
+        bbox_ann = BBoxAnnotation(x=0.9, y=0, w=0.2, h=0)
         assert bbox_ann.x + bbox_ann.w <= 1
-        bbox_ann = BBoxAnnotation(**{"x": 1.2, "y": 0, "w": 0.2, "h": 0})
+        bbox_ann = BBoxAnnotation(x=1.2, y=0, w=0.2, h=0)
         assert bbox_ann.x + bbox_ann.w <= 1
-        bbox_ann = BBoxAnnotation(**{"x": 0, "y": 0.9, "w": 0, "h": 0.2})
+        bbox_ann = BBoxAnnotation(x=0, y=0.9, w=0, h=0.2)
         assert bbox_ann.y + bbox_ann.h <= 1
-        bbox_ann = BBoxAnnotation(**{"x": 0, "y": 1.2, "w": 0, "h": 0.2})
+        bbox_ann = BBoxAnnotation(x=0, y=1.2, w=0, h=0.2)
         assert bbox_ann.y + bbox_ann.h <= 1
 
     with subtests.test("auto_clip"):
