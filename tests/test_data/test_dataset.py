@@ -81,6 +81,7 @@ AUG_CONFIG: List[ConfigItem] = [
         "name": "Mosaic4",
         "params": {"out_width": 416, "out_height": 416, "p": 1.0},
     },
+    {"name": "MixUp", "params": {"p": 1.0}},
     {"name": "Defocus", "params": {"p": 1.0}},
     {"name": "Sharpen", "params": {"p": 1.0}},
     {"name": "Flip", "params": {"p": 1.0}},
@@ -106,6 +107,13 @@ def make_image(i: int) -> Path:
         )
         cv2.imwrite(str(path), img)
     return path
+
+
+def compare_loader_output(loader: LuxonisLoader, tasks: Set[str]):
+    all_labels = set()
+    for _, labels in loader:
+        all_labels.update(labels.keys())
+    assert all_labels == tasks
 
 
 def test_dataset(
@@ -431,15 +439,17 @@ def test_deep_nested_labels():
         augmentation_config=AUG_CONFIG,
         augmentation_engine="albumentations",
     )
-    _, labels = next(iter(loader))
-    assert {
-        "detection/classification",
-        "detection/boundingbox",
-        "detection/driver/boundingbox",
-        "detection/driver/keypoints",
-        "detection/license_plate/boundingbox",
-        "detection/license_plate/metadata/text",
-    } == set(labels.keys())
+    compare_loader_output(
+        loader,
+        {
+            "detection/classification",
+            "detection/boundingbox",
+            "detection/driver/boundingbox",
+            "detection/driver/keypoints",
+            "detection/license_plate/boundingbox",
+            "detection/license_plate/metadata/text",
+        },
+    )
 
 
 def test_partial_labels():
@@ -494,13 +504,12 @@ def test_partial_labels():
         augmentation_config=[{"name": "Rotate"}],
     )
 
-    all_labels = set()
-    for _, labels in loader:
-        all_labels.update(labels.keys())
-
-    assert {
-        "detection/classification",
-        "detection/boundingbox",
-        "detection/keypoints",
-        "detection/segmentation",
-    } == all_labels
+    compare_loader_output(
+        loader,
+        {
+            "detection/classification",
+            "detection/boundingbox",
+            "detection/keypoints",
+            "detection/segmentation",
+        },
+    )
