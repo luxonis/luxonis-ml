@@ -185,6 +185,10 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
         else:
             transformed = data[0]
 
+        for key in list(transformed.keys()):
+            if transformed[key].size == 0:
+                del transformed[key]
+
         if self.spatial_transform.transforms:
             transformed = self.spatial_transform(**transformed)
 
