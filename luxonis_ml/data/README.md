@@ -592,13 +592,13 @@ For this example, we will assume the augmentation example above is stored in a J
 
 ```python
 
-from luxonis_ml.data import LuxonisDataset, LuxonisLoader, Augmentations
+from luxonis_ml.data import LuxonisDataset, LuxonisLoader, AlbumentationsEngine
 import json
 
 with open("augmentations.json") as f:
     augmentations = json.load(f)
 
-aug = Augmentations(image_size=[256, 320], augmentations=augmentations)
+aug = AlbumentationsEngine(image_size=[256, 320], augmentations=augmentations)
 dataset = LuxonisDataset("parking_lot")
 loader = LuxonisLoader(dataset, view="train", augmentations=aug)
 

@@ -4,7 +4,7 @@ from typing import Dict
 import numpy as np
 import pytest
 
-from luxonis_ml.data import Augmentations
+from luxonis_ml.data import AlbumentationsEngine
 from luxonis_ml.typing import ConfigItem, Labels, TaskType
 
 
@@ -49,7 +49,9 @@ def test_mosaic4(
         "name": "Mosaic4",
         "params": {"p": 1.0, "out_width": 640, "out_height": 640},
     }
-    augmentations = Augmentations.from_config(256, 256, targets, [config])
+    augmentations = AlbumentationsEngine.from_config(
+        256, 256, targets, [config]
+    )
     augmentations.apply([(image.copy(), deepcopy(labels)) for _ in range(4)])
 
 
@@ -57,5 +59,7 @@ def test_mixup(
     image: np.ndarray, labels: Labels, targets: Dict[str, TaskType]
 ):
     config: ConfigItem = {"name": "MixUp", "params": {"p": 1.0}}
-    augmentations = Augmentations.from_config(256, 256, targets, [config])
+    augmentations = AlbumentationsEngine.from_config(
+        256, 256, targets, [config]
+    )
     augmentations.apply([(image.copy(), deepcopy(labels)) for _ in range(2)])

@@ -10,7 +10,7 @@ from typing_extensions import TypeAlias, override
 from luxonis_ml.data.utils.task_utils import get_task_name, task_is_metadata
 from luxonis_ml.typing import ConfigItem, LoaderOutput, TaskType
 
-from .base_pipeline import AugmentationEngine
+from .base_engine import AugmentationEngine
 from .batch_compose import BatchCompose
 from .batch_transform import BatchBasedTransform
 from .custom import LetterboxResize, MixUp, Mosaic4
@@ -26,7 +26,7 @@ from .utils import (
 Data: TypeAlias = Dict[str, np.ndarray]
 
 
-class Augmentations(AugmentationEngine, register_name="albumentations"):
+class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     def __init__(
         self,
         height: int,
@@ -66,7 +66,7 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
         keep_aspect_ratio: bool = True,
         is_validation_pipeline: bool = False,
         min_bbox_visibility: float = 0.001,
-    ) -> "Augmentations":
+    ) -> "AlbumentationsEngine":
         if keep_aspect_ratio:
             resize = LetterboxResize(height=height, width=width)
         else:
@@ -75,19 +75,19 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
         if is_validation_pipeline:
             config = [a for a in config if a["name"] == "Normalize"]
 
-        pixel_augs = []
-        spatial_augs = []
-        batched_augs = []
+        pixel_augmentations = []
+        spatial_augmentation = []
+        batched_augmentations = []
         batch_size = 1
         for aug in config:
             curr_aug = cls._get_transform(aug)
             if isinstance(curr_aug, A.ImageOnlyTransform):
-                pixel_augs.append(curr_aug)
+                pixel_augmentations.append(curr_aug)
             elif isinstance(curr_aug, BatchBasedTransform):
                 batch_size *= curr_aug.batch_size
-                batched_augs.append(curr_aug)
+                batched_augmentations.append(curr_aug)
             elif isinstance(curr_aug, A.DualTransform):
-                spatial_augs.append(curr_aug)
+                spatial_augmentation.append(curr_aug)
 
         main_task_names = set()
         alb_targets = {}
@@ -122,11 +122,7 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
         def _get_params():
             return {
                 "bbox_params": A.BboxParams(
-                    format="albumentations",
-                    # Bug in albumentations v1.4.18 (the latest installable
-                    # on python 3.8) causes the pipeline to eventually
-                    # crash when set to 0.
-                    min_visibility=min_bbox_visibility,
+                    format="albumentations", min_visibility=min_bbox_visibility
                 ),
                 "keypoint_params": A.KeypointParams(
                     format="xy", remove_invisible=False
@@ -138,9 +134,13 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
             return cls(
                 height=height,
                 width=width,
-                batch_transform=BatchCompose(batched_augs, **_get_params()),
-                spatial_transform=A.Compose(spatial_augs, **_get_params()),
-                pixel_transform=A.Compose(pixel_augs),
+                batch_transform=BatchCompose(
+                    batched_augmentations, **_get_params()
+                ),
+                spatial_transform=A.Compose(
+                    spatial_augmentation, **_get_params()
+                ),
+                pixel_transform=A.Compose(pixel_augmentations),
                 resize_transform=A.Compose([resize], **_get_params()),
                 targets=alb_targets,
                 targets_to_tasks=alb_targets_to_tasks,
@@ -185,6 +185,12 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
         else:
             transformed = data[0]
 
+        # For batch augmentations we need to replace
+        # missing labels with empty arrays so the
+        # correct batch size is maintained.
+        # After the transformation, we remove them
+        # so they don't interfere with the rest of the
+        # pipeline.
         for key in list(transformed.keys()):
             if transformed[key].size == 0:
                 del transformed[key]

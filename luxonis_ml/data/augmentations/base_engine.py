@@ -25,7 +25,7 @@ class AugmentationEngine(
         config: List[ConfigItem],
         keep_aspect_ratio: bool,
         is_validation_pipeline: bool,
-        min_bbox_visibility: float = 0.01,
+        min_bbox_visibility: float,
     ) -> "AugmentationEngine":
         """Create augmentation pipeline from configuration.
 
@@ -33,6 +33,13 @@ class AugmentationEngine(
         @param height: Target image height
         @type width: int
         @param width: Target image width
+        @type targets: Dict[str, str]
+        @param targets: Dictionary mapping task names to task types.
+            Example::
+                {
+                    "detection/boundingbox": "bbox",
+                    "detection/segmentation": "mask",
+                }
         @type config: List[Dict[str, Any]]
         @param config: List of dictionaries with augmentation
             configurations. The configuration is a list of dictionaries
