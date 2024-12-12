@@ -88,9 +88,6 @@ def augmentation_data(
     }
 
 
-# @pytest.fixture(scope="session", autouse=True)
-# def data_dir
-#
 @pytest.fixture(scope="function")
 def tempdir():
     path = Path("tests/data/tempdir")
