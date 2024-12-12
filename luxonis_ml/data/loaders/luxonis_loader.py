@@ -109,7 +109,7 @@ class LuxonisLoader(BaseLoader):
 
         if not self.dataset.is_remote:
             file_index = self.dataset._get_file_index()
-            if file_index is None:
+            if file_index is None:  # pragma: no cover
                 raise FileNotFoundError("Cannot find file index")
             self.df = self.df.join(file_index, on="uuid").drop("file_right")
 
@@ -154,11 +154,15 @@ class LuxonisLoader(BaseLoader):
             }
             self.class_mappings[task] = class_mapping
 
-        self.add_background = False
+        self.tasks_without_background = set()
+
         _, test_labels = self._load_data(0)
         for task, seg_masks in task_type_iterator(test_labels, "segmentation"):
-            task = get_task_name(task)
-            if seg_masks.shape[0] > 1:
+            task_name = get_task_name(task)
+            if seg_masks.shape[0] > 1 and (
+                "background" not in self.class_mappings
+                or self.class_mappings[task_name]["background"] != 0
+            ):
                 unassigned_pixels = np.sum(seg_masks, axis=0) == 0
 
                 if np.any(unassigned_pixels):
@@ -168,16 +172,16 @@ class LuxonisLoader(BaseLoader):
                         "If this is not desired then make sure all pixels are "
                         "assigned to one class or rename your background class."
                     )
-                    self.add_background = True
-                    if "background" not in self.classes_by_task[task]:
-                        self.classes_by_task[task].append("background")
-                        self.class_mappings[task] = {
+                    self.tasks_without_background.add(task)
+                    if "background" not in self.classes_by_task[task_name]:
+                        self.classes_by_task[task_name].append("background")
+                        self.class_mappings[task_name] = {
                             class_: idx + 1
                             for class_, idx in self.class_mappings[
-                                task
+                                task_name
                             ].items()
                         }
-                        self.class_mappings[task]["background"] = 0
+                        self.class_mappings[task_name]["background"] = 0
 
     @override
     def __len__(self) -> int:
@@ -262,7 +266,7 @@ class LuxonisLoader(BaseLoader):
 
             if task_type.startswith("metadata/"):
                 metadata_by_task[full_task_name].append(data)
-            else:
+            else:  # pragma: no cover
                 # Conversion from LDF v1.0
                 if "points" in data and "width" not in data:
                     data["width"] = img.shape[1]
@@ -300,11 +304,7 @@ class LuxonisLoader(BaseLoader):
                 class_ids_by_task[task],
                 len(self.classes_by_task[task_name]),
             )
-            if (
-                self.add_background
-                and task_type == "segmentation"
-                and len(self.class_mappings[task_name]) > 1
-            ):
+            if task in self.tasks_without_background:
                 unassigned_pixels = ~np.any(array, axis=0)
                 background_idx = self.class_mappings[task_name]["background"]
                 array[background_idx, unassigned_pixels] = 1
