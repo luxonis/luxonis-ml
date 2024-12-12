@@ -41,7 +41,7 @@ def postprocess_mask(mask: np.ndarray, n_classes: int) -> np.ndarray:
 
 
 def postprocess_bboxes(bboxes: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    if bboxes.shape[0] == 0:
+    if bboxes.size == 0:
         return np.zeros((0, 6)), np.zeros((0, 1), dtype=np.uint8)
     ordering = bboxes[:, -1]
     out_bboxes = bboxes[:, :-1]

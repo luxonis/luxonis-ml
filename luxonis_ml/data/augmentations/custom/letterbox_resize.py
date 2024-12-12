@@ -210,7 +210,7 @@ class LetterboxResize(A.DualTransform):
         @return: Bounding box with applied letterbox resize.
         """
 
-        if bbox.shape[0] == 0:
+        if bbox.size == 0:
             return bbox
 
         pad_left_norm = pad_left / self._width
@@ -271,7 +271,7 @@ class LetterboxResize(A.DualTransform):
         @return: Keypoint with applied letterbox resize.
         """
 
-        if keypoint.shape[0] == 0:
+        if keypoint.size == 0:
             return keypoint
 
         scale_x = (self._width - pad_left - pad_right) / cols

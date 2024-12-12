@@ -283,7 +283,7 @@ class Augmentations(AugmentationEngine, register_name="albumentations"):
 
         for target in targets:
             array = data[target]
-            if array.shape[0] == 0:
+            if array.size == 0:
                 continue
 
             task = self.targets_to_tasks[target]

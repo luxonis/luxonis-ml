@@ -129,7 +129,7 @@ class Mosaic4(BatchBasedTransform):
         @return: List of transformed masks.
         """
         for i in range(len(mask_batch)):
-            if mask_batch[i].shape[0] == 0:
+            if mask_batch[i].size == 0:
                 mask_batch[i] = np.zeros(
                     (rows, cols), dtype=mask_batch[i].dtype
                 )
@@ -173,7 +173,7 @@ class Mosaic4(BatchBasedTransform):
         for i, (bboxes, (rows, cols)) in enumerate(
             zip(bboxes_batch, image_shapes)
         ):
-            if bboxes.shape[0] == 0:  # pragma: no cover
+            if bboxes.size == 0:  # pragma: no cover
                 bboxes = np.zeros((0, 6), dtype=bboxes.dtype)
 
             bbox = apply_mosaic4_to_bboxes(
@@ -221,7 +221,7 @@ class Mosaic4(BatchBasedTransform):
         for i, (keypoints, (rows, cols)) in enumerate(
             zip(keypoints_batch, image_shapes)
         ):
-            if keypoints.shape[0] == 0:
+            if keypoints.size == 0:
                 keypoints = np.zeros((0, 5), dtype=keypoints.dtype)
 
             new_keypoint = apply_mosaic4_to_keypoints(
