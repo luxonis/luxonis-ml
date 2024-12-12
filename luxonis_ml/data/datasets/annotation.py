@@ -5,16 +5,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple, Union
 
+import cv2
 import numpy as np
-import pycocotools.mask as mask_util
+import pycocotools.mask
 from PIL import Image, ImageDraw
-from pydantic import (
-    Field,
-    field_serializer,
-    model_serializer,
-    model_validator,
-)
-from pydantic.types import FilePath, NonNegativeInt, PositiveInt
+from pydantic import Field, field_serializer, field_validator, model_validator
+from pydantic.types import FilePath, PositiveInt
 from typeguard import check_type
 from typing_extensions import Annotated, Self, TypeAlias, override
 
@@ -45,7 +41,10 @@ class Detection(BaseModelExtraForbid):
 
     sub_detections: Dict[str, "Detection"] = {}
 
-    def to_parquet_rows(self, prefix: str = "") -> Iterable[ParquetDetection]:
+    def to_parquet_rows(self) -> Iterable[ParquetDetection]:
+        yield from self._to_parquet_rows()
+
+    def _to_parquet_rows(self, prefix: str = "") -> Iterable[ParquetDetection]:
         for task_type in [
             "boundingbox",
             "keypoints",
@@ -77,14 +76,14 @@ class Detection(BaseModelExtraForbid):
                 "annotation": "{}",
             }
         for name, detection in self.sub_detections.items():
-            yield from detection.to_parquet_rows(f"{prefix}{name}/")
+            yield from detection._to_parquet_rows(f"{prefix}{name}/")
 
     @model_validator(mode="after")
     def validate_names(self) -> Self:
         for name in self.sub_detections:
-            check_valid_identifier("Sub-detection name", name)
+            check_valid_identifier(name, label="Sub-detection name")
         for key in self.metadata:
-            check_valid_identifier("Metadata key", key)
+            check_valid_identifier(key, label="Metadata key")
         return self
 
     @model_validator(mode="after")
@@ -129,13 +128,13 @@ class ClassificationAnnotation(Annotation):
     @staticmethod
     @override
     def combine_to_numpy(
-        _: List["ClassificationAnnotation"],
+        annotations: List["ClassificationAnnotation"],
         classes: List[int],
         n_classes: int,
     ) -> np.ndarray:
         classify_vector = np.zeros(n_classes)
-        for class_id in classes:
-            classify_vector[class_id] = 1
+        for i in range(len(annotations)):
+            classify_vector[classes[i]] = 1
         return classify_vector
 
 
@@ -167,9 +166,11 @@ class BBoxAnnotation(Annotation):
     @staticmethod
     @override
     def combine_to_numpy(
-        annotations: List["BBoxAnnotation"], classes: List[int], _: int
+        annotations: List["BBoxAnnotation"],
+        classes: List[int],
+        n_classes: int = ...,
     ) -> np.ndarray:
-        boxes = np.zeros((len(annotations), 5))
+        boxes = np.empty((len(annotations), 5))
         for i, ann in enumerate(annotations):
             boxes[i] = ann.to_numpy(classes[i])
         return boxes
@@ -227,19 +228,21 @@ class KeypointAnnotation(Annotation):
         Tuple[NormalizedFloat, NormalizedFloat, KeypointVisibility]
     ]
 
-    def to_numpy(self, class_id: int) -> np.ndarray:
+    def to_numpy(self) -> np.ndarray:
         return np.array(self.keypoints).reshape((-1, 3)).flatten()
 
     @staticmethod
     @override
     def combine_to_numpy(
-        annotations: List["KeypointAnnotation"], classes: List[int], _: int
+        annotations: List["KeypointAnnotation"],
+        classes: List[int] = ...,
+        n_classes: int = ...,
     ) -> np.ndarray:
-        keypoints = np.zeros(
+        keypoints = np.empty(
             (len(annotations), len(annotations[0].keypoints) * 3)
         )
         for i, ann in enumerate(annotations):
-            keypoints[i] = ann.to_numpy(classes[i])
+            keypoints[i] = ann.to_numpy()
         return keypoints
 
     @model_validator(mode="before")
@@ -288,11 +291,10 @@ class SegmentationAnnotation(Annotation):
 
     height: PositiveInt
     width: PositiveInt
-    counts: Union[List[NonNegativeInt], bytes]
+    counts: bytes
 
     def to_numpy(self) -> np.ndarray:
-        assert isinstance(self.counts, bytes)
-        return mask_util.decode(
+        return pycocotools.mask.decode(
             {"counts": self.counts, "size": [self.height, self.width]}
         ).astype(np.uint8)
 
@@ -319,29 +321,37 @@ class SegmentationAnnotation(Annotation):
 
         return segmentation
 
-    @model_serializer
-    def serialize_model(self) -> Dict[str, Any]:
-        if isinstance(self.counts, bytes):
-            return {
-                "height": self.height,
-                "width": self.width,
-                "counts": self.counts.decode("utf-8"),
-            }
+    @field_serializer("counts", when_used="json")
+    def serialize_counts(self, counts: bytes) -> str:
+        return counts.decode("utf-8")
 
-        rle: Any = mask_util.frPyObjects(
-            {
-                "counts": self.counts,
-                "size": [self.height, self.width],
-            },
-            self.height,
-            self.width,
-        )
+    @model_validator(mode="before")
+    @classmethod
+    def validate_rle(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        if {"counts", "width", "height"} - set(values.keys()):
+            return values
 
-        return {
-            "height": rle["size"][0],
-            "width": rle["size"][1],
-            "counts": rle["counts"].decode("utf-8"),
-        }
+        counts = values["counts"]
+        height = check_type(values["height"], int)
+        width = check_type(values["width"], int)
+
+        if isinstance(counts, str):
+            values["counts"] = counts.encode("utf-8")
+        elif isinstance(counts, list):
+            for c in counts:
+                if not isinstance(c, int) or c < 0:
+                    raise ValueError(
+                        "RLE counts must be a list of positive integers"
+                    )
+
+            rle: Any = pycocotools.mask.frPyObjects(
+                {"counts": counts, "size": [height, width]}, height, width
+            )
+            values["counts"] = rle["counts"]
+            values["height"] = rle["size"][0]
+            values["width"] = rle["size"][1]
+
+        return values
 
     @model_validator(mode="before")
     @classmethod
@@ -350,10 +360,22 @@ class SegmentationAnnotation(Annotation):
             return values
 
         mask = values.pop("mask")
-        if isinstance(mask, str):
+        if isinstance(mask, (str, Path)):
             mask_path = Path(mask)
             try:
-                mask = np.load(mask_path)
+                if mask_path.suffix == ".npy":
+                    mask = np.load(mask_path)
+                elif mask_path.suffix == ".png":
+                    mask = (
+                        cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
+                        .astype(bool)
+                        .astype(np.uint8)
+                    )
+                else:
+                    raise ValueError(
+                        f"Unsupported mask format: {mask_path.suffix}. "
+                        "Supported formats are .npy and .png"
+                    )
             except Exception as e:
                 raise ValueError(
                     f"Failed to load mask from {mask_path}"
@@ -368,7 +390,7 @@ class SegmentationAnnotation(Annotation):
             raise ValueError("Mask must be a 2D binary array")
 
         mask = np.asfortranarray(mask.astype(np.uint8))
-        rle = mask_util.encode(mask)
+        rle = pycocotools.mask.encode(mask)
 
         return {
             "height": rle["size"][0],
@@ -387,7 +409,10 @@ class SegmentationAnnotation(Annotation):
         width = check_type(values.pop("width"), int)
         height = check_type(values.pop("height"), int)
 
-        cls._clip_points(points)
+        if len(points) < 3:
+            raise ValueError("Polyline must have at least 3 points")
+
+        SegmentationAnnotation._clip_points(points)
 
         polyline = [(round(x * width), round(y * height)) for x, y in points]
         mask = Image.new("L", (width, height), 0)
@@ -425,14 +450,11 @@ class InstanceSegmentationAnnotation(SegmentationAnnotation):
     @staticmethod
     @override
     def combine_to_numpy(
-        annotations: List["SegmentationAnnotation"], classes: List[int], _: int
+        annotations: List["InstanceSegmentationAnnotation"],
+        classes: List[int] = ...,
+        n_classes: int = ...,
     ) -> np.ndarray:
-        return np.stack(
-            [
-                ann.to_numpy() * (class_id + 1)
-                for ann, class_id in zip(annotations, classes)
-            ]
-        )
+        return np.stack([ann.to_numpy() for ann in annotations])
 
 
 class ArrayAnnotation(Annotation):
@@ -446,12 +468,17 @@ class ArrayAnnotation(Annotation):
 
     path: FilePath
 
+    def to_numpy(self) -> np.ndarray:
+        return np.load(self.path)
+
     @staticmethod
     @override
     def combine_to_numpy(
-        annotations: List["ArrayAnnotation"], classes: List[int], _: int
+        annotations: List["ArrayAnnotation"],
+        classes: List[int],
+        n_classes: int = ...,
     ) -> np.ndarray:
-        out_arr = np.zeros(
+        out_arr = np.empty(
             (
                 len(annotations),
                 len(classes),
@@ -459,12 +486,21 @@ class ArrayAnnotation(Annotation):
             )
         )
         for i, ann in enumerate(annotations):
-            out_arr[i, classes[i]] = np.load(ann.path)
+            out_arr[i, classes[i]] = ann.to_numpy()
         return out_arr
 
-    @field_serializer("path")
+    @field_serializer("path", when_used="json")
     def serialize_path(self, value: FilePath) -> str:
         return str(value)
+
+    @field_validator("path")
+    @classmethod
+    def validate_path(cls, path: FilePath) -> FilePath:
+        if path.suffix != ".npy":
+            raise ValueError(
+                f"Array annotation file must be a .npy file. Got {path}"
+            )
+        return path
 
 
 class DatasetRecord(BaseModelExtraForbid):
@@ -480,7 +516,7 @@ class DatasetRecord(BaseModelExtraForbid):
 
     @model_validator(mode="after")
     def validate_task_name(self) -> Self:
-        check_valid_identifier("Task name", self.task)
+        check_valid_identifier(self.task, label="Task name")
         return self
 
     @model_validator(mode="before")
@@ -521,7 +557,7 @@ class DatasetRecord(BaseModelExtraForbid):
                 }
 
 
-def check_valid_identifier(label: str, name: str) -> None:
+def check_valid_identifier(name: str, *, label: str) -> None:
     """Check if a name is a valid Python identifier after converting
     dashes to underscores.
 
