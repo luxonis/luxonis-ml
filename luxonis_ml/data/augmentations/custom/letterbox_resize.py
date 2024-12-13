@@ -10,6 +10,8 @@ from luxonis_ml.typing import Color
 
 
 class LetterboxResize(A.DualTransform):
+    mask_fill_value: Tuple[int, int, int]
+
     def __init__(
         self,
         height: int,
@@ -43,11 +45,11 @@ class LetterboxResize(A.DualTransform):
 
         super().__init__(p)
 
-        self._height = height
-        self._width = width
-        self._interpolation = interpolation
-        self._image_fill_value = resolve_color(image_fill_value)
-        self._mask_fill_value = resolve_color(mask_fill_value)
+        self.height = height
+        self.width = width
+        self.interpolation = interpolation
+        self.image_fill_value = resolve_color(image_fill_value)
+        self.mask_fill_value = resolve_color(mask_fill_value)
 
     @override
     def update_params(
@@ -66,7 +68,7 @@ class LetterboxResize(A.DualTransform):
 
         params = super().update_params(params, **kwargs)
         pad_top, pad_bottom, pad_left, pad_right = self.compute_padding(
-            params["rows"], params["cols"], self._height, self._width
+            params["rows"], params["cols"], self.height, self.width
         )
 
         params.update(
@@ -141,8 +143,8 @@ class LetterboxResize(A.DualTransform):
             pad_bottom,
             pad_left,
             pad_right,
-            self._interpolation,
-            self._image_fill_value,
+            self.interpolation,
+            self.image_fill_value,
         )
 
     @override
@@ -179,7 +181,7 @@ class LetterboxResize(A.DualTransform):
             pad_left,
             pad_right,
             cv2.INTER_NEAREST,
-            self._mask_fill_value,
+            self.mask_fill_value,
         )
 
     @override
@@ -213,10 +215,10 @@ class LetterboxResize(A.DualTransform):
         if bbox.size == 0:
             return bbox
 
-        pad_left_norm = pad_left / self._width
-        pad_right_norm = pad_right / self._width
-        pad_top_norm = pad_top / self._height
-        pad_bottom_norm = pad_bottom / self._height
+        pad_left_norm = pad_left / self.width
+        pad_right_norm = pad_right / self.width
+        pad_top_norm = pad_top / self.height
+        pad_bottom_norm = pad_bottom / self.height
 
         bbox[:, [0, 2]] *= 1 - pad_left_norm - pad_right_norm
         bbox[:, [0, 2]] += pad_left_norm
@@ -274,8 +276,8 @@ class LetterboxResize(A.DualTransform):
         if keypoint.size == 0:
             return keypoint
 
-        scale_x = (self._width - pad_left - pad_right) / cols
-        scale_y = (self._height - pad_top - pad_bottom) / rows
+        scale_x = (self.width - pad_left - pad_right) / cols
+        scale_y = (self.height - pad_top - pad_bottom) / rows
         keypoint[:, 0] *= scale_x
         keypoint[:, 0] += pad_left
 
@@ -283,11 +285,11 @@ class LetterboxResize(A.DualTransform):
         keypoint[:, 1] += pad_top
 
         out_of_bounds_x = np.logical_or(
-            keypoint[:, 0] < pad_left, keypoint[:, 0] > self._width - pad_right
+            keypoint[:, 0] < pad_left, keypoint[:, 0] > self.width - pad_right
         )
         out_of_bounds_y = np.logical_or(
             keypoint[:, 1] < pad_top,
-            keypoint[:, 1] > self._height - pad_bottom,
+            keypoint[:, 1] > self.height - pad_bottom,
         )
         keypoint[out_of_bounds_x | out_of_bounds_y, :2] = -1
 
@@ -306,8 +308,8 @@ class LetterboxResize(A.DualTransform):
         resized_img = cv2.resize(
             img,
             (
-                self._width - pad_left - pad_right,
-                self._height - pad_top - pad_bottom,
+                self.width - pad_left - pad_right,
+                self.height - pad_top - pad_bottom,
             ),
             interpolation=interpolation,
         )

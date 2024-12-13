@@ -143,6 +143,23 @@ class Mosaic4(BatchBasedTransform):
         )
 
     @override
+    def apply_to_instance_masks(
+        self,
+        masks_batch: List[List[np.ndarray]],
+        x_crop: int,
+        y_crop: int,
+        **_,
+    ) -> List[np.ndarray]:
+        return apply_mosaic4_to_instance_masks(
+            masks_batch,
+            self.out_height,
+            self.out_width,
+            x_crop,
+            y_crop,
+            self.value,
+        )
+
+    @override
     def apply_to_bboxes(
         self,
         bboxes_batch: List[np.ndarray],
@@ -261,6 +278,80 @@ class Mosaic4(BatchBasedTransform):
             }
         )
         return additional_params
+
+
+def apply_mosaic4_to_instance_masks(
+    masks_batch: List[List[np.ndarray]],
+    height: int,
+    width: int,
+    x_crop: int,
+    y_crop: int,
+    value: Optional[Union[int, float, List[int], List[float]]] = None,
+) -> List[np.ndarray]:
+    out_masks = []
+    dtype = masks_batch[0][0].dtype
+    out_shape = [height * 2, width * 2]
+
+    for i, masks in enumerate(masks_batch):
+        for mask in masks:
+            mask4 = np.full(
+                out_shape,
+                value if value is not None else 0,
+                dtype=dtype,
+            )
+
+            h, w = mask.shape[:2]
+
+            if i == 0:  # top left
+                x1a, y1a, x2a, y2a = (
+                    max(width - w, 0),
+                    max(height - h, 0),
+                    width,
+                    height,
+                )
+                x1b, y1b, x2b, y2b = w - (x2a - x1a), h - (y2a - y1a), w, h
+            elif i == 1:  # top right
+                x1a, y1a, x2a, y2a = (
+                    width,
+                    max(height - h, 0),
+                    min(width + w, width * 2),
+                    height,
+                )
+                x1b, y1b, x2b, y2b = 0, h - (y2a - y1a), min(w, x2a - x1a), h
+            elif i == 2:  # bottom left
+                x1a, y1a, x2a, y2a = (
+                    max(width - w, 0),
+                    height,
+                    width,
+                    min(height * 2, height + h),
+                )
+                x1b, y1b, x2b, y2b = w - (x2a - x1a), 0, w, min(y2a - y1a, h)
+            else:  # bottom right
+                x1a, y1a, x2a, y2a = (
+                    width,
+                    height,
+                    min(width + w, width * 2),
+                    min(height * 2, height + h),
+                )
+                x1b, y1b, x2b, y2b = 0, 0, min(w, x2a - x1a), min(y2a - y1a, h)
+
+            img4_region = mask4[y1a:y2a, x1a:x2a]
+            img_region = mask[y1b:y2b, x1b:x2b]
+
+            img4_h, img4_w = img4_region.shape[:2]
+            img_h, img_w = img_region.shape[:2]
+
+            min_h = min(img4_h, img_h)
+            min_w = min(img4_w, img_w)
+
+            mask4[y1a : y1a + min_h, x1a : x1a + min_w] = mask[
+                y1b : y1b + min_h, x1b : x1b + min_w
+            ]
+
+            mask4 = mask4[y_crop : y_crop + height, x_crop : x_crop + width]
+            out_masks.append(mask4)
+
+    return out_masks
 
 
 def apply_mosaic4_to_images(
@@ -407,6 +498,7 @@ def apply_mosaic4_to_bboxes(
     @return: Transformed bounding box coordinates.
     """
 
+    # TODO: remove normalization
     bbox = denormalize_bboxes(bbox, (rows, cols))
 
     if position_index == 0:

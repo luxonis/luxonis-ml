@@ -1,7 +1,7 @@
 import warnings
 from collections import defaultdict
 from math import prod
-from typing import Any, Dict, List, Literal, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, TypedDict
 
 import albumentations as A
 import numpy as np
@@ -26,6 +26,12 @@ from .utils import (
 Data: TypeAlias = Dict[str, np.ndarray]
 
 
+class SpecialTasks(TypedDict):
+    metadata: Set[str]
+    classification: Set[str]
+    instance_segmentation: Set[str]
+
+
 class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     def __init__(
         self,
@@ -37,10 +43,10 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         resize_transform: A.Compose,
         targets: Dict[str, str],
         targets_to_tasks: Dict[str, str],
-        special_targets: Dict[Literal["metadata", "classification"], Set[str]],
+        special_tasks: SpecialTasks,
     ):
         self.image_size = (height, width)
-        self.special_targets = special_targets
+        self.special_tasks = special_tasks
         self.targets = targets
         self.targets_to_tasks = targets_to_tasks
 
@@ -92,22 +98,25 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         main_task_names = set()
         alb_targets = {}
         alb_targets_to_tasks = {}
-        special_targets: Dict[
-            Literal["metadata", "classification"], Set[str]
-        ] = {
+        special_tasks: SpecialTasks = {
             "metadata": set(),
             "classification": set(),
+            "instance_segmentation": set(),
         }
         for task, task_type in targets.items():
             if task_type == "classification":
-                special_targets["classification"].add(task)
+                special_tasks["classification"].add(task)
                 continue
             elif task_is_metadata(task):
-                special_targets["metadata"].add(task)
+                special_tasks["metadata"].add(task)
                 continue
 
             if task_type in {"segmentation", "instance_segmentation"}:
+                if task_type == "instance_segmentation":
+                    special_tasks["instance_segmentation"].add(task)
+
                 task_type = "mask"
+
             elif task_type == "boundingbox":
                 task_type = "bboxes"
 
@@ -144,7 +153,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 resize_transform=A.Compose([resize], **_get_params()),
                 targets=alb_targets,
                 targets_to_tasks=alb_targets_to_tasks,
-                special_targets=special_targets,
+                special_tasks=special_tasks,
             )
 
     @property
@@ -164,21 +173,37 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     def _apply(self, data: List[Data]) -> LoaderOutput:
         metadata = defaultdict(list)
         classification = defaultdict(list)
+        instance_segmentation_index: List[str] = []
         for labels in data:
-            for metadata_task in self.special_targets["metadata"]:
+            for metadata_task in self.special_tasks["metadata"]:
                 if metadata_task in labels:
                     metadata[metadata_task].append(labels[metadata_task])
-            for classification_task in self.special_targets["classification"]:
+            for classification_task in self.special_tasks["classification"]:
                 if classification_task in labels:
                     classification[classification_task].append(
                         labels[classification_task]
                     )
+            masks = []
+            for target_name, target_type in self.targets.items():
+                task = self.targets_to_tasks[target_name]
+                if (
+                    target_type == "mask"
+                    and task in labels
+                    and task in self.special_tasks["instance_segmentation"]
+                ):
+                    mask = labels.pop(task)
+                    for mask_idx in range(mask.shape[0]):
+                        instance_segmentation_index.append(target_name)
+                        masks.append(mask[mask_idx])
+            if masks:
+                labels["masks"] = masks
+
         metadata = {k: np.concatenate(v) for k, v in metadata.items()}
         classification = {
             k: np.clip(sum(v), 0, 1) for k, v in classification.items()
         }
 
-        data, n_keypoints, n_mask_classes = self.preprocess(data)
+        data, n_keypoints, n_segmentation_classes = self.preprocess(data)
 
         if self.batch_transform.transforms:
             transformed = self.batch_transform(data)
@@ -192,6 +217,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         # so they don't interfere with the rest of the
         # pipeline.
         for key in list(transformed.keys()):
+            if key == "masks":
+                continue
             if transformed[key].size == 0:
                 del transformed[key]
 
@@ -214,7 +241,12 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             transformed = self.pixel_transform(transformed)
 
         return self.postprocess(
-            transformed, metadata, classification, n_keypoints, n_mask_classes
+            transformed,
+            metadata,
+            classification,
+            n_keypoints,
+            n_segmentation_classes,
+            instance_segmentation_index,
         )
 
     def preprocess_data(
@@ -223,6 +255,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         img = labels.pop("image")
         height, width = img.shape[:2]
         data = {"image": img}
+        if "masks" in labels:
+            data["masks"] = labels.pop("masks")
         n_keypoints = {}
         n_segmentation_classes = {}
         for task, task_type in self.targets.items():
@@ -230,7 +264,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             task = self.targets_to_tasks[task]
 
             if task not in labels:
-                data[override_name] = np.array([])
+                if task not in self.special_tasks["instance_segmentation"]:
+                    data[override_name] = np.array([])
                 continue
 
             array = labels[task]
@@ -263,7 +298,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             n_keypoints.update(_n_keypoints)
             n_segmentation_classes.update(_n_segmentation_classes)
             for task, array in d.items():
-                if task == "image":
+                if task in {"image", "masks"}:
                     continue
                 if self.targets[task] == "bboxes":
                     bbox_counters[task] += array.shape[0]
@@ -277,33 +312,37 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         classification: Data,
         n_keypoints: Dict[str, int],
         n_segmentation_classes: Dict[str, int],
+        instance_segmentation_index: Optional[List[str]],
     ) -> LoaderOutput:
+        instance_segmentation_index = instance_segmentation_index or []
         out_labels = {}
         out_image = data.pop("image")
         image_height, image_width, _ = out_image.shape
 
         bboxes_orderings = {}
         targets = sorted(
-            list(data.keys()), key=lambda x: self.targets[x] != "bboxes"
+            list(data.keys()), key=lambda x: self.targets.get(x) != "bboxes"
         )
 
         for target in targets:
             array = data[target]
-            if array.size == 0:
+            if target == "masks" or array.size == 0:
                 continue
 
             task = self.targets_to_tasks[target]
             task_name = get_task_name(task)
             task_type = self.targets[target]
-            if task_type == "mask":
+            if task_type == "bboxes":
+                out_labels[task], ordering = postprocess_bboxes(array)
+                bboxes_orderings[task_name] = ordering
+
+            elif task_type == "mask":
                 if target not in n_segmentation_classes:
                     continue
                 out_labels[task] = postprocess_mask(
                     array, n_segmentation_classes[target]
                 )
-            elif task_type == "bboxes":
-                out_labels[task], ordering = postprocess_bboxes(array)
-                bboxes_orderings[task_name] = ordering
+
             elif task_type == "keypoints" and task_name in bboxes_orderings:
                 out_labels[task] = postprocess_keypoints(
                     array,
@@ -312,6 +351,21 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                     image_width,
                     n_keypoints[target],
                 )
+
+        offsets = {task_name: 0 for task_name in bboxes_orderings.keys()}
+        instance_masks = defaultdict(list)
+        for i, target in enumerate(instance_segmentation_index):
+            task = self.targets_to_tasks[target]
+            task_name = get_task_name(task)
+            ordering = bboxes_orderings.get(task_name, np.array([]))
+            if i - offsets.get(task_name, 0) in ordering:
+                instance_masks[task].append(data["masks"][i])
+            for offset_name in offsets:
+                if task_name != offset_name:
+                    offsets[offset_name] += 1
+
+        for task, masks in instance_masks.items():
+            out_labels[task] = np.stack(masks)
 
         out_metadata = {}
         for task, value in metadata.items():

@@ -5,10 +5,11 @@ import numpy as np
 
 
 def preprocess_mask(seg: np.ndarray) -> np.ndarray:
-    mask = np.argmax(seg, axis=0) + 1
+    mask = np.argmax(seg, axis=0)
 
-    # only background has value 0
-    mask[np.sum(seg, axis=0) == 0] = 0
+    if seg.shape[0] == 1:
+        mask += 1
+        mask[np.sum(seg, axis=0) == 0] = 0
 
     return mask
 
@@ -35,7 +36,8 @@ def postprocess_mask(mask: np.ndarray, n_classes: int) -> np.ndarray:
     out_mask = np.zeros((n_classes, *mask.shape))
     for key in np.unique(mask):
         if key != 0:
-            out_mask[int(key) - 1, ...] = mask == key
+            class_id = int(key) - 1 if n_classes == 1 else int(key)
+            out_mask[class_id, ...] = mask == key
     out_mask[out_mask > 0] = 1
     return out_mask
 
