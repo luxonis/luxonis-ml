@@ -221,6 +221,17 @@ def inspect(
             help="Deterministic mode. Useful for debugging.",
         ),
     ] = False,
+    blend_all: Annotated[
+        bool,
+        typer.Option(
+            ...,
+            "--blend-all",
+            "-b",
+            help="Whether to draw labels belonging "
+            "to different tasks on the same image. "
+            "Doesn't apply to semantic segmentations.",
+        ),
+    ] = False,
 ):
     """Inspects images and annotations in a dataset."""
 
@@ -249,7 +260,7 @@ def inspect(
         h, w, _ = image.shape
         new_h, new_w = int(h * size_multiplier), int(w * size_multiplier)
         image = cv2.resize(image, (new_w, new_h))
-        image = visualize(image, labels, class_names)
+        image = visualize(image, labels, class_names, blend_all=blend_all)
         cv2.imshow("image", image)
         if cv2.waitKey() == ord("q"):
             break

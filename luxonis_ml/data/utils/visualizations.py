@@ -279,6 +279,7 @@ def visualize(
     image: np.ndarray,
     labels: Labels,
     class_names: Dict[str, List[str]],
+    blend_all: bool = False,
 ) -> np.ndarray:
     """Visualizes the labels on the image.
 
@@ -289,6 +290,10 @@ def visualize(
     @type class_names: Dict[str, List[str]]
     @param class_names: A dictionary mapping task names to a list of
         class names.
+    @type blend_all: bool
+    @param blend_all: Whether to blend all labels (apart from semantic
+        segmentations) into a single image. This means mixing labels
+        belonging to different tasks. Default is False.
     @rtype: np.ndarray
     @return: The visualized image.
     """
@@ -296,7 +301,7 @@ def visualize(
     images = {"image": image}
 
     def create_mask(
-        arr: np.ndarray, task_name: str, is_instance: bool
+        image: np.ndarray, arr: np.ndarray, task_name: str, is_instance: bool
     ) -> np.ndarray:
         mask_viz = np.zeros((h, w, 3)).astype(np.uint8)
         for i, mask in enumerate(arr):
@@ -324,15 +329,22 @@ def visualize(
 
     for task, arr in task_type_iterator(labels, "segmentation"):
         task_name = get_task_name(task)
-        images[task_name] = create_mask(arr, task_name, is_instance=False)
+        images[task_name] = create_mask(
+            image, arr, task_name, is_instance=False
+        )
 
     for task, arr in task_type_iterator(labels, "instance_segmentation"):
         task_name = get_task_name(task)
-        images[task_name] = create_mask(arr, task_name, is_instance=True)
+        image_name = task_name if not blend_all else "labels"
+        curr_image = images.get(image_name, image.copy())
+        images[image_name] = create_mask(
+            curr_image, arr, task_name, is_instance=True
+        )
 
     for task, arr in task_type_iterator(labels, "boundingbox"):
         task_name = get_task_name(task)
-        curr_image = images.get(task_name, image.copy())
+        image_name = task_name if not blend_all else "labels"
+        curr_image = images.get(image_name, image.copy())
 
         draw_function = cv2.rectangle
 
@@ -343,8 +355,8 @@ def visualize(
 
         arr[:, [1, 3]] *= w
         arr[:, [2, 4]] *= h
-        arr[:, 3] = arr[:, 1] + arr[:, 3]
-        arr[:, 4] = arr[:, 2] + arr[:, 4]
+        arr[:, 3] += arr[:, 1]
+        arr[:, 4] += arr[:, 2]
         arr = arr.astype(int)
 
         for box in arr:
@@ -356,13 +368,14 @@ def visualize(
                 (box[1], box[2]),
                 (box[3], box[4]),
                 color,
-                2,
+                thickness=2,
             )
-        images[task_name] = curr_image
+        images[image_name] = curr_image
 
     for task, arr in task_type_iterator(labels, "keypoints"):
         task_name = get_task_name(task)
-        curr_image = images.get(task_name, image.copy())
+        image_name = task_name if not blend_all else "labels"
+        curr_image = images.get(image_name, image.copy())
 
         task_classes = class_names[task_name]
 
@@ -374,15 +387,16 @@ def visualize(
             else:
                 color = (255, 0, 0)
             for k in kp:
-                visibility = k[-1]
+                visibility = int(k[-1])
+                if visibility == 0:
+                    continue
+
                 if visibility == 2:
                     draw_function = cv2.circle
                     size = 2
-                elif visibility == 1:
+                else:
                     draw_function = draw_cross
                     size = 5
-                else:
-                    continue
 
                 draw_function(
                     curr_image,
@@ -391,6 +405,6 @@ def visualize(
                     color=color,
                     thickness=2,
                 )
-        images[task_name] = curr_image
+        images[image_name] = curr_image
 
     return concat_images(images)
