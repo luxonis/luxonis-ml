@@ -6,11 +6,11 @@ import cv2
 import numpy as np
 from typing_extensions import override
 
-from luxonis_ml.data.augmentations.batch_transform import BatchBasedTransform
+from luxonis_ml.data.augmentations.batch_transform import BatchTransform
 from luxonis_ml.data.augmentations.custom import LetterboxResize
 
 
-class MixUp(BatchBasedTransform):
+class MixUp(BatchTransform):
     def __init__(
         self,
         alpha: Union[float, Tuple[float, float]] = 0.5,
@@ -179,20 +179,24 @@ class MixUp(BatchBasedTransform):
         return mask2
 
     @override
-    def apply_to_instance_masks(
-        self,
-        masks_batch: List[List[np.ndarray]],
-        **_,
-    ) -> List[np.ndarray]:
+    def apply_to_instance_mask(
+        self, mask_batch: List[np.ndarray], rows: int, cols: int, **_
+    ) -> np.ndarray:
         """Applies the transformation to a batch of instance masks.
 
-        @type masks_batch: List[List[np.ndarray]]
+        @type masks_batch: List[np.ndarray]
         @param masks_batch: Batch of input instance masks to which the
             transformation is applied.
-        @rtype: List[np.ndarray]
+        @rtype: np.ndarray
         @return: Transformed instance masks.
         """
-        return masks_batch[0] + masks_batch[1]
+        for i in range(len(mask_batch)):
+            if mask_batch[i].size == 0:
+                mask_batch[i] = np.zeros(
+                    (rows, cols, 0), dtype=mask_batch[i].dtype
+                )
+
+        return np.concatenate(mask_batch, axis=-1)
 
     @override
     def apply_to_bboxes(

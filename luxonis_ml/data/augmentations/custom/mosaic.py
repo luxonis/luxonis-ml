@@ -5,10 +5,10 @@ import numpy as np
 from albumentations.core.bbox_utils import denormalize_bboxes, normalize_bboxes
 from typing_extensions import override
 
-from luxonis_ml.data.augmentations.batch_transform import BatchBasedTransform
+from luxonis_ml.data.augmentations.batch_transform import BatchTransform
 
 
-class Mosaic4(BatchBasedTransform):
+class Mosaic4(BatchTransform):
     def __init__(
         self,
         out_height: int,
@@ -143,13 +143,9 @@ class Mosaic4(BatchBasedTransform):
         )
 
     @override
-    def apply_to_instance_masks(
-        self,
-        masks_batch: List[List[np.ndarray]],
-        x_crop: int,
-        y_crop: int,
-        **_,
-    ) -> List[np.ndarray]:
+    def apply_to_instance_mask(
+        self, masks_batch: List[np.ndarray], x_crop: int, y_crop: int, **_
+    ) -> np.ndarray:
         return apply_mosaic4_to_instance_masks(
             masks_batch,
             self.out_height,
@@ -281,19 +277,23 @@ class Mosaic4(BatchBasedTransform):
 
 
 def apply_mosaic4_to_instance_masks(
-    masks_batch: List[List[np.ndarray]],
+    masks_batch: List[np.ndarray],
     height: int,
     width: int,
     x_crop: int,
     y_crop: int,
     value: Optional[Union[int, float, List[int], List[float]]] = None,
-) -> List[np.ndarray]:
+) -> np.ndarray:
     out_masks = []
-    dtype = masks_batch[0][0].dtype
+    dtype = masks_batch[0].dtype
     out_shape = [height * 2, width * 2]
 
     for i, masks in enumerate(masks_batch):
-        for mask in masks:
+        if masks.size == 0:
+            continue
+
+        for j in range(masks.shape[-1]):
+            mask = masks[..., j]
             mask4 = np.full(
                 out_shape,
                 value if value is not None else 0,
@@ -351,7 +351,7 @@ def apply_mosaic4_to_instance_masks(
             mask4 = mask4[y_crop : y_crop + height, x_crop : x_crop + width]
             out_masks.append(mask4)
 
-    return out_masks
+    return np.stack(out_masks, axis=-1)
 
 
 def apply_mosaic4_to_images(

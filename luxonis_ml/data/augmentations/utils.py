@@ -5,13 +5,7 @@ import numpy as np
 
 
 def preprocess_mask(seg: np.ndarray) -> np.ndarray:
-    mask = np.argmax(seg, axis=0)
-
-    if seg.shape[0] == 1:
-        mask += 1
-        mask[np.sum(seg, axis=0) == 0] = 0
-
-    return mask
+    return seg.transpose(1, 2, 0)
 
 
 def preprocess_bboxes(bboxes: np.ndarray, bbox_counter: int) -> np.ndarray:
@@ -32,14 +26,11 @@ def preprocess_keypoints(
     return keypoints
 
 
-def postprocess_mask(mask: np.ndarray, n_classes: int) -> np.ndarray:
-    out_mask = np.zeros((n_classes, *mask.shape))
-    for key in np.unique(mask):
-        if key != 0:
-            class_id = int(key) - 1 if n_classes == 1 else int(key)
-            out_mask[class_id, ...] = mask == key
-    out_mask[out_mask > 0] = 1
-    return out_mask
+def postprocess_mask(mask: np.ndarray) -> np.ndarray:
+    if mask.ndim == 2:
+        return mask[np.newaxis, ...]
+
+    return mask.transpose(2, 0, 1)
 
 
 def postprocess_bboxes(bboxes: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:

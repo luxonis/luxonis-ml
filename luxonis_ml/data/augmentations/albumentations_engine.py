@@ -2,7 +2,7 @@ import logging
 import warnings
 from collections import defaultdict
 from math import prod
-from typing import Any, Dict, List, Optional, Set, Tuple, TypedDict
+from typing import Any, Dict, List, Set, Tuple, TypedDict
 
 import albumentations as A
 import numpy as np
@@ -13,7 +13,7 @@ from luxonis_ml.typing import ConfigItem, LoaderOutput, TaskType
 
 from .base_engine import AugmentationEngine
 from .batch_compose import BatchCompose
-from .batch_transform import BatchBasedTransform
+from .batch_transform import BatchTransform
 from .custom import TRANSFORMATIONS, LetterboxResize
 from .utils import (
     postprocess_bboxes,
@@ -29,17 +29,91 @@ logger = logging.getLogger(__name__)
 Data: TypeAlias = Dict[str, np.ndarray]
 
 
-class SpecialTasks(TypedDict):
+class SpecialTargets(TypedDict):
     """Dictionary for storing names of tasks that has to be augmented in
     a special way."""
 
     metadata: Set[str]
     classification: Set[str]
-    instance_masks: Set[str]
     arrays: Set[str]
+    instance_masks: Set[str]
 
 
 class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
+    """Augmentation engine using the Albumentations library under the
+    hood.
+
+    The order of transformations provided in the configuration is not
+    guaranteed to be preserved. The transformations are divided into
+    three groups: pixel transformations, spatial transformations, and
+    batch transformations.
+
+    Batch transformations are always applied first, followed by spatial
+    transformations, and finally pixel transformations.
+
+    Supported Standard Augmentations
+    ================================
+
+    All augmentations provided by the Albumentations library are supported.
+
+    Supported Batch Augmentations
+    ==============================
+
+    MixUp
+    -----
+
+    MixUp is a data augmentation technique that blends 2 source
+    images into a single image using a weight coefficient alpha.
+
+    Mosaic4
+    -------
+
+    Mosaic4 transformation combines 4 images into a single image
+    by placing them in a 2x2 grid.
+
+    Extending the Engine
+    ====================
+
+    New transformations can be added by registering them in the
+    `TRANSFORMATIONS` registry. All the custom transformations should
+    inherit either from `A.BasicTransform` or `BatchBasedTransform`.
+
+    Augmenting unsupported tasks
+    ============================
+
+    Metadata
+    --------
+
+    Metadata tasks can contain arbitrary data and their semantics are
+    unknown to the augmentation engine. Therefore, the only transformation
+    applied to metadata is discarding metadata associated with boxes
+    falling outside the image.
+
+    Arrays
+    ------
+
+    Arrays are dealt with in the same way as metadata.
+    The only transformation applied to arrays is discarding
+    arrays associated with bboxes falling outside the image.
+
+    Oriented Bounding Boxes
+    -----------------------
+
+    (Not implemented yet)
+
+    Oriented bounding boxes are of shape (n_boxes, 5) where
+    the last dimension contains the angle of the box.
+    This format is not supported by Albumentations, however,
+    Albumentations support angle to be part of the keypoints.
+    So, the oriented bounding boxes are split into regular
+    bounding boxes and a set of keypoints that represent
+    the center of the bbox and contain the angle as the third coordinate.
+
+    Both the keypoints and the bboxes are augmented separately.
+    At the end, the angle is extracted from the keypoints and added
+    back to the bounding boxes. The keypoints are discarded.
+    """
+
     def __init__(
         self,
         height: int,
@@ -50,8 +124,41 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         resize_transform: A.Compose,
         targets: Dict[str, str],
         targets_to_tasks: Dict[str, str],
-        special_tasks: SpecialTasks,
+        special_tasks: SpecialTargets,
     ):
+        """Initialize the AlbumentationsEngine.
+
+        @type height: int
+        @param height: Height of the output image
+        @type width: int
+        @param width: Width of the output image
+        @type batch_transform: BatchCompose
+        @param batch_transform: Batch transformations
+        @type spatial_transform: A.Compose
+        @param spatial_transform: Spatial transformations
+        @type pixel_transform: A.Compose
+        @param pixel_transform: Pixel transformations
+        @type resize_transform: A.Compose
+        @param resize_transform: Resize transformations
+        @type targets: Dict[str, str]
+        @param targets: Dictionary mapping albumentations
+            target names to their albumentations types.
+            Example: C{{"detection_boundingbox": "bboxes"}}
+        @type targets_to_tasks: Dict[str, str]
+        @param targets_to_tasks: Dictionary mapping
+            albumenation target names to their respective LDF task names.
+            Example: C{{"detection_boundingbox": "detection/boundingbox"}}
+            This is necessary because the albumentations target names
+            have to be valid python identifiers as opposed to LDF task names.
+        @type special_tasks: SpecialTargets
+        @param special_tasks: Dictionary containing the names of tasks
+            that require special treatment during augmentation.
+            The dictionary must contain the following keys:
+                - metadata: Set of metadata tasks
+                - classification: Set of classification tasks
+                - arrays: Set of array tasks
+                - instance_masks: Set of instance segmentation tasks
+        """
         self.image_size = (height, width)
         self.special_tasks = special_tasks
         self.targets = targets
@@ -88,29 +195,16 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         if is_validation_pipeline:
             config = [a for a in config if a["name"] == "Normalize"]
 
-        pixel_augmentations = []
-        spatial_augmentation = []
-        batched_augmentations = []
-        batch_size = 1
-        for aug in config:
-            curr_aug = cls._get_transform(aug)
-            if isinstance(curr_aug, A.ImageOnlyTransform):
-                pixel_augmentations.append(curr_aug)
-            elif isinstance(curr_aug, BatchBasedTransform):
-                batch_size *= curr_aug.batch_size
-                batched_augmentations.append(curr_aug)
-            elif isinstance(curr_aug, A.DualTransform):
-                spatial_augmentation.append(curr_aug)
-
         main_task_names = set()
         alb_targets = {}
         alb_targets_to_tasks = {}
-        special_tasks: SpecialTasks = {
+        special_tasks: SpecialTargets = {
             "metadata": set(),
             "classification": set(),
             "instance_masks": set(),
             "arrays": set(),
         }
+        instance_segmentation_targets = set()
         for task, task_type in targets.items():
             if task_type == "array":
                 logger.warning(
@@ -137,6 +231,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             if task_type in {"segmentation", "instance_segmentation"}:
                 if task_type == "instance_segmentation":
                     special_tasks["instance_masks"].add(task)
+                    instance_segmentation_targets.add(_task_to_target(task))
 
                 task_type = "mask"
 
@@ -145,10 +240,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
             task_name = get_task_name(task)
 
-            safe_task = task.replace("/", "_").replace("-", "_")
-            assert safe_task.isidentifier()
-            alb_targets[safe_task] = task_type
-            alb_targets_to_tasks[safe_task] = task
+            target_name = _task_to_target(task)
+            alb_targets[target_name] = task_type
+            alb_targets_to_tasks[target_name] = task
             main_task_names.add(task_name)
 
         def _get_params():
@@ -162,12 +256,28 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 "additional_targets": alb_targets,
             }
 
+        pixel_augmentations = []
+        spatial_augmentation = []
+        batched_augmentations = []
+        batch_size = 1
+        for aug in config:
+            curr_aug = cls._get_transform(aug)
+            if isinstance(curr_aug, A.ImageOnlyTransform):
+                pixel_augmentations.append(curr_aug)
+            elif isinstance(curr_aug, BatchTransform):
+                batch_size *= curr_aug.batch_size
+                batched_augmentations.append(curr_aug)
+            elif isinstance(curr_aug, A.DualTransform):
+                spatial_augmentation.append(curr_aug)
+
         with warnings.catch_warnings(record=True):
             return cls(
                 height=height,
                 width=width,
                 batch_transform=BatchCompose(
-                    batched_augmentations, **_get_params()
+                    batched_augmentations,
+                    instance_segmentation_targets=instance_segmentation_targets,
+                    **_get_params(),
                 ),
                 spatial_transform=A.Compose(
                     spatial_augmentation, **_get_params()
@@ -197,7 +307,6 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         metadata = defaultdict(list)
         arrays = defaultdict(list)
         classification = defaultdict(list)
-        instance_segmentation_index: List[str] = []
         for labels in data:
             for array_task in self.special_tasks["arrays"]:
                 if array_task in labels:
@@ -210,20 +319,6 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                     classification[classification_task].append(
                         labels[classification_task]
                     )
-            masks = []
-            for target_name, target_type in self.targets.items():
-                task = self.targets_to_tasks[target_name]
-                if (
-                    target_type == "mask"
-                    and task in labels
-                    and task in self.special_tasks["instance_masks"]
-                ):
-                    mask = labels.pop(task)
-                    for mask_idx in range(mask.shape[0]):
-                        instance_segmentation_index.append(target_name)
-                        masks.append(mask[mask_idx])
-            if masks:
-                labels["masks"] = masks  # type: ignore
 
         arrays = {k: np.concatenate(v) for k, v in arrays.items()}
         metadata = {k: np.concatenate(v) for k, v in metadata.items()}
@@ -231,7 +326,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             k: np.clip(sum(v), 0, 1) for k, v in classification.items()
         }
 
-        data, n_keypoints, n_segmentation_classes = self.preprocess(data)
+        data, n_keypoints = self.preprocess(data)
 
         if self.batch_transform.transforms:
             transformed = self.batch_transform(data)
@@ -245,8 +340,6 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         # so they don't interfere with the rest of the
         # pipeline.
         for key in list(transformed.keys()):
-            if key == "masks":
-                continue
             if transformed[key].size == 0:
                 del transformed[key]
 
@@ -274,32 +367,25 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             classification,
             arrays,
             n_keypoints,
-            n_segmentation_classes,
-            instance_segmentation_index,
         )
 
     def preprocess_data(
         self, labels: Data, bbox_counters: Dict[str, int]
-    ) -> Tuple[Data, Dict[str, int], Dict[str, int]]:
+    ) -> Tuple[Data, Dict[str, int]]:
         img = labels.pop("image")
         height, width = img.shape[:2]
         data = {"image": img}
-        if "masks" in labels:
-            data["masks"] = labels.pop("masks")
         n_keypoints = {}
-        n_segmentation_classes = {}
         for task, task_type in self.targets.items():
             override_name = task
             task = self.targets_to_tasks[task]
 
             if task not in labels:
-                if task not in self.special_tasks["instance_masks"]:
-                    data[override_name] = np.array([])
+                data[override_name] = np.array([])
                 continue
 
             array = labels[task]
             if task_type == "mask":
-                n_segmentation_classes[override_name] = array.shape[0]
                 data[override_name] = preprocess_mask(array)
             elif task_type == "bboxes":
                 data[override_name] = preprocess_bboxes(
@@ -310,29 +396,25 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 data[override_name] = preprocess_keypoints(
                     array, height, width
                 )
-        return data, n_keypoints, n_segmentation_classes
+        return data, n_keypoints
 
     def preprocess(
         self, data: List[Data]
-    ) -> Tuple[List[Data], Dict[str, int], Dict[str, int]]:
+    ) -> Tuple[List[Data], Dict[str, int]]:
         batch_data = []
         bbox_counters = defaultdict(int)
         n_keypoints = {}
-        n_segmentation_classes = {}
 
         for d in data:
-            d, _n_keypoints, _n_segmentation_classes = self.preprocess_data(
-                d, bbox_counters
-            )
+            d, _n_keypoints = self.preprocess_data(d, bbox_counters)
             n_keypoints.update(_n_keypoints)
-            n_segmentation_classes.update(_n_segmentation_classes)
             for task, array in d.items():
-                if task in {"image", "masks"}:
+                if task == "image":
                     continue
                 if self.targets[task] == "bboxes":
                     bbox_counters[task] += array.shape[0]
             batch_data.append(d)
-        return batch_data, n_keypoints, n_segmentation_classes
+        return batch_data, n_keypoints
 
     def postprocess(
         self,
@@ -341,10 +423,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         classification: Data,
         arrays: Data,
         n_keypoints: Dict[str, int],
-        n_segmentation_classes: Dict[str, int],
-        instance_segmentation_index: Optional[List[str]],
     ) -> LoaderOutput:
-        instance_segmentation_index = instance_segmentation_index or []
         out_labels = {}
         out_image = data.pop("image")
         image_height, image_width, _ = out_image.shape
@@ -356,7 +435,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
         for target in targets:
             array = data[target]
-            if target == "masks" or array.size == 0:
+            if array.size == 0:
                 continue
 
             task = self.targets_to_tasks[target]
@@ -366,12 +445,22 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 out_labels[task], ordering = postprocess_bboxes(array)
                 bboxes_orderings[task_name] = ordering
 
-            elif task_type == "mask":
-                if target not in n_segmentation_classes:
-                    continue
-                out_labels[task] = postprocess_mask(
-                    array, n_segmentation_classes[target]
-                )
+        for target in targets:
+            array = data[target]
+            if array.size == 0:
+                continue
+
+            task = self.targets_to_tasks[target]
+            task_name = get_task_name(task)
+            task_type = self.targets[target]
+
+            if task_type == "mask":
+                mask = postprocess_mask(array)
+                if task in self.special_tasks["instance_masks"]:
+                    if task_name in bboxes_orderings:
+                        out_labels[task] = mask[bboxes_orderings[task_name]]
+                else:
+                    out_labels[task] = mask
 
             elif task_type == "keypoints" and task_name in bboxes_orderings:
                 out_labels[task] = postprocess_keypoints(
@@ -381,21 +470,6 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                     image_width,
                     n_keypoints[target],
                 )
-
-        offsets = {task_name: 0 for task_name in bboxes_orderings.keys()}
-        instance_masks = defaultdict(list)
-        for i, target in enumerate(instance_segmentation_index):
-            task = self.targets_to_tasks[target]
-            task_name = get_task_name(task)
-            ordering = bboxes_orderings.get(task_name, np.array([]))
-            if i - offsets.get(task_name, 0) in ordering:
-                instance_masks[task].append(data["masks"][i])
-            for offset_name in offsets:
-                if task_name != offset_name:
-                    offsets[offset_name] += 1
-
-        for task, masks in instance_masks.items():
-            out_labels[task] = np.stack(masks)
 
         for task, value in metadata.items():
             task_name = get_task_name(task)
@@ -418,3 +492,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         if hasattr(A, name):
             return getattr(A, name)(**params)
         return TRANSFORMATIONS.get(name)(**params)  # type: ignore
+
+
+def _task_to_target(task: str) -> str:
+    target = task.replace("/", "_").replace("-", "_")
+    assert target.isidentifier()
+    return target
