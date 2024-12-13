@@ -8,11 +8,9 @@ import numpy as np
 
 from luxonis_ml.data import BucketStorage, LuxonisDataset, LuxonisLoader
 from luxonis_ml.typing import ConfigItem
-from luxonis_ml.utils import setup_logging
+from luxonis_ml.utils import LuxonisFileSystem, setup_logging
 
 setup_logging(use_rich=True, rich_print=True)
-
-base_path = Path("../data/D2_ParkingLot")
 
 
 def get_annotations(sequence_path):
@@ -31,14 +29,18 @@ def test_parking_lot_generate(
     augmentation_config: List[ConfigItem],
     height: int,
     width: int,
+    storage_url: str,
 ):
+    data_path = LuxonisFileSystem.download(
+        f"{storage_url}/D2_ParkingLot", tempdir
+    )
     dataset = LuxonisDataset(
         dataset_name,
         delete_existing=True,
         bucket_storage=bucket_storage,
         delete_remote=True,
     )
-    dataset.add(generator(tempdir))
+    dataset.add(generator(data_path, tempdir))
     dataset.make_splits((0.8, 0.1, 0.1))
     assert set(dataset.get_tasks()) == {
         "car/array",
@@ -74,7 +76,7 @@ def test_parking_lot_generate(
 
 
 # TODO: Simplify the dataset so the code can be cleaner
-def generator(tempdir: Path):
+def generator(base_path: Path, tempdir: Path):
     array_counter = 0
     seen = set()
     batch = []
