@@ -76,18 +76,6 @@ TASKS: Final[Set[str]] = {
 }
 DATA_DIR = Path("tests/data/test_dataset")
 
-AUG_CONFIG: List[ConfigItem] = [
-    {
-        "name": "Mosaic4",
-        "params": {"out_width": 416, "out_height": 416, "p": 1.0},
-    },
-    {"name": "MixUp", "params": {"p": 1.0}},
-    {"name": "Defocus", "params": {"p": 1.0}},
-    {"name": "Sharpen", "params": {"p": 1.0}},
-    {"name": "Flip", "params": {"p": 1.0}},
-    {"name": "RandomRotate90", "params": {"p": 1.0}},
-]
-
 
 @pytest.fixture(autouse=True, scope="module")
 def prepare_dir():
@@ -117,7 +105,10 @@ def compare_loader_output(loader: LuxonisLoader, tasks: Set[str]):
 
 
 def test_dataset(
-    bucket_storage: BucketStorage, dataset_name: str, subtests: SubTests
+    bucket_storage: BucketStorage,
+    dataset_name: str,
+    augmentation_config: List[ConfigItem],
+    subtests: SubTests,
 ):
     with subtests.test("test_create", bucket_storage=bucket_storage):
         parser = LuxonisParser(
@@ -161,7 +152,7 @@ def test_dataset(
             dataset,
             width=512,
             height=512,
-            augmentation_config=AUG_CONFIG,
+            augmentation_config=augmentation_config,
             augmentation_engine="albumentations",
         )
         for img, labels in loader:
@@ -388,7 +379,7 @@ def test_no_labels():
         assert labels == {}
 
 
-def test_deep_nested_labels():
+def test_deep_nested_labels(augmentation_config: List[ConfigItem]):
     def generator():
         for i in range(10):
             yield {
@@ -436,7 +427,7 @@ def test_deep_nested_labels():
         dataset,
         height=512,
         width=512,
-        augmentation_config=AUG_CONFIG,
+        augmentation_config=augmentation_config,
         augmentation_engine="albumentations",
     )
     compare_loader_output(

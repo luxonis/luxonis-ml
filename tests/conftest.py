@@ -10,6 +10,7 @@ from _pytest.fixtures import SubRequest
 from pytest import FixtureRequest, Function, Metafunc, Parser
 
 from luxonis_ml.data import BucketStorage
+from luxonis_ml.typing import ConfigItem
 from luxonis_ml.utils import setup_logging
 from luxonis_ml.utils.environ import environ
 
@@ -86,6 +87,21 @@ def augmentation_data(
             np.random.randint(0, 2, (height, width)) for _ in range(batch_size)
         ],
     }
+
+
+@pytest.fixture(scope="session")
+def augmentation_config() -> List[ConfigItem]:
+    return [
+        {
+            "name": "Mosaic4",
+            "params": {"out_width": 416, "out_height": 416, "p": 1.0},
+        },
+        {"name": "MixUp", "params": {"p": 1.0}},
+        {"name": "Defocus", "params": {"p": 1.0}},
+        {"name": "Sharpen", "params": {"p": 1.0}},
+        {"name": "Flip", "params": {"p": 1.0}},
+        {"name": "RandomRotate90", "params": {"p": 1.0}},
+    ]
 
 
 @pytest.fixture(scope="function")
