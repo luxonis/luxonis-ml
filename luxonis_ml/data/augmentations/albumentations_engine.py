@@ -57,7 +57,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     All augmentations provided by the Albumentations library are supported.
 
     Supported Batch Augmentations
-    ==============================
+    =============================
 
     MixUp
     -----
@@ -304,41 +304,15 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         return self._apply(new_data)
 
     def _apply(self, data: List[Data]) -> LoaderOutput:
-        metadata = defaultdict(list)
-        arrays = defaultdict(list)
-        classification = defaultdict(list)
-        for labels in data:
-            for array_task in self.special_tasks["arrays"]:
-                if array_task in labels:
-                    arrays[array_task].append(labels[array_task])
-            for metadata_task in self.special_tasks["metadata"]:
-                if metadata_task in labels:
-                    metadata[metadata_task].append(labels[metadata_task])
-            for classification_task in self.special_tasks["classification"]:
-                if classification_task in labels:
-                    classification[classification_task].append(
-                        labels[classification_task]
-                    )
+        metadata, arrays, classification = self.extract_special_tasks(data)
 
-        arrays = {k: np.concatenate(v) for k, v in arrays.items()}
-        metadata = {k: np.concatenate(v) for k, v in metadata.items()}
-        classification = {
-            k: np.clip(sum(v), 0, 1) for k, v in classification.items()
-        }
-
-        data, n_keypoints = self.preprocess(data)
+        data, n_keypoints = self.preprocess_batch(data)
 
         if self.batch_transform.transforms:
             transformed = self.batch_transform(data)
         else:
             transformed = data[0]
 
-        # For batch augmentations we need to replace
-        # missing labels with empty arrays so the
-        # correct batch size is maintained.
-        # After the transformation, we remove them
-        # so they don't interfere with the rest of the
-        # pipeline.
         for key in list(transformed.keys()):
             if transformed[key].size == 0:
                 del transformed[key]
@@ -362,16 +336,30 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             transformed = self.pixel_transform(transformed)
 
         return self.postprocess(
-            transformed,
-            metadata,
-            classification,
-            arrays,
-            n_keypoints,
+            transformed, metadata, classification, arrays, n_keypoints
         )
 
-    def preprocess_data(
+    def preprocess_labels(
         self, labels: Data, bbox_counters: Dict[str, int]
     ) -> Tuple[Data, Dict[str, int]]:
+        """Preprocess labels to the albumentations format.
+
+        @type labels: Data
+        @param labels: Dictionary mapping task names to the annotations
+            as C{np.ndarray}
+        @type bbox_counters: Dict[str, int]
+        @param bbox_counters: Dictionary mapping task names to the
+            number of bounding boxes for that task. This is used to
+            filter out instance based annotations associated with bboxes
+            that end up outside the image.
+        @rtype: Tuple[Data, Dict[str, int]]
+        @return: Tuple containing the preprocessed data and a dictionary
+            mapping task names to the number of keypoints for that task.
+            We need this information to postprocess the keypoints at the
+            end because the keypoints are flattened and we need to know
+            how many keypoints are associated with each instance to
+            unflatten them properly.
+        """
         img = labels.pop("image")
         height, width = img.shape[:2]
         data = {"image": img}
@@ -398,22 +386,33 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 )
         return data, n_keypoints
 
-    def preprocess(
-        self, data: List[Data]
+    def preprocess_batch(
+        self, labels_batch: List[Data]
     ) -> Tuple[List[Data], Dict[str, int]]:
+        """Preprocess a batch of labels.
+
+        @type labels_batch: List[Data]
+        @param labels_batch: List of dictionaries mapping task names to
+            the annotations as C{np.ndarray}
+        @rtype: Tuple[List[Data], Dict[str, int]]
+        @return: Tuple containing the preprocessed data and a dictionary
+            mapping task names to the number of keypoints for that task.
+        """
         batch_data = []
         bbox_counters = defaultdict(int)
         n_keypoints = {}
 
-        for d in data:
-            d, _n_keypoints = self.preprocess_data(d, bbox_counters)
+        for labels in labels_batch:
+            labels, _n_keypoints = self.preprocess_labels(
+                labels, bbox_counters
+            )
             n_keypoints.update(_n_keypoints)
-            for task, array in d.items():
+            for task, array in labels.items():
                 if task == "image":
                     continue
                 if self.targets[task] == "bboxes":
                     bbox_counters[task] += array.shape[0]
-            batch_data.append(d)
+            batch_data.append(labels)
         return batch_data, n_keypoints
 
     def postprocess(
@@ -424,6 +423,29 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         arrays: Data,
         n_keypoints: Dict[str, int],
     ) -> LoaderOutput:
+        """Postprocess the augmented data back to LDF format.
+
+        Discards labels associated with bboxes that are outside the
+        image.
+
+        @type data: Data
+        @param data: Dictionary mapping task names to the annotations as
+            C{np.ndarray}
+        @type metadata: Data
+        @param metadata: Dictionary mapping metadata task names to the
+            annotations as C{np.ndarray}
+        @type classification: Data
+        @param classification: Dictionary mapping classification task
+            names to the annotations as C{np.ndarray}
+        @type arrays: Data
+        @param arrays: Dictionary mapping array task names to the
+            annotations as C{np.ndarray}
+        @type n_keypoints: Dict[str, int]
+        @param n_keypoints: Dictionary mapping task names to the number
+            of keypoints for that task.
+        @rtype: LoaderOutput
+        @return: Tuple containing the augmented image and the labels.
+        """
         out_labels = {}
         out_image = data.pop("image")
         image_height, image_width, _ = out_image.shape
@@ -492,6 +514,32 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         if hasattr(A, name):
             return getattr(A, name)(**params)
         return TRANSFORMATIONS.get(name)(**params)  # type: ignore
+
+    def extract_special_tasks(
+        self, data: List[Data]
+    ) -> Tuple[Data, Data, Data]:
+        metadata = defaultdict(list)
+        arrays = defaultdict(list)
+        classification = defaultdict(list)
+        for labels in data:
+            for array_task in self.special_tasks["arrays"]:
+                if array_task in labels:
+                    arrays[array_task].append(labels[array_task])
+            for metadata_task in self.special_tasks["metadata"]:
+                if metadata_task in labels:
+                    metadata[metadata_task].append(labels[metadata_task])
+            for classification_task in self.special_tasks["classification"]:
+                if classification_task in labels:
+                    classification[classification_task].append(
+                        labels[classification_task]
+                    )
+
+        arrays = {k: np.concatenate(v) for k, v in arrays.items()}
+        metadata = {k: np.concatenate(v) for k, v in metadata.items()}
+        classification = {
+            k: np.clip(sum(v), 0, 1) for k, v in classification.items()
+        }
+        return metadata, arrays, classification
 
 
 def _task_to_target(task: str) -> str:
