@@ -7,7 +7,6 @@ from luxonis_ml.data.utils import get_task_type
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.utils import environ
 
-URL_PREFIX: Final[str] = "gs://luxonis-test-bucket/luxonis-ml-test-data"
 WORK_DIR: Final[str] = "tests/data/parser_datasets"
 
 
@@ -92,10 +91,13 @@ def prepare_dir():
     ],
 )
 def test_dir_parser(
-    dataset_type: DatasetType, url: str, expected_task_types: List[str]
+    dataset_type: DatasetType,
+    url: str,
+    expected_task_types: List[str],
+    storage_url,
 ):
     if not url.startswith("roboflow://"):
-        url = f"{URL_PREFIX}/{url}"
+        url = f"{storage_url}/{url}"
 
     elif environ.ROBOFLOW_API_KEY is None:
         pytest.skip("Roboflow API key is not set")

@@ -38,7 +38,8 @@ def test_parking_lot_generate(
         bucket_storage=bucket_storage,
         delete_remote=True,
     )
-    dataset.add(generator(tempdir)).make_splits()
+    dataset.add(generator(tempdir))
+    dataset.make_splits((0.8, 0.1, 0.1))
     assert set(dataset.get_tasks()) == {
         "car/array",
         "car/boundingbox",

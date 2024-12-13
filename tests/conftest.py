@@ -18,10 +18,11 @@ setup_logging(use_rich=True, rich_print=True, configure_warnings=True)
 
 
 @pytest.fixture(autouse=True, scope="module")
-def set_paths():
+def setup_base_path():
     environ.LUXONISML_BASE_PATH = Path.cwd() / "tests/data/luxonisml_base_path"
     if environ.LUXONISML_BASE_PATH.exists():
         shutil.rmtree(environ.LUXONISML_BASE_PATH)
+    environ.LUXONISML_BASE_PATH.mkdir(parents=True, exist_ok=True)
 
 
 @pytest.fixture(scope="session")
@@ -110,6 +111,11 @@ def tempdir():
     path.mkdir(parents=True, exist_ok=True)
     yield path
     shutil.rmtree("tests/data/tempdir")
+
+
+@pytest.fixture(scope="session")
+def storage_url() -> str:
+    return "gs://luxonis-test-bucket/luxonis-ml-test-data/"
 
 
 def pytest_addoption(parser: Parser):

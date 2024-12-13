@@ -1,7 +1,6 @@
-import shutil
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, Final, List, Set
+from typing import Dict, List, Set
 
 import cv2
 import numpy as np
@@ -21,73 +20,9 @@ from luxonis_ml.data.utils.task_utils import (
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.typing import ConfigItem
 
-# TODO: Test array
 
-SKELETONS: Final[dict] = {
-    "coco": (
-        [
-            "nose",
-            "left_eye",
-            "right_eye",
-            "left_ear",
-            "right_ear",
-            "left_shoulder",
-            "right_shoulder",
-            "left_elbow",
-            "right_elbow",
-            "left_wrist",
-            "right_wrist",
-            "left_hip",
-            "right_hip",
-            "left_knee",
-            "right_knee",
-            "left_ankle",
-            "right_ankle",
-        ],
-        [
-            [15, 13],
-            [13, 11],
-            [16, 14],
-            [14, 12],
-            [11, 12],
-            [5, 11],
-            [6, 12],
-            [5, 6],
-            [5, 7],
-            [6, 8],
-            [7, 9],
-            [8, 10],
-            [1, 2],
-            [0, 1],
-            [0, 2],
-            [1, 3],
-            [2, 4],
-            [3, 5],
-            [4, 6],
-        ],
-    ),
-}
-URL_PREFIX: Final[str] = "gs://luxonis-test-bucket/luxonis-ml-test-data"
-WORK_DIR: Final[str] = "tests/data/parser_datasets"
-TASKS: Final[Set[str]] = {
-    "segmentation",
-    "keypoints",
-    "boundingbox",
-}
-DATA_DIR = Path("tests/data/test_dataset")
-
-
-@pytest.fixture(autouse=True, scope="module")
-def prepare_dir():
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-    yield
-
-    shutil.rmtree(DATA_DIR)
-
-
-def make_image(i: int) -> Path:
-    path = DATA_DIR / f"img_{i}.jpg"
+def create_image(i: int, dir: Path) -> Path:
+    path = dir / f"img_{i}.jpg"
     if not path.exists():
         img = np.zeros((512, 512, 3), dtype=np.uint8)
         img[0:10, 0:10] = np.random.randint(
@@ -109,12 +44,14 @@ def test_dataset(
     dataset_name: str,
     augmentation_config: List[ConfigItem],
     subtests: SubTests,
+    storage_url: str,
+    tempdir: Path,
 ):
     with subtests.test("test_create", bucket_storage=bucket_storage):
         parser = LuxonisParser(
-            f"{URL_PREFIX}/COCO_people_subset.zip",
+            f"{storage_url}/COCO_people_subset.zip",
             dataset_name=dataset_name,
-            save_dir=WORK_DIR,
+            save_dir=tempdir,
             dataset_type=DatasetType.COCO,
             bucket_storage=bucket_storage,
             delete_existing=True,
@@ -127,7 +64,51 @@ def test_dataset(
         )
         assert dataset.get_classes()[0] == ["person"]
         assert set(dataset.get_task_names()) == {"coco"}
-        assert dataset.get_skeletons() == SKELETONS
+        assert dataset.get_skeletons() == {
+            "coco": (
+                [
+                    "nose",
+                    "left_eye",
+                    "right_eye",
+                    "left_ear",
+                    "right_ear",
+                    "left_shoulder",
+                    "right_shoulder",
+                    "left_elbow",
+                    "right_elbow",
+                    "left_wrist",
+                    "right_wrist",
+                    "left_hip",
+                    "right_hip",
+                    "left_knee",
+                    "right_knee",
+                    "left_ankle",
+                    "right_ankle",
+                ],
+                [
+                    [15, 13],
+                    [13, 11],
+                    [16, 14],
+                    [14, 12],
+                    [11, 12],
+                    [5, 11],
+                    [6, 12],
+                    [5, 6],
+                    [5, 7],
+                    [6, 8],
+                    [7, 9],
+                    [8, 10],
+                    [1, 2],
+                    [0, 1],
+                    [0, 2],
+                    [1, 3],
+                    [2, 4],
+                    [3, 5],
+                    [4, 6],
+                ],
+            ),
+        }
+
         assert dataset.identifier == dataset_name
 
     if "dataset" not in locals():
@@ -144,7 +125,7 @@ def test_dataset(
         loader = LuxonisLoader(dataset)
         for img, labels in loader:
             assert img is not None
-            for task in TASKS:
+            for task in {"segmentation", "keypoints", "boundingbox"}:
                 assert f"coco/{task}" in labels
 
     with subtests.test("test_load_aug", bucket_storage=bucket_storage):
@@ -157,7 +138,7 @@ def test_dataset(
         )
         for img, labels in loader:
             assert img is not None
-            for task in TASKS:
+            for task in {"segmentation", "keypoints", "boundingbox"}:
                 assert f"coco/{task}" in labels
 
     with subtests.test("test_delete", bucket_storage=bucket_storage):
@@ -168,12 +149,12 @@ def test_dataset(
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
-def test_dataset_fail():
+def test_dataset_fail(tempdir: Path):
     dataset = LuxonisDataset("test_fail", delete_existing=True)
 
     def generator():
         for i in range(10):
-            img = make_image(i)
+            img = create_image(i, tempdir)
             yield {
                 "file": img,
                 "annotation": {
@@ -188,11 +169,11 @@ def test_dataset_fail():
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
-def test_loader_iterator():
+def test_loader_iterator(storage_url: str, tempdir: Path):
     dataset = LuxonisParser(
-        f"{URL_PREFIX}/COCO_people_subset.zip",
+        f"{storage_url}/COCO_people_subset.zip",
         dataset_name="_iterator_test",
-        save_dir=WORK_DIR,
+        save_dir=tempdir,
         dataset_type=DatasetType.COCO,
         delete_existing=True,
     ).parse()
@@ -206,7 +187,9 @@ def test_loader_iterator():
         _ = loader[0]
 
 
-def test_make_splits(bucket_storage: BucketStorage, dataset_name: str):
+def test_make_splits(
+    bucket_storage: BucketStorage, dataset_name: str, tempdir: Path
+):
     definitions: Dict[str, List[str]] = defaultdict(list)
 
     _start_index: int = 0
@@ -215,7 +198,7 @@ def test_make_splits(bucket_storage: BucketStorage, dataset_name: str):
         nonlocal _start_index
         definitions.clear()
         for i in range(_start_index, _start_index + step):
-            path = make_image(i)
+            path = create_image(i, tempdir)
             yield {
                 "file": str(path),
                 "annotation": {
@@ -312,9 +295,11 @@ def test_make_splits(bucket_storage: BucketStorage, dataset_name: str):
 # TODO: Test array
 
 
-def test_metadata(bucket_storage: BucketStorage, dataset_name: str):
+def test_metadata(
+    bucket_storage: BucketStorage, dataset_name: str, tempdir: Path
+):
     def generator():
-        img = make_image(0)
+        img = create_image(0, tempdir)
         for i in range(10):
             yield {
                 "file": img,
@@ -352,12 +337,12 @@ def test_metadata(bucket_storage: BucketStorage, dataset_name: str):
         assert labels["metadata/id"].tolist() == list(range(127, 137))
 
 
-def test_no_labels():
+def test_no_labels(tempdir: Path):
     dataset = LuxonisDataset("no_labels", delete_existing=True)
 
     def generator():
         for i in range(10):
-            img = make_image(i)
+            img = create_image(i, tempdir)
             yield {
                 "file": img,
             }
@@ -379,11 +364,13 @@ def test_no_labels():
         assert labels == {}
 
 
-def test_deep_nested_labels(augmentation_config: List[ConfigItem]):
+def test_deep_nested_labels(
+    augmentation_config: List[ConfigItem], tempdir: Path
+):
     def generator():
         for i in range(10):
             yield {
-                "file": make_image(i),
+                "file": create_image(i, tempdir),
                 "annotation": {
                     "class": "car",
                     "boundingbox": {
@@ -443,12 +430,12 @@ def test_deep_nested_labels(augmentation_config: List[ConfigItem]):
     )
 
 
-def test_partial_labels():
+def test_partial_labels(tempdir: Path):
     dataset = LuxonisDataset("partial_labels", delete_existing=True)
 
     def generator():
         for i in range(8):
-            img = make_image(i)
+            img = create_image(i, tempdir)
             if i < 2:
                 yield {
                     "file": img,
