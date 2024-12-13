@@ -696,7 +696,8 @@ class LuxonisDataset(BaseDataset):
         if definitions is None:
             ratios = ratios or {"train": 0.8, "val": 0.1, "test": 0.1}
             df = self._load_df_offline()
-            assert df is not None
+            if df is None:
+                raise FileNotFoundError("No data found in dataset")
             ids = (
                 df.filter(~pl.col("uuid").is_in(defined_uuids))
                 .select("uuid")
