@@ -441,7 +441,10 @@ def test_array_annotation(subtests: SubTests, tempdir: Path):
         assert np.array_equal(annotation.to_numpy(), arr)
 
         annotations = [ArrayAnnotation(path=arr_path) for _ in range(5)]
-        array = ArrayAnnotation.combine_to_numpy(annotations, [0, 1, 2, 2, 1])
+        array = ArrayAnnotation.combine_to_numpy(
+            annotations, [0, 1, 2, 2, 1], 4
+        )
+        assert array.shape == (5, 4, 100, 100)
         assert np.allclose(array[0, 0, ...], arr)
         assert np.allclose(array[1, 1, ...], arr)
         assert np.allclose(array[2, 2, ...], arr)

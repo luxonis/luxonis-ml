@@ -476,7 +476,7 @@ class ArrayAnnotation(Annotation):
     def combine_to_numpy(
         annotations: List["ArrayAnnotation"],
         classes: List[int],
-        n_classes: int = ...,
+        n_classes: int,
     ) -> np.ndarray:
         out_arr = np.zeros(
             (
