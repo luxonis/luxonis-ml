@@ -14,8 +14,7 @@ class MixUp(BatchBasedTransform):
     def __init__(
         self,
         alpha: Union[float, Tuple[float, float]] = 0.5,
-        min_alpha_mask_threshold: float = 0.1,
-        max_alpha_mask_threshold: float = 0.9,
+        mask_visibility_threshold: float = 0.1,
         keep_aspect_ratio: bool = True,
         p: float = 0.5,
     ):
@@ -26,16 +25,16 @@ class MixUp(BatchBasedTransform):
         @type alpha: Union[float, Tuple[float, float]]
         @param alpha: Mixing coefficient, either a single float or a
             tuple representing the range. Defaults to C{0.5}.
-        @type min_alpha_mask_threshold: float
-        @param min_alpha_mask_threshold: Minimum threshold for alpha
-            when applying the transform to semantic segmentations. If
-            alpha is less than this threshold, the first mask is
-            discarded. Defaults to C{0.1}.
-        @type max_alpha_mask_threshold: float
-        @param max_alpha_mask_threshold: Maximum threshold for alpha
-            when applying the transform to semantic segmentations. If
-            alpha is greater than this threshold, the second mask is
-            discarded. Defaults to C{0.9}.
+        @type mask_visibility_threshold: float
+        @param mask_visibility_threshold: Threshold for mask visibility.
+            If the alpha value is less than this threshold, then only the
+            second mask is chosen. If the alpha value is greater than
+            C{1 - mask_visibility_threshold}, then only the first mask is
+            chosen. In other cases, the masks are merged by choosing the
+            non-zero values from both masks. In case of a conflict (both
+            masks have a non-zero value at the same position), the value
+            is chosen from the mask with the higher alpha value. Defaults
+            to C{0.1}.
         @type keep_aspect_ratio: bool
         @param keep_aspect_ratio: Whether to keep the aspect ratio of
             the second image when resizing. Defaults to C{True}.
@@ -45,8 +44,7 @@ class MixUp(BatchBasedTransform):
         """
         super().__init__(batch_size=2, p=p)
 
-        self.min_alpha_mask_threshold = min_alpha_mask_threshold
-        self.max_alpha_mask_threshold = max_alpha_mask_threshold
+        self.mask_visibility_threshold = mask_visibility_threshold
 
         self.alpha = (
             alpha if isinstance(alpha, (list, tuple)) else (alpha, alpha)
@@ -139,10 +137,10 @@ class MixUp(BatchBasedTransform):
         """Applies the transformation to a batch of masks.
 
         Uses several heuristics to merge the massk:
-            - If the alpha value is greater than the C{max_alpha_mask_threshold},
-                then only the first mask is chosen.
-            - If the alpha value is less than the C{min_alpha_mask_threshold},
+            - If the alpha value is less than C{mask_visibility_threshold},
                 then only the second mask is chosen.
+            - If the alpha value is greater than C{1 - mask_visibility_threshold},
+                then only the first mask is chosen.
             - In other cases, the masks are merged by choosing the non-zero
                 values from both masks. In case of a conflict (both masks have
                 a non-zero value at the same position), the value is chosen
@@ -166,10 +164,10 @@ class MixUp(BatchBasedTransform):
         elif mask2.size == 0:
             return mask1
 
-        if alpha > self.max_alpha_mask_threshold:
-            return mask1
-        if alpha < self.min_alpha_mask_threshold:
+        if alpha < self.mask_visibility_threshold:
             return mask2
+        if alpha > 1 - self.mask_visibility_threshold:
+            return mask1
 
         if alpha >= 0.5:
             mask1[(mask1 == 0) & (mask2 != 0)] = mask2[
