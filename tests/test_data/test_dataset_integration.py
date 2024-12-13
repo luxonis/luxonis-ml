@@ -27,12 +27,13 @@ def get_annotations(sequence_path):
 def test_parking_lot_generate(
     tempdir: Path,
     bucket_storage: BucketStorage,
+    dataset_name: str,
     augmentation_config: List[ConfigItem],
     height: int,
     width: int,
 ):
     dataset = LuxonisDataset(
-        "ParkingLot",
+        dataset_name,
         delete_existing=True,
         bucket_storage=bucket_storage,
         delete_remote=True,
@@ -71,6 +72,7 @@ def test_parking_lot_generate(
     assert accumulated_tasks == set(dataset.get_tasks())
 
 
+# TODO: Simplify the dataset so the code can be cleaner
 def generator(tempdir: Path):
     array_counter = 0
     seen = set()
