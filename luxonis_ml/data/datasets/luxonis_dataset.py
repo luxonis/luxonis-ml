@@ -31,7 +31,6 @@ from luxonis_ml.data.utils import (
     BucketStorage,
     BucketType,
     ParquetFileManager,
-    check_array,
     infer_task,
     warn_on_duplicates,
 )
@@ -418,7 +417,6 @@ class LuxonisDataset(BaseDataset):
             if record.annotation is None or record.annotation.array is None:
                 continue
             ann = record.annotation.array
-            check_array(ann.path)
             if self.is_remote:
                 uuid = self.fs.get_file_uuid(
                     ann.path, local=True

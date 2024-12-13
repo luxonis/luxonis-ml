@@ -500,6 +500,12 @@ class ArrayAnnotation(Annotation):
             raise ValueError(
                 f"Array annotation file must be a .npy file. Got {path}"
             )
+        try:
+            np.load(path)
+        except Exception as e:
+            raise ValueError(
+                f"Failed to load array annotation from {path}"
+            ) from e
         return path
 
 
