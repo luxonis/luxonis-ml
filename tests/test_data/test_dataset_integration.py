@@ -39,7 +39,7 @@ def test_parking_lot_generate(
     )
     dataset.add(generator(tempdir)).make_splits()
     assert set(dataset.get_tasks()) == {
-        # "car/array",
+        "car/array",
         "car/boundingbox",
         "car/classification",
         "car/instance_segmentation",
@@ -48,7 +48,7 @@ def test_parking_lot_generate(
         "car/metadata/color",
         "color/classification",
         "color/segmentation",
-        # "motorbike/array",
+        "motorbike/array",
         "motorbike/boundingbox",
         "motorbike/classification",
         "motorbike/instance_segmentation",
@@ -203,7 +203,7 @@ def generator(tempdir: Path):
                         "w": w_new,
                         "h": h_new,
                     },
-                    # "array": {"path": array_path},
+                    "array": {"path": array_path},
                     "keypoints": {"keypoints": item["keypoints"]},
                     "instance_segmentation": {"mask": adjusted_mask},
                     "metadata": {

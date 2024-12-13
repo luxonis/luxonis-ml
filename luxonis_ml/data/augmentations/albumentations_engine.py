@@ -30,6 +30,7 @@ class SpecialTasks(TypedDict):
     metadata: Set[str]
     classification: Set[str]
     instance_segmentation: Set[str]
+    arrays: Set[str]
 
 
 class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
@@ -102,9 +103,13 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             "metadata": set(),
             "classification": set(),
             "instance_segmentation": set(),
+            "arrays": set(),
         }
         for task, task_type in targets.items():
-            if task_type == "classification":
+            if task_type == "array":
+                special_tasks["arrays"].add(task)
+                continue
+            elif task_type == "classification":
                 special_tasks["classification"].add(task)
                 continue
             elif task_is_metadata(task):
@@ -172,9 +177,13 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
     def _apply(self, data: List[Data]) -> LoaderOutput:
         metadata = defaultdict(list)
+        arrays = defaultdict(list)
         classification = defaultdict(list)
         instance_segmentation_index: List[str] = []
         for labels in data:
+            for array_task in self.special_tasks["arrays"]:
+                if array_task in labels:
+                    arrays[array_task].append(labels[array_task])
             for metadata_task in self.special_tasks["metadata"]:
                 if metadata_task in labels:
                     metadata[metadata_task].append(labels[metadata_task])
@@ -198,6 +207,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             if masks:
                 labels["masks"] = masks
 
+        arrays = {k: np.concatenate(v) for k, v in arrays.items()}
         metadata = {k: np.concatenate(v) for k, v in metadata.items()}
         classification = {
             k: np.clip(sum(v), 0, 1) for k, v in classification.items()
@@ -244,6 +254,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             transformed,
             metadata,
             classification,
+            arrays,
             n_keypoints,
             n_segmentation_classes,
             instance_segmentation_index,
@@ -310,6 +321,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         data: Data,
         metadata: Data,
         classification: Data,
+        arrays: Data,
         n_keypoints: Dict[str, int],
         n_segmentation_classes: Dict[str, int],
         instance_segmentation_index: Optional[List[str]],
@@ -367,14 +379,18 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         for task, masks in instance_masks.items():
             out_labels[task] = np.stack(masks)
 
-        out_metadata = {}
         for task, value in metadata.items():
             task_name = get_task_name(task)
-            out_metadata[task] = value[
+            out_labels[task] = value[
+                bboxes_orderings.get(task_name, np.array([], dtype=np.uint8))
+            ]
+        for task, array in arrays.items():
+            task_name = get_task_name(task)
+            out_labels[task] = array[
                 bboxes_orderings.get(task_name, np.array([], dtype=np.uint8))
             ]
 
-        out_labels.update(**out_metadata, **classification)
+        out_labels.update(**classification)
         return out_image, out_labels
 
     @staticmethod
