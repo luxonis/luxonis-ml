@@ -5,7 +5,7 @@ from luxonis_ml.typing import ConfigItem, LoaderOutput
 from luxonis_ml.utils import AutoRegisterMeta, Registry
 
 AUGMENTATION_ENGINES: Registry[Type["AugmentationEngine"]] = Registry(
-    name="augmentations"
+    name="augmentation_engines"
 )
 
 

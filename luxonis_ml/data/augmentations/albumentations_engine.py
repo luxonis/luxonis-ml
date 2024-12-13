@@ -14,7 +14,7 @@ from luxonis_ml.typing import ConfigItem, LoaderOutput, TaskType
 from .base_engine import AugmentationEngine
 from .batch_compose import BatchCompose
 from .batch_transform import BatchBasedTransform
-from .custom import LetterboxResize, MixUp, Mosaic4
+from .custom import TRANSFORMATIONS, LetterboxResize
 from .utils import (
     postprocess_bboxes,
     postprocess_keypoints,
@@ -30,9 +30,12 @@ Data: TypeAlias = Dict[str, np.ndarray]
 
 
 class SpecialTasks(TypedDict):
+    """Dictionary for storing names of tasks that has to be augmented in
+    a special way."""
+
     metadata: Set[str]
     classification: Set[str]
-    instance_segmentation: Set[str]
+    instance_masks: Set[str]
     arrays: Set[str]
 
 
@@ -105,7 +108,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         special_tasks: SpecialTasks = {
             "metadata": set(),
             "classification": set(),
-            "instance_segmentation": set(),
+            "instance_masks": set(),
             "arrays": set(),
         }
         for task, task_type in targets.items():
@@ -133,7 +136,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
             if task_type in {"segmentation", "instance_segmentation"}:
                 if task_type == "instance_segmentation":
-                    special_tasks["instance_segmentation"].add(task)
+                    special_tasks["instance_masks"].add(task)
 
                 task_type = "mask"
 
@@ -213,14 +216,14 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 if (
                     target_type == "mask"
                     and task in labels
-                    and task in self.special_tasks["instance_segmentation"]
+                    and task in self.special_tasks["instance_masks"]
                 ):
                     mask = labels.pop(task)
                     for mask_idx in range(mask.shape[0]):
                         instance_segmentation_index.append(target_name)
                         masks.append(mask[mask_idx])
             if masks:
-                labels["masks"] = masks
+                labels["masks"] = masks  # type: ignore
 
         arrays = {k: np.concatenate(v) for k, v in arrays.items()}
         metadata = {k: np.concatenate(v) for k, v in metadata.items()}
@@ -290,7 +293,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             task = self.targets_to_tasks[task]
 
             if task not in labels:
-                if task not in self.special_tasks["instance_segmentation"]:
+                if task not in self.special_tasks["instance_masks"]:
                     data[override_name] = np.array([])
                 continue
 
@@ -412,13 +415,6 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     def _get_transform(config: ConfigItem) -> A.BasicTransform:
         name = config["name"]
         params = config.get("params", {})
-        # TODO: Registry
-        if name == "MixUp":
-            return MixUp(**params)  # type: ignore
-        if name == "Mosaic4":
-            return Mosaic4(**params)  # type: ignore
-        if not hasattr(A, name):
-            raise ValueError(
-                f"Augmentation {name} not found in Albumentations"
-            )
-        return getattr(A, name)(**params)
+        if hasattr(A, name):
+            return getattr(A, name)(**params)
+        return TRANSFORMATIONS.get(name)(**params)  # type: ignore
