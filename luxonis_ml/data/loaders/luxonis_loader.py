@@ -45,7 +45,7 @@ class LuxonisLoader(BaseLoader):
         ] = None,
         height: Optional[int] = None,
         width: Optional[int] = None,
-        keep_aspect_ratio: bool = False,
+        keep_aspect_ratio: bool = True,
         out_image_format: Literal["RGB", "BGR"] = "RGB",
         *,
         force_resync: bool = False,
