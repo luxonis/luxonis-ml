@@ -478,10 +478,10 @@ class ArrayAnnotation(Annotation):
         classes: List[int],
         n_classes: int = ...,
     ) -> np.ndarray:
-        out_arr = np.empty(
+        out_arr = np.zeros(
             (
                 len(annotations),
-                len(classes),
+                n_classes,
                 *np.load(annotations[0].path).shape,
             )
         )
