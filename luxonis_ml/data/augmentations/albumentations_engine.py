@@ -1,3 +1,4 @@
+import logging
 import warnings
 from collections import defaultdict
 from math import prod
@@ -22,6 +23,8 @@ from .utils import (
     preprocess_keypoints,
     preprocess_mask,
 )
+
+logger = logging.getLogger(__name__)
 
 Data: TypeAlias = Dict[str, np.ndarray]
 
@@ -107,6 +110,12 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         }
         for task, task_type in targets.items():
             if task_type == "array":
+                logger.warning(
+                    "Array task detected. The 'array' task can contain "
+                    "arbitrary data so it cannot be properly augmented. "
+                    "The only applied transformation is discarding arrays "
+                    "associated with bboxes falling outside the image."
+                )
                 special_tasks["arrays"].add(task)
                 continue
             elif task_type == "classification":
@@ -114,6 +123,12 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 continue
             elif task_is_metadata(task):
                 special_tasks["metadata"].add(task)
+                logger.warning(
+                    "Metadata labels detected. Metadata labels can contain "
+                    "arbitrary data so they cannot be properly augmented. "
+                    "The only applied transformation is discarding metadata "
+                    "associated with bboxes falling outside the image."
+                )
                 continue
 
             if task_type in {"segmentation", "instance_segmentation"}:
