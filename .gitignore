@@ -115,3 +115,4 @@ data/*
 tests/data
 *.zip
 .idea/*
+apidocs/
