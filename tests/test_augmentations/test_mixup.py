@@ -17,7 +17,7 @@ def test_mixup(
     alpha: float,
 ):
     mixup = MixUp(p=1.0, alpha=alpha)
-    transformed = mixup(**augmentation_data, force_apply=True)
+    transformed = mixup(**augmentation_data)  # type: ignore
     assert set(transformed.keys()) == set(augmentation_data.keys())
     for value in transformed.values():
         assert isinstance(value, np.ndarray)

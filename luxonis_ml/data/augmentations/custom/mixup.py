@@ -14,7 +14,6 @@ class MixUp(BatchTransform):
     def __init__(
         self,
         alpha: Union[float, Tuple[float, float]] = 0.5,
-        mask_visibility_threshold: float = 0.1,
         keep_aspect_ratio: bool = True,
         p: float = 0.5,
     ):
@@ -25,16 +24,6 @@ class MixUp(BatchTransform):
         @type alpha: Union[float, Tuple[float, float]]
         @param alpha: Mixing coefficient, either a single float or a
             tuple representing the range. Defaults to C{0.5}.
-        @type mask_visibility_threshold: float
-        @param mask_visibility_threshold: Threshold for mask visibility.
-            If the alpha value is less than this threshold, then only the
-            second mask is chosen. If the alpha value is greater than
-            C{1 - mask_visibility_threshold}, then only the first mask is
-            chosen. In other cases, the masks are merged by choosing the
-            non-zero values from both masks. In case of a conflict (both
-            masks have a non-zero value at the same position), the value
-            is chosen from the mask with the higher alpha value. Defaults
-            to C{0.1}.
         @type keep_aspect_ratio: bool
         @param keep_aspect_ratio: Whether to keep the aspect ratio of
             the second image when resizing. Defaults to C{True}.
@@ -43,8 +32,6 @@ class MixUp(BatchTransform):
             C{0.5}.
         """
         super().__init__(batch_size=2, p=p)
-
-        self.mask_visibility_threshold = mask_visibility_threshold
 
         self.alpha = (
             alpha if isinstance(alpha, (list, tuple)) else (alpha, alpha)
@@ -118,16 +105,11 @@ class MixUp(BatchTransform):
         if mask2.size > 0:
             mask2 = self.resize(mask2, image_shapes, "mask")
             if mask2.ndim == 2:
-                mask2 = mask2[:, :, np.newaxis]
+                mask2 = mask2[..., None]
 
         if mask1.size == 0:
             return mask2
         elif mask2.size == 0:
-            return mask1
-
-        if alpha < self.mask_visibility_threshold:
-            return mask2
-        if alpha > 1 - self.mask_visibility_threshold:
             return mask1
 
         if alpha >= 0.5:
@@ -141,7 +123,10 @@ class MixUp(BatchTransform):
 
     @override
     def apply_to_instance_mask(
-        self, mask_batch: List[np.ndarray], rows: int, cols: int, **_
+        self,
+        mask_batch: List[np.ndarray],
+        image_shapes: List[Tuple[int, int]],
+        **_,
     ) -> np.ndarray:
         """Applies the transformation to a batch of instance masks.
 
@@ -151,11 +136,16 @@ class MixUp(BatchTransform):
         @rtype: np.ndarray
         @return: Transformed instance masks.
         """
-        for i in range(len(mask_batch)):
-            if mask_batch[i].size == 0:
-                mask_batch[i] = np.zeros(
-                    (rows, cols, 0), dtype=mask_batch[i].dtype
-                )
+        mask1, mask2 = mask_batch
+        if mask2.size > 0:
+            mask2 = self.resize(mask2, image_shapes, "mask")
+            if mask2.ndim == 2:
+                mask2 = mask2[..., None]
+
+        if mask1.size == 0:
+            return mask2
+        elif mask2.size == 0:
+            return mask1
 
         return np.concatenate(mask_batch, axis=-1)
 

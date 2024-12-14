@@ -15,10 +15,9 @@ class AugmentationEngine(
     registry=AUGMENTATION_ENGINES,
     register=False,
 ):
-    @classmethod
     @abstractmethod
-    def from_config(
-        cls,
+    def __init__(
+        self,
         height: int,
         width: int,
         targets: Dict[str, str],
@@ -26,8 +25,8 @@ class AugmentationEngine(
         keep_aspect_ratio: bool,
         is_validation_pipeline: bool,
         min_bbox_visibility: float = 0,
-    ) -> "AugmentationEngine":
-        """Create augmentation pipeline from configuration.
+    ):
+        """Initialize augmentation pipeline from configuration.
 
         @type height: int
         @param height: Target image height
@@ -66,8 +65,6 @@ class AugmentationEngine(
         @type min_bbox_visibility: float
         @param min_bbox_visibility: Minimum area of a bounding box to be
             considered visible.
-        @rtype: AugmentationEngine
-        @return: Initialized augmentation pipeline
         """
         ...
 

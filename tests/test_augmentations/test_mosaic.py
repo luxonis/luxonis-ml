@@ -24,7 +24,7 @@ def test_mosaic4_helpers(subtests: SubTests):
         assert mosaic.shape == (HEIGHT, WIDTH, 3)
 
     with subtests.test("bboxes"):
-        bbox = np.array([0, 0, WIDTH, HEIGHT])[np.newaxis, ...]
+        bbox = np.array([0, 0, WIDTH, HEIGHT])[None, ...]
         for i in range(4):
             mosaic_bbox = apply_mosaic4_to_bboxes(
                 bbox, HEIGHT // 2, WIDTH // 2, i, HEIGHT, WIDTH, 0, 0
@@ -46,7 +46,7 @@ def test_mosaic4_helpers(subtests: SubTests):
             ]
         ):
             mosaic_keypoint = apply_mosaic4_to_keypoints(
-                np.array([w, h, 0, 0])[np.newaxis, ...],
+                np.array([w, h, 0, 0])[None, ...],
                 HEIGHT // 2,
                 WIDTH // 2,
                 i,

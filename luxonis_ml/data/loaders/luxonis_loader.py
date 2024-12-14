@@ -366,7 +366,7 @@ class LuxonisLoader(BaseLoader):
             task: get_task_type(task) for task in self.dataset.get_tasks()
         }
 
-        return AUGMENTATION_ENGINES.get(augmentation_engine).from_config(
+        return AUGMENTATION_ENGINES.get(augmentation_engine)(
             height=height,
             width=width,
             config=augmentation_config,

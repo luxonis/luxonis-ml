@@ -43,7 +43,7 @@ class LetterboxResize(A.DualTransform):
             C{1.0}.
         """
 
-        super().__init__(p)
+        super().__init__(p=p)
 
         self.height = height
         self.width = width
@@ -157,23 +157,7 @@ class LetterboxResize(A.DualTransform):
         pad_right: int,
         **_,
     ) -> np.ndarray:
-        """Applies letterbox augmentation to the input mask.
-
-        @type img: np.ndarray
-        @param img: Input mask to which resize is applied.
-        @type pad_top: int
-        @param pad_top: Number of pixels to pad at the top.
-        @type pad_bottom: int
-        @param pad_bottom: Number of pixels to pad at the bottom.
-        @type pad_left: int
-        @param pad_left: Number of pixels to pad on the left.
-        @type pad_right: int
-        @param pad_right: Number of pixels to pad on the right.
-        @type params: Any
-        @param params: Additional parameters for the padding operation.
-        @rtype: np.ndarray
-        @return: Mask with applied letterbox resize.
-        """
+        """Applies letterbox augmentation to the input mask."""
         return self._apply_to_image_data(
             img,
             pad_top,
@@ -194,23 +178,7 @@ class LetterboxResize(A.DualTransform):
         pad_right: int,
         **_,
     ) -> np.ndarray:
-        """Applies letterbox augmentation to the bounding box.
-
-        @type bbox: np.ndarray
-        @param bbox: Bounding box to which resize is applied.
-            Shape: (N, 6) where N is the number of bounding boxes.
-            The bbox format is (x1, y1, x2, y2, class_id, instance_id).
-        @type pad_top: int
-        @param pad_top: Number of pixels to pad at the top.
-        @type pad_bottom: int
-        @param pad_bottom: Number of pixels to pad at the bottom.
-        @type pad_left: int
-        @param pad_left: Number of pixels to pad on the left.
-        @type pad_right: int
-        @param pad_right: Number of pixels to pad on the right.
-        @rtype: np.ndarray
-        @return: Bounding box with applied letterbox resize.
-        """
+        """Applies letterbox augmentation to the bounding box."""
 
         if bbox.size == 0:
             return bbox
@@ -253,25 +221,7 @@ class LetterboxResize(A.DualTransform):
         rows: int,
         **_,
     ) -> np.ndarray:
-        """Applies letterbox augmentation to the keypoint.
-
-        @type keypoint: np.ndarray
-        @param keypoint: Keypoint to which resize is applied.
-            Shape: (N, 5) where N is the number of keypoints.
-            The keypoint format is (x, y, angle, scale, visibility).
-        @type pad_top: int
-        @param pad_top: Number of pixels to pad at the top.
-        @type pad_bottom: int
-        @param pad_bottom: Number of pixels to pad at the bottom.
-        @type pad_left: int
-        @param pad_left: Number of pixels to pad on the left.
-        @type pad_right: int
-        @param pad_right: Number of pixels to pad on the right.
-        @type kwargs: Any
-        @param kwargs: Additional parameters for the padding operation.
-        @rtype: np.ndarray
-        @return: Keypoint with applied letterbox resize.
-        """
+        """Applies letterbox augmentation to the keypoint."""
 
         if keypoint.size == 0:
             return keypoint

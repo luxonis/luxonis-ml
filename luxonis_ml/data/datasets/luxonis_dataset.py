@@ -405,14 +405,14 @@ class LuxonisDataset(BaseDataset):
                 shutil.rmtree(self.local_path)
             self.fs.delete_dir(allow_delete_parent=True)
 
-    def _process_arrays(self, batch_data: List[DatasetRecord]) -> None:
+    def _process_arrays(self, data_batch: List[DatasetRecord]) -> None:
         logger.info("Checking arrays...")
         task = self.progress.add_task(
-            "[magenta]Processing arrays...", total=len(batch_data)
+            "[magenta]Processing arrays...", total=len(data_batch)
         )
         self.progress.start()
         uuid_dict = {}
-        for record in batch_data:
+        for record in data_batch:
             self.progress.update(task, advance=1)
             if record.annotation is None or record.annotation.array is None:
                 continue
@@ -438,13 +438,13 @@ class LuxonisDataset(BaseDataset):
 
     def _add_process_batch(
         self,
-        batch_data: List[DatasetRecord],
+        data_batch: List[DatasetRecord],
         pfm: ParquetFileManager,
         index: Optional[pl.DataFrame],
         new_index: Dict[str, List[str]],
         processed_uuids: Set[str],
     ) -> None:
-        paths = set(data.file for data in batch_data)
+        paths = set(data.file for data in data_batch)
         logger.info("Generating UUIDs...")
         # TODO: support from bucket
         uuid_dict = self.fs.get_file_uuids(paths, local=True)
@@ -457,15 +457,15 @@ class LuxonisDataset(BaseDataset):
             )
             logger.info("Media uploaded")
 
-        self._process_arrays(batch_data)
+        self._process_arrays(data_batch)
 
         task = self.progress.add_task(
-            "[magenta]Processing data...", total=len(batch_data)
+            "[magenta]Processing data...", total=len(data_batch)
         )
 
         logger.info("Saving annotations...")
         with self.progress:
-            for record in batch_data:
+            for record in data_batch:
                 filepath = record.file
                 file = filepath.name
                 uuid = uuid_dict[str(filepath)]
@@ -498,7 +498,7 @@ class LuxonisDataset(BaseDataset):
         new_index = {"uuid": [], "file": [], "original_filepath": []}
         processed_uuids = set()
 
-        batch_data: list[DatasetRecord] = []
+        data_batch: list[DatasetRecord] = []
 
         classes_per_task: Dict[str, OrderedSet[str]] = defaultdict(
             lambda: OrderedSet([])
@@ -536,15 +536,15 @@ class LuxonisDataset(BaseDataset):
                             ann.keypoints.keypoints
                         )
 
-                batch_data.append(record)
+                data_batch.append(record)
                 if i % batch_size == 0:
                     self._add_process_batch(
-                        batch_data, pfm, index, new_index, processed_uuids
+                        data_batch, pfm, index, new_index, processed_uuids
                     )
-                    batch_data = []
+                    data_batch = []
 
             self._add_process_batch(
-                batch_data, pfm, index, new_index, processed_uuids
+                data_batch, pfm, index, new_index, processed_uuids
             )
 
         with suppress(shutil.SameFileError):
