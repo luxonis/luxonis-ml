@@ -47,7 +47,7 @@ def test_load_annotation():
         load_annotation("invalid_name", {})
 
 
-def test_dataset_record(tempdir: Path):
+def test_dataset_record(tempdir: Path, platform_name: str):
     def compare_parquet_rows(
         record: DatasetRecord, expected_rows: List[Dict[str, Any]]
     ):
@@ -61,11 +61,16 @@ def test_dataset_record(tempdir: Path):
     record = DatasetRecord(file=tempdir / "left.jpg")  # type: ignore
     assert record.file == tempdir / "left.jpg"
 
+    if platform_name == "windows":
+        expected_file_string = r"tests\\data\\tempdir\\left.jpg"
+    else:
+        expected_file_string = "tests/data/tempdir/left.jpg"
+
     compare_parquet_rows(
         record,
         [
             {
-                "file": "tests/data/tempdir/left.jpg",
+                "file": expected_file_string,
                 "source_name": "image",
                 "task_name": "detection",
                 "class_name": None,
@@ -427,14 +432,16 @@ def test_segmentation_annotation(subtests: SubTests, tempdir: Path):
             )
 
 
-def test_array_annotation(subtests: SubTests, tempdir: Path):
+def test_array_annotation(
+    subtests: SubTests, tempdir: Path, platform_name: str
+):
     arr = np.random.rand(100, 100)
     arr_path = tempdir / "array.npy"
     np.save(arr_path, arr)
 
     with subtests.test("simple"):
         annotation = ArrayAnnotation(path=arr_path)
-        assert annotation.model_dump_json() == f'{{"path":"{arr_path}"}}'
+        assert annotation.model_dump_json() == f'{{"path":"{str(arr_path)}"}}'
 
     with subtests.test("numpy"):
         annotation = ArrayAnnotation(path=arr_path)
