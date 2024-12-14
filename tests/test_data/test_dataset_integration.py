@@ -161,9 +161,7 @@ def generator(base_path: Path, tempdir: Path):
             for idx, item in enumerate(batch):
                 i, j = positions[idx]
                 combined_image[
-                    j * H_img : (j + 1) * H_img,
-                    i * W_img : (i + 1) * W_img,
-                    :,
+                    j * H_img : (j + 1) * H_img, i * W_img : (i + 1) * W_img, :
                 ] = images[idx]
 
                 x_orig = item["x"] / item["W"]

@@ -245,8 +245,7 @@ class LetterboxResize(A.DualTransform):
             keypoint[:, 0] < pad_left, keypoint[:, 0] > self.width - pad_right
         )
         out_of_bounds_y = np.logical_or(
-            keypoint[:, 1] < pad_top,
-            keypoint[:, 1] > self.height - pad_bottom,
+            keypoint[:, 1] < pad_top, keypoint[:, 1] > self.height - pad_bottom
         )
         keypoint[out_of_bounds_x | out_of_bounds_y, :2] = -1
 

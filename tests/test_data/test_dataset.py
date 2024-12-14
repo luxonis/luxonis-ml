@@ -14,9 +14,7 @@ from luxonis_ml.data import (
     LuxonisParser,
     LuxonisSource,
 )
-from luxonis_ml.data.utils.task_utils import (
-    get_task_type,
-)
+from luxonis_ml.data.utils.task_utils import get_task_type
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.typing import ConfigItem
 

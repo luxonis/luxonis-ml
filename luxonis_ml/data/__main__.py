@@ -100,12 +100,7 @@ def print_info(name: str) -> None:
         yield class_table
         yield task_table
 
-    print(
-        Panel.fit(
-            get_panels(),
-            title="Dataset Info",
-        )
-    )
+    print(Panel.fit(get_panels(), title="Dataset Info"))
 
 
 @app.command()

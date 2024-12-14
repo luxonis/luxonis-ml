@@ -147,13 +147,7 @@ class BaseParser(ABC):
         """
         train, val, test = self.from_dir(dataset_dir, **kwargs)
 
-        self.dataset.make_splits(
-            {
-                "train": train,
-                "val": val,
-                "test": test,
-            }
-        )
+        self.dataset.make_splits({"train": train, "val": val, "test": test})
         return self.dataset
 
     @staticmethod

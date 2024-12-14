@@ -59,14 +59,10 @@ def test_task_type_iterator():
         {"task/segmentation", "task/subtask/segmentation"},
     )
     compare(
-        task_type_iterator(labels, "boundingbox"),
-        {"task/subtask/boundingbox"},
+        task_type_iterator(labels, "boundingbox"), {"task/subtask/boundingbox"}
     )
     compare(
         task_type_iterator(labels, "instance_segmentation"),
         {"task/instance_segmentation"},
     )
-    compare(
-        task_type_iterator(labels, "keypoints"),
-        set(),
-    )
+    compare(task_type_iterator(labels, "keypoints"), set())

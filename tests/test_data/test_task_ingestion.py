@@ -61,12 +61,7 @@ def test_task_ingestion(bucket_storage: BucketStorage, dataset_name: str):
                 "task": "animals",
                 "annotation": {
                     "class": "dog",
-                    "boundingbox": {
-                        "x": 0.1,
-                        "y": 0.1,
-                        "w": 0.1,
-                        "h": 0.1,
-                    },
+                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
                 },
             }
             yield {
@@ -74,12 +69,7 @@ def test_task_ingestion(bucket_storage: BucketStorage, dataset_name: str):
                 "task": "animals",
                 "annotation": {
                     "class": "cat",
-                    "boundingbox": {
-                        "x": 0.5,
-                        "y": 0.5,
-                        "w": 0.1,
-                        "h": 0.3,
-                    },
+                    "boundingbox": {"x": 0.5, "y": 0.5, "w": 0.1, "h": 0.3},
                 },
             }
             yield {
@@ -130,24 +120,14 @@ def test_task_ingestion(bucket_storage: BucketStorage, dataset_name: str):
                 "file": str(path),
                 "annotation": {
                     "class": "dog",
-                    "boundingbox": {
-                        "x": 0.1,
-                        "y": 0.1,
-                        "w": 0.1,
-                        "h": 0.1,
-                    },
+                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
                 },
             }
             yield {
                 "file": str(path),
                 "annotation": {
                     "class": "cat",
-                    "boundingbox": {
-                        "x": 0.5,
-                        "y": 0.5,
-                        "w": 0.1,
-                        "h": 0.3,
-                    },
+                    "boundingbox": {"x": 0.5, "y": 0.5, "w": 0.1, "h": 0.3},
                 },
             }
 
@@ -171,12 +151,7 @@ def test_task_ingestion(bucket_storage: BucketStorage, dataset_name: str):
                 "task": "animals",
                 "annotation": {
                     "class": "dog",
-                    "boundingbox": {
-                        "x": 0.15,
-                        "y": 0.25,
-                        "w": 0.1,
-                        "h": 0.1,
-                    },
+                    "boundingbox": {"x": 0.15, "y": 0.25, "w": 0.1, "h": 0.1},
                 },
             }
             yield {
@@ -215,12 +190,7 @@ def test_task_ingestion(bucket_storage: BucketStorage, dataset_name: str):
                 "file": str(path),
                 "annotation": {
                     "class": "bike",
-                    "boundingbox": {
-                        "x": 0.9,
-                        "y": 0.8,
-                        "w": 0.1,
-                        "h": 0.4,
-                    },
+                    "boundingbox": {"x": 0.9, "y": 0.8, "w": 0.1, "h": 0.4},
                 },
             }
             yield {

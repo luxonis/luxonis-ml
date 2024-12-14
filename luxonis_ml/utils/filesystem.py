@@ -105,11 +105,9 @@ class LuxonisFileSystem:
             self.allow_active_mlflow_run = allow_active_mlflow_run
             self.is_mlflow_active_run = False
             if _path is not None:
-                (
-                    self.experiment_id,
-                    self.run_id,
-                    self.artifact_path,
-                ) = self._split_mlflow_path(_path)
+                (self.experiment_id, self.run_id, self.artifact_path) = (
+                    self._split_mlflow_path(_path)
+                )
             elif _path is None and self.allow_active_mlflow_run:
                 self.is_mlflow_active_run = True
                 _path = ""
@@ -326,9 +324,7 @@ class LuxonisFileSystem:
             raise NotImplementedError
         elif self.is_fsspec:
             self.fs.download(
-                str(self.path / remote_path),
-                str(local_path),
-                recursive=False,
+                str(self.path / remote_path), str(local_path), recursive=False
             )
         return Path(local_path) / Path(remote_path).name
 

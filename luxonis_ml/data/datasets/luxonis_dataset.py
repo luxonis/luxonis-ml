@@ -523,9 +523,7 @@ class LuxonisDataset(BaseDataset):
                 if ann is not None:
                     if not explicit_task:
                         record.task = infer_task(
-                            record.task,
-                            ann.class_name,
-                            self.get_classes()[1],
+                            record.task, ann.class_name, self.get_classes()[1]
                         )
                     if ann.class_name is not None:
                         classes_per_task[record.task].add(ann.class_name)
@@ -600,9 +598,7 @@ class LuxonisDataset(BaseDataset):
 
     def get_splits(self) -> Optional[Dict[str, List[str]]]:
         splits_path = get_file(
-            self.fs,
-            "metadata/splits.json",
-            self.metadata_path,
+            self.fs, "metadata/splits.json", self.metadata_path
         )
         if splits_path is None:
             return None

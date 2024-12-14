@@ -71,11 +71,7 @@ class Mosaic4(BatchTransform):
 
     @override
     def apply(
-        self,
-        image_batch: List[np.ndarray],
-        x_crop: int,
-        y_crop: int,
-        **_,
+        self, image_batch: List[np.ndarray], x_crop: int, y_crop: int, **_
     ) -> np.ndarray:
         """Applies the transformation to a batch of images.
 
@@ -271,11 +267,7 @@ class Mosaic4(BatchTransform):
         image_shapes = [tuple(image.shape[:2]) for image in image_batch]
         x_crop, y_crop = self.generate_random_crop_center()
         additional_params.update(
-            {
-                "image_shapes": image_shapes,
-                "x_crop": x_crop,
-                "y_crop": y_crop,
-            }
+            {"image_shapes": image_shapes, "x_crop": x_crop, "y_crop": y_crop}
         )
         return additional_params
 
@@ -361,9 +353,7 @@ def apply_mosaic4_to_instance_masks(
         for i in range(masks.shape[-1]):
             mask = masks[..., i]
             combined_mask = np.full(
-                out_shape,
-                value if value is not None else 0,
-                dtype=masks.dtype,
+                out_shape, value if value is not None else 0, dtype=masks.dtype
             )
 
             (x1a, y1a, x2a, y2a), (x1b, y1b, x2b, y2b) = (

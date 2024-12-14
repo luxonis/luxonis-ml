@@ -26,12 +26,7 @@ def prepare_dir():
         (
             DatasetType.COCO,
             "COCO_people_subset.zip",
-            [
-                "boundingbox",
-                "keypoints",
-                "segmentation",
-                "classification",
-            ],
+            ["boundingbox", "keypoints", "segmentation", "classification"],
         ),
         (
             DatasetType.COCO,

@@ -118,9 +118,7 @@ class Annotation(ABC, BaseModelExtraForbid):
     @staticmethod
     @abstractmethod
     def combine_to_numpy(
-        annotations: List["Annotation"],
-        classes: List[int],
-        n_classes: int,
+        annotations: List["Annotation"], classes: List[int], n_classes: int
     ) -> np.ndarray: ...
 
 
@@ -479,11 +477,7 @@ class ArrayAnnotation(Annotation):
         n_classes: int,
     ) -> np.ndarray:
         out_arr = np.zeros(
-            (
-                len(annotations),
-                n_classes,
-                *np.load(annotations[0].path).shape,
-            )
+            (len(annotations), n_classes, *np.load(annotations[0].path).shape)
         )
         for i, ann in enumerate(annotations):
             out_arr[i, classes[i]] = ann.to_numpy()

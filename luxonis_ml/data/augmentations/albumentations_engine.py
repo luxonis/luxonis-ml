@@ -336,7 +336,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 logger.info(f"Using '{cfg.name}' for resizing.")
                 if resize_transform is not None:
                     raise ValueError(
-                        "Only one resizing augmentation can be provided. "
+                        "Only one resizing augmentation can be provided."
                     )
                 resize_transform = transform
 

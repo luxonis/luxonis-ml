@@ -88,29 +88,18 @@ class Registry(Generic[T]):
 
         # use it as a normal method: x.register_module(module=SomeClass)
         if module is not None:
-            self._register_module(
-                module=module,
-                module_name=name,
-                force=force,
-            )
+            self._register_module(module=module, module_name=name, force=force)
             return module
 
         # use it as a decorator: @x.register_module()
         def _register(module: T) -> T:
-            self._register_module(
-                module=module,
-                module_name=name,
-                force=force,
-            )
+            self._register_module(module=module, module_name=name, force=force)
             return module
 
         return _register
 
     def _register_module(
-        self,
-        module: T,
-        module_name: Optional[str] = None,
-        force: bool = False,
+        self, module: T, module_name: Optional[str] = None, force: bool = False
     ) -> None:
         if module_name is None:
             module_name = module.__name__
@@ -188,7 +177,6 @@ class AutoRegisterMeta(ABCMeta):
         if register:
             registry = registry if registry is not None else new_class.REGISTRY
             registry.register_module(
-                name=register_name or name,
-                module=new_class,
+                name=register_name or name, module=new_class
             )
         return new_class

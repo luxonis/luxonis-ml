@@ -8,9 +8,7 @@ from luxonis_ml.nn_archive.config_building_blocks.base_models.head_metadata impo
     HeadYOLOMetadata,
 )
 
-head_metadata = HeadMetadata(
-    postprocessor_path="postprocessor.onnx",
-)
+head_metadata = HeadMetadata(postprocessor_path="postprocessor.onnx")
 
 head_object_detection_metadata = HeadObjectDetectionMetadata(
     classes=["person", "car"],
