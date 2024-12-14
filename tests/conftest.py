@@ -2,7 +2,7 @@ import platform
 import shutil
 import sys
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Dict, List
 
 import numpy as np
 import pytest
@@ -10,7 +10,6 @@ from _pytest.fixtures import SubRequest
 from pytest import FixtureRequest, Function, Metafunc, Parser
 
 from luxonis_ml.data import BucketStorage
-from luxonis_ml.typing import ConfigItem
 from luxonis_ml.utils import setup_logging
 from luxonis_ml.utils.environ import environ
 
@@ -92,7 +91,7 @@ def augmentation_data(
 
 
 @pytest.fixture(scope="session")
-def augmentation_config() -> List[ConfigItem]:
+def augmentation_config() -> List[Dict[str, Any]]:
     return [
         {
             "name": "Mosaic4",

@@ -60,12 +60,12 @@ class LuxonisLoader(BaseLoader):
         @type augmentation_engine: Union[Literal["albumentations"], str]
         @param augmentation_engine: The augmentation engine to use.
             Defaults to C{"albumentations"}.
-        @type augmentation_config: Optional[Union[List[ConfigItem],
+        @type augmentation_config: Optional[Union[List[Dict[str, Any]],
             PathType]]
         @param augmentation_config: The configuration for the
-            augmentations. This can be either a list of C{ConfigItem} or
+            augmentations. This can be either a list of C{Dict[str, Any]} or
             a path to a configuration file.
-            C{ConfigItem} is a dictionary with two keys: C{name} and
+            The config member is a dictionary with two keys: C{name} and
             C{params}. C{name} is the name of the augmentation to
             instantiate and C{params} is an optional dictionary
             of parameters to pass to the augmentation.

@@ -1,6 +1,6 @@
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Set
+from typing import Any, Dict, List, Set
 
 import cv2
 import numpy as np
@@ -16,7 +16,6 @@ from luxonis_ml.data import (
 )
 from luxonis_ml.data.utils.task_utils import get_task_type
 from luxonis_ml.enums import DatasetType
-from luxonis_ml.typing import ConfigItem
 
 
 def create_image(i: int, dir: Path) -> Path:
@@ -40,7 +39,7 @@ def compare_loader_output(loader: LuxonisLoader, tasks: Set[str]):
 def test_dataset(
     bucket_storage: BucketStorage,
     dataset_name: str,
-    augmentation_config: List[ConfigItem],
+    augmentation_config: List[Dict[str, Any]],
     subtests: SubTests,
     storage_url: str,
     tempdir: Path,
@@ -363,7 +362,7 @@ def test_no_labels(tempdir: Path):
 
 
 def test_deep_nested_labels(
-    augmentation_config: List[ConfigItem], tempdir: Path
+    augmentation_config: List[Dict[str, Any]], tempdir: Path
 ):
     def generator():
         for i in range(10):
