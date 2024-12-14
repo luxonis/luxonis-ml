@@ -107,7 +107,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     =======================
 
     Official Augmentations
-    --------------------
+    ----------------------
 
     All augmentations provided by the Albumentations library are supported.
 
