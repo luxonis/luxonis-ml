@@ -51,6 +51,13 @@ class LetterboxResize(A.DualTransform):
         self.image_fill_value = resolve_color(image_fill_value)
         self.mask_fill_value = resolve_color(mask_fill_value)
 
+    @property
+    @override
+    def targets(self) -> Dict[str, Any]:
+        targets = super().targets
+        targets["instance_mask"] = self.apply_to_mask
+        return targets
+
     @override
     def update_params(
         self, params: Dict[str, Any], **kwargs

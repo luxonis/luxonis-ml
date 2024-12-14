@@ -9,13 +9,17 @@ def preprocess_mask(seg: np.ndarray) -> np.ndarray:
 
 def preprocess_bboxes(bboxes: np.ndarray, bbox_counter: int) -> np.ndarray:
     bboxes = bboxes[:, [1, 2, 3, 4, 0]]
-    # adding 1e-6 to avoid zero width or height
+
+    # Adding 1e-6 to avoid zero width or height.
     bboxes[:, 2] += bboxes[:, 0] + 1e-6
     bboxes[:, 3] += bboxes[:, 1] + 1e-6
-    ordering = np.arange(
+
+    # Used later to filter out instance tasks associated
+    # with bboxes that were removed during augmentations.
+    indices = np.arange(
         bbox_counter, bboxes.shape[0] + bbox_counter, dtype=bboxes.dtype
     )[:, None]
-    return np.concatenate((bboxes, ordering), axis=1)
+    return np.concatenate((bboxes, indices), axis=1)
 
 
 def preprocess_keypoints(

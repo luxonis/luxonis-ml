@@ -1,9 +1,9 @@
 from pathlib import Path
-from typing import Dict, Literal, Tuple, TypedDict, Union
+from typing import Dict, Literal, Tuple, Union
 
 import numpy as np
-from pydantic.config import JsonDict
-from typing_extensions import NotRequired, Required, TypeAlias
+from pydantic import BaseModel, JsonValue
+from typing_extensions import TypeAlias
 
 PathType: TypeAlias = Union[str, Path]
 """A string or a `pathlib.Path` object."""
@@ -38,9 +38,9 @@ value).
 """
 
 
-class ConfigItem(TypedDict, total=False):
-    """Configuration dictionary for dynamic object instantiation.
-    Typically used to instantiate objects stored in registries.
+class ConfigItem(BaseModel):
+    """Configuration schema for dynamic object instantiation. Typically
+    used to instantiate objects stored in registries.
 
     A dictionary with a name and a dictionary of parameters.
 
@@ -52,5 +52,5 @@ class ConfigItem(TypedDict, total=False):
         Not required.
     """
 
-    name: Required[str]
-    params: NotRequired[JsonDict]
+    name: str
+    params: Dict[str, JsonValue] = {}

@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
-from typing import Dict, List, Type
+from typing import Any, Dict, Iterable, List, Mapping, Type
 
-from luxonis_ml.typing import ConfigItem, LoaderOutput
+from luxonis_ml.typing import LoaderOutput
 from luxonis_ml.utils import AutoRegisterMeta, Registry
 
 AUGMENTATION_ENGINES: Registry[Type["AugmentationEngine"]] = Registry(
@@ -20,8 +20,8 @@ class AugmentationEngine(
         self,
         height: int,
         width: int,
-        targets: Dict[str, str],
-        config: List[ConfigItem],
+        targets: Mapping[str, str],
+        config: Iterable[Dict[str, Any]],
         keep_aspect_ratio: bool,
         is_validation_pipeline: bool,
         min_bbox_visibility: float = 0,
@@ -32,6 +32,7 @@ class AugmentationEngine(
         @param height: Target image height
         @type width: int
         @param width: Target image width
+
         @type targets: Dict[str, str]
         @param targets: Dictionary mapping task names to task types.
             Example::
@@ -39,23 +40,11 @@ class AugmentationEngine(
                     "detection/boundingbox": "bbox",
                     "detection/segmentation": "mask",
                 }
+
         @type config: List[Dict[str, Any]]
-        @param config: List of dictionaries with augmentation
-            configurations. The configuration is a list of dictionaries
-            where each dictionary contains the name of the augmentation
-            and optionally its parameters. The name must be a valid
-            augmentation class name. The parameters are passed to the
-            constructor of the augmentation class.
-            The order of the augmentations is not guaranteed to be
-            preserved.
-
-            Example::
-
-                [
-                    {"name": "HorizontalFlip", "params": {"p": 0.5}},
-                    {"name": "RandomBrightnessContrast", "params": {"p": 0.1}},
-                    {"name": "Defocus"}
-                ]
+        @param config: List of dictionaries with configuration for each
+            augmentation. It is up to the augmentation engine to parse
+            and interpret this configuration.
 
         @type keep_aspect_ratio: bool
         @param keep_aspect_ratio: Whether to keep aspect ratio
@@ -96,8 +85,3 @@ class AugmentationEngine(
         the batch size should be 8 (2 * 4).
         """
         ...
-
-    @property
-    def is_batched(self) -> bool:
-        """Whether the augmentation pipeline is batched."""
-        return self.batch_size > 1

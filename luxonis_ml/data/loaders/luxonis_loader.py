@@ -4,7 +4,7 @@ import random
 import warnings
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Tuple, Union, cast
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union, cast
 
 import cv2
 import numpy as np
@@ -27,7 +27,7 @@ from luxonis_ml.data.utils import (
     split_task,
     task_type_iterator,
 )
-from luxonis_ml.typing import ConfigItem, Labels, LoaderOutput, PathType
+from luxonis_ml.typing import Labels, LoaderOutput, PathType
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ class LuxonisLoader(BaseLoader):
             Literal["albumentations"], str
         ] = "albumentations",
         augmentation_config: Optional[
-            Union[List[ConfigItem], PathType]
+            Union[List[Dict[str, Any]], PathType]
         ] = None,
         height: Optional[int] = None,
         width: Optional[int] = None,
@@ -316,7 +316,7 @@ class LuxonisLoader(BaseLoader):
     def _load_with_augmentations(self, idx: int) -> LoaderOutput:
         indices = [idx]
         assert self.augmentations is not None
-        if self.augmentations.is_batched:
+        if self.augmentations.batch_size > 1:
             if self.augmentations.batch_size > len(self):
                 warnings.warn(
                     f"Augmentations batch_size ({self.augmentations.batch_size}) "
@@ -344,15 +344,15 @@ class LuxonisLoader(BaseLoader):
     def _init_augmentations(
         self,
         augmentation_engine: Union[Literal["albumentations"], str],
-        augmentation_config: Union[List[ConfigItem], PathType],
+        augmentation_config: Union[List[Dict[str, Any]], PathType],
         height: Optional[int],
         width: Optional[int],
         keep_aspect_ratio: bool,
     ) -> Optional[AugmentationEngine]:
         if isinstance(augmentation_config, (Path, str)):
             with open(augmentation_config) as file:
-                augmentation_config = (
-                    cast(List[ConfigItem], yaml.safe_load(file)) or []
+                augmentation_config = cast(
+                    List[Dict[str, Any]], yaml.safe_load(file) or []
                 )
         if augmentation_config and (width is None or height is None):
             raise ValueError(
