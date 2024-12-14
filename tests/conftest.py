@@ -1,4 +1,5 @@
 import platform
+import random
 import shutil
 import sys
 from pathlib import Path
@@ -14,6 +15,12 @@ from luxonis_ml.utils import setup_logging
 from luxonis_ml.utils.environ import environ
 
 setup_logging(use_rich=True, rich_print=True, configure_warnings=True)
+
+
+@pytest.fixture(autouse=True, scope="module")
+def fix_seed():
+    np.random.seed(42)
+    random.seed(42)
 
 
 @pytest.fixture(autouse=True, scope="module")
