@@ -409,6 +409,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 del data[target_name]
 
         data = self.spatial_transform(**data)
+        data = self.custom_transform(**data)
 
         transformed_size = data["image"].shape[:2]
 
