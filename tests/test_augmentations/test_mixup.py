@@ -47,7 +47,7 @@ def test_mixup(
         )
 
     with subtests.test("mask"):
-        assert transformed["mask"].shape == (height, width)
+        assert transformed["mask"].shape == (height, width, 1)
         assert np.allclose(
             augmentation_data["mask"][0].astype(bool)
             | augmentation_data["mask"][1].astype(bool),

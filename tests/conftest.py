@@ -85,7 +85,8 @@ def augmentation_data(
             for i in range(batch_size)
         ],
         "mask": [
-            np.random.randint(0, 2, (height, width)) for _ in range(batch_size)
+            np.random.randint(0, 2, (height, width, 1))
+            for _ in range(batch_size)
         ],
     }
 
