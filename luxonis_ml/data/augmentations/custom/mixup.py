@@ -81,15 +81,8 @@ class MixUp(BatchTransform):
     ) -> np.ndarray:
         """Applies the transformation to a batch of masks.
 
-        Uses several heuristics to merge the massk:
-            - If the alpha value is less than C{mask_visibility_threshold},
-                then only the second mask is chosen.
-            - If the alpha value is greater than C{1 - mask_visibility_threshold},
-                then only the first mask is chosen.
-            - In other cases, the masks are merged by choosing the non-zero
-                values from both masks. In case of a conflict (both masks have
-                a non-zero value at the same position), the value is chosen
-                from the mask with the higher alpha value.
+        Blends masks together. In case of a conflict, the class from the
+        mask associated with higher alpha is chosen.
 
         @type mask_batch: List[np.ndarray]
         @param mask_batch: Batch of input masks to which the
