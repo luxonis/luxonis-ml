@@ -119,6 +119,7 @@ class MixUp(BatchTransform):
             mask2 = self.resize(mask2, image_shapes, "mask")
             if mask2.ndim == 2:
                 mask2 = mask2[:, :, np.newaxis]
+
         if mask1.size == 0:
             return mask2
         elif mask2.size == 0:
@@ -212,7 +213,7 @@ class MixUp(BatchTransform):
             keypoints_batch[1],
             image_shapes,
             "keypoints",
-            shape=image_shapes[0],
+            shape=image_shapes[1],
             cols=cols,
             rows=rows,
         )
