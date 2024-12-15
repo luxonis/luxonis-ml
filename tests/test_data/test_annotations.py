@@ -47,13 +47,14 @@ def test_load_annotation():
         load_annotation("invalid_name", {})
 
 
-def test_dataset_record(tempdir: Path, platform_name: str):
+def test_dataset_record(tempdir: Path):
     def compare_parquet_rows(
         record: DatasetRecord, expected_rows: List[Dict[str, Any]]
     ):
         rows = list(record.to_parquet_rows())
         for row in rows:
             del row["created_at"]  # type: ignore
+            row["file"] = Path(row["file"])  # type: ignore
         assert rows == expected_rows
 
     cv2.imwrite(str(tempdir / "left.jpg"), np.zeros((100, 100, 3)))
@@ -61,16 +62,11 @@ def test_dataset_record(tempdir: Path, platform_name: str):
     record = DatasetRecord(file=tempdir / "left.jpg")  # type: ignore
     assert record.file == tempdir / "left.jpg"
 
-    if platform_name == "windows":
-        expected_file_string = r"tests\\data\\tempdir\\left.jpg"
-    else:
-        expected_file_string = "tests/data/tempdir/left.jpg"
-
     compare_parquet_rows(
         record,
         [
             {
-                "file": expected_file_string,
+                "file": Path("tests/data/tempdir/left.jpg"),
                 "source_name": "image",
                 "task_name": "detection",
                 "class_name": None,
@@ -92,7 +88,7 @@ def test_dataset_record(tempdir: Path, platform_name: str):
         record,
         [
             {
-                "file": "tests/data/tempdir/left.jpg",
+                "file": Path("tests/data/tempdir/left.jpg"),
                 "source_name": "image",
                 "task_name": "detection",
                 "class_name": "person",
@@ -101,7 +97,7 @@ def test_dataset_record(tempdir: Path, platform_name: str):
                 "annotation": '{"x":0.1,"y":0.2,"w":0.3,"h":0.4}',
             },
             {
-                "file": "tests/data/tempdir/left.jpg",
+                "file": Path("tests/data/tempdir/left.jpg"),
                 "source_name": "image",
                 "task_name": "detection",
                 "class_name": "person",
@@ -441,7 +437,7 @@ def test_array_annotation(
 
     with subtests.test("simple"):
         annotation = ArrayAnnotation(path=arr_path)
-        assert annotation.model_dump_json() == f'{{"path":"{str(arr_path)}"}}'
+        assert annotation.model_dump_json() == f'{{"path":"{arr_path}"}}'
 
     with subtests.test("numpy"):
         annotation = ArrayAnnotation(path=arr_path)
