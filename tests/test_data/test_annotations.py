@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -428,16 +429,14 @@ def test_segmentation_annotation(subtests: SubTests, tempdir: Path):
             )
 
 
-def test_array_annotation(
-    subtests: SubTests, tempdir: Path, platform_name: str
-):
+def test_array_annotation(subtests: SubTests, tempdir: Path):
     arr = np.random.rand(100, 100)
     arr_path = tempdir / "array.npy"
     np.save(arr_path, arr)
 
     with subtests.test("simple"):
         annotation = ArrayAnnotation(path=arr_path)
-        assert annotation.model_dump_json() == f'{{"path":"{arr_path}"}}'
+        assert annotation.model_dump_json() == json.dumps({"path": arr_path})
 
     with subtests.test("numpy"):
         annotation = ArrayAnnotation(path=arr_path)
