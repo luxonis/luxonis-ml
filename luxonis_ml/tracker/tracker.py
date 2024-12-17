@@ -2,6 +2,7 @@ import glob
 import json
 import logging
 import os
+import time
 from functools import wraps
 from importlib.util import find_spec
 from pathlib import Path
@@ -138,6 +139,7 @@ class LuxonisTracker:
             if rank == 0:
                 self.run_name = self._get_run_name()
             else:
+                time.sleep(10)
                 self.run_name = self._get_latest_run_name()
 
         Path(f"{self.save_directory}/{self.run_name}").mkdir(
@@ -591,6 +593,7 @@ class LuxonisTracker:
         else:
             return max(nums) + 1
 
+    @rank_zero_only
     def close(self):
         """Finalizes logging and saves unsent logs locally."""
         if self.is_mlflow and any(self.local_logs.values()):
