@@ -6,10 +6,7 @@ from .base_models import (
     Output,
     PreprocessingBlock,
 )
-from .enums import (
-    DataType,
-    InputType,
-)
+from .enums import DataType, InputType
 
 __all__ = [
     "Head",

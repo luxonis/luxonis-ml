@@ -33,7 +33,7 @@ class ClassificationDirectoryParser(BaseParser):
         classes = [
             d
             for d in split_path.iterdir()
-            if d.is_dir() and d.name not in ["train", "valid", "test"]
+            if d.is_dir() and d.name not in {"train", "valid", "test"}
         ]
         if not classes:
             return None
@@ -78,10 +78,7 @@ class ClassificationDirectoryParser(BaseParser):
                 for img_path in (class_dir / class_name).iterdir():
                     yield {
                         "file": str(img_path.absolute().resolve()),
-                        "annotation": {
-                            "type": "classification",
-                            "class": class_name,
-                        },
+                        "annotation": {"class": class_name},
                     }
 
         added_images = self._get_added_images(generator())

@@ -112,11 +112,7 @@ def setup_logging(
     ):
         logger = logging.getLogger(filename)
         message = warnings.formatwarning(
-            message,
-            category,
-            filename,
-            lineno,
-            line,
+            message, category, filename, lineno, line
         )
         logger.warning(message)
 

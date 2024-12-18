@@ -57,15 +57,12 @@ class VOCParser(BaseParser):
             annotation_dir=dataset_dir / "valid",
         )
         added_test_imgs = self._parse_split(
-            image_dir=dataset_dir / "test",
-            annotation_dir=dataset_dir / "test",
+            image_dir=dataset_dir / "test", annotation_dir=dataset_dir / "test"
         )
         return added_train_imgs, added_val_imgs, added_test_imgs
 
     def from_split(
-        self,
-        image_dir: Path,
-        annotation_dir: Path,
+        self, image_dir: Path, annotation_dir: Path
     ) -> ParserOutput:
         """Parses annotations from VOC format to LDF. Annotations
         include classification and object detection.
@@ -124,24 +121,17 @@ class VOCParser(BaseParser):
         def generator() -> DatasetIterator:
             for curr_annotations in images_annotations:
                 path = str(curr_annotations["path"])
-                for class_name in curr_annotations["classes"]:
-                    yield {
-                        "file": path,
-                        "annotation": {
-                            "type": "classification",
-                            "class": class_name,
-                        },
-                    }
                 for bbox_class, bbox in curr_annotations["bboxes"]:
                     yield {
                         "file": path,
                         "annotation": {
-                            "type": "boundingbox",
                             "class": bbox_class,
-                            "x": bbox[0],
-                            "y": bbox[1],
-                            "w": bbox[2],
-                            "h": bbox[3],
+                            "boundingbox": {
+                                "x": bbox[0],
+                                "y": bbox[1],
+                                "w": bbox[2],
+                                "h": bbox[3],
+                            },
                         },
                     }
 

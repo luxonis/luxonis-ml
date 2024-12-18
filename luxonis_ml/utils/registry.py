@@ -1,7 +1,7 @@
 from abc import ABCMeta
 from typing import Callable, Dict, Generic, Optional, Tuple, TypeVar, Union
 
-T = TypeVar("T")
+T = TypeVar("T", bound=type)
 
 
 class Registry(Generic[T]):
@@ -50,9 +50,9 @@ class Registry(Generic[T]):
     def register_module(
         self,
         name: Optional[str] = None,
-        module: Optional[type] = None,
+        module: Optional[T] = None,
         force: bool = False,
-    ) -> Union[type, Callable[[type], type]]:
+    ) -> Union[T, Callable[[T], T]]:
         """Registers a module.
 
         Can be used as a decorator or as a normal method:
@@ -92,19 +92,15 @@ class Registry(Generic[T]):
             return module
 
         # use it as a decorator: @x.register_module()
-        def _register(module: type) -> type:
+        def _register(module: T) -> T:
             self._register_module(module=module, module_name=name, force=force)
             return module
 
         return _register
 
     def _register_module(
-        self,
-        module: type,
-        module_name: Optional[str] = None,
-        force: bool = False,
+        self, module: T, module_name: Optional[str] = None, force: bool = False
     ) -> None:
-        """Registers a module by creating a (key, value) pair."""
         if module_name is None:
             module_name = module.__name__
 

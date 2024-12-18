@@ -189,10 +189,7 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
     )
 
     @model_validator(mode="before")
-    def validate_task_specific_fields(
-        cls,
-        values,
-    ):
+    def validate_task_specific_fields(cls, values):
         defined_params = {k for k, v in dict(values).items() if v is not None}
 
         common_fields = [

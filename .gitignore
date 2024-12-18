@@ -114,3 +114,5 @@ data/*
 .vscode
 tests/data
 *.zip
+.idea/*
+apidocs/
