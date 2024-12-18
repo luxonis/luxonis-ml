@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -436,7 +435,10 @@ def test_array_annotation(subtests: SubTests, tempdir: Path):
 
     with subtests.test("simple"):
         annotation = ArrayAnnotation(path=arr_path)
-        assert annotation.model_dump_json() == json.dumps({"path": arr_path})
+        assert (
+            ArrayAnnotation.model_validate_json(annotation.model_dump_json())
+            == annotation
+        )
 
     with subtests.test("numpy"):
         annotation = ArrayAnnotation(path=arr_path)
