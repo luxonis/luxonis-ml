@@ -119,4 +119,5 @@ exclude_also = [
     "cv2\\.imshow",
     "cv2\\.waitKey",
     "logger\\.",
+    "pytest\\.skip",
 ]
