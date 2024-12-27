@@ -15,6 +15,7 @@ from rich.table import Table
 from typing_extensions import Annotated
 
 from luxonis_ml.data import LuxonisDataset, LuxonisLoader, LuxonisParser
+from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.data.utils.task_utils import split_task, task_is_metadata
 from luxonis_ml.data.utils.visualizations import visualize
 from luxonis_ml.enums import DatasetType
@@ -95,10 +96,12 @@ def print_info(name: str) -> None:
     @group()
     def get_panels():
         yield f"[magenta b]Name: [not b cyan]{name}"
+        yield f"[magenta b]Version: [not b cyan]{dataset.version}"
         yield ""
         yield Panel.fit(get_sizes_panel(), title="Split Sizes")
         yield class_table
-        yield task_table
+        if dataset.version == LDF_VERSION:
+            yield task_table
 
     print(Panel.fit(get_panels(), title="Dataset Info"))
 

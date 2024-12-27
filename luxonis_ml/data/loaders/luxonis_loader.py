@@ -104,7 +104,7 @@ class LuxonisLoader(BaseLoader):
 
         df = self.dataset._load_df_offline()
         if df is None:
-            raise FileNotFoundError("Cannot find dataframe")
+            raise FileNotFoundError("No data found in the dataset.")
         self.df = df
 
         if not self.dataset.is_remote:
@@ -135,12 +135,12 @@ class LuxonisLoader(BaseLoader):
 
         self.idx_to_df_row: list[list[int]] = []
         for uuid in self.instances:
-            boolean_mask = df["uuid"] == uuid
+            boolean_mask = self.df["uuid"] == uuid
             row_indexes = boolean_mask.arg_true().to_list()
             self.idx_to_df_row.append(row_indexes)
 
         self.class_mappings: Dict[str, Dict[str, int]] = {}
-        for task in df["task_name"].unique():
+        for task in self.df["task_name"].unique():
             if not task:
                 continue
             class_mapping = {

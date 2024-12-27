@@ -5,6 +5,7 @@ import shutil
 import tempfile
 from collections import defaultdict
 from contextlib import suppress
+from functools import cached_property
 from pathlib import Path
 from typing import (
     Any,
@@ -16,7 +17,9 @@ from typing import (
     Sequence,
     Set,
     Tuple,
+    TypedDict,
     Union,
+    cast,
     overload,
 )
 
@@ -49,6 +52,19 @@ from .source import LuxonisSource
 from .utils import find_filepath_uuid, get_dir, get_file
 
 logger = logging.getLogger(__name__)
+
+
+class Skeletons(TypedDict):
+    labels: List[str]
+    edges: List[Tuple[int, int]]
+
+
+class Metadata(TypedDict):
+    source: LuxonisSource.LuxonisSourceDocument
+    ldf_version: str
+    classes: Dict[str, List[str]]
+    tasks: List[str]
+    skeletons: Dict[str, Skeletons]
 
 
 class LuxonisDataset(BaseDataset):
@@ -117,17 +133,25 @@ class LuxonisDataset(BaseDataset):
         else:
             self.fs = LuxonisFileSystem(self.path)
 
-        self.metadata = defaultdict(dict, self._get_metadata())
+        self.metadata = cast(Metadata, defaultdict(dict, self._get_metadata()))
 
-        if not self._compare_versions(
-            self.metadata["ldf_version"], LDF_VERSION
-        ):
-            raise RuntimeError(
-                f"LDF version mismatch. This version of `luxonis-ml` "
-                f"supports only LDF v{LDF_VERSION}. "
-                f"Got v{self.metadata['ldf_version']}"
+        if self.version != LDF_VERSION:
+            logger.warning(
+                f"LDF versions do not match. The current `luxonis-ml` "
+                f"installation supports LDF v{LDF_VERSION}, but the "
+                f"`{self.identifier}` dataset is in v{self.metadata['ldf_version']}. "
+                "Internal migration will be performed. Note that some parts "
+                "and new features might not work correctly unless you "
+                "manually re-create the dataset using the latest version "
+                "of `luxonis-ml`."
             )
         self.progress = make_progress_bar()
+
+    @cached_property
+    def version(self) -> Version:
+        return Version.parse(
+            self.metadata["ldf_version"], optional_minor_and_patch=True
+        )
 
     @property
     def source(self) -> LuxonisSource:
@@ -209,10 +233,37 @@ class LuxonisDataset(BaseDataset):
 
         if lazy:
             dfs = [pl.scan_parquet(file) for file in path.glob("*.parquet")]
-            return pl.concat(dfs) if dfs else None
+            df = pl.concat(dfs) if dfs else None
         else:
             dfs = [pl.read_parquet(file) for file in path.glob("*.parquet")]
-            return pl.concat(dfs) if dfs else None
+            df = pl.concat(dfs) if dfs else None
+
+        if self.version == LDF_VERSION or df is None:
+            return df
+
+        return (
+            df.rename({"class": "class_name"})
+            .with_columns(
+                [
+                    pl.col("task").alias("task_type"),
+                    pl.col("task").alias("task_name"),
+                    pl.lit("image").alias("source_name"),
+                ]
+            )
+            .select(
+                [
+                    "file",
+                    "source_name",
+                    "task_name",
+                    "created_at",
+                    "class_name",
+                    "instance_id",
+                    "task_type",
+                    "annotation",
+                    "uuid",
+                ]
+            )
+        )
 
     @overload
     def _get_file_index(
@@ -275,7 +326,7 @@ class LuxonisDataset(BaseDataset):
             return json.loads(credentials_cache_file.read_text())
         return {}
 
-    def _get_metadata(self) -> Dict[str, Any]:
+    def _get_metadata(self) -> Metadata:
         if self.fs.exists("metadata/metadata.json"):
             path = get_file(
                 self.fs,
@@ -290,6 +341,7 @@ class LuxonisDataset(BaseDataset):
                 "ldf_version": str(LDF_VERSION),
                 "classes": {},
                 "tasks": [],
+                "skeletons": {},
             }
 
     @property
@@ -777,8 +829,6 @@ class LuxonisDataset(BaseDataset):
         team_id: Optional[str] = None,
         bucket_storage: BucketStorage = BucketStorage.LOCAL,
         bucket: Optional[str] = None,
-        *,
-        list_incompatible: bool = False,
     ) -> List[str]:
         """Returns a dictionary of all datasets.
 
@@ -789,9 +839,6 @@ class LuxonisDataset(BaseDataset):
             C{S3}, or C{GCS}. Default is C{local}.
         @type bucket: Optional[str]
         @param bucket: Name of the bucket. Default is C{None}.
-        @type list_incompatible: bool
-        @param list_incompatible: Whether to list incompatible datasets.
-            Default is C{False}.
         @rtype: List[str]
         @return: List of all dataset names.
         """
@@ -826,22 +873,5 @@ class LuxonisDataset(BaseDataset):
             metadata_text = fs.read_text(metadata_path)
             if isinstance(metadata_text, bytes):
                 metadata_text = metadata_text.decode()
-            metadata = json.loads(metadata_text)
-            if (
-                LuxonisDataset._compare_versions(
-                    metadata["ldf_version"], LDF_VERSION
-                )
-                or list_incompatible
-            ):
-                names.append(path.name)
+            names.append(path.name)
         return names
-
-    @staticmethod
-    def _compare_versions(
-        v1: Union[str, Version], v2: Union[str, Version]
-    ) -> bool:
-        if isinstance(v1, str):
-            v1 = Version.parse(v1)
-        if isinstance(v2, str):
-            v2 = Version.parse(v2)
-        return v1.major == v2.major
