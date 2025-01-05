@@ -1,35 +1,11 @@
-from pathlib import Path
-from typing import Dict, Iterator, Tuple
+import logging
+from collections import defaultdict
+from typing import Dict, Iterator, List, Optional, Tuple
 
 import numpy as np
+import polars as pl
 
-
-def check_array(path: Path) -> None:
-    """Checks whether a path to a numpy array is valid. This checks that
-    th file exists and is readable by numpy.
-
-    @type values: Path
-    @param values: A path to a numpy array.
-    @rtype: NoneType
-    @return: None
-    @raise ValueError: If the path is not a valid numpy array.
-    """
-
-    def _check_valid_array(path: Path) -> bool:
-        try:
-            np.load(path)
-            return True
-        except Exception:
-            return False
-
-    if not isinstance(path, Path) or not path.suffix == ".npy":
-        raise ValueError(
-            f"Array path {path} must be a path to a numpy array (.npy)"
-        )
-    if not _check_valid_array(path):
-        raise ValueError(
-            f"Array at path {path} is not a valid numpy array (.npy)"
-        )
+logger = logging.getLogger(__name__)
 
 
 def rgb_to_bool_masks(
@@ -40,23 +16,35 @@ def rgb_to_bool_masks(
     """Helper function to convert an RGB segmentation mask to boolean
     masks for each class.
 
-    Example::
-        >>> segmentation_mask = np.array([[[0, 0, 0], [255, 0, 0], [0, 255, 0]],
-        ...                                [[0, 0, 0], [0, 255, 0], [0, 0, 255]]], dtype=np.uint8)
-        >>> class_colors = {"red": (255, 0, 0), "green": (0, 255, 0), "blue": (0, 0, 255)}
-        >>> for class_name, mask in rgb_to_bool_masks(segmentation_mask, class_colors, add_background_class=True):
-        ...     print(class_name, mask)
-        background [[ True False False],
-                    [ True False False]]
-        red        [[False  True False],
-                    [False False False]]
-        green      [[False False  True],
-                    [False True False]]
-        blue       [[False False False],
-                    [False False  True]]
+    Example:
+
+        >>> segmentation_mask = np.array([
+        ...     [[0, 0, 0], [255, 0, 0], [0, 255, 0]],
+        ...     [[0, 0, 0], [0, 255, 0], [0, 0, 255]],
+        ...     ], dtype=np.uint8)
+        >>> class_colors = {
+        ...     "red": (255, 0, 0),
+        ...     "green": (0, 255, 0),
+        ...     "blue": (0, 0, 255),
+        ... }
+        >>> for class_name, mask in rgb_to_bool_masks(
+        ...     segmentation_mask,
+        ...     class_colors,
+        ...     add_background_class=True,
+        ... ):
+        ...     print(class_name, np.array2string(mask, separator=", "))
+        background [[ True, False, False],
+                    [ True, False, False]]
+        red        [[False,  True, False],
+                    [False, False, False]]
+        green      [[False, False,  True],
+                    [False, True, False]]
+        blue       [[False, False, False],
+                    [False, False,  True]]
 
     @type segmentation_mask: npt.NDArray[np.uint8]
-    @param segmentation_mask: An RGB segmentation mask where each pixel is colored according to the class it belongs to.
+    @param segmentation_mask: An RGB segmentation mask where each pixel
+        is colored according to the class it belongs to.
     @type class_colors: Dict[str, Tuple[int, int, int]]
     @param class_colors: A dictionary mapping class names to RGB colors.
     @type add_background_class: bool
@@ -88,3 +76,100 @@ def rgb_to_bool_masks(
     for class_name, color in class_colors.items():
         class_id = color_to_id[tuple(color)] + 1
         yield class_name, segmentation_ids == class_id
+
+
+def infer_task(
+    old_task: str,
+    class_name: Optional[str],
+    current_classes: Dict[str, List[str]],
+) -> str:
+    if not hasattr(infer_task, "_logged_infered_classes"):
+        infer_task._logged_infered_classes = defaultdict(bool)
+
+    def _log_once(
+        cls_: Optional[str], task: str, message: str, level: str = "info"
+    ):
+        if not infer_task._logged_infered_classes[(cls_, task)]:
+            infer_task._logged_infered_classes[(cls_, task)] = True
+            getattr(logger, level)(message, extra={"markup": True})
+
+    infered_task = None
+
+    for task, classes in current_classes.items():
+        if class_name in classes:
+            if infered_task is not None:
+                _log_once(
+                    class_name,
+                    infered_task,
+                    f"Class [red italic]{class_name}[reset] is ambiguous between "
+                    "tasks [magenta italic]{infered_task}[reset] and [magenta italic]{task}[reset]. "
+                    "Task inference failed.",
+                    "warning",
+                )
+                infered_task = None
+                break
+            infered_task = task
+    if infered_task is None:
+        _log_once(
+            class_name,
+            old_task,
+            f"Class [red italic]{class_name}[reset] doesn't belong to any existing task. "
+            f"Autogenerated task [magenta italic]{old_task}[reset] will be used.",
+            "info",
+        )
+    else:
+        _log_once(
+            class_name,
+            infered_task,
+            f"Class [red italic]{class_name}[reset] infered to belong to task [magenta italic]{infered_task}[reset]",
+        )
+        return infered_task
+
+    return old_task
+
+
+def warn_on_duplicates(df: pl.LazyFrame) -> None:
+    # Warn on duplicate UUIDs
+    duplicates_paired = (
+        df.group_by("uuid")
+        .agg(pl.col("file").n_unique().alias("file_count"))
+        .filter(pl.col("file_count") > 1)
+        .join(df, on="uuid")
+        .select("uuid", "file")
+        .unique()
+        .group_by("uuid")
+        .agg(pl.col("file").alias("files"))
+        .filter(pl.col("files").len() > 1)
+        .collect()
+    )
+    for uuid, files in duplicates_paired.iter_rows():
+        logger.warning(f"UUID: {uuid} has multiple file names: {files}")
+
+    # Warn on duplicate annotations
+    duplicate_annotation = (
+        df.group_by(
+            "original_filepath",
+            "task_name",
+            "task_type",
+            "annotation",
+            "instance_id",
+        )
+        .agg(pl.len().alias("count"))
+        .filter(pl.col("count") > 1)
+        .filter(pl.col("annotation") != "{}")
+        .drop("instance_id")
+    ).collect()
+
+    for (
+        file_name,
+        task,
+        task_type,
+        annotation,
+        count,
+    ) in duplicate_annotation.iter_rows():
+        if task_type == "segmentation":
+            annotation = "<binary mask>"
+        logger.warning(
+            f"File '{file_name}' has the same '{task_type}' annotation "
+            f"'{annotation}' ({task=}) added {count} times."
+        )

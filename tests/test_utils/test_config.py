@@ -6,6 +6,7 @@ import pytest
 import yaml
 from pydantic import BaseModel
 
+from luxonis_ml.utils import environ
 from luxonis_ml.utils.config import LuxonisConfig
 
 CONFIG_DATA = {
@@ -262,3 +263,7 @@ def test_get(config_file: str):
 
     with pytest.raises(ValueError):
         cfg.get("list_config.-1.int_list_param")
+
+
+def test_environ():
+    assert environ.model_dump() == {}

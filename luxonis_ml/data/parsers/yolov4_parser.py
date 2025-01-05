@@ -110,24 +110,18 @@ class YoloV4Parser(BaseParser):
                 for ann_data in data[1:]:
                     curr_ann_data = ann_data.split(",")
                     class_name = class_names[int(curr_ann_data[4])]
-                    yield {
-                        "file": file,
-                        "annotation": {
-                            "type": "classification",
-                            "class": class_name,
-                        },
-                    }
 
                     bbox_xyxy = [float(i) for i in curr_ann_data[:4]]
                     yield {
                         "file": file,
                         "annotation": {
-                            "type": "boundingbox",
                             "class": class_name,
-                            "x": bbox_xyxy[0] / width,
-                            "y": bbox_xyxy[1] / height,
-                            "w": (bbox_xyxy[2] - bbox_xyxy[0]) / width,
-                            "h": (bbox_xyxy[3] - bbox_xyxy[1]) / height,
+                            "boundingbox": {
+                                "x": bbox_xyxy[0] / width,
+                                "y": bbox_xyxy[1] / height,
+                                "w": (bbox_xyxy[2] - bbox_xyxy[0]) / width,
+                                "h": (bbox_xyxy[3] - bbox_xyxy[1]) / height,
+                            },
                         },
                     }
 

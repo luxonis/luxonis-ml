@@ -5,17 +5,21 @@ import shutil
 import tempfile
 from collections import defaultdict
 from contextlib import suppress
+from functools import cached_property
 from pathlib import Path
 from typing import (
     Any,
     Dict,
     List,
     Literal,
+    Mapping,
     Optional,
     Sequence,
     Set,
     Tuple,
+    TypedDict,
     Union,
+    cast,
     overload,
 )
 
@@ -23,24 +27,44 @@ import numpy as np
 import polars as pl
 import pyarrow.parquet as pq
 from ordered_set import OrderedSet
-from typing_extensions import Self
+from semver.version import Version
+from typing_extensions import Self, override
 
-import luxonis_ml.data.utils.data_utils as data_utils
+from luxonis_ml.data.utils import (
+    BucketStorage,
+    BucketType,
+    ParquetFileManager,
+    infer_task,
+    warn_on_duplicates,
+)
+from luxonis_ml.data.utils.constants import LDF_VERSION
+from luxonis_ml.typing import PathType
 from luxonis_ml.utils import (
     LuxonisFileSystem,
     deprecated,
     environ,
     make_progress_bar,
 )
-from luxonis_ml.utils.filesystem import PathType
 
-from ..utils.constants import LDF_VERSION
-from ..utils.enums import BucketStorage, BucketType
-from ..utils.parquet import ParquetFileManager
-from .annotation import Annotation, ArrayAnnotation, DatasetRecord
+from .annotation import DatasetRecord
 from .base_dataset import BaseDataset, DatasetIterator
 from .source import LuxonisSource
-from .utils import add_generator_wrapper, find_filepath_uuid, get_dir, get_file
+from .utils import find_filepath_uuid, get_dir, get_file
+
+logger = logging.getLogger(__name__)
+
+
+class Skeletons(TypedDict):
+    labels: List[str]
+    edges: List[Tuple[int, int]]
+
+
+class Metadata(TypedDict):
+    source: LuxonisSource.LuxonisSourceDocument
+    ldf_version: str
+    classes: Dict[str, List[str]]
+    tasks: List[str]
+    skeletons: Dict[str, Skeletons]
 
 
 class LuxonisDataset(BaseDataset):
@@ -109,11 +133,25 @@ class LuxonisDataset(BaseDataset):
         else:
             self.fs = LuxonisFileSystem(self.path)
 
-        self.metadata = defaultdict(dict, self._get_metadata())
+        self.metadata = cast(Metadata, defaultdict(dict, self._get_metadata()))
 
-        self.logger = logging.getLogger(__name__)
-
+        if self.version != LDF_VERSION:
+            logger.warning(
+                f"LDF versions do not match. The current `luxonis-ml` "
+                f"installation supports LDF v{LDF_VERSION}, but the "
+                f"`{self.identifier}` dataset is in v{self.metadata['ldf_version']}. "
+                "Internal migration will be performed. Note that some parts "
+                "and new features might not work correctly unless you "
+                "manually re-create the dataset using the latest version "
+                "of `luxonis-ml`."
+            )
         self.progress = make_progress_bar()
+
+    @cached_property
+    def version(self) -> Version:
+        return Version.parse(
+            self.metadata["ldf_version"], optional_minor_and_patch=True
+        )
 
     @property
     def source(self) -> LuxonisSource:
@@ -122,6 +160,7 @@ class LuxonisDataset(BaseDataset):
         return LuxonisSource.from_document(self.metadata["source"])
 
     @property
+    @override
     def identifier(self) -> str:
         return self.dataset_name
 
@@ -194,10 +233,37 @@ class LuxonisDataset(BaseDataset):
 
         if lazy:
             dfs = [pl.scan_parquet(file) for file in path.glob("*.parquet")]
-            return pl.concat(dfs) if dfs else None
+            df = pl.concat(dfs) if dfs else None
         else:
             dfs = [pl.read_parquet(file) for file in path.glob("*.parquet")]
-            return pl.concat(dfs) if dfs else None
+            df = pl.concat(dfs) if dfs else None
+
+        if self.version == LDF_VERSION or df is None:
+            return df
+
+        return (
+            df.rename({"class": "class_name"})
+            .with_columns(
+                [
+                    pl.col("task").alias("task_type"),
+                    pl.col("task").alias("task_name"),
+                    pl.lit("image").alias("source_name"),
+                ]
+            )
+            .select(
+                [
+                    "file",
+                    "source_name",
+                    "task_name",
+                    "created_at",
+                    "class_name",
+                    "instance_id",
+                    "task_type",
+                    "annotation",
+                    "uuid",
+                ]
+            )
+        )  # pragma: no cover
 
     @overload
     def _get_file_index(
@@ -213,7 +279,7 @@ class LuxonisDataset(BaseDataset):
         self, lazy: bool = False
     ) -> Optional[Union[pl.DataFrame, pl.LazyFrame]]:
         path = get_file(
-            self.fs, "metadata/file_index.parquet", self.media_path
+            self.fs, "metadata/file_index.parquet", self.metadata_path
         )
         if path is not None and path.exists():
             if not lazy:
@@ -253,13 +319,14 @@ class LuxonisDataset(BaseDataset):
         """Constructs a URL for a remote dataset."""
         return f"{bucket_storage.value}://{bucket}/{team_id}/datasets/{dataset_name}"
 
+    # TODO: Is the cache used anywhere at all?
     def _init_credentials(self) -> Dict[str, Any]:
         credentials_cache_file = self.base_path / "credentials.json"
         if credentials_cache_file.exists():
             return json.loads(credentials_cache_file.read_text())
         return {}
 
-    def _get_metadata(self) -> Dict[str, Any]:
+    def _get_metadata(self) -> Metadata:
         if self.fs.exists("metadata/metadata.json"):
             path = get_file(
                 self.fs,
@@ -271,14 +338,17 @@ class LuxonisDataset(BaseDataset):
         else:
             return {
                 "source": LuxonisSource().to_document(),
-                "ldf_version": LDF_VERSION,
+                "ldf_version": str(LDF_VERSION),
                 "classes": {},
+                "tasks": [],
+                "skeletons": {},
             }
 
     @property
     def is_remote(self) -> bool:
         return self.bucket_storage != BucketStorage.LOCAL
 
+    @override
     def update_source(self, source: LuxonisSource) -> None:
         """Updates underlying source of the dataset with a new
         L{LuxonisSource}.
@@ -290,6 +360,7 @@ class LuxonisDataset(BaseDataset):
         self.metadata["source"] = source.to_document()
         self._write_metadata()
 
+    @override
     def set_classes(
         self, classes: List[str], task: Optional[str] = None
     ) -> None:
@@ -302,6 +373,7 @@ class LuxonisDataset(BaseDataset):
             )
         self._write_metadata()
 
+    @override
     def get_classes(self) -> Tuple[List[str], Dict[str, List[str]]]:
         all_classes = list(
             {
@@ -310,12 +382,9 @@ class LuxonisDataset(BaseDataset):
                 for c in classes
             }
         )
-        for task in self.metadata["classes"]:
-            self.metadata["classes"][task] = sorted(
-                self.metadata["classes"][task]
-            )
         return sorted(all_classes), self.metadata["classes"]
 
+    @override
     def set_skeletons(
         self,
         labels: Optional[List[str]] = None,
@@ -326,7 +395,7 @@ class LuxonisDataset(BaseDataset):
             raise ValueError("Must provide either keypoint names or edges")
 
         if task is None:
-            tasks = self.get_tasks()
+            tasks = self.get_task_names()
         else:
             tasks = [task]
         for task in tasks:
@@ -336,6 +405,7 @@ class LuxonisDataset(BaseDataset):
             }
         self._write_metadata()
 
+    @override
     def get_skeletons(
         self,
     ) -> Dict[str, Tuple[List[str], List[Tuple[int, int]]]]:
@@ -344,17 +414,18 @@ class LuxonisDataset(BaseDataset):
             for task, skel in self.metadata["skeletons"].items()
         }
 
+    @override
     def get_tasks(self) -> List[str]:
-        return list(self.get_classes()[1].keys())
+        return self.metadata.get("tasks", [])
 
     def sync_from_cloud(self, force: bool = False) -> None:
         """Downloads data from a remote cloud bucket."""
 
         if not self.is_remote:
-            self.logger.warning("This is a local dataset! Cannot sync")
+            logger.warning("This is a local dataset! Cannot sync")
         else:
             if not self._is_synced or force:
-                self.logger.info("Syncing from cloud...")
+                logger.info("Syncing from cloud...")
                 local_dir = self.base_path / "data" / self.team_id / "datasets"
                 local_dir.mkdir(exist_ok=True, parents=True)
 
@@ -362,8 +433,9 @@ class LuxonisDataset(BaseDataset):
 
                 self._is_synced = True
             else:
-                self.logger.warning("Already synced. Use force=True to resync")
+                logger.warning("Already synced. Use force=True to resync")
 
+    @override
     def delete_dataset(self, *, delete_remote: bool = False) -> None:
         """Deletes the dataset from local storage and optionally from
         the cloud.
@@ -374,12 +446,10 @@ class LuxonisDataset(BaseDataset):
         """
         if not self.is_remote:
             shutil.rmtree(self.path)
-            self.logger.info(f"Deleted dataset {self.dataset_name}")
+            logger.info(f"Deleted dataset {self.dataset_name}")
 
         if self.is_remote and delete_remote:
-            self.logger.info(
-                f"Deleting dataset {self.dataset_name} from cloud"
-            )
+            logger.info(f"Deleting dataset {self.dataset_name} from cloud")
             assert self.path
             assert self.dataset_name
             assert self.local_path
@@ -387,70 +457,18 @@ class LuxonisDataset(BaseDataset):
                 shutil.rmtree(self.local_path)
             self.fs.delete_dir(allow_delete_parent=True)
 
-    def _infer_task(self, ann: Annotation) -> str:
-        if not hasattr(LuxonisDataset._infer_task, "_logged_infered_classes"):
-            LuxonisDataset._infer_task._logged_infered_classes = defaultdict(
-                bool
-            )
-
-        def _log_once(cls_: str, task: str, message: str, level: str = "info"):
-            if not LuxonisDataset._infer_task._logged_infered_classes[
-                (cls_, task)
-            ]:
-                LuxonisDataset._infer_task._logged_infered_classes[
-                    (cls_, task)
-                ] = True
-                getattr(self.logger, level)(message, extra={"markup": True})
-
-        cls_ = ann.class_
-        _, current_classes = self.get_classes()
-        infered_task = None
-
-        for task, classes in current_classes.items():
-            if cls_ in classes:
-                if infered_task is not None:
-                    _log_once(
-                        cls_,
-                        infered_task,
-                        f"Class [red italic]{cls_}[reset] is ambiguous between "
-                        "tasks [magenta italic]{infered_task}[reset] and [magenta italic]{task}[reset]. "
-                        "Task inference failed.",
-                        "warning",
-                    )
-                    infered_task = None
-                    break
-                infered_task = task
-        if infered_task is None:
-            _log_once(
-                cls_,
-                ann.task,
-                f"Class [red italic]{cls_}[reset] doesn't belong to any existing task. "
-                f"Autogenerated task [magenta italic]{ann.task}[reset] will be used.",
-                "info",
-            )
-        else:
-            _log_once(
-                cls_,
-                infered_task,
-                f"Class [red italic]{cls_}[reset] infered to belong to task [magenta italic]{infered_task}[reset]",
-            )
-            return infered_task
-
-        return ann.task
-
-    def _process_arrays(self, batch_data: List[DatasetRecord]) -> None:
-        self.logger.info("Checking arrays...")
+    def _process_arrays(self, data_batch: List[DatasetRecord]) -> None:
+        logger.info("Checking arrays...")
         task = self.progress.add_task(
-            "[magenta]Processing arrays...", total=len(batch_data)
+            "[magenta]Processing arrays...", total=len(data_batch)
         )
         self.progress.start()
         uuid_dict = {}
-        for record in batch_data:
+        for record in data_batch:
             self.progress.update(task, advance=1)
-            if not isinstance(record.annotation, ArrayAnnotation):
+            if record.annotation is None or record.annotation.array is None:
                 continue
-            ann = record.annotation
-            data_utils.check_array(ann.path)
+            ann = record.annotation.array
             if self.is_remote:
                 uuid = self.fs.get_file_uuid(
                     ann.path, local=True
@@ -462,7 +480,7 @@ class LuxonisDataset(BaseDataset):
         self.progress.stop()
         self.progress.remove_task(task)
         if self.is_remote:
-            self.logger.info("Uploading arrays...")
+            logger.info("Uploading arrays...")
             # TODO: support from bucket (likely with a self.fs.copy_dir)
             self.fs.put_dir(
                 local_paths=uuid_dict.keys(),
@@ -472,36 +490,35 @@ class LuxonisDataset(BaseDataset):
 
     def _add_process_batch(
         self,
-        batch_data: List[DatasetRecord],
+        data_batch: List[DatasetRecord],
         pfm: ParquetFileManager,
         index: Optional[pl.DataFrame],
         new_index: Dict[str, List[str]],
         processed_uuids: Set[str],
     ) -> None:
-        paths = list(set(data.file for data in batch_data))
-        self.logger.info("Generating UUIDs...")
-        uuid_dict = self.fs.get_file_uuids(
-            paths, local=True
-        )  # TODO: support from bucket
+        paths = set(data.file for data in data_batch)
+        logger.info("Generating UUIDs...")
+        # TODO: support from bucket
+        uuid_dict = self.fs.get_file_uuids(paths, local=True)
         if self.is_remote:
-            self.logger.info("Uploading media...")
+            logger.info("Uploading media...")
 
             # TODO: support from bucket (likely with a self.fs.copy_dir)
             self.fs.put_dir(
                 local_paths=paths, remote_dir="media", uuid_dict=uuid_dict
             )
-            self.logger.info("Media uploaded")
+            logger.info("Media uploaded")
 
-        self._process_arrays(batch_data)
+        self._process_arrays(data_batch)
 
         task = self.progress.add_task(
-            "[magenta]Processing data...", total=len(batch_data)
+            "[magenta]Processing data...", total=len(data_batch)
         )
 
-        self.logger.info("Saving annotations...")
+        logger.info("Saving annotations...")
         with self.progress:
-            for ann in batch_data:
-                filepath = ann.file
+            for record in data_batch:
+                filepath = record.file
                 file = filepath.name
                 uuid = uuid_dict[str(filepath)]
                 matched_id = find_filepath_uuid(filepath, index)
@@ -520,19 +537,20 @@ class LuxonisDataset(BaseDataset):
                     )
                     processed_uuids.add(uuid)
 
-                pfm.write({"uuid": uuid, **ann.to_parquet_dict()})
+                for row in record.to_parquet_rows():
+                    pfm.write(uuid, row)
+
                 self.progress.update(task, advance=1)
         self.progress.remove_task(task)
 
     def add(
         self, generator: DatasetIterator, batch_size: int = 1_000_000
     ) -> Self:
-        generator = add_generator_wrapper(generator)
         index = self._get_file_index()
         new_index = {"uuid": [], "file": [], "original_filepath": []}
         processed_uuids = set()
 
-        batch_data: list[DatasetRecord] = []
+        data_batch: list[DatasetRecord] = []
 
         classes_per_task: Dict[str, OrderedSet[str]] = defaultdict(
             lambda: OrderedSet([])
@@ -548,33 +566,35 @@ class LuxonisDataset(BaseDataset):
         assert annotations_path is not None
 
         with ParquetFileManager(annotations_path) as pfm:
-            for i, data in enumerate(generator, start=1):
-                record = (
-                    data
-                    if isinstance(data, DatasetRecord)
-                    else DatasetRecord(**data)
-                )
+            for i, record in enumerate(generator, start=1):
+                explicit_task = False
+                if not isinstance(record, DatasetRecord):
+                    explicit_task = "task_name" in record or "task" in record
+                    record = DatasetRecord(**record)
                 ann = record.annotation
                 if ann is not None:
-                    if ann.task == ann._label_type.value and (
-                        isinstance(data, DatasetRecord)
-                        or "task" not in data.get("annotation", {})
-                    ):
-                        ann.task = self._infer_task(ann)
+                    if not explicit_task:
+                        record.task = infer_task(
+                            record.task, ann.class_name, self.get_classes()[1]
+                        )
+                    if ann.class_name is not None:
+                        classes_per_task[record.task].add(ann.class_name)
+                    else:
+                        classes_per_task[record.task] = OrderedSet([])
+                    if ann.keypoints is not None:
+                        num_kpts_per_task[record.task] = len(
+                            ann.keypoints.keypoints
+                        )
 
-                    classes_per_task[ann.task].add(ann.class_)
-                    if ann.type_ == "keypoints":
-                        num_kpts_per_task[ann.task] = len(ann.keypoints)
-
-                batch_data.append(record)
+                data_batch.append(record)
                 if i % batch_size == 0:
                     self._add_process_batch(
-                        batch_data, pfm, index, new_index, processed_uuids
+                        data_batch, pfm, index, new_index, processed_uuids
                     )
-                    batch_data = []
+                    data_batch = []
 
             self._add_process_batch(
-                batch_data, pfm, index, new_index, processed_uuids
+                data_batch, pfm, index, new_index, processed_uuids
             )
 
         with suppress(shutil.SameFileError):
@@ -584,8 +604,8 @@ class LuxonisDataset(BaseDataset):
         for task, classes in classes_per_task.items():
             old_classes = set(curr_classes.get(task, []))
             new_classes = list(classes - old_classes)
-            if new_classes:
-                self.logger.info(
+            if new_classes or task not in curr_classes:
+                logger.info(
                     f"Detected new classes for task {task}: {new_classes}"
                 )
                 self.set_classes(list(classes | old_classes), task)
@@ -602,66 +622,35 @@ class LuxonisDataset(BaseDataset):
         self.fs.put_file(tmp_file.name, "metadata/file_index.parquet")
         self._write_metadata()
         self._warn_on_duplicates()
+        self._save_tasks_to_metadata()
         return self
+
+    def _save_tasks_to_metadata(self) -> None:
+        df = self._load_df_offline()
+        if df is None:
+            return
+        tasks = []
+        for task_name, task_type in (
+            df.select("task_name", "task_type")
+            .unique()
+            .drop_nulls()
+            .iter_rows()
+        ):
+            tasks.append(f"{task_name}/{task_type}")
+        self.metadata["tasks"] = tasks
+        self._write_metadata()
 
     def _warn_on_duplicates(self) -> None:
         df = self._load_df_offline(lazy=True)
-        index_df = self._get_file_index(lazy=True)
-        if df is None or index_df is None:
+        index = self._get_file_index(lazy=True)
+        if df is None or index is None:
             return
-        df = df.join(index_df, on="uuid").drop("file_right")
-        # Warn on duplicate UUIDs
-        duplicates_paired = (
-            df.group_by("uuid")
-            .agg(pl.col("file").n_unique().alias("file_count"))
-            .filter(pl.col("file_count") > 1)
-            .join(df, on="uuid")
-            .select("uuid", "file")
-            .unique()
-            .group_by("uuid")
-            .agg(pl.col("file").alias("files"))
-            .filter(pl.col("files").len() > 1)
-            .collect()
-        )
-        for uuid, files in duplicates_paired.iter_rows():
-            self.logger.warning(
-                f"UUID: {uuid} has multiple file names: {files}"
-            )
-
-        # Warn on duplicate annotations
-        duplicate_annotation = (
-            df.group_by(
-                "original_filepath",
-                "task",
-                "type",
-                "annotation",
-                "instance_id",
-            )
-            .agg(pl.len().alias("count"))
-            .filter(pl.col("count") > 1)
-            .filter(pl.col("annotation") != "{}")
-            .drop("instance_id")
-        ).collect()
-
-        for (
-            file_name,
-            task,
-            type_,
-            annotation,
-            count,
-        ) in duplicate_annotation.iter_rows():
-            if "RLE" in type_ or "Mask" in type_:
-                annotation = "<binary mask>"
-            self.logger.warning(
-                f"File '{file_name}' has the same '{type_}' annotation "
-                f"'{annotation}' ({task=}) added {count} times."
-            )
+        df = df.join(index, on="uuid").drop("file_right")
+        warn_on_duplicates(df)
 
     def get_splits(self) -> Optional[Dict[str, List[str]]]:
         splits_path = get_file(
-            self.fs,
-            "metadata/splits.json",
-            self.metadata_path,
+            self.fs, "metadata/splits.json", self.metadata_path
         )
         if splits_path is None:
             return None
@@ -674,12 +663,13 @@ class LuxonisDataset(BaseDataset):
         "definitions",
         suggest={"ratios": "splits", "definitions": "splits"},
     )
+    @override
     def make_splits(
         self,
         splits: Optional[
             Union[
-                Dict[str, Sequence[PathType]],
-                Dict[str, float],
+                Mapping[str, Sequence[PathType]],
+                Mapping[str, float],
                 Tuple[float, float, float],
             ]
         ] = None,
@@ -754,7 +744,8 @@ class LuxonisDataset(BaseDataset):
         if definitions is None:
             ratios = ratios or {"train": 0.8, "val": 0.1, "test": 0.1}
             df = self._load_df_offline()
-            assert df is not None
+            if df is None:
+                raise FileNotFoundError("No data found in dataset")
             ids = (
                 df.filter(~pl.col("uuid").is_in(defined_uuids))
                 .select("uuid")
@@ -808,6 +799,7 @@ class LuxonisDataset(BaseDataset):
             self.fs.put_file(splits_path, "metadata/splits.json")
 
     @staticmethod
+    @override
     def exists(
         dataset_name: str,
         team_id: Optional[str] = None,
@@ -853,18 +845,33 @@ class LuxonisDataset(BaseDataset):
         base_path = environ.LUXONISML_BASE_PATH
 
         team_id = team_id or environ.LUXONISML_TEAM_ID
+        names = []
 
         if bucket_storage == BucketStorage.LOCAL:
-            local_path = base_path / "data" / team_id / "datasets"
-            if not local_path.exists():
-                return []
-            return [d.name for d in local_path.iterdir() if d.is_dir()]
+            fs = LuxonisFileSystem(
+                f"file://{base_path}/data/{team_id}/datasets"
+            )
+        else:
+            bucket = bucket or environ.LUXONISML_BUCKET
+            if bucket is None:
+                raise ValueError(
+                    "Must set LUXONISML_BUCKET environment variable!"
+                )
+            fs = LuxonisFileSystem(
+                LuxonisDataset._construct_url(
+                    bucket_storage, bucket, team_id, ""
+                )
+            )
+        if not fs.exists():
+            return []
 
-        bucket = bucket or environ.LUXONISML_BUCKET
-        if bucket is None:
-            raise ValueError("Must set LUXONISML_BUCKET environment variable!")
-
-        fs = LuxonisFileSystem(
-            LuxonisDataset._construct_url(bucket_storage, bucket, team_id, "")
-        )
-        return list(fs.walk_dir("", recursive=False, typ="directory"))
+        for path in fs.walk_dir("", recursive=False, typ="directory"):
+            path = Path(path)
+            metadata_path = path / "metadata" / "metadata.json"
+            if not fs.exists(metadata_path):
+                continue
+            metadata_text = fs.read_text(metadata_path)
+            if isinstance(metadata_text, bytes):
+                metadata_text = metadata_text.decode()
+            names.append(path.name)
+        return names

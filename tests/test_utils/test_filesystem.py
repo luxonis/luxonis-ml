@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import List, Optional
 
 import pytest
+from _pytest.fixtures import SubRequest
 
 from luxonis_ml.utils import environ
 from luxonis_ml.utils.filesystem import (
@@ -39,9 +40,7 @@ def get_os_python_specific_url(
 
 
 @pytest.fixture
-def fs(
-    request: pytest.FixtureRequest, python_version: str, platform_name: str
-):
+def fs(request: SubRequest, python_version: str, platform_name: str):
     url_path = get_os_python_specific_url(
         request.param, platform_name, python_version
     )
@@ -49,14 +48,10 @@ def fs(
 
 
 def parametrize_dependent_fixture(
-    name: str = "fs",
-    depends: Optional[List[str]] = None,
+    name: str = "fs", depends: Optional[List[str]] = None
 ):
     depends = depends or []
-    skips = {
-        "gs": skip_if_no_gcs_credentials,
-        "s3": skip_if_no_s3_credentials,
-    }
+    skips = {"gs": skip_if_no_gcs_credentials, "s3": skip_if_no_s3_credentials}
 
     def decorator(func):
         protocols = ["gs", "s3"]
@@ -226,11 +221,7 @@ def test_walk_dir(fs: LuxonisFileSystem):
 
 
 @parametrize_dependent_fixture(
-    "protocol",
-    [
-        "test_file_download",
-        "test_dir_download",
-    ],
+    "protocol", ["test_file_download", "test_dir_download"]
 )
 def test_static_download(
     protocol: str, python_version: str, platform_name: str
@@ -254,12 +245,7 @@ def test_static_download(
 
 
 @parametrize_dependent_fixture(
-    "protocol",
-    [
-        "test_file_upload",
-        "test_dir_upload",
-        "test_static_download",
-    ],
+    "protocol", ["test_file_upload", "test_dir_upload", "test_static_download"]
 )
 def test_static_upload(protocol: str, python_version: str, platform_name: str):
     url_root = get_os_python_specific_url(

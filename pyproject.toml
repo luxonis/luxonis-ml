@@ -87,6 +87,9 @@ reportIncompatibleVariableOverride = "none"
 reportIncompatibleMethodOverride = "none"
 reportUnnecessaryIsInstance = "none"
 
+[tool.pytest]
+doctest_optionflags = "NORMALIZE_WHITESPACE IGNORE_EXCEPTION_DETAIL NUMBER"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--disable-warnings"
@@ -98,6 +101,7 @@ omit = [
     "luxonis_ml/tracker/*",
     "**/__main__.py"
 ]
+source = ["luxonis_ml", "tests"]
 
 [tool.coverage.report]
 exclude_also = [
@@ -115,4 +119,5 @@ exclude_also = [
     "cv2\\.imshow",
     "cv2\\.waitKey",
     "logger\\.",
+    "pytest\\.skip",
 ]

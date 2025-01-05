@@ -27,12 +27,12 @@ from typing import (
 import fsspec
 from typeguard import typechecked
 
+from luxonis_ml.typing import PathType
+
 from .environ import environ
 from .registry import Registry
 
 logger = getLogger(__name__)
-
-PathType = Union[str, Path]
 
 
 class PutFile(Protocol):
@@ -105,11 +105,9 @@ class LuxonisFileSystem:
             self.allow_active_mlflow_run = allow_active_mlflow_run
             self.is_mlflow_active_run = False
             if _path is not None:
-                (
-                    self.experiment_id,
-                    self.run_id,
-                    self.artifact_path,
-                ) = self._split_mlflow_path(_path)
+                (self.experiment_id, self.run_id, self.artifact_path) = (
+                    self._split_mlflow_path(_path)
+                )
             elif _path is None and self.allow_active_mlflow_run:
                 self.is_mlflow_active_run = True
                 _path = ""
@@ -326,9 +324,7 @@ class LuxonisFileSystem:
             raise NotImplementedError
         elif self.is_fsspec:
             self.fs.download(
-                str(self.path / remote_path),
-                str(local_path),
-                recursive=False,
+                str(self.path / remote_path), str(local_path), recursive=False
             )
         return Path(local_path) / Path(remote_path).name
 
@@ -450,13 +446,28 @@ class LuxonisFileSystem:
         elif self.is_fsspec:
             full_path = str(self.path / remote_dir)
             for file in self.fs.ls(full_path, detail=True):
-                name = str(
-                    PurePosixPath(str(file["name"])).relative_to(self.path)
-                )
+                if self.protocol == "file":
+                    name = str(Path(file["name"]).relative_to(self.path))
+                else:
+                    name = str(
+                        PurePosixPath(file["name"]).relative_to(self.path)
+                    )
                 if typ == "all" or file["type"] == typ:
                     yield name
                 if recursive and file["type"] == "directory":
                     yield from self.walk_dir(name, recursive, typ)
+
+    def read_text(self, remote_path: PathType) -> Union[str, bytes]:
+        """Reads a file into a string.
+
+        @type remote_path: PathType
+        @param remote_path: Relative path to remote file.
+        @rtype: Union[str, bytes]
+        @return: The string containing the file contents.
+        """
+        if self.is_mlflow:
+            raise NotImplementedError
+        return self.fs.read_text(str(self.path / remote_path))
 
     def read_to_byte_buffer(
         self, remote_path: Optional[PathType] = None
@@ -674,7 +685,7 @@ class LuxonisFileSystem:
 
 
 def _check_package_installed(protocol: str) -> None:  # pragma: no cover
-    if protocol in ["gs", "gcs"] and find_spec("gcsfs") is None:
+    if protocol in {"gs", "gcs"} and find_spec("gcsfs") is None:
         _pip_install(protocol, "gcsfs", "2023.3.0")
     elif protocol == "s3" and find_spec("s3fs") is None:
         _pip_install(protocol, "s3fs", "2023.3.0")
