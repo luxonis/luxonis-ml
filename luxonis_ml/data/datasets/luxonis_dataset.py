@@ -263,7 +263,7 @@ class LuxonisDataset(BaseDataset):
                     "uuid",
                 ]
             )
-        )
+        )  # pragma: no cover
 
     @overload
     def _get_file_index(
