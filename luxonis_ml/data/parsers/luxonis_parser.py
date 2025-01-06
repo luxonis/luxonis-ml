@@ -144,7 +144,8 @@ class LuxonisParser(Generic[T]):
         dataset_name = dataset_name or name.replace(" ", "_").split(".")[0]
 
         self.dataset = self.dataset_constructor(
-            dataset_name=dataset_name, **kwargs
+            dataset_name=dataset_name,  # type: ignore
+            **kwargs,
         )
         self.parser = self.parsers[self.dataset_type](
             self.dataset, self.dataset_type, task_name

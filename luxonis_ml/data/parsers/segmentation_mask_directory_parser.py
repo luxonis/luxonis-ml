@@ -60,7 +60,7 @@ class SegmentationMaskDirectoryParser(BaseParser):
 
     def from_dir(
         self, dataset_dir: Path
-    ) -> Tuple[List[str], List[str], List[str]]:
+    ) -> Tuple[List[Path], List[Path], List[Path]]:
         added_train_imgs = self._parse_split(
             image_dir=dataset_dir / "train",
             seg_dir=dataset_dir / "train",

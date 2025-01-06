@@ -106,7 +106,7 @@ class COCOParser(BaseParser):
         use_keypoint_ann: bool = False,
         keypoint_ann_paths: Optional[Dict[str, str]] = None,
         split_val_to_test: bool = True,
-    ) -> Tuple[List[str], List[str], List[str]]:
+    ) -> Tuple[List[Path], List[Path], List[Path]]:
         dir_format, splits = COCOParser._detect_dataset_dir_format(dataset_dir)
         if dir_format is None:
             raise ValueError("Dataset is not in any expected format.")

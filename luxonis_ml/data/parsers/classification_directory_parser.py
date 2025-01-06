@@ -55,7 +55,7 @@ class ClassificationDirectoryParser(BaseParser):
 
     def from_dir(
         self, dataset_dir: Path
-    ) -> Tuple[List[str], List[str], List[str]]:
+    ) -> Tuple[List[Path], List[Path], List[Path]]:
         added_train_imgs = self._parse_split(class_dir=dataset_dir / "train")
         added_val_imgs = self._parse_split(class_dir=dataset_dir / "valid")
         added_test_imgs = self._parse_split(class_dir=dataset_dir / "test")
