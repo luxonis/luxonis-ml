@@ -13,7 +13,6 @@ class Registry(Generic[T]):
         """
         self._module_dict: Dict[str, T] = {}
         self._name = name
-        self._default: Optional[T] = None
 
     def __str__(self):
         return f"Registry('{self.name}')"
@@ -31,19 +30,6 @@ class Registry(Generic[T]):
     @property
     def module_dict(self):
         return self._module_dict
-
-    def get_default(self) -> T:
-        """Retrieves the default registry record.
-
-        @rtype: type
-        @return: Default class if exists
-        @raise KeyError: If default class is not in the registry
-        """
-        if self._default is None:
-            raise KeyError(
-                f"`{self.name}` registry does not have a default object."
-            )
-        return self._default
 
     def get(self, key: str) -> T:
         """Retrieves the registry record for the key.
@@ -102,11 +88,7 @@ class Registry(Generic[T]):
 
         # use it as a normal method: x.register_module(module=SomeClass)
         if module is not None:
-            self._register_module(
-                module=module,
-                module_name=name,
-                force=force,
-            )
+            self._register_module(module=module, module_name=name, force=force)
             return module
 
         # use it as a decorator: @x.register_module()
