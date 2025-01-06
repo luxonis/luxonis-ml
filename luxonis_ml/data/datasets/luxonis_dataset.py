@@ -362,8 +362,12 @@ class LuxonisDataset(BaseDataset):
         lock_path = local_dir / ".sync.lock"
 
         with FileLock(str(lock_path)):
+            any_subfolder_empty = any(
+                subfolder.is_dir() and not any(subfolder.iterdir())
+                for subfolder in (local_dir / self.dataset_name).iterdir()
+            )
             if (
-                (local_dir / self.dataset_name).exists()
+                not any_subfolder_empty
                 and skip_redownload_dataset
                 and not force
             ):
