@@ -47,7 +47,7 @@ class VOCParser(BaseParser):
 
     def from_dir(
         self, dataset_dir: Path
-    ) -> Tuple[List[str], List[str], List[str]]:
+    ) -> Tuple[List[Path], List[Path], List[Path]]:
         added_train_imgs = self._parse_split(
             image_dir=dataset_dir / "train",
             annotation_dir=dataset_dir / "train",
@@ -77,7 +77,6 @@ class VOCParser(BaseParser):
             dictionary for keypoints and list of added images.
         """
 
-        class_names = set()
         images_annotations = []
         for anno_xml in annotation_dir.glob("*.xml"):
             annotation_data = ET.parse(anno_xml)
@@ -98,7 +97,6 @@ class VOCParser(BaseParser):
             for object_item in root.findall("object"):
                 class_name = self._xml_find(object_item, "name")
                 curr_annotations["classes"].append(class_name)
-                class_names.add(class_name)
 
                 bbox_info = object_item.find("bndbox")
                 if bbox_info is not None:
@@ -137,7 +135,7 @@ class VOCParser(BaseParser):
 
         added_images = self._get_added_images(generator())
 
-        return generator(), list(class_names), {}, added_images
+        return generator(), {}, added_images
 
     @staticmethod
     def _xml_find(root: ET.Element, tag: str) -> str:

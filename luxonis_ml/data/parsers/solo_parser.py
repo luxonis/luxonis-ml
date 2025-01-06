@@ -87,12 +87,12 @@ class SOLOParser(BaseParser):
 
     def from_dir(
         self, dataset_dir: Path
-    ) -> Tuple[List[str], List[str], List[str]]:
+    ) -> Tuple[List[Path], List[Path], List[Path]]:
         """Parses all present data to L{LuxonisDataset} format.
 
         @type dataset_dir: str
         @param dataset_dir: Path to source dataset directory.
-        @rtype: Tuple[List[str], List[str], List[str]]
+        @rtype: Tuple[List[Path], List[Path], List[Path]]
         @return: Tuple with added images for train, valid and test
             splits.
         """
@@ -138,7 +138,7 @@ class SOLOParser(BaseParser):
         )
         # TODO: We make an assumption here that bbox class_names are also valid for all other annotation types in the dataset. Is this OK?
         # TODO: Can we imagine a case where classes between annotation types are different? Which class names to return in this case?
-        if class_names == []:
+        if not class_names:
             raise Exception("No class_names identified. ")
 
         keypoint_labels = self._get_solo_keypoint_names(
@@ -256,7 +256,7 @@ class SOLOParser(BaseParser):
 
         added_images = self._get_added_images(generator())
 
-        return generator(), class_names, skeletons, added_images
+        return generator(), skeletons, added_images
 
     def _get_solo_annotation_types(
         self, annotation_definitions_dict: dict

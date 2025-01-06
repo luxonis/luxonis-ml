@@ -5,9 +5,8 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from luxonis_ml.data import BaseDataset, DatasetIterator
 from luxonis_ml.enums.enums import DatasetType
-from luxonis_ml.typing import PathType
 
-ParserOutput = Tuple[DatasetIterator, List[str], Dict[str, Dict], List[str]]
+ParserOutput = Tuple[DatasetIterator, Dict[str, Dict], List[Path]]
 """Type alias for parser output.
 
 Contains a function to create the annotation generator, list of classes
@@ -81,7 +80,7 @@ class BaseParser(ABC):
         """
         ...
 
-    def _parse_split(self, **kwargs) -> List[str]:
+    def _parse_split(self, **kwargs) -> List[Path]:
         """Parses data in a split subdirectory.
 
         @type kwargs: Dict[str, Any]
@@ -90,7 +89,7 @@ class BaseParser(ABC):
         @rtype: List[str]
         @return: List of added images.
         """
-        generator, _, skeletons, added_images = self.from_split(**kwargs)
+        generator, skeletons, added_images = self.from_split(**kwargs)
         self.dataset.add(self._add_task(generator))
         if skeletons:
             for skeleton in skeletons.values():
@@ -151,7 +150,7 @@ class BaseParser(ABC):
         return self.dataset
 
     @staticmethod
-    def _get_added_images(generator: DatasetIterator) -> List[PathType]:
+    def _get_added_images(generator: DatasetIterator) -> List[Path]:
         """Returns list of unique images added by the generator
         function.
 
@@ -162,7 +161,7 @@ class BaseParser(ABC):
         """
         return list(
             set(
-                item["file"] if isinstance(item, dict) else item.file
+                Path(item["file"] if isinstance(item, dict) else item.file)
                 for item in generator
             )
         )

@@ -106,7 +106,7 @@ class COCOParser(BaseParser):
         use_keypoint_ann: bool = False,
         keypoint_ann_paths: Optional[Dict[str, str]] = None,
         split_val_to_test: bool = True,
-    ) -> Tuple[List[str], List[str], List[str]]:
+    ) -> Tuple[List[Path], List[Path], List[Path]]:
         dir_format, splits = COCOParser._detect_dataset_dir_format(dataset_dir)
         if dir_format is None:
             raise ValueError("Dataset is not in any expected format.")
@@ -208,7 +208,6 @@ class COCOParser(BaseParser):
         coco_categories = annotation_data["categories"]
         categories = {cat["id"]: cat["name"] for cat in coco_categories}
 
-        class_names = list(categories.values())
         skeletons = {}
         for cat in coco_categories:
             if "keypoints" in cat.keys() and "skeleton" in cat.keys():
@@ -311,7 +310,7 @@ class COCOParser(BaseParser):
 
         added_images = self._get_added_images(generator())
 
-        return generator(), class_names, skeletons, added_images
+        return generator(), skeletons, added_images
 
 
 def clean_annotations(annotation_path: Path) -> Path:

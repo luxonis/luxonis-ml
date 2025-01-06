@@ -68,7 +68,7 @@ class YoloV6Parser(BaseParser):
 
     def from_dir(
         self, dataset_dir: Path
-    ) -> Tuple[Optional[List[str]], Optional[List[str]], Optional[List[str]]]:
+    ) -> Tuple[List[Path], List[Path], List[Path]]:
         classes_path = dataset_dir / "data.yaml"
         added_train_imgs = self._parse_split(
             image_dir=dataset_dir / "images" / "train",
@@ -138,4 +138,4 @@ class YoloV6Parser(BaseParser):
 
         added_images = self._get_added_images(generator())
 
-        return generator(), list(class_names.values()), {}, added_images
+        return generator(), {}, added_images

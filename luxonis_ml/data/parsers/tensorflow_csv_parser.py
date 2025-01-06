@@ -50,7 +50,7 @@ class TensorflowCSVParser(BaseParser):
 
     def from_dir(
         self, dataset_dir: Path
-    ) -> Tuple[List[str], List[str], List[str]]:
+    ) -> Tuple[List[Path], List[Path], List[Path]]:
         added_train_imgs = self._parse_split(
             image_dir=dataset_dir / "train",
             annotation_path=dataset_dir / "train" / "_annotations.csv",
@@ -84,7 +84,6 @@ class TensorflowCSVParser(BaseParser):
         )
         images_annotations = {}
 
-        class_names = set(df["class"])
         for row in df.rows(named=True):
             path = str(image_dir / str(row["filename"]))
             if path not in images_annotations:
@@ -129,4 +128,4 @@ class TensorflowCSVParser(BaseParser):
 
         added_images = self._get_added_images(generator())
 
-        return generator(), list(class_names), {}, added_images
+        return generator(), {}, added_images

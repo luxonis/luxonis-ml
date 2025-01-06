@@ -24,6 +24,7 @@ from .classification_directory_parser import ClassificationDirectoryParser
 from .coco_parser import COCOParser
 from .create_ml_parser import CreateMLParser
 from .darknet_parser import DarknetParser
+from .native_parser import NativeParser
 from .segmentation_mask_directory_parser import SegmentationMaskDirectoryParser
 from .solo_parser import SOLOParser
 from .tensorflow_csv_parser import TensorflowCSVParser
@@ -54,6 +55,7 @@ class LuxonisParser(Generic[T]):
         DatasetType.CLSDIR: ClassificationDirectoryParser,
         DatasetType.SEGMASK: SegmentationMaskDirectoryParser,
         DatasetType.SOLO: SOLOParser,
+        DatasetType.NATIVE: NativeParser,
     }
 
     def __init__(
@@ -142,7 +144,8 @@ class LuxonisParser(Generic[T]):
         dataset_name = dataset_name or name.replace(" ", "_").split(".")[0]
 
         self.dataset = self.dataset_constructor(
-            dataset_name=dataset_name, **kwargs
+            dataset_name=dataset_name,  # type: ignore
+            **kwargs,
         )
         self.parser = self.parsers[self.dataset_type](
             self.dataset, self.dataset_type, task_name
