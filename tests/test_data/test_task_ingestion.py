@@ -10,7 +10,6 @@ import pytest
 from luxonis_ml.data import BucketStorage, LuxonisDataset, LuxonisLoader
 from luxonis_ml.data.utils import get_task_name, get_task_type
 
-DATASET_NAME = "test-task-ingestion"
 DATA_DIR = Path("tests/data/test_task_ingestion")
 STEP = 10
 
@@ -46,19 +45,9 @@ def compute_histogram(dataset: LuxonisDataset) -> Dict[str, int]:
     return dict(classes)
 
 
-@pytest.mark.parametrize(
-    ("bucket_storage",),
-    [
-        (BucketStorage.LOCAL,),
-        (BucketStorage.S3,),
-        (BucketStorage.GCS,),
-    ],
-)
-def test_task_ingestion(
-    bucket_storage: BucketStorage, platform_name: str, python_version: str
-):
+def test_task_ingestion(bucket_storage: BucketStorage, dataset_name: str):
     dataset = LuxonisDataset(
-        f"{DATASET_NAME}-{bucket_storage.value}-{platform_name}-{python_version}",
+        dataset_name,
         bucket_storage=bucket_storage,
         delete_existing=True,
         delete_remote=True,
@@ -72,12 +61,7 @@ def test_task_ingestion(
                 "task": "animals",
                 "annotation": {
                     "class": "dog",
-                    "boundingbox": {
-                        "x": 0.1,
-                        "y": 0.1,
-                        "w": 0.1,
-                        "h": 0.1,
-                    },
+                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
                 },
             }
             yield {
@@ -85,12 +69,7 @@ def test_task_ingestion(
                 "task": "animals",
                 "annotation": {
                     "class": "cat",
-                    "boundingbox": {
-                        "x": 0.5,
-                        "y": 0.5,
-                        "w": 0.1,
-                        "h": 0.3,
-                    },
+                    "boundingbox": {"x": 0.5, "y": 0.5, "w": 0.1, "h": 0.3},
                 },
             }
             yield {
@@ -141,24 +120,14 @@ def test_task_ingestion(
                 "file": str(path),
                 "annotation": {
                     "class": "dog",
-                    "boundingbox": {
-                        "x": 0.1,
-                        "y": 0.1,
-                        "w": 0.1,
-                        "h": 0.1,
-                    },
+                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
                 },
             }
             yield {
                 "file": str(path),
                 "annotation": {
                     "class": "cat",
-                    "boundingbox": {
-                        "x": 0.5,
-                        "y": 0.5,
-                        "w": 0.1,
-                        "h": 0.3,
-                    },
+                    "boundingbox": {"x": 0.5, "y": 0.5, "w": 0.1, "h": 0.3},
                 },
             }
 
@@ -182,12 +151,7 @@ def test_task_ingestion(
                 "task": "animals",
                 "annotation": {
                     "class": "dog",
-                    "boundingbox": {
-                        "x": 0.15,
-                        "y": 0.25,
-                        "w": 0.1,
-                        "h": 0.1,
-                    },
+                    "boundingbox": {"x": 0.15, "y": 0.25, "w": 0.1, "h": 0.1},
                 },
             }
             yield {
@@ -226,16 +190,12 @@ def test_task_ingestion(
                 "file": str(path),
                 "annotation": {
                     "class": "bike",
-                    "boundingbox": {
-                        "x": 0.9,
-                        "y": 0.8,
-                        "w": 0.1,
-                        "h": 0.4,
-                    },
+                    "boundingbox": {"x": 0.9, "y": 0.8, "w": 0.1, "h": 0.4},
                 },
             }
             yield {
                 "file": str(path),
+                "task": "segmentation",
                 "annotation": {
                     "class": "body",
                     "segmentation": {

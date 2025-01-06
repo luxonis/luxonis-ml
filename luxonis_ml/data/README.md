@@ -130,18 +130,19 @@ def generator():
             w, h = bbox["dimension"]
 
             # get the class name of the bounding box
-            class_ = bbox["labelName"]
+            class_name = bbox["labelName"]
             yield {
                 "file": image_path,
                 "annotation": {
-                    "type": "boundingbox",
-                    "class": class_,
+                    "class": class_name,
 
-                    # normalized bounding box
-                    "x": x / W,
-                    "y": y / H,
-                    "w": w / W,
-                    "h": h / H,
+                    "boundingbox": {
+                      # normalized bounding box
+                      "x": x / W,
+                      "y": y / H,
+                      "w": w / W,
+                      "h": h / H,
+                    }
                 },
             }
 ```
@@ -591,13 +592,13 @@ For this example, we will assume the augmentation example above is stored in a J
 
 ```python
 
-from luxonis_ml.data import LuxonisDataset, LuxonisLoader, Augmentations
+from luxonis_ml.data import LuxonisDataset, LuxonisLoader, AlbumentationsEngine
 import json
 
 with open("augmentations.json") as f:
     augmentations = json.load(f)
 
-aug = Augmentations(image_size=[256, 320], augmentations=augmentations)
+aug = AlbumentationsEngine(image_size=[256, 320], augmentations=augmentations)
 dataset = LuxonisDataset("parking_lot")
 loader = LuxonisLoader(dataset, view="train", augmentations=aug)
 

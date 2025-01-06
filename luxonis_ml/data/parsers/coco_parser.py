@@ -154,8 +154,7 @@ class COCOParser(BaseParser):
             else val_paths["annotation_path"]
         )
         _added_val_imgs = self._parse_split(
-            image_dir=val_paths["image_dir"],
-            annotation_path=val_ann_path,
+            image_dir=val_paths["image_dir"], annotation_path=val_ann_path
         )
 
         if split_val_to_test and dir_format == Format.FIFTYONE:

@@ -57,15 +57,12 @@ class VOCParser(BaseParser):
             annotation_dir=dataset_dir / "valid",
         )
         added_test_imgs = self._parse_split(
-            image_dir=dataset_dir / "test",
-            annotation_dir=dataset_dir / "test",
+            image_dir=dataset_dir / "test", annotation_dir=dataset_dir / "test"
         )
         return added_train_imgs, added_val_imgs, added_test_imgs
 
     def from_split(
-        self,
-        image_dir: Path,
-        annotation_dir: Path,
+        self, image_dir: Path, annotation_dir: Path
     ) -> ParserOutput:
         """Parses annotations from VOC format to LDF. Annotations
         include classification and object detection.

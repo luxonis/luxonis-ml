@@ -4,7 +4,7 @@ import random
 import warnings
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Tuple, Union, cast
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union, cast
 
 import cv2
 import numpy as np
@@ -27,7 +27,7 @@ from luxonis_ml.data.utils import (
     split_task,
     task_type_iterator,
 )
-from luxonis_ml.typing import ConfigItem, Labels, LoaderOutput, PathType
+from luxonis_ml.typing import Labels, LoaderOutput, PathType
 
 logger = logging.getLogger(__name__)
 
@@ -41,11 +41,11 @@ class LuxonisLoader(BaseLoader):
             Literal["albumentations"], str
         ] = "albumentations",
         augmentation_config: Optional[
-            Union[List[ConfigItem], PathType]
+            Union[List[Dict[str, Any]], PathType]
         ] = None,
         height: Optional[int] = None,
         width: Optional[int] = None,
-        keep_aspect_ratio: bool = False,
+        keep_aspect_ratio: bool = True,
         out_image_format: Literal["RGB", "BGR"] = "RGB",
         *,
         force_resync: bool = False,
@@ -60,11 +60,24 @@ class LuxonisLoader(BaseLoader):
         @type augmentation_engine: Union[Literal["albumentations"], str]
         @param augmentation_engine: The augmentation engine to use.
             Defaults to C{"albumentations"}.
-        @type augmentation_config: Optional[Union[List[ConfigItem],
+        @type augmentation_config: Optional[Union[List[Dict[str, Any]],
             PathType]]
         @param augmentation_config: The configuration for the
-            augmentations. This can be either a list of C{ConfigItem} or
+            augmentations. This can be either a list of C{Dict[str, Any]} or
             a path to a configuration file.
+            The config member is a dictionary with two keys: C{name} and
+            C{params}. C{name} is the name of the augmentation to
+            instantiate and C{params} is an optional dictionary
+            of parameters to pass to the augmentation.
+
+            Example::
+
+                [
+                    {"name": "HorizontalFlip", "params": {"p": 0.5}},
+                    {"name": "RandomBrightnessContrast", "params": {"p": 0.1}},
+                    {"name": "Defocus"}
+                ]
+
         @type height: Optional[int]
         @param height: The height of the output images. Defaults to
             C{None}.
@@ -91,12 +104,12 @@ class LuxonisLoader(BaseLoader):
 
         df = self.dataset._load_df_offline()
         if df is None:
-            raise FileNotFoundError("Cannot find dataframe")
+            raise FileNotFoundError("No data found in the dataset.")
         self.df = df
 
         if not self.dataset.is_remote:
             file_index = self.dataset._get_file_index()
-            if file_index is None:
+            if file_index is None:  # pragma: no cover
                 raise FileNotFoundError("Cannot find file index")
             self.df = self.df.join(file_index, on="uuid").drop("file_right")
 
@@ -122,12 +135,12 @@ class LuxonisLoader(BaseLoader):
 
         self.idx_to_df_row: list[list[int]] = []
         for uuid in self.instances:
-            boolean_mask = df["uuid"] == uuid
+            boolean_mask = self.df["uuid"] == uuid
             row_indexes = boolean_mask.arg_true().to_list()
             self.idx_to_df_row.append(row_indexes)
 
         self.class_mappings: Dict[str, Dict[str, int]] = {}
-        for task in df["task_name"].unique():
+        for task in self.df["task_name"].unique():
             if not task:
                 continue
             class_mapping = {
@@ -141,27 +154,34 @@ class LuxonisLoader(BaseLoader):
             }
             self.class_mappings[task] = class_mapping
 
-        self.add_background = False
+        self.tasks_without_background = set()
+
         _, test_labels = self._load_data(0)
         for task, seg_masks in task_type_iterator(test_labels, "segmentation"):
-            task = get_task_name(task)
-            if seg_masks.shape[0] > 1:
+            task_name = get_task_name(task)
+            if seg_masks.shape[0] > 1 and (
+                "background" not in self.class_mappings
+                or self.class_mappings[task_name]["background"] != 0
+            ):
                 unassigned_pixels = np.sum(seg_masks, axis=0) == 0
 
                 if np.any(unassigned_pixels):
                     logger.warning(
-                        "Found unassigned pixels in segmentation masks. Assigning them to `background` class (class index 0). If this is not desired then make sure all pixels are assigned to one class or rename your background class."
+                        "Found unassigned pixels in segmentation masks. "
+                        "Assigning them to `background` class (class index 0). "
+                        "If this is not desired then make sure all pixels are "
+                        "assigned to one class or rename your background class."
                     )
-                    self.add_background = True
-                    if "background" not in self.classes_by_task[task]:
-                        self.classes_by_task[task].append("background")
-                        self.class_mappings[task] = {
+                    self.tasks_without_background.add(task)
+                    if "background" not in self.classes_by_task[task_name]:
+                        self.classes_by_task[task_name].append("background")
+                        self.class_mappings[task_name] = {
                             class_: idx + 1
                             for class_, idx in self.class_mappings[
-                                task
+                                task_name
                             ].items()
                         }
-                        self.class_mappings[task]["background"] = 0
+                        self.class_mappings[task_name]["background"] = 0
 
     @override
     def __len__(self) -> int:
@@ -239,10 +259,6 @@ class LuxonisLoader(BaseLoader):
                 continue
 
             data = json.loads(ann_str)
-            if "points" in data and "width" not in data:
-                data["width"] = img.shape[1]
-                data["height"] = img.shape[0]
-                data["points"] = [tuple(p) for p in data["points"]]
             full_task_name = f"{task_name}/{task_type}"
             task_type = get_task_type(full_task_name)
             if task_type == "array" and self.dataset.is_remote:
@@ -250,7 +266,13 @@ class LuxonisLoader(BaseLoader):
 
             if task_type.startswith("metadata/"):
                 metadata_by_task[full_task_name].append(data)
-            else:
+            else:  # pragma: no cover
+                # Conversion from LDF v1.0
+                if "points" in data and "width" not in data:
+                    data["width"] = img.shape[1]
+                    data["height"] = img.shape[0]
+                    data["points"] = [tuple(p) for p in data["points"]]
+
                 annotation = load_annotation(task_type, data)
                 labels_by_task[full_task_name].append(annotation)
                 if class_name is not None:
@@ -282,11 +304,7 @@ class LuxonisLoader(BaseLoader):
                 class_ids_by_task[task],
                 len(self.classes_by_task[task_name]),
             )
-            if (
-                self.add_background
-                and task_type == "segmentation"
-                and len(self.class_mappings[task_name]) > 1
-            ):
+            if task in self.tasks_without_background:
                 unassigned_pixels = ~np.any(array, axis=0)
                 background_idx = self.class_mappings[task_name]["background"]
                 array[background_idx, unassigned_pixels] = 1
@@ -298,7 +316,7 @@ class LuxonisLoader(BaseLoader):
     def _load_with_augmentations(self, idx: int) -> LoaderOutput:
         indices = [idx]
         assert self.augmentations is not None
-        if self.augmentations.is_batched:
+        if self.augmentations.batch_size > 1:
             if self.augmentations.batch_size > len(self):
                 warnings.warn(
                     f"Augmentations batch_size ({self.augmentations.batch_size}) "
@@ -326,15 +344,15 @@ class LuxonisLoader(BaseLoader):
     def _init_augmentations(
         self,
         augmentation_engine: Union[Literal["albumentations"], str],
-        augmentation_config: Union[List[ConfigItem], PathType],
+        augmentation_config: Union[List[Dict[str, Any]], PathType],
         height: Optional[int],
         width: Optional[int],
         keep_aspect_ratio: bool,
     ) -> Optional[AugmentationEngine]:
         if isinstance(augmentation_config, (Path, str)):
             with open(augmentation_config) as file:
-                augmentation_config = (
-                    cast(List[ConfigItem], yaml.safe_load(file)) or []
+                augmentation_config = cast(
+                    List[Dict[str, Any]], yaml.safe_load(file) or []
                 )
         if augmentation_config and (width is None or height is None):
             raise ValueError(
@@ -348,7 +366,7 @@ class LuxonisLoader(BaseLoader):
             task: get_task_type(task) for task in self.dataset.get_tasks()
         }
 
-        return AUGMENTATION_ENGINES.get(augmentation_engine).from_config(
+        return AUGMENTATION_ENGINES.get(augmentation_engine)(
             height=height,
             width=width,
             config=augmentation_config,

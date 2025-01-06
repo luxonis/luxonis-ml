@@ -105,11 +105,9 @@ class LuxonisFileSystem:
             self.allow_active_mlflow_run = allow_active_mlflow_run
             self.is_mlflow_active_run = False
             if _path is not None:
-                (
-                    self.experiment_id,
-                    self.run_id,
-                    self.artifact_path,
-                ) = self._split_mlflow_path(_path)
+                (self.experiment_id, self.run_id, self.artifact_path) = (
+                    self._split_mlflow_path(_path)
+                )
             elif _path is None and self.allow_active_mlflow_run:
                 self.is_mlflow_active_run = True
                 _path = ""
@@ -326,9 +324,7 @@ class LuxonisFileSystem:
             raise NotImplementedError
         elif self.is_fsspec:
             self.fs.download(
-                str(self.path / remote_path),
-                str(local_path),
-                recursive=False,
+                str(self.path / remote_path), str(local_path), recursive=False
             )
         return Path(local_path) / Path(remote_path).name
 
@@ -450,9 +446,12 @@ class LuxonisFileSystem:
         elif self.is_fsspec:
             full_path = str(self.path / remote_dir)
             for file in self.fs.ls(full_path, detail=True):
-                name = str(
-                    PurePosixPath(str(file["name"])).relative_to(self.path)
-                )
+                if self.protocol == "file":
+                    name = str(Path(file["name"]).relative_to(self.path))
+                else:
+                    name = str(
+                        PurePosixPath(file["name"]).relative_to(self.path)
+                    )
                 if typ == "all" or file["type"] == typ:
                     yield name
                 if recursive and file["type"] == "directory":

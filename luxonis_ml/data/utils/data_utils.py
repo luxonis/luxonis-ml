@@ -1,40 +1,11 @@
 import logging
 from collections import defaultdict
-from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Tuple
 
 import numpy as np
 import polars as pl
 
 logger = logging.getLogger(__name__)
-
-
-def check_array(path: Path) -> None:
-    """Checks whether a path to a numpy array is valid. This checks that
-    th file exists and is readable by numpy.
-
-    @type values: Path
-    @param values: A path to a numpy array.
-    @rtype: NoneType
-    @return: None
-    @raise ValueError: If the path is not a valid numpy array.
-    """
-
-    def _check_valid_array(path: Path) -> bool:
-        try:
-            np.load(path)
-            return True
-        except Exception:
-            return False
-
-    if not isinstance(path, Path) or not path.suffix == ".npy":
-        raise ValueError(
-            f"Array path {path} must be a path to a numpy array (.npy)"
-        )
-    if not _check_valid_array(path):
-        raise ValueError(
-            f"Array at path {path} is not a valid numpy array (.npy)"
-        )
 
 
 def rgb_to_bool_masks(
@@ -45,23 +16,35 @@ def rgb_to_bool_masks(
     """Helper function to convert an RGB segmentation mask to boolean
     masks for each class.
 
-    Example::
-        >>> segmentation_mask = np.array([[[0, 0, 0], [255, 0, 0], [0, 255, 0]],
-        ...                                [[0, 0, 0], [0, 255, 0], [0, 0, 255]]], dtype=np.uint8)
-        >>> class_colors = {"red": (255, 0, 0), "green": (0, 255, 0), "blue": (0, 0, 255)}
-        >>> for class_name, mask in rgb_to_bool_masks(segmentation_mask, class_colors, add_background_class=True):
-        ...     print(class_name, mask)
-        background [[ True False False],
-                    [ True False False]]
-        red        [[False  True False],
-                    [False False False]]
-        green      [[False False  True],
-                    [False True False]]
-        blue       [[False False False],
-                    [False False  True]]
+    Example:
+
+        >>> segmentation_mask = np.array([
+        ...     [[0, 0, 0], [255, 0, 0], [0, 255, 0]],
+        ...     [[0, 0, 0], [0, 255, 0], [0, 0, 255]],
+        ...     ], dtype=np.uint8)
+        >>> class_colors = {
+        ...     "red": (255, 0, 0),
+        ...     "green": (0, 255, 0),
+        ...     "blue": (0, 0, 255),
+        ... }
+        >>> for class_name, mask in rgb_to_bool_masks(
+        ...     segmentation_mask,
+        ...     class_colors,
+        ...     add_background_class=True,
+        ... ):
+        ...     print(class_name, np.array2string(mask, separator=", "))
+        background [[ True, False, False],
+                    [ True, False, False]]
+        red        [[False,  True, False],
+                    [False, False, False]]
+        green      [[False, False,  True],
+                    [False, True, False]]
+        blue       [[False, False, False],
+                    [False, False,  True]]
 
     @type segmentation_mask: npt.NDArray[np.uint8]
-    @param segmentation_mask: An RGB segmentation mask where each pixel is colored according to the class it belongs to.
+    @param segmentation_mask: An RGB segmentation mask where each pixel
+        is colored according to the class it belongs to.
     @type class_colors: Dict[str, Tuple[int, int, int]]
     @param class_colors: A dictionary mapping class names to RGB colors.
     @type add_background_class: bool

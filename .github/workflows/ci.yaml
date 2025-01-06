@@ -2,7 +2,7 @@ name: CI
 
 on:
   pull_request:
-    branches: [ dev, main ]
+    branches: [ main ]
     paths:
       - 'luxonis_ml/**'
       - 'tests/**'
@@ -83,6 +83,7 @@ jobs:
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         AWS_S3_ENDPOINT_URL: ${{ secrets.AWS_S3_ENDPOINT_URL }}
+        ROBOFLOW_API_KEY: ${{ secrets.ROBOFLOW_API_KEY }}
         LUXONISML_BUCKET: luxonis-test-bucket
       run:
         pytest --cov --junitxml=junit.xml -o junit_family=legacy
@@ -100,3 +101,11 @@ jobs:
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         fail_ci_if_error: false
+
+    - name: Upload coverage as artifact
+      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8'
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage
+        path: coverage.xml
+        overwrite: true

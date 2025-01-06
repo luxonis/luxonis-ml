@@ -118,9 +118,7 @@ class SegmentationMaskDirectoryParser(BaseParser):
                         "file": file,
                         "annotation": {
                             "class": class_name,
-                            "segmentation": {
-                                "mask": curr_seg_mask,
-                            },
+                            "segmentation": {"mask": curr_seg_mask},
                         },
                     }
 

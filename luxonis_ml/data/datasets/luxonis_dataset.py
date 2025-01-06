@@ -5,6 +5,7 @@ import shutil
 import tempfile
 from collections import defaultdict
 from contextlib import suppress
+from functools import cached_property
 from pathlib import Path
 from typing import (
     Any,
@@ -16,7 +17,9 @@ from typing import (
     Sequence,
     Set,
     Tuple,
+    TypedDict,
     Union,
+    cast,
     overload,
 )
 
@@ -31,7 +34,6 @@ from luxonis_ml.data.utils import (
     BucketStorage,
     BucketType,
     ParquetFileManager,
-    check_array,
     infer_task,
     warn_on_duplicates,
 )
@@ -50,6 +52,19 @@ from .source import LuxonisSource
 from .utils import find_filepath_uuid, get_dir, get_file
 
 logger = logging.getLogger(__name__)
+
+
+class Skeletons(TypedDict):
+    labels: List[str]
+    edges: List[Tuple[int, int]]
+
+
+class Metadata(TypedDict):
+    source: LuxonisSource.LuxonisSourceDocument
+    ldf_version: str
+    classes: Dict[str, List[str]]
+    tasks: List[str]
+    skeletons: Dict[str, Skeletons]
 
 
 class LuxonisDataset(BaseDataset):
@@ -118,17 +133,25 @@ class LuxonisDataset(BaseDataset):
         else:
             self.fs = LuxonisFileSystem(self.path)
 
-        self.metadata = defaultdict(dict, self._get_metadata())
+        self.metadata = cast(Metadata, defaultdict(dict, self._get_metadata()))
 
-        if not self._compare_versions(
-            self.metadata["ldf_version"], LDF_VERSION
-        ):
-            raise RuntimeError(
-                f"LDF version mismatch. This version of `luxonis-ml` "
-                f"supports only LDF v{LDF_VERSION}. "
-                f"Got v{self.metadata['ldf_version']}"
+        if self.version != LDF_VERSION:
+            logger.warning(
+                f"LDF versions do not match. The current `luxonis-ml` "
+                f"installation supports LDF v{LDF_VERSION}, but the "
+                f"`{self.identifier}` dataset is in v{self.metadata['ldf_version']}. "
+                "Internal migration will be performed. Note that some parts "
+                "and new features might not work correctly unless you "
+                "manually re-create the dataset using the latest version "
+                "of `luxonis-ml`."
             )
         self.progress = make_progress_bar()
+
+    @cached_property
+    def version(self) -> Version:
+        return Version.parse(
+            self.metadata["ldf_version"], optional_minor_and_patch=True
+        )
 
     @property
     def source(self) -> LuxonisSource:
@@ -210,10 +233,37 @@ class LuxonisDataset(BaseDataset):
 
         if lazy:
             dfs = [pl.scan_parquet(file) for file in path.glob("*.parquet")]
-            return pl.concat(dfs) if dfs else None
+            df = pl.concat(dfs) if dfs else None
         else:
             dfs = [pl.read_parquet(file) for file in path.glob("*.parquet")]
-            return pl.concat(dfs) if dfs else None
+            df = pl.concat(dfs) if dfs else None
+
+        if self.version == LDF_VERSION or df is None:
+            return df
+
+        return (
+            df.rename({"class": "class_name"})
+            .with_columns(
+                [
+                    pl.col("task").alias("task_type"),
+                    pl.col("task").alias("task_name"),
+                    pl.lit("image").alias("source_name"),
+                ]
+            )
+            .select(
+                [
+                    "file",
+                    "source_name",
+                    "task_name",
+                    "created_at",
+                    "class_name",
+                    "instance_id",
+                    "task_type",
+                    "annotation",
+                    "uuid",
+                ]
+            )
+        )  # pragma: no cover
 
     @overload
     def _get_file_index(
@@ -276,7 +326,7 @@ class LuxonisDataset(BaseDataset):
             return json.loads(credentials_cache_file.read_text())
         return {}
 
-    def _get_metadata(self) -> Dict[str, Any]:
+    def _get_metadata(self) -> Metadata:
         if self.fs.exists("metadata/metadata.json"):
             path = get_file(
                 self.fs,
@@ -291,6 +341,7 @@ class LuxonisDataset(BaseDataset):
                 "ldf_version": str(LDF_VERSION),
                 "classes": {},
                 "tasks": [],
+                "skeletons": {},
             }
 
     @property
@@ -406,19 +457,18 @@ class LuxonisDataset(BaseDataset):
                 shutil.rmtree(self.local_path)
             self.fs.delete_dir(allow_delete_parent=True)
 
-    def _process_arrays(self, batch_data: List[DatasetRecord]) -> None:
+    def _process_arrays(self, data_batch: List[DatasetRecord]) -> None:
         logger.info("Checking arrays...")
         task = self.progress.add_task(
-            "[magenta]Processing arrays...", total=len(batch_data)
+            "[magenta]Processing arrays...", total=len(data_batch)
         )
         self.progress.start()
         uuid_dict = {}
-        for record in batch_data:
+        for record in data_batch:
             self.progress.update(task, advance=1)
             if record.annotation is None or record.annotation.array is None:
                 continue
             ann = record.annotation.array
-            check_array(ann.path)
             if self.is_remote:
                 uuid = self.fs.get_file_uuid(
                     ann.path, local=True
@@ -440,13 +490,13 @@ class LuxonisDataset(BaseDataset):
 
     def _add_process_batch(
         self,
-        batch_data: List[DatasetRecord],
+        data_batch: List[DatasetRecord],
         pfm: ParquetFileManager,
         index: Optional[pl.DataFrame],
         new_index: Dict[str, List[str]],
         processed_uuids: Set[str],
     ) -> None:
-        paths = set(data.file for data in batch_data)
+        paths = set(data.file for data in data_batch)
         logger.info("Generating UUIDs...")
         # TODO: support from bucket
         uuid_dict = self.fs.get_file_uuids(paths, local=True)
@@ -459,15 +509,15 @@ class LuxonisDataset(BaseDataset):
             )
             logger.info("Media uploaded")
 
-        self._process_arrays(batch_data)
+        self._process_arrays(data_batch)
 
         task = self.progress.add_task(
-            "[magenta]Processing data...", total=len(batch_data)
+            "[magenta]Processing data...", total=len(data_batch)
         )
 
         logger.info("Saving annotations...")
         with self.progress:
-            for record in batch_data:
+            for record in data_batch:
                 filepath = record.file
                 file = filepath.name
                 uuid = uuid_dict[str(filepath)]
@@ -500,7 +550,7 @@ class LuxonisDataset(BaseDataset):
         new_index = {"uuid": [], "file": [], "original_filepath": []}
         processed_uuids = set()
 
-        batch_data: list[DatasetRecord] = []
+        data_batch: list[DatasetRecord] = []
 
         classes_per_task: Dict[str, OrderedSet[str]] = defaultdict(
             lambda: OrderedSet([])
@@ -525,9 +575,7 @@ class LuxonisDataset(BaseDataset):
                 if ann is not None:
                     if not explicit_task:
                         record.task = infer_task(
-                            record.task,
-                            ann.class_name,
-                            self.get_classes()[1],
+                            record.task, ann.class_name, self.get_classes()[1]
                         )
                     if ann.class_name is not None:
                         classes_per_task[record.task].add(ann.class_name)
@@ -538,15 +586,15 @@ class LuxonisDataset(BaseDataset):
                             ann.keypoints.keypoints
                         )
 
-                batch_data.append(record)
+                data_batch.append(record)
                 if i % batch_size == 0:
                     self._add_process_batch(
-                        batch_data, pfm, index, new_index, processed_uuids
+                        data_batch, pfm, index, new_index, processed_uuids
                     )
-                    batch_data = []
+                    data_batch = []
 
             self._add_process_batch(
-                batch_data, pfm, index, new_index, processed_uuids
+                data_batch, pfm, index, new_index, processed_uuids
             )
 
         with suppress(shutil.SameFileError):
@@ -583,7 +631,10 @@ class LuxonisDataset(BaseDataset):
             return
         tasks = []
         for task_name, task_type in (
-            df.select("task_name", "task_type").unique().iter_rows()
+            df.select("task_name", "task_type")
+            .unique()
+            .drop_nulls()
+            .iter_rows()
         ):
             tasks.append(f"{task_name}/{task_type}")
         self.metadata["tasks"] = tasks
@@ -599,9 +650,7 @@ class LuxonisDataset(BaseDataset):
 
     def get_splits(self) -> Optional[Dict[str, List[str]]]:
         splits_path = get_file(
-            self.fs,
-            "metadata/splits.json",
-            self.metadata_path,
+            self.fs, "metadata/splits.json", self.metadata_path
         )
         if splits_path is None:
             return None
@@ -695,7 +744,8 @@ class LuxonisDataset(BaseDataset):
         if definitions is None:
             ratios = ratios or {"train": 0.8, "val": 0.1, "test": 0.1}
             df = self._load_df_offline()
-            assert df is not None
+            if df is None:
+                raise FileNotFoundError("No data found in dataset")
             ids = (
                 df.filter(~pl.col("uuid").is_in(defined_uuids))
                 .select("uuid")
@@ -828,22 +878,5 @@ class LuxonisDataset(BaseDataset):
             metadata_text = fs.read_text(metadata_path)
             if isinstance(metadata_text, bytes):
                 metadata_text = metadata_text.decode()
-            metadata = json.loads(metadata_text)
-            if (
-                LuxonisDataset._compare_versions(
-                    metadata["ldf_version"], LDF_VERSION
-                )
-                or list_incompatible
-            ):
-                names.append(path.name)
+            names.append(path.name)
         return names
-
-    @staticmethod
-    def _compare_versions(
-        v1: Union[str, Version], v2: Union[str, Version]
-    ) -> bool:
-        if isinstance(v1, str):
-            v1 = Version.parse(v1)
-        if isinstance(v2, str):
-            v2 = Version.parse(v2)
-        return v1.major == v2.major

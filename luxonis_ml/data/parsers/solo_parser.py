@@ -86,8 +86,7 @@ class SOLOParser(BaseParser):
         return True
 
     def from_dir(
-        self,
-        dataset_dir: Path,
+        self, dataset_dir: Path
     ) -> Tuple[List[str], List[str], List[str]]:
         """Parses all present data to L{LuxonisDataset} format.
 
@@ -104,10 +103,7 @@ class SOLOParser(BaseParser):
 
         return added_train_imgs, added_valid_imgs, added_test_imgs
 
-    def from_split(
-        self,
-        split_path: Path,
-    ) -> ParserOutput:
+    def from_split(self, split_path: Path) -> ParserOutput:
         """Parses data in a split subdirectory from SOLO format to
         L{LuxonisDataset} format.
 
@@ -260,7 +256,7 @@ class SOLOParser(BaseParser):
 
         added_images = self._get_added_images(generator())
 
-        return generator(), skeletons, added_images
+        return generator(), class_names, skeletons, added_images
 
     def _get_solo_annotation_types(
         self, annotation_definitions_dict: dict

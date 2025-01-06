@@ -1,25 +1,25 @@
-from collections import defaultdict
-from typing import Any, Dict, Iterator, List, Tuple, TypeVar
+from typing import Any, Dict, Iterator, List, Tuple
 
 import numpy as np
 
 
 def preprocess_mask(seg: np.ndarray) -> np.ndarray:
-    mask = np.argmax(seg, axis=0) + 1
-
-    # only background has value 0
-    mask[np.sum(seg, axis=0) == 0] = 0
-
-    return mask
+    return seg.transpose(1, 2, 0)
 
 
 def preprocess_bboxes(bboxes: np.ndarray, bbox_counter: int) -> np.ndarray:
     bboxes = bboxes[:, [1, 2, 3, 4, 0]]
-    # adding 1e-6 to avoid zero width or height
+
+    # Adding 1e-6 to avoid zero width or height.
     bboxes[:, 2] += bboxes[:, 0] + 1e-6
     bboxes[:, 3] += bboxes[:, 1] + 1e-6
-    ordering = np.arange(bbox_counter, bboxes.shape[0] + bbox_counter)
-    return np.concatenate((bboxes, ordering[:, None]), axis=1)
+
+    # Used later to filter out instance tasks associated
+    # with bboxes that were removed during augmentations.
+    indices = np.arange(
+        bbox_counter, bboxes.shape[0] + bbox_counter, dtype=bboxes.dtype
+    )[:, None]
+    return np.concatenate((bboxes, indices), axis=1)
 
 
 def preprocess_keypoints(
@@ -31,18 +31,17 @@ def preprocess_keypoints(
     return keypoints
 
 
-def postprocess_mask(mask: np.ndarray, n_classes: int) -> np.ndarray:
-    out_mask = np.zeros((n_classes, *mask.shape))
-    for key in np.unique(mask):
-        if key != 0:
-            out_mask[int(key) - 1, ...] = mask == key
-    out_mask[out_mask > 0] = 1
-    return out_mask
+def postprocess_mask(mask: np.ndarray) -> np.ndarray:
+    if mask.ndim == 2:
+        return mask[None, ...]
+
+    return mask.transpose(2, 0, 1)
 
 
 def postprocess_bboxes(bboxes: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    if bboxes.shape[0] == 0:
+    if bboxes.size == 0:
         return np.zeros((0, 6)), np.zeros((0, 1), dtype=np.uint8)
+
     ordering = bboxes[:, -1]
     out_bboxes = bboxes[:, :-1]
     out_bboxes[:, 2] -= out_bboxes[:, 0]
@@ -67,29 +66,20 @@ def postprocess_keypoints(
     return keypoints
 
 
-K = TypeVar("K")
-V = TypeVar("V")
-
-
-def reverse_dictionary(d: Dict[K, V]) -> Dict[V, K]:
-    return {v: k for k, v in d.items()}
-
-
 def yield_batches(
-    data: List[Dict[str, Any]], batch_size: int
+    data_batch: List[Dict[str, Any]], batch_size: int
 ) -> Iterator[Dict[str, List[Any]]]:
-    """Yield batches of data."""
-    for i in range(0, len(data), batch_size):
-        yield list2batch(data[i : i + batch_size])
+    """Yield batches of data.
 
-
-def list2batch(data: List[Dict[str, Any]]) -> Dict[str, List[Any]]:
-    """Convert from a list of normal target dicts to a batched target
-    dict."""
-
-    batch = defaultdict(list)
-    for item in data:
-        for k, v in item.items():
-            batch[k].append(v)
-
-    return dict(batch)
+    @type data_batch: List[Dict[str, Any]]
+    @param data_batch: List of dictionaries containing data.
+    @type batch_size: int
+    @param batch_size: Size of the batch.
+    @rtype: Iterator[Dict[str, List[Any]]]
+    @return: Generator of batches of data.
+    """
+    for i in range(0, len(data_batch), batch_size):
+        yield {
+            target: [data[target] for data in data_batch[i : i + batch_size]]
+            for target in data_batch[0]
+        }

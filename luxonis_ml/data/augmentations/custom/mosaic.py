@@ -1,16 +1,14 @@
 import random
-from typing import Any, Dict, Final, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from albumentations.core.bbox_utils import denormalize_bboxes, normalize_bboxes
 from typing_extensions import override
 
-from ..batch_transform import BatchBasedTransform
-
-N_TILES: Final[int] = 4
+from luxonis_ml.data.augmentations.batch_transform import BatchTransform
 
 
-class Mosaic4(BatchBasedTransform):
+class Mosaic4(BatchTransform):
     def __init__(
         self,
         out_height: int,
@@ -64,22 +62,7 @@ class Mosaic4(BatchBasedTransform):
         self.value = value
         self.mask_value = mask_value
 
-    @override
-    def get_transform_init_args_names(self) -> Tuple[str, ...]:
-        """Gets the default arguments for the mixup augmentation.
-
-        @rtype: Tuple[str, ...]
-        @return: The string keywords of the arguments.
-        """
-        return (
-            "out_height",
-            "out_width",
-            "replace",
-            "value",
-            "mask_value",
-        )
-
-    def _generate_random_crop_center(self) -> Tuple[int, int]:
+    def generate_random_crop_center(self) -> Tuple[int, int]:
         """Generate a random crop center within the bounds of the mosaic
         image size."""
         crop_x = random.randint(0, max(0, self.out_width))
@@ -88,29 +71,21 @@ class Mosaic4(BatchBasedTransform):
 
     @override
     def apply(
-        self,
-        image_batch: List[np.ndarray],
-        x_crop: int,
-        y_crop: int,
-        **_,
+        self, image_batch: List[np.ndarray], x_crop: int, y_crop: int, **_
     ) -> np.ndarray:
         """Applies the transformation to a batch of images.
 
         @type image_batch: List[np.ndarray]
         @param image_batch: Batch of input images to which the
             transformation is applied.
-        @type indices: List[Tuple[int, int]]
-        @param indices: Indices of images in the batch.
-        @type params: Any
-        @param params: Additional parameters for the transformation.
         @type x_crop: int
         @param x_crop: x-coordinate of the croping start point
         @type y_crop: int
         @param y_crop: y-coordinate of the croping start point
-        @rtype: List[np.ndarray]
-        @return: List of transformed images.
+        @rtype: np.ndarray
+        @return: Transformed images.
         """
-        return mosaic4(
+        return apply_mosaic4_to_images(
             image_batch,
             self.out_height,
             self.out_width,
@@ -125,6 +100,8 @@ class Mosaic4(BatchBasedTransform):
         mask_batch: List[np.ndarray],
         x_crop: int,
         y_crop: int,
+        cols: int,
+        rows: int,
         **_,
     ) -> np.ndarray:
         """Applies the transformation to a batch of masks.
@@ -132,24 +109,50 @@ class Mosaic4(BatchBasedTransform):
         @type mask_batch: List[np.ndarray]
         @param mask_batch: Batch of input masks to which the
             transformation is applied.
-        @type indices: List[Tuple[int, int]]
-        @param indices: Indices of images in the batch.
-        @type params: Any
-        @param params: Additional parameters for the transformation.
         @type x_crop: int
         @param x_crop: x-coordinate of the croping start point
         @type y_crop: int
         @param y_crop: y-coordinate of the croping start point
-        @rtype: List[np.ndarray]
-        @return: List of transformed masks.
+        @rtype: np.ndarray
+        @return: Transformed masks.
         """
-        return mosaic4(
+        for i in range(len(mask_batch)):
+            if mask_batch[i].size == 0:
+                mask_batch[i] = np.zeros(
+                    (rows, cols), dtype=mask_batch[i].dtype
+                )
+        return apply_mosaic4_to_images(
             mask_batch,
             self.out_height,
             self.out_width,
             x_crop,
             y_crop,
             self.mask_value,
+        )
+
+    @override
+    def apply_to_instance_mask(
+        self, masks_batch: List[np.ndarray], x_crop: int, y_crop: int, **_
+    ) -> np.ndarray:
+        """Applies the transformation to a batch of instance masks.
+
+        @type mask_batch: List[np.ndarray]
+        @param mask_batch: Batch of input masks to which the
+            transformation is applied.
+        @type x_crop: int
+        @param x_crop: x-coordinate of the croping start point
+        @type y_crop: int
+        @param y_crop: y-coordinate of the croping start point
+        @rtype: np.ndarray
+        @return: Transformed masks.
+        """
+        return apply_mosaic4_to_instance_masks(
+            masks_batch,
+            self.out_height,
+            self.out_width,
+            x_crop,
+            y_crop,
+            self.value,
         )
 
     @override
@@ -183,7 +186,10 @@ class Mosaic4(BatchBasedTransform):
         for i, (bboxes, (rows, cols)) in enumerate(
             zip(bboxes_batch, image_shapes)
         ):
-            bbox = bbox_mosaic4(
+            if bboxes.size == 0:  # pragma: no cover
+                bboxes = np.zeros((0, 6), dtype=bboxes.dtype)
+
+            bbox = apply_mosaic4_to_bboxes(
                 bboxes,
                 rows,
                 cols,
@@ -193,8 +199,6 @@ class Mosaic4(BatchBasedTransform):
                 x_crop,
                 y_crop,
             )
-            if bbox.shape[0] == 0:
-                bbox = np.zeros((0, 6), dtype=bboxes.dtype)
             new_bboxes.append(bbox)
 
         return np.concatenate(new_bboxes, axis=0)
@@ -230,7 +234,10 @@ class Mosaic4(BatchBasedTransform):
         for i, (keypoints, (rows, cols)) in enumerate(
             zip(keypoints_batch, image_shapes)
         ):
-            new_keypoint = keypoint_mosaic4(
+            if keypoints.size == 0:
+                keypoints = np.zeros((0, 5), dtype=keypoints.dtype)
+
+            new_keypoint = apply_mosaic4_to_keypoints(
                 keypoints,
                 rows,
                 cols,
@@ -255,129 +262,185 @@ class Mosaic4(BatchBasedTransform):
         @return: Dictionary containing parameters dependent on the
             targets.
         """
+        additional_params = super().get_params_dependent_on_data(params, data)
         image_batch = data["image"]
         image_shapes = [tuple(image.shape[:2]) for image in image_batch]
-        x_crop, y_crop = self._generate_random_crop_center()
-        return {
-            "image_shapes": image_shapes,
-            "x_crop": x_crop,
-            "y_crop": y_crop,
-        }
+        x_crop, y_crop = self.generate_random_crop_center()
+        additional_params.update(
+            {"image_shapes": image_shapes, "x_crop": x_crop, "y_crop": y_crop}
+        )
+        return additional_params
 
 
-def mosaic4(
-    image_batch: List[np.ndarray],
-    height: int,
-    width: int,
+def compute_mosaic4_corners(
+    quadrant: int,
+    out_height: int,
+    out_width: int,
+    in_height: int,
+    in_width: int,
+) -> Tuple[Tuple[int, int, int, int], Tuple[int, int, int, int]]:
+    if quadrant == 0:
+        x1a, y1a, x2a, y2a = (
+            max(out_width - in_width, 0),
+            max(out_height - in_height, 0),
+            out_width,
+            out_height,
+        )
+        x1b, y1b, x2b, y2b = (
+            in_width - (x2a - x1a),
+            in_height - (y2a - y1a),
+            in_width,
+            in_height,
+        )
+
+    elif quadrant == 1:
+        x1a, y1a, x2a, y2a = (
+            out_width,
+            max(out_height - in_height, 0),
+            min(out_width + in_width, out_width * 2),
+            out_height,
+        )
+        x1b, y1b, x2b, y2b = (
+            0,
+            in_height - (y2a - y1a),
+            min(in_width, x2a - x1a),
+            in_height,
+        )
+    elif quadrant == 2:
+        x1a, y1a, x2a, y2a = (
+            max(out_width - in_width, 0),
+            out_height,
+            out_width,
+            min(out_height * 2, out_height + in_height),
+        )
+        x1b, y1b, x2b, y2b = (
+            in_width - (x2a - x1a),
+            0,
+            in_width,
+            min(y2a - y1a, in_height),
+        )
+    else:
+        x1a, y1a, x2a, y2a = (
+            out_width,
+            out_height,
+            min(out_width + in_width, out_width * 2),
+            min(out_height * 2, out_height + in_height),
+        )
+        x1b, y1b, x2b, y2b = (
+            0,
+            0,
+            min(in_width, x2a - x1a),
+            min(y2a - y1a, in_height),
+        )
+    return (x1a, y1a, x2a, y2a), (x1b, y1b, x2b, y2b)
+
+
+def apply_mosaic4_to_instance_masks(
+    masks_batch: List[np.ndarray],
+    out_height: int,
+    out_width: int,
     x_crop: int,
     y_crop: int,
     value: Optional[Union[int, float, List[int], List[float]]] = None,
 ) -> np.ndarray:
-    """Arrange the images in a 2x2 grid layout. The input images should
-    have the same number of channels but can have different widths and
-    heights. The gaps are filled by the value.
+    out_masks = []
+    out_shape = [out_height * 2, out_width * 2]
 
-    @type image_batch: List[np.ndarray]
-    @param image_batch: Image list. The length should be four. Each
-        image can has different size.
-    @type height: int
-    @param height: Height of output mosaic image
-    @type width: int
-    @param width: Width of output mosaic image
-    @type value: Optional[int]
-    @param value: Padding value
-    @type x_crop: int
-    @param x_crop: x-coordinate of the croping start point
-    @type y_crop: int
-    @param y_crop: y-coordinate of the croping start point
-    @rtype: np.ndarray
-    @return: Final output image
-    """
-    if len(image_batch) != N_TILES:
-        raise ValueError(
-            f"Length of image_batch should be 4. Got {len(image_batch)}"
-        )
+    for quadrant, masks in enumerate(masks_batch):
+        if masks.size == 0:
+            continue
 
-    for i in range(N_TILES - 1):
-        if image_batch[0].shape[2:] != image_batch[i + 1].shape[2:]:
-            raise ValueError(
-                "All images should have the same number of channels."
+        for i in range(masks.shape[-1]):
+            mask = masks[..., i]
+            combined_mask = np.full(
+                out_shape, value if value is not None else 0, dtype=masks.dtype
             )
+
+            (x1a, y1a, x2a, y2a), (x1b, y1b, x2b, y2b) = (
+                compute_mosaic4_corners(
+                    quadrant, out_height, out_width, *mask.shape
+                )
+            )
+
+            combined_region = combined_mask[y1a:y2a, x1a:x2a]
+            mask_region = mask[y1b:y2b, x1b:x2b]
+
+            combined_height, combined_width = combined_region.shape[:2]
+            img_h, img_w = mask_region.shape[:2]
+
+            min_h = min(combined_height, img_h)
+            min_w = min(combined_width, img_w)
+
+            combined_mask[y1a : y1a + min_h, x1a : x1a + min_w] = mask[
+                y1b : y1b + min_h, x1b : x1b + min_w
+            ]
+
+            combined_mask = combined_mask[
+                y_crop : y_crop + out_height, x_crop : x_crop + out_width
+            ]
+            out_masks.append(combined_mask)
+
+    return np.stack(out_masks, axis=-1)
+
+
+def apply_mosaic4_to_images(
+    image_batch: List[np.ndarray],
+    out_height: int,
+    out_width: int,
+    x_crop: int,
+    y_crop: int,
+    padding: Optional[Union[int, float, List[int], List[float]]] = None,
+) -> np.ndarray:
+    """Arrange the images in a 2x2 grid layout.
+
+    The input images should have the same number of channels but can
+    have different widths and heights. The gaps are filled by the
+    padding value.
+    """
 
     if len(image_batch[0].shape) == 2:
-        out_shape = [height * 2, width * 2]
+        out_shape = [out_height * 2, out_width * 2]
     else:
-        out_shape = [height * 2, width * 2, image_batch[0].shape[2]]
+        out_shape = [out_height * 2, out_width * 2, image_batch[0].shape[2]]
 
-    dtype = image_batch[0].dtype
-
-    img4 = np.full(
+    combined_image = np.full(
         out_shape,
-        value if value is not None else 0,
-        dtype=dtype,
+        padding if padding is not None else 0,
+        dtype=image_batch[0].dtype,
     )
 
-    for i, img in enumerate(image_batch):
-        (h, w) = img.shape[:2]
+    for quadrant, img in enumerate(image_batch):
+        (x1a, y1a, x2a, y2a), (x1b, y1b, x2b, y2b) = compute_mosaic4_corners(
+            quadrant, out_height, out_width, *img.shape[:2]
+        )
 
-        if i == 0:  # top left
-            x1a, y1a, x2a, y2a = (
-                max(width - w, 0),
-                max(height - h, 0),
-                width,
-                height,
-            )
-            x1b, y1b, x2b, y2b = w - (x2a - x1a), h - (y2a - y1a), w, h
-        elif i == 1:  # top right
-            x1a, y1a, x2a, y2a = (
-                width,
-                max(height - h, 0),
-                min(width + w, width * 2),
-                height,
-            )
-            x1b, y1b, x2b, y2b = 0, h - (y2a - y1a), min(w, x2a - x1a), h
-        elif i == 2:  # bottom left
-            x1a, y1a, x2a, y2a = (
-                max(width - w, 0),
-                height,
-                width,
-                min(height * 2, height + h),
-            )
-            x1b, y1b, x2b, y2b = w - (x2a - x1a), 0, w, min(y2a - y1a, h)
-        elif i == 3:  # bottom right
-            x1a, y1a, x2a, y2a = (
-                width,
-                height,
-                min(width + w, width * 2),
-                min(height * 2, height + h),
-            )
-            x1b, y1b, x2b, y2b = 0, 0, min(w, x2a - x1a), min(y2a - y1a, h)
-
-        img4_region = img4[y1a:y2a, x1a:x2a]
+        combined_region = combined_image[y1a:y2a, x1a:x2a]
         img_region = img[y1b:y2b, x1b:x2b]
 
-        img4_h, img4_w = img4_region.shape[:2]
+        combined_height, combined_width = combined_region.shape[:2]
         img_h, img_w = img_region.shape[:2]
 
-        min_h = min(img4_h, img_h)
-        min_w = min(img4_w, img_w)
+        min_h = min(combined_height, img_h)
+        min_w = min(combined_width, img_w)
 
-        img4[y1a : y1a + min_h, x1a : x1a + min_w] = img[
+        combined_image[y1a : y1a + min_h, x1a : x1a + min_w] = img[
             y1b : y1b + min_h, x1b : x1b + min_w
         ]
 
-    img4 = img4[y_crop : y_crop + height, x_crop : x_crop + width]
+    combined_image = combined_image[
+        y_crop : y_crop + out_height, x_crop : x_crop + out_width
+    ]
 
-    return img4
+    return combined_image
 
 
-def bbox_mosaic4(
+def apply_mosaic4_to_bboxes(
     bbox: np.ndarray,
-    rows: int,
-    cols: int,
+    in_height: int,
+    in_width: int,
     position_index: int,
-    height: int,
-    width: int,
+    out_height: int,
+    out_width: int,
     x_crop: int,
     y_crop: int,
 ) -> np.ndarray:
@@ -387,60 +450,40 @@ def bbox_mosaic4(
     This function modifies bounding boxes according to their placement
     in a 2x2 grid mosaic, shifting their coordinates based on the tile's
     relative position within the mosaic.
-
-    @type bbox: np.ndarray
-    @param bbox: Bounding box coordinates to be transformed.
-    @type rows: int
-    @param rows: Height of the original image.
-    @type cols: int
-    @param cols: Width of the original image.
-    @type position_index: int
-    @param position_index: Position of the image in the 2x2 grid. (0 =
-        top-left, 1 = top-right, 2 = bottom-left, 3 = bottom-right).
-    @type height: int
-    @param height: Height of the final output mosaic image.
-    @type width: int
-    @param width: Width of the final output mosaic image.
-    @type x_crop: int
-    @param x_crop: x-coordinate of the croping start point
-    @type y_crop: int
-    @param y_crop: y-coordinate of the croping start point
-    @rtype: np.ndarray
-    @return: Transformed bounding box coordinates.
     """
 
-    bbox = denormalize_bboxes(bbox, (rows, cols))
+    bbox = denormalize_bboxes(bbox, (in_height, in_width))
 
     if position_index == 0:
-        shift_x = width - cols
-        shift_y = height - rows
+        shift_x = out_width - in_width
+        shift_y = out_height - in_height
     elif position_index == 1:
-        shift_x = width
-        shift_y = height - rows
+        shift_x = out_width
+        shift_y = out_height - in_height
     elif position_index == 2:
-        shift_x = width - cols
-        shift_y = height
+        shift_x = out_width - in_width
+        shift_y = out_height
     elif position_index == 3:
-        shift_x = width
-        shift_y = height
+        shift_x = out_width
+        shift_y = out_height
 
     bbox[:, 0] += shift_x - x_crop
     bbox[:, 1] += shift_y - y_crop
     bbox[:, 2] += shift_x - x_crop
     bbox[:, 3] += shift_y - y_crop
 
-    bbox = normalize_bboxes(bbox, (height, width))
+    bbox = normalize_bboxes(bbox, (out_height, out_width))
 
     return bbox
 
 
-def keypoint_mosaic4(
+def apply_mosaic4_to_keypoints(
     keypoints: np.ndarray,
-    rows: int,
-    cols: int,
+    in_height: int,
+    in_width: int,
     position_index: int,
-    height: int,
-    width: int,
+    out_height: int,
+    out_width: int,
     x_crop: int,
     y_crop: int,
 ) -> np.ndarray:
@@ -449,39 +492,19 @@ def keypoint_mosaic4(
     This function adjusts the keypoint coordinates by placing them in
     one of the 2x2 mosaic grid cells, with shifts relative to the mosaic
     center.
-
-    @type keypoints: np.ndarray
-    @param keypoint: Keypoint coordinates and attributes (x, y).
-    @type rows: int
-    @param rows: Height of the original image.
-    @type cols: int
-    @param cols: Width of the original image.
-    @type position_index: int
-    @param position_index: Position of the image in the 2x2 grid. (0 =
-        top-left, 1 = top-right, 2 = bottom-left, 3 = bottom-right).
-    @type height: int
-    @param height: Height of the final output mosaic image.
-    @type width: int
-    @param width: Width of the final output mosaic image.
-    @type x_crop: int
-    @param x_crop: x-coordinate of the croping start point
-    @type y_crop: int
-    @param y_crop: y-coordinate of the croping start point
-    @rtype: np.ndarray
-    @return: Adjusted keypoint coordinates.
     """
     if position_index == 0:
-        shift_x = width - cols
-        shift_y = height - rows
+        shift_x = out_width - in_width
+        shift_y = out_height - in_height
     elif position_index == 1:
-        shift_x = width
-        shift_y = height - rows
+        shift_x = out_width
+        shift_y = out_height - in_height
     elif position_index == 2:
-        shift_x = width - cols
-        shift_y = height
+        shift_x = out_width - in_width
+        shift_y = out_height
     elif position_index == 3:
-        shift_x = width
-        shift_y = height
+        shift_x = out_width
+        shift_y = out_height
 
     keypoints[:, 0] += shift_x - x_crop
     keypoints[:, 1] += shift_y - y_crop

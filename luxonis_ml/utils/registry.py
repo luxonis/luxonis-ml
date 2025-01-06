@@ -66,7 +66,6 @@ class Registry(Generic[T]):
         name: Optional[str] = None,
         module: Optional[T] = None,
         force: bool = False,
-        mark_default: bool = False,
     ) -> Union[T, Callable[[T], T]]:
         """Registers a module.
 
@@ -95,10 +94,6 @@ class Registry(Generic[T]):
         @param force: Whether to override an existing class with the same name.
             Defaults to False.
 
-        @type mark_default: bool
-        @param mark_default: Whether to mark the module as default.
-            Default module can be retrieved with L{get_default} method.
-
         @rtype: Union[type, Callable[[type], type]]
         @return: Module class or register function if used as a decorator
 
@@ -111,28 +106,18 @@ class Registry(Generic[T]):
                 module=module,
                 module_name=name,
                 force=force,
-                mark_default=mark_default,
             )
             return module
 
         # use it as a decorator: @x.register_module()
         def _register(module: T) -> T:
-            self._register_module(
-                module=module,
-                module_name=name,
-                force=force,
-                mark_default=mark_default,
-            )
+            self._register_module(module=module, module_name=name, force=force)
             return module
 
         return _register
 
     def _register_module(
-        self,
-        module: T,
-        module_name: Optional[str] = None,
-        force: bool = False,
-        mark_default: bool = False,
+        self, module: T, module_name: Optional[str] = None, force: bool = False
     ) -> None:
         if module_name is None:
             module_name = module.__name__
@@ -144,8 +129,6 @@ class Registry(Generic[T]):
             )
 
         self._module_dict[module_name] = module
-        if mark_default:
-            self._default = module
 
 
 class AutoRegisterMeta(ABCMeta):

@@ -90,7 +90,7 @@ class BaseParser(ABC):
         @rtype: List[str]
         @return: List of added images.
         """
-        generator, skeletons, added_images = self.from_split(**kwargs)
+        generator, _, skeletons, added_images = self.from_split(**kwargs)
         self.dataset.add(self._add_task(generator))
         if skeletons:
             for skeleton in skeletons.values():
@@ -147,13 +147,7 @@ class BaseParser(ABC):
         """
         train, val, test = self.from_dir(dataset_dir, **kwargs)
 
-        self.dataset.make_splits(
-            {
-                "train": train,
-                "val": val,
-                "test": test,
-            }
-        )
+        self.dataset.make_splits({"train": train, "val": val, "test": test})
         return self.dataset
 
     @staticmethod

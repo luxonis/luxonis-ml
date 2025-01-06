@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Iterator, List, Optional, Sequence, Tuple, Type, Union
 
+from semver.version import Version
 from typing_extensions import TypeAlias
 
 from luxonis_ml.data.datasets.annotation import DatasetRecord
@@ -27,6 +28,15 @@ class BaseDataset(
         """The unique identifier for the dataset.
 
         @type: str
+        """
+        ...
+
+    @property
+    @abstractmethod
+    def version(self) -> Version:
+        """The version of the underlying LDF.
+
+        @type: L{Version}
         """
         ...
 

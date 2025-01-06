@@ -5,12 +5,12 @@ import numpy as np
 from albumentations.core.composition import TransformsSeqType
 from typing_extensions import override
 
-from .batch_transform import BatchBasedTransform
+from .batch_transform import BatchTransform
 from .utils import yield_batches
 
 
 class BatchCompose(A.Compose):
-    transforms: List[BatchBasedTransform]
+    transforms: List[BatchTransform]
 
     def __init__(self, transforms: TransformsSeqType, **kwargs):
         """Compose transforms and handle all transformations regarding
@@ -20,42 +20,48 @@ class BatchCompose(A.Compose):
         @type transforms: TransformsSeqType
         @param kwargs: Additional arguments to pass to A.Compose
         """
-        super().__init__(transforms, **kwargs)
+        super().__init__(transforms, is_check_shapes=False, **kwargs)
 
         self.batch_size = 1
         for transform in self.transforms:
             self.batch_size *= transform.batch_size
 
     @override
-    def __call__(self, batch_data: List[Dict[str, Any]]) -> Dict[str, Any]:
-        if len(batch_data) != self.batch_size:
+    def __call__(
+        self, data_batch: List[Dict[str, np.ndarray]]
+    ) -> Dict[str, np.ndarray]:
+        if len(data_batch) != self.batch_size:
             raise ValueError(
                 f"Batch size must be equal to {self.batch_size}, "
-                f"but got {len(batch_data)}."
+                f"but got {len(data_batch)}."
             )
 
-        for data in batch_data:
+        if not self.transforms:
+            return data_batch[0]
+
+        for data in data_batch:
             self.preprocess(data)
 
         for transform in self.transforms:
             new_batch = []
-            for batch in yield_batches(batch_data, transform.batch_size):
-                data = transform(**batch, force_apply=False)
+            for batch in yield_batches(data_batch, transform.batch_size):
+                data = transform(**batch)  # type: ignore
 
                 data = self.check_data_post_transform(data)
                 new_batch.append(data)
-            batch_data = new_batch
+            data_batch = new_batch
 
-        assert len(batch_data) == 1
-        data = batch_data[0]
+        assert len(data_batch) == 1
+        data = data_batch[0]
 
-        self._make_targets_contiguous(data)
+        data = self.make_contiguous(data)
 
         return self.postprocess(data)
 
     @staticmethod
-    def _make_targets_contiguous(data: Dict[str, Any]):
+    def make_contiguous(data: Dict[str, Any]) -> Dict[str, Any]:
         for key, value in data.items():
             if isinstance(value, np.ndarray):
                 value = np.ascontiguousarray(value)
             data[key] = value
+        return data

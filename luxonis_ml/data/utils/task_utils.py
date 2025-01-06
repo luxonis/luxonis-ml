@@ -19,7 +19,7 @@ def task_is_metadata(task: str) -> bool:
 
 
 @lru_cache()
-def split_task(task: str, qualified: bool = False) -> Tuple[str, str]:
+def split_task(task: str) -> Tuple[str, str]:
     """Splits a task into its task name and type.
 
     @type task: str
@@ -27,21 +27,10 @@ def split_task(task: str, qualified: bool = False) -> Tuple[str, str]:
     @rtype: Tuple[str, str]
     @return: A tuple containing the task name and type.
     """
-    if qualified:
-        return get_qualified_task_name(task), get_task_type(task)
     splits = task.split("/", 1)
     if len(splits) == 1:
         return "", splits[0]
     return splits[0], splits[1]
-
-
-@lru_cache()
-def get_qualified_task_name(task: str) -> str:
-    """Returns the qualified task name from a task."""
-    parts = task.split("/")
-    if "metadata" in parts:
-        return "/".join(parts[:-2])
-    return "/".join(parts[:-1])
 
 
 @lru_cache()
@@ -60,15 +49,27 @@ def get_task_name(task: str) -> str:
 def get_task_type(task: str) -> str:
     """Returns the task type from a task.
 
+    Example:
+
+        >>> get_task_type("task_name/type")
+        'type'
+        >>> get_task_type("metadata/name")
+        'metadata/name'
+        >>> get_task_type("task_name/metadata/name")
+        'metadata/name'
+
     @type task: str
-    @param task: The task.
+    @param task: The task in a format like "task_name/type".
     @rtype: str
-    @return: The task type.
+    @return: The task type. If the task is a metadata task,
+        the type will be "metadata/type".
     """
     parts = task.split("/")
     if len(parts) == 1:
         return parts[0]
     if len(parts) == 2:
+        if parts[0] == "metadata":
+            return task
         return parts[1]
     if parts[-2] == "metadata":
         return f"metadata/{parts[-1]}"
@@ -87,6 +88,6 @@ def task_type_iterator(
     @rtype: Iterator[Tuple[str, np.ndarray]]
     @return: An iterator over the labels of the specified type.
     """
-    for task, arr in labels.items():
+    for task, array in labels.items():
         if get_task_type(task) == task_type:
-            yield task, arr
+            yield task, array

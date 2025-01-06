@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Dict, Literal, Optional
 
 from pydantic import model_serializer
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -42,9 +42,9 @@ class Environ(BaseSettings):
         "INFO"
     )
 
-    @model_serializer(when_used="always", mode="plain", return_type=str)
-    def _serialize_environ(self) -> str:
-        return "{}"
+    @model_serializer(when_used="always", mode="plain")
+    def _serialize_environ(self) -> Dict[str, Any]:
+        return {}
 
 
 environ = Environ()

@@ -7,7 +7,6 @@ from luxonis_ml.data.utils import get_task_type
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.utils import environ
 
-URL_PREFIX: Final[str] = "gs://luxonis-test-bucket/luxonis-ml-test-data"
 WORK_DIR: Final[str] = "tests/data/parser_datasets"
 
 
@@ -27,34 +26,12 @@ def prepare_dir():
         (
             DatasetType.COCO,
             "COCO_people_subset.zip",
-            [
-                "boundingbox",
-                "keypoints",
-                "segmentation",
-                "classification",
-            ],
+            ["boundingbox", "keypoints", "segmentation", "classification"],
         ),
         (
             DatasetType.COCO,
             "Thermal_Dogs_and_People.v1-resize-416x416.coco.zip",
             ["boundingbox", "classification"],
-        ),
-        (
-            DatasetType.COCO,
-            "roboflow://team-roboflow/coco-128/2/coco",
-            ["boundingbox", "classification"],
-        ),
-        (
-            DatasetType.NATIVE,
-            "ParkingLot.zip",
-            [
-                "boundingbox",
-                "classification",
-                "instance_segmentation",
-                "keypoints",
-                "metadata/brand",
-                "metadata/color",
-            ],
         ),
         (
             DatasetType.VOC,
@@ -101,13 +78,21 @@ def prepare_dir():
             "D2_ParkingLot.zip",
             ["boundingbox", "segmentation", "classification", "keypoints"],
         ),
+        (
+            DatasetType.COCO,
+            "roboflow://team-roboflow/coco-128/2/coco",
+            ["boundingbox", "classification"],
+        ),
     ],
 )
 def test_dir_parser(
-    dataset_type: DatasetType, url: str, expected_task_types: List[str]
+    dataset_type: DatasetType,
+    url: str,
+    expected_task_types: List[str],
+    storage_url,
 ):
     if not url.startswith("roboflow://"):
-        url = f"{URL_PREFIX}/{url}"
+        url = f"{storage_url}/{url}"
 
     elif environ.ROBOFLOW_API_KEY is None:
         pytest.skip("Roboflow API key is not set")

@@ -1,4 +1,5 @@
 import logging
+import random
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -14,6 +15,7 @@ from rich.table import Table
 from typing_extensions import Annotated
 
 from luxonis_ml.data import LuxonisDataset, LuxonisLoader, LuxonisParser
+from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.data.utils.task_utils import split_task, task_is_metadata
 from luxonis_ml.data.utils.visualizations import visualize
 from luxonis_ml.enums import DatasetType
@@ -31,7 +33,10 @@ def complete_dataset_name(incomplete: str):
 DatasetNameArgument = Annotated[
     str,
     typer.Argument(
-        ..., help="Name of the dataset.", autocompletion=complete_dataset_name
+        ...,
+        help="Name of the dataset.",
+        autocompletion=complete_dataset_name,
+        show_default=False,
     ),
 ]
 
@@ -91,17 +96,14 @@ def print_info(name: str) -> None:
     @group()
     def get_panels():
         yield f"[magenta b]Name: [not b cyan]{name}"
+        yield f"[magenta b]Version: [not b cyan]{dataset.version}"
         yield ""
         yield Panel.fit(get_sizes_panel(), title="Split Sizes")
         yield class_table
-        yield task_table
+        if dataset.version == LDF_VERSION:
+            yield task_table
 
-    print(
-        Panel.fit(
-            get_panels(),
-            title="Dataset Info",
-        )
-    )
+    print(Panel.fit(get_panels(), title="Dataset Info"))
 
 
 @app.command()
@@ -171,6 +173,7 @@ def inspect(
             "-v",
             help="Which splits of the dataset to inspect.",
             case_sensitive=False,
+            show_default=False,
         ),
     ] = None,
     aug_config: Annotated[
@@ -182,6 +185,7 @@ def inspect(
             help="Path to a config defining augmentations. "
             "This can be either a json or a yaml file.",
             metavar="PATH",
+            show_default=False,
         ),
     ] = None,
     size_multiplier: Annotated[
@@ -197,17 +201,41 @@ def inspect(
             show_default=False,
         ),
     ] = 1.0,
-    keep_aspect_ratio: Annotated[
+    ignore_aspect_ratio: Annotated[
         bool,
         typer.Option(
             ...,
-            "--keep-aspect-ratio",
-            "-k",
-            help="Keep the aspect ratio of the images.",
+            "--ignore-aspect-ratio",
+            "-i",
+            help="Don't keep the aspect ratio when resizing images.",
         ),
-    ] = True,
+    ] = False,
+    deterministic: Annotated[
+        bool,
+        typer.Option(
+            ...,
+            "--deterministic",
+            "-d",
+            help="Deterministic mode. Useful for debugging.",
+        ),
+    ] = False,
+    blend_all: Annotated[
+        bool,
+        typer.Option(
+            ...,
+            "--blend-all",
+            "-b",
+            help="Whether to draw labels belonging "
+            "to different tasks on the same image. "
+            "Doesn't apply to semantic segmentations.",
+        ),
+    ] = False,
 ):
     """Inspects images and annotations in a dataset."""
+
+    if deterministic:
+        np.random.seed(42)
+        random.seed(42)
 
     view = view or ["train"]
     dataset = LuxonisDataset(name)
@@ -216,7 +244,7 @@ def inspect(
     if aug_config is not None:
         h, w, _ = loader[0][0].shape
         loader.augmentations = loader._init_augmentations(
-            "albumentations", aug_config, h, w, keep_aspect_ratio
+            "albumentations", aug_config, h, w, not ignore_aspect_ratio
         )
 
     if len(dataset) == 0:
@@ -230,7 +258,7 @@ def inspect(
         h, w, _ = image.shape
         new_h, new_w = int(h * size_multiplier), int(w * size_multiplier)
         image = cv2.resize(image, (new_w, new_h))
-        image = visualize(image, labels, class_names)
+        image = visualize(image, labels, class_names, blend_all=blend_all)
         cv2.imshow("image", image)
         if cv2.waitKey() == ord("q"):
             break
