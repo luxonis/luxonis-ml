@@ -26,6 +26,7 @@ class LuxonisLoader(BaseLoader):
         augmentations: Optional[Augmentations] = None,
         *,
         force_resync: bool = False,
+        skip_redownload_dataset: bool = True,
     ) -> None:
         """A loader class used for loading data from L{LuxonisDataset}.
 
@@ -51,7 +52,10 @@ class LuxonisLoader(BaseLoader):
         self.sync_mode = self.dataset.is_remote and not self.stream
 
         if self.sync_mode:
-            self.dataset.sync_from_cloud(force=force_resync)
+            self.dataset.sync_from_cloud(
+                force=force_resync,
+                skip_redownload_dataset=skip_redownload_dataset,
+            )
 
         if isinstance(view, str):
             view = [view]

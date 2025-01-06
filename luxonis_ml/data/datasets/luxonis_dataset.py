@@ -22,6 +22,7 @@ from typing import (
 import numpy as np
 import polars as pl
 import pyarrow.parquet as pq
+from filelock import FileLock
 from ordered_set import OrderedSet
 from typing_extensions import Self
 
@@ -347,22 +348,38 @@ class LuxonisDataset(BaseDataset):
     def get_tasks(self) -> List[str]:
         return list(self.get_classes()[1].keys())
 
-    def sync_from_cloud(self, force: bool = False) -> None:
+    def sync_from_cloud(
+        self, force: bool = False, skip_redownload_dataset: bool = True
+    ) -> None:
         """Downloads data from a remote cloud bucket."""
-
         if not self.is_remote:
-            self.logger.warning("This is a local dataset! Cannot sync")
-        else:
+            self.logger.warning("This is a local dataset! Cannot sync.")
+            return
+
+        local_dir = self.base_path / "data" / self.team_id / "datasets"
+        local_dir.mkdir(exist_ok=True, parents=True)
+
+        lock_path = local_dir / ".sync.lock"
+
+        with FileLock(str(lock_path)):
+            if (
+                (local_dir / self.dataset_name).exists()
+                and skip_redownload_dataset
+                and not force
+            ):
+                self.logger.info(
+                    "Local dataset directory already exists. Skipping download."
+                )
+                return
+
             if not self._is_synced or force:
                 self.logger.info("Syncing from cloud...")
-                local_dir = self.base_path / "data" / self.team_id / "datasets"
-                local_dir.mkdir(exist_ok=True, parents=True)
-
                 self.fs.get_dir(remote_paths="", local_dir=local_dir)
-
                 self._is_synced = True
             else:
-                self.logger.warning("Already synced. Use force=True to resync")
+                self.logger.warning(
+                    "Already synced. Use force=True to resync."
+                )
 
     def delete_dataset(self, *, delete_remote: bool = False) -> None:
         """Deletes the dataset from local storage and optionally from
