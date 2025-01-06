@@ -49,6 +49,7 @@ class LuxonisLoader(BaseLoader):
         out_image_format: Literal["RGB", "BGR"] = "RGB",
         *,
         force_resync: bool = False,
+        skip_redownload_dataset: bool = False,
     ) -> None:
         """A loader class used for loading data from L{LuxonisDataset}.
 
@@ -87,6 +88,8 @@ class LuxonisLoader(BaseLoader):
         @type force_resync: bool
         @param force_resync: Flag to force resync from cloud. Defaults
             to C{False}.
+        @param skip_redownload_dataset: If True, skip downloading when local dataset
+        already exists. If False, force redownload (unless force_resync is True).
         """
 
         self.logger = logging.getLogger(__name__)
@@ -96,7 +99,10 @@ class LuxonisLoader(BaseLoader):
         self.sync_mode = self.dataset.is_remote
 
         if self.sync_mode:
-            self.dataset.sync_from_cloud(force=force_resync)
+            self.dataset.sync_from_cloud(
+                force=force_resync,
+                skip_redownload_dataset=skip_redownload_dataset,
+            )
 
         if isinstance(view, str):
             view = [view]

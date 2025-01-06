@@ -418,15 +418,22 @@ class LuxonisDataset(BaseDataset):
     def get_tasks(self) -> List[str]:
         return self.metadata.get("tasks", [])
 
-    def sync_from_cloud(self, force: bool = False) -> None:
+    def sync_from_cloud(
+        self, force: bool = False, skip_redownload_dataset: bool = False
+    ) -> None:
         """Downloads data from a remote cloud bucket."""
-
         if not self.is_remote:
             logger.warning("This is a local dataset! Cannot sync")
         else:
+            local_dir = self.base_path / "data" / self.team_id / "datasets"
+            if local_dir.exists() and skip_redownload_dataset and not force:
+                logger.info(
+                    "Local dataset directory already exists. Skipping download."
+                )
+                return
+
             if not self._is_synced or force:
                 logger.info("Syncing from cloud...")
-                local_dir = self.base_path / "data" / self.team_id / "datasets"
                 local_dir.mkdir(exist_ok=True, parents=True)
 
                 self.fs.get_dir(remote_paths="", local_dir=local_dir)
