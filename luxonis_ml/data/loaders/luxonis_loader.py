@@ -80,6 +80,7 @@ class LuxonisLoader(BaseLoader):
         self.augmentations = augmentations
         self.instances = []
         splits_path = self.dataset.metadata_path / "splits.json"
+        logger.warning(f"Loading splits from {splits_path}")
         if not splits_path.exists():
             raise RuntimeError(
                 "Cannot find splits! Ensure you call dataset.make_splits()"
