@@ -227,9 +227,16 @@ class LuxonisDataset(BaseDataset):
     def _load_df_offline(
         self, lazy: bool = False
     ) -> Optional[Union[pl.DataFrame, pl.LazyFrame]]:
-        path = get_dir(self.fs, "annotations", self.local_path)
+        path = (
+            self.base_path
+            / "data"
+            / self.team_id
+            / "datasets"
+            / self.dataset_name
+            / "annotations"
+        )
 
-        if path is None or not path.exists():
+        if not path.exists():
             return None
 
         if lazy:
