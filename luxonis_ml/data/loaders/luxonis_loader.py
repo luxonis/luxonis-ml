@@ -85,6 +85,7 @@ class LuxonisLoader(BaseLoader):
         @type width: Optional[int]
         @param width: The width of the output images. Defaults to
             C{None}.
+        @type update_mode: UpdateMode
         @param update_mode: Enum that determines the sync mode:
             - UpdateMode.ALWAYS: Force a fresh download
             - UpdateMode.IF_EMPTY: Skip downloading if local data exists

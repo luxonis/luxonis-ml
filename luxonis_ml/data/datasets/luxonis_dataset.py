@@ -5,7 +5,6 @@ import shutil
 import tempfile
 from collections import defaultdict
 from contextlib import suppress
-from enum import Enum
 from functools import cached_property
 from pathlib import Path
 from typing import (
@@ -36,6 +35,7 @@ from luxonis_ml.data.utils import (
     BucketStorage,
     BucketType,
     ParquetFileManager,
+    UpdateMode,
     infer_task,
     warn_on_duplicates,
 )
@@ -67,11 +67,6 @@ class Metadata(TypedDict):
     classes: Dict[str, List[str]]
     tasks: List[str]
     skeletons: Dict[str, Skeletons]
-
-
-class UpdateMode(Enum):
-    ALWAYS = "always"
-    IF_EMPTY = "if_empty"
 
 
 class LuxonisDataset(BaseDataset):
@@ -292,8 +287,14 @@ class LuxonisDataset(BaseDataset):
     def _get_file_index(
         self, lazy: bool = False
     ) -> Optional[Union[pl.DataFrame, pl.LazyFrame]]:
-        path = get_file(
-            self.fs, "metadata/file_index.parquet", self.metadata_path
+        path = (
+            self.base_path
+            / "data"
+            / self.team_id
+            / "datasets"
+            / self.dataset_name
+            / "metadata"
+            / "file_index.parquet"
         )
         if path is not None and path.exists():
             if not lazy:
@@ -435,8 +436,17 @@ class LuxonisDataset(BaseDataset):
     def sync_from_cloud(
         self, update_mode: UpdateMode = UpdateMode.IF_EMPTY
     ) -> None:
-        """Downloads data from a remote cloud bucket."""
+        """Synchronizes the dataset from a remote cloud bucket to the
+        local directory.
 
+        This method performs the download only if local data is empty, or always downloads
+        depending on the provided update_mode.
+
+        @type update_mode: UpdateMode
+        @param update_mode: Specifies the update behavior.
+            - UpdateMode.IF_EMPTY: Downloads data only if the local dataset is empty.
+            - UpdateMode.ALWAYS: Always downloads and overwrites the local dataset.
+        """
         if not self.is_remote:
             logger.warning("This is a local dataset! Cannot sync from cloud.")
             return
