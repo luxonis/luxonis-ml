@@ -5,6 +5,7 @@ import shutil
 import tempfile
 from collections import defaultdict
 from contextlib import suppress
+from enum import Enum
 from functools import cached_property
 from pathlib import Path
 from typing import (
@@ -66,6 +67,11 @@ class Metadata(TypedDict):
     classes: Dict[str, List[str]]
     tasks: List[str]
     skeletons: Dict[str, Skeletons]
+
+
+class UpdateMode(Enum):
+    ALWAYS = "always"
+    IF_EMPTY = "if_empty"
 
 
 class LuxonisDataset(BaseDataset):
@@ -427,11 +433,12 @@ class LuxonisDataset(BaseDataset):
         return self.metadata.get("tasks", [])
 
     def sync_from_cloud(
-        self, force: bool = False, skip_redownload_dataset: bool = False
+        self, update_mode: UpdateMode = UpdateMode.IF_EMPTY
     ) -> None:
         """Downloads data from a remote cloud bucket."""
+
         if not self.is_remote:
-            logger.warning("This is a local dataset! Cannot sync.")
+            logger.warning("This is a local dataset! Cannot sync from cloud.")
             return
 
         local_dir = self.base_path / "data" / self.team_id / "datasets"
@@ -443,23 +450,21 @@ class LuxonisDataset(BaseDataset):
             any_subfolder_empty = any(
                 subfolder.is_dir() and not any(subfolder.iterdir())
                 for subfolder in (local_dir / self.dataset_name).iterdir()
+                if subfolder.is_dir()
             )
-            if (
-                not any_subfolder_empty
-                and skip_redownload_dataset
-                and not force
-            ):
+            if update_mode == UpdateMode.IF_EMPTY and not any_subfolder_empty:
                 logger.info(
                     "Local dataset directory already exists. Skipping download."
                 )
                 return
-
-            if not self._is_synced or force:
+            if update_mode == UpdateMode.ALWAYS or not self._is_synced:
                 logger.info("Syncing from cloud...")
                 self.fs.get_dir(remote_paths="", local_dir=local_dir)
                 self._is_synced = True
             else:
-                logger.warning("Already synced. Use force=True to resync.")
+                logger.warning(
+                    "Already synced. Use update_mode=ALWAYS to resync."
+                )
 
     @override
     def delete_dataset(self, *, delete_remote: bool = False) -> None:
