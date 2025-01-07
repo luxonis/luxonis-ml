@@ -213,6 +213,191 @@ class LuxonisDataset(BaseDataset):
                 self.dataset_name,
             )
 
+    def _save_df_offline(self, pl_df: pl.DataFrame) -> None:
+        """Saves the given Polars DataFrame into multiple Parquet files
+        using ParquetFileManager. Ensures the same structure as the
+        original dataset.
+
+        :param pl_df: The Polars DataFrame to save.
+        """
+        annotations_path = Path(self.annotations_path)
+
+        for old_file in annotations_path.glob("*.parquet"):
+            old_file.unlink()
+
+        rows = pl_df.to_dicts()
+
+        with ParquetFileManager(annotations_path, num_rows=100_000_000) as pfm:
+            for row in rows:
+                uuid_val = row.get("uuid")
+                if uuid_val is None:
+                    raise ValueError("Missing 'uuid' in row!")
+
+                data_dict = dict(row)
+                data_dict.pop("uuid", None)
+
+                pfm.write(uuid_val, data_dict)
+
+        logger.info(
+            f"Saved merged DataFrame to Parquet files in '{annotations_path}'."
+        )
+
+    def _merge_metadata_with(self, other: "LuxonisDataset") -> None:
+        """Merges relevant metadata from `other` into `self`."""
+        for key, value in other.metadata.items():
+            if key not in self.metadata:
+                self.metadata[key] = value
+            else:
+                existing_val = self.metadata[key]
+
+                if isinstance(existing_val, dict) and isinstance(value, dict):
+                    if key == "classes":
+                        for task_name, class_list in value.items():
+                            if task_name not in existing_val:
+                                existing_val[task_name] = class_list
+                            else:
+                                existing_val[task_name] = list(
+                                    set(existing_val[task_name]).union(
+                                        class_list
+                                    )
+                                )
+                    else:
+                        existing_val.update(value)
+
+                elif (
+                    key == "tasks"
+                    and isinstance(existing_val, list)
+                    and isinstance(value, list)
+                ):
+                    combined = set(existing_val).union(value)
+                    self.metadata[key] = list(combined)
+                else:
+                    self.metadata[key] = value
+        self._write_metadata()
+
+    def clone(self, new_dataset_name: str) -> "LuxonisDataset":
+        """Create a new LuxonisDataset that is a local copy of the
+        current dataset.
+
+        @type new_dataset_name: str
+        @param new_dataset_name: Name of the newly created dataset.
+        @type return: LuxonisDataset
+        @param return: A new LuxonisDataset instance pointing to the
+            cloned data.
+        """
+
+        new_dataset = LuxonisDataset(
+            dataset_name=new_dataset_name,
+            team_id=self.team_id,
+            bucket_type=self.bucket_type,
+            bucket_storage=self.bucket_storage,
+            delete_existing=False,
+            delete_remote=False,
+        )
+        if not self.is_remote:
+            new_dataset_path = Path(new_dataset.path)
+            new_dataset_path.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(self.path, new_dataset.path, dirs_exist_ok=True)
+        else:
+            raise NotImplementedError(
+                "Cloning from a remote dataset is not yet supported. "
+                "Call sync_from_cloud() first, then clone locally."
+            )
+
+        new_dataset._init_paths()
+        new_dataset.metadata = defaultdict(dict, new_dataset._get_metadata())
+        new_dataset._is_synced = False
+
+        new_dataset.metadata["original_dataset"] = self.dataset_name
+        new_dataset._write_metadata()
+
+        return new_dataset
+
+    def merge_with(self, other: "LuxonisDataset") -> None:
+        """Merge all data from `other` LuxonisDataset into the current
+        dataset (in-place)."""
+        if other.is_remote:
+            other.sync_from_cloud(force=False)
+
+        df_self = self._load_df_offline()
+        if df_self is None:
+            raise FileNotFoundError(
+                f"No data found in the current dataset '{self.dataset_name}'."
+            )
+
+        df_other = other._load_df_offline()
+        if df_other is None:
+            raise FileNotFoundError(
+                f"No data found in the other dataset '{other.dataset_name}'."
+            )
+
+        duplicate_uuids = set(df_self["uuid"]).intersection(df_other["uuid"])
+        if duplicate_uuids:  # skip duplicate uuids
+            df_other = df_other[~df_other["uuid"].isin(duplicate_uuids)]
+
+        df_merged = pl.concat([df_self, df_other])
+
+        file_index_self = self._get_file_index()
+        file_index_other = other._get_file_index()
+
+        if file_index_self is None and file_index_other is None:
+            merged_file_index = None
+        elif file_index_self is None:
+            merged_file_index = file_index_other
+        elif file_index_other is None:
+            merged_file_index = file_index_self
+        else:
+            file_index_duplicates = set(file_index_self["uuid"]).intersection(
+                file_index_other["uuid"]
+            )
+            if file_index_duplicates:  # skip duplicate uuids
+                file_index_other = file_index_other[
+                    ~file_index_other["uuid"].is_in(file_index_duplicates)
+                ]
+            merged_file_index = pl.concat([file_index_self, file_index_other])
+
+        if merged_file_index is not None:
+            file_index_path = self.metadata_path / "file_index.parquet"
+            merged_file_index.write_parquet(file_index_path)
+
+        splits_path_self = self.metadata_path / "splits.json"
+        splits_path_other = other.metadata_path / "splits.json"
+
+        if not splits_path_self.exists():
+            raise RuntimeError(
+                f"Cannot find splits for the current dataset: {splits_path_self}"
+            )
+        if not splits_path_other.exists():
+            raise RuntimeError(
+                f"Cannot find splits for the other dataset: {splits_path_other}"
+            )
+
+        with open(splits_path_self, "r") as f:
+            splits_self = json.load(f)
+        with open(splits_path_other, "r") as f:
+            splits_other = json.load(f)
+
+        for split_name, uuids_other in splits_other.items():
+            if split_name not in splits_self:
+                splits_self[split_name] = []
+            combined_uuids = set(splits_self[split_name]).union(uuids_other)
+            splits_self[split_name] = list(combined_uuids)
+
+        self._save_df_offline(df_merged)
+
+        with open(splits_path_self, "w") as f:
+            json.dump(splits_self, f, indent=4)
+
+        self._merge_metadata_with(other)
+
+        self._is_synced = False
+        if self.is_remote:
+            self.sync_to_cloud(force=False)
+
+        logger.info(
+            f"Successfully merged '{other.dataset_name}' into '{self.dataset_name}'."
+        )
+
     @overload
     def _load_df_offline(
         self, lazy: Literal[False] = ...
