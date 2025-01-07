@@ -11,6 +11,7 @@ with guard_missing_extra("data"):
         LuxonisComponent,
         LuxonisDataset,
         LuxonisSource,
+        UpdateMode,
     )
     from .loaders import LOADERS_REGISTRY, BaseLoader, LuxonisLoader
     from .parsers import LuxonisParser
@@ -46,6 +47,7 @@ __all__ = [
     "ImageType",
     "LuxonisComponent",
     "LuxonisDataset",
+    "UpdateMode",
     "LuxonisLoader",
     "LuxonisParser",
     "LuxonisSource",
