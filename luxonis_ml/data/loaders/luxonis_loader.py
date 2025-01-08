@@ -18,6 +18,7 @@ from luxonis_ml.data.augmentations import (
 from luxonis_ml.data.datasets import (
     Annotation,
     LuxonisDataset,
+    UpdateMode,
     load_annotation,
 )
 from luxonis_ml.data.loaders.base_loader import BaseLoader
@@ -48,7 +49,7 @@ class LuxonisLoader(BaseLoader):
         keep_aspect_ratio: bool = True,
         out_image_format: Literal["RGB", "BGR"] = "RGB",
         *,
-        force_resync: bool = False,
+        update_mode: UpdateMode = UpdateMode.ALWAYS,
     ) -> None:
         """A loader class used for loading data from L{LuxonisDataset}.
 
@@ -84,9 +85,10 @@ class LuxonisLoader(BaseLoader):
         @type width: Optional[int]
         @param width: The width of the output images. Defaults to
             C{None}.
-        @type force_resync: bool
-        @param force_resync: Flag to force resync from cloud. Defaults
-            to C{False}.
+        @type update_mode: UpdateMode
+        @param update_mode: Enum that determines the sync mode:
+            - UpdateMode.ALWAYS: Force a fresh download
+            - UpdateMode.IF_EMPTY: Skip downloading if local data exists
         """
 
         self.logger = logging.getLogger(__name__)
@@ -96,7 +98,7 @@ class LuxonisLoader(BaseLoader):
         self.sync_mode = self.dataset.is_remote
 
         if self.sync_mode:
-            self.dataset.sync_from_cloud(force=force_resync)
+            self.dataset.sync_from_cloud(update_mode=update_mode)
 
         if isinstance(view, str):
             view = [view]

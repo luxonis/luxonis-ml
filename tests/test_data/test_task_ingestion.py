@@ -7,7 +7,12 @@ import cv2
 import numpy as np
 import pytest
 
-from luxonis_ml.data import BucketStorage, LuxonisDataset, LuxonisLoader
+from luxonis_ml.data import (
+    BucketStorage,
+    LuxonisDataset,
+    LuxonisLoader,
+    UpdateMode,
+)
 from luxonis_ml.data.utils import get_task_name, get_task_type
 
 DATA_DIR = Path("tests/data/test_task_ingestion")
@@ -36,7 +41,7 @@ def make_image(i) -> Path:
 
 def compute_histogram(dataset: LuxonisDataset) -> Dict[str, int]:
     classes = defaultdict(int)
-    loader = LuxonisLoader(dataset, force_resync=True)
+    loader = LuxonisLoader(dataset, update_mode=UpdateMode.ALWAYS)
     for _, record in loader:
         for task, _ in record.items():
             if get_task_type(task) != "classification":

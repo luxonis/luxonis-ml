@@ -31,3 +31,10 @@ class BucketStorage(Enum):
     S3 = "s3"
     GCS = "gcs"
     AZURE_BLOB = "azure"
+
+
+class UpdateMode(Enum):
+    """Update mode for the dataset."""
+
+    ALWAYS = "always"
+    IF_EMPTY = "if_empty"
