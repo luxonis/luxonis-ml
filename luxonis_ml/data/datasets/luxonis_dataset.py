@@ -313,11 +313,45 @@ class LuxonisDataset(BaseDataset):
 
         return new_dataset
 
-    def merge_with(self, other: "LuxonisDataset") -> None:
+    def merge_with(
+        self,
+        other: "LuxonisDataset",
+        inplace: bool = True,
+        new_dataset_name: str = None,
+    ) -> "LuxonisDataset":
         """Merge all data from `other` LuxonisDataset into the current
-        dataset (in-place)."""
-        if other.is_remote:
-            other.sync_from_cloud(force=False)
+        dataset (in-place or in a new dataset).
+
+        @type other: LuxonisDataset
+        @param other: The dataset to merge into the current dataset.
+        @type inplace: bool
+        @param inplace: Whether to merge into the current dataset (True)
+            or create a new dataset (False).
+        @type new_dataset_name: str
+        @param new_dataset_name: The name of the new dataset to create
+            if inplace is False.
+        @type return: LuxonisDataset
+        @param return: The resulting dataset after merging.
+        """
+        if not inplace:
+            if not new_dataset_name:
+                raise ValueError(
+                    "You must specify a name for the new dataset when inplace is False."
+                )
+            new_dataset = self.clone(new_dataset_name)
+            other.merge_with(
+                new_dataset, inplace=True
+            )  # Merge self into the new dataset
+            return new_dataset
+
+        if other.is_remote != self.is_remote:
+            raise ValueError(
+                "Merging is only supported for datasets with the same bucket storage."
+            )
+
+        if self.is_remote:
+            other.sync_from_cloud()
+            self.sync_from_cloud()
 
         df_self = self._load_df_offline()
         if df_self is None:
@@ -333,28 +367,23 @@ class LuxonisDataset(BaseDataset):
 
         duplicate_uuids = set(df_self["uuid"]).intersection(df_other["uuid"])
         if duplicate_uuids:  # skip duplicate uuids
-            df_other = df_other[~df_other["uuid"].isin(duplicate_uuids)]
+            df_other = df_other.filter(
+                ~df_other["uuid"].is_in(duplicate_uuids)
+            )
 
         df_merged = pl.concat([df_self, df_other])
 
         file_index_self = self._get_file_index()
         file_index_other = other._get_file_index()
 
-        if file_index_self is None and file_index_other is None:
-            merged_file_index = None
-        elif file_index_self is None:
-            merged_file_index = file_index_other
-        elif file_index_other is None:
-            merged_file_index = file_index_self
-        else:
-            file_index_duplicates = set(file_index_self["uuid"]).intersection(
-                file_index_other["uuid"]
+        file_index_duplicates = set(file_index_self["uuid"]).intersection(
+            file_index_other["uuid"]
+        )
+        if file_index_duplicates:  # skip duplicate uuids
+            file_index_other = file_index_other.filter(
+                ~file_index_other["uuid"].is_in(file_index_duplicates)
             )
-            if file_index_duplicates:  # skip duplicate uuids
-                file_index_other = file_index_other[
-                    ~file_index_other["uuid"].is_in(file_index_duplicates)
-                ]
-            merged_file_index = pl.concat([file_index_self, file_index_other])
+        merged_file_index = pl.concat([file_index_self, file_index_other])
 
         if merged_file_index is not None:
             file_index_path = self.metadata_path / "file_index.parquet"
@@ -397,6 +426,8 @@ class LuxonisDataset(BaseDataset):
         logger.info(
             f"Successfully merged '{other.dataset_name}' into '{self.dataset_name}'."
         )
+
+        return self
 
     @overload
     def _load_df_offline(
