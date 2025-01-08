@@ -275,15 +275,17 @@ class LuxonisDataset(BaseDataset):
                     self.metadata[key] = value
         self._write_metadata()
 
-    def clone(self, new_dataset_name: str) -> "LuxonisDataset":
+    def clone(
+        self, new_dataset_name: str, push_to_cloud: bool = True
+    ) -> "LuxonisDataset":
         """Create a new LuxonisDataset that is a local copy of the
         current dataset.
 
         @type new_dataset_name: str
         @param new_dataset_name: Name of the newly created dataset.
-        @type return: LuxonisDataset
-        @param return: A new LuxonisDataset instance pointing to the
-            cloned data.
+        @type push_to_cloud: bool
+        @param push_to_cloud: Whether to push the new dataset to the
+            cloud. Only if the current dataset is remote.
         """
 
         new_dataset = LuxonisDataset(
@@ -291,27 +293,42 @@ class LuxonisDataset(BaseDataset):
             team_id=self.team_id,
             bucket_type=self.bucket_type,
             bucket_storage=self.bucket_storage,
-            delete_existing=False,
-            delete_remote=False,
+            delete_existing=False,  # CHANGE THIS TO TRUE
+            delete_remote=False,  # CHANGE THIS TO TRUE
         )
-        if not self.is_remote:
-            new_dataset_path = Path(new_dataset.path)
-            new_dataset_path.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(self.path, new_dataset.path, dirs_exist_ok=True)
-        else:
-            raise NotImplementedError(
-                "Cloning from a remote dataset is not yet supported. "
-                "Call sync_from_cloud() first, then clone locally."
-            )
+
+        if self.is_remote:
+            self.sync_from_cloud()
+
+        new_dataset_path = Path(new_dataset.local_path)
+        new_dataset_path.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(
+            self.local_path, new_dataset.local_path, dirs_exist_ok=True
+        )
 
         new_dataset._init_paths()
-        new_dataset.metadata = defaultdict(dict, new_dataset._get_metadata())
-        new_dataset._is_synced = False
+        new_dataset.metadata = defaultdict(dict, self._get_metadata())
 
         new_dataset.metadata["original_dataset"] = self.dataset_name
+
+        if self.is_remote and push_to_cloud:
+            new_dataset.sync_to_cloud()
+
         new_dataset._write_metadata()
 
         return new_dataset
+
+    def sync_to_cloud(self, force: bool = False) -> None:
+        """Uploads data to a remote cloud bucket."""
+        if not self.is_remote:
+            logger.warning("This is a local dataset! Cannot sync")
+            return
+
+        if not self._is_synced or force:
+            logger.info("Syncing to cloud...")
+            self.fs.put_dir(local_paths=self.local_path, remote_dir="")
+        else:
+            logger.warning("Already synced. Use force=True to resync")
 
     def merge_with(
         self,
@@ -338,10 +355,8 @@ class LuxonisDataset(BaseDataset):
                 raise ValueError(
                     "You must specify a name for the new dataset when inplace is False."
                 )
-            new_dataset = self.clone(new_dataset_name)
-            other.merge_with(
-                new_dataset, inplace=True
-            )  # Merge self into the new dataset
+            new_dataset = self.clone(new_dataset_name, push_to_cloud=False)
+            other.merge_with(new_dataset, inplace=True)
             return new_dataset
 
         if other.is_remote != self.is_remote:
@@ -419,13 +434,17 @@ class LuxonisDataset(BaseDataset):
 
         self._merge_metadata_with(other)
 
-        self._is_synced = False
-        if self.is_remote:
-            self.sync_to_cloud(force=False)
-
         logger.info(
             f"Successfully merged '{other.dataset_name}' into '{self.dataset_name}'."
         )
+
+        if self.is_remote:
+            other_media_path = other.media_path
+            self_media_path = Path(self.media_path)
+            shutil.copytree(
+                other_media_path, self_media_path, dirs_exist_ok=True
+            )
+            self.sync_to_cloud()
 
         return self
 
@@ -442,7 +461,14 @@ class LuxonisDataset(BaseDataset):
     def _load_df_offline(
         self, lazy: bool = False
     ) -> Optional[Union[pl.DataFrame, pl.LazyFrame]]:
-        path = get_dir(self.fs, "annotations", self.local_path)
+        path = (
+            self.base_path
+            / "data"
+            / self.team_id
+            / "datasets"
+            / self.dataset_name
+            / "annotations"
+        )
 
         if path is None or not path.exists():
             return None
