@@ -26,6 +26,7 @@ from typing import (
 import numpy as np
 import polars as pl
 import pyarrow.parquet as pq
+from filelock import FileLock
 from ordered_set import OrderedSet
 from semver.version import Version
 from typing_extensions import Self, override
@@ -34,6 +35,7 @@ from luxonis_ml.data.utils import (
     BucketStorage,
     BucketType,
     ParquetFileManager,
+    UpdateMode,
     infer_task,
     warn_on_duplicates,
 )
@@ -133,7 +135,13 @@ class LuxonisDataset(BaseDataset):
         else:
             self.fs = LuxonisFileSystem(self.path)
 
-        self.metadata = cast(Metadata, defaultdict(dict, self._get_metadata()))
+        _lock_metadata = self.base_path / ".metadata.lock"
+        with FileLock(
+            str(_lock_metadata)
+        ):  # DDP GCS training - multiple processes
+            self.metadata = cast(
+                Metadata, defaultdict(dict, self._get_metadata())
+            )
 
         if self.version != LDF_VERSION:
             logger.warning(
@@ -226,9 +234,18 @@ class LuxonisDataset(BaseDataset):
     def _load_df_offline(
         self, lazy: bool = False
     ) -> Optional[Union[pl.DataFrame, pl.LazyFrame]]:
-        path = get_dir(self.fs, "annotations", self.local_path)
+        """Loads the dataset DataFrame **always** from the local
+        storage."""
+        path = (
+            self.base_path
+            / "data"
+            / self.team_id
+            / "datasets"
+            / self.dataset_name
+            / "annotations"
+        )
 
-        if path is None or not path.exists():
+        if not path.exists():
             return None
 
         if lazy:
@@ -278,6 +295,11 @@ class LuxonisDataset(BaseDataset):
     def _get_file_index(
         self, lazy: bool = False
     ) -> Optional[Union[pl.DataFrame, pl.LazyFrame]]:
+        """Loads the file index DataFrame from the local storage or the
+        cloud.
+
+        If loads from cloud it always downloads before loading.
+        """
         path = get_file(
             self.fs, "metadata/file_index.parquet", self.metadata_path
         )
@@ -327,6 +349,11 @@ class LuxonisDataset(BaseDataset):
         return {}
 
     def _get_metadata(self) -> Metadata:
+        """Loads metadata from local storage or cloud, depending on the
+        BucketStorage type.
+
+        If loads from cloud it always downloads before loading.
+        """
         if self.fs.exists("metadata/metadata.json"):
             path = get_file(
                 self.fs,
@@ -418,22 +445,48 @@ class LuxonisDataset(BaseDataset):
     def get_tasks(self) -> List[str]:
         return self.metadata.get("tasks", [])
 
-    def sync_from_cloud(self, force: bool = False) -> None:
-        """Downloads data from a remote cloud bucket."""
+    def sync_from_cloud(
+        self, update_mode: UpdateMode = UpdateMode.IF_EMPTY
+    ) -> None:
+        """Synchronizes the dataset from a remote cloud bucket to the
+        local directory.
 
+        This method performs the download only if local data is empty, or always downloads
+        depending on the provided update_mode.
+
+        @type update_mode: UpdateMode
+        @param update_mode: Specifies the update behavior.
+            - UpdateMode.IF_EMPTY: Downloads data only if the local dataset is empty.
+            - UpdateMode.ALWAYS: Always downloads and overwrites the local dataset.
+        """
         if not self.is_remote:
-            logger.warning("This is a local dataset! Cannot sync")
-        else:
-            if not self._is_synced or force:
+            logger.warning("This is a local dataset! Cannot sync from cloud.")
+            return
+
+        local_dir = self.base_path / "data" / self.team_id / "datasets"
+        local_dir.mkdir(exist_ok=True, parents=True)
+
+        lock_path = local_dir / ".sync.lock"
+
+        with FileLock(str(lock_path)):  # DDP GCS training - multiple processes
+            any_subfolder_empty = any(
+                subfolder.is_dir() and not any(subfolder.iterdir())
+                for subfolder in (local_dir / self.dataset_name).iterdir()
+                if subfolder.is_dir()
+            )
+            if update_mode == UpdateMode.IF_EMPTY and not any_subfolder_empty:
+                logger.info(
+                    "Local dataset directory already exists. Skipping download."
+                )
+                return
+            if update_mode == UpdateMode.ALWAYS or not self._is_synced:
                 logger.info("Syncing from cloud...")
-                local_dir = self.base_path / "data" / self.team_id / "datasets"
-                local_dir.mkdir(exist_ok=True, parents=True)
-
                 self.fs.get_dir(remote_paths="", local_dir=local_dir)
-
                 self._is_synced = True
             else:
-                logger.warning("Already synced. Use force=True to resync")
+                logger.warning(
+                    "Already synced. Use update_mode=ALWAYS to resync."
+                )
 
     @override
     def delete_dataset(self, *, delete_remote: bool = False) -> None:

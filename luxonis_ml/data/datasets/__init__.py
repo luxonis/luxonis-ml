@@ -8,7 +8,7 @@ from .annotation import (
     load_annotation,
 )
 from .base_dataset import DATASETS_REGISTRY, BaseDataset, DatasetIterator
-from .luxonis_dataset import LuxonisDataset
+from .luxonis_dataset import LuxonisDataset, UpdateMode
 from .source import LuxonisComponent, LuxonisSource
 
 __all__ = [
@@ -25,4 +25,5 @@ __all__ = [
     "load_annotation",
     "Detection",
     "ArrayAnnotation",
+    "UpdateMode",
 ]
