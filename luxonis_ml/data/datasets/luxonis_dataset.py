@@ -513,14 +513,14 @@ class LuxonisDataset(BaseDataset):
         self, lazy: bool = False, sync_from_cloud: bool = False
     ) -> Optional[Union[pl.DataFrame, pl.LazyFrame]]:
         """Loads the file index DataFrame from the local storage or the
-        cloud.
+        cloud if sync_from_cloud.
 
-        Args:
-            lazy: Whether to return a LazyFrame instead of a DataFrame
-            sync_from_cloud: Whether to sync from cloud before loading the index
-
-        Returns:
-            The file index DataFrame/LazyFrame or None if not found
+        @type lazy: bool
+        @param lazy: Whether to return a LazyFrame instead of a
+            DataFrame
+        @type sync_from_cloud: bool
+        @param sync_from_cloud: Whether to sync from cloud before
+            loading the index
         """
         if sync_from_cloud:
             get_file(
