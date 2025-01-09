@@ -527,7 +527,7 @@ def test_clone_dataset(tempdir: Path, bucket_storage: BucketStorage):
     assert df_cloned.equals(df_original)
 
 
-def test_merge_datasets_inplace(tempdir: Path, bucket_storage: BucketStorage):
+def test_merge_datasets(tempdir: Path, bucket_storage: BucketStorage):
     dataset1_name = "test_merge_1"
     dataset1 = LuxonisDataset(
         dataset1_name,
@@ -572,6 +572,7 @@ def test_merge_datasets_inplace(tempdir: Path, bucket_storage: BucketStorage):
     dataset2.add(generator2())
     dataset2.make_splits({"train": 0.6, "val": 0.4})
 
+    # Test in-place merge
     cloned_dataset1 = dataset1.clone(
         new_dataset_name=dataset1_name + "_cloned"
     )
@@ -579,69 +580,18 @@ def test_merge_datasets_inplace(tempdir: Path, bucket_storage: BucketStorage):
         dataset2, inplace=True
     )
 
-    all_classes, _ = cloned_dataset1_merged_with_dataset2.get_classes()
-    assert set(all_classes) == {"person", "dog"}
+    all_classes_inplace, _ = cloned_dataset1_merged_with_dataset2.get_classes()
+    assert set(all_classes_inplace) == {"person", "dog"}
 
-    df_cloned_merged = cloned_dataset1_merged_with_dataset2._load_df_offline()
-    df_merged = dataset1.merge_with(dataset2, inplace=False)._load_df_offline()
-    assert df_cloned_merged.equals(df_merged)
-
-
-def test_merge_datasets_out_of_place(
-    tempdir: Path, bucket_storage: BucketStorage
-):
-    dataset1_name = "test_merge_1"
-    dataset1 = LuxonisDataset(
-        dataset1_name,
-        bucket_storage=bucket_storage,
-        delete_existing=True,
-        delete_remote=True,
-    )
-
-    def generator1():
-        for i in range(3):
-            img = create_image(i, tempdir)
-            yield {
-                "file": img,
-                "annotation": {
-                    "class": "person",
-                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
-                },
-            }
-
-    dataset1.add(generator1())
-    dataset1.make_splits({"train": 0.6, "val": 0.4})
-
-    dataset2_name = "test_merge_2"
-    dataset2 = LuxonisDataset(
-        dataset2_name,
-        bucket_storage=bucket_storage,
-        delete_existing=True,
-        delete_remote=True,
-    )
-
-    def generator2():
-        for i in range(3, 6):
-            img = create_image(i, tempdir)
-            yield {
-                "file": img,
-                "annotation": {
-                    "class": "dog",
-                    "boundingbox": {"x": 0.2, "y": 0.2, "w": 0.2, "h": 0.2},
-                },
-            }
-
-    dataset2.add(generator2())
-    dataset2.make_splits({"train": 0.6, "val": 0.4})
-
+    # Test out-of-place merge
     dataset1_merged_with_dataset2 = dataset1.merge_with(
         dataset2,
         inplace=False,
         new_dataset_name=dataset1_name + "_" + dataset2_name + "_merged",
     )
 
-    all_classes, _ = dataset1_merged_with_dataset2.get_classes()
-    assert set(all_classes) == {"person", "dog"}
+    all_classes_out_of_place, _ = dataset1_merged_with_dataset2.get_classes()
+    assert set(all_classes_out_of_place) == {"person", "dog"}
 
     df_merged = dataset1_merged_with_dataset2._load_df_offline()
     df_cloned_merged = dataset1.merge_with(

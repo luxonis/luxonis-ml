@@ -289,7 +289,8 @@ class LuxonisDataset(BaseDataset):
         self, new_dataset_name: str, push_to_cloud: bool = True
     ) -> "LuxonisDataset":
         """Create a new LuxonisDataset that is a local copy of the
-        current dataset.
+        current dataset. Cloned dataset will overwrite the existing
+        dataset with the same name.
 
         @type new_dataset_name: str
         @param new_dataset_name: Name of the newly created dataset.
@@ -358,64 +359,67 @@ class LuxonisDataset(BaseDataset):
         @param new_dataset_name: The name of the new dataset to create
             if inplace is False.
         """
-        if not inplace:
-            if not new_dataset_name:
-                raise ValueError(
-                    "You must specify a name for the new dataset when inplace is False."
-                )
-            new_dataset = self.clone(new_dataset_name, push_to_cloud=False)
-            new_dataset.merge_with(other, inplace=True)
-            return new_dataset
-
-        if other.is_remote != self.is_remote:
+        if not inplace and not new_dataset_name:
             raise ValueError(
-                "Merging is only supported for datasets with the same bucket storage."
+                "You must specify a name for the new dataset when inplace is False."
             )
+
+        target_dataset = (
+            self
+            if inplace
+            else self.clone(new_dataset_name, push_to_cloud=False)
+        )
 
         if self.is_remote:
             other.sync_from_cloud(update_mode=UpdateMode.ALWAYS)
-            self.sync_from_cloud(update_mode=UpdateMode.IF_EMPTY)
+            self.sync_from_cloud(
+                update_mode=UpdateMode.ALWAYS
+                if inplace
+                else UpdateMode.IF_EMPTY
+            )
 
         df_self = self._load_df_offline()
         df_other = other._load_df_offline()
         duplicate_uuids = set(df_self["uuid"]).intersection(df_other["uuid"])
-        if duplicate_uuids:  # skip duplicate uuids
+        if duplicate_uuids:
             df_other = df_other.filter(
                 ~df_other["uuid"].is_in(duplicate_uuids)
             )
+
         df_merged = pl.concat([df_self, df_other])
+        target_dataset._save_df_offline(df_merged)
 
         file_index_self = self._get_file_index()
         file_index_other = other._get_file_index()
         file_index_duplicates = set(file_index_self["uuid"]).intersection(
             file_index_other["uuid"]
         )
-        if file_index_duplicates:  # skip duplicate uuids
+        if file_index_duplicates:
             file_index_other = file_index_other.filter(
                 ~file_index_other["uuid"].is_in(file_index_duplicates)
             )
-        merged_file_index = pl.concat([file_index_self, file_index_other])
 
+        merged_file_index = pl.concat([file_index_self, file_index_other])
         if merged_file_index is not None:
-            file_index_path = self.metadata_path / "file_index.parquet"
+            file_index_path = (
+                target_dataset.metadata_path / "file_index.parquet"
+            )
             merged_file_index.write_parquet(file_index_path)
 
         splits_self = self._load_splits(self.metadata_path)
         splits_other = self._load_splits(other.metadata_path)
         self._merge_splits(splits_self, splits_other)
-
-        self._save_df_offline(df_merged)
-        self._save_splits(splits_self)
+        target_dataset._save_splits(splits_self)
 
         if self.is_remote:
             shutil.copytree(
-                other.media_path, self.media_path, dirs_exist_ok=True
+                other.media_path, target_dataset.media_path, dirs_exist_ok=True
             )
-            self.sync_to_cloud()
+            target_dataset.sync_to_cloud()
 
-        self._merge_metadata_with(other)
+        target_dataset._merge_metadata_with(other)
 
-        return self
+        return target_dataset
 
     def _load_splits(self, path: Path) -> Dict[str, List[str]]:
         splits_path = path / "splits.json"
