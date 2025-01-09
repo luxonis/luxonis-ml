@@ -4,6 +4,7 @@ import math
 import shutil
 import tempfile
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from functools import cached_property
 from pathlib import Path
@@ -1107,22 +1108,20 @@ class LuxonisDataset(BaseDataset):
         bucket_storage: BucketStorage = BucketStorage.LOCAL,
         bucket: Optional[str] = None,
     ) -> List[str]:
-        """Returns a dictionary of all datasets.
+        """Returns a list of all datasets.
 
         @type team_id: Optional[str]
         @param team_id: Optional team identifier
         @type bucket_storage: BucketStorage
-        @param bucket_storage: Underlying bucket storage from C{local},
-            C{S3}, or C{GCS}. Default is C{local}.
+        @param bucket_storage: Underlying bucket storage (local, S3, or
+            GCS). Default is local.
         @type bucket: Optional[str]
-        @param bucket: Name of the bucket. Default is C{None}.
+        @param bucket: Name of the bucket. Default is None.
         @rtype: List[str]
         @return: List of all dataset names.
         """
         base_path = environ.LUXONISML_BASE_PATH
-
         team_id = team_id or environ.LUXONISML_TEAM_ID
-        names = []
 
         if bucket_storage == BucketStorage.LOCAL:
             fs = LuxonisFileSystem(
@@ -1142,13 +1141,18 @@ class LuxonisDataset(BaseDataset):
         if not fs.exists():
             return []
 
-        for path in fs.walk_dir("", recursive=False, typ="directory"):
+        def process_directory(path: str) -> Optional[str]:
             path = Path(path)
             metadata_path = path / "metadata" / "metadata.json"
-            if not fs.exists(metadata_path):
-                continue
-            metadata_text = fs.read_text(metadata_path)
-            if isinstance(metadata_text, bytes):
-                metadata_text = metadata_text.decode()
-            names.append(path.name)
+            if fs.exists(metadata_path):
+                return path.name
+            return None
+
+        # Collect directory paths and process them in parallel
+        paths = list(fs.walk_dir("", recursive=False, typ="directory"))
+        with ThreadPoolExecutor() as executor:
+            names = [
+                name for name in executor.map(process_directory, paths) if name
+            ]
+
         return names

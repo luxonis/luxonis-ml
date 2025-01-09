@@ -488,3 +488,91 @@ def test_partial_labels(tempdir: Path):
             "detection/segmentation",
         },
     )
+
+
+def test_clone_and_merge_dataset(tempdir: Path, bucket_storage: BucketStorage):
+    dataset1_name = "test_merge_1"
+    dataset1 = LuxonisDataset(
+        dataset1_name,
+        bucket_storage=bucket_storage,
+        delete_existing=True,
+        delete_remote=True,
+    )
+
+    def generator1():
+        for i in range(3):
+            img = create_image(i, tempdir)
+            yield {
+                "file": img,
+                "annotation": {
+                    "class": "person",
+                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
+                },
+            }
+
+    dataset1.add(generator1())
+    dataset1.make_splits({"train": 0.6, "val": 0.4})
+
+    dataset2_name = "test_merge_2"
+    dataset2 = LuxonisDataset(
+        dataset2_name,
+        bucket_storage=bucket_storage,
+        delete_existing=True,
+        delete_remote=True,
+    )
+
+    def generator2():
+        for i in range(3, 6):
+            img = create_image(i, tempdir)
+            yield {
+                "file": img,
+                "annotation": {
+                    "class": "dog",
+                    "boundingbox": {"x": 0.2, "y": 0.2, "w": 0.2, "h": 0.2},
+                },
+            }
+
+    dataset2.add(generator2())
+    dataset2.make_splits({"train": 0.6, "val": 0.4})
+
+    cloned_datset1 = dataset1.clone(new_dataset_name=dataset1_name + "_cloned")
+
+    assert cloned_datset1.get_splits() == dataset1.get_splits()
+    assert cloned_datset1.get_classes() == dataset1.get_classes()
+    assert cloned_datset1.get_task_names() == dataset1.get_task_names()
+    assert cloned_datset1.get_skeletons() == dataset1.get_skeletons()
+
+    df_cloned = cloned_datset1._load_df_offline()
+    df_original = dataset1._load_df_offline()
+    assert df_cloned.equals(df_original)
+
+    cloned_datset1_merged_with_dataset2 = cloned_datset1.merge_with(
+        dataset2, inplace=True
+    )
+
+    dataset1_merged_with_dataset2 = dataset1.merge_with(
+        dataset2,
+        inplace=False,
+        new_dataset_name=dataset1_name + "_" + dataset2_name + "_merged",
+    )
+
+    assert (
+        dataset1_merged_with_dataset2.get_splits()
+        == cloned_datset1_merged_with_dataset2.get_splits()
+    )
+    assert (
+        dataset1_merged_with_dataset2.get_classes()
+        == cloned_datset1_merged_with_dataset2.get_classes()
+    )
+    assert (
+        dataset1_merged_with_dataset2.get_task_names()
+        == cloned_datset1_merged_with_dataset2.get_task_names()
+    )
+    assert (
+        dataset1_merged_with_dataset2.get_skeletons()
+        == cloned_datset1_merged_with_dataset2.get_skeletons()
+    )
+
+    df_merged = dataset1_merged_with_dataset2._load_df_offline()
+    df_cloned_merged = cloned_datset1_merged_with_dataset2._load_df_offline()
+    assert df_merged.equals(df_cloned_merged)
