@@ -138,4 +138,11 @@ jobs:
       run: pip install -e .[dev]
 
     - name: Run specific test
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        AWS_S3_ENDPOINT_URL: ${{ secrets.AWS_S3_ENDPOINT_URL }}
+        ROBOFLOW_API_KEY: ${{ secrets.ROBOFLOW_API_KEY }}
+        GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
+        LUXONISML_BUCKET: luxonis-test-bucket
       run: pytest tests/test_data/test_dataset.py
