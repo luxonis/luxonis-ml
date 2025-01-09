@@ -345,7 +345,7 @@ class LuxonisDataset(BaseDataset):
         self,
         other: "LuxonisDataset",
         inplace: bool = True,
-        new_dataset_name: str = None,
+        new_dataset_name: Optional[str] = None,
     ) -> "LuxonisDataset":
         """Merge all data from `other` LuxonisDataset into the current
         dataset (in-place or in a new dataset).
