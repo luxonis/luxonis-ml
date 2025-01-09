@@ -226,7 +226,8 @@ class LuxonisDataset(BaseDataset):
         using ParquetFileManager. Ensures the same structure as the
         original dataset.
 
-        :param pl_df: The Polars DataFrame to save.
+        @type pl_df: pl.DataFrame
+        @param pl_df: The Polars DataFrame to save.
         """
         annotations_path = Path(self.annotations_path)
 
@@ -301,8 +302,8 @@ class LuxonisDataset(BaseDataset):
             team_id=self.team_id,
             bucket_type=self.bucket_type,
             bucket_storage=self.bucket_storage,
-            delete_existing=False,  # CHANGE THIS TO TRUE
-            delete_remote=False,  # CHANGE THIS TO TRUE
+            delete_existing=True,
+            delete_remote=True,
         )
 
         if self.is_remote:
@@ -322,21 +323,21 @@ class LuxonisDataset(BaseDataset):
         if self.is_remote and push_to_cloud:
             new_dataset.sync_to_cloud()
 
-        new_dataset._write_metadata()
+        path = self.metadata_path / "metadata.json"
+        path.write_text(json.dumps(self.metadata, indent=4))
 
         return new_dataset
 
-    def sync_to_cloud(self, force: bool = False) -> None:
+    def sync_to_cloud(self) -> None:
         """Uploads data to a remote cloud bucket."""
         if not self.is_remote:
             logger.warning("This is a local dataset! Cannot sync")
             return
 
-        if not self._is_synced or force:
-            logger.info("Syncing to cloud...")
-            self.fs.put_dir(local_paths=self.local_path, remote_dir="")
-        else:
-            logger.warning("Already synced. Use force=True to resync")
+        logger.info("Syncing to cloud...")
+        self.fs.put_dir(
+            local_paths=self.local_path, remote_dir="", copy_contents=True
+        )
 
     def merge_with(
         self,
@@ -355,8 +356,6 @@ class LuxonisDataset(BaseDataset):
         @type new_dataset_name: str
         @param new_dataset_name: The name of the new dataset to create
             if inplace is False.
-        @type return: LuxonisDataset
-        @param return: The resulting dataset after merging.
         """
         if not inplace:
             if not new_dataset_name:
@@ -364,7 +363,7 @@ class LuxonisDataset(BaseDataset):
                     "You must specify a name for the new dataset when inplace is False."
                 )
             new_dataset = self.clone(new_dataset_name, push_to_cloud=False)
-            other.merge_with(new_dataset, inplace=True)
+            new_dataset.merge_with(other, inplace=True)
             return new_dataset
 
         if other.is_remote != self.is_remote:
@@ -373,32 +372,20 @@ class LuxonisDataset(BaseDataset):
             )
 
         if self.is_remote:
-            other.sync_from_cloud()
-            self.sync_from_cloud()
+            other.sync_from_cloud(update_mode=UpdateMode.ALWAYS)
+            self.sync_from_cloud(update_mode=UpdateMode.IF_EMPTY)
 
         df_self = self._load_df_offline()
-        if df_self is None:
-            raise FileNotFoundError(
-                f"No data found in the current dataset '{self.dataset_name}'."
-            )
-
         df_other = other._load_df_offline()
-        if df_other is None:
-            raise FileNotFoundError(
-                f"No data found in the other dataset '{other.dataset_name}'."
-            )
-
         duplicate_uuids = set(df_self["uuid"]).intersection(df_other["uuid"])
         if duplicate_uuids:  # skip duplicate uuids
             df_other = df_other.filter(
                 ~df_other["uuid"].is_in(duplicate_uuids)
             )
-
         df_merged = pl.concat([df_self, df_other])
 
         file_index_self = self._get_file_index()
         file_index_other = other._get_file_index()
-
         file_index_duplicates = set(file_index_self["uuid"]).intersection(
             file_index_other["uuid"]
         )
@@ -412,49 +399,43 @@ class LuxonisDataset(BaseDataset):
             file_index_path = self.metadata_path / "file_index.parquet"
             merged_file_index.write_parquet(file_index_path)
 
-        splits_path_self = self.metadata_path / "splits.json"
-        splits_path_other = other.metadata_path / "splits.json"
+        splits_self = self._load_splits(self.metadata_path)
+        splits_other = self._load_splits(other.metadata_path)
+        self._merge_splits(splits_self, splits_other)
 
-        if not splits_path_self.exists():
-            raise RuntimeError(
-                f"Cannot find splits for the current dataset: {splits_path_self}"
+        self._save_df_offline(df_merged)
+        self._save_splits(splits_self)
+
+        if self.is_remote:
+            shutil.copytree(
+                other.media_path, self.media_path, dirs_exist_ok=True
             )
-        if not splits_path_other.exists():
-            raise RuntimeError(
-                f"Cannot find splits for the other dataset: {splits_path_other}"
-            )
+            self.sync_to_cloud()
 
-        with open(splits_path_self, "r") as f:
-            splits_self = json.load(f)
-        with open(splits_path_other, "r") as f:
-            splits_other = json.load(f)
+        self._merge_metadata_with(other)
 
+        return self
+
+    def _load_splits(self, path: Path) -> Dict[str, List[str]]:
+        splits_path = path / "splits.json"
+        with open(splits_path, "r") as f:
+            return json.load(f)
+
+    def _merge_splits(
+        self,
+        splits_self: Dict[str, List[str]],
+        splits_other: Dict[str, List[str]],
+    ) -> None:
         for split_name, uuids_other in splits_other.items():
             if split_name not in splits_self:
                 splits_self[split_name] = []
             combined_uuids = set(splits_self[split_name]).union(uuids_other)
             splits_self[split_name] = list(combined_uuids)
 
-        self._save_df_offline(df_merged)
-
+    def _save_splits(self, splits: Dict[str, List[str]]) -> None:
+        splits_path_self = self.metadata_path / "splits.json"
         with open(splits_path_self, "w") as f:
-            json.dump(splits_self, f, indent=4)
-
-        self._merge_metadata_with(other)
-
-        logger.info(
-            f"Successfully merged '{other.dataset_name}' into '{self.dataset_name}'."
-        )
-
-        if self.is_remote:
-            other_media_path = other.media_path
-            self_media_path = Path(self.media_path)
-            shutil.copytree(
-                other_media_path, self_media_path, dirs_exist_ok=True
-            )
-            self.sync_to_cloud()
-
-        return self
+            json.dump(splits, f, indent=4)
 
     @overload
     def _load_df_offline(
@@ -519,25 +500,33 @@ class LuxonisDataset(BaseDataset):
 
     @overload
     def _get_file_index(
-        self, lazy: Literal[False] = ...
+        self, lazy: Literal[False] = ..., sync_from_cloud: bool = ...
     ) -> Optional[pl.DataFrame]: ...
 
     @overload
     def _get_file_index(
-        self, lazy: Literal[True] = ...
+        self, lazy: Literal[True] = ..., sync_from_cloud: bool = ...
     ) -> Optional[pl.LazyFrame]: ...
 
     def _get_file_index(
-        self, lazy: bool = False
+        self, lazy: bool = False, sync_from_cloud: bool = False
     ) -> Optional[Union[pl.DataFrame, pl.LazyFrame]]:
         """Loads the file index DataFrame from the local storage or the
         cloud.
 
-        If loads from cloud it always downloads before loading.
+        Args:
+            lazy: Whether to return a LazyFrame instead of a DataFrame
+            sync_from_cloud: Whether to sync from cloud before loading the index
+
+        Returns:
+            The file index DataFrame/LazyFrame or None if not found
         """
-        path = get_file(
-            self.fs, "metadata/file_index.parquet", self.metadata_path
-        )
+        if sync_from_cloud:
+            get_file(
+                self.fs, "metadata/file_index.parquet", self.metadata_path
+            )
+
+        path = self.metadata_path / "file_index.parquet"
         if path is not None and path.exists():
             if not lazy:
                 df = pl.read_parquet(path)
@@ -834,7 +823,7 @@ class LuxonisDataset(BaseDataset):
     def add(
         self, generator: DatasetIterator, batch_size: int = 1_000_000
     ) -> Self:
-        index = self._get_file_index()
+        index = self._get_file_index(sync_from_cloud=True)
         new_index = {"uuid": [], "file": [], "original_filepath": []}
         processed_uuids = set()
 
@@ -1063,7 +1052,7 @@ class LuxonisDataset(BaseDataset):
                 lower_bound = upper_bound
 
         else:
-            index = self._get_file_index()
+            index = self._get_file_index(sync_from_cloud=True)
             if index is None:
                 raise FileNotFoundError("File index not found")
             for split, filepaths in definitions.items():
