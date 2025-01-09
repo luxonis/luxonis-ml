@@ -237,7 +237,7 @@ class LuxonisDataset(BaseDataset):
 
         rows = pl_df.to_dicts()
 
-        with ParquetFileManager(annotations_path, num_rows=100_000_000) as pfm:
+        with ParquetFileManager(annotations_path) as pfm:
             for row in rows:
                 uuid_val = row.get("uuid")
                 if uuid_val is None:

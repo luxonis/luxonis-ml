@@ -231,7 +231,7 @@ class LuxonisFileSystem:
         remote_dir: PathType,
         uuid_dict: Optional[Dict[str, str]] = None,
         mlflow_instance: Optional[ModuleType] = None,
-        copy_contents: bool = False,  # New argument
+        copy_contents: bool = False,
     ) -> Optional[Dict[str, str]]:
         """Uploads files to remote storage.
 
