@@ -490,10 +490,19 @@ def test_partial_labels(tempdir: Path):
     )
 
 
-@pytest.mark.dependency(name="test_clone_dataset")
-def test_clone_dataset(
-    bucket_storage: BucketStorage, dataset_name: str, tempdir: Path
-):
+@pytest.mark.dependency(name="test_clone_dataset_local")
+def test_clone_dataset_local(dataset_name: str, tempdir: Path):
+    _test_clone_dataset(BucketStorage.LOCAL, dataset_name, tempdir)
+
+
+@pytest.mark.dependency(
+    name="test_clone_dataset_gcs", depends=["test_clone_dataset_local"]
+)
+def test_clone_dataset_gcs(dataset_name: str, tempdir: Path):
+    _test_clone_dataset(BucketStorage.GCS, dataset_name, tempdir)
+
+
+def _test_clone_dataset(bucket_storage, dataset_name: str, tempdir: Path):
     dataset = LuxonisDataset(
         dataset_name,
         bucket_storage=bucket_storage,
@@ -527,10 +536,21 @@ def test_clone_dataset(
     assert df_cloned.equals(df_original)
 
 
-@pytest.mark.dependency(depends=["test_clone_dataset"])
-def test_merge_datasets(
-    bucket_storage: BucketStorage, dataset_name: str, tempdir: Path
-):
+@pytest.mark.dependency(
+    name="test_merge_datasets_local", depends=["test_clone_dataset_gcs"]
+)
+def test_merge_datasets_local(dataset_name: str, tempdir: Path):
+    _test_merge_datasets(BucketStorage.LOCAL, dataset_name, tempdir)
+
+
+@pytest.mark.dependency(
+    name="test_merge_datasets_gcs", depends=["test_merge_datasets_local"]
+)
+def test_merge_datasets_gcs(dataset_name: str, tempdir: Path):
+    _test_merge_datasets(BucketStorage.GCS, dataset_name, tempdir)
+
+
+def _test_merge_datasets(bucket_storage, dataset_name: str, tempdir: Path):
     dataset1_name = dataset_name + "_1"
     dataset1 = LuxonisDataset(
         dataset1_name,
