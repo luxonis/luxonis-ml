@@ -490,6 +490,7 @@ def test_partial_labels(tempdir: Path):
     )
 
 
+@pytest.mark.dependency(name="test_clone_dataset")
 def test_clone_dataset(
     bucket_storage: BucketStorage, dataset_name: str, tempdir: Path
 ):
@@ -526,6 +527,7 @@ def test_clone_dataset(
     assert df_cloned.equals(df_original)
 
 
+@pytest.mark.dependency(depends=["test_clone_dataset"])
 def test_merge_datasets(
     bucket_storage: BucketStorage, dataset_name: str, tempdir: Path
 ):

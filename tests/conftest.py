@@ -112,7 +112,7 @@ def augmentation_config() -> List[Dict[str, Any]]:
     ]
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def tempdir():
     path = Path("tests/data/tempdir")
     path.mkdir(parents=True, exist_ok=True)
