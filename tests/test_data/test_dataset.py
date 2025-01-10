@@ -490,10 +490,11 @@ def test_partial_labels(tempdir: Path):
     )
 
 
-def test_clone_dataset(tempdir: Path, bucket_storage: BucketStorage):
-    dataset1_name = "test_clone"
-    dataset1 = LuxonisDataset(
-        dataset1_name,
+def test_clone_dataset(
+    bucket_storage: BucketStorage, dataset_name: str, tempdir: Path
+):
+    dataset = LuxonisDataset(
+        dataset_name,
         bucket_storage=bucket_storage,
         delete_existing=True,
         delete_remote=True,
@@ -510,25 +511,25 @@ def test_clone_dataset(tempdir: Path, bucket_storage: BucketStorage):
                 },
             }
 
-    dataset1.add(generator1())
-    dataset1.make_splits({"train": 0.6, "val": 0.4})
+    dataset.add(generator1())
+    dataset.make_splits({"train": 0.6, "val": 0.4})
 
-    cloned_dataset1 = dataset1.clone(
-        new_dataset_name=dataset1_name + "_cloned"
-    )
+    cloned_dataset = dataset.clone(new_dataset_name=dataset_name + "_cloned")
 
-    assert cloned_dataset1.get_splits() == dataset1.get_splits()
-    assert cloned_dataset1.get_classes() == dataset1.get_classes()
-    assert cloned_dataset1.get_task_names() == dataset1.get_task_names()
-    assert cloned_dataset1.get_skeletons() == dataset1.get_skeletons()
+    assert cloned_dataset.get_splits() == dataset.get_splits()
+    assert cloned_dataset.get_classes() == dataset.get_classes()
+    assert cloned_dataset.get_task_names() == dataset.get_task_names()
+    assert cloned_dataset.get_skeletons() == dataset.get_skeletons()
 
-    df_cloned = cloned_dataset1._load_df_offline()
-    df_original = dataset1._load_df_offline()
+    df_cloned = cloned_dataset._load_df_offline()
+    df_original = dataset._load_df_offline()
     assert df_cloned.equals(df_original)
 
 
-def test_merge_datasets(tempdir: Path, bucket_storage: BucketStorage):
-    dataset1_name = "test_merge_1"
+def test_merge_datasets(
+    bucket_storage: BucketStorage, dataset_name: str, tempdir: Path
+):
+    dataset1_name = dataset_name + "_1"
     dataset1 = LuxonisDataset(
         dataset1_name,
         bucket_storage=bucket_storage,
@@ -550,7 +551,7 @@ def test_merge_datasets(tempdir: Path, bucket_storage: BucketStorage):
     dataset1.add(generator1())
     dataset1.make_splits({"train": 0.6, "val": 0.4})
 
-    dataset2_name = "test_merge_2"
+    dataset2_name = dataset_name + "_2"
     dataset2 = LuxonisDataset(
         dataset2_name,
         bucket_storage=bucket_storage,
