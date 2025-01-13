@@ -231,6 +231,7 @@ class LuxonisFileSystem:
         remote_dir: PathType,
         uuid_dict: Optional[Dict[str, str]] = None,
         mlflow_instance: Optional[ModuleType] = None,
+        copy_contents: bool = False,
     ) -> Optional[Dict[str, str]]:
         """Uploads files to remote storage.
 
@@ -246,6 +247,9 @@ class LuxonisFileSystem:
         @type mlflow_instance: Optional[L{ModuleType}]
         @param mlflow_instance: MLFlow instance if uploading to active
             run. Defaults to None.
+        @type copy_contents: bool
+        @param copy_contents: If True, only copy the content of the
+            folder specified in local_paths. Defaults to False.
         @rtype: Optional[Dict[str, str]]
         @return: When local_paths is a list, this maps local_paths to
             remote_paths
@@ -257,8 +261,13 @@ class LuxonisFileSystem:
                 local_paths = Path(local_paths)
                 if not Path(local_paths).is_dir():
                     raise ValueError("Path must be a directory.")
+                source_path = (
+                    str(local_paths) + "/"
+                    if copy_contents
+                    else str(local_paths)
+                )
                 self.fs.put(
-                    str(local_paths),
+                    source_path,
                     str(self.path / remote_dir),
                     recursive=True,
                 )
