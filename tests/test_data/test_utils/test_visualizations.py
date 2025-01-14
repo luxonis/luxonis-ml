@@ -210,8 +210,7 @@ def test_visualize():
     expected_semantic = np.stack([expected_semantic] * 3, axis=-1)
     expected_images = {
         "image": image.copy(),
-        "semantic": expected_semantic,
-        "labels": expected_labels,
+        "labels": expected_semantic + expected_labels,
     }
     class_names = {
         "task": ["class_name"],

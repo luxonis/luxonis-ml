@@ -68,7 +68,7 @@ def test_dataset_record(tempdir: Path):
             {
                 "file": Path("tests/data/tempdir/left.jpg"),
                 "source_name": "image",
-                "task_name": "detection",
+                "task_name": "",
                 "class_name": None,
                 "instance_id": None,
                 "task_type": None,
@@ -90,7 +90,7 @@ def test_dataset_record(tempdir: Path):
             {
                 "file": Path("tests/data/tempdir/left.jpg"),
                 "source_name": "image",
-                "task_name": "detection",
+                "task_name": "",
                 "class_name": "person",
                 "instance_id": -1,
                 "task_type": "boundingbox",
@@ -99,7 +99,7 @@ def test_dataset_record(tempdir: Path):
             {
                 "file": Path("tests/data/tempdir/left.jpg"),
                 "source_name": "image",
-                "task_name": "detection",
+                "task_name": "",
                 "class_name": "person",
                 "instance_id": -1,
                 "task_type": "classification",

@@ -1,4 +1,4 @@
-from typing import Final, List
+from typing import Final, Set
 
 import pytest
 
@@ -26,70 +26,82 @@ def prepare_dir():
         (
             DatasetType.COCO,
             "COCO_people_subset.zip",
-            ["boundingbox", "keypoints", "segmentation", "classification"],
+            {"boundingbox", "keypoints", "segmentation", "classification"},
         ),
         (
             DatasetType.COCO,
             "Thermal_Dogs_and_People.v1-resize-416x416.coco.zip",
-            ["boundingbox", "classification"],
+            {"boundingbox", "classification"},
         ),
         (
             DatasetType.VOC,
             "Thermal_Dogs_and_People.v1-resize-416x416.voc.zip",
-            ["boundingbox", "classification"],
+            {"boundingbox", "classification"},
         ),
         (
             DatasetType.DARKNET,
             "Thermal_Dogs_and_People.v1-resize-416x416.darknet.zip",
-            ["boundingbox", "classification"],
+            {"boundingbox", "classification"},
         ),
         (
             DatasetType.YOLOV4,
             "Thermal_Dogs_and_People.v1-resize-416x416.yolov4pytorch.zip",
-            ["boundingbox", "classification"],
+            {"boundingbox", "classification"},
         ),
         (
             DatasetType.YOLOV6,
             "Thermal_Dogs_and_People.v1-resize-416x416.mt-yolov6.zip",
-            ["boundingbox", "classification"],
+            {"boundingbox", "classification"},
         ),
         (
             DatasetType.CREATEML,
             "Thermal_Dogs_and_People.v1-resize-416x416.createml.zip",
-            ["boundingbox", "classification"],
+            {"boundingbox", "classification"},
         ),
         (
             DatasetType.TFCSV,
             "Thermal_Dogs_and_People.v1-resize-416x416.tensorflow.zip",
-            ["boundingbox", "classification"],
+            {"boundingbox", "classification"},
         ),
         (
             DatasetType.SEGMASK,
             "D2_Tile.png-mask-semantic.zip",
-            ["segmentation", "classification"],
+            {"segmentation", "classification"},
         ),
         (
             DatasetType.CLSDIR,
             "Flowers_Classification.v2-raw.folder.zip",
-            ["classification"],
+            {"classification"},
         ),
         (
             DatasetType.SOLO,
             "D2_ParkingLot.zip",
-            ["boundingbox", "segmentation", "classification", "keypoints"],
+            {"boundingbox", "segmentation", "classification", "keypoints"},
         ),
         (
             DatasetType.COCO,
             "roboflow://team-roboflow/coco-128/2/coco",
-            ["boundingbox", "classification"],
+            {"boundingbox", "classification"},
+        ),
+        (
+            DatasetType.NATIVE,
+            "D2_ParkingLot_Native.zip",
+            {
+                "boundingbox",
+                "instance_segmentation",
+                "classification",
+                "keypoints",
+                "metadata/color",
+                "metadata/brand",
+            },
         ),
     ],
 )
 def test_dir_parser(
     dataset_type: DatasetType,
     url: str,
-    expected_task_types: List[str],
-    storage_url,
+    expected_task_types: Set[str],
+    storage_url: str,
 ):
     if not url.startswith("roboflow://"):
         url = f"{storage_url}/{url}"
@@ -108,5 +120,5 @@ def test_dir_parser(
     loader = LuxonisLoader(dataset)
     _, ann = next(iter(loader))
     task_types = {get_task_type(task) for task in ann}
-    assert task_types == set(expected_task_types)
+    assert task_types == expected_task_types
     dataset.delete_dataset()

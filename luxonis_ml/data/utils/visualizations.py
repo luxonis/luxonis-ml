@@ -329,13 +329,14 @@ def visualize(
 
     for task, arr in task_type_iterator(labels, "segmentation"):
         task_name = get_task_name(task)
-        images[task_name] = create_mask(
+        image_name = task_name if task_name and not blend_all else "labels"
+        images[image_name] = create_mask(
             image, arr, task_name, is_instance=False
         )
 
     for task, arr in task_type_iterator(labels, "instance_segmentation"):
         task_name = get_task_name(task)
-        image_name = task_name if not blend_all else "labels"
+        image_name = task_name if task_name and not blend_all else "labels"
         curr_image = images.get(image_name, image.copy())
         images[image_name] = create_mask(
             curr_image, arr, task_name, is_instance=True
@@ -343,7 +344,7 @@ def visualize(
 
     for task, arr in task_type_iterator(labels, "boundingbox"):
         task_name = get_task_name(task)
-        image_name = task_name if not blend_all else "labels"
+        image_name = task_name if task_name and not blend_all else "labels"
         curr_image = images.get(image_name, image.copy())
 
         draw_function = cv2.rectangle
@@ -374,7 +375,7 @@ def visualize(
 
     for task, arr in task_type_iterator(labels, "keypoints"):
         task_name = get_task_name(task)
-        image_name = task_name if not blend_all else "labels"
+        image_name = task_name if task_name and not blend_all else "labels"
         curr_image = images.get(image_name, image.copy())
 
         task_classes = class_names[task_name]

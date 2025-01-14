@@ -1,3 +1,4 @@
+import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
@@ -89,17 +90,20 @@ class BaseParser(ABC):
         @rtype: List[str]
         @return: List of added images.
         """
-        generator, skeletons, added_images = self.from_split(**kwargs)
-        self.dataset.add(self._add_task(generator))
-        if skeletons:
-            for skeleton in skeletons.values():
-                self.dataset.set_skeletons(
-                    skeleton.get("labels"),
-                    skeleton.get("edges"),
-                    self.dataset_type.value,
-                )
-
-        return added_images
+        old_cwd = os.getcwd()
+        try:
+            generator, skeletons, added_images = self.from_split(**kwargs)
+            self.dataset.add(self._add_task(generator))
+            if skeletons:
+                for skeleton in skeletons.values():
+                    self.dataset.set_skeletons(
+                        skeleton.get("labels"),
+                        skeleton.get("edges"),
+                        self.dataset_type.value,
+                    )
+            return added_images
+        finally:
+            os.chdir(old_cwd)
 
     def parse_split(
         self,
@@ -240,10 +244,11 @@ class BaseParser(ABC):
         @return: Generator function with added task
         """
 
-        task_name = self.task_name or self.dataset_type.value
+        task_name = self.task_name or ""
         for item in generator:
             if isinstance(item, dict):
-                item["task"] = task_name
-            else:
+                if "task" not in item:
+                    item["task"] = task_name
+            elif not item.task:
                 item.task = task_name
             yield item

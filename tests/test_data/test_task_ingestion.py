@@ -193,6 +193,7 @@ def test_task_ingestion(bucket_storage: BucketStorage, dataset_name: str):
             path = make_image(i)
             yield {
                 "file": str(path),
+                "task": "detection",
                 "annotation": {
                     "class": "bike",
                     "boundingbox": {"x": 0.9, "y": 0.8, "w": 0.1, "h": 0.4},

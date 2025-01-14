@@ -498,7 +498,7 @@ class ArrayAnnotation(Annotation):
             np.load(path)
         except Exception as e:
             raise ValueError(
-                f"Failed to load array annotation from {path}"
+                f"Failed to load array annotation from {path}."
             ) from e
         return path
 
@@ -506,7 +506,7 @@ class ArrayAnnotation(Annotation):
 class DatasetRecord(BaseModelExtraForbid):
     files: Dict[str, FilePath]
     annotation: Optional[Detection] = None
-    task: str = "detection"
+    task: str = ""
 
     @property
     def file(self) -> FilePath:
@@ -564,7 +564,8 @@ def check_valid_identifier(name: str, *, label: str) -> None:
     Albumentations requires that the names of the targets
     passed as `additional_targets` are valid Python identifiers.
     """
-    if not name.replace("-", "_").isidentifier():
+    name = name.replace("-", "_")
+    if name and not name.isidentifier():
         raise ValueError(
             f"{label} can only contain alphanumeric characters, "
             "underscores, and dashes. Additionaly, the first character "

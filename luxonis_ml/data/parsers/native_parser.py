@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -65,8 +66,11 @@ class NativeParser(BaseParser):
             dictionary for keypoints and list of added images.
         """
 
+        data = json.loads(annotation_path.read_text())
+        os.chdir(annotation_path.parent)
+
         def generator() -> DatasetIterator:
-            yield from json.loads(annotation_path.read_text())
+            yield from data
 
         added_images = self._get_added_images(generator())
 
