@@ -240,7 +240,7 @@ class BaseParser(ABC):
         @return: Generator function with added task
         """
 
-        task_name = self.task_name or self.dataset_type.value
+        task_name = self.task_name or ""
         for item in generator:
             if isinstance(item, dict):
                 item["task"] = task_name

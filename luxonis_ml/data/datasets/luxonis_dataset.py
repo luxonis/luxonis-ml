@@ -728,10 +728,10 @@ class LuxonisDataset(BaseDataset):
         """
         if not self.is_remote:
             shutil.rmtree(self.path)
-            logger.info(f"Deleted dataset {self.dataset_name}")
+            logger.info(f"Deleted dataset '{self.dataset_name}'")
 
         if self.is_remote and delete_remote:
-            logger.info(f"Deleting dataset {self.dataset_name} from cloud")
+            logger.info(f"Deleting dataset '{self.dataset_name}' from cloud")
             assert self.path
             assert self.dataset_name
             assert self.local_path
@@ -828,6 +828,7 @@ class LuxonisDataset(BaseDataset):
     def add(
         self, generator: DatasetIterator, batch_size: int = 1_000_000
     ) -> Self:
+        logger.info(f"Adding data to dataset '{self.dataset_name}'...")
         index = self._get_file_index(sync_from_cloud=True)
         new_index = {"uuid": [], "file": [], "original_filepath": []}
         processed_uuids = set()
