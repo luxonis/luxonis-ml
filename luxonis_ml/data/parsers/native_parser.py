@@ -66,7 +66,13 @@ class NativeParser(BaseParser):
         """
 
         def generator() -> DatasetIterator:
-            yield from json.loads(annotation_path.read_text())
+            for record in json.loads(annotation_path.read_text()):
+                if "file" not in record:
+                    raise ValueError(
+                        "The annotation record must contain 'file' key."
+                    )
+                record["file"] = annotation_path.parent / record["file"]
+                yield record
 
         added_images = self._get_added_images(generator())
 
