@@ -53,6 +53,7 @@ def test_dataset(
             bucket_storage=bucket_storage,
             delete_existing=True,
             delete_remote=True,
+            task_name="coco",
         )
         parser.parse()
         dataset = LuxonisDataset(dataset_name, bucket_storage=bucket_storage)
@@ -173,6 +174,7 @@ def test_loader_iterator(storage_url: str, tempdir: Path):
         save_dir=tempdir,
         dataset_type=DatasetType.COCO,
         delete_existing=True,
+        task_name="coco",
     ).parse()
     loader = LuxonisLoader(dataset)
 
@@ -417,12 +419,12 @@ def test_deep_nested_labels(
     compare_loader_output(
         loader,
         {
-            "detection/classification",
-            "detection/boundingbox",
-            "detection/driver/boundingbox",
-            "detection/driver/keypoints",
-            "detection/license_plate/boundingbox",
-            "detection/license_plate/metadata/text",
+            "/classification",
+            "/boundingbox",
+            "/driver/boundingbox",
+            "/driver/keypoints",
+            "/license_plate/boundingbox",
+            "/license_plate/metadata/text",
         },
     )
 
@@ -482,10 +484,10 @@ def test_partial_labels(tempdir: Path):
     compare_loader_output(
         loader,
         {
-            "detection/classification",
-            "detection/boundingbox",
-            "detection/keypoints",
-            "detection/segmentation",
+            "/classification",
+            "/boundingbox",
+            "/keypoints",
+            "/segmentation",
         },
     )
 
@@ -533,6 +535,8 @@ def _test_clone_dataset(bucket_storage, dataset_name: str, tempdir: Path):
 
     df_cloned = cloned_dataset._load_df_offline()
     df_original = dataset._load_df_offline()
+    assert df_cloned is not None
+    assert df_original is not None
     assert df_cloned.equals(df_original)
 
 
@@ -620,4 +624,6 @@ def _test_merge_datasets(bucket_storage, dataset_name: str, tempdir: Path):
     df_cloned_merged = dataset1.merge_with(
         dataset2, inplace=True
     )._load_df_offline()
+    assert df_merged is not None
+    assert df_cloned_merged is not None
     assert df_merged.equals(df_cloned_merged)
