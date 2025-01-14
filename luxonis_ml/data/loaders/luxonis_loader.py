@@ -143,8 +143,6 @@ class LuxonisLoader(BaseLoader):
 
         self.class_mappings: Dict[str, Dict[str, int]] = {}
         for task in self.df["task_name"].unique():
-            # if not task:
-            #     continue
             class_mapping = {
                 class_: i
                 for i, class_ in enumerate(
