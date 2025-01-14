@@ -101,7 +101,7 @@ def test_dir_parser(
     dataset_type: DatasetType,
     url: str,
     expected_task_types: Set[str],
-    storage_url,
+    storage_url: str,
 ):
     if not url.startswith("roboflow://"):
         url = f"{storage_url}/{url}"
