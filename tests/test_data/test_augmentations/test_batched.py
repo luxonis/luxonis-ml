@@ -61,3 +61,17 @@ def test_mixup(
     config = [{"name": "MixUp", "params": {"p": 1.0}}]
     augmentations = AlbumentationsEngine(256, 256, targets, config)
     augmentations.apply([(image.copy(), deepcopy(labels)) for _ in range(2)])
+
+
+def test_batched_p_0(
+    image: np.ndarray, labels: Labels, targets: Dict[str, TaskType]
+):
+    config = [
+        {
+            "name": "Mosaic4",
+            "params": {"p": 0, "out_width": 640, "out_height": 640},
+        },
+        {"name": "MixUp", "params": {"p": 0}},
+    ]
+    augmentations = AlbumentationsEngine(256, 256, targets, config)
+    augmentations.apply([(image.copy(), deepcopy(labels)) for _ in range(8)])
