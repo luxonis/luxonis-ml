@@ -376,7 +376,7 @@ class SegmentationAnnotation(Annotation):
                     )
             except Exception as e:
                 raise ValueError(
-                    f"Failed to load mask from {mask_path}. {str(e)}"
+                    f"Failed to load mask from {mask_path}"
                 ) from e
         if not isinstance(mask, np.ndarray):
             raise ValueError(
