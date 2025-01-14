@@ -1,4 +1,4 @@
-from typing import Any, Dict, Iterator, List, Tuple
+from typing import Dict, Iterator, List, Tuple, TypeVar
 
 import numpy as np
 
@@ -66,9 +66,12 @@ def postprocess_keypoints(
     return keypoints
 
 
+T = TypeVar("T")
+
+
 def yield_batches(
-    data_batch: List[Dict[str, Any]], batch_size: int
-) -> Iterator[Dict[str, List[Any]]]:
+    data_batch: List[Dict[str, T]], batch_size: int
+) -> Iterator[Dict[str, List[T]]]:
     """Yield batches of data.
 
     @type data_batch: List[Dict[str, Any]]

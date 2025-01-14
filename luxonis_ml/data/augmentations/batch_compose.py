@@ -47,6 +47,9 @@ class BatchCompose(A.Compose):
             for batch in yield_batches(data_batch, transform.batch_size):
                 data = transform(**batch)  # type: ignore
 
+                if isinstance(next(iter(data.values())), list):
+                    data = {key: value[0] for key, value in batch.items()}
+
                 data = self.check_data_post_transform(data)
                 new_batch.append(data)
             data_batch = new_batch
