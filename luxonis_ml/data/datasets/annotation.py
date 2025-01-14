@@ -498,7 +498,7 @@ class ArrayAnnotation(Annotation):
             np.load(path)
         except Exception as e:
             raise ValueError(
-                f"Failed to load array annotation from {path}"
+                f"Failed to load array annotation from {path}. {str(e)}"
             ) from e
         return path
 
