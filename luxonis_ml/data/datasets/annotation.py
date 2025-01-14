@@ -376,7 +376,7 @@ class SegmentationAnnotation(Annotation):
                     )
             except Exception as e:
                 raise ValueError(
-                    f"Failed to load mask from {mask_path}"
+                    f"Failed to load mask from {mask_path}. {str(e)}"
                 ) from e
         if not isinstance(mask, np.ndarray):
             raise ValueError(
@@ -498,7 +498,7 @@ class ArrayAnnotation(Annotation):
             np.load(path)
         except Exception as e:
             raise ValueError(
-                f"Failed to load array annotation from {path}. {str(e)}"
+                f"Failed to load array annotation from {path}."
             ) from e
         return path
 
