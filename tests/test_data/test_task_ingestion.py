@@ -1,11 +1,8 @@
-import shutil
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict
 
-import cv2
-import numpy as np
-import pytest
+from utils import create_image
 
 from luxonis_ml.data import (
     BucketStorage,
@@ -15,28 +12,7 @@ from luxonis_ml.data import (
 )
 from luxonis_ml.data.utils import get_task_name, get_task_type
 
-DATA_DIR = Path("tests/data/test_task_ingestion")
 STEP = 10
-
-
-@pytest.fixture(autouse=True, scope="module")
-def prepare_dir():
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-    yield
-
-    shutil.rmtree(DATA_DIR)
-
-
-def make_image(i) -> Path:
-    path = DATA_DIR / f"img_{i}.jpg"
-    if not path.exists():
-        img = np.zeros((512, 512, 3), dtype=np.uint8)
-        img[0:10, 0:10] = np.random.randint(
-            0, 255, (10, 10, 3), dtype=np.uint8
-        )
-        cv2.imwrite(str(path), img)
-    return path
 
 
 def compute_histogram(dataset: LuxonisDataset) -> Dict[str, int]:
@@ -50,7 +26,9 @@ def compute_histogram(dataset: LuxonisDataset) -> Dict[str, int]:
     return dict(classes)
 
 
-def test_task_ingestion(bucket_storage: BucketStorage, dataset_name: str):
+def test_task_ingestion(
+    bucket_storage: BucketStorage, dataset_name: str, tempdir: Path
+):
     dataset = LuxonisDataset(
         dataset_name,
         bucket_storage=bucket_storage,
@@ -60,7 +38,7 @@ def test_task_ingestion(bucket_storage: BucketStorage, dataset_name: str):
 
     def generator1():
         for i in range(STEP):
-            path = make_image(i)
+            path = create_image(i, tempdir)
             yield {
                 "file": str(path),
                 "task": "animals",
@@ -110,9 +88,8 @@ def test_task_ingestion(bucket_storage: BucketStorage, dataset_name: str):
 
     dataset.add(generator1()).make_splits((1, 0, 0))
 
-    classes_list, classes = dataset.get_classes()
+    classes = dataset.get_classes()
 
-    assert set(classes_list) == {"dog", "cat", "water", "grass"}
     assert set(classes["landmass"]) == {"water", "grass"}
     assert set(classes["animals"]) == {"dog", "cat"}
 
@@ -120,7 +97,7 @@ def test_task_ingestion(bucket_storage: BucketStorage, dataset_name: str):
 
     def generator2():
         for i in range(STEP, 2 * STEP):
-            path = make_image(i)
+            path = create_image(i, tempdir)
             yield {
                 "file": str(path),
                 "annotation": {
@@ -137,9 +114,7 @@ def test_task_ingestion(bucket_storage: BucketStorage, dataset_name: str):
             }
 
     dataset.add(generator2()).make_splits((1, 0, 0))
-    classes_list, classes = dataset.get_classes()
-
-    assert set(classes_list) == {"background", "dog", "cat", "water", "grass"}
+    classes = dataset.get_classes()
     assert set(classes["landmass"]) == {"background", "water", "grass"}
     assert set(classes["animals"]) == {"dog", "cat"}
 
@@ -150,7 +125,7 @@ def test_task_ingestion(bucket_storage: BucketStorage, dataset_name: str):
 
     def generator3():
         for i in range(2 * STEP, 3 * STEP):
-            path = make_image(i)
+            path = create_image(i, tempdir)
             yield {
                 "file": str(path),
                 "task": "animals",
@@ -177,9 +152,7 @@ def test_task_ingestion(bucket_storage: BucketStorage, dataset_name: str):
             }
 
     dataset.add(generator3()).make_splits((1, 0, 0))
-    classes_list, classes = dataset.get_classes()
-
-    assert set(classes_list) == {"background", "dog", "cat", "water", "grass"}
+    classes = dataset.get_classes()
     assert set(classes["landmass"]) == {"background", "water", "grass"}
     assert set(classes["animals"]) == {"dog", "cat"}
 
@@ -190,7 +163,7 @@ def test_task_ingestion(bucket_storage: BucketStorage, dataset_name: str):
 
     def generator4():
         for i in range(3 * STEP, 4 * STEP):
-            path = make_image(i)
+            path = create_image(i, tempdir)
             yield {
                 "file": str(path),
                 "task": "detection",
@@ -235,18 +208,8 @@ def test_task_ingestion(bucket_storage: BucketStorage, dataset_name: str):
             }
 
     dataset.add(generator4()).make_splits((1, 0, 0))
-    classes_list, classes = dataset.get_classes()
+    classes = dataset.get_classes()
 
-    print(classes)
-    assert set(classes_list) == {
-        "dog",
-        "cat",
-        "water",
-        "grass",
-        "bike",
-        "body",
-        "background",
-    }
     assert set(classes["landmass"]) == {"background", "water", "grass"}
     assert set(classes["animals"]) == {"dog", "cat"}
     assert set(classes["landmass-2"]) == {"water"}

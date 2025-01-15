@@ -2,10 +2,10 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Set
 
-import cv2
 import numpy as np
 import pytest
 from pytest_subtests.plugin import SubTests
+from utils import create_image
 
 from luxonis_ml.data import (
     BucketStorage,
@@ -16,17 +16,6 @@ from luxonis_ml.data import (
 )
 from luxonis_ml.data.utils.task_utils import get_task_type
 from luxonis_ml.enums import DatasetType
-
-
-def create_image(i: int, dir: Path) -> Path:
-    path = dir / f"img_{i}.jpg"
-    if not path.exists():
-        img = np.zeros((512, 512, 3), dtype=np.uint8)
-        img[0:10, 0:10] = np.random.randint(
-            0, 255, (10, 10, 3), dtype=np.uint8
-        )
-        cv2.imwrite(str(path), img)
-    return path
 
 
 def compare_loader_output(loader: LuxonisLoader, tasks: Set[str]):
@@ -60,8 +49,8 @@ def test_dataset(
         assert LuxonisDataset.exists(
             dataset_name, bucket_storage=bucket_storage
         )
-        assert dataset.get_classes()[0] == ["person"]
         assert set(dataset.get_task_names()) == {"coco"}
+        assert dataset.get_classes().get("coco") == ["person"]
         assert dataset.get_skeletons() == {
             "coco": (
                 [
@@ -291,9 +280,6 @@ def test_make_splits(
         ), f"Split {split} has {len(split_data)} samples"
 
 
-# TODO: Test array
-
-
 def test_metadata(
     bucket_storage: BucketStorage, dataset_name: str, tempdir: Path
 ):
@@ -492,19 +478,9 @@ def test_partial_labels(tempdir: Path):
     )
 
 
-@pytest.mark.dependency(name="test_clone_dataset_local")
-def test_clone_dataset_local(dataset_name: str, tempdir: Path):
-    _test_clone_dataset(BucketStorage.LOCAL, dataset_name, tempdir)
-
-
-@pytest.mark.dependency(
-    name="test_clone_dataset_gcs", depends=["test_clone_dataset_local"]
-)
-def test_clone_dataset_gcs(dataset_name: str, tempdir: Path):
-    _test_clone_dataset(BucketStorage.GCS, dataset_name, tempdir)
-
-
-def _test_clone_dataset(bucket_storage, dataset_name: str, tempdir: Path):
+def test_clone_dataset(
+    bucket_storage: BucketStorage, dataset_name: str, tempdir: Path
+):
     dataset = LuxonisDataset(
         dataset_name,
         bucket_storage=bucket_storage,
@@ -540,22 +516,13 @@ def _test_clone_dataset(bucket_storage, dataset_name: str, tempdir: Path):
     assert df_cloned.equals(df_original)
 
 
-@pytest.mark.dependency(
-    name="test_merge_datasets_local", depends=["test_clone_dataset_gcs"]
-)
-def test_merge_datasets_local(dataset_name: str, tempdir: Path):
-    _test_merge_datasets(BucketStorage.LOCAL, dataset_name, tempdir)
-
-
-@pytest.mark.dependency(
-    name="test_merge_datasets_gcs", depends=["test_merge_datasets_local"]
-)
-def test_merge_datasets_gcs(dataset_name: str, tempdir: Path):
-    _test_merge_datasets(BucketStorage.GCS, dataset_name, tempdir)
-
-
-def _test_merge_datasets(bucket_storage, dataset_name: str, tempdir: Path):
-    dataset1_name = dataset_name + "_1"
+def test_merge_datasets(
+    bucket_storage: BucketStorage,
+    dataset_name: str,
+    tempdir: Path,
+    subtests: SubTests,
+):
+    dataset1_name = f"{dataset_name}_1"
     dataset1 = LuxonisDataset(
         dataset1_name,
         bucket_storage=bucket_storage,
@@ -577,7 +544,7 @@ def _test_merge_datasets(bucket_storage, dataset_name: str, tempdir: Path):
     dataset1.add(generator1())
     dataset1.make_splits({"train": 0.6, "val": 0.4})
 
-    dataset2_name = dataset_name + "_2"
+    dataset2_name = f"{dataset_name}_2"
     dataset2 = LuxonisDataset(
         dataset2_name,
         bucket_storage=bucket_storage,
@@ -599,26 +566,26 @@ def _test_merge_datasets(bucket_storage, dataset_name: str, tempdir: Path):
     dataset2.add(generator2())
     dataset2.make_splits({"train": 0.6, "val": 0.4})
 
-    # Test in-place merge
-    cloned_dataset1 = dataset1.clone(
-        new_dataset_name=dataset1_name + "_cloned"
-    )
-    cloned_dataset1_merged_with_dataset2 = cloned_dataset1.merge_with(
-        dataset2, inplace=True
-    )
+    with subtests.test("test_inplace"):
+        cloned_dataset1 = dataset1.clone(
+            new_dataset_name=f"{dataset1_name}_cloned"
+        )
+        cloned_dataset1_merged_with_dataset2 = cloned_dataset1.merge_with(
+            dataset2, inplace=True
+        )
 
-    all_classes_inplace, _ = cloned_dataset1_merged_with_dataset2.get_classes()
-    assert set(all_classes_inplace) == {"person", "dog"}
+        classes = cloned_dataset1_merged_with_dataset2.get_classes()
+        assert set(classes[""]) == {"person", "dog"}
 
-    # Test out-of-place merge
-    dataset1_merged_with_dataset2 = dataset1.merge_with(
-        dataset2,
-        inplace=False,
-        new_dataset_name=dataset1_name + "_" + dataset2_name + "_merged",
-    )
+    with subtests.test("test_out_of_place"):
+        dataset1_merged_with_dataset2 = dataset1.merge_with(
+            dataset2,
+            inplace=False,
+            new_dataset_name=dataset1_name + "_" + dataset2_name + "_merged",
+        )
 
-    all_classes_out_of_place, _ = dataset1_merged_with_dataset2.get_classes()
-    assert set(all_classes_out_of_place) == {"person", "dog"}
+        classes = dataset1_merged_with_dataset2.get_classes()
+        assert set(classes[""]) == {"person", "dog"}
 
     df_merged = dataset1_merged_with_dataset2._load_df_offline()
     df_cloned_merged = dataset1.merge_with(

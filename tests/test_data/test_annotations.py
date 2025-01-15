@@ -53,7 +53,6 @@ def test_dataset_record(tempdir: Path):
     ):
         rows = list(record.to_parquet_rows())
         for row in rows:
-            del row["created_at"]  # type: ignore
             row["file"] = Path(row["file"])  # type: ignore
         assert rows == expected_rows
 
@@ -516,89 +515,111 @@ def test_detection(subtests: SubTests):
                 }
             )
 
-    with subtests.test("full"):
-        detection = Detection(
-            **{
-                "class": "person",
-                "boundingbox": {"x": 0.1, "y": 0.2, "w": 0.5, "h": 0.5},
-                "keypoints": {
-                    "keypoints": [(0.2, 0.4, 2), (0.5, 0.8, 2)],
-                },
-                "segmentation": {
-                    "mask": np.array(
-                        [
-                            [0, 1, 0, 0],
-                            [1, 1, 0, 0],
-                            [0, 0, 0, 0],
-                            [0, 0, 1, 1],
-                        ]
-                    ),
-                },
-                "instance_segmentation": {
-                    "mask": np.array(
-                        [
-                            [1, 1, 0, 0],
-                            [1, 1, 0, 0],
-                            [0, 0, 0, 0],
-                            [0, 0, 0, 0],
-                        ]
-                    ),
-                },
-                "metadata": {"age": 25},
-                "sub_detections": {
-                    "head": {
-                        "boundingbox": {
-                            "x": 0.2,
-                            "y": 0.3,
-                            "w": 0.1,
-                            "h": 0.1,
-                        },
-                    }
-                },
-            }
-        )
-        expected_rows = [
-            {
-                "class_name": "person",
-                "instance_id": -1,
-                "task_type": "boundingbox",
-                "annotation": '{"x":0.1,"y":0.2,"w":0.5,"h":0.5}',
+
+def test_record(tempdir: Path):
+    detection = Detection(
+        **{
+            "class": "person",
+            "boundingbox": {"x": 0.1, "y": 0.2, "w": 0.5, "h": 0.5},
+            "keypoints": {
+                "keypoints": [(0.2, 0.4, 2), (0.5, 0.8, 2)],
             },
-            {
-                "class_name": "person",
-                "instance_id": -1,
-                "task_type": "keypoints",
-                "annotation": '{"keypoints":[[0.2,0.4,2],[0.5,0.8,2]]}',
+            "segmentation": {
+                "mask": np.array(
+                    [
+                        [0, 1, 0, 0],
+                        [1, 1, 0, 0],
+                        [0, 0, 0, 0],
+                        [0, 0, 1, 1],
+                    ]
+                ),
             },
-            {
-                "class_name": "person",
-                "instance_id": -1,
-                "task_type": "segmentation",
-                "annotation": '{"height":4,"width":4,"counts":"11213ON0"}',
+            "instance_segmentation": {
+                "mask": np.array(
+                    [
+                        [1, 1, 0, 0],
+                        [1, 1, 0, 0],
+                        [0, 0, 0, 0],
+                        [0, 0, 0, 0],
+                    ]
+                ),
             },
-            {
-                "class_name": "person",
-                "instance_id": -1,
-                "task_type": "instance_segmentation",
-                "annotation": '{"height":4,"width":4,"counts":"02208"}',
+            "metadata": {"age": 25},
+            "sub_detections": {
+                "head": {
+                    "boundingbox": {
+                        "x": 0.2,
+                        "y": 0.3,
+                        "w": 0.1,
+                        "h": 0.1,
+                    },
+                }
             },
-            {
-                "class_name": "person",
-                "instance_id": -1,
-                "task_type": "metadata/age",
-                "annotation": "25",
-            },
-            {
-                "class_name": "person",
-                "instance_id": -1,
-                "task_type": "classification",
-                "annotation": "{}",
-            },
-            {
-                "class_name": None,
-                "instance_id": -1,
-                "task_type": "head/boundingbox",
-                "annotation": '{"x":0.2,"y":0.3,"w":0.1,"h":0.1}',
-            },
-        ]
-        assert list(detection.to_parquet_rows()) == expected_rows
+        }
+    )
+    filename = str(tempdir / "image.jpg")
+    cv2.imwrite(filename, np.zeros((256, 256, 3), dtype=np.uint8))
+    record = DatasetRecord(
+        **{
+            "file": filename,
+            "annotation": detection,
+            "task": "test",
+        }
+    )
+    common = {
+        "file": filename,
+        "source_name": "image",
+        "instance_id": -1,
+    }
+    expected_rows = [
+        {
+            **common,
+            "task_name": "test",
+            "class_name": "person",
+            "task_type": "boundingbox",
+            "annotation": '{"x":0.1,"y":0.2,"w":0.5,"h":0.5}',
+        },
+        {
+            **common,
+            "task_name": "test",
+            "class_name": "person",
+            "task_type": "keypoints",
+            "annotation": '{"keypoints":[[0.2,0.4,2],[0.5,0.8,2]]}',
+        },
+        {
+            **common,
+            "task_name": "test",
+            "class_name": "person",
+            "task_type": "segmentation",
+            "annotation": '{"height":4,"width":4,"counts":"11213ON0"}',
+        },
+        {
+            **common,
+            "task_name": "test",
+            "class_name": "person",
+            "task_type": "instance_segmentation",
+            "annotation": '{"height":4,"width":4,"counts":"02208"}',
+        },
+        {
+            **common,
+            "task_name": "test",
+            "class_name": "person",
+            "task_type": "metadata/age",
+            "annotation": "25",
+        },
+        {
+            **common,
+            "task_name": "test",
+            "class_name": "person",
+            "task_type": "classification",
+            "annotation": "{}",
+        },
+        {
+            **common,
+            "task_name": "test/head",
+            "class_name": None,
+            "task_type": "boundingbox",
+            "annotation": '{"x":0.2,"y":0.3,"w":0.1,"h":0.1}',
+        },
+    ]
+    assert list(record.to_parquet_rows()) == expected_rows
