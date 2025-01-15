@@ -6,7 +6,6 @@ from typing_extensions import TypeAlias
 
 from luxonis_ml.data.datasets.annotation import DatasetRecord
 from luxonis_ml.data.datasets.source import LuxonisSource
-from luxonis_ml.data.utils.task_utils import get_task_name
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import AutoRegisterMeta, Registry
 
@@ -41,11 +40,11 @@ class BaseDataset(
         ...
 
     @abstractmethod
-    def get_tasks(self) -> List[str]:
-        """Returns the list of tasks in the dataset.
+    def get_tasks(self) -> Dict[str, str]:
+        """Returns a dictionary mapping task names to task types.
 
-        @rtype: List[str]
-        @return: List of task names.
+        @rtype: Dict[str, str]
+        @return: A dictionary mapping task names to task types.
         """
         ...
 
@@ -202,4 +201,4 @@ class BaseDataset(
         @rtype: List[str]
         @return: List of task names.
         """
-        return [get_task_name(task) for task in self.get_tasks()]
+        return list(self.get_tasks().keys())

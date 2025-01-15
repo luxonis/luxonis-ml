@@ -1,7 +1,7 @@
 import logging
 import random
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Set, Tuple
 
 import cv2
 import numpy as np
@@ -16,7 +16,6 @@ from typing_extensions import Annotated
 
 from luxonis_ml.data import LuxonisDataset, LuxonisLoader, LuxonisParser
 from luxonis_ml.data.utils.constants import LDF_VERSION
-from luxonis_ml.data.utils.task_utils import split_task, task_is_metadata
 from luxonis_ml.data.utils.visualizations import visualize
 from luxonis_ml.enums import DatasetType
 
@@ -47,39 +46,47 @@ def check_exists(name: str):
         raise typer.Exit()
 
 
-def get_dataset_info(name: str) -> Tuple[int, List[str], List[str]]:
-    dataset = LuxonisDataset(name)
-    size = len(dataset)
-    classes, _ = dataset.get_classes()
-    return size, classes, dataset.get_task_names()
+def get_dataset_info(dataset: LuxonisDataset) -> Tuple[Set[str], List[str]]:
+    all_classes = {
+        c for classes in dataset.get_classes().values() for c in classes
+    }
+    return all_classes, dataset.get_task_names()
 
 
 def print_info(name: str) -> None:
     dataset = LuxonisDataset(name)
-    _, classes = dataset.get_classes()
+    classes = dataset.get_classes()
     class_table = Table(
         title="Classes", box=rich.box.ROUNDED, row_styles=["yellow", "cyan"]
     )
-    class_table.add_column("Task Name", header_style="magenta i", max_width=30)
-    class_table.add_column("Classes", header_style="magenta i", max_width=50)
+    if len(classes) > 1 or next(iter(classes)):
+        class_table.add_column(
+            "Task Name", header_style="magenta i", max_width=30
+        )
+    class_table.add_column(
+        "Class Names", header_style="magenta i", max_width=50
+    )
     for task_name, c in classes.items():
-        class_table.add_row(task_name, ", ".join(c))
+        if not task_name:
+            class_table.add_row(", ".join(c))
+        else:
+            class_table.add_row(task_name, ", ".join(c))
 
     tasks = dataset.get_tasks()
-    tasks.sort(key=task_is_metadata)
     task_table = Table(
         title="Tasks", box=rich.box.ROUNDED, row_styles=["yellow", "cyan"]
     )
-    task_table.add_column("Task Name", header_style="magenta i", max_width=30)
-    task_table.add_column("Task Type", header_style="magenta i", max_width=50)
-    separated = False
-    for task in tasks:
-        if task_is_metadata(task):
-            if not separated:
-                task_table.add_section()
-                separated = True
-        task_name, task_type = split_task(task)
-        task_table.add_row(task_name, task_type)
+    if len(tasks) > 1 or next(iter(tasks)):
+        task_table.add_column(
+            "Task Name", header_style="magenta i", max_width=30
+        )
+    task_table.add_column("Task Types", header_style="magenta i", max_width=50)
+    for task_name, task_types in tasks.items():
+        task_types.sort()
+        if not task_name:
+            task_table.add_row(", ".join(task_types))
+        else:
+            task_table.add_row(task_name, ", ".join(task_types))
 
     splits = dataset.get_splits()
 
@@ -150,7 +157,7 @@ def ls(
             size = -1
         rows.append(str(size))
         if full:
-            _, classes, tasks = get_dataset_info(name)
+            classes, tasks = get_dataset_info(dataset)
             rows.extend(
                 [
                     ", ".join(classes) if classes else "[red]<empty>[no red]",
@@ -250,7 +257,7 @@ def inspect(
     if len(dataset) == 0:
         raise ValueError(f"Dataset '{name}' is empty.")
 
-    class_names = dataset.get_classes()[1]
+    classes = dataset.get_classes()
     for image, labels in loader:
         image = image.astype(np.uint8)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -258,7 +265,7 @@ def inspect(
         h, w, _ = image.shape
         new_h, new_w = int(h * size_multiplier), int(w * size_multiplier)
         image = cv2.resize(image, (new_w, new_h))
-        image = visualize(image, labels, class_names, blend_all=blend_all)
+        image = visualize(image, labels, classes, blend_all=blend_all)
         cv2.imshow("image", image)
         if cv2.waitKey() == ord("q"):
             break

@@ -66,7 +66,7 @@ class Metadata(TypedDict):
     source: LuxonisSource.LuxonisSourceDocument
     ldf_version: str
     classes: Dict[str, List[str]]
-    tasks: List[str]
+    tasks: Dict[str, List[str]]
     skeletons: Dict[str, Skeletons]
 
 
@@ -246,7 +246,7 @@ class LuxonisDataset(BaseDataset):
                 data_dict = dict(row)
                 data_dict.pop("uuid", None)
 
-                pfm.write(uuid_val, data_dict)
+                pfm.write(uuid_val, data_dict)  # type: ignore
 
         logger.info(
             f"Saved merged DataFrame to Parquet files in '{annotations_path}'."
@@ -273,14 +273,6 @@ class LuxonisDataset(BaseDataset):
                                 )
                     else:
                         existing_val.update(value)
-
-                elif (
-                    key == "tasks"
-                    and isinstance(existing_val, list)
-                    and isinstance(value, list)
-                ):
-                    combined = set(existing_val).union(value)
-                    self.metadata[key] = list(combined)
                 else:
                     self.metadata[key] = value
         self._write_metadata()
@@ -359,16 +351,15 @@ class LuxonisDataset(BaseDataset):
         @param new_dataset_name: The name of the new dataset to create
             if inplace is False.
         """
-        if not inplace and not new_dataset_name:
+        if inplace:
+            target_dataset = self
+        elif new_dataset_name:
+            target_dataset = self.clone(new_dataset_name, push_to_cloud=False)
+        else:
             raise ValueError(
-                "You must specify a name for the new dataset when inplace is False."
+                "You must specify a name for the new dataset "
+                "when inplace is False"
             )
-
-        target_dataset = (
-            self
-            if inplace
-            else self.clone(new_dataset_name, push_to_cloud=False)
-        )
 
         if self.is_remote:
             other.sync_from_cloud(update_mode=UpdateMode.ALWAYS)
@@ -378,8 +369,8 @@ class LuxonisDataset(BaseDataset):
                 else UpdateMode.IF_EMPTY
             )
 
-        df_self = self._load_df_offline()
-        df_other = other._load_df_offline()
+        df_self = self._load_df_offline(raise_when_empty=True)
+        df_other = other._load_df_offline(raise_when_empty=True)
         duplicate_uuids = set(df_self["uuid"]).intersection(df_other["uuid"])
         if duplicate_uuids:
             df_other = df_other.filter(
@@ -389,8 +380,8 @@ class LuxonisDataset(BaseDataset):
         df_merged = pl.concat([df_self, df_other])
         target_dataset._save_df_offline(df_merged)
 
-        file_index_self = self._get_file_index()
-        file_index_other = other._get_file_index()
+        file_index_self = self._get_file_index(raise_when_empty=True)
+        file_index_other = other._get_file_index(raise_when_empty=True)
         file_index_duplicates = set(file_index_self["uuid"]).intersection(
             file_index_other["uuid"]
         )
@@ -444,16 +435,28 @@ class LuxonisDataset(BaseDataset):
 
     @overload
     def _load_df_offline(
-        self, lazy: Literal[False] = ...
+        self,
+        lazy: Literal[False] = ...,
+        raise_when_empty: Literal[False] = ...,
     ) -> Optional[pl.DataFrame]: ...
 
     @overload
     def _load_df_offline(
-        self, lazy: Literal[True] = ...
+        self, lazy: Literal[False] = ..., raise_when_empty: Literal[True] = ...
+    ) -> pl.DataFrame: ...
+
+    @overload
+    def _load_df_offline(
+        self, lazy: Literal[True] = ..., raise_when_empty: Literal[False] = ...
     ) -> Optional[pl.LazyFrame]: ...
 
+    @overload
     def _load_df_offline(
-        self, lazy: bool = False
+        self, lazy: Literal[True] = ..., raise_when_empty: Literal[True] = ...
+    ) -> pl.LazyFrame: ...
+
+    def _load_df_offline(
+        self, lazy: bool = False, raise_when_empty: bool = False
     ) -> Optional[Union[pl.DataFrame, pl.LazyFrame]]:
         """Loads the dataset DataFrame **always** from the local
         storage."""
@@ -467,6 +470,10 @@ class LuxonisDataset(BaseDataset):
         )
 
         if not path.exists():
+            if raise_when_empty:
+                raise FileNotFoundError(
+                    f"Dataset '{self.dataset_name}' is empty."
+                )
             return None
 
         if lazy:
@@ -475,6 +482,9 @@ class LuxonisDataset(BaseDataset):
         else:
             dfs = [pl.read_parquet(file) for file in path.glob("*.parquet")]
             df = pl.concat(dfs) if dfs else None
+
+        if df is None and raise_when_empty:
+            raise FileNotFoundError(f"Dataset '{self.dataset_name}' is empty.")
 
         if self.version == LDF_VERSION or df is None:
             return df
@@ -493,7 +503,6 @@ class LuxonisDataset(BaseDataset):
                     "file",
                     "source_name",
                     "task_name",
-                    "created_at",
                     "class_name",
                     "instance_id",
                     "task_type",
@@ -505,16 +514,39 @@ class LuxonisDataset(BaseDataset):
 
     @overload
     def _get_file_index(
-        self, lazy: Literal[False] = ..., sync_from_cloud: bool = ...
+        self,
+        lazy: Literal[False] = ...,
+        sync_from_cloud: bool = ...,
+        raise_when_empty: Literal[False] = ...,
     ) -> Optional[pl.DataFrame]: ...
+    @overload
+    def _get_file_index(
+        self,
+        lazy: Literal[False] = ...,
+        sync_from_cloud: bool = ...,
+        raise_when_empty: Literal[True] = ...,
+    ) -> pl.DataFrame: ...
 
     @overload
     def _get_file_index(
-        self, lazy: Literal[True] = ..., sync_from_cloud: bool = ...
+        self,
+        lazy: Literal[True] = ...,
+        sync_from_cloud: bool = ...,
+        raise_when_empty: Literal[False] = ...,
     ) -> Optional[pl.LazyFrame]: ...
+    @overload
+    def _get_file_index(
+        self,
+        lazy: Literal[True] = ...,
+        sync_from_cloud: bool = ...,
+        raise_when_empty: Literal[True] = ...,
+    ) -> pl.LazyFrame: ...
 
     def _get_file_index(
-        self, lazy: bool = False, sync_from_cloud: bool = False
+        self,
+        lazy: bool = False,
+        sync_from_cloud: bool = False,
+        raise_when_empty: bool = False,
     ) -> Optional[Union[pl.DataFrame, pl.LazyFrame]]:
         """Loads the file index DataFrame from the local storage or the
         cloud if sync_from_cloud.
@@ -540,6 +572,10 @@ class LuxonisDataset(BaseDataset):
 
             return df.select(pl.all().exclude("^__index_level_.*$"))
 
+        if raise_when_empty:
+            raise FileNotFoundError(
+                f"File index for dataset '{self.dataset_name}' is empty."
+            )
         return None
 
     def _write_index(
@@ -596,7 +632,7 @@ class LuxonisDataset(BaseDataset):
                 "source": LuxonisSource().to_document(),
                 "ldf_version": str(LDF_VERSION),
                 "classes": {},
-                "tasks": [],
+                "tasks": {},
                 "skeletons": {},
             }
 
@@ -630,15 +666,8 @@ class LuxonisDataset(BaseDataset):
         self._write_metadata()
 
     @override
-    def get_classes(self) -> Tuple[List[str], Dict[str, List[str]]]:
-        all_classes = list(
-            {
-                c
-                for classes in self.metadata["classes"].values()
-                for c in classes
-            }
-        )
-        return sorted(all_classes), self.metadata["classes"]
+    def get_classes(self) -> Dict[str, List[str]]:
+        return self.metadata["classes"]
 
     @override
     def set_skeletons(
@@ -671,8 +700,8 @@ class LuxonisDataset(BaseDataset):
         }
 
     @override
-    def get_tasks(self) -> List[str]:
-        return self.metadata.get("tasks", [])
+    def get_tasks(self) -> Dict[str, List[str]]:
+        return self.metadata.get("tasks", {})
 
     def sync_from_cloud(
         self, update_mode: UpdateMode = UpdateMode.IF_EMPTY
@@ -858,7 +887,7 @@ class LuxonisDataset(BaseDataset):
                 if ann is not None:
                     if not explicit_task:
                         record.task = infer_task(
-                            record.task, ann.class_name, self.get_classes()[1]
+                            record.task, ann.class_name, self.get_classes()
                         )
                     if ann.class_name is not None:
                         classes_per_task[record.task].add(ann.class_name)
@@ -883,7 +912,7 @@ class LuxonisDataset(BaseDataset):
         with suppress(shutil.SameFileError):
             self.fs.put_dir(annotations_path, "")
 
-        _, curr_classes = self.get_classes()
+        curr_classes = self.get_classes()
         for task, classes in classes_per_task.items():
             old_classes = set(curr_classes.get(task, []))
             new_classes = list(classes - old_classes)
@@ -912,14 +941,14 @@ class LuxonisDataset(BaseDataset):
         df = self._load_df_offline()
         if df is None:
             return
-        tasks = []
+        tasks = defaultdict(list)
         for task_name, task_type in (
             df.select("task_name", "task_type")
             .unique()
             .drop_nulls()
             .iter_rows()
         ):
-            tasks.append(f"{task_name}/{task_type}")
+            tasks[task_name].append(task_type)
         self.metadata["tasks"] = tasks
         self._write_metadata()
 
@@ -1026,9 +1055,7 @@ class LuxonisDataset(BaseDataset):
 
         if definitions is None:
             ratios = ratios or {"train": 0.8, "val": 0.1, "test": 0.1}
-            df = self._load_df_offline()
-            if df is None:
-                raise FileNotFoundError("No data found in dataset")
+            df = self._load_df_offline(raise_when_empty=True)
             ids = (
                 df.filter(~pl.col("uuid").is_in(defined_uuids))
                 .select("uuid")
@@ -1146,7 +1173,7 @@ class LuxonisDataset(BaseDataset):
         if not fs.exists():
             return []
 
-        def process_directory(path: str) -> Optional[str]:
+        def process_directory(path: PathType) -> Optional[str]:
             path = Path(path)
             metadata_path = path / "metadata" / "metadata.json"
             if fs.exists(metadata_path):
