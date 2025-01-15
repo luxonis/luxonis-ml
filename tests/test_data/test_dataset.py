@@ -308,7 +308,6 @@ def test_metadata(
     dataset.make_splits()
     loader = LuxonisLoader(dataset)
     for _, labels in loader:
-        print(labels.keys())
         labels = {get_task_type(k): v for k, v in labels.items()}
         assert {
             "metadata/color",
