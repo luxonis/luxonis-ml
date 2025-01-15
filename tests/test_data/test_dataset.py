@@ -517,8 +517,8 @@ def test_clone_dataset(
 
 
 def test_merge_datasets(
-    bucket_storage: BucketStorage,
     dataset_name: str,
+    bucket_storage: BucketStorage,
     tempdir: Path,
     subtests: SubTests,
 ):
@@ -581,7 +581,7 @@ def test_merge_datasets(
         dataset1_merged_with_dataset2 = dataset1.merge_with(
             dataset2,
             inplace=False,
-            new_dataset_name=dataset1_name + "_" + dataset2_name + "_merged",
+            new_dataset_name=f"{dataset1_name}_{dataset2_name}_merged",
         )
 
         classes = dataset1_merged_with_dataset2.get_classes()
