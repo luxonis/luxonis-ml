@@ -74,13 +74,12 @@ class BaseDataset(
         ...
 
     @abstractmethod
-    def get_classes(self) -> Tuple[List[str], Dict[str, List[str]]]:
-        """Gets overall classes in the dataset and classes according to
-        computer vision task.
+    def get_classes(self) -> Dict[str, List[str]]:
+        """Get classes according to computer vision tasks.
 
-        @rtype: Tuple[List[str], Dict]
-        @return: A combined list of classes for all tasks and a
-            dictionary mapping tasks to the classes used in each task.
+        @rtype: Dict[str, List[str]]
+        @return: A dictionary mapping tasks to the classes used in each
+            task.
         """
         ...
 
