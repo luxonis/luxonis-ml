@@ -1,4 +1,3 @@
-from datetime import datetime
 from pathlib import Path
 from typing import Optional, TypedDict
 
@@ -7,18 +6,14 @@ import polars as pl
 from luxonis_ml.typing import PathType
 
 
-class ParquetDetection(TypedDict):
+class ParquetRecord(TypedDict):
+    file: str
+    source_name: str
+    task_name: str
     class_name: Optional[str]
     instance_id: Optional[int]
     task_type: Optional[str]
     annotation: Optional[str]
-
-
-class ParquetRecord(ParquetDetection):
-    file: str
-    source_name: str
-    task_name: str
-    created_at: datetime
 
 
 class ParquetFileManager:
