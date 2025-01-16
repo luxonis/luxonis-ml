@@ -1,6 +1,6 @@
 from .data_utils import infer_task, rgb_to_bool_masks, warn_on_duplicates
 from .enums import BucketStorage, BucketType, ImageType, MediaType, UpdateMode
-from .parquet import ParquetDetection, ParquetFileManager, ParquetRecord
+from .parquet import ParquetFileManager, ParquetRecord
 from .task_utils import (
     get_task_name,
     get_task_type,
@@ -18,7 +18,6 @@ __all__ = [
     "warn_on_duplicates",
     "rgb_to_bool_masks",
     "ParquetRecord",
-    "ParquetDetection",
     "ParquetFileManager",
     "MediaType",
     "ImageType",

@@ -6,7 +6,6 @@ from typing_extensions import TypeAlias
 
 from luxonis_ml.data.datasets.annotation import DatasetRecord
 from luxonis_ml.data.datasets.source import LuxonisSource
-from luxonis_ml.data.utils.task_utils import get_task_name
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import AutoRegisterMeta, Registry
 
@@ -41,11 +40,11 @@ class BaseDataset(
         ...
 
     @abstractmethod
-    def get_tasks(self) -> List[str]:
-        """Returns the list of tasks in the dataset.
+    def get_tasks(self) -> Dict[str, str]:
+        """Returns a dictionary mapping task names to task types.
 
-        @rtype: List[str]
-        @return: List of task names.
+        @rtype: Dict[str, str]
+        @return: A dictionary mapping task names to task types.
         """
         ...
 
@@ -75,13 +74,12 @@ class BaseDataset(
         ...
 
     @abstractmethod
-    def get_classes(self) -> Tuple[List[str], Dict[str, List[str]]]:
-        """Gets overall classes in the dataset and classes according to
-        computer vision task.
+    def get_classes(self) -> Dict[str, List[str]]:
+        """Get classes according to computer vision tasks.
 
-        @rtype: Tuple[List[str], Dict]
-        @return: A combined list of classes for all tasks and a
-            dictionary mapping tasks to the classes used in each task.
+        @rtype: Dict[str, List[str]]
+        @return: A dictionary mapping tasks to the classes used in each
+            task.
         """
         ...
 
@@ -202,4 +200,4 @@ class BaseDataset(
         @rtype: List[str]
         @return: List of task names.
         """
-        return [get_task_name(task) for task in self.get_tasks()]
+        return list(self.get_tasks().keys())

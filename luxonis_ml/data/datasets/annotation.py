@@ -1,7 +1,6 @@
 import json
 import logging
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple, Union
 
@@ -14,7 +13,7 @@ from pydantic.types import FilePath, PositiveInt
 from typeguard import check_type
 from typing_extensions import Annotated, Self, TypeAlias, override
 
-from luxonis_ml.data.utils.parquet import ParquetDetection, ParquetRecord
+from luxonis_ml.data.utils.parquet import ParquetRecord
 from luxonis_ml.utils import BaseModelExtraForbid
 
 logger = logging.getLogger(__name__)
@@ -40,43 +39,6 @@ class Detection(BaseModelExtraForbid):
     scale_to_boxes: bool = False
 
     sub_detections: Dict[str, "Detection"] = {}
-
-    def to_parquet_rows(self) -> Iterable[ParquetDetection]:
-        yield from self._to_parquet_rows()
-
-    def _to_parquet_rows(self, prefix: str = "") -> Iterable[ParquetDetection]:
-        for task_type in [
-            "boundingbox",
-            "keypoints",
-            "segmentation",
-            "instance_segmentation",
-            "array",
-        ]:
-            label: Optional[Annotation] = getattr(self, task_type)
-
-            if label is not None:
-                yield {
-                    "class_name": self.class_name,
-                    "instance_id": self.instance_id,
-                    "task_type": f"{prefix}{task_type}",
-                    "annotation": label.model_dump_json(),
-                }
-        for key, data in self.metadata.items():
-            yield {
-                "class_name": self.class_name,
-                "instance_id": self.instance_id,
-                "task_type": f"{prefix}metadata/{key}",
-                "annotation": json.dumps(data),
-            }
-        if self.class_name is not None:
-            yield {
-                "class_name": self.class_name,
-                "instance_id": self.instance_id,
-                "task_type": f"{prefix}classification",
-                "annotation": "{}",
-            }
-        for name, detection in self.sub_detections.items():
-            yield from detection._to_parquet_rows(f"{prefix}{name}/")
 
     @model_validator(mode="after")
     def validate_names(self) -> Self:
@@ -533,28 +495,74 @@ class DatasetRecord(BaseModelExtraForbid):
         @rtype: L{ParquetDict}
         @return: A dictionary of annotation data.
         """
-        timestamp = datetime.now(timezone.utc)
+        yield from self._to_parquet_rows(self.annotation, self.task)
+
+    def _to_parquet_rows(
+        self, annotation: Optional[Detection], task_name: str
+    ) -> Iterable[ParquetRecord]:
+        """Converts an annotation to a dictionary for writing to a
+        parquet file.
+
+        @rtype: L{ParquetDict}
+        @return: A dictionary of annotation data.
+        """
         for source, file_path in self.files.items():
-            if self.annotation is not None:
-                for detection in self.annotation.to_parquet_rows():
-                    yield {
-                        "file": str(file_path),
-                        "source_name": source,
-                        "task_name": self.task,
-                        "created_at": timestamp,
-                        **detection,
-                    }
-            else:
+            if annotation is None:
                 yield {
                     "file": str(file_path),
                     "source_name": source,
-                    "task_name": self.task,
-                    "created_at": timestamp,
+                    "task_name": task_name,
                     "class_name": None,
                     "instance_id": None,
                     "task_type": None,
                     "annotation": None,
                 }
+            else:
+                for task_type in [
+                    "boundingbox",
+                    "keypoints",
+                    "segmentation",
+                    "instance_segmentation",
+                    "array",
+                ]:
+                    label: Optional[Annotation] = getattr(
+                        annotation, task_type
+                    )
+
+                    if label is not None:
+                        yield {
+                            "file": str(file_path),
+                            "source_name": source,
+                            "task_name": task_name,
+                            "class_name": annotation.class_name,
+                            "instance_id": annotation.instance_id,
+                            "task_type": task_type,
+                            "annotation": label.model_dump_json(),
+                        }
+                for key, data in annotation.metadata.items():
+                    yield {
+                        "file": str(file_path),
+                        "source_name": source,
+                        "task_name": task_name,
+                        "class_name": annotation.class_name,
+                        "instance_id": annotation.instance_id,
+                        "task_type": f"metadata/{key}",
+                        "annotation": json.dumps(data),
+                    }
+                if annotation.class_name is not None:
+                    yield {
+                        "file": str(file_path),
+                        "source_name": source,
+                        "task_name": task_name,
+                        "class_name": annotation.class_name,
+                        "instance_id": annotation.instance_id,
+                        "task_type": "classification",
+                        "annotation": "{}",
+                    }
+                for name, detection in annotation.sub_detections.items():
+                    yield from self._to_parquet_rows(
+                        detection, f"{task_name}/{name}"
+                    )
 
 
 def check_valid_identifier(name: str, *, label: str) -> None:

@@ -85,6 +85,12 @@ class LuxonisLoader(BaseLoader):
         @type width: Optional[int]
         @param width: The width of the output images. Defaults to
             C{None}.
+        @type keep_aspect_ratio: bool
+        @param keep_aspect_ratio: Whether to keep the aspect ratio of the
+            images. Defaults to C{True}.
+        @type out_image_format: Literal["RGB", "BGR"]
+        @param out_image_format: The format of the output images. Defaults
+            to C{"RGB"}.
         @type update_mode: UpdateMode
         @param update_mode: Enum that determines the sync mode:
             - UpdateMode.ALWAYS: Force a fresh download
@@ -104,10 +110,7 @@ class LuxonisLoader(BaseLoader):
             view = [view]
         self.view = view
 
-        df = self.dataset._load_df_offline()
-        if df is None:
-            raise FileNotFoundError("No data found in the dataset.")
-        self.df = df
+        self.df = self.dataset._load_df_offline(raise_when_empty=True)
 
         if not self.dataset.is_remote:
             file_index = self.dataset._get_file_index()
@@ -115,7 +118,7 @@ class LuxonisLoader(BaseLoader):
                 raise FileNotFoundError("Cannot find file index")
             self.df = self.df.join(file_index, on="uuid").drop("file_right")
 
-        self.classes, self.classes_by_task = self.dataset.get_classes()
+        self.classes = self.dataset.get_classes()
         self.augmentations = self._init_augmentations(
             augmentation_engine,
             augmentation_config or [],
@@ -147,7 +150,7 @@ class LuxonisLoader(BaseLoader):
                 class_: i
                 for i, class_ in enumerate(
                     sorted(
-                        self.classes_by_task.get(task, []),
+                        self.classes.get(task, []),
                         key=lambda x: {"background": -1}.get(x, 0),
                     )
                 )
@@ -173,8 +176,8 @@ class LuxonisLoader(BaseLoader):
                         "assigned to one class or rename your background class."
                     )
                     self.tasks_without_background.add(task)
-                    if "background" not in self.classes_by_task[task_name]:
-                        self.classes_by_task[task_name].append("background")
+                    if "background" not in self.classes[task_name]:
+                        self.classes[task_name].append("background")
                         self.class_mappings[task_name] = {
                             class_: idx + 1
                             for class_, idx in self.class_mappings[
@@ -235,7 +238,7 @@ class LuxonisLoader(BaseLoader):
         if not self.dataset.is_remote:
             img_path = ann_rows[0][-1]
         else:
-            uuid = ann_rows[0][8]
+            uuid = ann_rows[0][7]
             file_extension = ann_rows[0][0].rsplit(".", 1)[-1]
             img_path = self.dataset.media_path / f"{uuid}.{file_extension}"
 
@@ -250,10 +253,10 @@ class LuxonisLoader(BaseLoader):
 
         for annotation_data in ann_rows:
             task_name: str = annotation_data[2]
-            class_name: Optional[str] = annotation_data[4]
-            instance_id: int = annotation_data[5]
-            task_type: str = annotation_data[6]
-            ann_str: Optional[str] = annotation_data[7]
+            class_name: Optional[str] = annotation_data[3]
+            instance_id: int = annotation_data[4]
+            task_type: str = annotation_data[5]
+            ann_str: Optional[str] = annotation_data[6]
 
             if ann_str is None:
                 continue
@@ -302,7 +305,7 @@ class LuxonisLoader(BaseLoader):
             array = anns[0].combine_to_numpy(
                 anns,
                 class_ids_by_task[task],
-                len(self.classes_by_task[task_name]),
+                len(self.classes[task_name]),
             )
             if task in self.tasks_without_background:
                 unassigned_pixels = ~np.any(array, axis=0)
@@ -363,7 +366,9 @@ class LuxonisLoader(BaseLoader):
             return None
 
         targets = {
-            task: get_task_type(task) for task in self.dataset.get_tasks()
+            f"{task_name}/{task_type}": task_type
+            for task_name, task_types in self.dataset.get_tasks().items()
+            for task_type in task_types
         }
 
         return AUGMENTATION_ENGINES.get(augmentation_engine)(

@@ -1,7 +1,7 @@
 import json
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set
 
 import cv2
 import numpy as np
@@ -10,6 +10,14 @@ from luxonis_ml.data import BucketStorage, LuxonisDataset, LuxonisLoader
 from luxonis_ml.utils import LuxonisFileSystem, setup_logging
 
 setup_logging(use_rich=True, rich_print=True)
+
+
+def gather_tasks(dataset: LuxonisDataset) -> Set[str]:
+    return {
+        f"{task_name}/{task_type}"
+        for task_name, task_types in dataset.get_tasks().items()
+        for task_type in task_types
+    }
 
 
 def get_annotations(sequence_path):
@@ -41,7 +49,7 @@ def test_parking_lot_generate(
     )
     dataset.add(generator(data_path, tempdir))
     dataset.make_splits((0.8, 0.1, 0.1))
-    assert set(dataset.get_tasks()) == {
+    assert gather_tasks(dataset) == {
         "car/array",
         "car/boundingbox",
         "car/classification",
@@ -71,7 +79,7 @@ def test_parking_lot_generate(
     for _, labels in loader:
         accumulated_tasks.update(labels.keys())
 
-    assert accumulated_tasks == set(dataset.get_tasks())
+    assert accumulated_tasks == gather_tasks(dataset)
 
 
 # TODO: Simplify the dataset so the code can be cleaner
