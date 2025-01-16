@@ -47,7 +47,7 @@ class LuxonisLoader(BaseLoader):
         height: Optional[int] = None,
         width: Optional[int] = None,
         keep_aspect_ratio: bool = True,
-        out_image_format: Literal["RGB", "BGR"] = "RGB",
+        color_space: Literal["RGB", "BGR"] = "RGB",
         *,
         update_mode: UpdateMode = UpdateMode.ALWAYS,
     ) -> None:
@@ -88,8 +88,8 @@ class LuxonisLoader(BaseLoader):
         @type keep_aspect_ratio: bool
         @param keep_aspect_ratio: Whether to keep the aspect ratio of the
             images. Defaults to C{True}.
-        @type out_image_format: Literal["RGB", "BGR"]
-        @param out_image_format: The format of the output images. Defaults
+        @type color_space: Literal["RGB", "BGR"]
+        @param color_space: The format of the output images. Defaults
             to C{"RGB"}.
         @type update_mode: UpdateMode
         @param update_mode: Enum that determines the sync mode:
@@ -98,7 +98,7 @@ class LuxonisLoader(BaseLoader):
         """
 
         self.logger = logging.getLogger(__name__)
-        self.out_image_format = out_image_format
+        self.color_space = color_space
 
         self.dataset = dataset
         self.sync_mode = self.dataset.is_remote
@@ -212,7 +212,7 @@ class LuxonisLoader(BaseLoader):
         else:
             img, labels = self._load_with_augmentations(idx)
 
-        if self.out_image_format == "BGR":
+        if self.color_space == "BGR":
             img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
         return img, labels
