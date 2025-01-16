@@ -11,40 +11,43 @@ def registry() -> Registry:
 def test_creation():
     registry = Registry("test")
     assert registry.name == "test"
-    assert not registry.module_dict
+    assert not registry._module_dict
     assert len(registry) == 0
     assert str(registry) == "Registry('test')"
     assert repr(registry) == "Registry('test')"
 
 
 def test_registry(registry: Registry):
-    assert not registry.module_dict
+    assert not registry._module_dict
     assert len(registry) == 0
 
     class A:
         pass
 
-    registry.register_module(module=A)
+    registry.register(module=A)
     assert registry.get("A") is A
 
-    @registry.register_module()
+    @registry.register()
     class B:
         pass
 
     assert registry.get("B") is B
     assert len(registry) == 2
 
-    registry.register_module(name="C", module=A)
+    registry.register(name="C", module=A)
     assert registry.get("C") is A
     assert len(registry) == 3
 
-    registry.register_module(name="C", module=B, force=True)
+    registry.register(name="C", module=B, force=True)
     assert registry.get("C") is B
 
-    with pytest.raises(KeyError):
-        registry.register_module(name="C", module=A, force=False)
+    registry["D"] = A
+    assert registry["D"] is A
 
-    @registry.register_module(name="Foo")
+    with pytest.raises(KeyError):
+        registry.register(name="C", module=A, force=False)
+
+    @registry.register(name="Foo")
     class Bar:
         pass
 
