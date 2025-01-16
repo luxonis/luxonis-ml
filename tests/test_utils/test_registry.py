@@ -41,6 +41,9 @@ def test_registry(registry: Registry):
     registry.register(name="C", module=B, force=True)
     assert registry.get("C") is B
 
+    registry["D"] = A
+    assert registry["D"] is A
+
     with pytest.raises(KeyError):
         registry.register(name="C", module=A, force=False)
 

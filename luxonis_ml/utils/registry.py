@@ -1,5 +1,5 @@
+import warnings
 from abc import ABCMeta
-from functools import wraps
 from typing import (
     Callable,
     Dict,
@@ -19,7 +19,7 @@ class Registry(Generic[T]):
         """A Registry class to store and retrieve modules.
 
         @type name: str
-        @param name: Name of the registry
+        @ivar name: Name of the registry
         """
         self._module_dict: Dict[str, T] = {}
         self._name = name
@@ -33,13 +33,15 @@ class Registry(Generic[T]):
     def __len__(self):
         return len(self._module_dict)
 
+    def __getitem__(self, key: str) -> T:
+        return self.get(key)
+
+    def __setitem__(self, key: str, value: T) -> None:
+        self._register(module=value, module_name=key, force=True)
+
     @property
     def name(self):
         return self._name
-
-    @property
-    def module_dict(self):
-        return self._module_dict
 
     def get(self, key: str) -> T:
         """Retrieves the registry record for the key.
@@ -53,24 +55,18 @@ class Registry(Generic[T]):
         """
         module_cls = self._module_dict.get(key, None)
         if module_cls is None:
-            raise KeyError(f"Class `{key}` not in the `{self.name}` registry.")
+            raise KeyError(f"'{key}' not in the '{self.name}' registry.")
         else:
             return module_cls
 
     @overload
     def register_module(
-        self,
-        name: Optional[str] = ...,
-        module: None = ...,
-        force: bool = ...,
+        self, name: Optional[str] = ..., module: None = ..., force: bool = ...
     ) -> Callable[[T], T]: ...
 
     @overload
     def register_module(
-        self,
-        name: Optional[str] = ...,
-        module: T = ...,
-        force: bool = ...,
+        self, name: Optional[str] = ..., module: T = ..., force: bool = ...
     ) -> T: ...
 
     def register_module(
@@ -79,6 +75,37 @@ class Registry(Generic[T]):
         module: Optional[T] = None,
         force: bool = False,
     ) -> Union[T, Callable[[T], T]]:
+        warnings.warn(
+            "`register_module` is deprecated, use `register` instead."
+        )
+
+        return self.register(name=name, module=module, force=force)
+
+    @overload
+    def register(
+        self,
+        module: None = ...,
+        *,
+        name: Optional[str] = ...,
+        force: bool = ...,
+    ) -> Callable[[T], T]: ...
+
+    @overload
+    def register(
+        self,
+        module: T = ...,
+        *,
+        name: Optional[str] = ...,
+        force: bool = ...,
+    ) -> None: ...
+
+    def register(
+        self,
+        module: Optional[T] = None,
+        *,
+        name: Optional[str] = None,
+        force: bool = False,
+    ) -> Optional[Callable[[T], T]]:
         """Registers a module.
 
         Can be used as a decorator or as a normal method:
@@ -113,32 +140,28 @@ class Registry(Generic[T]):
         """
 
         if module is not None:
-            return self._register_module(
-                module=module, module_name=name, force=force
-            )
+            return self._register(module=module, module_name=name, force=force)
 
-        @wraps
-        def _register(module: T) -> T:
-            return self._register_module(
-                module=module, module_name=name, force=force
-            )
+        def wrapper(module: T) -> T:
+            self._register(module=module, module_name=name, force=force)
+            return module
 
-        return _register  # type: ignore
+        return wrapper
 
-    def _register_module(
+    def _register(
         self, module: T, module_name: Optional[str] = None, force: bool = False
-    ) -> T:
+    ) -> None:
         if module_name is None:
             module_name = module.__name__
 
         if not force and module_name in self._module_dict:
             existed_module = self._module_dict[module_name]
             raise KeyError(
-                f"`{module_name}` already registred in `{self.name}` registry at `{existed_module.__module__}`."
+                f"`{module_name}` already registred in `{self.name}` "
+                f"registry at `{existed_module.__module__}`."
             )
 
         self._module_dict[module_name] = module
-        return module
 
 
 class AutoRegisterMeta(ABCMeta):
