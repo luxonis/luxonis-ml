@@ -12,8 +12,8 @@ TRANSFORMATIONS: Registry[Type[A.BasicTransform]] = Registry(
     "albumentations_transformations"
 )
 
-TRANSFORMATIONS.register_module(module=LetterboxResize)
-TRANSFORMATIONS.register_module(module=MixUp)
-TRANSFORMATIONS.register_module(module=Mosaic4)
+TRANSFORMATIONS.register(module=LetterboxResize)
+TRANSFORMATIONS.register(module=MixUp)
+TRANSFORMATIONS.register(module=Mosaic4)
 
 __all__ = ["LetterboxResize", "MixUp", "Mosaic4", "TRANSFORMATIONS"]
