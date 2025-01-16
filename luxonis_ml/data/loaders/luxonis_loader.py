@@ -89,7 +89,7 @@ class LuxonisLoader(BaseLoader):
         @param keep_aspect_ratio: Whether to keep the aspect ratio of the
             images. Defaults to C{True}.
         @type color_space: Literal["RGB", "BGR"]
-        @param color_space: The format of the output images. Defaults
+        @param color_space: The color space of the output images. Defaults
             to C{"RGB"}.
         @type update_mode: UpdateMode
         @param update_mode: Enum that determines the sync mode:
