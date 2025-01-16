@@ -516,11 +516,12 @@ def test_clone_dataset(
 
 
 def test_merge_datasets(
-    dataset_name: str,
     bucket_storage: BucketStorage,
+    dataset_name: str,
     tempdir: Path,
     subtests: SubTests,
 ):
+    dataset_name = f"{dataset_name}_{bucket_storage.value}"
     dataset1_name = f"{dataset_name}_1"
     dataset1 = LuxonisDataset(
         dataset1_name,
@@ -583,8 +584,8 @@ def test_merge_datasets(
             new_dataset_name=f"{dataset1_name}_{dataset2_name}_merged",
         )
 
-        classes = dataset1_merged_with_dataset2.get_classes()
-        assert set(classes[""]) == {"person", "dog"}
+    classes = dataset1_merged_with_dataset2.get_classes()
+    assert set(classes[""]) == {"person", "dog"}
 
     df_merged = dataset1_merged_with_dataset2._load_df_offline()
     df_cloned_merged = dataset1.merge_with(
