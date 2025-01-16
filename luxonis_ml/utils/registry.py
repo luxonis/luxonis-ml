@@ -1,5 +1,15 @@
 from abc import ABCMeta
-from typing import Callable, Dict, Generic, Optional, Tuple, TypeVar, Union
+from functools import wraps
+from typing import (
+    Callable,
+    Dict,
+    Generic,
+    Optional,
+    Tuple,
+    TypeVar,
+    Union,
+    overload,
+)
 
 T = TypeVar("T", bound=type)
 
@@ -47,6 +57,22 @@ class Registry(Generic[T]):
         else:
             return module_cls
 
+    @overload
+    def register_module(
+        self,
+        name: Optional[str] = ...,
+        module: None = ...,
+        force: bool = ...,
+    ) -> Callable[[T], T]: ...
+
+    @overload
+    def register_module(
+        self,
+        name: Optional[str] = ...,
+        module: T = ...,
+        force: bool = ...,
+    ) -> T: ...
+
     def register_module(
         self,
         name: Optional[str] = None,
@@ -86,21 +112,22 @@ class Registry(Generic[T]):
         @raise KeyError: Raised if class name already exists and C{force==False}
         """
 
-        # use it as a normal method: x.register_module(module=SomeClass)
         if module is not None:
-            self._register_module(module=module, module_name=name, force=force)
-            return module
+            return self._register_module(
+                module=module, module_name=name, force=force
+            )
 
-        # use it as a decorator: @x.register_module()
+        @wraps
         def _register(module: T) -> T:
-            self._register_module(module=module, module_name=name, force=force)
-            return module
+            return self._register_module(
+                module=module, module_name=name, force=force
+            )
 
-        return _register
+        return _register  # type: ignore
 
     def _register_module(
         self, module: T, module_name: Optional[str] = None, force: bool = False
-    ) -> None:
+    ) -> T:
         if module_name is None:
             module_name = module.__name__
 
@@ -111,6 +138,7 @@ class Registry(Generic[T]):
             )
 
         self._module_dict[module_name] = module
+        return module
 
 
 class AutoRegisterMeta(ABCMeta):
