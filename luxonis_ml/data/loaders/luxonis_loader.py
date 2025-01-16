@@ -85,6 +85,12 @@ class LuxonisLoader(BaseLoader):
         @type width: Optional[int]
         @param width: The width of the output images. Defaults to
             C{None}.
+        @type keep_aspect_ratio: bool
+        @param keep_aspect_ratio: Whether to keep the aspect ratio of the
+            images. Defaults to C{True}.
+        @type out_image_format: Literal["RGB", "BGR"]
+        @param out_image_format: The format of the output images. Defaults
+            to C{"RGB"}.
         @type update_mode: UpdateMode
         @param update_mode: Enum that determines the sync mode:
             - UpdateMode.ALWAYS: Force a fresh download
