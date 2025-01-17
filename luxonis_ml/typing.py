@@ -2,7 +2,8 @@ from pathlib import Path
 from typing import Dict, Literal, Tuple, Union
 
 import numpy as np
-from pydantic import BaseModel, JsonValue
+from pydantic import BaseModel
+from pydantic.config import JsonDict
 from typing_extensions import TypeAlias
 
 PathType: TypeAlias = Union[str, Path]
@@ -53,4 +54,4 @@ class ConfigItem(BaseModel):
     """
 
     name: str
-    params: Dict[str, JsonValue] = {}
+    params: JsonDict = {}
