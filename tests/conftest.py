@@ -31,10 +31,10 @@ def randint() -> int:
     return random.randint(0, 100000)
 
 
-# @pytest.fixture(autouse=True, scope="module")
-# def fix_seed():
-#     np.random.seed(42)
-#     random.seed(42)
+@pytest.fixture(autouse=True, scope="session")
+def fix_seed():
+    np.random.seed(42)
+    random.seed(42)
 
 
 @pytest.fixture(autouse=True, scope="session")
