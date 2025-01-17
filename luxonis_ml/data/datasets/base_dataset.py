@@ -201,3 +201,7 @@ class BaseDataset(
         @return: List of task names.
         """
         return list(self.get_tasks().keys())
+
+    def get_n_keypoints(self) -> Dict[str, int]:
+        skeletons = self.get_skeletons()
+        return {task: len(skeletons[task][0]) for task in skeletons}

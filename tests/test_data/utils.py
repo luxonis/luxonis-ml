@@ -1,7 +1,21 @@
 from pathlib import Path
+from typing import Dict, Set, Union
 
 import cv2
 import numpy as np
+
+from luxonis_ml.data import LuxonisLoader
+from luxonis_ml.data.datasets.base_dataset import DatasetIterator
+from luxonis_ml.data.datasets.luxonis_dataset import LuxonisDataset
+from luxonis_ml.data.utils.enums import BucketStorage
+
+
+def gather_tasks(dataset: LuxonisDataset) -> Set[str]:
+    return {
+        f"{task_name}/{task_type}"
+        for task_name, task_types in dataset.get_tasks().items()
+        for task_type in task_types
+    }
 
 
 def create_image(i: int, dir: Path) -> Path:
@@ -13,3 +27,32 @@ def create_image(i: int, dir: Path) -> Path:
         )
         cv2.imwrite(str(path), img)
     return path
+
+
+def compare_loader_output(loader: LuxonisLoader, tasks: Set[str]) -> None:
+    all_labels = set()
+    for _, labels in loader:
+        all_labels.update(labels.keys())
+    assert all_labels == tasks
+
+
+def create_dataset(
+    dataset_name: str,
+    generator: DatasetIterator,
+    bucket_storage: BucketStorage = BucketStorage.LOCAL,
+    *,
+    splits: Union[bool, Dict[str, float]] = True,
+    **kwargs,
+) -> LuxonisDataset:
+    dataset = LuxonisDataset(
+        dataset_name,
+        delete_existing=True,
+        delete_remote=True,
+        bucket_storage=bucket_storage,
+        **kwargs,
+    ).add(generator)
+    if splits is True:
+        dataset.make_splits()
+    elif splits:
+        dataset.make_splits(splits)
+    return dataset

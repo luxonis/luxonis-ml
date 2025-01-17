@@ -4,7 +4,7 @@ import random
 import warnings
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union, cast
+from typing import Dict, List, Literal, Optional, Tuple, Union, cast
 
 import cv2
 import numpy as np
@@ -28,7 +28,8 @@ from luxonis_ml.data.utils import (
     split_task,
     task_type_iterator,
 )
-from luxonis_ml.typing import Labels, LoaderOutput, PathType
+from luxonis_ml.data.utils.task_utils import task_is_metadata
+from luxonis_ml.typing import Labels, LoaderOutput, Params, PathType
 
 logger = logging.getLogger(__name__)
 
@@ -41,12 +42,11 @@ class LuxonisLoader(BaseLoader):
         augmentation_engine: Union[
             Literal["albumentations"], str
         ] = "albumentations",
-        augmentation_config: Optional[
-            Union[List[Dict[str, Any]], PathType]
-        ] = None,
+        augmentation_config: Optional[Union[List[Params], PathType]] = None,
         height: Optional[int] = None,
         width: Optional[int] = None,
         keep_aspect_ratio: bool = True,
+        exclude_empty_annotations: bool = False,
         color_space: Literal["RGB", "BGR"] = "RGB",
         *,
         update_mode: UpdateMode = UpdateMode.ALWAYS,
@@ -61,10 +61,10 @@ class LuxonisLoader(BaseLoader):
         @type augmentation_engine: Union[Literal["albumentations"], str]
         @param augmentation_engine: The augmentation engine to use.
             Defaults to C{"albumentations"}.
-        @type augmentation_config: Optional[Union[List[Dict[str, Any]],
+        @type augmentation_config: Optional[Union[List[Params],
             PathType]]
         @param augmentation_config: The configuration for the
-            augmentations. This can be either a list of C{Dict[str, Any]} or
+            augmentations. This can be either a list of C{Dict[str, JsonValue]} or
             a path to a configuration file.
             The config member is a dictionary with two keys: C{name} and
             C{params}. C{name} is the name of the augmentation to
@@ -91,6 +91,11 @@ class LuxonisLoader(BaseLoader):
         @type color_space: Literal["RGB", "BGR"]
         @param color_space: The color space of the output images. Defaults
             to C{"RGB"}.
+        @type exclude_empty_annotations: bool
+        @param exclude_empty_annotations: Whether to exclude
+            empty annotations from the final label dictionary.
+            Defaults to C{False} (i.e. include empty annotations).
+
         @type update_mode: UpdateMode
         @param update_mode: Enum that determines the sync mode:
             - UpdateMode.ALWAYS: Force a fresh download
@@ -98,6 +103,7 @@ class LuxonisLoader(BaseLoader):
         """
 
         self.logger = logging.getLogger(__name__)
+        self.exclude_empty_annotations = exclude_empty_annotations
         self.color_space = color_space
 
         self.dataset = dataset
@@ -214,6 +220,42 @@ class LuxonisLoader(BaseLoader):
 
         if self.color_space == "BGR":
             img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+
+        if self.exclude_empty_annotations:
+            return img, labels
+
+        return self._add_empty_annotations(img, labels)
+
+    def _add_empty_annotations(
+        self, img: np.ndarray, labels: Labels
+    ) -> LoaderOutput:
+        for task_name, task_types in self.dataset.get_tasks().items():
+            for task_type in task_types:
+                task = f"{task_name}/{task_type}"
+                if task not in labels:
+                    if task_type == "boundingbox":
+                        labels[task] = np.zeros((0, 5))
+                    elif task_type == "keypoints":
+                        n_keypoints = self.dataset.get_n_keypoints()[task_name]
+                        labels[task] = np.zeros((0, n_keypoints, 3))
+                    elif task_type == "segmentation":
+                        labels[task] = np.zeros(
+                            (0, img.shape[0], img.shape[1])
+                        )
+                    elif task_type == "instance_segmentation":
+                        labels[task] = np.zeros(
+                            (
+                                len(self.dataset.get_classes()[task_name]),
+                                img.shape[0],
+                                img.shape[1],
+                            )
+                        )
+                    elif task_type == "classification" or task_is_metadata(
+                        task
+                    ):
+                        labels[task] = np.zeros(
+                            (len(self.classes[task_name]),)
+                        )
 
         return img, labels
 
@@ -347,7 +389,7 @@ class LuxonisLoader(BaseLoader):
     def _init_augmentations(
         self,
         augmentation_engine: Union[Literal["albumentations"], str],
-        augmentation_config: Union[List[Dict[str, Any]], PathType],
+        augmentation_config: Union[List[Params], PathType],
         height: Optional[int],
         width: Optional[int],
         keep_aspect_ratio: bool,
@@ -355,7 +397,7 @@ class LuxonisLoader(BaseLoader):
         if isinstance(augmentation_config, (Path, str)):
             with open(augmentation_config) as file:
                 augmentation_config = cast(
-                    List[Dict[str, Any]], yaml.safe_load(file) or []
+                    List[Params], yaml.safe_load(file) or []
                 )
         if augmentation_config and (width is None or height is None):
             raise ValueError(

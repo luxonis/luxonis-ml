@@ -37,6 +37,9 @@ or a single value (in which case it is interpreted as a grayscale
 value).
 """
 
+Params: TypeAlias = Dict[str, JsonValue]
+"""A JSON-like dictionary of additioanl parameters."""
+
 
 class ConfigItem(BaseModel):
     """Configuration schema for dynamic object instantiation. Typically
@@ -47,10 +50,11 @@ class ConfigItem(BaseModel):
     @type name: str
     @ivar name: The name of the object this configuration applies to.
         Required.
-    @type params: JsonDict
+    @type params: Dict[str, JsonDict]
     @ivar params: Additional parameters for instantiating the object.
         Not required.
     """
 
     name: str
-    params: Dict[str, JsonValue] = {}
+
+    params: Params = {}

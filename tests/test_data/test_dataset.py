@@ -1,11 +1,11 @@
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Set
+from typing import Dict, List
 
 import numpy as np
 import pytest
 from pytest_subtests.plugin import SubTests
-from utils import create_image
+from utils import compare_loader_output, create_dataset, create_image
 
 from luxonis_ml.data import (
     BucketStorage,
@@ -16,25 +16,19 @@ from luxonis_ml.data import (
 )
 from luxonis_ml.data.utils.task_utils import get_task_type
 from luxonis_ml.enums import DatasetType
-
-
-def compare_loader_output(loader: LuxonisLoader, tasks: Set[str]):
-    all_labels = set()
-    for _, labels in loader:
-        all_labels.update(labels.keys())
-    assert all_labels == tasks
+from luxonis_ml.typing import Params
 
 
 def test_dataset(
     bucket_storage: BucketStorage,
     dataset_name: str,
-    augmentation_config: List[Dict[str, Any]],
+    augmentation_config: List[Params],
     subtests: SubTests,
     storage_url: str,
     tempdir: Path,
 ):
     with subtests.test("test_create", bucket_storage=bucket_storage):
-        parser = LuxonisParser(
+        dataset = LuxonisParser(
             f"{storage_url}/COCO_people_subset.zip",
             dataset_name=dataset_name,
             save_dir=tempdir,
@@ -43,9 +37,8 @@ def test_dataset(
             delete_existing=True,
             delete_remote=True,
             task_name="coco",
-        )
-        parser.parse()
-        dataset = LuxonisDataset(dataset_name, bucket_storage=bucket_storage)
+        ).parse()
+
         assert LuxonisDataset.exists(
             dataset_name, bucket_storage=bucket_storage
         )
@@ -95,6 +88,7 @@ def test_dataset(
                 ],
             ),
         }
+        assert dataset.get_n_keypoints() == {"coco": 17}
 
         assert dataset.identifier == dataset_name
 
@@ -136,9 +130,7 @@ def test_dataset(
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
-def test_dataset_fail(tempdir: Path):
-    dataset = LuxonisDataset("test_fail", delete_existing=True)
-
+def test_dataset_fail(dataset_name: str, tempdir: Path):
     def generator():
         for i in range(10):
             img = create_image(i, tempdir)
@@ -149,7 +141,7 @@ def test_dataset_fail(tempdir: Path):
                 },
             }
 
-    dataset.add(generator(), batch_size=2)
+    dataset = create_dataset(dataset_name, generator())
 
     with pytest.raises(ValueError):
         dataset.set_skeletons()
@@ -175,6 +167,7 @@ def test_loader_iterator(storage_url: str, tempdir: Path):
         _ = loader[0]
 
 
+@pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_make_splits(
     bucket_storage: BucketStorage, dataset_name: str, tempdir: Path
 ):
@@ -196,13 +189,10 @@ def test_make_splits(
             definitions[["train", "val", "test"][i % 3]].append(str(path))
         _start_index += step
 
-    dataset = LuxonisDataset(
-        dataset_name,
-        delete_existing=True,
-        delete_remote=True,
-        bucket_storage=bucket_storage,
+    dataset = create_dataset(
+        dataset_name, generator(), bucket_storage, splits=False
     )
-    dataset.add(generator())
+
     assert len(dataset) == 15
     assert dataset.get_splits() is None
     dataset.make_splits(definitions)
@@ -280,6 +270,7 @@ def test_make_splits(
         ), f"Split {split} has {len(split_data)} samples"
 
 
+@pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_metadata(
     bucket_storage: BucketStorage, dataset_name: str, tempdir: Path
 ):
@@ -298,14 +289,7 @@ def test_metadata(
                 },
             }
 
-    dataset = LuxonisDataset(
-        dataset_name,
-        delete_existing=True,
-        delete_remote=True,
-        bucket_storage=bucket_storage,
-    )
-    dataset.add(generator())
-    dataset.make_splits()
+    dataset = create_dataset(dataset_name, generator(), bucket_storage)
     loader = LuxonisLoader(dataset)
     for _, labels in loader:
         labels = {get_task_type(k): v for k, v in labels.items()}
@@ -321,35 +305,95 @@ def test_metadata(
         assert labels["metadata/id"].tolist() == list(range(127, 137))
 
 
-def test_no_labels(tempdir: Path):
-    dataset = LuxonisDataset("no_labels", delete_existing=True)
-
-    def generator():
+@pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
+def test_no_labels(dataset_name: str, tempdir: Path, subtests: SubTests):
+    def generator(total: bool):
         for i in range(10):
             img = create_image(i, tempdir)
-            yield {
-                "file": img,
-            }
+            if i == 0:
+                if total:
+                    yield {
+                        "file": img,
+                    }
+                else:
+                    yield {
+                        "file": img,
+                        "annotation": {
+                            "class": "person",
+                            "boundingbox": {
+                                "x": 0.1,
+                                "y": 0.1,
+                                "w": 0.1,
+                                "h": 0.1,
+                            },
+                            "keypoints": {
+                                "keypoints": [[0.1, 0.1, 0], [0.2, 0.2, 1]]
+                            },
+                            "segmentation": {
+                                "mask": np.random.rand(512, 512) > 0.5
+                            },
+                            "instance_segmentation": {
+                                "mask": np.random.rand(512, 512) > 0.5
+                            },
+                            "metadata": {
+                                "color": "red",
+                            },
+                            "sub_detections": {
+                                "head": {
+                                    "boundingbox": {
+                                        "x": 0.2,
+                                        "y": 0.2,
+                                        "w": 0.1,
+                                        "h": 0.1,
+                                    },
+                                },
+                            },
+                        },
+                    }
 
-    dataset.add(generator())
-    dataset.make_splits()
+    for total in [True, False]:
+        with subtests.test(f"test_{'total' if total else 'almost'}_empty"):
+            dataset = create_dataset(dataset_name, generator(total=total))
 
-    loader = LuxonisLoader(dataset)
-    for _, labels in loader:
-        assert labels == {}
+            if total:
+                expected_tasks = set()
+            else:
+                expected_tasks = {
+                    "/classification",
+                    "/boundingbox",
+                    "/keypoints",
+                    "/segmentation",
+                    "/instance_segmentation",
+                    "/metadata/color",
+                    "/head/boundingbox",
+                }
 
-    loader = LuxonisLoader(
-        dataset,
-        width=512,
-        height=512,
-        augmentation_config=[{"name": "Flip", "params": {}}],
-    )
-    for _, labels in loader:
-        assert labels == {}
+            for _, labels in LuxonisLoader(dataset):
+                assert set(labels.keys()) == expected_tasks
+
+            augmented_loader = LuxonisLoader(
+                dataset,
+                width=512,
+                height=512,
+                augmentation_config=[{"name": "Flip", "params": {}}],
+            )
+            for _, labels in augmented_loader:
+                assert set(labels.keys()) == expected_tasks
+
+        if total is False:
+            with subtests.test("test_almost_empty_exclude_empty"):
+                for i, (_, labels) in enumerate(
+                    LuxonisLoader(dataset, exclude_empty_annotations=True)
+                ):
+                    if i == 0:
+                        assert set(labels.keys()) == expected_tasks
+                    else:
+                        assert not labels
 
 
+@pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_deep_nested_labels(
-    augmentation_config: List[Dict[str, Any]], tempdir: Path
+    dataset_name: str, augmentation_config: List[Params], tempdir: Path
 ):
     def generator():
         for i in range(10):
@@ -390,9 +434,7 @@ def test_deep_nested_labels(
                 },
             }
 
-    dataset = LuxonisDataset("deep_nested_labels", delete_existing=True)
-    dataset.add(generator())
-    dataset.make_splits()
+    dataset = create_dataset(dataset_name, generator())
 
     loader = LuxonisLoader(
         dataset,
@@ -414,9 +456,8 @@ def test_deep_nested_labels(
     )
 
 
-def test_partial_labels(tempdir: Path):
-    dataset = LuxonisDataset("partial_labels", delete_existing=True)
-
+@pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
+def test_partial_labels(dataset_name: str, tempdir: Path):
     def generator():
         for i in range(8):
             img = create_image(i, tempdir)
@@ -458,7 +499,8 @@ def test_partial_labels(tempdir: Path):
                     },
                 }
 
-    dataset.add(generator()).make_splits()
+    dataset = create_dataset(dataset_name, generator())
+
     loader = LuxonisLoader(
         dataset,
         width=512,
@@ -477,16 +519,10 @@ def test_partial_labels(tempdir: Path):
     )
 
 
+@pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_clone_dataset(
     bucket_storage: BucketStorage, dataset_name: str, tempdir: Path
 ):
-    dataset = LuxonisDataset(
-        dataset_name,
-        bucket_storage=bucket_storage,
-        delete_existing=True,
-        delete_remote=True,
-    )
-
     def generator1():
         for i in range(3):
             img = create_image(i, tempdir)
@@ -498,8 +534,12 @@ def test_clone_dataset(
                 },
             }
 
-    dataset.add(generator1())
-    dataset.make_splits({"train": 0.6, "val": 0.4})
+    dataset = create_dataset(
+        dataset_name,
+        generator1(),
+        bucket_storage,
+        splits={"train": 0.6, "val": 0.4},
+    )
 
     cloned_dataset = dataset.clone(new_dataset_name=dataset_name + "_cloned")
 
@@ -515,6 +555,7 @@ def test_clone_dataset(
     assert df_cloned.equals(df_original)
 
 
+@pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_merge_datasets(
     bucket_storage: BucketStorage,
     dataset_name: str,
@@ -523,12 +564,7 @@ def test_merge_datasets(
 ):
     dataset_name = f"{dataset_name}_{bucket_storage.value}"
     dataset1_name = f"{dataset_name}_1"
-    dataset1 = LuxonisDataset(
-        dataset1_name,
-        bucket_storage=bucket_storage,
-        delete_existing=True,
-        delete_remote=True,
-    )
+    dataset2_name = f"{dataset_name}_2"
 
     def generator1():
         for i in range(3):
@@ -541,17 +577,6 @@ def test_merge_datasets(
                 },
             }
 
-    dataset1.add(generator1())
-    dataset1.make_splits({"train": 0.6, "val": 0.4})
-
-    dataset2_name = f"{dataset_name}_2"
-    dataset2 = LuxonisDataset(
-        dataset2_name,
-        bucket_storage=bucket_storage,
-        delete_existing=True,
-        delete_remote=True,
-    )
-
     def generator2():
         for i in range(3, 6):
             img = create_image(i, tempdir)
@@ -563,8 +588,19 @@ def test_merge_datasets(
                 },
             }
 
-    dataset2.add(generator2())
-    dataset2.make_splits({"train": 0.6, "val": 0.4})
+    dataset1 = create_dataset(
+        dataset1_name,
+        generator1(),
+        bucket_storage,
+        splits={"train": 0.6, "val": 0.4},
+    )
+
+    dataset2 = create_dataset(
+        dataset2_name,
+        generator2(),
+        bucket_storage,
+        splits={"train": 0.6, "val": 0.4},
+    )
 
     with subtests.test("test_inplace"):
         cloned_dataset1 = dataset1.clone(

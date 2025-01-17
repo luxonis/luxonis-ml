@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Dict, List
 
 import albumentations as A
 import numpy as np
@@ -62,7 +62,7 @@ class BatchCompose(A.Compose):
         return self.postprocess(data)
 
     @staticmethod
-    def make_contiguous(data: Dict[str, Any]) -> Dict[str, Any]:
+    def make_contiguous(data: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
         for key, value in data.items():
             if isinstance(value, np.ndarray):
                 value = np.ascontiguousarray(value)
