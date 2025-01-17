@@ -67,7 +67,7 @@ def test_parking_lot_generate(
         augmentation_config=augmentation_config,
         height=height,
         width=width,
-        out_image_format="BGR",
+        color_space="BGR",
         keep_aspect_ratio=True,
     )
     for _, labels in loader:

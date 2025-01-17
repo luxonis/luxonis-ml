@@ -76,7 +76,8 @@ class Registry(Generic[T]):
         force: bool = False,
     ) -> Union[T, Callable[[T], T]]:
         warnings.warn(
-            "`register_module` is deprecated, use `register` instead."
+            "`register_module` is deprecated, use `register` instead.",
+            stacklevel=2,
         )
 
         return self.register(name=name, module=module, force=force)
@@ -111,14 +112,14 @@ class Registry(Generic[T]):
         Can be used as a decorator or as a normal method:
 
             >>> registry = Registry(name="modules")
-            >>> @registry.register_module()
+            >>> @registry.register()
             ... class Foo:
             ...     pass
             >>> registry.get("Foo")
             <class '__main__.Foo'>
             >>> class Bar:
             ...     pass
-            >>> registry.register_module(module=Bar)
+            >>> registry.register(module=Bar)
             >>> registry.get("Bar")
             <class '__main__.Bar'>
 
@@ -227,7 +228,5 @@ class AutoRegisterMeta(ABCMeta):
                 )
         if register:
             registry = registry if registry is not None else new_class.REGISTRY
-            registry.register_module(
-                name=register_name or name, module=new_class
-            )
+            registry.register(name=register_name or name, module=new_class)
         return new_class
