@@ -247,8 +247,8 @@ class BaseParser(ABC):
         task_name = self.task_name or ""
         for item in generator:
             if isinstance(item, dict):
-                if "task" not in item:
+                if "task" not in item or self.task_name is not None:
                     item["task"] = task_name
-            elif not item.task:
+            elif not item.task or self.task_name is not None:
                 item.task = task_name
             yield item
