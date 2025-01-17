@@ -77,11 +77,11 @@ class COCOParser(BaseParser):
         if not json_path:
             return None
         if json_path.name == "_annotations.coco.json":
-            # Roboflow format
+            logger.info("Identified Roboflow format")
             image_dir = split_path
             return {"image_dir": image_dir, "annotation_path": json_path}
         else:
-            # FiftyOne format
+            logger.info("Identified FiftyOne format")
             dirs = [d for d in split_path.iterdir() if d.is_dir()]
             if len(dirs) != 1:
                 return None
@@ -226,10 +226,11 @@ class COCOParser(BaseParser):
                 ann_dict[img_id].append(ann)
 
             for img_id, img in img_dict.items():
-                path = image_dir.absolute().resolve() / img["file_name"]
-                if not path.exists():
+                file: Path = image_dir.absolute().resolve() / img["file_name"]
+                if not file.exists():
                     continue
-                path = str(path)
+
+                yield {"file": file}
 
                 img_anns = ann_dict.get(img_id, [])
                 img_h = img["height"]
@@ -240,10 +241,13 @@ class COCOParser(BaseParser):
                         continue
                     class_name = categories[ann["category_id"]]
 
-                    seg = ann["segmentation"]
-                    if isinstance(seg, list) and seg:
+                    segmentation = None
+
+                    coco_seg = ann.get("segmentation", [])
+
+                    if isinstance(coco_seg, list) and coco_seg:
                         poly = []
-                        for s in seg:
+                        for s in coco_seg:
                             poly_arr = np.array(s).reshape(-1, 2)
                             poly += [
                                 (
@@ -252,33 +256,22 @@ class COCOParser(BaseParser):
                                 )
                                 for i in range(len(poly_arr))
                             ]
-                        yield {
-                            "file": path,
-                            "annotation": {
-                                "class": class_name,
-                                "segmentation": {
-                                    "height": img_h,
-                                    "width": img_w,
-                                    "points": poly,
-                                },
-                            },
+                        segmentation = {
+                            "height": img_h,
+                            "width": img_w,
+                            "points": poly,
                         }
-                    elif isinstance(seg, dict):
-                        yield {
-                            "file": path,
-                            "annotation": {
-                                "class": class_name,
-                                "segmentation": {
-                                    "height": seg["size"][0],
-                                    "width": seg["size"][1],
-                                    "counts": seg["counts"],
-                                },
-                            },
+                    elif isinstance(coco_seg, dict):
+                        segmentation = {
+                            "height": coco_seg["size"][0],
+                            "width": coco_seg["size"][1],
+                            "counts": coco_seg["counts"],
                         }
 
                     x, y, w, h = ann["bbox"]
+
                     record = {
-                        "file": path,
+                        "file": file,
                         "annotation": {
                             "class": class_name,
                             "instance_id": i,
@@ -291,9 +284,15 @@ class COCOParser(BaseParser):
                         },
                     }
 
+                    if segmentation is not None:
+                        record["annotation"]["segmentation"] = segmentation
+                        record["annotation"]["instance_segmentation"] = (
+                            segmentation
+                        )
+
                     if "keypoints" in ann.keys():
                         kpts = np.array(ann["keypoints"]).reshape(-1, 3)
-                        # clip values inplace
+
                         np.clip(kpts[:, 0], 0, img_w, out=kpts[:, 0])
                         np.clip(kpts[:, 1], 0, img_h, out=kpts[:, 1])
 
@@ -306,6 +305,7 @@ class COCOParser(BaseParser):
                         record["annotation"]["keypoints"] = {
                             "keypoints": keypoints
                         }
+
                     yield record
 
         added_images = self._get_added_images(generator())

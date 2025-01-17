@@ -1,6 +1,7 @@
 import json
 import logging
 from abc import ABC, abstractmethod
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple, Union
 
@@ -318,6 +319,7 @@ class SegmentationAnnotation(Annotation):
     def validate_mask(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         if "mask" not in values:
             return values
+        values = deepcopy(values)
 
         mask = values.pop("mask")
         if isinstance(mask, (str, Path)):
@@ -364,6 +366,8 @@ class SegmentationAnnotation(Annotation):
     def validate_polyline(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         if {"points", "width", "height"} - set(values.keys()):
             return values
+
+        values = deepcopy(values)
 
         points = check_type(values.pop("points"), List[Tuple[float, float]])
         width = check_type(values.pop("width"), int)
@@ -484,6 +488,7 @@ class DatasetRecord(BaseModelExtraForbid):
     @model_validator(mode="before")
     @classmethod
     def validate_files(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        values = deepcopy(values)
         if "file" in values:
             values["files"] = {"image": values.pop("file")}
         return values
