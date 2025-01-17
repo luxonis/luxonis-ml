@@ -257,7 +257,7 @@ class LuxonisParser(Generic[T]):
     def _download_roboflow_dataset(
         self, dataset_dir: str, local_path: Optional[Path]
     ) -> Tuple[Path, str]:
-        if find_spec("roboflow") is None:
+        if find_spec("roboflow") is None:  # pragma: no cover
             _pip_install("roboflow", "roboflow", "0.1.1")
 
         from roboflow import Roboflow
