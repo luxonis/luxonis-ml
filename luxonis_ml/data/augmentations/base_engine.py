@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Iterable, List, Mapping, Type
+from typing import Iterable, List, Mapping, Type
 
-from luxonis_ml.typing import LoaderOutput
+from luxonis_ml.typing import LoaderOutput, Params
 from luxonis_ml.utils import AutoRegisterMeta, Registry
 
 AUGMENTATION_ENGINES: Registry[Type["AugmentationEngine"]] = Registry(
@@ -21,7 +21,7 @@ class AugmentationEngine(
         height: int,
         width: int,
         targets: Mapping[str, str],
-        config: Iterable[Dict[str, Any]],
+        config: Iterable[Params],
         keep_aspect_ratio: bool,
         is_validation_pipeline: bool,
         min_bbox_visibility: float = 0,
@@ -41,7 +41,7 @@ class AugmentationEngine(
                     "detection/segmentation": "mask",
                 }
 
-        @type config: List[Dict[str, Any]]
+        @type config: List[Params]
         @param config: List of dictionaries with configuration for each
             augmentation. It is up to the augmentation engine to parse
             and interpret this configuration.

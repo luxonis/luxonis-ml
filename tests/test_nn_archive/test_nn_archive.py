@@ -1,7 +1,7 @@
 import shutil
 import tarfile
 from pathlib import Path
-from typing import Any, Dict, Literal
+from typing import Literal
 
 import onnx
 import pytest
@@ -21,6 +21,7 @@ from pydantic import ValidationError
 
 from luxonis_ml.nn_archive import ArchiveGenerator, is_nn_archive
 from luxonis_ml.nn_archive.model import HeadType, Input, Output
+from luxonis_ml.typing import Params
 
 DATA_DIR = Path("tests/data/test_nn_archive")
 
@@ -75,7 +76,7 @@ def setup():
 @pytest.mark.dependency(name="test_archive_generator")
 def test_archive_generator(
     compression: Literal["xz", "gz", "bz2"],
-    head: Dict[str, Any],
+    head: Params,
     archive_name: Literal[
         "classification",
         "ssd_detection",

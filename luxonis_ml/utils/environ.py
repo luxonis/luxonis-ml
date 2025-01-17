@@ -1,8 +1,10 @@
 from pathlib import Path
-from typing import Any, Dict, Literal, Optional
+from typing import Literal, Optional
 
 from pydantic import model_serializer
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from luxonis_ml.typing import Params
 
 __all__ = ["Environ", "environ"]
 
@@ -43,7 +45,7 @@ class Environ(BaseSettings):
     )
 
     @model_serializer(when_used="always", mode="plain")
-    def _serialize_environ(self) -> Dict[str, Any]:
+    def _serialize_environ(self) -> Params:
         return {}
 
 

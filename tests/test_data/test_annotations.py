@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import List
 
 import cv2
 import numpy as np
@@ -19,6 +19,7 @@ from luxonis_ml.data.datasets.annotation import (
     check_valid_identifier,
     load_annotation,
 )
+from luxonis_ml.data.utils.parquet import ParquetRecord
 
 
 def test_valid_identifier():
@@ -49,12 +50,9 @@ def test_load_annotation():
 
 def test_dataset_record(tempdir: Path):
     def compare_parquet_rows(
-        record: DatasetRecord, expected_rows: List[Dict[str, Any]]
+        record: DatasetRecord, expected_rows: List[ParquetRecord]
     ):
-        rows = list(record.to_parquet_rows())
-        for row in rows:
-            row["file"] = Path(row["file"])  # type: ignore
-        assert rows == expected_rows
+        assert list(record.to_parquet_rows()) == expected_rows
 
     cv2.imwrite(str(tempdir / "left.jpg"), np.zeros((100, 100, 3)))
     cv2.imwrite(str(tempdir / "right.jpg"), np.zeros((100, 100, 3)))
@@ -65,7 +63,7 @@ def test_dataset_record(tempdir: Path):
         record,
         [
             {
-                "file": Path("tests/data/tempdir/left.jpg"),
+                "file": "tests/data/tempdir/left.jpg",
                 "source_name": "image",
                 "task_name": "",
                 "class_name": None,
@@ -87,7 +85,7 @@ def test_dataset_record(tempdir: Path):
         record,
         [
             {
-                "file": Path("tests/data/tempdir/left.jpg"),
+                "file": "tests/data/tempdir/left.jpg",
                 "source_name": "image",
                 "task_name": "",
                 "class_name": "person",
@@ -96,7 +94,7 @@ def test_dataset_record(tempdir: Path):
                 "annotation": '{"x":0.1,"y":0.2,"w":0.3,"h":0.4}',
             },
             {
-                "file": Path("tests/data/tempdir/left.jpg"),
+                "file": "tests/data/tempdir/left.jpg",
                 "source_name": "image",
                 "task_name": "",
                 "class_name": "person",

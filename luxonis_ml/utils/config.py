@@ -3,6 +3,8 @@ from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
 import yaml
 
+from luxonis_ml.typing import Params
+
 from .filesystem import LuxonisFileSystem
 from .pydantic_utils import BaseModelExtraForbid
 
@@ -15,10 +17,8 @@ class LuxonisConfig(BaseModelExtraForbid):
     @classmethod
     def get_config(
         cls: Type[T],
-        cfg: Optional[Union[str, Dict[str, Any]]] = None,
-        overrides: Optional[
-            Union[Dict[str, Any], List[str], Tuple[str, ...]]
-        ] = None,
+        cfg: Optional[Union[str, Params]] = None,
+        overrides: Optional[Union[Params, List[str], Tuple[str, ...]]] = None,
     ) -> T:
         """Loads config from a yaml file or a dictionary.
 
@@ -56,7 +56,7 @@ class LuxonisConfig(BaseModelExtraForbid):
             data = cfg
 
         cls._merge_overrides(data, overrides)
-        return cls(**data)
+        return cls(**data)  # type: ignore
 
     def __str__(self) -> str:
         return self.model_dump_json(indent=4)
@@ -64,7 +64,7 @@ class LuxonisConfig(BaseModelExtraForbid):
     def __repr__(self) -> str:
         return self.__str__()
 
-    def get_json_schema(self) -> Dict[str, Any]:
+    def get_json_schema(self) -> Params:
         """Retuns dict representation of the config json schema.
 
         @rtype: dict
@@ -117,9 +117,7 @@ class LuxonisConfig(BaseModelExtraForbid):
         return value
 
     @staticmethod
-    def _merge_overrides(
-        data: Dict[str, Any], overrides: Dict[str, Any]
-    ) -> None:
+    def _merge_overrides(data: Params, overrides: Params) -> None:
         """Merges the config dictionary with the CLI overrides.
 
         The overrides are a dictionary mapping "dotted" keys to either

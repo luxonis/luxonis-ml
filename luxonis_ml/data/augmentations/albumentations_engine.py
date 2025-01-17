@@ -9,7 +9,7 @@ import numpy as np
 from typing_extensions import TypeAlias, override
 
 from luxonis_ml.data.utils.task_utils import get_task_name, task_is_metadata
-from luxonis_ml.typing import ConfigItem, LoaderOutput, TaskType
+from luxonis_ml.typing import ConfigItem, LoaderOutput, Params, TaskType
 
 from .base_engine import AugmentationEngine
 from .batch_compose import BatchCompose
@@ -246,7 +246,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         height: int,
         width: int,
         targets: Dict[str, TaskType],
-        config: Iterable[Dict[str, Any]],
+        config: Iterable[Params],
         keep_aspect_ratio: bool = True,
         is_validation_pipeline: bool = False,
         min_bbox_visibility: float = 0.0,
@@ -328,7 +328,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             config = (a for a in config if a["name"] == "Normalize")
 
         for config_item in config:
-            cfg = AlbumentationConfigItem(**config_item)
+            cfg = AlbumentationConfigItem(**config_item)  # type: ignore
 
             transform = self.create_transformation(cfg)
 

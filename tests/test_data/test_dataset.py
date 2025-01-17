@@ -1,6 +1,6 @@
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Dict, List
 
 import numpy as np
 import pytest
@@ -16,12 +16,13 @@ from luxonis_ml.data import (
 )
 from luxonis_ml.data.utils.task_utils import get_task_type
 from luxonis_ml.enums import DatasetType
+from luxonis_ml.typing import Params
 
 
 def test_dataset(
     bucket_storage: BucketStorage,
     dataset_name: str,
-    augmentation_config: List[Dict[str, Any]],
+    augmentation_config: List[Params],
     subtests: SubTests,
     storage_url: str,
     tempdir: Path,
@@ -392,7 +393,7 @@ def test_no_labels(dataset_name: str, tempdir: Path, subtests: SubTests):
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_deep_nested_labels(
-    dataset_name: str, augmentation_config: List[Dict[str, Any]], tempdir: Path
+    dataset_name: str, augmentation_config: List[Params], tempdir: Path
 ):
     def generator():
         for i in range(10):

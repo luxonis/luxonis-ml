@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List
 
 import albumentations as A
 import numpy as np
@@ -20,7 +20,7 @@ class BatchTransform(ABC, A.DualTransform):
 
     @property
     @override
-    def targets(self) -> Dict[str, Any]:
+    def targets(self) -> Dict[str, Callable]:
         targets = super().targets
         targets.update(
             {

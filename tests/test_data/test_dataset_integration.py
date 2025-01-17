@@ -1,13 +1,14 @@
 import json
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import List
 
 import cv2
 import numpy as np
 from utils import gather_tasks
 
 from luxonis_ml.data import BucketStorage, LuxonisDataset, LuxonisLoader
+from luxonis_ml.typing import Params
 from luxonis_ml.utils import LuxonisFileSystem, setup_logging
 
 setup_logging(use_rich=True, rich_print=True)
@@ -26,7 +27,7 @@ def test_parking_lot_generate(
     tempdir: Path,
     bucket_storage: BucketStorage,
     dataset_name: str,
-    augmentation_config: List[Dict[str, Any]],
+    augmentation_config: List[Params],
     height: int,
     width: int,
     storage_url: str,
