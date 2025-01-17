@@ -379,6 +379,16 @@ def test_no_labels(dataset_name: str, tempdir: Path, subtests: SubTests):
             for _, labels in augmented_loader:
                 assert set(labels.keys()) == expected_tasks
 
+        if total is False:
+            with subtests.test("test_almost_empty_exclude_empty"):
+                for i, (_, labels) in enumerate(
+                    LuxonisLoader(dataset, exclude_empty_annotations=True)
+                ):
+                    if i == 0:
+                        assert set(labels.keys()) == expected_tasks
+                    else:
+                        assert not labels
+
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_deep_nested_labels(

@@ -49,6 +49,7 @@ class LuxonisLoader(BaseLoader):
         width: Optional[int] = None,
         keep_aspect_ratio: bool = True,
         out_image_format: Literal["RGB", "BGR"] = "RGB",
+        exclude_empty_annotations: bool = False,
         *,
         update_mode: UpdateMode = UpdateMode.ALWAYS,
     ) -> None:
@@ -92,6 +93,11 @@ class LuxonisLoader(BaseLoader):
         @type out_image_format: Literal["RGB", "BGR"]
         @param out_image_format: The format of the output images. Defaults
             to C{"RGB"}.
+        @type exclude_empty_annotations: bool
+        @param exclude_empty_annotations: Whether to exclude
+            empty annotations from the final label dictionary.
+            Defaults to C{False} (i.e. include empty annotations).
+
         @type update_mode: UpdateMode
         @param update_mode: Enum that determines the sync mode:
             - UpdateMode.ALWAYS: Force a fresh download
@@ -100,6 +106,7 @@ class LuxonisLoader(BaseLoader):
 
         self.logger = logging.getLogger(__name__)
         self.out_image_format = out_image_format
+        self.exclude_empty_annotations = exclude_empty_annotations
 
         self.dataset = dataset
         self.sync_mode = self.dataset.is_remote
@@ -216,9 +223,12 @@ class LuxonisLoader(BaseLoader):
         if self.out_image_format == "BGR":
             img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
-        return self._fill_empty_annotations(img, labels)
+        if self.exclude_empty_annotations:
+            return img, labels
 
-    def _fill_empty_annotations(
+        return self._add_empty_annotations(img, labels)
+
+    def _add_empty_annotations(
         self, img: np.ndarray, labels: Labels
     ) -> LoaderOutput:
         for task_name, task_types in self.dataset.get_tasks().items():
