@@ -1,4 +1,3 @@
-import random
 from pathlib import Path
 
 import pytest
@@ -16,36 +15,32 @@ PROTOCOLS = ["gcs", "s3"]
 
 
 @pytest.fixture
-def protocol_tempdir(tempdir: Path, request: SubRequest) -> Path:
+def protocol_tempdir(tempdir: Path, randint: int, request: SubRequest) -> Path:
     protocol = request.getfixturevalue("protocol")
-    rand = random.randint(0, 10000)
-    tempdir = tempdir / protocol / str(rand)
+    tempdir = tempdir / protocol / str(randint)
     tempdir.mkdir(parents=True)
     return tempdir
 
 
 @pytest.fixture
-def local_file(protocol_tempdir: Path) -> Path:
-    rand = random.randint(0, 10000)
-    file_path = protocol_tempdir / f"file_{rand}.txt"
-    file_path.write_text(f"test {rand}")
+def local_file(protocol_tempdir: Path, randint: int) -> Path:
+    file_path = protocol_tempdir / f"file_{randint}.txt"
+    file_path.write_text(f"test {randint}")
 
     return file_path
 
 
 @pytest.fixture
-def local_dir(protocol_tempdir: Path) -> Path:
-    rand = random.randint(0, 10000)
-
-    dir_path = protocol_tempdir / f"dir_{rand}"
+def local_dir(protocol_tempdir: Path, randint: int) -> Path:
+    dir_path = protocol_tempdir / f"dir_{randint}"
     dir_path.mkdir()
 
     for i in range(5):
         file_path = dir_path / f"file_{i}.txt"
-        file_path.write_text(f"file {rand}")
+        file_path.write_text(f"file {randint}")
 
     (dir_path / "nested").mkdir()
-    (dir_path / "nested" / "file.txt").write_text(f"nested file {rand}")
+    (dir_path / "nested" / "file.txt").write_text(f"nested file {randint}")
 
     return dir_path
 
@@ -75,8 +70,8 @@ def test_protocol():
         LuxonisFileSystem("foo://bar")
 
 
-def test_fail(tempdir: Path):
-    file = tempdir / f"file_{random.randint(0, 10000)}.txt"
+def test_fail(tempdir: Path, randint: int):
+    file = tempdir / f"file_{randint}.txt"
     file.write_text("test")
     with pytest.raises(ValueError):
         LuxonisFileSystem(str(local_file), allow_local=False)
@@ -185,49 +180,53 @@ def test_walk_dir(fs: LuxonisFileSystem, local_dir: Path, subtests: SubTests):
         assert files == ["nested"]
 
 
-def test_bytes(fs: LuxonisFileSystem):
-    rand = random.randint(0, 10000)
-    bytes_file = f"bytes_test_{rand}.txt"
-    fs.put_bytes(f"bytes test {rand}".encode(), bytes_file)
+def test_bytes(fs: LuxonisFileSystem, randint):
+    bytes_file = f"bytes_test_{randint}.txt"
+    fs.put_bytes(f"bytes test {randint}".encode(), bytes_file)
     assert fs.exists(bytes_file)
     buffer = fs.read_to_byte_buffer(bytes_file)
-    assert buffer.read() == f"bytes test {rand}".encode()
+    assert buffer.read() == f"bytes test {randint}".encode()
 
 
-def test_static(
+def test_static_file(
     fs: LuxonisFileSystem,
     local_file: Path,
+    protocol_tempdir: Path,
+    subtests: SubTests,
+    randint: int,
+):
+    file_name = f"static_file_upload_{randint}.txt"
+    url = f"{fs.url}/{file_name}"
+    with subtests.test("upload"):
+        assert not fs.exists(file_name)
+        LuxonisFileSystem.upload(local_file, url)
+        assert fs.exists(file_name)
+
+    with subtests.test("download"):
+        assert fs.exists(file_name)
+        file = LuxonisFileSystem.download(url, protocol_tempdir)
+        assert file.exists()
+        assert file.read_text() == local_file.read_text()
+
+
+def test_static_directory(
+    fs: LuxonisFileSystem,
     local_dir: Path,
     protocol_tempdir: Path,
     subtests: SubTests,
+    randint: int,
 ):
-    rand = random.randint(0, 10000)
-    with subtests.test("file"):
-        file_name = f"static_file_upload_{rand}.txt"
-        url = f"{fs.url}/{file_name}"
-        with subtests.test("upload"):
-            assert not fs.exists(file_name)
-            LuxonisFileSystem.upload(local_file, url)
-            assert fs.exists(file_name)
+    dir_name = f"static_dir_upload_{randint}"
+    url = f"{fs.url}/{dir_name}"
+    with subtests.test("upload"):
+        assert not fs.exists(dir_name)
+        LuxonisFileSystem.upload(local_dir, url)
+        assert fs.exists(dir_name)
 
-        with subtests.test("download"):
-            assert fs.exists(file_name)
-            file = LuxonisFileSystem.download(url, protocol_tempdir)
-            assert file.exists()
-            assert file.read_text() == local_file.read_text()
-
-    with subtests.test("directory"):
-        dir_name = f"static_dir_upload_{rand}"
-        url = f"{fs.url}/{dir_name}"
-        with subtests.test("upload"):
-            assert not fs.exists(dir_name)
-            LuxonisFileSystem.upload(local_dir, url)
-            assert fs.exists(dir_name)
-
-        with subtests.test("download"):
-            assert fs.exists(dir_name)
-            dir = LuxonisFileSystem.download(url, protocol_tempdir)
-            compare_directories(dir, local_dir)
+    with subtests.test("download"):
+        assert fs.exists(dir_name)
+        dir = LuxonisFileSystem.download(url, protocol_tempdir)
+        compare_directories(dir, local_dir)
 
 
 def compare_directories(

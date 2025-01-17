@@ -26,6 +26,11 @@ def get_caller_name(request: SubRequest) -> str:
     return node.name
 
 
+@pytest.fixture(scope="function")
+def randint() -> int:
+    return random.randint(0, 100000)
+
+
 # @pytest.fixture(autouse=True, scope="module")
 # def fix_seed():
 #     np.random.seed(42)
@@ -34,9 +39,9 @@ def get_caller_name(request: SubRequest) -> str:
 
 @pytest.fixture(autouse=True, scope="session")
 def setup_base_path():
+    randint = random.randint(0, 100000)
     environ.LUXONISML_BASE_PATH = (
-        Path.cwd()
-        / f"tests/data/luxonisml_base_path/{random.randint(0, 100000):06d}"
+        Path.cwd() / f"tests/data/luxonisml_base_path/{randint}"
     )
     if environ.LUXONISML_BASE_PATH.exists():
         shutil.rmtree(environ.LUXONISML_BASE_PATH)
@@ -64,8 +69,8 @@ def platform_name():  # pragma: no cover
 
 
 @pytest.fixture(scope="function")
-def dataset_name(request: SubRequest) -> str:
-    return f"{get_caller_name(request)}_{random.randint(0, 100000):06d}"
+def dataset_name(request: SubRequest, randint: int) -> str:
+    return f"{get_caller_name(request)}_{randint}"
 
 
 @pytest.fixture(scope="session")
@@ -125,11 +130,11 @@ def base_tempdir(worker_id: str):
     yield path
 
 
-@pytest.fixture(scope="module")
-def tempdir(base_tempdir: Path) -> Path:
+@pytest.fixture(scope="function")
+def tempdir(base_tempdir: Path, randint: int) -> Path:
     t = time.time()
     while True:
-        path = base_tempdir / f"{random.randint(0, 100000):06d}"
+        path = base_tempdir / str(randint)
         if not path.exists():
             break
         if time.time() - t > 5:

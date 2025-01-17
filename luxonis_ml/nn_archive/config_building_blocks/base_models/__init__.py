@@ -1,4 +1,4 @@
-from .head import Head, HeadType
+from .head import Head, HeadMetadata, HeadType
 from .input import Input, PreprocessingBlock
 from .metadata import Metadata
 from .output import Output
@@ -10,4 +10,5 @@ __all__ = [
     "PreprocessingBlock",
     "Output",
     "Metadata",
+    "HeadMetadata",
 ]
