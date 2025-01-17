@@ -22,14 +22,14 @@ def load_dataset_plugins() -> None:  # pragma: no cover
     """Registers any external dataset BaseDataset class plugins."""
     for entry_point in pkg_resources.iter_entry_points("dataset_plugins"):
         plugin_class = entry_point.load()
-        DATASETS_REGISTRY.register_module(module=plugin_class)
+        DATASETS_REGISTRY.register(module=plugin_class)
 
 
 def load_loader_plugins() -> None:  # pragma: no cover
     """Registers any external dataset BaseLoader class plugins."""
     for entry_point in pkg_resources.iter_entry_points("loader_plugins"):
         plugin_class = entry_point.load()
-        DATASETS_REGISTRY.register_module(module=plugin_class)
+        DATASETS_REGISTRY.register(module=plugin_class)
 
 
 load_dataset_plugins()
