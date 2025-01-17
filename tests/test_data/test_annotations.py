@@ -52,7 +52,11 @@ def test_dataset_record(tempdir: Path):
     def compare_parquet_rows(
         record: DatasetRecord, expected_rows: List[ParquetRecord]
     ):
-        assert list(record.to_parquet_rows()) == expected_rows
+        rows = list(record.to_parquet_rows())
+        for row in rows:
+            # for compatibility with Windows
+            row["file"] = str(Path(row["file"]))
+        assert rows == expected_rows
 
     cv2.imwrite(str(tempdir / "left.jpg"), np.zeros((100, 100, 3)))
     cv2.imwrite(str(tempdir / "right.jpg"), np.zeros((100, 100, 3)))
