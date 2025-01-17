@@ -26,7 +26,7 @@ from typing import (
 import fsspec
 from typeguard import typechecked
 
-from luxonis_ml.typing import PathType
+from luxonis_ml.typing import PathType, PosixPathType
 
 from .environ import environ
 from .registry import Registry
@@ -38,7 +38,7 @@ class PutFile(Protocol):
     def __call__(
         self,
         local_path: PathType,
-        remote_path: PathType,
+        remote_path: PosixPathType,
         mlflow_instance: Optional[ModuleType] = None,
     ) -> str: ...
 
@@ -192,14 +192,14 @@ class LuxonisFileSystem:
     def put_file(
         self,
         local_path: PathType,
-        remote_path: PathType,
+        remote_path: PosixPathType,
         mlflow_instance: Optional[ModuleType] = None,
     ) -> str:
         """Copy a single file to remote storage.
 
         @type local_path: PathType
         @param local_path: Path to local file
-        @type remote_path: PathType
+        @type remote_path: PosixPathType
         @param remote_path: Relative path to remote file
         @type mlflow_instance: Optional[L{ModuleType}]
         @param mlflow_instance: MLFlow instance if uploading to active
@@ -228,7 +228,7 @@ class LuxonisFileSystem:
     def put_dir(
         self,
         local_paths: Union[PathType, Iterable[PathType]],
-        remote_dir: PathType,
+        remote_dir: PosixPathType,
         uuid_dict: Optional[Dict[str, str]] = None,
         mlflow_instance: Optional[ModuleType] = None,
         copy_contents: bool = False,
@@ -239,7 +239,7 @@ class LuxonisFileSystem:
         @param local_paths: Either a string specifying a directory to
             walk the files or a list of files which can be in different
             directories.
-        @type remote_dir: PathType
+        @type remote_dir: PosixPathType
         @param remote_dir: Relative path to remote directory
         @type uuid_dict: Optional[Dict[str, str]]
         @param uuid_dict: Stores paths as keys and corresponding UUIDs
@@ -290,14 +290,14 @@ class LuxonisFileSystem:
     def put_bytes(
         self,
         file_bytes: bytes,
-        remote_path: PathType,
+        remote_path: PosixPathType,
         mlflow_instance: Optional[ModuleType] = None,
     ) -> None:
         """Uploads a file to remote storage directly from file bytes.
 
         @type file_bytes: bytes
         @param file_bytes: the bytes for the file contents
-        @type remote_path: PathType
+        @type remote_path: PosixPathType
         @param remote_path: Relative path to remote file
         @type mlflow_instance: Optional[L{ModuleType}]
         @param mlflow_instance: MLFlow instance if uploading to active
@@ -312,13 +312,13 @@ class LuxonisFileSystem:
 
     def get_file(
         self,
-        remote_path: PathType,
+        remote_path: PosixPathType,
         local_path: PathType,
         mlflow_instance: Optional[ModuleType] = None,
     ) -> Path:
         """Copy a single file from remote storage.
 
-        @type remote_path: PathType
+        @type remote_path: PosixPathType
         @param remote_path: Relative path to remote file
         @type local_path: PathType
         @param local_path: Path to local file
@@ -340,12 +340,12 @@ class LuxonisFileSystem:
         if local_path.is_file():
             return local_path
 
-        return local_path / Path(remote_path).name
+        return local_path / PurePosixPath(remote_path).name
 
-    def delete_file(self, remote_path: PathType) -> None:
+    def delete_file(self, remote_path: PosixPathType) -> None:
         """Deletes a single file from remote storage.
 
-        @type remote_path: PathType
+        @type remote_path: PosixPathType
         @param remote_path: Relative path to remote file
         """
         if self.is_fsspec:
@@ -354,10 +354,10 @@ class LuxonisFileSystem:
         else:
             raise NotImplementedError
 
-    def delete_files(self, remote_paths: List[PathType]) -> None:
+    def delete_files(self, remote_paths: List[PosixPathType]) -> None:
         """Deletes multiple files from remote storage.
 
-        @type remote_paths: List[PathType]
+        @type remote_paths: List[PosixPathType]
         @param remote_paths: Relative paths to remote files
         """
         if self.is_fsspec:
@@ -370,13 +370,14 @@ class LuxonisFileSystem:
 
     def get_dir(
         self,
-        remote_paths: Union[PathType, Iterable[PathType]],
+        remote_paths: Union[PosixPathType, Iterable[PosixPathType]],
         local_dir: PathType,
         mlflow_instance: Optional[ModuleType] = None,
     ) -> Path:
         """Copies many files from remote storage to local storage.
 
-        @type remote_paths: Union[PathType, Sequence[PathType]]
+        @type remote_paths: Union[PosixPathType,
+            Sequence[PosixPathType]]
         @param remote_paths: Either a string specifying a directory to
             walk the files or a list of files which can be in different
             directories.
@@ -392,7 +393,9 @@ class LuxonisFileSystem:
         if self.is_mlflow:
             raise NotImplementedError
         elif self.is_fsspec:
-            if isinstance(remote_paths, Path) or isinstance(remote_paths, str):
+            if isinstance(remote_paths, PurePosixPath) or isinstance(
+                remote_paths, str
+            ):
                 existed = local_dir.exists()
                 self.fs.download(
                     str(self.path / remote_paths),
@@ -401,22 +404,24 @@ class LuxonisFileSystem:
                 )
                 if not existed:
                     return local_dir
-                return local_dir / Path(remote_paths).name
+                return local_dir / PurePosixPath(remote_paths).name
 
             elif isinstance(remote_paths, list):
                 with ThreadPoolExecutor() as executor:
                     for remote_path in remote_paths:
-                        local_path = local_dir / Path(remote_path).name
+                        local_path = (
+                            local_dir / PurePosixPath(remote_path).name
+                        )
                         executor.submit(self.get_file, remote_path, local_path)
 
         return Path(local_dir)
 
     def delete_dir(
-        self, remote_dir: PathType = "", allow_delete_parent: bool = False
+        self, remote_dir: PosixPathType = "", allow_delete_parent: bool = False
     ) -> None:
         """Deletes a directory and all its contents from remote storage.
 
-        @type remote_dir: PathType
+        @type remote_dir: PosixPathType
         @param remote_dir: Relative path to remote directory.
         @type allow_delete_parent: bool
         @param allow_delete_parent: If True, allows deletion of the
@@ -439,13 +444,13 @@ class LuxonisFileSystem:
 
     def walk_dir(
         self,
-        remote_dir: PathType,
+        remote_dir: PosixPathType,
         recursive: bool = True,
         typ: Literal["file", "directory", "all"] = "file",
     ) -> Iterator[str]:
         """Walks through the individual files in a remote directory.
 
-        @type remote_dir: PathType
+        @type remote_dir: PosixPathType
         @param remote_dir: Relative path to remote directory
         @type recursive: bool
         @param recursive: If True, walks through the directory
@@ -477,10 +482,10 @@ class LuxonisFileSystem:
                 if recursive and file["type"] == "directory":
                     yield from self.walk_dir(name, recursive, typ)
 
-    def read_text(self, remote_path: PathType) -> Union[str, bytes]:
+    def read_text(self, remote_path: PosixPathType) -> Union[str, bytes]:
         """Reads a file into a string.
 
-        @type remote_path: PathType
+        @type remote_path: PosixPathType
         @param remote_path: Relative path to remote file.
         @rtype: Union[str, bytes]
         @return: The string containing the file contents.
@@ -490,11 +495,11 @@ class LuxonisFileSystem:
         return self.fs.read_text(str(self.path / remote_path))
 
     def read_to_byte_buffer(
-        self, remote_path: Optional[PathType] = None
+        self, remote_path: Optional[PosixPathType] = None
     ) -> BytesIO:
         """Reads a file into a byte buffer.
 
-        @type remote_path: Optional[PathType]
+        @type remote_path: Optional[PosixPathType]
         @param remote_path: Relative path to remote file.
         @rtype: BytesIO
         @return: The byte buffer containing the file contents.
@@ -599,10 +604,10 @@ class LuxonisFileSystem:
             parts = parts[:3]
         return parts
 
-    def is_directory(self, remote_path: PathType) -> bool:
+    def is_directory(self, remote_path: PosixPathType) -> bool:
         """Checks whether the given remote path is a directory.
 
-        @type remote_path: PathType
+        @type remote_path: PosixPathType
         @param remote_path: Relative path to remote file.
         @rtype: bool
         @return: True if the path is a directory.
@@ -612,10 +617,10 @@ class LuxonisFileSystem:
         file_info = self.fs.info(full_path)
         return file_info["type"] == "directory"
 
-    def exists(self, remote_path: PathType = "") -> bool:
+    def exists(self, remote_path: PosixPathType = "") -> bool:
         """Checks whether the given remote path exists.
 
-        @type remote_path: PathType
+        @type remote_path: PosixPathType
         @param remote_path: Relative path to remote file. Defaults to ""
             (root).
         @rtype: bool

@@ -7,7 +7,7 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from functools import cached_property
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import (
     Any,
     Dict,
@@ -1173,15 +1173,16 @@ class LuxonisDataset(BaseDataset):
         if not fs.exists():
             return []
 
-        def process_directory(path: PathType) -> Optional[str]:
-            path = Path(path)
+        def process_directory(path: PurePosixPath) -> Optional[str]:
             metadata_path = path / "metadata" / "metadata.json"
             if fs.exists(metadata_path):
                 return path.name
             return None
 
-        # Collect directory paths and process them in parallel
-        paths = list(fs.walk_dir("", recursive=False, typ="directory"))
+        paths = (
+            PurePosixPath(path)
+            for path in fs.walk_dir("", recursive=False, typ="directory")
+        )
         with ThreadPoolExecutor() as executor:
             names = [
                 name for name in executor.map(process_directory, paths) if name
