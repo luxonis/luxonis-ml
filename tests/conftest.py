@@ -32,9 +32,9 @@ def randint() -> int:
 
 
 @pytest.fixture(autouse=True, scope="session")
-def fix_seed():
-    np.random.seed(42)
-    random.seed(42)
+def fix_seed(worker_id: str):
+    np.random.seed(hash(worker_id) % 2**32)
+    random.seed(hash(worker_id) % 2**32)
 
 
 @pytest.fixture(autouse=True, scope="session")
