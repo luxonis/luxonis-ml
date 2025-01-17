@@ -60,6 +60,8 @@ pydoctor --docformat=epytext luxonis_ml
 
 ## Tests
 
+All tests and their files are located in the `tests` directory.
+
 We use [pytest](https://docs.pytest.org/en/stable/) for testing with the `x-dist` and `coverage` plugins for parallel execution and coverage reporting.
 
 The tests define multiple useful fixtures that make it easier
@@ -71,9 +73,14 @@ to achieve fully independent tests that can be run in parallel.
 - `python_version` - the version of Python running the tests
 - `platform_name` - the name of the platform running the tests
 
-For the full list, see the `conftest.py` file in the `tests` directory.
+For the full list, see the `tests/conftest.py`.
 
-All tests and their files are located in the `tests` directory.
+PyTest fixtures can be used by simply adding them to the signature of the test function:
+
+```python
+def test_foo(tempdir: Path, dataset_name: str):
+    ...
+```
 
 You can run the tests locally with:
 
