@@ -28,6 +28,7 @@ from luxonis_ml.data.utils import (
     split_task,
     task_type_iterator,
 )
+from luxonis_ml.data.utils.task_utils import task_is_metadata
 from luxonis_ml.typing import Labels, LoaderOutput, PathType
 
 logger = logging.getLogger(__name__)
@@ -214,6 +215,39 @@ class LuxonisLoader(BaseLoader):
 
         if self.out_image_format == "BGR":
             img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+
+        return self._fill_empty_annotations(img, labels)
+
+    def _fill_empty_annotations(
+        self, img: np.ndarray, labels: Labels
+    ) -> LoaderOutput:
+        for task_name, task_types in self.dataset.get_tasks().items():
+            for task_type in task_types:
+                task = f"{task_name}/{task_type}"
+                if task not in labels:
+                    if task_type == "boundingbox":
+                        labels[task] = np.zeros((0, 5))
+                    elif task_type == "keypoints":
+                        n_keypoints = self.dataset.get_n_keypoints()[task_name]
+                        labels[task] = np.zeros((0, n_keypoints, 3))
+                    elif task_type == "segmentation":
+                        labels[task] = np.zeros(
+                            (0, img.shape[0], img.shape[1])
+                        )
+                    elif task_type == "instance_segmentation":
+                        labels[task] = np.zeros(
+                            (
+                                len(self.dataset.get_classes()[task_name]),
+                                img.shape[0],
+                                img.shape[1],
+                            )
+                        )
+                    elif task_type == "classification" or task_is_metadata(
+                        task
+                    ):
+                        labels[task] = np.zeros(
+                            (len(self.classes[task_name]),)
+                        )
 
         return img, labels
 

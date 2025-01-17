@@ -1,23 +1,16 @@
 import json
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List
 
 import cv2
 import numpy as np
+from utils import gather_tasks
 
 from luxonis_ml.data import BucketStorage, LuxonisDataset, LuxonisLoader
 from luxonis_ml.utils import LuxonisFileSystem, setup_logging
 
 setup_logging(use_rich=True, rich_print=True)
-
-
-def gather_tasks(dataset: LuxonisDataset) -> Set[str]:
-    return {
-        f"{task_name}/{task_type}"
-        for task_name, task_types in dataset.get_tasks().items()
-        for task_type in task_types
-    }
 
 
 def get_annotations(sequence_path):
