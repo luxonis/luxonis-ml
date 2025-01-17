@@ -18,7 +18,6 @@ from typing import (
     Literal,
     Optional,
     Protocol,
-    Sequence,
     Tuple,
     Union,
     cast,
@@ -44,7 +43,7 @@ class PutFile(Protocol):
     ) -> str: ...
 
 
-PUT_FILE_REGISTRY: Registry[PutFile] = Registry(name="put_file")
+PUT_FILE_REGISTRY: Registry[PutFile] = Registry(name="put_file")  # type: ignore
 
 
 class FSType(Enum):
@@ -85,6 +84,7 @@ class LuxonisFileSystem:
             the PUT_FILE_REGISTRY to override C{self.put_file}.
         """
         self.cache_storage = cache_storage
+        self.url = path
 
         self.protocol, _path = _get_protocol_and_path(path)
         supported_protocols = ["s3", "gcs", "file", "mlflow"]
@@ -329,13 +329,18 @@ class LuxonisFileSystem:
         @return: Path to the downloaded file.
         """
 
+        local_path = Path(local_path)
         if self.is_mlflow:
             raise NotImplementedError
         elif self.is_fsspec:
             self.fs.download(
                 str(self.path / remote_path), str(local_path), recursive=False
             )
-        return Path(local_path) / Path(remote_path).name
+
+        if local_path.is_file():
+            return local_path
+
+        return local_path / Path(remote_path).name
 
     def delete_file(self, remote_path: PathType) -> None:
         """Deletes a single file from remote storage.
@@ -365,7 +370,7 @@ class LuxonisFileSystem:
 
     def get_dir(
         self,
-        remote_paths: Union[PathType, Sequence[PathType]],
+        remote_paths: Union[PathType, Iterable[PathType]],
         local_dir: PathType,
         mlflow_instance: Optional[ModuleType] = None,
     ) -> Path:
@@ -383,23 +388,25 @@ class LuxonisFileSystem:
         @rtype: Path
         @return: Path to the downloaded directory.
         """
+        local_dir = Path(local_dir)
         if self.is_mlflow:
             raise NotImplementedError
         elif self.is_fsspec:
             if isinstance(remote_paths, Path) or isinstance(remote_paths, str):
+                existed = local_dir.exists()
                 self.fs.download(
                     str(self.path / remote_paths),
                     str(local_dir),
                     recursive=True,
                 )
-                return Path(local_dir) / Path(remote_paths).name
+                if not existed:
+                    return local_dir
+                return local_dir / Path(remote_paths).name
 
             elif isinstance(remote_paths, list):
                 with ThreadPoolExecutor() as executor:
                     for remote_path in remote_paths:
-                        local_path = str(
-                            local_dir / Path(Path(remote_path).name)
-                        )
+                        local_path = local_dir / Path(remote_path).name
                         executor.submit(self.get_file, remote_path, local_path)
 
         return Path(local_dir)
@@ -456,7 +463,11 @@ class LuxonisFileSystem:
             full_path = str(self.path / remote_dir)
             for file in self.fs.ls(full_path, detail=True):
                 if self.protocol == "file":
-                    name = str(Path(file["name"]).relative_to(self.path))
+                    name = str(
+                        Path(file["name"])
+                        .resolve()
+                        .relative_to(Path(self.path).resolve())
+                    )
                 else:
                     name = str(
                         PurePosixPath(file["name"]).relative_to(self.path)

@@ -1,4 +1,4 @@
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Dict, Literal, Tuple, Union
 
 import numpy as np
@@ -7,6 +7,9 @@ from typing_extensions import TypeAlias
 
 PathType: TypeAlias = Union[str, Path]
 """A string or a `pathlib.Path` object."""
+
+PosixPathType: TypeAlias = Union[str, PurePosixPath]
+"""A string or a `pathlib.PurePosixPath` object."""
 
 
 TaskType: TypeAlias = Literal[

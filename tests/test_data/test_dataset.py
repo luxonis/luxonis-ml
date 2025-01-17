@@ -27,7 +27,7 @@ def test_dataset(
     storage_url: str,
     tempdir: Path,
 ):
-    with subtests.test("test_create", bucket_storage=bucket_storage):
+    with subtests.test("test_create"):
         dataset = LuxonisParser(
             f"{storage_url}/COCO_people_subset.zip",
             dataset_name=dataset_name,
@@ -102,14 +102,14 @@ def test_dataset(
             dataset.source.to_document() == LuxonisSource("test").to_document()
         )
 
-    with subtests.test("test_load", bucket_storage=bucket_storage):
+    with subtests.test("test_load"):
         loader = LuxonisLoader(dataset)
         for img, labels in loader:
             assert img is not None
             for task in {"segmentation", "keypoints", "boundingbox"}:
                 assert f"coco/{task}" in labels
 
-    with subtests.test("test_load_aug", bucket_storage=bucket_storage):
+    with subtests.test("test_load_aug"):
         loader = LuxonisLoader(
             dataset,
             width=512,
@@ -122,7 +122,7 @@ def test_dataset(
             for task in {"segmentation", "keypoints", "boundingbox"}:
                 assert f"coco/{task}" in labels
 
-    with subtests.test("test_delete", bucket_storage=bucket_storage):
+    with subtests.test("test_delete"):
         dataset.delete_dataset(delete_remote=True)
         assert not LuxonisDataset.exists(
             dataset_name, bucket_storage=bucket_storage
