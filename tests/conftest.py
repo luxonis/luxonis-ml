@@ -28,7 +28,7 @@ def get_caller_name(request: SubRequest) -> str:
 
 @pytest.fixture(scope="function")
 def randint() -> int:
-    return random.randint(0, 100000)
+    return random.randint(0, 100_000)
 
 
 @pytest.fixture(autouse=True, scope="session")
