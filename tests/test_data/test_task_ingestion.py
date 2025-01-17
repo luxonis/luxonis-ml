@@ -17,7 +17,9 @@ STEP = 10
 
 def compute_histogram(dataset: LuxonisDataset) -> Dict[str, int]:
     classes = defaultdict(int)
-    loader = LuxonisLoader(dataset, update_mode=UpdateMode.ALWAYS)
+    loader = LuxonisLoader(
+        dataset, exclude_empty_annotations=True, update_mode=UpdateMode.ALWAYS
+    )
     for _, record in loader:
         for task, _ in record.items():
             if get_task_type(task) != "classification":
