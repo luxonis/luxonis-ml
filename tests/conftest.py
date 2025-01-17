@@ -21,7 +21,7 @@ setup_logging(use_rich=True, rich_print=True, configure_warnings=True)
 
 def get_caller_name(request: SubRequest) -> str:
     node = request.node
-    if isinstance(node, Function):
+    if isinstance(node, Function):  # pragma: no cover
         return node.function.__name__
     return node.name
 
@@ -43,7 +43,7 @@ def setup_base_path():
     environ.LUXONISML_BASE_PATH = (
         Path.cwd() / f"tests/data/luxonisml_base_path/{randint}"
     )
-    if environ.LUXONISML_BASE_PATH.exists():
+    if environ.LUXONISML_BASE_PATH.exists():  # pragma: no cover
         shutil.rmtree(environ.LUXONISML_BASE_PATH)
     environ.LUXONISML_BASE_PATH.mkdir(parents=True, exist_ok=True)
 
@@ -137,7 +137,7 @@ def tempdir(base_tempdir: Path, randint: int) -> Path:
         path = base_tempdir / str(randint)
         if not path.exists():
             break
-        if time.time() - t > 5:
+        if time.time() - t > 5:  # pragma: no cover
             raise TimeoutError(
                 "Could not create a unique tempdir. Something is wrong."
             )
