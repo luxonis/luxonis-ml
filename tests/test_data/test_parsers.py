@@ -13,10 +13,20 @@ from luxonis_ml.utils import environ
     [
         (
             "COCO_people_subset.zip",
-            {"boundingbox", "keypoints", "segmentation", "classification"},
+            {
+                "boundingbox",
+                "keypoints",
+                "segmentation",
+                "classification",
+                "instance_segmentation",
+            },
         ),
         (
             "Thermal_Dogs_and_People.v1-resize-416x416.coco.zip",
+            {"boundingbox", "classification"},
+        ),
+        (
+            "roboflow://team-roboflow/coco-128/2/coco",
             {"boundingbox", "classification"},
         ),
         (
@@ -54,10 +64,6 @@ from luxonis_ml.utils import environ
         (
             "D2_ParkingLot.zip",
             {"boundingbox", "segmentation", "classification", "keypoints"},
-        ),
-        (
-            "roboflow://team-roboflow/coco-128/2/coco",
-            {"boundingbox", "classification"},
         ),
         (
             "D2_ParkingLot_Native.zip",
