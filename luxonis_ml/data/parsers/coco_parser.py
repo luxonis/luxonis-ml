@@ -241,10 +241,13 @@ class COCOParser(BaseParser):
                         continue
                     class_name = categories[ann["category_id"]]
 
-                    seg = ann["segmentation"]
-                    if isinstance(seg, list) and seg:
+                    segmentation = None
+
+                    coco_seg = ann.get("segmentation", [])
+
+                    if isinstance(coco_seg, list) and coco_seg:
                         poly = []
-                        for s in seg:
+                        for s in coco_seg:
                             poly_arr = np.array(s).reshape(-1, 2)
                             poly += [
                                 (
@@ -253,19 +256,17 @@ class COCOParser(BaseParser):
                                 )
                                 for i in range(len(poly_arr))
                             ]
-                        segmentaiton = {
+                        segmentation = {
                             "height": img_h,
                             "width": img_w,
                             "points": poly,
                         }
-                    elif isinstance(seg, dict):
-                        segmentaiton = {
-                            "height": seg["size"][0],
-                            "width": seg["size"][1],
-                            "counts": seg["counts"],
+                    elif isinstance(coco_seg, dict):
+                        segmentation = {
+                            "height": coco_seg["size"][0],
+                            "width": coco_seg["size"][1],
+                            "counts": coco_seg["counts"],
                         }
-                    else:  # no instances
-                        continue
 
                     x, y, w, h = ann["bbox"]
 
@@ -274,8 +275,6 @@ class COCOParser(BaseParser):
                         "annotation": {
                             "class": class_name,
                             "instance_id": i,
-                            "segmentation": segmentaiton,
-                            "instance_segmentation": segmentaiton,
                             "boundingbox": {
                                 "x": x / img_w,
                                 "y": y / img_h,
@@ -285,9 +284,15 @@ class COCOParser(BaseParser):
                         },
                     }
 
+                    if segmentation is not None:
+                        record["annotation"]["segmentation"] = segmentation
+                        record["annotation"]["instance_segmentation"] = (
+                            segmentation
+                        )
+
                     if "keypoints" in ann.keys():
                         kpts = np.array(ann["keypoints"]).reshape(-1, 3)
-                        # clip values inplace
+
                         np.clip(kpts[:, 0], 0, img_w, out=kpts[:, 0])
                         np.clip(kpts[:, 1], 0, img_h, out=kpts[:, 1])
 
