@@ -11,7 +11,7 @@ from luxonis_ml.utils.filesystem import (
 
 URL_PATH = "luxonis-test-bucket/luxonis-ml-test-data/fs_test_data"
 
-PROTOCOLS = ["gcs", "s3"]
+PROTOCOLS = ["file", "gcs", "s3"]
 
 
 @pytest.fixture
@@ -53,11 +53,18 @@ def protocol(request: SubRequest) -> str:
 
 
 @pytest.fixture
-def fs(protocol: str, python_version: str, platform_name: str):
+def fs(
+    protocol: str,
+    python_version: str,
+    platform_name: str,
+    protocol_tempdir: Path,
+) -> LuxonisFileSystem:
+    if protocol == "file":
+        return LuxonisFileSystem(str(protocol_tempdir))
     url_path = get_platform_specific_url(
         protocol, platform_name, python_version
     )
-    yield LuxonisFileSystem(url_path)
+    return LuxonisFileSystem(url_path)
 
 
 def test_file(
@@ -115,33 +122,31 @@ def test_directory(
     subtests: SubTests,
     protocol_tempdir: Path,
 ):
-    uploaded_dir = f"upload_{local_dir.name}"
-    assert not fs.exists(uploaded_dir)
+    with subtests.test("name"):
+        uploaded_dir = f"upload_{local_dir.name}_name"
+        assert not fs.exists(uploaded_dir)
 
-    with subtests.test("upload_name"):
         fs.put_dir(local_dir, uploaded_dir)
         assert fs.exists(uploaded_dir)
         assert fs.is_directory(uploaded_dir)
 
-    with subtests.test("upload_list"):
-        fs.put_dir(
-            [str(p) for p in local_dir.iterdir()],
-            f"{uploaded_dir}_list",
-        )
-        assert fs.exists(f"{uploaded_dir}_list")
-        assert fs.is_directory(f"{uploaded_dir}_list")
-
-    with subtests.test("download_name"):
         dir_path = fs.get_dir(
             uploaded_dir, protocol_tempdir / f"dowload_{local_dir.name}_name"
         )
         compare_directories(dir_path, local_dir)
-    compare_directories(dir_path, local_dir)
 
-    with subtests.test("download_list"):
+    with subtests.test("list"):
+        uploaded_dir = f"upload_{local_dir.name}_list"
+        assert not fs.exists(uploaded_dir)
+
+        fs.put_dir([str(p) for p in local_dir.rglob("*.txt")], uploaded_dir)
+
+        assert fs.exists(uploaded_dir)
+        assert fs.is_directory(uploaded_dir)
+
         dir_path = fs.get_dir(
             [f"{uploaded_dir}/file_{i}.txt" for i in range(5)]
-            + [f"{uploaded_dir}/nested/nested_file.txt"],
+            + [f"{uploaded_dir}/nested_file.txt"],
             protocol_tempdir / f"dowload_{local_dir.name}_list",
         )
         compare_directories(dir_path, local_dir, flat=True)

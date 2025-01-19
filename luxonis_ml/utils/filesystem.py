@@ -222,6 +222,11 @@ class LuxonisFileSystem:
                 client.log_artifact(run_id=self.run_id, local_path=local_path)
 
         elif self.is_fsspec:
+            if self.protocol == "file":
+                Path(self.path / remote_path).parent.mkdir(
+                    parents=True, exist_ok=True
+                )
+
             self.fs.put_file(local_path, str(self.path / remote_path))
         return self.protocol + "://" + str(self.path / remote_path)
 
@@ -328,12 +333,11 @@ class LuxonisFileSystem:
         @rtype: Path
         @return: Path to the downloaded file.
         """
-
         local_path = Path(local_path)
         if self.is_mlflow:
             raise NotImplementedError
         elif self.is_fsspec:
-            self.fs.download(
+            self.fs.get(
                 str(self.path / remote_path), str(local_path), recursive=False
             )
 
@@ -397,7 +401,7 @@ class LuxonisFileSystem:
                 remote_paths, str
             ):
                 existed = local_dir.exists()
-                self.fs.download(
+                self.fs.get(
                     str(self.path / remote_paths),
                     str(local_dir),
                     recursive=True,
@@ -407,6 +411,7 @@ class LuxonisFileSystem:
                 return local_dir / PurePosixPath(remote_paths).name
 
             elif isinstance(remote_paths, list):
+                local_dir.mkdir(parents=True, exist_ok=True)
                 with ThreadPoolExecutor() as executor:
                     for remote_path in remote_paths:
                         local_path = (
