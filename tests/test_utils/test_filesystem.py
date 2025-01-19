@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import List
 
 import pytest
 from _pytest.fixtures import SubRequest
@@ -180,31 +181,29 @@ def test_walk_dir(fs: LuxonisFileSystem, local_dir: Path, subtests: SubTests):
 
     fs.put_dir(local_dir, uploaded_dir)
 
-    def walk(**kwargs):
-        return sorted(
-            [
-                path.lstrip(f"{uploaded_dir}/")
-                for path in fs.walk_dir(uploaded_dir, **kwargs)
-            ]
-        )
+    def check_walk(expected: List[str], **kwargs) -> None:
+        paths = {
+            Path(path.lstrip(f"{uploaded_dir}/"))
+            for path in fs.walk_dir(uploaded_dir, **kwargs)
+        }
+        assert paths == set(map(Path, expected))
 
     with subtests.test("recursive"):
-        files = walk(recursive=True, typ="file")
-
-        assert files == sorted(
-            [f"file_{i}.txt" for i in range(5)] + ["nested/nested_file.txt"]
+        check_walk(
+            [f"file_{i}.txt" for i in range(5)] + ["nested/nested_file.txt"],
+            recursive=True,
+            typ="file",
         )
 
     with subtests.test("all"):
-        files = walk(recursive=False, typ="all")
-
-        assert files == sorted(
-            [f"file_{i}.txt" for i in range(5)] + ["nested"]
+        check_walk(
+            [f"file_{i}.txt" for i in range(5)] + ["nested"],
+            recursive=False,
+            typ="all",
         )
 
     with subtests.test("directories"):
-        files = walk(recursive=False, typ="directory")
-        assert files == ["nested"]
+        check_walk(["nested"], recursive=False, typ="directory")
 
 
 def test_protocol():
