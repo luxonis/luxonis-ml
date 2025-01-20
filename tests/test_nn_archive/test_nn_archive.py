@@ -1,5 +1,5 @@
-import shutil
 import tarfile
+from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
@@ -20,12 +20,12 @@ from onnx.onnx_pb import TensorProto
 from pydantic import ValidationError
 
 from luxonis_ml.nn_archive import ArchiveGenerator, is_nn_archive
+from luxonis_ml.nn_archive.config_building_blocks import HeadMetadata
 from luxonis_ml.nn_archive.model import HeadType, Input, Output
 from luxonis_ml.typing import Params
 
-DATA_DIR = Path("tests/data/test_nn_archive")
 
-
+@lru_cache
 def create_onnx_model():
     input0 = helper.make_tensor_value_info(
         "input0", TensorProto.FLOAT, [1, 3, 64, 64]
@@ -46,17 +46,13 @@ def create_onnx_model():
 
     model = helper.make_model(graph, producer_name="DummyModelProducer")
     checker.check_model(model)
-    onnx.save(model, str(DATA_DIR / "test_model.onnx"))
+    return model
 
 
-@pytest.fixture(autouse=True, scope="session")
-def setup():
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    create_onnx_model()
-
-    yield
-
-    shutil.rmtree(DATA_DIR)
+@pytest.fixture
+def onnx_path(tempdir: Path):
+    onnx.save(create_onnx_model(), str(tempdir / "test_model.onnx"))
+    return tempdir / "test_model.onnx"
 
 
 @pytest.mark.parametrize("compression", ["xz", "gz", "bz2"])
@@ -87,10 +83,12 @@ def test_archive_generator(
         "yolo_instance_seg_kpts",
         "custom_segmentation",
     ],
+    onnx_path: Path,
 ):
+    tempdir = onnx_path.parent
     generator = ArchiveGenerator(
         archive_name=archive_name,
-        save_path="tests/data/test_nn_archive",
+        save_path=str(tempdir),
         cfg_dict={
             "config_version": "1.0",
             "model": {
@@ -122,15 +120,20 @@ def test_archive_generator(
                 "heads": [head],
             },
         },
-        executables_paths=[str(DATA_DIR / "test_model.onnx")],
+        executables_paths=[str(onnx_path)],
         compression=compression,
     )
     generator.make_archive()
-    assert (DATA_DIR / "{}.tar.xz".format(archive_name)).exists()
-    assert tarfile.is_tarfile(DATA_DIR / f"{archive_name}.tar.{compression}")
-    with tarfile.open(DATA_DIR / f"{archive_name}.tar.{compression}") as tar:
+    archive_path = tempdir / f"{archive_name}.tar.{compression}"
+    assert archive_path.exists()
+    assert tarfile.is_tarfile(archive_path)
+    with tarfile.open(archive_path) as tar:
         assert "test_model.onnx" in tar.getnames()
         assert "config.json" in tar.getnames()
+
+    assert is_nn_archive(archive_path)
+    assert not is_nn_archive(onnx_path)
+    assert not is_nn_archive(tempdir)
 
 
 def test_config_version():
@@ -179,12 +182,12 @@ def test_config_version():
 
 
 def test_optional_head_name():
-    from luxonis_ml.nn_archive.config_building_blocks.base_models.head_metadata import (
-        HeadMetadata,
-    )
-
     # without head name
-    HeadType(parser="Parser", metadata=HeadMetadata(), outputs=["output"])  # type: ignore
+    HeadType(
+        parser="Parser",
+        metadata=HeadMetadata(),  # type: ignore
+        outputs=["output"],
+    )
     # with head name
     HeadType(
         parser="Parser",
@@ -272,34 +275,3 @@ def test_layout():
                 "layout": list("nc"),
             }
         )
-
-
-@pytest.mark.parametrize(
-    "archive_name",
-    [
-        "classification",
-        "ssd_detection",
-        "yolo_detection",
-        "yolo_instance_segmentation",
-        "yolo_keypoint_detection",
-        "yolo_obb_detection",
-        "yolo_instance_seg_kpts",
-        "custom_segmentation",
-    ],
-)
-@pytest.mark.dependency(depends=["test_archive_generator"])
-def test_is_nn_archive(
-    archive_name: Literal[
-        "classification",
-        "ssd_detection",
-        "yolo_detection",
-        "yolo_instance_segmentation",
-        "yolo_keypoint_detection",
-        "yolo_obb_detection",
-        "yolo_instance_seg_kpts",
-        "custom_segmentation",
-    ],
-):
-    assert is_nn_archive(DATA_DIR / f"{archive_name}.tar.xz")
-    assert not is_nn_archive(DATA_DIR)
-    assert not is_nn_archive(DATA_DIR / "test_model.onnx")

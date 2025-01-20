@@ -2,6 +2,7 @@ import platform
 import random
 import shutil
 import sys
+import time
 from pathlib import Path
 from typing import Dict, List
 
@@ -18,16 +19,31 @@ from luxonis_ml.utils.environ import environ
 setup_logging(use_rich=True, rich_print=True, configure_warnings=True)
 
 
-@pytest.fixture(autouse=True, scope="module")
-def fix_seed():
-    np.random.seed(42)
-    random.seed(42)
+def get_caller_name(request: SubRequest) -> str:
+    node = request.node
+    if isinstance(node, Function):  # pragma: no cover
+        return node.function.__name__
+    return node.name
 
 
-@pytest.fixture(autouse=True, scope="module")
+@pytest.fixture(scope="function")
+def randint() -> int:
+    return random.randint(0, 100_000)
+
+
+@pytest.fixture(autouse=True, scope="session")
+def fix_seed(worker_id: str):
+    np.random.seed(hash(worker_id) % 2**32)
+    random.seed(hash(worker_id) % 2**32)
+
+
+@pytest.fixture(autouse=True, scope="session")
 def setup_base_path():
-    environ.LUXONISML_BASE_PATH = Path.cwd() / "tests/data/luxonisml_base_path"
-    if environ.LUXONISML_BASE_PATH.exists():
+    randint = random.randint(0, 100000)
+    environ.LUXONISML_BASE_PATH = (
+        Path.cwd() / f"tests/data/luxonisml_base_path/{randint}"
+    )
+    if environ.LUXONISML_BASE_PATH.exists():  # pragma: no cover
         shutil.rmtree(environ.LUXONISML_BASE_PATH)
     environ.LUXONISML_BASE_PATH.mkdir(parents=True, exist_ok=True)
 
@@ -53,15 +69,8 @@ def platform_name():  # pragma: no cover
 
 
 @pytest.fixture(scope="function")
-def dataset_name(
-    request: SubRequest, platform_name: str, python_version: str
-) -> str:
-    node = request.node
-    if isinstance(node, Function):
-        prefix = node.function.__name__
-    else:  # pragma: no cover
-        prefix = node.name
-    return f"{prefix}-{platform_name}-{python_version}"
+def dataset_name(request: SubRequest, randint: int) -> str:
+    return f"{get_caller_name(request)}_{randint}"
 
 
 @pytest.fixture(scope="session")
@@ -113,12 +122,29 @@ def augmentation_config() -> List[Params]:
     ]
 
 
-@pytest.fixture(scope="function")
-def tempdir():
-    path = Path("tests/data/tempdir")
+@pytest.fixture(scope="session")
+def base_tempdir(worker_id: str):
+    path = Path("tests", "data", "tempdir", worker_id)
+    shutil.rmtree(path, ignore_errors=True)
     path.mkdir(parents=True, exist_ok=True)
     yield path
-    shutil.rmtree("tests/data/tempdir")
+
+
+@pytest.fixture(scope="function")
+def tempdir(base_tempdir: Path, randint: int) -> Path:
+    t = time.time()
+    while True:
+        path = base_tempdir / str(randint)
+        if not path.exists():
+            break
+        if time.time() - t > 5:  # pragma: no cover
+            raise TimeoutError(
+                "Could not create a unique tempdir. Something is wrong."
+            )
+
+    path.mkdir(exist_ok=True)
+
+    return path
 
 
 @pytest.fixture(scope="session")

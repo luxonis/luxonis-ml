@@ -86,7 +86,7 @@ jobs:
         ROBOFLOW_API_KEY: ${{ secrets.ROBOFLOW_API_KEY }}
         LUXONISML_BUCKET: luxonis-test-bucket
       run:
-        pytest --cov --junitxml=junit.xml -o junit_family=legacy
+        pytest --cov --junitxml=junit.xml -o junit_family=legacy -n auto -vv -x
 
     - name: Upload test results to Codecov
       if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8'

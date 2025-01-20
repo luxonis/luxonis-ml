@@ -55,7 +55,7 @@ def test_dataset_record(tempdir: Path):
         rows = list(record.to_parquet_rows())
         for row in rows:
             # for compatibility with Windows
-            row["file"] = str(Path(row["file"]))
+            row["file"] = Path(row["file"])  # type: ignore
         assert rows == expected_rows
 
     cv2.imwrite(str(tempdir / "left.jpg"), np.zeros((100, 100, 3)))
@@ -67,7 +67,7 @@ def test_dataset_record(tempdir: Path):
         record,
         [
             {
-                "file": "tests/data/tempdir/left.jpg",
+                "file": tempdir / "left.jpg",  # type: ignore
                 "source_name": "image",
                 "task_name": "",
                 "class_name": None,
@@ -89,7 +89,7 @@ def test_dataset_record(tempdir: Path):
         record,
         [
             {
-                "file": "tests/data/tempdir/left.jpg",
+                "file": tempdir / "left.jpg",  # type: ignore
                 "source_name": "image",
                 "task_name": "",
                 "class_name": "person",
@@ -98,7 +98,7 @@ def test_dataset_record(tempdir: Path):
                 "annotation": '{"x":0.1,"y":0.2,"w":0.3,"h":0.4}',
             },
             {
-                "file": "tests/data/tempdir/left.jpg",
+                "file": tempdir / "left.jpg",  # type: ignore
                 "source_name": "image",
                 "task_name": "",
                 "class_name": "person",

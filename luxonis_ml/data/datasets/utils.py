@@ -6,14 +6,14 @@ from typing import Literal, Optional
 import polars as pl
 from typing_extensions import overload
 
-from luxonis_ml.typing import PathType
+from luxonis_ml.typing import PathType, PosixPathType
 from luxonis_ml.utils.filesystem import LuxonisFileSystem
 
 
 @overload
 def get_file(
     fs: LuxonisFileSystem,
-    remote_path: PathType,
+    remote_path: PosixPathType,
     local_path: PathType,
     mlflow_instance: Optional[ModuleType] = ...,
     default: Literal[None] = ...,
@@ -23,7 +23,7 @@ def get_file(
 @overload
 def get_file(
     fs: LuxonisFileSystem,
-    remote_path: PathType,
+    remote_path: PosixPathType,
     local_path: PathType,
     mlflow_instance: Optional[ModuleType] = ...,
     default: PathType = ...,
@@ -32,7 +32,7 @@ def get_file(
 
 def get_file(
     fs: LuxonisFileSystem,
-    remote_path: PathType,
+    remote_path: PosixPathType,
     local_path: PathType,
     mlflow_instance: Optional[ModuleType] = None,
     default: Optional[PathType] = None,
@@ -85,7 +85,7 @@ def find_filepath_uuid(
 @overload
 def get_dir(
     fs: LuxonisFileSystem,
-    remote_path: PathType,
+    remote_path: PosixPathType,
     local_dir: PathType,
     mlflow_instance: Optional[ModuleType] = ...,
     *,
@@ -96,7 +96,7 @@ def get_dir(
 @overload
 def get_dir(
     fs: LuxonisFileSystem,
-    remote_path: PathType,
+    remote_path: PosixPathType,
     local_dir: PathType,
     mlflow_instance: Optional[ModuleType] = ...,
     *,
@@ -106,7 +106,7 @@ def get_dir(
 
 def get_dir(
     fs: LuxonisFileSystem,
-    remote_path: PathType,
+    remote_path: PosixPathType,
     local_dir: PathType,
     mlflow_instance: Optional[ModuleType] = None,
     *,
