@@ -183,7 +183,7 @@ def test_walk_dir(fs: LuxonisFileSystem, local_dir: Path, subtests: SubTests):
 
     def check_walk(expected: List[str], **kwargs) -> None:
         paths = {
-            Path(path.lstrip(f"{uploaded_dir}/"))
+            Path(path).relative_to(Path(uploaded_dir))
             for path in fs.walk_dir(uploaded_dir, **kwargs)
         }
         assert paths == set(map(Path, expected))
