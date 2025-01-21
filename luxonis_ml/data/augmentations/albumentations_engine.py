@@ -9,7 +9,7 @@ import numpy as np
 from typing_extensions import TypeAlias, override
 
 from luxonis_ml.data.utils.task_utils import get_task_name, task_is_metadata
-from luxonis_ml.typing import ConfigItem, LoaderOutput, Params, TaskType
+from luxonis_ml.typing import ConfigItem, LoaderOutput, Params
 
 from .base_engine import AugmentationEngine
 from .batch_compose import BatchCompose
@@ -245,7 +245,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         self,
         height: int,
         width: int,
-        targets: Dict[str, TaskType],
+        targets: Dict[str, str],
         config: Iterable[Params],
         keep_aspect_ratio: bool = True,
         is_validation_pipeline: bool = False,
