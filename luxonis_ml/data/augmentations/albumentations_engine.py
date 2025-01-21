@@ -526,9 +526,11 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             task = self.target_names_to_tasks[target_name]
             task_name = get_task_name(task)
 
-            bbox_ordering = bboxes_indices.get(
-                task_name, np.array([], dtype=int)
-            )
+            if task_name not in bboxes_indices:
+                if "bboxes" in self.targets.values():
+                    bbox_ordering = np.array([], dtype=int)
+                else:
+                    bbox_ordering = np.arange(array.shape[0])
 
             if target_type == "mask":
                 out_labels[task] = postprocess_mask(array)
