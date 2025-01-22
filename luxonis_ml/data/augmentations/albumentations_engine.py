@@ -9,7 +9,7 @@ import numpy as np
 from typing_extensions import TypeAlias, override
 
 from luxonis_ml.data.utils.task_utils import get_task_name, task_is_metadata
-from luxonis_ml.typing import ConfigItem, LoaderOutput, Params, TaskType
+from luxonis_ml.typing import ConfigItem, LoaderOutput, Params
 
 from .base_engine import AugmentationEngine
 from .batch_compose import BatchCompose
@@ -245,7 +245,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         self,
         height: int,
         width: int,
-        targets: Dict[str, TaskType],
+        targets: Dict[str, str],
         config: Iterable[Params],
         keep_aspect_ratio: bool = True,
         is_validation_pipeline: bool = False,
@@ -526,9 +526,13 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             task = self.target_names_to_tasks[target_name]
             task_name = get_task_name(task)
 
-            bbox_ordering = bboxes_indices.get(
-                task_name, np.array([], dtype=int)
-            )
+            if task_name not in bboxes_indices:
+                if "bboxes" in self.targets.values():
+                    bbox_ordering = np.array([], dtype=int)
+                else:
+                    bbox_ordering = np.arange(array.shape[0])
+            else:
+                bbox_ordering = bboxes_indices[task_name]
 
             if target_type == "mask":
                 out_labels[task] = postprocess_mask(array)
