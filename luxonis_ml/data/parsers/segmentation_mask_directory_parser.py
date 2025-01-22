@@ -60,7 +60,7 @@ class SegmentationMaskDirectoryParser(BaseParser):
 
     def from_dir(
         self, dataset_dir: Path
-    ) -> Tuple[List[str], List[str], List[str]]:
+    ) -> Tuple[List[Path], List[Path], List[Path]]:
         added_train_imgs = self._parse_split(
             image_dir=dataset_dir / "train",
             seg_dir=dataset_dir / "train",
@@ -96,7 +96,8 @@ class SegmentationMaskDirectoryParser(BaseParser):
             dictionary for keypoints and list of added images
         """
 
-        idx_class = " Class"  # NOTE: space prefix included
+        # NOTE: space prefix included
+        idx_class = " Class"
 
         df = pl.read_csv(classes_path).filter(pl.col(idx_class).is_not_null())
         class_names = df[idx_class].to_list()
@@ -110,24 +111,16 @@ class SegmentationMaskDirectoryParser(BaseParser):
                 ids = np.unique(mask)
                 for id in ids:
                     class_name = class_names[id]
-                    yield {
-                        "file": file,
-                        "annotation": {
-                            "type": "classification",
-                            "class": class_name,
-                        },
-                    }
 
                     curr_seg_mask = np.zeros_like(mask)
                     curr_seg_mask[mask == id] = 1
                     yield {
                         "file": file,
                         "annotation": {
-                            "type": "mask",
                             "class": class_name,
-                            "mask": curr_seg_mask,
+                            "segmentation": {"mask": curr_seg_mask},
                         },
                     }
 
         added_images = self._get_added_images(generator())
-        return generator(), class_names, {}, added_images
+        return generator(), {}, added_images

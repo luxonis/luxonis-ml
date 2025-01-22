@@ -1,22 +1,8 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Iterator, Tuple, Type
+from typing import Iterator, Type
 
-import numpy as np
-from typing_extensions import TypeAlias
-
+from luxonis_ml.typing import LoaderOutput
 from luxonis_ml.utils import AutoRegisterMeta, Registry
-
-from ..utils.enums import LabelType
-
-Labels: TypeAlias = Dict[str, Tuple[np.ndarray, LabelType]]
-"""C{Labels} is a dictionary mappping task names to a tuple composed of
-the annotation as C{np.ndarray} and its corresponding C{LabelType}"""
-
-
-LuxonisLoaderOutput: TypeAlias = Tuple[np.ndarray, Labels]
-"""C{LuxonisLoaderOutput} is a tuple of an image as a C{np.ndarray>} and
-a dictionary of task group names and their annotations as
-L{Annotations}."""
 
 LOADERS_REGISTRY: Registry[Type["BaseLoader"]] = Registry(name="loaders")
 
@@ -36,10 +22,10 @@ class BaseLoader(
         @rtype: int
         @return: Length of the dataset.
         """
-        pass
+        ...
 
     @abstractmethod
-    def __getitem__(self, idx: int) -> LuxonisLoaderOutput:
+    def __getitem__(self, idx: int) -> LoaderOutput:
         """Loads sample from dataset.
 
         @type idx: int
@@ -47,9 +33,9 @@ class BaseLoader(
         @rtype: L{LuxonisLoaderOutput}
         @return: Sample's data in C{LuxonisLoaderOutput} format.
         """
-        pass
+        ...
 
-    def __iter__(self) -> Iterator[LuxonisLoaderOutput]:
+    def __iter__(self) -> Iterator[LoaderOutput]:
         """Iterates over the dataset.
 
         @rtype: Iterator[L{LuxonisLoaderOutput}]

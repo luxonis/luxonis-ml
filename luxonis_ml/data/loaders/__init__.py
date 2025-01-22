@@ -1,15 +1,4 @@
-from .base_loader import (
-    LOADERS_REGISTRY,
-    BaseLoader,
-    Labels,
-    LuxonisLoaderOutput,
-)
+from .base_loader import LOADERS_REGISTRY, BaseLoader
 from .luxonis_loader import LuxonisLoader
 
-__all__ = [
-    "BaseLoader",
-    "Labels",
-    "LuxonisLoader",
-    "LuxonisLoaderOutput",
-    "LOADERS_REGISTRY",
-]
+__all__ = ["BaseLoader", "LuxonisLoader", "LOADERS_REGISTRY"]

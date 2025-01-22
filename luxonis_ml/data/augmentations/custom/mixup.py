@@ -1,22 +1,20 @@
 import random
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import albumentations as A
 import cv2
 import numpy as np
-from albumentations import BoxType, KeypointType
+from typing_extensions import override
 
-from ..batch_transform import BatchBasedTransform
-from ..utils import AUGMENTATIONS
+from luxonis_ml.data.augmentations.batch_transform import BatchTransform
+from luxonis_ml.data.augmentations.custom import LetterboxResize
 
 
-@AUGMENTATIONS.register_module()
-class MixUp(BatchBasedTransform):
+class MixUp(BatchTransform):
     def __init__(
         self,
         alpha: Union[float, Tuple[float, float]] = 0.5,
-        out_batch_size: int = 1,
-        always_apply: bool = False,
+        keep_aspect_ratio: bool = True,
         p: float = 0.5,
     ):
         """MixUp augmentation that merges two images and their
@@ -26,44 +24,37 @@ class MixUp(BatchBasedTransform):
         @type alpha: Union[float, Tuple[float, float]]
         @param alpha: Mixing coefficient, either a single float or a
             tuple representing the range. Defaults to C{0.5}.
-        @type out_batch_size: int
-        @param out_batch_size: Number of output images in the batch.
-            Defaults to C{1}.
-        @type always_apply: bool
-        @param always_apply: Whether to always apply the transform.
-            Defaults to C{False}.
+        @type keep_aspect_ratio: bool
+        @param keep_aspect_ratio: Whether to keep the aspect ratio of
+            the second image when resizing. Defaults to C{True}.
         @type p: float, optional
         @param p: Probability of applying the transform. Defaults to
             C{0.5}.
         """
-        super().__init__(batch_size=2, always_apply=always_apply, p=p)
+        super().__init__(batch_size=2, p=p)
 
-        self.alpha = alpha
-        self.out_batch_size = out_batch_size
+        self.alpha = (
+            alpha if isinstance(alpha, (list, tuple)) else (alpha, alpha)
+        )
+        if keep_aspect_ratio:
+            self.resize_transform = LetterboxResize(1, 1)
+        else:
+            self.resize_transform = A.Resize(1, 1)
 
-    def get_transform_init_args_names(self) -> Tuple[str, ...]:
-        """Gets the default arguments for the mixup augmentation.
+        if not 0 <= self.alpha[0] <= 1 or not 0 <= self.alpha[1] <= 1:
+            raise ValueError("Alpha must be in range [0, 1].")
 
-        @rtype: Tuple[str, ...]
-        @return: The string keywords of the arguments.
-        """
-        return ("alpha", "out_batch_size")
+        if self.alpha[0] > self.alpha[1]:
+            raise ValueError("Alpha range must be in ascending order.")
 
-    @property
-    def targets_as_params(self) -> List[str]:
-        """List of augmentation targets.
-
-        @rtype: List[str]
-        @return: Output list of augmentation targets.
-        """
-        return ["image_batch"]
-
-    def apply_to_image_batch(
+    @override
+    def apply(
         self,
         image_batch: List[np.ndarray],
         image_shapes: List[Tuple[int, int]],
-        **params,
-    ) -> List[np.ndarray]:
+        alpha: float,
+        **_,
+    ) -> np.ndarray:
         """Applies the transformation to a batch of images.
 
         @type image_batch: List[np.ndarray]
@@ -71,108 +62,161 @@ class MixUp(BatchBasedTransform):
             transformation is applied.
         @type image_shapes: List[Tuple[int, int]]
         @param image_shapes: Shapes of the input images in the batch.
-        @type params: Any
-        @param params: Additional parameters for the transformation.
         @rtype: List[np.ndarray]
         @return: List of transformed images.
         """
+
         image1 = image_batch[0]
-        # resize second image to size of the first one
-        image2 = cv2.resize(
-            image_batch[1], (image_shapes[0][1], image_shapes[0][0])
-        )
+        image2 = self.resize(image_batch[1], image_shapes, "image", alpha)
 
-        if isinstance(self.alpha, float):
-            curr_alpha = np.clip(self.alpha, 0, 1)
-        else:
-            curr_alpha = random.uniform(
-                max(self.alpha[0], 0), min(self.alpha[1], 1)
-            )
-        img_out = cv2.addWeighted(
-            image1, curr_alpha, image2, 1 - curr_alpha, 0.0
-        )
-        return [img_out]
+        return cv2.addWeighted(image1, alpha, image2, 1 - alpha, 0.0)
 
-    def apply_to_mask_batch(
+    @override
+    def apply_to_mask(
         self,
         mask_batch: List[np.ndarray],
         image_shapes: List[Tuple[int, int]],
-        **params,
-    ) -> List[np.ndarray]:
+        alpha: float,
+        **_,
+    ) -> np.ndarray:
         """Applies the transformation to a batch of masks.
+
+        Blends masks together. In case of a conflict, the class from the
+        mask associated with higher alpha is chosen.
 
         @type mask_batch: List[np.ndarray]
         @param mask_batch: Batch of input masks to which the
             transformation is applied.
         @type image_shapes: List[Tuple[int, int]]
         @param image_shapes: Shapes of the input images in the batch.
-        @type params: Any
-        @param params: Additional parameters for the transformation.
+        @type alpha: float
+        @param alpha: Mixing coefficient.
         @rtype: List[np.ndarray]
         @return: List of transformed masks.
         """
-        mask1 = mask_batch[0]
-        mask2 = cv2.resize(
-            mask_batch[1],
-            (image_shapes[0][1], image_shapes[0][0]),
-            interpolation=cv2.INTER_NEAREST,
-        )
-        out_mask = mask1 + mask2
-        # if masks intersect keep one present in first image
-        mask_inter = mask1 > 0
-        out_mask[mask_inter] = mask1[mask_inter]
-        return [out_mask]
+        mask1, mask2 = mask_batch
+        if mask2.size > 0:
+            mask2 = self.resize(mask2, image_shapes, "mask")
+            if mask2.ndim == 2:
+                mask2 = mask2[..., None]
 
-    def apply_to_bboxes_batch(
+        if mask1.size == 0:
+            return mask2
+        elif mask2.size == 0:
+            return mask1
+
+        if alpha >= 0.5:
+            mask1[(mask1 == 0) & (mask2 != 0)] = mask2[
+                (mask1 == 0) & (mask2 != 0)
+            ]
+            return mask1
+
+        mask2[(mask2 == 0) & (mask1 != 0)] = mask1[(mask2 == 0) & (mask1 != 0)]
+        return mask2
+
+    @override
+    def apply_to_instance_mask(
         self,
-        bboxes_batch: List[BoxType],
+        mask_batch: List[np.ndarray],
         image_shapes: List[Tuple[int, int]],
-        **kwargs,
-    ) -> List[BoxType]:
+        **_,
+    ) -> np.ndarray:
+        """Applies the transformation to a batch of instance masks.
+
+        @type masks_batch: List[np.ndarray]
+        @param masks_batch: Batch of input instance masks to which the
+            transformation is applied.
+        @rtype: np.ndarray
+        @return: Transformed instance masks.
+        """
+        mask1, mask2 = mask_batch
+        if mask2.size > 0:
+            mask2 = self.resize(mask2, image_shapes, "mask")
+            if mask2.ndim == 2:
+                mask2 = mask2[..., None]
+
+        if mask1.size == 0:
+            return mask2
+        elif mask2.size == 0:
+            return mask1
+
+        return np.concatenate(mask_batch, axis=-1)
+
+    @override
+    def apply_to_bboxes(
+        self,
+        bboxes_batch: List[np.ndarray],
+        image_shapes: List[Tuple[int, int]],
+        rows: int,
+        cols: int,
+        **_,
+    ) -> np.ndarray:
         """Applies the transformation to a batch of bboxes.
 
-        @type bboxes_batch: List[BoxType]
+        @type bboxes_batch: List[np.ndarray]
         @param bboxes_batch: Batch of input bboxes to which the
             transformation is applied.
-        @type image_shapes: List[Tuple[int, int]]
-        @param image_shapes: Shapes of the input images in the batch.
-        @type kwargs: Any
-        @param kwargs: Additional parameters for the transformation.
-        @rtype: List[BoxType]
-        @return: List of transformed bboxes.
+        @rtype: np.ndarray
+        @return: Transformed bboxes.
         """
-        return [bboxes_batch[0] + bboxes_batch[1]]
+        for i in range(len(bboxes_batch)):
+            bbox = bboxes_batch[i]
+            if bbox.size == 0:  # pragma: no cover
+                bboxes_batch[i] = np.zeros((0, 6), dtype=bbox.dtype)
 
-    def apply_to_keypoints_batch(
+        bboxes_batch[1] = self.resize(
+            bboxes_batch[1], image_shapes, "bboxes", rows=rows, cols=cols
+        )
+
+        return np.concatenate(bboxes_batch, axis=0)
+
+    @override
+    def apply_to_keypoints(
         self,
-        keypoints_batch: List[KeypointType],
+        keypoints_batch: List[np.ndarray],
         image_shapes: List[Tuple[int, int]],
-        **kwargs,
-    ) -> List[KeypointType]:
+        **_,
+    ) -> np.ndarray:
         """Applies the transformation to a batch of keypoints.
 
-        @type keypoints_batch: List[BoxType]
+        @type keypoints_batch: List[np.ndarray]
         @param keypoints_batch: Batch of input keypoints to which the
             transformation is applied.
-        @type image_shapes: List[Tuple[int, int]]
-        @param image_shapes: Shapes of the input images in the batch.
-        @type kwargs: Any
-        @param kwargs: Additional parameters for the transformation.
-        @rtype: List[BoxType]
-        @return: List of transformed keypoints.
+        @rtype: np.ndarray
+        @return: Transformed keypoints.
         """
-        scaled_kpts2 = []
-        scale_x = image_shapes[0][1] / image_shapes[1][1]
-        scale_y = image_shapes[0][0] / image_shapes[1][0]
-        for kpt in keypoints_batch[1]:
-            new_kpt = A.augmentations.geometric.functional.keypoint_scale(
-                keypoint=kpt, scale_x=scale_x, scale_y=scale_y
-            )
-            scaled_kpts2.append(new_kpt + kpt[4:])
-        return [keypoints_batch[0] + scaled_kpts2]
+        for i in range(len(keypoints_batch)):
+            if keypoints_batch[i].size == 0:  # pragma: no cover
+                keypoints_batch[i] = np.zeros(
+                    (0, 5), dtype=keypoints_batch[i].dtype
+                )
 
-    def get_params_dependent_on_targets(
-        self, params: Dict[str, Any]
+        rows, cols = image_shapes[1]
+        keypoints_batch[1] = self.resize(
+            keypoints_batch[1],
+            image_shapes,
+            "keypoints",
+            shape=image_shapes[1],
+            cols=cols,
+            rows=rows,
+        )
+        return np.concatenate(keypoints_batch, axis=0)
+
+    @override
+    def get_params(self) -> Dict[str, Any]:
+        """Update parameters.
+
+        @param params: Dictionary containing parameters.
+        @type params: Dict[str, Any]
+        @return: Dictionary containing updated parameters.
+        @rtype: Dict[str, Any]
+        """
+        alpha = random.uniform(*self.alpha)
+        return {"alpha": alpha}
+
+    @override
+    def get_params_dependent_on_data(
+        self, params: Dict[str, Any], data: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Get parameters dependent on the targets.
 
@@ -182,5 +226,46 @@ class MixUp(BatchBasedTransform):
             targets.
         @rtype: Dict[str, Any]
         """
-        image_batch = params["image_batch"]
+        params = super().get_params_dependent_on_data(params, data)
+        image_batch = data["image"]
         return {"image_shapes": [image.shape[:2] for image in image_batch]}
+
+    def resize(
+        self,
+        data: np.ndarray,
+        shapes: List[Tuple[int, int]],
+        target_type: Literal["image", "mask", "bboxes", "keypoints"],
+        alpha: Optional[float] = None,
+        **kwargs,
+    ) -> np.ndarray:
+        out_height, out_width = shapes[0]
+        orig_height, orig_width = shapes[1]
+        self.resize_transform.height = out_height
+        self.resize_transform.width = out_width
+        padding = []
+        if isinstance(self.resize_transform, LetterboxResize):
+            if alpha is not None:
+                self.resize_transform.image_fill_value = (
+                    int(255 * alpha),
+                    int(255 * alpha),
+                    int(255 * alpha),
+                )
+
+            padding = LetterboxResize.compute_padding(
+                orig_height, orig_width, out_height, out_width
+            )
+
+        if target_type == "image":
+            return self.resize_transform.apply(data, *padding, **kwargs)
+        elif target_type == "mask":
+            return self.resize_transform.apply_to_mask(
+                data, *padding, **kwargs
+            )
+        elif target_type == "bboxes":
+            return self.resize_transform.apply_to_bboxes(
+                data, *padding, **kwargs
+            )
+        elif target_type == "keypoints":
+            return self.resize_transform.apply_to_keypoints(
+                data, *padding, **kwargs
+            )

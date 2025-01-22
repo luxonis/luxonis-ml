@@ -50,7 +50,7 @@ class TensorflowCSVParser(BaseParser):
 
     def from_dir(
         self, dataset_dir: Path
-    ) -> Tuple[List[str], List[str], List[str]]:
+    ) -> Tuple[List[Path], List[Path], List[Path]]:
         added_train_imgs = self._parse_split(
             image_dir=dataset_dir / "train",
             annotation_path=dataset_dir / "train" / "_annotations.csv",
@@ -84,7 +84,6 @@ class TensorflowCSVParser(BaseParser):
         )
         images_annotations = {}
 
-        class_names = set(df["class"])
         for row in df.rows(named=True):
             path = str(image_dir / str(row["filename"]))
             if path not in images_annotations:
@@ -113,27 +112,20 @@ class TensorflowCSVParser(BaseParser):
         def generator() -> DatasetIterator:
             for path in images_annotations:
                 curr_annotations = images_annotations[path]
-                for class_name in curr_annotations["classes"]:
-                    yield {
-                        "file": path,
-                        "annotation": {
-                            "type": "classification",
-                            "class": class_name,
-                        },
-                    }
                 for bbox_class, (x, y, w, h) in curr_annotations["bboxes"]:
                     yield {
                         "file": path,
                         "annotation": {
-                            "type": "boundingbox",
                             "class": bbox_class,
-                            "x": x,
-                            "y": y,
-                            "w": w,
-                            "h": h,
+                            "boundingbox": {
+                                "x": x,
+                                "y": y,
+                                "w": w,
+                                "h": h,
+                            },
                         },
                     }
 
         added_images = self._get_added_images(generator())
 
-        return generator(), list(class_names), {}, added_images
+        return generator(), {}, added_images

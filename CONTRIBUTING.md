@@ -60,14 +60,35 @@ pydoctor --docformat=epytext luxonis_ml
 
 ## Tests
 
-We use [pytest](https://docs.pytest.org/en/stable/) for testing.
-The tests are located in the `tests` directory. You can run the tests locally with:
+All tests and their files are located in the `tests` directory.
 
-```bash
-pytest tests --cov=luxonis_ml --cov-report=html
+We use [pytest](https://docs.pytest.org/en/stable/) for testing with the `x-dist` and `coverage` plugins for parallel execution and coverage reporting.
+
+The tests define multiple useful fixtures that make it easier
+to achieve fully independent tests that can be run in parallel.
+
+- `tempdir` - an empty temporary directory
+- `dataset_name` - a unique name that can be used for instantiation of `LuxonisDataset`
+- `randint` - a random integer between 0 and 100,000
+- `python_version` - the version of Python running the tests
+- `platform_name` - the name of the platform running the tests
+
+For the full list, see the `tests/conftest.py`.
+
+PyTest fixtures can be used by simply adding them to the signature of the test function:
+
+```python
+def test_foo(tempdir: Path, dataset_name: str):
+    ...
 ```
 
-This command will run all tests and generate HTML coverage report.
+You can run the tests locally with:
+
+```bash
+pytest tests --cov=luxonis_ml --cov-report=html -n auto
+```
+
+This command will run all tests in parallel (`-n auto`) and will generate an HTML coverage report.
 
 > \[!TIP\]
 > The coverage report will be saved to `htmlcov` directory.
@@ -76,6 +97,9 @@ This command will run all tests and generate HTML coverage report.
 > \[!IMPORTANT\]
 > If a new feature is added, a new test should be added to cover it.
 > There is no minimum coverage requirement for now, but minimal coverage will be enforced in the future.
+
+> \[!IMPORTANT\]
+> All tests must be passing using the `-n auto` flag before merging a PR.
 
 ## GitHub Actions
 

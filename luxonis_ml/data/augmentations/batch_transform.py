@@ -1,69 +1,82 @@
-from typing import Any, Callable, Dict, List, Sequence
+from abc import ABC, abstractmethod
+from typing import Any, Callable, Dict, List
 
+import albumentations as A
 import numpy as np
-from albumentations.core.transforms_interface import (
-    BasicTransform,
-    BoxType,
-    KeypointType,
-)
+from typing_extensions import override
 
 
-class BatchBasedTransform(BasicTransform):
+class BatchTransform(ABC, A.DualTransform):
     def __init__(self, batch_size: int, **kwargs):
-        """Transform for multi-image.
+        """Batch transformation that combines multiple images and
+        associated labels into one.
 
         @param batch_size: Batch size needed for augmentation to work
         @type batch_size: int
-        @param kwargs: Additional BasicTransform parameters
-        @type kwargs: Any
         """
         super().__init__(**kwargs)
 
         self.batch_size = batch_size
 
     @property
+    @override
     def targets(self) -> Dict[str, Callable]:
-        return {
-            "image_batch": self.apply_to_image_batch,
-            "mask_batch": self.apply_to_mask_batch,
-            "bboxes_batch": self.apply_to_bboxes_batch,
-            "keypoints_batch": self.apply_to_keypoints_batch,
-        }
+        targets = super().targets
+        targets.update(
+            {
+                "instance_mask": self.apply_to_instance_mask,
+                "array": self.apply_to_array,
+                "classification": self.apply_to_classification,
+                "metadata": self.apply_to_metadata,
+            }
+        )
+        return targets
 
-    def update_params(
-        self, params: Dict[str, Any], **kwargs
-    ) -> Dict[str, Any]:
-        # This overwrites the `super().update_params(...)`
+    @abstractmethod
+    def apply(self, image_batch: List[np.ndarray], **kwargs) -> np.ndarray: ...
+
+    @abstractmethod
+    def apply_to_mask(
+        self, mask_batch: List[np.ndarray], **kwargs
+    ) -> np.ndarray: ...
+
+    @abstractmethod
+    def apply_to_bboxes(
+        self, bboxes_batch: List[np.ndarray], **kwargs
+    ) -> np.ndarray: ...
+
+    @abstractmethod
+    def apply_to_keypoints(
+        self, keypoints_batch: List[np.ndarray], **kwargs
+    ) -> np.ndarray: ...
+
+    @abstractmethod
+    def apply_to_instance_mask(
+        self, masks_batch: List[np.ndarray], **kwargs
+    ) -> np.ndarray: ...
+
+    def apply_to_array(self, array_batch: List[np.ndarray], **_) -> np.ndarray:
+        return np.concatenate([arr for arr in array_batch if arr.size > 0])
+
+    def apply_to_classification(
+        self, classification_batch: List[np.ndarray], **_
+    ) -> np.ndarray:
+        return np.clip(sum(classification_batch), 0, 1)
+
+    def apply_to_metadata(
+        self, metadata_batch: List[np.ndarray], **_
+    ) -> np.ndarray:
+        return np.concatenate([arr for arr in metadata_batch if arr.size > 0])
+
+    @override
+    def update_params(self, params: Dict[str, Any], **_) -> Dict[str, Any]:
         return params
 
-    def apply_to_image_batch(
-        self, image_batch: Sequence[BoxType], **params
-    ) -> List[np.ndarray]:
-        raise NotImplementedError(
-            "Method apply_to_image_batch is not implemented in class "
-            + self.__class__.__name__
-        )
-
-    def apply_to_mask_batch(
-        self, mask_batch: Sequence[BoxType], **params
-    ) -> List[np.ndarray]:
-        raise NotImplementedError(
-            "Method apply_to_mask_batch is not implemented in class "
-            + self.__class__.__name__
-        )
-
-    def apply_to_bboxes_batch(
-        self, bboxes_batch: Sequence[BoxType], **params
-    ) -> List[BoxType]:
-        raise NotImplementedError(
-            "Method apply_to_bboxes_batch is not implemented in class "
-            + self.__class__.__name__
-        )
-
-    def apply_to_keypoints_batch(
-        self, keypoints_batch: Sequence[BoxType], **params
-    ) -> List[KeypointType]:
-        raise NotImplementedError(
-            "Method apply_to_keypoints_batch is not implemented in class "
-            + self.__class__.__name__
-        )
+    @override
+    def update_params_shape(
+        self, params: Dict[str, Any], data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        shape = data["image"][0].shape
+        params["shape"] = shape
+        params.update({"cols": shape[1], "rows": shape[0]})
+        return params

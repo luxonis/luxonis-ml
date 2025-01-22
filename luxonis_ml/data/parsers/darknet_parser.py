@@ -49,7 +49,7 @@ class DarknetParser(BaseParser):
 
     def from_dir(
         self, dataset_dir: Path
-    ) -> Tuple[List[str], List[str], List[str]]:
+    ) -> Tuple[List[Path], List[Path], List[Path]]:
         added_train_imgs = self._parse_split(
             image_dir=dataset_dir / "train",
             classes_path=dataset_dir / "train" / "_darknet.labels",
@@ -97,23 +97,16 @@ class DarknetParser(BaseParser):
                     yield {
                         "file": file,
                         "annotation": {
-                            "type": "classification",
                             "class": class_name,
-                        },
-                    }
-
-                    yield {
-                        "file": file,
-                        "annotation": {
-                            "type": "boundingbox",
-                            "class": class_name,
-                            "x": float(x_center) - float(width) / 2,
-                            "y": float(y_center) - float(height) / 2,
-                            "w": float(width),
-                            "h": float(height),
+                            "boundingbox": {
+                                "x": float(x_center) - float(width) / 2,
+                                "y": float(y_center) - float(height) / 2,
+                                "w": float(width),
+                                "h": float(height),
+                            },
                         },
                     }
 
         added_images = self._get_added_images(generator())
 
-        return generator(), list(class_names.values()), {}, added_images
+        return generator(), {}, added_images

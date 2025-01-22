@@ -68,7 +68,7 @@ class YoloV6Parser(BaseParser):
 
     def from_dir(
         self, dataset_dir: Path
-    ) -> Tuple[Optional[List[str]], Optional[List[str]], Optional[List[str]]]:
+    ) -> Tuple[List[Path], List[Path], List[Path]]:
         classes_path = dataset_dir / "data.yaml"
         added_train_imgs = self._parse_split(
             image_dir=dataset_dir / "images" / "train",
@@ -122,26 +122,20 @@ class YoloV6Parser(BaseParser):
                         x for x in ann_line.split()
                     ]
                     class_name = class_names[int(class_id)]
-                    yield {
-                        "file": str(img_path),
-                        "annotation": {
-                            "type": "classification",
-                            "class": class_name,
-                        },
-                    }
 
                     yield {
                         "file": str(img_path),
                         "annotation": {
-                            "type": "boundingbox",
                             "class": class_name,
-                            "x": float(x_center) - float(width) / 2,
-                            "y": float(y_center) - float(height) / 2,
-                            "w": float(width),
-                            "h": float(height),
+                            "boundingbox": {
+                                "x": float(x_center) - float(width) / 2,
+                                "y": float(y_center) - float(height) / 2,
+                                "w": float(width),
+                                "h": float(height),
+                            },
                         },
                     }
 
         added_images = self._get_added_images(generator())
 
-        return generator(), list(class_names.values()), {}, added_images
+        return generator(), {}, added_images

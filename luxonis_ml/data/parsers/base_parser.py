@@ -1,14 +1,13 @@
+import os
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from luxonis_ml.data import BaseDataset, DatasetIterator
-from luxonis_ml.data.datasets import DatasetRecord
-from luxonis_ml.data.utils.enums import LabelType
-from luxonis_ml.utils.filesystem import PathType
+from luxonis_ml.enums.enums import DatasetType
 
-ParserOutput = Tuple[DatasetIterator, List[str], Dict[str, Dict], List[str]]
+ParserOutput = Tuple[DatasetIterator, Dict[str, Dict], List[Path]]
 """Type alias for parser output.
 
 Contains a function to create the annotation generator, list of classes
@@ -19,7 +18,8 @@ names, skeleton dictionary for keypoints and list of added images.
 @dataclass
 class BaseParser(ABC):
     dataset: BaseDataset
-    task_mapping: Dict[LabelType, str] = field(default_factory=dict)
+    dataset_type: DatasetType
+    task_name: Optional[str]
 
     @staticmethod
     @abstractmethod
@@ -33,7 +33,7 @@ class BaseParser(ABC):
         @return: Dictionary with kwargs to pass to L{from_split} method
             or C{None} if the split is not in the expected format.
         """
-        pass
+        ...
 
     @staticmethod
     @abstractmethod
@@ -45,7 +45,7 @@ class BaseParser(ABC):
         @rtype: bool
         @return: If the dataset is in the expected format.
         """
-        pass
+        ...
 
     @abstractmethod
     def from_dir(
@@ -62,7 +62,7 @@ class BaseParser(ABC):
         @return: Tuple with added images for C{train}, C{val} and
             C{test} splits.
         """
-        pass
+        ...
 
     @abstractmethod
     def from_split(self, **kwargs) -> ParserOutput:
@@ -79,9 +79,9 @@ class BaseParser(ABC):
         @return: C{LDF} generator, list of class names,
             skeleton dictionary for keypoints and list of added images.
         """
-        pass
+        ...
 
-    def _parse_split(self, **kwargs) -> List[str]:
+    def _parse_split(self, **kwargs) -> List[Path]:
         """Parses data in a split subdirectory.
 
         @type kwargs: Dict[str, Any]
@@ -90,15 +90,20 @@ class BaseParser(ABC):
         @rtype: List[str]
         @return: List of added images.
         """
-        generator, _, skeletons, added_images = self.from_split(**kwargs)
-        self.dataset.add(self.task_wrapper(generator))
-        if skeletons:
-            for skeleton in skeletons.values():
-                self.dataset.set_skeletons(
-                    skeleton.get("labels"), skeleton.get("edges"), "keypoints"
-                )
-
-        return added_images
+        old_cwd = os.getcwd()
+        try:
+            generator, skeletons, added_images = self.from_split(**kwargs)
+            self.dataset.add(self._add_task(generator))
+            if skeletons:
+                for skeleton in skeletons.values():
+                    self.dataset.set_skeletons(
+                        skeleton.get("labels"),
+                        skeleton.get("edges"),
+                        self.dataset_type.value,
+                    )
+            return added_images
+        finally:
+            os.chdir(old_cwd)
 
     def parse_split(
         self,
@@ -145,36 +150,11 @@ class BaseParser(ABC):
         """
         train, val, test = self.from_dir(dataset_dir, **kwargs)
 
-        self.dataset.make_splits(
-            definitions={
-                "train": train,
-                "val": val,
-                "test": test,
-            }
-        )
+        self.dataset.make_splits({"train": train, "val": val, "test": test})
         return self.dataset
 
-    def task_wrapper(self, generator: DatasetIterator) -> DatasetIterator:
-        """Wraps the generator with a function that adds custom task
-        information.
-
-        @type generator: DatasetIterator
-        @param generator: Generator function
-        @rtype: DatasetIterator
-        @return: Generator function with added task attribute
-        """
-        for record in generator:
-            if isinstance(record, dict):
-                record = DatasetRecord(**record)
-            if record.annotation is not None:
-                if record.annotation._label_type in self.task_mapping:
-                    record.annotation.task = self.task_mapping[
-                        record.annotation._label_type
-                    ]
-            yield record
-
     @staticmethod
-    def _get_added_images(generator: DatasetIterator) -> List[PathType]:
+    def _get_added_images(generator: DatasetIterator) -> List[Path]:
         """Returns list of unique images added by the generator
         function.
 
@@ -185,7 +165,7 @@ class BaseParser(ABC):
         """
         return list(
             set(
-                item["file"] if isinstance(item, dict) else item.file
+                Path(item["file"] if isinstance(item, dict) else item.file)
                 for item in generator
             )
         )
@@ -254,3 +234,21 @@ class BaseParser(ABC):
             for img in image_dir.glob("*")
             if img.suffix in cv2_supported_image_formats
         ]
+
+    def _add_task(self, generator: DatasetIterator) -> DatasetIterator:
+        """Adds task to the generator.
+
+        @type generator: DatasetIterator
+        @param generator: Generator function
+        @rtype: DatasetIterator
+        @return: Generator function with added task
+        """
+
+        task_name = self.task_name or ""
+        for item in generator:
+            if isinstance(item, dict):
+                if "task" not in item or self.task_name is not None:
+                    item["task"] = task_name
+            elif not item.task or self.task_name is not None:
+                item.task = task_name
+            yield item

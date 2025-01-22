@@ -1,13 +1,12 @@
-import json
 import logging
+import random
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Set, Tuple
 
 import cv2
 import numpy as np
 import rich.box
 import typer
-import yaml
 from rich import print
 from rich.console import Console, group
 from rich.panel import Panel
@@ -15,13 +14,8 @@ from rich.rule import Rule
 from rich.table import Table
 from typing_extensions import Annotated
 
-from luxonis_ml.data import (
-    Augmentations,
-    LabelType,
-    LuxonisDataset,
-    LuxonisLoader,
-    LuxonisParser,
-)
+from luxonis_ml.data import LuxonisDataset, LuxonisLoader, LuxonisParser
+from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.data.utils.visualizations import visualize
 from luxonis_ml.enums import DatasetType
 
@@ -38,7 +32,10 @@ def complete_dataset_name(incomplete: str):
 DatasetNameArgument = Annotated[
     str,
     typer.Argument(
-        ..., help="Name of the dataset.", autocompletion=complete_dataset_name
+        ...,
+        help="Name of the dataset.",
+        autocompletion=complete_dataset_name,
+        show_default=False,
     ),
 ]
 
@@ -49,23 +46,47 @@ def check_exists(name: str):
         raise typer.Exit()
 
 
-def get_dataset_info(name: str) -> Tuple[int, List[str], List[str]]:
-    dataset = LuxonisDataset(name)
-    size = len(dataset)
-    classes, _ = dataset.get_classes()
-    return size, classes, dataset.get_tasks()
+def get_dataset_info(dataset: LuxonisDataset) -> Tuple[Set[str], List[str]]:
+    all_classes = {
+        c for classes in dataset.get_classes().values() for c in classes
+    }
+    return all_classes, dataset.get_task_names()
 
 
 def print_info(name: str) -> None:
     dataset = LuxonisDataset(name)
-    _, classes = dataset.get_classes()
-    table = Table(
+    classes = dataset.get_classes()
+    class_table = Table(
         title="Classes", box=rich.box.ROUNDED, row_styles=["yellow", "cyan"]
     )
-    table.add_column("Task", header_style="magenta i", max_width=30)
-    table.add_column("Class Names", header_style="magenta i", max_width=50)
-    for task, c in classes.items():
-        table.add_row(task, ", ".join(c))
+    if len(classes) > 1 or next(iter(classes)):
+        class_table.add_column(
+            "Task Name", header_style="magenta i", max_width=30
+        )
+    class_table.add_column(
+        "Class Names", header_style="magenta i", max_width=50
+    )
+    for task_name, c in classes.items():
+        if not task_name:
+            class_table.add_row(", ".join(c))
+        else:
+            class_table.add_row(task_name, ", ".join(c))
+
+    tasks = dataset.get_tasks()
+    task_table = Table(
+        title="Tasks", box=rich.box.ROUNDED, row_styles=["yellow", "cyan"]
+    )
+    if len(tasks) > 1 or next(iter(tasks)):
+        task_table.add_column(
+            "Task Name", header_style="magenta i", max_width=30
+        )
+    task_table.add_column("Task Types", header_style="magenta i", max_width=50)
+    for task_name, task_types in tasks.items():
+        task_types.sort()
+        if not task_name:
+            task_table.add_row(", ".join(task_types))
+        else:
+            task_table.add_row(task_name, ", ".join(task_types))
 
     splits = dataset.get_splits()
 
@@ -82,16 +103,14 @@ def print_info(name: str) -> None:
     @group()
     def get_panels():
         yield f"[magenta b]Name: [not b cyan]{name}"
+        yield f"[magenta b]Version: [not b cyan]{dataset.version}"
         yield ""
         yield Panel.fit(get_sizes_panel(), title="Split Sizes")
-        yield table
+        yield class_table
+        if dataset.version == LDF_VERSION:
+            yield task_table
 
-    print(
-        Panel.fit(
-            get_panels(),
-            title="Dataset Info",
-        )
-    )
+    print(Panel.fit(get_panels(), title="Dataset Info"))
 
 
 @app.command()
@@ -138,7 +157,7 @@ def ls(
             size = -1
         rows.append(str(size))
         if full:
-            _, classes, tasks = get_dataset_info(name)
+            classes, tasks = get_dataset_info(dataset)
             rows.extend(
                 [
                     ", ".join(classes) if classes else "[red]<empty>[no red]",
@@ -161,6 +180,7 @@ def inspect(
             "-v",
             help="Which splits of the dataset to inspect.",
             case_sensitive=False,
+            show_default=False,
         ),
     ] = None,
     aug_config: Annotated[
@@ -172,6 +192,7 @@ def inspect(
             help="Path to a config defining augmentations. "
             "This can be either a json or a yaml file.",
             metavar="PATH",
+            show_default=False,
         ),
     ] = None,
     size_multiplier: Annotated[
@@ -187,28 +208,56 @@ def inspect(
             show_default=False,
         ),
     ] = 1.0,
+    ignore_aspect_ratio: Annotated[
+        bool,
+        typer.Option(
+            ...,
+            "--ignore-aspect-ratio",
+            "-i",
+            help="Don't keep the aspect ratio when resizing images.",
+        ),
+    ] = False,
+    deterministic: Annotated[
+        bool,
+        typer.Option(
+            ...,
+            "--deterministic",
+            "-d",
+            help="Deterministic mode. Useful for debugging.",
+        ),
+    ] = False,
+    blend_all: Annotated[
+        bool,
+        typer.Option(
+            ...,
+            "--blend-all",
+            "-b",
+            help="Whether to draw labels belonging "
+            "to different tasks on the same image. "
+            "Doesn't apply to semantic segmentations.",
+        ),
+    ] = False,
 ):
     """Inspects images and annotations in a dataset."""
 
+    if deterministic:
+        np.random.seed(42)
+        random.seed(42)
+
     view = view or ["train"]
     dataset = LuxonisDataset(name)
-    h, w, _ = LuxonisLoader(dataset, view=view)[0][0].shape
-    augmentations = None
+    loader = LuxonisLoader(dataset, view=view)
 
     if aug_config is not None:
-        with open(aug_config) as file:
-            config = (
-                yaml.safe_load(file)
-                if Path(aug_config).suffix == ".yaml"
-                else json.load(file)
-            )
-        augmentations = Augmentations([h, w], config)
+        h, w, _ = loader[0][0].shape
+        loader.augmentations = loader._init_augmentations(
+            "albumentations", aug_config, h, w, not ignore_aspect_ratio
+        )
 
     if len(dataset) == 0:
         raise ValueError(f"Dataset '{name}' is empty.")
 
-    loader = LuxonisLoader(dataset, view=view, augmentations=augmentations)
-    class_names = dataset.get_classes()[1]
+    classes = dataset.get_classes()
     for image, labels in loader:
         image = image.astype(np.uint8)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -216,26 +265,10 @@ def inspect(
         h, w, _ = image.shape
         new_h, new_w = int(h * size_multiplier), int(w * size_multiplier)
         image = cv2.resize(image, (new_w, new_h))
-        image = visualize(image, labels, class_names)
+        image = visualize(image, labels, classes, blend_all=blend_all)
         cv2.imshow("image", image)
         if cv2.waitKey() == ord("q"):
             break
-
-
-def _parse_tasks(values: Optional[List[str]]) -> List[Tuple[LabelType, str]]:
-    if not values:
-        return []
-    result = {}
-    for value in values:
-        if "=" not in value:
-            raise ValueError(
-                f"Invalid task format: {value}. Expected 'label_type=task_name'."
-            )
-        k, v = value.split("=")
-        if k not in LabelType.__members__.values():
-            raise ValueError(f"Invalid task type: {k}")
-        result[LabelType(k.strip())] = v.strip()
-    return list(result.items())
 
 
 @app.command()
@@ -260,7 +293,8 @@ def parse(
             ...,
             "--type",
             "-t",
-            help="Type of the dataset. If not provided, the parser will try to recognize it automatically.",
+            help="Type of the dataset. If not provided, "
+            "the parser will try to recognize it automatically.",
             show_default=False,
         ),
     ] = None,
@@ -280,34 +314,33 @@ def parse(
             ...,
             "--save-dir",
             "-s",
-            help="If a remote URL is provided in 'dataset_dir', the dataset will "
-            "be downloaded to this directory. Otherwise, the dataset will be "
-            "downloaded to the current working directory.",
+            help="If a remote URL is provided in 'dataset_dir', "
+            "the dataset will be downloaded to this directory. "
+            "Otherwise, the dataset will be downloaded to the "
+            "current working directory.",
             show_default=False,
         ),
     ] = None,
     task_name: Annotated[
-        Optional[List[str]],
+        Optional[str],
         typer.Option(
             ...,
             "--task-name",
             "-tn",
+            help="Name of the task that should be used with this dataset. "
+            "If not provided, the name of the dataset format will be used.",
             show_default=False,
-            callback=_parse_tasks,
-            help="Custom task names to override the default ones. "
-            "Format: 'label_type=task_name'. E.g. 'boundingbox=detection-task'.",
         ),
     ] = None,
 ):
     """Parses a directory with data and creates Luxonis dataset."""
-    task_name = task_name or []
     parser = LuxonisParser(
         dataset_dir,
         dataset_name=name,
         dataset_type=dataset_type,
         delete_existing=delete_existing,
         save_dir=save_dir,
-        task_mapping=dict(task_name),  # type: ignore
+        task_name=task_name,
     )
     dataset = parser.parse()
 

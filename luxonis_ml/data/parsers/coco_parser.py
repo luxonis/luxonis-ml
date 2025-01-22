@@ -77,11 +77,11 @@ class COCOParser(BaseParser):
         if not json_path:
             return None
         if json_path.name == "_annotations.coco.json":
-            # Roboflow format
+            logger.info("Identified Roboflow format")
             image_dir = split_path
             return {"image_dir": image_dir, "annotation_path": json_path}
         else:
-            # FiftyOne format
+            logger.info("Identified FiftyOne format")
             dirs = [d for d in split_path.iterdir() if d.is_dir()]
             if len(dirs) != 1:
                 return None
@@ -106,7 +106,7 @@ class COCOParser(BaseParser):
         use_keypoint_ann: bool = False,
         keypoint_ann_paths: Optional[Dict[str, str]] = None,
         split_val_to_test: bool = True,
-    ) -> Tuple[List[str], List[str], List[str]]:
+    ) -> Tuple[List[Path], List[Path], List[Path]]:
         dir_format, splits = COCOParser._detect_dataset_dir_format(dataset_dir)
         if dir_format is None:
             raise ValueError("Dataset is not in any expected format.")
@@ -154,8 +154,7 @@ class COCOParser(BaseParser):
             else val_paths["annotation_path"]
         )
         _added_val_imgs = self._parse_split(
-            image_dir=val_paths["image_dir"],
-            annotation_path=val_ann_path,
+            image_dir=val_paths["image_dir"], annotation_path=val_ann_path
         )
 
         if split_val_to_test and dir_format == Format.FIFTYONE:
@@ -209,7 +208,6 @@ class COCOParser(BaseParser):
         coco_categories = annotation_data["categories"]
         categories = {cat["id"]: cat["name"] for cat in coco_categories}
 
-        class_names = list(categories.values())
         skeletons = {}
         for cat in coco_categories:
             if "keypoints" in cat.keys() and "skeleton" in cat.keys():
@@ -228,10 +226,11 @@ class COCOParser(BaseParser):
                 ann_dict[img_id].append(ann)
 
             for img_id, img in img_dict.items():
-                path = image_dir.absolute().resolve() / img["file_name"]
-                if not path.exists():
+                file: Path = image_dir.absolute().resolve() / img["file_name"]
+                if not file.exists():
                     continue
-                path = str(path)
+
+                yield {"file": file}
 
                 img_anns = ann_dict.get(img_id, [])
                 img_h = img["height"]
@@ -241,64 +240,59 @@ class COCOParser(BaseParser):
                     if ann.get("iscrowd", True):
                         continue
                     class_name = categories[ann["category_id"]]
-                    yield {
-                        "file": path,
-                        "annotation": {
-                            "type": "classification",
-                            "class": class_name,
-                        },
-                    }
 
-                    seg = ann["segmentation"]
-                    if isinstance(seg, list):
-                        if len(seg) > 0:
-                            poly = []
-                            for s in seg:
-                                poly_arr = np.array(s).reshape(-1, 2)
-                                poly += [
-                                    (
-                                        poly_arr[i, 0] / img_w,
-                                        poly_arr[i, 1] / img_h,
-                                    )
-                                    for i in range(len(poly_arr))
-                                ]
-                            yield {
-                                "file": path,
-                                "annotation": {
-                                    "type": "polyline",
-                                    "class": class_name,
-                                    "points": poly,
-                                },
-                            }
-                    else:
-                        yield {
-                            "file": path,
-                            "annotation": {
-                                "type": "rle",
-                                "class": "person",
-                                "height": seg["size"][0],
-                                "width": seg["size"][1],
-                                "counts": seg["counts"],
-                            },
+                    segmentation = None
+
+                    coco_seg = ann.get("segmentation", [])
+
+                    if isinstance(coco_seg, list) and coco_seg:
+                        poly = []
+                        for s in coco_seg:
+                            poly_arr = np.array(s).reshape(-1, 2)
+                            poly += [
+                                (
+                                    poly_arr[i, 0] / img_w,
+                                    poly_arr[i, 1] / img_h,
+                                )
+                                for i in range(len(poly_arr))
+                            ]
+                        segmentation = {
+                            "height": img_h,
+                            "width": img_w,
+                            "points": poly,
+                        }
+                    elif isinstance(coco_seg, dict):
+                        segmentation = {
+                            "height": coco_seg["size"][0],
+                            "width": coco_seg["size"][1],
+                            "counts": coco_seg["counts"],
                         }
 
                     x, y, w, h = ann["bbox"]
-                    yield {
-                        "file": path,
+
+                    record = {
+                        "file": file,
                         "annotation": {
-                            "type": "boundingbox",
                             "class": class_name,
                             "instance_id": i,
-                            "x": x / img_w,
-                            "y": y / img_h,
-                            "w": w / img_w,
-                            "h": h / img_h,
+                            "boundingbox": {
+                                "x": x / img_w,
+                                "y": y / img_h,
+                                "w": w / img_w,
+                                "h": h / img_h,
+                            },
                         },
                     }
 
+                    if segmentation is not None:
+                        record["annotation"]["segmentation"] = segmentation
+                        record["annotation"]["instance_segmentation"] = (
+                            segmentation
+                        )
+
                     if "keypoints" in ann.keys():
                         kpts = np.array(ann["keypoints"]).reshape(-1, 3)
-                        # clip values inplace
+
                         np.clip(kpts[:, 0], 0, img_w, out=kpts[:, 0])
                         np.clip(kpts[:, 1], 0, img_h, out=kpts[:, 1])
 
@@ -307,19 +301,16 @@ class COCOParser(BaseParser):
                             keypoints.append(
                                 (kp[0] / img_w, kp[1] / img_h, int(kp[2]))
                             )
-                        yield {
-                            "file": path,
-                            "annotation": {
-                                "type": "keypoints",
-                                "class": class_name,
-                                "instance_id": i,
-                                "keypoints": keypoints,
-                            },
+
+                        record["annotation"]["keypoints"] = {
+                            "keypoints": keypoints
                         }
+
+                    yield record
 
         added_images = self._get_added_images(generator())
 
-        return generator(), class_names, skeletons, added_images
+        return generator(), skeletons, added_images
 
 
 def clean_annotations(annotation_path: Path) -> Path:

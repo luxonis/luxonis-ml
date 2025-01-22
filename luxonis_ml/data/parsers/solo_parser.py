@@ -86,14 +86,13 @@ class SOLOParser(BaseParser):
         return True
 
     def from_dir(
-        self,
-        dataset_dir: Path,
-    ) -> Tuple[List[str], List[str], List[str]]:
+        self, dataset_dir: Path
+    ) -> Tuple[List[Path], List[Path], List[Path]]:
         """Parses all present data to L{LuxonisDataset} format.
 
         @type dataset_dir: str
         @param dataset_dir: Path to source dataset directory.
-        @rtype: Tuple[List[str], List[str], List[str]]
+        @rtype: Tuple[List[Path], List[Path], List[Path]]
         @return: Tuple with added images for train, valid and test
             splits.
         """
@@ -104,10 +103,7 @@ class SOLOParser(BaseParser):
 
         return added_train_imgs, added_valid_imgs, added_test_imgs
 
-    def from_split(
-        self,
-        split_path: Path,
-    ) -> ParserOutput:
+    def from_split(self, split_path: Path) -> ParserOutput:
         """Parses data in a split subdirectory from SOLO format to
         L{LuxonisDataset} format.
 
@@ -142,7 +138,7 @@ class SOLOParser(BaseParser):
         )
         # TODO: We make an assumption here that bbox class_names are also valid for all other annotation types in the dataset. Is this OK?
         # TODO: Can we imagine a case where classes between annotation types are different? Which class names to return in this case?
-        if class_names == []:
+        if not class_names:
             raise Exception("No class_names identified. ")
 
         keypoint_labels = self._get_solo_keypoint_names(
@@ -158,136 +154,109 @@ class SOLOParser(BaseParser):
         # encode which keypoint_name belongs to which class
 
         def generator() -> DatasetIterator:
-            for dir_path, dir_names, _ in os.walk(split_path):
-                for dir_name in dir_names:
-                    if not dir_name.startswith("sequence"):
-                        continue
+            for sequence_path in split_path.glob("sequence*"):
+                # single sequence can have multiple steps
+                for frame_path in sequence_path.glob("*.frame_data.json"):
+                    frame = json.loads(frame_path.read_text())
 
-                    sequence_path = os.path.join(dir_path, dir_name)
-
-                    for frame_path in glob.glob(
-                        os.path.join(sequence_path, "*.frame_data.json")
-                    ):  # single sequence can have multiple steps
-                        if not os.path.exists(frame_path):
+                    for capture in frame["captures"]:
+                        img_fname = capture["filename"]
+                        img_w, img_h = capture["dimension"]
+                        annotations = capture["annotations"]
+                        img_path = os.path.join(sequence_path, img_fname)
+                        if not os.path.exists(img_path):
                             raise FileNotFoundError(
-                                f"{frame_path} not existent."
+                                f"{img_path} not existent."
                             )
-                        with open(frame_path) as f:
-                            frame = json.load(f)
 
-                        for capture in frame["captures"]:
-                            img_fname = capture["filename"]
-                            img_w, img_h = capture["dimension"]
-                            annotations = capture["annotations"]
-                            img_path = os.path.join(sequence_path, img_fname)
-                            if not os.path.exists(img_path):
-                                raise FileNotFoundError(
-                                    f"{img_path} not existent."
-                                )
+                        if (
+                            "SemanticSegmentationAnnotation"
+                            in annotation_types
+                        ):
+                            for anno in annotations:
+                                if anno["@type"].endswith(
+                                    "SemanticSegmentationAnnotation"
+                                ):
+                                    sseg_annotations = anno
 
-                            if "BoundingBox2DAnnotation" in annotation_types:
-                                for anno in annotations:
-                                    if anno["@type"].endswith(
-                                        "BoundingBox2DAnnotation"
-                                    ):
-                                        bbox_annotations = anno["values"]
+                            mask_fname = sseg_annotations["filename"]
+                            mask_path = os.path.join(sequence_path, mask_fname)
+                            mask = cv2.imread(mask_path)
 
-                                for bbox_annotation in bbox_annotations:
-                                    class_name = bbox_annotation["labelName"]
-
-                                    origin = bbox_annotation["origin"]
-                                    dimension = bbox_annotation["dimension"]
-                                    xmin, ymin = origin
-                                    bbox_w, bbox_h = dimension
-
-                                    yield {
-                                        "file": img_path,
-                                        "annotation": {
-                                            "type": "boundingbox",
-                                            "class": class_name,
-                                            "x": xmin / img_w,
-                                            "y": ymin / img_h,
-                                            "w": bbox_w / img_w,
-                                            "h": bbox_h / img_h,
-                                        },
-                                    }
-
-                            if (
-                                "SemanticSegmentationAnnotation"
-                                in annotation_types
-                            ):
-                                for anno in annotations:
-                                    if anno["@type"].endswith(
-                                        "SemanticSegmentationAnnotation"
-                                    ):
-                                        sseg_annotations = anno
-
-                                mask_fname = sseg_annotations["filename"]
-                                mask_path = os.path.join(
-                                    sequence_path, mask_fname
-                                )
-                                mask = cv2.imread(mask_path)
-
-                                for instance in sseg_annotations["instances"]:
-                                    class_name = instance["labelName"]
-                                    r, g, b, _ = instance["pixelValue"]
-                                    curr_mask = np.zeros_like(mask)
-                                    curr_mask[
-                                        np.all(mask == [b, g, r], axis=2)
-                                    ] = 1
-                                    curr_mask = np.max(
-                                        curr_mask, axis=2
-                                    )  # 3D->2D
-
-                                    yield {
-                                        "file": img_path,
-                                        "annotation": {
-                                            "type": "mask",
-                                            "class": class_name,
+                            for instance in sseg_annotations["instances"]:
+                                class_name = instance["labelName"]
+                                r, g, b, _ = instance["pixelValue"]
+                                curr_mask = np.zeros_like(mask)
+                                curr_mask[
+                                    np.all(mask == [b, g, r], axis=2)
+                                ] = 1
+                                curr_mask = np.max(curr_mask, axis=2)  # 3D->2D
+                                yield {
+                                    "file": img_path,
+                                    "task": "segmentation",
+                                    "annotation": {
+                                        "class": class_name,
+                                        "segmentation": {
                                             "mask": curr_mask,
                                         },
-                                    }
+                                    },
+                                }
 
-                            if "KeypointAnnotation" in annotation_types:
-                                for anno in annotations:
-                                    if anno["@type"].endswith(
-                                        "KeypointAnnotation"
-                                    ):
-                                        keypoint_annotations = anno["values"]
+                        record = {
+                            "file": img_path,
+                            "annotation": {},
+                        }
+                        if "BoundingBox2DAnnotation" in annotation_types:
+                            for anno in annotations:
+                                if anno["@type"].endswith(
+                                    "BoundingBox2DAnnotation"
+                                ):
+                                    bbox_annotations = anno["values"]
 
-                                for (
-                                    keypoints_annotation
-                                ) in keypoint_annotations:
-                                    label_id = keypoints_annotation["labelId"]
-                                    keypoints = []
-                                    for keypoint in keypoints_annotation[
-                                        "keypoints"
-                                    ]:
-                                        x, y = keypoint["location"]
-                                        visibility = keypoint["state"]
-                                        keypoints.append(
-                                            (x / img_w, y / img_h, visibility)
-                                        )
+                            for bbox_annotation in bbox_annotations:
+                                class_name = bbox_annotation["labelName"]
 
-                                    class_name = class_names[label_id]
+                                origin = bbox_annotation["origin"]
+                                dimension = bbox_annotation["dimension"]
+                                xmin, ymin = origin
+                                bbox_w, bbox_h = dimension
+                                record["annotation"]["class"] = class_name
+                                record["annotation"]["boundingbox"] = {
+                                    "x": xmin / img_w,
+                                    "y": ymin / img_h,
+                                    "w": bbox_w / img_w,
+                                    "h": bbox_h / img_h,
+                                }
 
-                                    yield {
-                                        "file": img_path,
-                                        "annotation": {
-                                            "type": "keypoints",
-                                            "class": class_name,
-                                            "keypoints": keypoints,
-                                        },
-                                    }
+                        if "KeypointAnnotation" in annotation_types:
+                            for anno in annotations:
+                                if anno["@type"].endswith(
+                                    "KeypointAnnotation"
+                                ):
+                                    keypoint_annotations = anno["values"]
+
+                            for keypoints_annotation in keypoint_annotations:
+                                label_id = keypoints_annotation["labelId"]
+                                keypoints = []
+                                for keypoint in keypoints_annotation[
+                                    "keypoints"
+                                ]:
+                                    x, y = keypoint["location"]
+                                    visibility = keypoint["state"]
+                                    keypoints.append(
+                                        (x / img_w, y / img_h, visibility)
+                                    )
+
+                                class_name = class_names[label_id]
+
+                                record["annotation"]["keypoints"] = {
+                                    "keypoints": keypoints,
+                                }
+                        yield record
 
         added_images = self._get_added_images(generator())
 
-        return (
-            generator(),
-            class_names,
-            skeletons,
-            added_images,
-        )
+        return generator(), skeletons, added_images
 
     def _get_solo_annotation_types(
         self, annotation_definitions_dict: dict

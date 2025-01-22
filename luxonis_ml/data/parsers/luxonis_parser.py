@@ -15,7 +15,6 @@ from typing import (
 )
 
 from luxonis_ml.data import DATASETS_REGISTRY, BaseDataset, LuxonisDataset
-from luxonis_ml.data.utils.enums import LabelType
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.utils import LuxonisFileSystem, environ
 from luxonis_ml.utils.filesystem import _pip_install
@@ -25,6 +24,7 @@ from .classification_directory_parser import ClassificationDirectoryParser
 from .coco_parser import COCOParser
 from .create_ml_parser import CreateMLParser
 from .darknet_parser import DarknetParser
+from .native_parser import NativeParser
 from .segmentation_mask_directory_parser import SegmentationMaskDirectoryParser
 from .solo_parser import SOLOParser
 from .tensorflow_csv_parser import TensorflowCSVParser
@@ -55,6 +55,7 @@ class LuxonisParser(Generic[T]):
         DatasetType.CLSDIR: ClassificationDirectoryParser,
         DatasetType.SEGMASK: SegmentationMaskDirectoryParser,
         DatasetType.SOLO: SOLOParser,
+        DatasetType.NATIVE: NativeParser,
     }
 
     def __init__(
@@ -65,7 +66,7 @@ class LuxonisParser(Generic[T]):
         save_dir: Optional[Union[Path, str]] = None,
         dataset_plugin: T = None,
         dataset_type: Optional[DatasetType] = None,
-        task_mapping: Optional[Dict[LabelType, str]] = None,
+        task_name: Optional[str] = None,
         **kwargs,
     ):
         """High-level abstraction over various parsers.
@@ -98,12 +99,12 @@ class LuxonisParser(Generic[T]):
         @param dataset_type: If provided, the parser will use this
             dataset type instead of trying to recognize it
             automatically.
+        @type task_name: Optional[str]
+        @param task_name: Name of the task. If C{None}, the task name
+            is derived from the dataset format.
         @type kwargs: Dict[str, Any]
         @param kwargs: Additional C{kwargs} to be passed to the
             constructor of specific L{BaseDataset} implementation.
-        @type task_mapping: Optional[Dict[LabelType, str]]
-        @param task_mapping: Dictionary mapping label types to task
-            names.
         """
         save_dir = Path(save_dir) if save_dir else None
         if dataset_dir.startswith("roboflow://"):
@@ -143,19 +144,18 @@ class LuxonisParser(Generic[T]):
         dataset_name = dataset_name or name.replace(" ", "_").split(".")[0]
 
         self.dataset = self.dataset_constructor(
-            dataset_name=dataset_name, **kwargs
+            dataset_name=dataset_name,  # type: ignore
+            **kwargs,
         )
         self.parser = self.parsers[self.dataset_type](
-            self.dataset, task_mapping or {}
+            self.dataset, self.dataset_type, task_name
         )
 
     @overload
-    def parse(self: "LuxonisParser[str]", **kwargs) -> BaseDataset:
-        pass
+    def parse(self: "LuxonisParser[str]", **kwargs) -> BaseDataset: ...
 
     @overload
-    def parse(self: "LuxonisParser[None]", **kwargs) -> LuxonisDataset:
-        pass
+    def parse(self: "LuxonisParser[None]", **kwargs) -> LuxonisDataset: ...
 
     def parse(self, **kwargs) -> BaseDataset:
         """Parses the dataset and returns it in LuxonisDataset format.
@@ -257,7 +257,7 @@ class LuxonisParser(Generic[T]):
     def _download_roboflow_dataset(
         self, dataset_dir: str, local_path: Optional[Path]
     ) -> Tuple[Path, str]:
-        if find_spec("roboflow") is None:
+        if find_spec("roboflow") is None:  # pragma: no cover
             _pip_install("roboflow", "roboflow", "0.1.1")
 
         from roboflow import Roboflow

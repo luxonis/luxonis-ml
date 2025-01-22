@@ -1,12 +1,13 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Iterator, List, Optional, Sequence, Tuple, Type, Union
 
+from semver.version import Version
 from typing_extensions import TypeAlias
 
 from luxonis_ml.data.datasets.annotation import DatasetRecord
 from luxonis_ml.data.datasets.source import LuxonisSource
+from luxonis_ml.typing import PathType
 from luxonis_ml.utils import AutoRegisterMeta, Registry
-from luxonis_ml.utils.filesystem import PathType
 
 DATASETS_REGISTRY: Registry[Type["BaseDataset"]] = Registry(name="datasets")
 
@@ -27,16 +28,25 @@ class BaseDataset(
 
         @type: str
         """
-        pass
+        ...
+
+    @property
+    @abstractmethod
+    def version(self) -> Version:
+        """The version of the underlying LDF.
+
+        @type: L{Version}
+        """
+        ...
 
     @abstractmethod
-    def get_tasks(self) -> List[str]:
-        """Returns the list of tasks in the dataset.
+    def get_tasks(self) -> Dict[str, str]:
+        """Returns a dictionary mapping task names to task types.
 
-        @rtype: List[str]
-        @return: List of task names.
+        @rtype: Dict[str, str]
+        @return: A dictionary mapping task names to task types.
         """
-        pass
+        ...
 
     @abstractmethod
     def update_source(self, source: LuxonisSource) -> None:
@@ -46,7 +56,7 @@ class BaseDataset(
         @type source: L{LuxonisSource}
         @param source: The new C{LuxonisSource} to replace the old one.
         """
-        pass
+        ...
 
     @abstractmethod
     def set_classes(
@@ -61,18 +71,17 @@ class BaseDataset(
         @param task: Optionally specify the task where these classes
             apply.
         """
-        pass
+        ...
 
     @abstractmethod
-    def get_classes(self) -> Tuple[List[str], Dict[str, List[str]]]:
-        """Gets overall classes in the dataset and classes according to
-        computer vision task.
+    def get_classes(self) -> Dict[str, List[str]]:
+        """Get classes according to computer vision tasks.
 
-        @rtype: Tuple[List[str], Dict]
-        @return: A combined list of classes for all tasks and a
-            dictionary mapping tasks to the classes used in each task.
+        @rtype: Dict[str, List[str]]
+        @return: A dictionary mapping tasks to the classes used in each
+            task.
         """
-        pass
+        ...
 
     @abstractmethod
     def set_skeletons(
@@ -99,7 +108,7 @@ class BaseDataset(
         @param task: Optionally specify the task where these skeletons apply.
             If not specified, the skeletons are set for all tasks that use keypoints.
         """
-        pass
+        ...
 
     @abstractmethod
     def get_skeletons(
@@ -112,7 +121,7 @@ class BaseDataset(
         @return: For each task, a tuple containing a list of keypoint
             names and a list of edges between the keypoints.
         """
-        pass
+        ...
 
     @abstractmethod
     def add(
@@ -129,7 +138,7 @@ class BaseDataset(
             processing. This can be set to a lower value to reduce
             memory usage.
         """
-        pass
+        ...
 
     @abstractmethod
     def make_splits(
@@ -162,12 +171,12 @@ class BaseDataset(
         @type replace_old_splits: bool
         @param replace_old_splits: Whether to remove old splits and generate new ones. If set to False, only new files will be added to the splits. Default is False.
         """
-        pass
+        ...
 
     @abstractmethod
     def delete_dataset(self) -> None:
         """Deletes all local files belonging to the dataset."""
-        pass
+        ...
 
     @staticmethod
     @abstractmethod
@@ -180,4 +189,19 @@ class BaseDataset(
         @rtype: bool
         @return: Whether the dataset exists
         """
-        pass
+        ...
+
+    def get_task_names(self) -> List[str]:
+        """Get the task names for the dataset.
+
+        Like `get_tasks`, but returns only the task names
+        instead of the entire names.
+
+        @rtype: List[str]
+        @return: List of task names.
+        """
+        return list(self.get_tasks().keys())
+
+    def get_n_keypoints(self) -> Dict[str, int]:
+        skeletons = self.get_skeletons()
+        return {task: len(skeletons[task][0]) for task in skeletons}

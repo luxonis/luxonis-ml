@@ -2,6 +2,7 @@ import glob
 import json
 import logging
 import os
+import time
 from functools import wraps
 from importlib.util import find_spec
 from pathlib import Path
@@ -11,7 +12,8 @@ import cv2
 import numpy as np
 from unique_names_generator import get_random_name
 
-from luxonis_ml.utils.filesystem import LuxonisFileSystem, PathType
+from luxonis_ml.typing import PathType
+from luxonis_ml.utils.filesystem import LuxonisFileSystem
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +140,7 @@ class LuxonisTracker:
             if rank == 0:
                 self.run_name = self._get_run_name()
             else:
+                time.sleep(1)  # DDP hotfix
                 self.run_name = self._get_latest_run_name()
 
         Path(f"{self.save_directory}/{self.run_name}").mkdir(

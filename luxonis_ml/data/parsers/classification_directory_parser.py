@@ -33,7 +33,7 @@ class ClassificationDirectoryParser(BaseParser):
         classes = [
             d
             for d in split_path.iterdir()
-            if d.is_dir() and d.name not in ["train", "valid", "test"]
+            if d.is_dir() and d.name not in {"train", "valid", "test"}
         ]
         if not classes:
             return None
@@ -55,7 +55,7 @@ class ClassificationDirectoryParser(BaseParser):
 
     def from_dir(
         self, dataset_dir: Path
-    ) -> Tuple[List[str], List[str], List[str]]:
+    ) -> Tuple[List[Path], List[Path], List[Path]]:
         added_train_imgs = self._parse_split(class_dir=dataset_dir / "train")
         added_val_imgs = self._parse_split(class_dir=dataset_dir / "valid")
         added_test_imgs = self._parse_split(class_dir=dataset_dir / "test")
@@ -78,12 +78,9 @@ class ClassificationDirectoryParser(BaseParser):
                 for img_path in (class_dir / class_name).iterdir():
                     yield {
                         "file": str(img_path.absolute().resolve()),
-                        "annotation": {
-                            "type": "classification",
-                            "class": class_name,
-                        },
+                        "annotation": {"class": class_name},
                     }
 
         added_images = self._get_added_images(generator())
 
-        return generator(), class_names, {}, added_images
+        return generator(), {}, added_images
