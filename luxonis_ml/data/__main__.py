@@ -76,7 +76,7 @@ def print_info(name: str) -> None:
     task_table = Table(
         title="Tasks", box=rich.box.ROUNDED, row_styles=["yellow", "cyan"]
     )
-    if len(tasks) > 1 or next(iter(tasks)):
+    if tasks and (len(tasks) > 1 or next(iter(tasks))):
         task_table.add_column(
             "Task Name", header_style="magenta i", max_width=30
         )
