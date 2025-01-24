@@ -19,6 +19,7 @@ from typing import (
     Sequence,
     Set,
     Tuple,
+    Type,
     TypedDict,
     Union,
     cast,
@@ -88,6 +89,9 @@ class Metadata(TypedDict):
     tasks: Dict[str, List[str]]
     skeletons: Dict[str, Skeletons]
     categorical_encodings: Dict[str, Dict[str, int]]
+    metadata_types: Dict[
+        str, Union[Type[float], Type[int], Type[str], Type[Category]]
+    ]
 
 
 class LuxonisDataset(BaseDataset):
@@ -722,6 +726,7 @@ class LuxonisDataset(BaseDataset):
                 "tasks": {},
                 "skeletons": {},
                 "categorical_encodings": {},
+                "metadata_types": {},
             }
 
     def _migrate_metadata(
@@ -817,12 +822,17 @@ class LuxonisDataset(BaseDataset):
 
     @override
     def get_tasks(self) -> Dict[str, List[str]]:
-        return self._metadata.get("tasks", {})
+        return self._metadata["tasks"]
 
     def get_categorical_encodings(
         self,
     ) -> Dict[str, Dict[str, int]]:
-        return self._metadata.get("categorical_encodings", {})
+        return self._metadata["categorical_encodings"]
+
+    def get_metadata_types(
+        self,
+    ) -> Dict[str, Union[Type[int], Type[float], Type[str], Type[Category]]]:
+        return self._metadata["metadata_types"]
 
     def sync_from_cloud(
         self, update_mode: UpdateMode = UpdateMode.IF_EMPTY
@@ -989,6 +999,7 @@ class LuxonisDataset(BaseDataset):
             lambda: OrderedSet([])
         )
         categorical_encodings = defaultdict(dict)
+        metadata_types = {}
         num_kpts_per_task: Dict[str, int] = {}
 
         annotations_path = get_dir(
@@ -1021,6 +1032,25 @@ class LuxonisDataset(BaseDataset):
                         )
                     for name, value in ann.metadata.items():
                         task = f"{record.task}/metadata/{name}"
+                        typ = type(value)
+                        if (
+                            task in metadata_types
+                            and metadata_types[task] != typ
+                        ):
+                            if typ in [float, int] and metadata_types[
+                                task
+                            ] in [
+                                float,
+                                int,
+                            ]:
+                                metadata_types[task] = float
+                            else:
+                                raise ValueError(
+                                    f"Metadata type mismatch for {task}: {metadata_types[task]} and {typ}"
+                                )
+                        else:
+                            metadata_types[task] = typ
+
                         if not isinstance(value, Category):
                             continue
                         if value not in categorical_encodings[task]:
@@ -1059,6 +1089,9 @@ class LuxonisDataset(BaseDataset):
             )
 
         self._metadata["categorical_encodings"] = dict(categorical_encodings)
+        self._metadata["metadata_types"] = {
+            task: typ.__name__ for task, typ in metadata_types.items()
+        }
 
         with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
             self._write_index(index, new_index, path=tmp_file.name)

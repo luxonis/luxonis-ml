@@ -317,6 +317,13 @@ def test_metadata(
         "/metadata/color": {"red": 0, "blue": 1}
     }
 
+    assert dataset.get_metadata_types() == {
+        "/metadata/color": "Category",
+        "/metadata/distance": "float",
+        "/metadata/id": "int",
+        "/metadata/license_plate": "str",
+    }
+
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_no_labels(dataset_name: str, tempdir: Path, subtests: SubTests):
