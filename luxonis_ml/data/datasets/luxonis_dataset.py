@@ -19,7 +19,6 @@ from typing import (
     Sequence,
     Set,
     Tuple,
-    Type,
     TypedDict,
     Union,
     cast,
@@ -89,9 +88,7 @@ class Metadata(TypedDict):
     tasks: Dict[str, List[str]]
     skeletons: Dict[str, Skeletons]
     categorical_encodings: Dict[str, Dict[str, int]]
-    metadata_types: Dict[
-        str, Union[Type[float], Type[int], Type[str], Type[Category]]
-    ]
+    metadata_types: Dict[str, Literal["float", "int", "str", "Category"]]
 
 
 class LuxonisDataset(BaseDataset):
@@ -831,7 +828,7 @@ class LuxonisDataset(BaseDataset):
 
     def get_metadata_types(
         self,
-    ) -> Dict[str, Union[Type[int], Type[float], Type[str], Type[Category]]]:
+    ) -> Dict[str, Literal["float", "int", "str", "Category"]]:
         return self._metadata["metadata_types"]
 
     def sync_from_cloud(
