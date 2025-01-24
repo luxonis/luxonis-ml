@@ -9,12 +9,12 @@ from utils import compare_loader_output, create_dataset, create_image
 
 from luxonis_ml.data import (
     BucketStorage,
+    Category,
     LuxonisDataset,
     LuxonisLoader,
     LuxonisParser,
     LuxonisSource,
 )
-from luxonis_ml.data.datasets.annotation import Category
 from luxonis_ml.data.utils.task_utils import get_task_type
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.typing import Params
