@@ -87,7 +87,7 @@ class Metadata(TypedDict):
     classes: Dict[str, List[str]]
     tasks: Dict[str, List[str]]
     skeletons: Dict[str, Skeletons]
-    categorical_encodings: Dict[str, Dict[str, Dict[str, int]]]
+    categorical_encodings: Dict[str, Dict[str, int]]
 
 
 class LuxonisDataset(BaseDataset):
@@ -821,7 +821,7 @@ class LuxonisDataset(BaseDataset):
 
     def get_categorical_encodings(
         self,
-    ) -> Dict[str, Dict[str, Dict[str, int]]]:
+    ) -> Dict[str, Dict[str, int]]:
         return self._metadata.get("categorical_encodings", {})
 
     def sync_from_cloud(
@@ -988,7 +988,7 @@ class LuxonisDataset(BaseDataset):
         classes_per_task: Dict[str, OrderedSet[str]] = defaultdict(
             lambda: OrderedSet([])
         )
-        categorical_encodings = defaultdict(lambda: defaultdict(dict))
+        categorical_encodings = defaultdict(dict)
         num_kpts_per_task: Dict[str, int] = {}
 
         annotations_path = get_dir(
@@ -1020,14 +1020,12 @@ class LuxonisDataset(BaseDataset):
                             ann.keypoints.keypoints
                         )
                     for name, value in ann.metadata.items():
+                        task = f"{record.task}/metadata/{name}"
                         if not isinstance(value, Category):
                             continue
-                        if (
-                            value
-                            not in categorical_encodings[record.task][name]
-                        ):
-                            categorical_encodings[record.task][name][value] = (
-                                len(categorical_encodings[record.task][name])
+                        if value not in categorical_encodings[task]:
+                            categorical_encodings[task][value] = len(
+                                categorical_encodings[task]
                             )
 
                 data_batch.append(record)
@@ -1060,9 +1058,7 @@ class LuxonisDataset(BaseDataset):
                 task=task,
             )
 
-        self._metadata["categorical_encodings"] = dict(
-            {k: dict(v) for k, v in categorical_encodings.items()}
-        )
+        self._metadata["categorical_encodings"] = dict(categorical_encodings)
 
         with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
             self._write_index(index, new_index, path=tmp_file.name)

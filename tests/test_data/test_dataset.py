@@ -303,13 +303,18 @@ def test_metadata(
             "classification",
         } == set(labels.keys())
 
-        assert labels["metadata/color"].tolist() == ["red", "blue"] * 5
+        assert labels["metadata/color"].tolist() == [0, 1] * 5
         assert labels["metadata/distance"].tolist() == [5.0] * 10
         assert labels["metadata/id"].tolist() == list(range(127, 137))
         assert labels["metadata/license_plate"].tolist() == ["xyz"] * 10
 
+    loader = LuxonisLoader(dataset, keep_categorical_as_strings=True)
+    for _, labels in loader:
+        labels = {get_task_type(k): v for k, v in labels.items()}
+        assert labels["metadata/color"].tolist() == ["red", "blue"] * 5
+
     assert dataset.get_categorical_encodings() == {
-        "": {"color": {"red": 0, "blue": 1}}
+        "/metadata/color": {"red": 0, "blue": 1}
     }
 
 
