@@ -308,7 +308,7 @@ def test_metadata(
         assert labels["metadata/id"].tolist() == list(range(127, 137))
         assert labels["metadata/license_plate"].tolist() == ["xyz"] * 10
 
-    assert dataset.metadata["metadata_encodings"] == {
+    assert dataset.get_categorical_encodings() == {
         "": {"color": {"red": 0, "blue": 1}}
     }
 

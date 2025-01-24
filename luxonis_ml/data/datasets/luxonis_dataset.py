@@ -87,7 +87,7 @@ class Metadata(TypedDict):
     classes: Dict[str, List[str]]
     tasks: Dict[str, List[str]]
     skeletons: Dict[str, Skeletons]
-    metadata_encodings: Dict[str, Dict[str, Dict[str, int]]]
+    categorical_encodings: Dict[str, Dict[str, Dict[str, int]]]
 
 
 class LuxonisDataset(BaseDataset):
@@ -189,7 +189,7 @@ class LuxonisDataset(BaseDataset):
               - Skeletons is a dictionary with keys 'labels' and 'edges'
                 - labels: List[str]
                 - edges: List[Tuple[int, int]]
-            - metadata_encodings: Dict[task_name, Dict[metadata_name, Dict[metadata_value, int]]]
+            - categorical_encodings: Dict[task_name, Dict[metadata_name, Dict[metadata_value, int]]]
               - Encodings for string metadata values
               - Example::
 
@@ -721,7 +721,7 @@ class LuxonisDataset(BaseDataset):
                 "classes": {},
                 "tasks": {},
                 "skeletons": {},
-                "metadata_encodings": {},
+                "categorical_encodings": {},
             }
 
     def _migrate_metadata(
@@ -818,6 +818,11 @@ class LuxonisDataset(BaseDataset):
     @override
     def get_tasks(self) -> Dict[str, List[str]]:
         return self._metadata.get("tasks", {})
+
+    def get_categorical_encodings(
+        self,
+    ) -> Dict[str, Dict[str, Dict[str, int]]]:
+        return self._metadata.get("categorical_encodings", {})
 
     def sync_from_cloud(
         self, update_mode: UpdateMode = UpdateMode.IF_EMPTY
@@ -983,7 +988,7 @@ class LuxonisDataset(BaseDataset):
         classes_per_task: Dict[str, OrderedSet[str]] = defaultdict(
             lambda: OrderedSet([])
         )
-        metadata_encodings = defaultdict(lambda: defaultdict(dict))
+        categorical_encodings = defaultdict(lambda: defaultdict(dict))
         num_kpts_per_task: Dict[str, int] = {}
 
         annotations_path = get_dir(
@@ -1017,9 +1022,12 @@ class LuxonisDataset(BaseDataset):
                     for name, value in ann.metadata.items():
                         if not isinstance(value, Category):
                             continue
-                        if value not in metadata_encodings[record.task][name]:
-                            metadata_encodings[record.task][name][value] = len(
-                                metadata_encodings[record.task][name]
+                        if (
+                            value
+                            not in categorical_encodings[record.task][name]
+                        ):
+                            categorical_encodings[record.task][name][value] = (
+                                len(categorical_encodings[record.task][name])
                             )
 
                 data_batch.append(record)
@@ -1052,8 +1060,8 @@ class LuxonisDataset(BaseDataset):
                 task=task,
             )
 
-        self._metadata["metadata_encodings"] = dict(
-            {k: dict(v) for k, v in metadata_encodings.items()}
+        self._metadata["categorical_encodings"] = dict(
+            {k: dict(v) for k, v in categorical_encodings.items()}
         )
 
         with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
