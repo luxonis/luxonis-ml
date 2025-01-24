@@ -9,6 +9,7 @@ from utils import compare_loader_output, create_dataset, create_image
 
 from luxonis_ml.data import (
     BucketStorage,
+    Category,
     LuxonisDataset,
     LuxonisLoader,
     LuxonisParser,
@@ -282,9 +283,10 @@ def test_metadata(
                 "annotation": {
                     "class": "person",
                     "metadata": {
-                        "color": "red" if i % 2 == 0 else "blue",
-                        "distance": 5.0,
+                        "color": Category("red" if i % 2 == 0 else "blue"),
+                        "distance": 5.0 if i == 0 else 5,
                         "id": 127 + i,
+                        "license_plate": "xyz",
                     },
                 },
             }
@@ -297,12 +299,30 @@ def test_metadata(
             "metadata/color",
             "metadata/distance",
             "metadata/id",
+            "metadata/license_plate",
             "classification",
         } == set(labels.keys())
 
-        assert labels["metadata/color"].tolist() == ["red", "blue"] * 5
+        assert labels["metadata/color"].tolist() == [0, 1] * 5
         assert labels["metadata/distance"].tolist() == [5.0] * 10
         assert labels["metadata/id"].tolist() == list(range(127, 137))
+        assert labels["metadata/license_plate"].tolist() == ["xyz"] * 10
+
+    loader = LuxonisLoader(dataset, keep_categorical_as_strings=True)
+    for _, labels in loader:
+        labels = {get_task_type(k): v for k, v in labels.items()}
+        assert labels["metadata/color"].tolist() == ["red", "blue"] * 5
+
+    assert dataset.get_categorical_encodings() == {
+        "/metadata/color": {"red": 0, "blue": 1}
+    }
+
+    assert dataset.get_metadata_types() == {
+        "/metadata/color": "Category",
+        "/metadata/distance": "float",
+        "/metadata/id": "int",
+        "/metadata/license_plate": "str",
+    }
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
