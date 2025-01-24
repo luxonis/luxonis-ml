@@ -304,6 +304,10 @@ def test_metadata(
         assert labels["metadata/distance"].tolist() == [5.0] * 10
         assert labels["metadata/id"].tolist() == list(range(127, 137))
 
+    assert dataset.metadata["metadata_encodings"] == {
+        "": {"color": {"red": 0, "blue": 1}}
+    }
+
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_no_labels(dataset_name: str, tempdir: Path, subtests: SubTests):
