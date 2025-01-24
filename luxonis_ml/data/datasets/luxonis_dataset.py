@@ -56,6 +56,24 @@ from .utils import find_filepath_uuid, get_dir, get_file
 
 logger = logging.getLogger(__name__)
 
+LDF_1_0_0_TASKS = {
+    "classification",
+    "segmentation",
+    "boundingbox",
+    "keypoints",
+    "array",
+}
+
+LDF_1_0_0_TASK_TYPES = {
+    "BBoxAnnotation": "boundingbox",
+    "ClassificationAnnotation": "classification",
+    "PolylineSegmentationAnnotation": "segmentation",
+    "RLESegmentationAnnotation": "segmentation",
+    "MaskSegmentationAnnotation": "segmentation",
+    "KeypointAnnotation": "keypoints",
+    "ArrayAnnotation": "array",
+}
+
 
 class Skeletons(TypedDict):
     labels: List[str]
@@ -438,25 +456,38 @@ class LuxonisDataset(BaseDataset):
         self,
         lazy: Literal[False] = ...,
         raise_when_empty: Literal[False] = ...,
+        attempt_migration: bool = ...,
     ) -> Optional[pl.DataFrame]: ...
 
     @overload
     def _load_df_offline(
-        self, lazy: Literal[False] = ..., raise_when_empty: Literal[True] = ...
+        self,
+        lazy: Literal[False] = ...,
+        raise_when_empty: Literal[True] = ...,
+        attempt_migration: bool = ...,
     ) -> pl.DataFrame: ...
 
     @overload
     def _load_df_offline(
-        self, lazy: Literal[True] = ..., raise_when_empty: Literal[False] = ...
+        self,
+        lazy: Literal[True] = ...,
+        raise_when_empty: Literal[False] = ...,
+        attempt_migration: bool = ...,
     ) -> Optional[pl.LazyFrame]: ...
 
     @overload
     def _load_df_offline(
-        self, lazy: Literal[True] = ..., raise_when_empty: Literal[True] = ...
+        self,
+        lazy: Literal[True] = ...,
+        raise_when_empty: Literal[True] = ...,
+        attempt_migration: bool = ...,
     ) -> pl.LazyFrame: ...
 
     def _load_df_offline(
-        self, lazy: bool = False, raise_when_empty: bool = False
+        self,
+        lazy: bool = False,
+        raise_when_empty: bool = False,
+        attempt_migration: bool = True,
     ) -> Optional[Union[pl.DataFrame, pl.LazyFrame]]:
         """Loads the dataset DataFrame **always** from the local
         storage."""
@@ -486,18 +517,40 @@ class LuxonisDataset(BaseDataset):
         if df is None and raise_when_empty:
             raise FileNotFoundError(f"Dataset '{self.dataset_name}' is empty.")
 
-        if self.version == LDF_VERSION or df is None:
+        if not attempt_migration or self.version == LDF_VERSION or df is None:
             return df
 
         return (
             df.rename({"class": "class_name"})
             .with_columns(
-                [
-                    pl.col("task").alias("task_type"),
-                    pl.col("task").alias("task_name"),
-                    pl.lit("image").alias("source_name"),
-                ]
+                pl.when(pl.col("task").is_in(LDF_1_0_0_TASKS))
+                .then(pl.lit("detection"))
+                .otherwise(pl.col("task"))
+                .alias("task_name")
             )
+            .with_columns(
+                pl.when(pl.col("type") == "BBoxAnnotation")
+                .then(pl.lit("boundingbox"))
+                .when(pl.col("type") == "ClassificationAnnotation")
+                .then(pl.lit("classification"))
+                .when(
+                    pl.col("type").is_in(
+                        [
+                            "PolylineSegmentationAnnotation",
+                            "RLESegmentationAnnotation",
+                            "MaskSegmentationAnnotation",
+                        ]
+                    )
+                )
+                .then(pl.lit("segmentation"))
+                .when(pl.col("type") == "KeypointAnnotation")
+                .then(pl.lit("keypoints"))
+                .when(pl.col("type") == "ArrayAnnotation")
+                .then(pl.lit("array"))
+                .otherwise(pl.col("type"))
+                .alias("task_type")
+            )
+            .with_columns(pl.lit("image").alias("source_name"))
             .select(
                 [
                     "file",
@@ -626,7 +679,11 @@ class LuxonisDataset(BaseDataset):
                 self.metadata_path,
                 default=self.metadata_path / "metadata.json",
             )
-            return json.loads(path.read_text())
+            metadata = json.loads(path.read_text())
+            version = Version.parse(metadata.get("ldf_version", "1.0.0"))
+            if version != LDF_VERSION:  # pragma: no cover
+                metadata = self._migrate_metadata(metadata)
+            return metadata
         else:
             return {
                 "source": LuxonisSource().to_document(),
@@ -635,6 +692,34 @@ class LuxonisDataset(BaseDataset):
                 "tasks": {},
                 "skeletons": {},
             }
+
+    def _migrate_metadata(
+        self, metadata: Metadata
+    ) -> Metadata:  # pragma: no cover
+        old_classes = metadata["classes"]
+        if set(old_classes.keys()) <= LDF_1_0_0_TASKS:
+            metadata["classes"] = {
+                "detection": next(iter(old_classes.values()))
+            }
+            metadata["tasks"] = {"detection": list(old_classes.keys())}
+        else:
+            df = self._load_df_offline(lazy=True, attempt_migration=False)
+            if df is None:
+                raise ValueError("Cannot migrate when the dataset is empty")
+            tasks_df = df.select(["task", "type"]).unique().collect()
+            new_classes = defaultdict(list)
+            tasks = defaultdict(list)
+            for task_name, task_type in tasks_df.iter_rows():
+                new_task_name = task_name
+                if task_name in LDF_1_0_0_TASKS:
+                    new_task_name = "detection"
+                tasks[new_task_name].append(LDF_1_0_0_TASK_TYPES[task_type])
+                new_classes[new_task_name].extend(
+                    old_classes.get(task_name, [])
+                )
+            metadata["classes"] = dict(new_classes)
+            metadata["tasks"] = dict(tasks)
+        return metadata
 
     @property
     def is_remote(self) -> bool:
