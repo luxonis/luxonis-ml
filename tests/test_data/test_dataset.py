@@ -14,6 +14,7 @@ from luxonis_ml.data import (
     LuxonisParser,
     LuxonisSource,
 )
+from luxonis_ml.data.datasets.annotation import Category
 from luxonis_ml.data.utils.task_utils import get_task_type
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.typing import Params
@@ -282,9 +283,10 @@ def test_metadata(
                 "annotation": {
                     "class": "person",
                     "metadata": {
-                        "color": "red" if i % 2 == 0 else "blue",
+                        "color": Category("red" if i % 2 == 0 else "blue"),
                         "distance": 5.0,
                         "id": 127 + i,
+                        "license_plate": "xyz",
                     },
                 },
             }
@@ -297,12 +299,14 @@ def test_metadata(
             "metadata/color",
             "metadata/distance",
             "metadata/id",
+            "metadata/license_plate",
             "classification",
         } == set(labels.keys())
 
         assert labels["metadata/color"].tolist() == ["red", "blue"] * 5
         assert labels["metadata/distance"].tolist() == [5.0] * 10
         assert labels["metadata/id"].tolist() == list(range(127, 137))
+        assert labels["metadata/license_plate"].tolist() == ["xyz"] * 10
 
     assert dataset.metadata["metadata_encodings"] == {
         "": {"color": {"red": 0, "blue": 1}}

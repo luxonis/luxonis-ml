@@ -50,7 +50,7 @@ from luxonis_ml.utils import (
     make_progress_bar,
 )
 
-from .annotation import DatasetRecord
+from .annotation import Category, DatasetRecord
 from .base_dataset import BaseDataset, DatasetIterator
 from .source import LuxonisSource
 from .utils import find_filepath_uuid, get_dir, get_file
@@ -1015,7 +1015,7 @@ class LuxonisDataset(BaseDataset):
                             ann.keypoints.keypoints
                         )
                     for name, value in ann.metadata.items():
-                        if not isinstance(value, str):
+                        if not isinstance(value, Category):
                             continue
                         if value not in metadata_encodings[record.task][name]:
                             metadata_encodings[record.task][name][value] = len(
