@@ -284,7 +284,7 @@ def test_metadata(
                     "class": "person",
                     "metadata": {
                         "color": Category("red" if i % 2 == 0 else "blue"),
-                        "distance": 5.0,
+                        "distance": 5.0 if i == 0 else 5,
                         "id": 127 + i,
                         "license_plate": "xyz",
                     },

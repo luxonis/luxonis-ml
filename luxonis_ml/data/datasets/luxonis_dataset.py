@@ -1029,18 +1029,13 @@ class LuxonisDataset(BaseDataset):
                         )
                     for name, value in ann.metadata.items():
                         task = f"{record.task}/metadata/{name}"
-                        typ = type(value)
+                        typ = type(value).__name__
                         if (
                             task in metadata_types
                             and metadata_types[task] != typ
                         ):
-                            if typ in [float, int] and metadata_types[
-                                task
-                            ] in [
-                                float,
-                                int,
-                            ]:
-                                metadata_types[task] = float
+                            if {typ, metadata_types[task]} == {"int", "float"}:
+                                metadata_types[task] = "float"
                             else:
                                 raise ValueError(
                                     f"Metadata type mismatch for {task}: {metadata_types[task]} and {typ}"
@@ -1086,9 +1081,7 @@ class LuxonisDataset(BaseDataset):
             )
 
         self._metadata["categorical_encodings"] = dict(categorical_encodings)
-        self._metadata["metadata_types"] = {
-            task: typ.__name__ for task, typ in metadata_types.items()
-        }
+        self._metadata["metadata_types"] = metadata_types
 
         with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
             self._write_index(index, new_index, path=tmp_file.name)
