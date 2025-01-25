@@ -340,10 +340,13 @@ def visualize(
         for i, mask in enumerate(arr):
             mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST)
             if is_instance:
-                class_id = bbox_classes[task_name][i]
-                mask_viz[mask > 0] = str_to_rgb(
-                    class_names[task_name][class_id]
-                )
+                task_classes = class_names[task_name]
+                if len(bbox_classes[task_name]) > i:
+                    class_id = bbox_classes[task_name][i]
+                    color = str_to_rgb(task_classes[class_id])
+                else:
+                    color = (255, 0, 0)
+                mask_viz[mask > 0] = color
             else:
                 mask_viz[mask == 1] = (
                     str_to_rgb(class_names[task_name][i])
