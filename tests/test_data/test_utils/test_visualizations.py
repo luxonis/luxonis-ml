@@ -8,9 +8,9 @@ from luxonis_ml.data.utils.visualizations import (
     draw_cross,
     draw_dashed_rectangle,
     get_contrast_color,
-    hsb_to_rgb,
+    hsv_to_rgb,
     resolve_color,
-    rgb_to_hsb,
+    rgb_to_hsv,
     str_to_rgb,
     visualize,
 )
@@ -33,16 +33,16 @@ def test_resolve_color_tuple():
         resolve_color((100, 150, 300))
 
 
-def test_rgb_to_hsb():
-    assert np.allclose(rgb_to_hsb((255, 0, 0)), (0.0, 1.0, 1.0))
-    assert np.allclose(rgb_to_hsb((0, 255, 0)), (120.0, 1.0, 1.0))
-    assert np.allclose(rgb_to_hsb((0, 0, 255)), (240.0, 1.0, 1.0))
+def test_rgb_to_hsv():
+    assert np.allclose(rgb_to_hsv((255, 0, 0)), (0.0, 1.0, 1.0))
+    assert np.allclose(rgb_to_hsv((0, 255, 0)), (120.0, 1.0, 1.0))
+    assert np.allclose(rgb_to_hsv((0, 0, 255)), (240.0, 1.0, 1.0))
 
 
-def test_hsb_to_rgb():
-    assert hsb_to_rgb((0.0, 1.0, 1.0)) == (255, 0, 0)
-    assert hsb_to_rgb((120.0, 1.0, 1.0)) == (0, 255, 0)
-    assert hsb_to_rgb((240.0, 1.0, 1.0)) == (0, 0, 255)
+def test_hsv_to_rgb():
+    assert hsv_to_rgb((0.0, 1.0, 1.0)) == (255, 0, 0)
+    assert hsv_to_rgb((120.0, 1.0, 1.0)) == (0, 255, 0)
+    assert hsv_to_rgb((240.0, 1.0, 1.0)) == (0, 0, 255)
 
 
 def test_get_contrast_color():

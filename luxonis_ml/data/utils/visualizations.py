@@ -39,24 +39,24 @@ def resolve_color(color: Color) -> Tuple[int, int, int]:
         return color
 
 
-def rgb_to_hsb(color: Color) -> Tuple[float, float, float]:
-    """Converts an RGB color to HSB.
+def rgb_to_hsv(color: Color) -> Tuple[float, float, float]:
+    """Converts an RGB color to HSV.
 
     @type color: Color
     @param color: The color to convert.
     @rtype: Tuple[float, float, float]
-    @return: The HSB tuple.
+    @return: The HSV tuple.
     """
     r, g, b = resolve_color(color)
     h, s, br = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
     return h * 360, s, br
 
 
-def hsb_to_rgb(color: Tuple[float, float, float]) -> Tuple[int, int, int]:
-    """Converts an HSB color to RGB.
+def hsv_to_rgb(color: Tuple[float, float, float]) -> Tuple[int, int, int]:
+    """Converts an HSV color to RGB.
 
     @type color: Tuple[int, int, int]
-    @param color: The color to convert as an HSB tuple.
+    @param color: The color to convert as an HSV tuple.
     @rtype: Tuple[int, int, int]
     @return: The RGB tuple.
     """
@@ -74,9 +74,9 @@ def get_contrast_color(color: Color) -> Tuple[int, int, int]:
     @return: The contrasting color.
     """
 
-    h, s, v = rgb_to_hsb(resolve_color(color))
+    h, s, v = rgb_to_hsv(resolve_color(color))
     h = (h + 180) % 360
-    return hsb_to_rgb((h, s, v))
+    return hsv_to_rgb((h, s, v))
 
 
 def str_to_rgb(string: str) -> Tuple[int, int, int]:
