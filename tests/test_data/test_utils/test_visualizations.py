@@ -3,8 +3,10 @@ import numpy as np
 import pytest
 
 from luxonis_ml.data.utils.visualizations import (
+    ColorMap,
     concat_images,
     create_text_image,
+    distinct_color_generator,
     draw_cross,
     draw_dashed_rectangle,
     get_contrast_color,
@@ -14,6 +16,29 @@ from luxonis_ml.data.utils.visualizations import (
     str_to_rgb,
     visualize,
 )
+
+
+def test_distinct_color_generator():
+    assert list(distinct_color_generator(10)) == [
+        (48, 105, 242),
+        (161, 242, 48),
+        (242, 48, 218),
+        (48, 242, 209),
+        (242, 153, 48),
+        (96, 48, 242),
+        (56, 242, 48),
+        (242, 48, 113),
+        (48, 169, 242),
+        (226, 242, 48),
+    ]
+
+
+def test_color_map():
+    colors = ColorMap()
+    assert colors["red"] == (48, 105, 242)
+    assert colors[23] == (161, 242, 48)
+    assert colors[(12,)] == (242, 48, 218)
+    assert colors[23] == (161, 242, 48)
 
 
 def test_resolve_color_string():
