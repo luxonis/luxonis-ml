@@ -39,6 +39,8 @@ def test_color_map():
     assert colors[23] == (161, 242, 48)
     assert colors[(12,)] == (242, 48, 218)
     assert colors[23] == (161, 242, 48)
+    assert len(colors) == 3
+    assert {label for label in colors} == {"red", 23, (12,)}
 
 
 def test_resolve_color_string():

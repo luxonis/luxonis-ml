@@ -32,13 +32,10 @@ class ColorMap(Mapping[Hashable, RGB]):
         return self._color_dict[label]
 
     def __iter__(self):
-        return self
+        return iter(self._color_dict)
 
     def __len__(self):
         return len(self._color_dict)
-
-    def __next__(self):
-        return next(self._generator)
 
 
 def distinct_color_generator(stop: int = -1) -> Generator[RGB, None, None]:
