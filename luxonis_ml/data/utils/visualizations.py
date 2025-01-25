@@ -2,19 +2,52 @@ import colorsys
 import hashlib
 import math
 from collections import defaultdict
-from typing import Dict, List, Tuple
+from typing import Dict, Generator, Hashable, Iterable, List, Mapping, Tuple
 
 import cv2
 import matplotlib.colors
 import numpy as np
 
 from luxonis_ml.data.utils import get_task_name, task_type_iterator
-from luxonis_ml.typing import Color, Labels
+from luxonis_ml.typing import HSV, RGB, Color, Labels
 
 font = cv2.FONT_HERSHEY_SIMPLEX
 
 
-def resolve_color(color: Color) -> Tuple[int, int, int]:
+class ColorManager(Mapping[Hashable, RGB], Iterable[RGB]):
+    """Generator yielding distinct colors."""
+
+    def __init__(self):
+        self.generator = distinct_color_generator()
+        self.color_dict: Dict[Hashable, RGB] = {}
+
+    def get_color(self, label: Hashable) -> RGB:
+        if label not in self.color_dict:
+            self.color_dict[label] = next(self.generator)
+        return self.color_dict[label]
+
+    def __getitem__(self, label: Hashable) -> RGB:
+        return self.get_color(label)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return next(self.generator)
+
+
+def distinct_color_generator() -> Generator[RGB, None, None]:
+    golden_ratio = 0.618033988749895
+    hue = 0.0
+    while True:
+        hue = (hue + golden_ratio) % 1
+        saturation = 0.8
+        value = 0.95
+        r, g, b = colorsys.hsv_to_rgb(hue, saturation, value)
+        yield int(r * 255), int(g * 255), int(b * 255)
+
+
+def resolve_color(color: Color) -> RGB:
     """Resolves a color to an RGB tuple.
 
     @type color: Color
@@ -39,24 +72,24 @@ def resolve_color(color: Color) -> Tuple[int, int, int]:
         return color
 
 
-def rgb_to_hsb(color: Color) -> Tuple[float, float, float]:
-    """Converts an RGB color to HSB.
+def rgb_to_hsv(color: Color) -> HSV:
+    """Converts an RGB color to HSV.
 
     @type color: Color
     @param color: The color to convert.
     @rtype: Tuple[float, float, float]
-    @return: The HSB tuple.
+    @return: The HSV tuple.
     """
     r, g, b = resolve_color(color)
     h, s, br = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
     return h * 360, s, br
 
 
-def hsb_to_rgb(color: Tuple[float, float, float]) -> Tuple[int, int, int]:
-    """Converts an HSB color to RGB.
+def hsv_to_rgb(color: HSV) -> RGB:
+    """Converts an HSV color to RGB.
 
     @type color: Tuple[int, int, int]
-    @param color: The color to convert as an HSB tuple.
+    @param color: The color to convert as an HSV tuple.
     @rtype: Tuple[int, int, int]
     @return: The RGB tuple.
     """
@@ -65,7 +98,7 @@ def hsb_to_rgb(color: Tuple[float, float, float]) -> Tuple[int, int, int]:
     return int(r * 255), int(g * 255), int(b * 255)
 
 
-def get_contrast_color(color: Color) -> Tuple[int, int, int]:
+def get_contrast_color(color: Color) -> RGB:
     """Returns a contrasting color for the given RGB color.
 
     @type color: Color
@@ -74,12 +107,12 @@ def get_contrast_color(color: Color) -> Tuple[int, int, int]:
     @return: The contrasting color.
     """
 
-    h, s, v = rgb_to_hsb(resolve_color(color))
+    h, s, v = rgb_to_hsv(resolve_color(color))
     h = (h + 180) % 360
-    return hsb_to_rgb((h, s, v))
+    return hsv_to_rgb((h, s, v))
 
 
-def str_to_rgb(string: str) -> Tuple[int, int, int]:
+def str_to_rgb(string: str) -> RGB:
     """Converts a string to its unique RGB color.
 
     @type string: str
@@ -307,8 +340,9 @@ def visualize(
         for i, mask in enumerate(arr):
             mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST)
             if is_instance:
+                class_id = bbox_classes[task_name][i]
                 mask_viz[mask > 0] = str_to_rgb(
-                    class_names[task_name][int(mask.max() - 1)]
+                    class_names[task_name][class_id]
                 )
             else:
                 mask_viz[mask == 1] = (
@@ -332,14 +366,6 @@ def visualize(
         image_name = task_name if task_name and not blend_all else "labels"
         images[image_name] = create_mask(
             image, arr, task_name, is_instance=False
-        )
-
-    for task, arr in task_type_iterator(labels, "instance_segmentation"):
-        task_name = get_task_name(task)
-        image_name = task_name if task_name and not blend_all else "labels"
-        curr_image = images.get(image_name, image.copy())
-        images[image_name] = create_mask(
-            curr_image, arr, task_name, is_instance=True
         )
 
     for task, arr in task_type_iterator(labels, "boundingbox"):
@@ -372,6 +398,14 @@ def visualize(
                 thickness=2,
             )
         images[image_name] = curr_image
+
+    for task, arr in task_type_iterator(labels, "instance_segmentation"):
+        task_name = get_task_name(task)
+        image_name = task_name if task_name and not blend_all else "labels"
+        curr_image = images.get(image_name, image.copy())
+        images[image_name] = create_mask(
+            curr_image, arr, task_name, is_instance=True
+        )
 
     for task, arr in task_type_iterator(labels, "keypoints"):
         task_name = get_task_name(task)
