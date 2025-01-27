@@ -3,17 +3,44 @@ import numpy as np
 import pytest
 
 from luxonis_ml.data.utils.visualizations import (
+    ColorMap,
     concat_images,
     create_text_image,
+    distinct_color_generator,
     draw_cross,
     draw_dashed_rectangle,
     get_contrast_color,
-    hsb_to_rgb,
+    hsv_to_rgb,
     resolve_color,
-    rgb_to_hsb,
+    rgb_to_hsv,
     str_to_rgb,
     visualize,
 )
+
+
+def test_distinct_color_generator():
+    assert list(distinct_color_generator(10)) == [
+        (48, 105, 242),
+        (161, 242, 48),
+        (242, 48, 218),
+        (48, 242, 209),
+        (242, 153, 48),
+        (96, 48, 242),
+        (56, 242, 48),
+        (242, 48, 113),
+        (48, 169, 242),
+        (226, 242, 48),
+    ]
+
+
+def test_color_map():
+    colors = ColorMap()
+    assert colors["red"] == (48, 105, 242)
+    assert colors[23] == (161, 242, 48)
+    assert colors[(12,)] == (242, 48, 218)
+    assert colors[23] == (161, 242, 48)
+    assert len(colors) == 3
+    assert {label for label in colors} == {"red", 23, (12,)}
 
 
 def test_resolve_color_string():
@@ -33,16 +60,16 @@ def test_resolve_color_tuple():
         resolve_color((100, 150, 300))
 
 
-def test_rgb_to_hsb():
-    assert np.allclose(rgb_to_hsb((255, 0, 0)), (0.0, 1.0, 1.0))
-    assert np.allclose(rgb_to_hsb((0, 255, 0)), (120.0, 1.0, 1.0))
-    assert np.allclose(rgb_to_hsb((0, 0, 255)), (240.0, 1.0, 1.0))
+def test_rgb_to_hsv():
+    assert np.allclose(rgb_to_hsv((255, 0, 0)), (0.0, 1.0, 1.0))
+    assert np.allclose(rgb_to_hsv((0, 255, 0)), (120.0, 1.0, 1.0))
+    assert np.allclose(rgb_to_hsv((0, 0, 255)), (240.0, 1.0, 1.0))
 
 
-def test_hsb_to_rgb():
-    assert hsb_to_rgb((0.0, 1.0, 1.0)) == (255, 0, 0)
-    assert hsb_to_rgb((120.0, 1.0, 1.0)) == (0, 255, 0)
-    assert hsb_to_rgb((240.0, 1.0, 1.0)) == (0, 0, 255)
+def test_hsv_to_rgb():
+    assert hsv_to_rgb((0.0, 1.0, 1.0)) == (255, 0, 0)
+    assert hsv_to_rgb((120.0, 1.0, 1.0)) == (0, 255, 0)
+    assert hsv_to_rgb((240.0, 1.0, 1.0)) == (0, 0, 255)
 
 
 def test_get_contrast_color():

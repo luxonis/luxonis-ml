@@ -6,13 +6,14 @@ import numpy as np
 import polars as pl
 
 from luxonis_ml.data.utils.task_utils import task_is_metadata
+from luxonis_ml.typing import RGB
 
 logger = logging.getLogger(__name__)
 
 
 def rgb_to_bool_masks(
     segmentation_mask: np.ndarray,
-    class_colors: Dict[str, Tuple[int, int, int]],
+    class_colors: Dict[str, RGB],
     add_background_class: bool = False,
 ) -> Iterator[Tuple[str, np.ndarray]]:
     """Helper function to convert an RGB segmentation mask to boolean

@@ -31,8 +31,11 @@ LoaderOutput: TypeAlias = Tuple[np.ndarray, Labels]
 dictionary of task group names and their annotations as
 L{Annotations}."""
 
+RGB: TypeAlias = Tuple[int, int, int]
 
-Color = Union[str, int, Tuple[int, int, int]]
+HSV: TypeAlias = Tuple[float, float, float]
+
+Color: TypeAlias = Union[str, int, RGB]
 """Color type alias.
 
 Can be either a string (e.g. "red", "#FF5512"),  a tuple of RGB values,
