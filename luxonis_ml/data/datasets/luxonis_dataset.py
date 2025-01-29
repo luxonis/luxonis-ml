@@ -1109,7 +1109,7 @@ class LuxonisDataset(BaseDataset):
 
     def _warn_on_duplicates(self) -> None:
         df = self._load_df_offline(lazy=True)
-        index = self._get_file_index(lazy=True)
+        index = self._get_file_index(lazy=True, sync_from_cloud=self.is_remote)
         if df is None or index is None:
             return
         df = df.join(index, on="uuid").drop("file_right")
