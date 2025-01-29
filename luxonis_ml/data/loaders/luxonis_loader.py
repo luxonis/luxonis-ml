@@ -17,6 +17,7 @@ from luxonis_ml.data.augmentations import (
 )
 from luxonis_ml.data.datasets import (
     Annotation,
+    Category,
     LuxonisDataset,
     UpdateMode,
     load_annotation,
@@ -49,6 +50,7 @@ class LuxonisLoader(BaseLoader):
         exclude_empty_annotations: bool = False,
         color_space: Literal["RGB", "BGR"] = "RGB",
         *,
+        keep_categorical_as_strings: bool = False,
         update_mode: UpdateMode = UpdateMode.ALWAYS,
     ) -> None:
         """A loader class used for loading data from L{LuxonisDataset}.
@@ -96,6 +98,11 @@ class LuxonisLoader(BaseLoader):
             empty annotations from the final label dictionary.
             Defaults to C{False} (i.e. include empty annotations).
 
+        @type keep_categorical_as_strings: bool
+        @param keep_categorical_as_strings: Whether to keep categorical
+            metadata labels as strings.
+            Defaults to C{False} (i.e. convert categorical labels to integers).
+
         @type update_mode: UpdateMode
         @param update_mode: Enum that determines the sync mode:
             - UpdateMode.ALWAYS: Force a fresh download
@@ -108,6 +115,7 @@ class LuxonisLoader(BaseLoader):
 
         self.dataset = dataset
         self.sync_mode = self.dataset.is_remote
+        self.keep_categorical_as_strings = keep_categorical_as_strings
 
         if self.sync_mode:
             self.dataset.sync_from_cloud(update_mode=update_mode)
@@ -289,7 +297,7 @@ class LuxonisLoader(BaseLoader):
         labels_by_task: Dict[str, List[Annotation]] = defaultdict(list)
         class_ids_by_task: Dict[str, List[int]] = defaultdict(list)
         instance_ids_by_task: Dict[str, List[int]] = defaultdict(list)
-        metadata_by_task: Dict[str, List[Union[str, int, float]]] = (
+        metadata_by_task: Dict[str, List[Union[str, int, float, Category]]] = (
             defaultdict(list)
         )
 
@@ -329,7 +337,10 @@ class LuxonisLoader(BaseLoader):
                 instance_ids_by_task[full_task_name].append(instance_id)
 
         labels: Labels = {}
+        encodings = self.dataset.get_categorical_encodings()
         for task, metadata in metadata_by_task.items():
+            if not self.keep_categorical_as_strings and task in encodings:
+                metadata = [encodings[task][m] for m in metadata]  # type: ignore
             labels[task] = np.array(metadata)
 
         for task, anns in labels_by_task.items():

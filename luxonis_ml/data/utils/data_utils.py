@@ -5,12 +5,15 @@ from typing import Dict, Iterator, List, Optional, Tuple
 import numpy as np
 import polars as pl
 
+from luxonis_ml.data.utils.task_utils import task_is_metadata
+from luxonis_ml.typing import RGB
+
 logger = logging.getLogger(__name__)
 
 
 def rgb_to_bool_masks(
     segmentation_mask: np.ndarray,
-    class_colors: Dict[str, Tuple[int, int, int]],
+    class_colors: Dict[str, RGB],
     add_background_class: bool = False,
 ) -> Iterator[Tuple[str, np.ndarray]]:
     """Helper function to convert an RGB segmentation mask to boolean
@@ -162,14 +165,15 @@ def warn_on_duplicates(df: pl.LazyFrame) -> None:
 
     for (
         file_name,
-        task,
+        task_name,
         task_type,
         annotation,
         count,
     ) in duplicate_annotation.iter_rows():
         if task_type == "segmentation":
             annotation = "<binary mask>"
-        logger.warning(
-            f"File '{file_name}' has the same '{task_type}' annotation "
-            f"'{annotation}' ({task=}) added {count} times."
-        )
+        if not task_is_metadata(task_type):
+            logger.warning(
+                f"File '{file_name}' has the same '{task_type}' annotation "
+                f"'{annotation}' ({task_name=}) added {count} times."
+            )

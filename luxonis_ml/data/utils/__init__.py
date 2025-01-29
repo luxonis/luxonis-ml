@@ -8,12 +8,20 @@ from .task_utils import (
     task_is_metadata,
     task_type_iterator,
 )
-from .visualizations import concat_images, create_text_image, visualize
+from .visualizations import (
+    ColorMap,
+    concat_images,
+    create_text_image,
+    distinct_color_generator,
+    visualize,
+)
 
 __all__ = [
     "create_text_image",
     "concat_images",
     "visualize",
+    "ColorMap",
+    "distinct_color_generator",
     "infer_task",
     "warn_on_duplicates",
     "rgb_to_bool_masks",

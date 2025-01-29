@@ -9,8 +9,15 @@ import cv2
 import numpy as np
 import pycocotools.mask
 from PIL import Image, ImageDraw
-from pydantic import Field, field_serializer, field_validator, model_validator
+from pydantic import (
+    Field,
+    GetCoreSchemaHandler,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 from pydantic.types import FilePath, PositiveInt
+from pydantic_core import core_schema
 from typeguard import check_type
 from typing_extensions import Annotated, Self, TypeAlias, override
 
@@ -25,11 +32,19 @@ NormalizedFloat: TypeAlias = Annotated[float, Field(ge=0, le=1)]
 1]."""
 
 
+class Category(str):
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source_type: Any, handler: GetCoreSchemaHandler
+    ) -> core_schema.CoreSchema:
+        return core_schema.is_instance_schema(cls)
+
+
 class Detection(BaseModelExtraForbid):
     class_name: Optional[str] = Field(None, alias="class")
     instance_id: int = -1
 
-    metadata: Dict[str, Union[int, float, str]] = {}
+    metadata: Dict[str, Union[int, float, str, Category]] = {}
 
     boundingbox: Optional["BBoxAnnotation"] = None
     keypoints: Optional["KeypointAnnotation"] = None

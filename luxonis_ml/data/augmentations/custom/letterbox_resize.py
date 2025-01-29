@@ -6,11 +6,11 @@ import numpy as np
 from typing_extensions import override
 
 from luxonis_ml.data.utils.visualizations import resolve_color
-from luxonis_ml.typing import Color
+from luxonis_ml.typing import RGB, Color
 
 
 class LetterboxResize(A.DualTransform):
-    mask_fill_value: Tuple[int, int, int]
+    mask_fill_value: RGB
 
     def __init__(
         self,
@@ -259,7 +259,7 @@ class LetterboxResize(A.DualTransform):
         pad_left: int,
         pad_right: int,
         interpolation: int,
-        fill_value: Tuple[int, int, int],
+        fill_value: RGB,
     ) -> np.ndarray:
         resized_img = cv2.resize(
             img,
