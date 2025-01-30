@@ -133,39 +133,37 @@ def infer_task(
 
 def warn_on_duplicates(df: pl.LazyFrame) -> None:
     # Warn on duplicate UUIDs
-    duplicates_paired = (
-        df.group_by("uuid")
+    uuid_file_pairs = df.select("uuid", "file").unique().collect()
+
+    duplicates = (
+        uuid_file_pairs.group_by("uuid")
         .agg(pl.col("file").n_unique().alias("file_count"))
         .filter(pl.col("file_count") > 1)
-        .join(df, on="uuid")
-        .select("uuid", "file")
-        .unique()
-        .group_by("uuid")
-        .agg(pl.col("file").alias("files"))
-        .filter(pl.col("files").len() > 1)
-        .collect()
     )
-    for uuid, files in duplicates_paired.iter_rows():
-        logger.warning(f"UUID: {uuid} has multiple file names: {files}")
+
+    if not duplicates.is_empty():
+        logger.warning("Found duplicate UUIDs in the dataset:")
+        for row in duplicates.iter_rows():
+            uuid = row[0]
+            files = uuid_file_pairs.filter(pl.col("uuid") == uuid)[
+                "file"
+            ].to_list()
+            logger.warning(f"UUID {uuid} is used in multiple files: {files}")
 
     # Warn on duplicate annotations
     duplicate_annotation = (
         df.group_by(
             "original_filepath",
-            "task_name",
             "task_type",
             "annotation",
-            "instance_id",
         )
         .agg(pl.len().alias("count"))
         .filter(pl.col("count") > 1)
         .filter(pl.col("annotation") != "{}")
-        .drop("instance_id")
     ).collect()
 
     for (
         file_name,
-        task_name,
         task_type,
         annotation,
         count,
@@ -175,5 +173,5 @@ def warn_on_duplicates(df: pl.LazyFrame) -> None:
         if not task_is_metadata(task_type):
             logger.warning(
                 f"File '{file_name}' has the same '{task_type}' annotation "
-                f"'{annotation}' ({task_name=}) added {count} times."
+                f"'{annotation}' repeated {count} times."
             )
