@@ -1,15 +1,10 @@
 numpy>=1.22
-tqdm>=4.64.1
 opencv-python>=4.10.0
-PyYAML>=6.0
-label-studio-sdk>=0.0.28
 # boto3>=1.17.39
 # google-cloud-storage>=2.10.0
 albumentations>=1.4.16,<1.4.23
-pandas>=2.0.0
-pyarrow>=13.0.0
+# pyarrow>=13.0.0
 pycocotools>=2.0.7
-typeguard>=4.1.0
 polars[timezone]>=0.20.31
 ordered-set>=4.0.0
 semver>=3.0.0
