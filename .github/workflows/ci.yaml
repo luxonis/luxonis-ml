@@ -8,8 +8,6 @@ on:
       - 'tests/**'
       - .github/workflows/ci.yaml
 
-  workflow_dispatch:
-
 permissions:
   pull-requests: write
   contents: write
