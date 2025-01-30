@@ -2,6 +2,7 @@ from typing import Final
 
 import numpy as np
 import pytest
+from albumentations.core.bbox_utils import normalize_bboxes
 from pytest_subtests.plugin import SubTests
 
 from luxonis_ml.data.augmentations.custom.mosaic import (
@@ -25,18 +26,33 @@ def test_mosaic4_helpers(subtests: SubTests):
 
     with subtests.test("bboxes"):
         bbox = np.array([0, 0, WIDTH, HEIGHT])[None, ...]
+        expected_bbox = [
+            [0, 0, 1, 1],
+            [1, 0, 2, 1],
+            [0, 1, 1, 2],
+            [1, 1, 2, 2],
+        ]
         for i in range(4):
+            normalized_bbox = normalize_bboxes(bbox, (HEIGHT, WIDTH))
             mosaic_bbox = apply_mosaic4_to_bboxes(
-                bbox, HEIGHT // 2, WIDTH // 2, i, HEIGHT, WIDTH, 0, 0
-            )[0].tolist()
-            assert pytest.approx(mosaic_bbox, abs=1) == [
-                0,
-                0,
-                WIDTH // 2,
+                normalized_bbox,
                 HEIGHT // 2,
-            ]
+                WIDTH // 2,
+                i,
+                HEIGHT,
+                WIDTH,
+                0,
+                0,
+            )[0].tolist()
+            assert pytest.approx(mosaic_bbox, abs=0.01) == expected_bbox[i]
 
     with subtests.test("keypoints"):
+        expected_kpts = [
+            [WIDTH, HEIGHT, 0, 2],
+            [3 * WIDTH, HEIGHT, 0, 0],
+            [WIDTH, 3 * HEIGHT, 0, 0],
+            [3 * WIDTH, 3 * HEIGHT, 0, 0],
+        ]
         for i, (w, h) in enumerate(
             [
                 (WIDTH // 2, HEIGHT // 2),
@@ -46,7 +62,7 @@ def test_mosaic4_helpers(subtests: SubTests):
             ]
         ):
             mosaic_keypoint = apply_mosaic4_to_keypoints(
-                np.array([w, h, 0, 0])[None, ...],
+                np.array([w, h, 0, 2])[None, ...],
                 HEIGHT // 2,
                 WIDTH // 2,
                 i,
@@ -55,12 +71,7 @@ def test_mosaic4_helpers(subtests: SubTests):
                 0,
                 0,
             )[0].tolist()
-            assert pytest.approx(mosaic_keypoint, abs=0.25) == [
-                w * 2,
-                h * 2,
-                0,
-                0,
-            ]
+            assert pytest.approx(mosaic_keypoint, abs=0.1) == expected_kpts[i]
 
 
 def test_mosaic4():

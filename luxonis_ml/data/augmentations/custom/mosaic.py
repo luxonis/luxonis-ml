@@ -1,6 +1,8 @@
+import math
 import random
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+import cv2
 import numpy as np
 from albumentations.core.bbox_utils import denormalize_bboxes, normalize_bboxes
 from typing_extensions import override
@@ -352,14 +354,23 @@ def apply_mosaic4_to_instance_masks(
 
         for i in range(masks.shape[-1]):
             mask = masks[..., i]
+            imgsz = max(out_height, out_width)
+            h, w = mask.shape
+            r = imgsz / max(h, w)
+            if r != 1:
+                w, h = (
+                    min(math.ceil(w * r), imgsz),
+                    min(math.ceil(h * r), imgsz),
+                )
+                mask = cv2.resize(
+                    mask, (w, h), interpolation=cv2.INTER_NEAREST
+                )
+
             combined_mask = np.full(
                 out_shape, value if value is not None else 0, dtype=masks.dtype
             )
-
             (x1a, y1a, x2a, y2a), (x1b, y1b, x2b, y2b) = (
-                compute_mosaic4_corners(
-                    quadrant, out_height, out_width, *mask.shape
-                )
+                compute_mosaic4_corners(quadrant, out_height, out_width, h, w)
             )
 
             combined_region = combined_mask[y1a:y2a, x1a:x2a]
@@ -410,8 +421,17 @@ def apply_mosaic4_to_images(
     )
 
     for quadrant, img in enumerate(image_batch):
+        h, w = img.shape[:2]
+        imgsz = max(out_height, out_width)
+        r = imgsz / max(h, w)
+        if r != 1:
+            w, h = (min(math.ceil(w * r), imgsz), min(math.ceil(h * r), imgsz))
+            img = cv2.resize(img, (w, h), interpolation=cv2.INTER_LINEAR)
+            if img.ndim == 2:
+                img = img.reshape(h, w, 1)
+
         (x1a, y1a, x2a, y2a), (x1b, y1b, x2b, y2b) = compute_mosaic4_corners(
-            quadrant, out_height, out_width, *img.shape[:2]
+            quadrant, out_height, out_width, h, w
         )
 
         combined_region = combined_image[y1a:y2a, x1a:x2a]
@@ -454,6 +474,15 @@ def apply_mosaic4_to_bboxes(
 
     bbox = denormalize_bboxes(bbox, (in_height, in_width))
 
+    imgsz = max(out_height, out_width)
+    r = imgsz / max(in_height, in_width)
+    if r != 1:
+        in_width, in_height = (
+            min(math.ceil(in_width * r), imgsz),
+            min(math.ceil(in_height * r), imgsz),
+        )
+        bbox[:, :4] = bbox[:, :4] * r
+
     if position_index == 0:
         shift_x = out_width - in_width
         shift_y = out_height - in_height
@@ -468,8 +497,9 @@ def apply_mosaic4_to_bboxes(
         shift_y = out_height
 
     bbox[:, 0] += shift_x - x_crop
-    bbox[:, 1] += shift_y - y_crop
     bbox[:, 2] += shift_x - x_crop
+
+    bbox[:, 1] += shift_y - y_crop
     bbox[:, 3] += shift_y - y_crop
 
     bbox = normalize_bboxes(bbox, (out_height, out_width))
@@ -493,6 +523,16 @@ def apply_mosaic4_to_keypoints(
     one of the 2x2 mosaic grid cells, with shifts relative to the mosaic
     center.
     """
+    imgsz = max(out_height, out_width)
+    r = imgsz / max(in_height, in_width)
+    if r != 1:
+        in_width, in_height = (
+            min(math.ceil(in_width * r), imgsz),
+            min(math.ceil(in_height * r), imgsz),
+        )
+        keypoints[:, 0] = keypoints[:, 0] * r
+        keypoints[:, 1] = keypoints[:, 1] * r
+
     if position_index == 0:
         shift_x = out_width - in_width
         shift_y = out_height - in_height
@@ -509,4 +549,12 @@ def apply_mosaic4_to_keypoints(
     keypoints[:, 0] += shift_x - x_crop
     keypoints[:, 1] += shift_y - y_crop
 
+    mask_invalid = (
+        (keypoints[:, 0] < 0)
+        | (keypoints[:, 0] > out_width)
+        | (keypoints[:, 1] < 0)
+        | (keypoints[:, 1] > out_height)
+    )
+
+    keypoints[:, -1] = np.where(mask_invalid, 0, keypoints[:, -1])
     return keypoints
