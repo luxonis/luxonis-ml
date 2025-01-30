@@ -496,11 +496,11 @@ def apply_mosaic4_to_bboxes(
         shift_x = out_width
         shift_y = out_height
 
-    bbox[:, [0, 2]] += shift_x - x_crop
-    bbox[:, [1, 3]] += shift_y - y_crop
+    bbox[:, 0] += shift_x - x_crop
+    bbox[:, 2] += shift_x - x_crop
 
-    bbox[:, [0, 2]] = np.clip(bbox[:, [0, 2]], 0, out_width)
-    bbox[:, [1, 3]] = np.clip(bbox[:, [1, 3]], 0, out_height)
+    bbox[:, 1] += shift_y - y_crop
+    bbox[:, 3] += shift_y - y_crop
 
     bbox = normalize_bboxes(bbox, (out_height, out_width))
 
@@ -557,6 +557,4 @@ def apply_mosaic4_to_keypoints(
     )
 
     keypoints[:, -1] = np.where(mask_invalid, 0, keypoints[:, -1])
-    keypoints[:, 0] = np.clip(keypoints[:, 0], 0, out_width)
-    keypoints[:, 1] = np.clip(keypoints[:, 1], 0, out_height)
     return keypoints
