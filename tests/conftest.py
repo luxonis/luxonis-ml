@@ -168,8 +168,8 @@ def pytest_generate_tests(metafunc: Metafunc):
         metafunc.parametrize("bucket_storage", storage_options)
 
 
-def get_caller_name(request: SubRequest) -> str:
+def get_caller_name(request: SubRequest) -> str:  # pragma: no cover
     node = request.node
-    if isinstance(node, Function):  # pragma: no cover
+    if isinstance(node, Function):
         return node.function.__name__
     return node.name
