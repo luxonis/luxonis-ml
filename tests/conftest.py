@@ -19,17 +19,18 @@ from luxonis_ml.utils import setup_logging
 from luxonis_ml.utils.environ import environ
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(autouse=True, scope="session")
 def setup():
     setup_logging()
     builtins.print = rich_print
 
-
-def get_caller_name(request: SubRequest) -> str:
-    node = request.node
-    if isinstance(node, Function):  # pragma: no cover
-        return node.function.__name__
-    return node.name
+    randint = random.randint(0, 100000)
+    environ.LUXONISML_BASE_PATH = (
+        Path.cwd() / f"tests/data/luxonisml_base_path/{randint}"
+    )
+    if environ.LUXONISML_BASE_PATH.exists():  # pragma: no cover
+        shutil.rmtree(environ.LUXONISML_BASE_PATH)
+    environ.LUXONISML_BASE_PATH.mkdir(parents=True, exist_ok=True)
 
 
 @pytest.fixture(scope="function")
@@ -41,17 +42,6 @@ def randint() -> int:
 def fix_seed(worker_id: str):
     np.random.seed(hash(worker_id) % 2**32)
     random.seed(hash(worker_id) % 2**32)
-
-
-@pytest.fixture(autouse=True, scope="session")
-def setup_base_path():
-    randint = random.randint(0, 100000)
-    environ.LUXONISML_BASE_PATH = (
-        Path.cwd() / f"tests/data/luxonisml_base_path/{randint}"
-    )
-    if environ.LUXONISML_BASE_PATH.exists():  # pragma: no cover
-        shutil.rmtree(environ.LUXONISML_BASE_PATH)
-    environ.LUXONISML_BASE_PATH.mkdir(parents=True, exist_ok=True)
 
 
 @pytest.fixture(scope="session")
@@ -176,3 +166,10 @@ def pytest_generate_tests(metafunc: Metafunc):
             else [BucketStorage.LOCAL, BucketStorage.GCS]
         )
         metafunc.parametrize("bucket_storage", storage_options)
+
+
+def get_caller_name(request: SubRequest) -> str:
+    node = request.node
+    if isinstance(node, Function):  # pragma: no cover
+        return node.function.__name__
+    return node.name
