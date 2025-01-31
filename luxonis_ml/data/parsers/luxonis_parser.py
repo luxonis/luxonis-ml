@@ -184,17 +184,13 @@ class LuxonisParser(Generic[T]):
         """
         for typ, parser in self.parsers.items():
             if parser.validate(self.dataset_dir):
-                logger.info(
-                    f"[cyan]Recognized dataset format as [red]<{typ.name}>",
-                    extra={"markup": True},
-                )
+                logger.info(f"Recognized dataset format as <{typ.name}>")
                 return typ, ParserType.DIR
 
         for typ, parser in self.parsers.items():
             if parser.validate_split(self.dataset_dir):
                 logger.info(
-                    f"[cyan]Recognized dataset format as a split of [red]<{typ.name}>",
-                    extra={"markup": True},
+                    f"Recognized dataset format as a split of <{typ.name}>"
                 )
                 return typ, ParserType.SPLIT
 

@@ -15,13 +15,11 @@ from rich import print as rich_print
 
 from luxonis_ml.data import BucketStorage
 from luxonis_ml.typing import Params
-from luxonis_ml.utils import setup_logging
 from luxonis_ml.utils.environ import environ
 
 
 @pytest.fixture(autouse=True, scope="session")
 def setup():
-    setup_logging()
     builtins.print = rich_print
 
     randint = random.randint(0, 100000)
