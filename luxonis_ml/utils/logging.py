@@ -12,7 +12,7 @@ from .environ import environ
 
 def setup_logging(
     *, file: Optional[str] = None, level: Optional[str] = None, **kwargs
-) -> None:
+) -> None:  # pragma: no cover
     """Sets up global logging using loguru, optionally with rich console
     output, warning redirection, and file logging."""
     from loguru import logger
