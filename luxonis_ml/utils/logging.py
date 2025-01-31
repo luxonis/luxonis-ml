@@ -12,10 +12,10 @@ from .environ import environ
 
 def setup_logging(
     *,
-    level: Optional[str] = None,
-    file: Optional[
+    level: Optional[
         Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
     ] = None,
+    file: Optional[str] = None,
     **kwargs,
 ) -> None:  # pragma: no cover
     """Sets up global logging using loguru and rich.
@@ -33,7 +33,7 @@ def setup_logging(
     from loguru import logger
 
     level = level or environ.LOG_LEVEL
-    if level not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
+    if level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
         raise ValueError(
             f"Invalid logging level: {level}. "
             "Use one of 'DEBUG', 'INFO', 'WARNING', 'ERROR', or 'CRITICAL'."
