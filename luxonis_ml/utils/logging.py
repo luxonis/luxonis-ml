@@ -64,7 +64,7 @@ def setup_logging(
         format="{message}",
     )
 
-    if file:
+    if file is not None:
         logger.add(
             file,
             level=level,
