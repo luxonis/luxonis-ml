@@ -1,4 +1,3 @@
-import logging
 import zipfile
 from enum import Enum
 from importlib.util import find_spec
@@ -13,6 +12,8 @@ from typing import (
     Union,
     overload,
 )
+
+from loguru import logger
 
 from luxonis_ml.data import DATASETS_REGISTRY, BaseDataset, LuxonisDataset
 from luxonis_ml.enums import DatasetType
@@ -31,8 +32,6 @@ from .tensorflow_csv_parser import TensorflowCSVParser
 from .voc_parser import VOCParser
 from .yolov4_parser import YoloV4Parser
 from .yolov6_parser import YoloV6Parser
-
-logger = logging.getLogger(__name__)
 
 
 class ParserType(Enum):
@@ -185,17 +184,13 @@ class LuxonisParser(Generic[T]):
         """
         for typ, parser in self.parsers.items():
             if parser.validate(self.dataset_dir):
-                logger.info(
-                    f"[cyan]Recognized dataset format as [red]<{typ.name}>",
-                    extra={"markup": True},
-                )
+                logger.info(f"Recognized dataset format as <{typ.name}>")
                 return typ, ParserType.DIR
 
         for typ, parser in self.parsers.items():
             if parser.validate_split(self.dataset_dir):
                 logger.info(
-                    f"[cyan]Recognized dataset format as a split of [red]<{typ.name}>",
-                    extra={"markup": True},
+                    f"Recognized dataset format as a split of <{typ.name}>"
                 )
                 return typ, ParserType.SPLIT
 

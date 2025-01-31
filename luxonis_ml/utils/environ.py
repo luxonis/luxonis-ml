@@ -35,6 +35,7 @@ class Environ(BaseSettings):
     LUXONISML_BUCKET: Optional[str] = None
     LUXONISML_BASE_PATH: Path = Path.home() / "luxonis_ml"
     LUXONISML_TEAM_ID: str = "offline"
+    LUXONISML_DISABLE_SETUP_LOGGING: bool = False
 
     ROBOFLOW_API_KEY: Optional[str] = None
 

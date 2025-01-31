@@ -1,5 +1,4 @@
 import json
-import logging
 import math
 import shutil
 import tempfile
@@ -29,6 +28,7 @@ import numpy as np
 import polars as pl
 import pyarrow.parquet as pq
 from filelock import FileLock
+from loguru import logger
 from ordered_set import OrderedSet
 from semver.version import Version
 from typing_extensions import Self, override
@@ -54,8 +54,6 @@ from .annotation import Category, DatasetRecord
 from .base_dataset import BaseDataset, DatasetIterator
 from .source import LuxonisSource
 from .utils import find_filepath_uuid, get_dir, get_file
-
-logger = logging.getLogger(__name__)
 
 LDF_1_0_0_TASKS = {
     "classification",

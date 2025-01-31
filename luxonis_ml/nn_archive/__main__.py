@@ -1,5 +1,4 @@
 import json
-import logging
 import tarfile
 from pathlib import Path
 
@@ -11,7 +10,6 @@ from typing_extensions import Annotated, TypeAlias
 
 from luxonis_ml.nn_archive import Config
 
-logger = logging.getLogger(__name__)
 app = typer.Typer()
 
 

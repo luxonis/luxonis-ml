@@ -1,6 +1,5 @@
 import glob
 import json
-import logging
 import os
 import time
 from functools import wraps
@@ -10,12 +9,11 @@ from typing import Any, Callable, Dict, Literal, Optional, Union
 
 import cv2
 import numpy as np
+from loguru import logger
 from unique_names_generator import get_random_name
 
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils.filesystem import LuxonisFileSystem
-
-logger = logging.getLogger(__name__)
 
 
 class LuxonisTracker:

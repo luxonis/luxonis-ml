@@ -1,16 +1,14 @@
 import json
 from enum import Enum
-from logging import getLogger
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
+from loguru import logger
 
 from luxonis_ml.data import DatasetIterator
 
 from .base_parser import BaseParser, ParserOutput
-
-logger = getLogger(__name__)
 
 
 class Format(str, Enum):
