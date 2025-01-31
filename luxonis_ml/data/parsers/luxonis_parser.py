@@ -1,4 +1,3 @@
-import logging
 import zipfile
 from enum import Enum
 from importlib.util import find_spec
@@ -13,6 +12,8 @@ from typing import (
     Union,
     overload,
 )
+
+from loguru import logger
 
 from luxonis_ml.data import DATASETS_REGISTRY, BaseDataset, LuxonisDataset
 from luxonis_ml.enums import DatasetType
@@ -31,8 +32,6 @@ from .tensorflow_csv_parser import TensorflowCSVParser
 from .voc_parser import VOCParser
 from .yolov4_parser import YoloV4Parser
 from .yolov6_parser import YoloV6Parser
-
-logger = logging.getLogger(__name__)
 
 
 class ParserType(Enum):

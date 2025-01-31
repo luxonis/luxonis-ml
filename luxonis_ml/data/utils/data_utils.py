@@ -1,14 +1,12 @@
-import logging
 from collections import defaultdict
 from typing import Dict, Iterator, List, Optional, Tuple
 
 import numpy as np
 import polars as pl
+from loguru import logger
 
 from luxonis_ml.data.utils.task_utils import task_is_metadata
 from luxonis_ml.typing import RGB
-
-logger = logging.getLogger(__name__)
 
 
 def rgb_to_bool_masks(

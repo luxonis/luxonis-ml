@@ -1,5 +1,4 @@
 import json
-import logging
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from pathlib import Path
@@ -8,6 +7,7 @@ from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple, Union
 import cv2
 import numpy as np
 import pycocotools.mask
+from loguru import logger
 from PIL import Image, ImageDraw
 from pydantic import (
     Field,
@@ -23,8 +23,6 @@ from typing_extensions import Annotated, Self, TypeAlias, override
 
 from luxonis_ml.data.utils.parquet import ParquetRecord
 from luxonis_ml.utils import BaseModelExtraForbid
-
-logger = logging.getLogger(__name__)
 
 KeypointVisibility: TypeAlias = Literal[0, 1, 2]
 NormalizedFloat: TypeAlias = Annotated[float, Field(ge=0, le=1)]

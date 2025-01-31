@@ -1,3 +1,4 @@
+import builtins
 import platform
 import random
 import shutil
@@ -10,13 +11,18 @@ import numpy as np
 import pytest
 from _pytest.fixtures import SubRequest
 from pytest import FixtureRequest, Function, Metafunc, Parser
+from rich import print as rich_print
 
 from luxonis_ml.data import BucketStorage
 from luxonis_ml.typing import Params
 from luxonis_ml.utils import setup_logging
 from luxonis_ml.utils.environ import environ
 
-setup_logging(use_rich=True, rich_print=True, configure_warnings=True)
+
+@pytest.fixture(scope="session")
+def setup():
+    setup_logging()
+    builtins.print = rich_print
 
 
 def get_caller_name(request: SubRequest) -> str:

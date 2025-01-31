@@ -4,7 +4,7 @@ with guard_missing_extra("utils"):
     from .config import LuxonisConfig
     from .environ import Environ, environ
     from .filesystem import PUT_FILE_REGISTRY, LuxonisFileSystem
-    from .logging import deprecated, reset_logging, setup_logging
+    from .logging import deprecated, setup_logging
     from .pydantic_utils import BaseModelExtraForbid
     from .registry import AutoRegisterMeta, Registry
     from .rich_utils import make_progress_bar
@@ -17,7 +17,6 @@ __all__ = [
     "AutoRegisterMeta",
     "Registry",
     "setup_logging",
-    "reset_logging",
     "deprecated",
     "environ",
     "Environ",
