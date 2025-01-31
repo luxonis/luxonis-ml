@@ -7,7 +7,6 @@ from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 from importlib.util import find_spec
 from io import BytesIO
-from logging import getLogger
 from pathlib import Path, PurePosixPath
 from types import ModuleType
 from typing import (
@@ -24,14 +23,13 @@ from typing import (
 )
 
 import fsspec
+from loguru import logger
 from typeguard import typechecked
 
 from luxonis_ml.typing import PathType, PosixPathType
 
 from .environ import environ
 from .registry import Registry
-
-logger = getLogger(__name__)
 
 
 class PutFile(Protocol):

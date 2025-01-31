@@ -6,14 +6,11 @@ import typer
 from rich.markup import escape
 from rich.table import Table
 
-from luxonis_ml.utils import setup_logging
-
 app = typer.Typer(
     name="Luxonis ML CLI",
     add_completion=True,
     pretty_exceptions_show_locals=False,
 )
-setup_logging(use_rich=True, rich_print=True)
 
 try:
     from luxonis_ml.data.__main__ import app as data_app

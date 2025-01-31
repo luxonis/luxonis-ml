@@ -1,5 +1,4 @@
 import json
-import logging
 import random
 import warnings
 from collections import defaultdict
@@ -9,6 +8,7 @@ from typing import Dict, List, Literal, Optional, Tuple, Union, cast
 import cv2
 import numpy as np
 import yaml
+from loguru import logger
 from typing_extensions import override
 
 from luxonis_ml.data.augmentations import (
@@ -31,8 +31,6 @@ from luxonis_ml.data.utils import (
 )
 from luxonis_ml.data.utils.task_utils import task_is_metadata
 from luxonis_ml.typing import Labels, LoaderOutput, Params, PathType
-
-logger = logging.getLogger(__name__)
 
 
 class LuxonisLoader(BaseLoader):
@@ -109,7 +107,6 @@ class LuxonisLoader(BaseLoader):
             - UpdateMode.IF_EMPTY: Skip downloading if local data exists
         """
 
-        self.logger = logging.getLogger(__name__)
         self.exclude_empty_annotations = exclude_empty_annotations
         self.color_space = color_space
 
