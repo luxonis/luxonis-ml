@@ -1,7 +1,7 @@
 import inspect
 import warnings
 from functools import wraps
-from typing import Dict, Optional, Type
+from typing import Dict, Literal, Optional, Type
 
 from rich.console import Console
 from rich.logging import RichHandler
@@ -11,10 +11,25 @@ from .environ import environ
 
 
 def setup_logging(
-    *, file: Optional[str] = None, level: Optional[str] = None, **kwargs
+    *,
+    level: Optional[str] = None,
+    file: Optional[
+        Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+    ] = None,
+    **kwargs,
 ) -> None:  # pragma: no cover
-    """Sets up global logging using loguru, optionally with rich console
-    output, warning redirection, and file logging."""
+    """Sets up global logging using loguru and rich.
+
+    @type level: Optional[str]
+    @param level: Logging level. If not set, reads from the environment
+        variable C{LOG_LEVEL}. Defaults to "INFO".
+    @type file: Optional[str]
+    @param file: Path to the log file. If provided, logs will be saved
+        to this file.
+    @type kwargs: Any
+    @param kwargs: Additional keyword arguments to pass to
+        C{RichHandler}.
+    """
     from loguru import logger
 
     level = level or environ.LOG_LEVEL
