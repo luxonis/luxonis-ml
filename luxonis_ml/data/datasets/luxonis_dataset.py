@@ -142,12 +142,6 @@ class LuxonisDataset(BaseDataset):
 
         if delete_existing:
             if LuxonisDataset.exists(
-                dataset_name, team_id, BucketStorage.LOCAL, self.bucket
-            ):
-                LuxonisDataset(
-                    dataset_name, team_id, bucket_type, BucketStorage.LOCAL
-                ).delete_dataset()
-            if LuxonisDataset.exists(
                 dataset_name, team_id, bucket_storage, self.bucket
             ):
                 LuxonisDataset(
