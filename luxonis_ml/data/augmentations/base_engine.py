@@ -24,7 +24,7 @@ class AugmentationEngine(
         config: Iterable[Params],
         keep_aspect_ratio: bool,
         is_validation_pipeline: bool,
-        min_bbox_visibility: float = 4e-4,
+        min_bbox_visibility: float = 0.0,
     ):
         """Initialize augmentation pipeline from configuration.
 
@@ -52,9 +52,7 @@ class AugmentationEngine(
         @param is_validation_pipeline: Whether this is a validation
             pipeline (in which case some augmentations are skipped)
         @type min_bbox_visibility: float
-        @param min_bbox_visibility: Minimum area of a bounding box for it to be considered visible.
-        By default, it is set to 4e-4 to address issues with corner bounding boxes having minimal area.
-        Additionally, the keypoints for such bounding boxes contain no useful information.
+        @param min_bbox_visibility: Minimum fraction of the original bounding box that must remain visible after augmentation.
         """
         ...
 

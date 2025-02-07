@@ -306,5 +306,5 @@ def test_edge_cases(tempdir: Path):
 
                 bbox_area = width * height
                 assert (
-                    bbox_area > 0.0004
+                    bbox_area >= 0.0004
                 ), f"BBox area too small: {bbox}, area={bbox_area}"
