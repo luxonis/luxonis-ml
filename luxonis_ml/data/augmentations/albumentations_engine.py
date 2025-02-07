@@ -247,7 +247,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         config: Iterable[Params],
         keep_aspect_ratio: bool = True,
         is_validation_pipeline: bool = False,
-        min_bbox_visibility: float = 0.0,
+        min_bbox_visibility: float = 4e-4,
     ):
         self.targets: Dict[str, TargetType] = {}
         self.target_names_to_tasks = {}
