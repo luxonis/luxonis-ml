@@ -39,7 +39,7 @@ def postprocess_mask(mask: np.ndarray) -> np.ndarray:
 
 
 def postprocess_bboxes(bboxes: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    area_threshold = 0.0001  # 0.01 * 0.01 Small area threshold to remove invalid bboxes and respective keypoints.
+    area_threshold = 0.0004  # 0.02 * 0.02 Small area threshold to remove invalid bboxes and respective keypoints.
     if bboxes.size == 0:
         return np.zeros((0, 5)), np.zeros((0,), dtype=np.uint8)
     ordering = bboxes[:, -1]
