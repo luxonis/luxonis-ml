@@ -3,109 +3,29 @@ name: CI
 on:
   pull_request:
     branches: [ main ]
-    paths:
-      - 'luxonis_ml/**'
-      - 'tests/**'
-      - .github/workflows/ci.yaml
-
-permissions:
-  pull-requests: write
-  contents: write
-  checks: write
+  push:
+    branches: [ main ]
 
 jobs:
-  pre-commit:
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      with:
-        ref: ${{ github.head_ref }}
+  ci:
+    uses: luxonis/luxonis_ml/.github/workflows/ci-reusable.yml@main
 
-    - name: Install pre-commit
-      run: python3 -m pip install 'pre-commit<4.0.0'
+    with:
+      module: luxonis_ml
+      runners: '[ "ubuntu-latest", "macos-latest", "windows-latest" ]'
+      python-versions: '[ "3.8", "3.10" ]'
+      main-runner: ubuntu-latest
+      main-python-version: '3.10'
+      docstring-format: epytext
+      type-check: true
+      use-labeler: true
+      labeler-config: .github/labeler.yaml
+      trigger: ${{ github.event_name }}
 
-    - name: Run pre-commit
-      uses: pre-commit/action@v3.0.1
-
-  docs:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
-
-      - name: Install dependencies
-        run: pip install pydoctor
-
-      - name: Build docs
-        run: pydoctor --docformat=epytext luxonis_ml
-
-  tests:
-    needs:
-      - pre-commit
-      - docs
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ['3.8', '3.10']
-
-    runs-on: ${{ matrix.os }}
-
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      with:
-        ref: ${{ github.head_ref }}
-
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ matrix.python-version }}
-        cache: pip
-
-    - name: Install package
-      run: pip install -e .[dev]
-
-    - name: Authenticate to Google Cloud
-      id: google-auth
-      uses: google-github-actions/auth@v2
-      with:
-        credentials_json: ${{ secrets.GCP_CREDENTIALS }}
-        create_credentials_file: true
-        export_environment_variables: true
-        token_format: access_token
-
-    - name: Run pytest
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        AWS_S3_ENDPOINT_URL: ${{ secrets.AWS_S3_ENDPOINT_URL }}
-        ROBOFLOW_API_KEY: ${{ secrets.ROBOFLOW_API_KEY }}
-        LUXONISML_BUCKET: luxonis-test-bucket
-      run:
-        pytest --cov --junitxml=junit.xml -o junit_family=legacy -n auto -vv -x
-
-    - name: Upload test results to Codecov
-      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8'
-      uses: codecov/test-results-action@v1
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        fail_ci_if_error: false
-
-    - name: Upload coverage results to Codecov
-      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8'
-      uses: codecov/codecov-action@v4
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        fail_ci_if_error: false
-
-    - name: Upload coverage as artifact
-      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8'
-      uses: actions/upload-artifact@v4
-      with:
-        name: coverage
-        path: coverage.xml
-        overwrite: true
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_S3_ENDPOINT_URL: ${{ secrets.AWS_S3_ENDPOINT_URL }}
+      ROBOFLOW_API_KEY: ${{ secrets.ROBOFLOW_API_KEY }}
