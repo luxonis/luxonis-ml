@@ -127,7 +127,7 @@ jobs:
         run: pip install pydoctor
 
       - name: Build docs
-        run: pydoctor --docformat=${{ input.docstring-format }} ${{ inputs.module }}
+        run: pydoctor --docformat=${{ inputs.docstring-format }} ${{ inputs.module }}
 
   type-check:
     if: ${{ inputs.type-check }} && ${{ inputs.trigger == 'pull_request' }}
