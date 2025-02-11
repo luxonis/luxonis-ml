@@ -217,14 +217,14 @@ jobs:
           fail_ci_if_error: false
 
       - name: Upload coverage results to Codecov
-        if: ${{ secrets.CODECOV_TOKEN }} && ${{ env.IS_MAIN_RUNNER }}
+        # if: ${{ secrets.CODECOV_TOKEN }} && ${{ env.IS_MAIN_RUNNER }}
         uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
       - name: Upload coverage as artifact
-        if: ${{ secrets.CODECOV_TOKEN }} && ${{ env.IS_MAIN_RUNNER }}
+        # if: ${{ secrets.CODECOV_TOKEN }} && ${{ env.IS_MAIN_RUNNER }}
         uses: actions/upload-artifact@v4
         with:
           name: coverage
@@ -233,7 +233,8 @@ jobs:
 
   update-base-report:
     runs-on: ubuntu-latest
-    if: ${{ inputs.trigger == 'push' }} && ${{ secrets.CODECOV_TOKEN }}
+    # if: ${{ inputs.trigger == 'push' }} && ${{ secrets.CODECOV_TOKEN }}
+    if: ${{ inputs.trigger == 'push' }}
 
     steps:
       - name: Checkout
