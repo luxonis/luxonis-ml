@@ -8,7 +8,7 @@ on:
 
 jobs:
   ci:
-    uses: luxonis/luxonis_ml/.github/workflows/luxonis_ci.yaml@main
+    uses: luxonis/luxonis-ml/.github/workflows/luxonis_ci.yaml@main
 
     with:
       module: luxonis_ml
