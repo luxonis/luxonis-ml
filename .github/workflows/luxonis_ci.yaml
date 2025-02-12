@@ -70,6 +70,9 @@ on:
         required: false
       ROBOFLOW_API_KEY:
         required: false
+    env:
+      GHC_ENABLED: ${{ secrets.GCP_CREDENTIALS != null }}
+      CODECOV_ENABLED: ${{ secrets.CODECOV_TOKEN != null }}
 
 jobs:
 
@@ -82,7 +85,7 @@ jobs:
         uses: toshimaru/auto-author-assign@v2.1.1
 
   labeler:
-    if: ${{ inputs.use-labeler }} && ${{ inputs.trigger == 'pull_request' }}
+    if: ${{ inputs.use-labeler && inputs.trigger == 'pull_request' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -130,7 +133,7 @@ jobs:
         run: pydoctor --docformat=${{ inputs.docstring-format }} ${{ inputs.module }}
 
   type-check:
-    if: ${{ inputs.type-check }} && ${{ inputs.trigger == 'pull_request' }}
+    if: ${{ inputs.type-check && inputs.trigger == 'pull_request' }}
     needs: pre-commit
     runs-on: ubuntu-latest
 
@@ -143,7 +146,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          main-python-version: ${{ inputs.python-version }}
+          python-version: ${{ inputs.main-python-version }}
           cache: pip
 
       - name: Install dependencies
@@ -152,10 +155,9 @@ jobs:
       - name: Pyright check
         uses: jakebailey/pyright-action@v2
         with:
-          version: '1.1.380'
           level: warning
           warnings: true
-          main-python-version: ${{ inputs.python-version }}
+          python-version: ${{ inputs.main-python-version }}
           project: pyproject.toml
 
       - name: Pyleft Check
@@ -190,14 +192,14 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          main-python-version: ${{ matrix.python-version }}
+          python-version: ${{ matrix.main-python-version }}
           cache: pip
 
       - name: Install the package
         run: pip install -e .[dev]
 
       - name: Authenticate to Google Cloud
-        # if: ${{ secrets.GCP_CREDENTIALS }}
+        if: ${{ env.GHC_ENABLED }}
         id: google-auth
         uses: google-github-actions/auth@v2
         with:
@@ -210,21 +212,21 @@ jobs:
         run: pytest --cov --junitxml=junit.xml -o junit_family=legacy -vv -x
 
       - name: Upload test results to Codecov
-        # if: ${{ secrets.CODECOV_TOKEN }} && ${{ env.IS_MAIN_RUNNER }}
+        if: ${{ env.CODECOV_ENABLED && env.IS_MAIN_RUNNER }}
         uses: codecov/test-results-action@v1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
       - name: Upload coverage results to Codecov
-        # if: ${{ secrets.CODECOV_TOKEN }} && ${{ env.IS_MAIN_RUNNER }}
+        if: ${{ env.CODECOV_ENABLED && env.IS_MAIN_RUNNER }}
         uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
       - name: Upload coverage as artifact
-        # if: ${{ secrets.CODECOV_TOKEN }} && ${{ env.IS_MAIN_RUNNER }}
+        if: ${{ env.CODECOV_ENABLED && env.IS_MAIN_RUNNER }}
         uses: actions/upload-artifact@v4
         with:
           name: coverage
@@ -233,8 +235,7 @@ jobs:
 
   update-base-report:
     runs-on: ubuntu-latest
-    # if: ${{ inputs.trigger == 'push' }} && ${{ secrets.CODECOV_TOKEN }}
-    if: ${{ inputs.trigger == 'push' }}
+    if: ${{ inputs.trigger == 'push' && env.CODECOV_ENABLED }}
 
     steps:
       - name: Checkout

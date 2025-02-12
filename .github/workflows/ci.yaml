@@ -15,7 +15,7 @@ jobs:
       runners: '[ "ubuntu-latest", "macos-latest", "windows-latest" ]'
       python-versions: '[ "3.8", "3.10" ]'
       main-runner: ubuntu-latest
-      main-python-version: '3.10'
+      main-python-version: '3.8'
       docstring-format: epytext
       type-check: true
       use-labeler: true
