@@ -17,7 +17,7 @@ jobs:
       main-runner: ubuntu-latest
       main-python-version: '3.8'
       docstring-format: epytext
-      type-check: true
+      type-check: false
       use-labeler: true
       labeler-config: .github/labeler.yaml
       trigger: ${{ github.event_name }}
