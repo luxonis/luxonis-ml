@@ -80,8 +80,8 @@ class BaseDataset(
         @param classes: Either a list of class names or a dictionary
             mapping class names to class IDs. If list is provided, the
             class IDs will be assigned I{alphabetically} starting from
-            0. If the class names contain the class C{"background"}, it
-            will be assigned the class ID 0.
+            C{0}. If the class names contain the class C{"background"},
+            it will be assigned the class ID C{0}.
         @type task: Optional[str]
         @param task: Optionally specify the task where these classes
             apply.
