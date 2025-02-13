@@ -1030,20 +1030,9 @@ class LuxonisDataset(BaseDataset):
                 logger.info(
                     f"Detected new classes for task {task}: {new_classes}"
                 )
-                all_class_names = classes | old_classes
-                has_background = "background" in all_class_names
-                all_class_names -= {"background"}
-                all_class_names = sorted(all_class_names)
-                if has_background:
-                    all_class_names.insert(0, "background")
 
-                self.set_classes(
-                    {
-                        class_name: i
-                        for i, class_name in enumerate(all_class_names)
-                    },
-                    task=task,
-                )
+                self.set_classes(list(classes | old_classes), task=task)
+
         for task, num_kpts in num_kpts_per_task.items():
             self.set_skeletons(
                 labels=[str(i) for i in range(num_kpts)],
