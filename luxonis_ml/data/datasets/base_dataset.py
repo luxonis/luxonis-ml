@@ -1,5 +1,14 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Iterator, List, Optional, Sequence, Tuple, Type, Union
+from typing import (
+    Dict,
+    Iterator,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    Type,
+    Union,
+)
 
 from semver.version import Version
 from typing_extensions import TypeAlias
@@ -60,13 +69,19 @@ class BaseDataset(
 
     @abstractmethod
     def set_classes(
-        self, classes: List[str], task: Optional[str] = None
+        self,
+        classes: Union[List[str], Dict[str, int]],
+        task: Optional[str] = None,
     ) -> None:
-        """Sets the names of classes for the dataset. This can be across
-        all CV tasks or certain tasks.
+        """Sets the classes for the dataset. This can be across all CV
+        tasks or certain tasks.
 
-        @type classes: List[str]
-        @param classes: List of class names to set.
+        @type classes: Union[List[str], Dict[str, int]]
+        @param classes: Either a list of class names or a dictionary
+            mapping class names to class IDs. If list is provided, the
+            class IDs will be assigned I{alphabetically} starting from
+            0. If the class names contain the class C{"background"}, it
+            will be assigned the class ID 0.
         @type task: Optional[str]
         @param task: Optionally specify the task where these classes
             apply.
