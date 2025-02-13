@@ -7,6 +7,18 @@ from luxonis_ml.utils import BaseModelExtraForbid
 
 
 class LuxonisComponent(BaseModelExtraForbid):
+    """Abstraction for a piece of media within a source. Most commonly,
+
+    this abstracts an image sensor.
+    @type name: str
+    @ivar name: A recognizable name for the component.
+    @type media_type: L{MediaType}
+    @ivar media_type: Enum for the type of media for the component.
+    @type image_type: L{ImageType}
+    @ivar image_type: Enum for the image type. Only used if
+        C{media_type==MediaType.IMAGE}.
+    """
+
     name: str
     media_type: MediaType = MediaType.IMAGE
     image_type: ImageType = ImageType.COLOR
