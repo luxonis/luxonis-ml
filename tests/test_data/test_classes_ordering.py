@@ -117,7 +117,7 @@ def test_ordering_loader_no_backgroun(tempdir: Path):
 def test_ordering_dataset(
     dataset_name: str, tempdir: Path, subtests: SubTests
 ):
-    class_names = list("abcdefghij")
+    class_names = list("abcdefghijKLM")
 
     def generator(classes: List[str]):
         for i, class_name in enumerate(classes):
@@ -144,6 +144,9 @@ def test_ordering_dataset(
             "h": 7,
             "i": 8,
             "j": 9,
+            "K": 10,
+            "L": 11,
+            "M": 12,
         }
 
     with subtests.test("with_background"):
@@ -162,6 +165,9 @@ def test_ordering_dataset(
             "h": 8,
             "i": 9,
             "j": 10,
+            "K": 11,
+            "L": 12,
+            "M": 13,
         }
 
     with subtests.test("set_classes"):
