@@ -44,7 +44,7 @@ def test_dataset(
             dataset_name, bucket_storage=bucket_storage
         )
         assert set(dataset.get_task_names()) == {"coco"}
-        assert dataset.get_classes().get("coco") == ["person"]
+        assert dataset.get_classes().get("coco") == {"person": 0}
         assert dataset.get_skeletons() == {
             "coco": (
                 [
@@ -67,25 +67,25 @@ def test_dataset(
                     "right_ankle",
                 ],
                 [
-                    [15, 13],
-                    [13, 11],
-                    [16, 14],
-                    [14, 12],
-                    [11, 12],
-                    [5, 11],
-                    [6, 12],
-                    [5, 6],
-                    [5, 7],
-                    [6, 8],
-                    [7, 9],
-                    [8, 10],
-                    [1, 2],
-                    [0, 1],
-                    [0, 2],
-                    [1, 3],
-                    [2, 4],
-                    [3, 5],
-                    [4, 6],
+                    (15, 13),
+                    (13, 11),
+                    (16, 14),
+                    (14, 12),
+                    (11, 12),
+                    (5, 11),
+                    (6, 12),
+                    (5, 6),
+                    (5, 7),
+                    (6, 8),
+                    (7, 9),
+                    (8, 10),
+                    (1, 2),
+                    (0, 1),
+                    (0, 2),
+                    (1, 3),
+                    (2, 4),
+                    (3, 5),
+                    (4, 6),
                 ],
             ),
         }
@@ -97,11 +97,9 @@ def test_dataset(
         pytest.exit("Dataset creation failed")
 
     with subtests.test("test_source"):
-        assert dataset.source.to_document() == LuxonisSource().to_document()
-        dataset.update_source(LuxonisSource("test"))
-        assert (
-            dataset.source.to_document() == LuxonisSource("test").to_document()
-        )
+        assert dataset.source == LuxonisSource()
+        dataset.update_source(LuxonisSource(name="test"))
+        assert dataset.source == LuxonisSource(name="test")
 
     with subtests.test("test_load"):
         loader = LuxonisLoader(dataset)

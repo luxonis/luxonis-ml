@@ -109,5 +109,5 @@ class Metadata(BaseModelExtraForbid):
 
     def _sort_classes(self, classes: Iterable[str]) -> List[str]:
         return sorted(
-            classes, key=lambda x: 0 if x == "background" else (1, x)
+            classes, key=lambda x: (0, "") if x == "background" else (1, x)
         )

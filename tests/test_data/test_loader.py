@@ -3,11 +3,7 @@ from pathlib import Path
 import numpy as np
 from utils import create_image
 
-from luxonis_ml.data import (
-    BucketStorage,
-    LuxonisDataset,
-    LuxonisLoader,
-)
+from luxonis_ml.data import BucketStorage, LuxonisDataset, LuxonisLoader
 
 
 def test_edge_cases(tempdir: Path):
