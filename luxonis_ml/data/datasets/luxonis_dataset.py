@@ -489,7 +489,7 @@ class LuxonisDataset(BaseDataset):
 
         if not attempt_migration or self.version == LDF_VERSION or df is None:
             return df
-        return migrate_dataframe(df)
+        return migrate_dataframe(df)  # pragma: no cover
 
     @overload
     def _get_file_index(

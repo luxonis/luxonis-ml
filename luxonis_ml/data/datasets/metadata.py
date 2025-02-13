@@ -35,7 +35,7 @@ class Metadata(BaseModelExtraForbid):
 
     def merge_with(self, other: "Metadata") -> "Metadata":
         """Merge two metadata objects together."""
-        if self.ldf_version != other.ldf_version:
+        if self.ldf_version != other.ldf_version:  # pragma: no cover
             raise ValueError(
                 "Cannot merge metadata with different LDF versions"
             )
