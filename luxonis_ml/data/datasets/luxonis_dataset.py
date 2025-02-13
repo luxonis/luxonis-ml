@@ -747,16 +747,6 @@ class LuxonisDataset(BaseDataset):
         """
         return self._metadata.classes
 
-    def get_class_names(self) -> Dict[str, List[str]]:
-        """Returns a dictionary mapping task names to class names.
-
-        @rtype: Dict[str, List[str]]
-        """
-        return {
-            task: list(classes.keys())
-            for task, classes in self._metadata.classes.items()
-        }
-
     @override
     def set_skeletons(
         self,
