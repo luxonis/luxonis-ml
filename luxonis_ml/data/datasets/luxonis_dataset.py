@@ -655,9 +655,9 @@ class LuxonisDataset(BaseDataset):
             )
             metadata_json = json.loads(path.read_text())
             version = Version.parse(metadata_json.get("ldf_version", "1.0.0"))
-            if version == LDF_VERSION:
-                return Metadata(**metadata_json)
-            return self._migrate_metadata(metadata_json)
+            if version != LDF_VERSION:  # pragma: no cover
+                return self._migrate_metadata(metadata_json)
+            return Metadata(**metadata_json)
         else:
             return Metadata(
                 source=LuxonisSource(),
