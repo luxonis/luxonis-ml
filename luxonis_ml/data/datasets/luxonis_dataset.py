@@ -1135,9 +1135,9 @@ class LuxonisDataset(BaseDataset):
         self, definitions: Mapping[str, Sequence[PathType]]
     ) -> Dict[str, List[str]]:
         """Create splits from explicit file assignments."""
-        index = self._get_file_index(sync_from_cloud=True)
-        if index is None:
-            raise FileNotFoundError("File index not found")
+        index = self._get_file_index(
+            sync_from_cloud=True, raise_when_empty=True
+        )
 
         return {
             split: [
