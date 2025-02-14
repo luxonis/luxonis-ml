@@ -109,3 +109,31 @@ jobs:
         name: coverage
         path: coverage.xml
         overwrite: true
+
+  check-requirements:
+    if: ${{ startsWith(github.head_ref, 'release/') }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.main-python-version }}
+          cache: pip
+
+      - name: Install the package
+        run: pip install -e .[all]
+
+      - name: Check requirements
+        run: |
+          python3 <<EOF
+          from luxonis_ml.data import *
+          from luxonis_ml.utils import *
+          from luxonis_ml.nn_archive import *
+          EOF
+
