@@ -42,6 +42,7 @@ def test_registry(registry: Registry):
     assert registry.get("C") is B
 
     registry["D"] = A
+    assert "D" in registry
     assert registry["D"] is A
 
     with pytest.raises(KeyError):
