@@ -218,7 +218,7 @@ def test_edge_cases(tempdir: Path):
         bucket_storage=BucketStorage.LOCAL,
     ).add(generator())
 
-    dataset.make_splits(ratios=(1, 0, 0))
+    dataset.make_splits((1, 0, 0))
 
     augmentation_config = [
         {

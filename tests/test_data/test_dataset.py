@@ -238,9 +238,6 @@ def test_make_splits(
         dataset.make_splits((0.7, 0.1, 0.1, 0.1))  # type: ignore
 
     with pytest.raises(ValueError):
-        dataset.make_splits((0.7, 0.1, 1), definitions=definitions)  # type: ignore
-
-    with pytest.raises(ValueError):
         dataset.make_splits({"train": 1.5})
 
     with pytest.raises(ValueError):
