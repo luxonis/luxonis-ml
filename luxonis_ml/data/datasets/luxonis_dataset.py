@@ -1015,16 +1015,6 @@ class LuxonisDataset(BaseDataset):
         *,
         replace_old_splits: bool = False,
     ) -> None:
-        """Create dataset splits either by ratios or explicit file
-        assignments.
-
-        @type splits: Optional[Union[Dict[str, List[PathType]], Dict[str, float], Tuple[float, float, float]]]
-        @param splits: Splits can be defined in one of the following formats:
-            - Dict[str, List[PathType]]: Explicit file assignments for each split
-            - Tuple[float, float, float]: Ratios for C{"train"}, C{"val"}, and C{"test"} splits.
-                Must sum to 1.0
-            - Dict[str, float]: Ratios for arbitrary splits. Must sum to 1.0
-        """
         splits = splits or {"train": 0.8, "val": 0.1, "test": 0.1}
 
         if isinstance(splits, tuple):
