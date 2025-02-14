@@ -2,11 +2,12 @@ import colorsys
 import hashlib
 import math
 from collections import defaultdict
-from typing import Dict, Generator, Hashable, List, Mapping, Tuple
+from typing import Dict, Generator, Hashable, Mapping, Tuple
 
 import cv2
 import matplotlib.colors
 import numpy as np
+from bidict import bidict
 
 from luxonis_ml.data.utils import get_task_name, task_type_iterator
 from luxonis_ml.typing import HSV, RGB, Color, Labels
@@ -331,7 +332,7 @@ def concat_images(
 def visualize(
     image: np.ndarray,
     labels: Labels,
-    class_names: Dict[str, List[str]],
+    classes: Dict[str, Dict[str, int]],
     blend_all: bool = False,
 ) -> np.ndarray:
     """Visualizes the labels on the image.
@@ -352,6 +353,7 @@ def visualize(
     """
     h, w, _ = image.shape
     images = {"image": image}
+    classes = {task: bidict(c) for task, c in classes.items()}
 
     def create_mask(
         image: np.ndarray, arr: np.ndarray, task_name: str, is_instance: bool
@@ -360,16 +362,16 @@ def visualize(
         for i, mask in enumerate(arr):
             mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST)
             if is_instance:
-                task_classes = class_names[task_name]
+                task_classes = classes[task_name]
                 if len(bbox_classes[task_name]) > i:
                     class_id = bbox_classes[task_name][i]
-                    color = str_to_rgb(task_classes[class_id])
+                    color = str_to_rgb(task_classes.inverse[class_id])
                 else:
                     color = (255, 0, 0)
                 mask_viz[mask > 0] = color
             else:
                 mask_viz[mask == 1] = (
-                    str_to_rgb(class_names[task_name][i])
+                    str_to_rgb(classes[task_name].inverse[i])
                     if (i != 0 or len(arr) == 1)
                     else (0, 0, 0)
                 )
@@ -412,7 +414,7 @@ def visualize(
         for box in arr:
             class_id = int(box[0])
             bbox_classes[task_name].append(class_id)
-            color = str_to_rgb(class_names[task_name][class_id])
+            color = str_to_rgb(classes[task_name].inverse[class_id])
             draw_function(
                 curr_image,
                 (box[1], box[2]),
@@ -435,13 +437,15 @@ def visualize(
         image_name = task_name if task_name and not blend_all else "labels"
         curr_image = images.get(image_name, image.copy())
 
-        task_classes = class_names[task_name]
+        task_classes = classes[task_name]
 
         for i, kp in enumerate(arr):
             kp = kp.reshape(-1, 3)
             if len(bbox_classes[task_name]) > i:
                 class_id = bbox_classes[task_name][i]
-                color = get_contrast_color(str_to_rgb(task_classes[class_id]))
+                color = get_contrast_color(
+                    str_to_rgb(task_classes.inverse[class_id])
+                )
             else:
                 color = (255, 0, 0)
             for k in kp:

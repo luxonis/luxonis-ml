@@ -18,9 +18,7 @@ from typing import (
     Sequence,
     Set,
     Tuple,
-    TypedDict,
     Union,
-    cast,
     overload,
 )
 
@@ -29,7 +27,6 @@ import polars as pl
 import pyarrow.parquet as pq
 from filelock import FileLock
 from loguru import logger
-from ordered_set import OrderedSet
 from semver.version import Version
 from typing_extensions import Self, override
 
@@ -52,41 +49,10 @@ from luxonis_ml.utils import (
 
 from .annotation import Category, DatasetRecord
 from .base_dataset import BaseDataset, DatasetIterator
+from .metadata import Metadata
+from .migration import migrate_dataframe, migrate_metadata
 from .source import LuxonisSource
 from .utils import find_filepath_uuid, get_dir, get_file
-
-LDF_1_0_0_TASKS = {
-    "classification",
-    "segmentation",
-    "boundingbox",
-    "keypoints",
-    "array",
-}
-
-LDF_1_0_0_TASK_TYPES = {
-    "BBoxAnnotation": "boundingbox",
-    "ClassificationAnnotation": "classification",
-    "PolylineSegmentationAnnotation": "segmentation",
-    "RLESegmentationAnnotation": "segmentation",
-    "MaskSegmentationAnnotation": "segmentation",
-    "KeypointAnnotation": "keypoints",
-    "ArrayAnnotation": "array",
-}
-
-
-class Skeletons(TypedDict):
-    labels: List[str]
-    edges: List[Tuple[int, int]]
-
-
-class Metadata(TypedDict):
-    source: LuxonisSource.LuxonisSourceDocument
-    ldf_version: str
-    classes: Dict[str, List[str]]
-    tasks: Dict[str, List[str]]
-    skeletons: Dict[str, Skeletons]
-    categorical_encodings: Dict[str, Dict[str, int]]
-    metadata_types: Dict[str, Literal["float", "int", "str", "Category"]]
 
 
 class LuxonisDataset(BaseDataset):
@@ -141,12 +107,9 @@ class LuxonisDataset(BaseDataset):
         self.team_id = team_id or self._get_credential("LUXONISML_TEAM_ID")
 
         if delete_existing:
-            if LuxonisDataset.exists(
-                dataset_name, team_id, bucket_storage, self.bucket
-            ):
-                LuxonisDataset(
-                    dataset_name, team_id, bucket_type, bucket_storage
-                ).delete_dataset(delete_remote=delete_remote)
+            self._init_paths()
+            if self.exists(dataset_name, team_id, bucket_storage, self.bucket):
+                self.delete_dataset(delete_remote=delete_remote)
 
         self._init_paths()
 
@@ -156,18 +119,16 @@ class LuxonisDataset(BaseDataset):
             self.fs = LuxonisFileSystem(self.path)
 
         _lock_metadata = self.base_path / ".metadata.lock"
-        with FileLock(
-            str(_lock_metadata)
-        ):  # DDP GCS training - multiple processes
-            self._metadata = cast(
-                Metadata, defaultdict(dict, self._get_metadata())
-            )
+
+        # For DDP GCS training - multiple processes
+        with FileLock(str(_lock_metadata)):
+            self._metadata = self._get_metadata()
 
         if self.version != LDF_VERSION:
             logger.warning(
                 f"LDF versions do not match. The current `luxonis-ml` "
                 f"installation supports LDF v{LDF_VERSION}, but the "
-                f"`{self.identifier}` dataset is in v{self._metadata['ldf_version']}. "
+                f"`{self.identifier}` dataset is in v{self._metadata.ldf_version}. "
                 "Internal migration will be performed. Note that some parts "
                 "and new features might not work correctly unless you "
                 "manually re-create the dataset using the latest version "
@@ -177,12 +138,12 @@ class LuxonisDataset(BaseDataset):
 
     @property
     def metadata(self) -> Metadata:
-        """Returns the metadata of the dataset.
+        """Returns a copy of the dataset metadata.
 
-        The metadata is a dictionary containing the following keys:
+        The metadata is a pydantic model with the following fields:
             - source: L{LuxonisSource}
             - ldf_version: str
-            - classes: Dict[task_name, List[class_name]]
+            - classes: Dict[task_name, Dict[class_name, class_id]]
             - tasks: Dict[task_name, List[task_type]]
             - skeletons: Dict[task_name, Skeletons]
               - Skeletons is a dictionary with keys 'labels' and 'edges'
@@ -206,14 +167,14 @@ class LuxonisDataset(BaseDataset):
     @cached_property
     def version(self) -> Version:
         return Version.parse(
-            self._metadata["ldf_version"], optional_minor_and_patch=True
+            self._metadata.ldf_version, optional_minor_and_patch=True
         )
 
     @property
     def source(self) -> LuxonisSource:
-        if "source" not in self._metadata:
+        if self._metadata.source is None:
             raise ValueError("Source not found in metadata")
-        return LuxonisSource.from_document(self._metadata["source"])
+        return self._metadata.source
 
     @property
     @override
@@ -301,27 +262,7 @@ class LuxonisDataset(BaseDataset):
 
     def _merge_metadata_with(self, other: "LuxonisDataset") -> None:
         """Merges relevant metadata from `other` into `self`."""
-        for key, value in other._metadata.items():
-            if key not in self._metadata:
-                self._metadata[key] = value
-            else:
-                existing_val = self._metadata[key]
-
-                if isinstance(existing_val, dict) and isinstance(value, dict):
-                    if key == "classes":
-                        for task_name, class_list in value.items():
-                            if task_name not in existing_val:
-                                existing_val[task_name] = class_list
-                            else:
-                                existing_val[task_name] = list(
-                                    set(existing_val[task_name]).union(
-                                        class_list
-                                    )
-                                )
-                    else:
-                        existing_val.update(value)
-                else:
-                    self._metadata[key] = value
+        self._metadata = self._metadata.merge_with(other._metadata)
         self._write_metadata()
 
     def clone(
@@ -357,15 +298,15 @@ class LuxonisDataset(BaseDataset):
         )
 
         new_dataset._init_paths()
-        new_dataset._metadata = defaultdict(dict, self._get_metadata())
+        new_dataset._metadata = self._get_metadata()
 
-        new_dataset._metadata["original_dataset"] = self.dataset_name
+        new_dataset._metadata.parent_dataset = self.dataset_name
 
         if self.is_remote and push_to_cloud:
             new_dataset.sync_to_cloud()
 
         path = self.metadata_path / "metadata.json"
-        path.write_text(json.dumps(self._metadata, indent=4))
+        path.write_text(self._metadata.model_dump_json(indent=4))
 
         return new_dataset
 
@@ -548,51 +489,7 @@ class LuxonisDataset(BaseDataset):
 
         if not attempt_migration or self.version == LDF_VERSION or df is None:
             return df
-
-        return (
-            df.rename({"class": "class_name"})
-            .with_columns(
-                pl.when(pl.col("task").is_in(LDF_1_0_0_TASKS))
-                .then(pl.lit("detection"))
-                .otherwise(pl.col("task"))
-                .alias("task_name")
-            )
-            .with_columns(
-                pl.when(pl.col("type") == "BBoxAnnotation")
-                .then(pl.lit("boundingbox"))
-                .when(pl.col("type") == "ClassificationAnnotation")
-                .then(pl.lit("classification"))
-                .when(
-                    pl.col("type").is_in(
-                        [
-                            "PolylineSegmentationAnnotation",
-                            "RLESegmentationAnnotation",
-                            "MaskSegmentationAnnotation",
-                        ]
-                    )
-                )
-                .then(pl.lit("segmentation"))
-                .when(pl.col("type") == "KeypointAnnotation")
-                .then(pl.lit("keypoints"))
-                .when(pl.col("type") == "ArrayAnnotation")
-                .then(pl.lit("array"))
-                .otherwise(pl.col("type"))
-                .alias("task_type")
-            )
-            .with_columns(pl.lit("image").alias("source_name"))
-            .select(
-                [
-                    "file",
-                    "source_name",
-                    "task_name",
-                    "class_name",
-                    "instance_id",
-                    "task_type",
-                    "annotation",
-                    "uuid",
-                ]
-            )
-        )  # pragma: no cover
+        return migrate_dataframe(df)  # pragma: no cover
 
     @overload
     def _get_file_index(
@@ -674,7 +571,7 @@ class LuxonisDataset(BaseDataset):
 
     def _write_metadata(self) -> None:
         path = self.metadata_path / "metadata.json"
-        path.write_text(json.dumps(self._metadata, indent=4))
+        path.write_text(self._metadata.model_dump_json(indent=4))
         with suppress(shutil.SameFileError):
             self.fs.put_file(path, "metadata/metadata.json")
 
@@ -708,49 +605,24 @@ class LuxonisDataset(BaseDataset):
                 self.metadata_path,
                 default=self.metadata_path / "metadata.json",
             )
-            metadata = json.loads(path.read_text())
-            version = Version.parse(metadata.get("ldf_version", "1.0.0"))
+            metadata_json = json.loads(path.read_text())
+            version = Version.parse(metadata_json.get("ldf_version", "1.0.0"))
             if version != LDF_VERSION:  # pragma: no cover
-                metadata = self._migrate_metadata(metadata)
-            return metadata
-        else:
-            return {
-                "source": LuxonisSource().to_document(),
-                "ldf_version": str(LDF_VERSION),
-                "classes": {},
-                "tasks": {},
-                "skeletons": {},
-                "categorical_encodings": {},
-                "metadata_types": {},
-            }
-
-    def _migrate_metadata(
-        self, metadata: Metadata
-    ) -> Metadata:  # pragma: no cover
-        old_classes = metadata["classes"]
-        if set(old_classes.keys()) <= LDF_1_0_0_TASKS:
-            metadata["classes"] = {
-                "detection": next(iter(old_classes.values()))
-            }
-            metadata["tasks"] = {"detection": list(old_classes.keys())}
-        else:
-            df = self._load_df_offline(lazy=True, attempt_migration=False)
-            if df is None:
-                raise ValueError("Cannot migrate when the dataset is empty")
-            tasks_df = df.select(["task", "type"]).unique().collect()
-            new_classes = defaultdict(list)
-            tasks = defaultdict(list)
-            for task_name, task_type in tasks_df.iter_rows():
-                new_task_name = task_name
-                if task_name in LDF_1_0_0_TASKS:
-                    new_task_name = "detection"
-                tasks[new_task_name].append(LDF_1_0_0_TASK_TYPES[task_type])
-                new_classes[new_task_name].extend(
-                    old_classes.get(task_name, [])
+                return migrate_metadata(
+                    metadata_json,
+                    self._load_df_offline(lazy=True, attempt_migration=False),
                 )
-            metadata["classes"] = dict(new_classes)
-            metadata["tasks"] = dict(tasks)
-        return metadata
+            return Metadata(**metadata_json)
+        else:
+            return Metadata(
+                source=LuxonisSource(),
+                ldf_version=str(LDF_VERSION),
+                classes={},
+                tasks={},
+                skeletons={},
+                categorical_encodings={},
+                metadata_types={},
+            )
 
     @property
     def is_remote(self) -> bool:
@@ -765,12 +637,14 @@ class LuxonisDataset(BaseDataset):
         @param source: The new C{LuxonisSource} to replace the old one.
         """
 
-        self._metadata["source"] = source.to_document()
+        self._metadata.source = source
         self._write_metadata()
 
     @override
     def set_classes(
-        self, classes: List[str], task: Optional[str] = None
+        self,
+        classes: Union[List[str], Dict[str, int]],
+        task: Optional[str] = None,
     ) -> None:
         if task is None:
             tasks = self.get_task_names()
@@ -778,12 +652,18 @@ class LuxonisDataset(BaseDataset):
             tasks = [task]
 
         for task in tasks:
-            self._metadata["classes"][task] = classes
+            self._metadata.set_classes(classes, task)
+
         self._write_metadata()
 
     @override
-    def get_classes(self) -> Dict[str, List[str]]:
-        return self._metadata["classes"]
+    def get_classes(self) -> Dict[str, Dict[str, int]]:
+        """Returns a bi-directional mapping of classes to class ids for
+        each task.
+
+        @type: Dict[str, Dict[str, int]]
+        """
+        return self._metadata.classes
 
     @override
     def set_skeletons(
@@ -800,7 +680,7 @@ class LuxonisDataset(BaseDataset):
         else:
             tasks = [task]
         for task in tasks:
-            self._metadata["skeletons"][task] = {
+            self._metadata.skeletons[task] = {
                 "labels": labels or [],
                 "edges": edges or [],
             }
@@ -812,22 +692,22 @@ class LuxonisDataset(BaseDataset):
     ) -> Dict[str, Tuple[List[str], List[Tuple[int, int]]]]:
         return {
             task: (skel["labels"], skel["edges"])
-            for task, skel in self._metadata["skeletons"].items()
+            for task, skel in self._metadata.skeletons.items()
         }
 
     @override
     def get_tasks(self) -> Dict[str, List[str]]:
-        return self._metadata["tasks"]
+        return self._metadata.tasks
 
     def get_categorical_encodings(
         self,
     ) -> Dict[str, Dict[str, int]]:
-        return self._metadata["categorical_encodings"]
+        return self._metadata.categorical_encodings
 
     def get_metadata_types(
         self,
     ) -> Dict[str, Literal["float", "int", "str", "Category"]]:
-        return self._metadata["metadata_types"]
+        return self._metadata.metadata_types
 
     def sync_from_cloud(
         self, update_mode: UpdateMode = UpdateMode.IF_EMPTY
@@ -990,9 +870,7 @@ class LuxonisDataset(BaseDataset):
 
         data_batch: list[DatasetRecord] = []
 
-        classes_per_task: Dict[str, OrderedSet[str]] = defaultdict(
-            lambda: OrderedSet([])
-        )
+        classes_per_task: Dict[str, Set[str]] = defaultdict(set)
         categorical_encodings = defaultdict(dict)
         metadata_types = {}
         num_kpts_per_task: Dict[str, int] = {}
@@ -1020,7 +898,7 @@ class LuxonisDataset(BaseDataset):
                     if ann.class_name is not None:
                         classes_per_task[record.task].add(ann.class_name)
                     else:
-                        classes_per_task[record.task] = OrderedSet([])
+                        classes_per_task[record.task] = set()
                     if ann.keypoints is not None:
                         num_kpts_per_task[record.task] = len(
                             ann.keypoints.keypoints
@@ -1070,7 +948,9 @@ class LuxonisDataset(BaseDataset):
                 logger.info(
                     f"Detected new classes for task {task}: {new_classes}"
                 )
-                self.set_classes(list(classes | old_classes), task)
+
+                self.set_classes(list(classes | old_classes), task=task)
+
         for task, num_kpts in num_kpts_per_task.items():
             self.set_skeletons(
                 labels=[str(i) for i in range(num_kpts)],
@@ -1078,8 +958,8 @@ class LuxonisDataset(BaseDataset):
                 task=task,
             )
 
-        self._metadata["categorical_encodings"] = dict(categorical_encodings)
-        self._metadata["metadata_types"] = metadata_types
+        self._metadata.categorical_encodings = dict(categorical_encodings)
+        self._metadata.metadata_types = metadata_types
 
         with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
             self._write_index(index, new_index, path=tmp_file.name)
@@ -1102,7 +982,7 @@ class LuxonisDataset(BaseDataset):
             .iter_rows()
         ):
             tasks[task_name].append(task_type)
-        self._metadata["tasks"] = tasks
+        self._metadata.tasks = tasks
         self._write_metadata()
 
     def _warn_on_duplicates(self) -> None:

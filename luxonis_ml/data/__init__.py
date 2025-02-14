@@ -12,6 +12,7 @@ with guard_missing_extra("data"):
         LuxonisComponent,
         LuxonisDataset,
         LuxonisSource,
+        Metadata,
         UpdateMode,
     )
     from .loaders import LOADERS_REGISTRY, BaseLoader, LuxonisLoader
@@ -45,6 +46,7 @@ __all__ = [
     "DatasetIterator",
     "DATASETS_REGISTRY",
     "Category",
+    "Metadata",
     "LOADERS_REGISTRY",
     "ImageType",
     "LuxonisComponent",

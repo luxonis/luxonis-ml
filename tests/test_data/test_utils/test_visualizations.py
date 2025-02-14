@@ -239,12 +239,12 @@ def test_visualize():
         "image": image.copy(),
         "labels": expected_semantic + expected_labels,
     }
-    class_names = {
-        "task": ["class_name"],
-        "semantic": ["background", "red", "green", "blue"],
-        "task2": ["class_name2"],
+    classes = {
+        "task": {"class_name": 0},
+        "semantic": {"background": 0, "red": 1, "green": 2, "blue": 3},
+        "task2": {"class_name2": 0},
     }
-    image = visualize(image, labels, class_names, blend_all=True)
+    image = visualize(image, labels, classes, blend_all=True)
     image = (
         cv2.cvtColor(image, cv2.COLOR_RGB2GRAY).astype(bool).astype(np.uint8)
     )

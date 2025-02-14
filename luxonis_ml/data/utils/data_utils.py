@@ -1,5 +1,5 @@
 from collections import defaultdict
-from typing import Dict, Iterator, List, Optional, Tuple
+from typing import Dict, Iterator, Optional, Tuple
 
 import numpy as np
 import polars as pl
@@ -82,7 +82,7 @@ def rgb_to_bool_masks(
 def infer_task(
     old_task: str,
     class_name: Optional[str],
-    current_classes: Dict[str, List[str]],
+    current_classes: Dict[str, Dict[str, int]],
 ) -> str:
     if not hasattr(infer_task, "_logged_infered_classes"):
         infer_task._logged_infered_classes = defaultdict(bool)

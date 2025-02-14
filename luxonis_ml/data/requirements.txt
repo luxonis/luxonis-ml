@@ -10,3 +10,4 @@ ordered-set>=4.0.0
 semver>=3.0.0
 # roboflow>=0.1.1
 filelock>=3.0.0
+bidict>=0.21.0
