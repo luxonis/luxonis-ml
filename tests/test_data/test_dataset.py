@@ -244,6 +244,11 @@ def test_make_splits(
         dataset.make_splits(
             {split: defs * 2 for split, defs in splits.items()}
         )
+    with pytest.raises(ValueError):
+        dataset.make_splits("invalid_argument")  # type: ignore
+
+    with pytest.raises(ValueError):
+        dataset.make_splits({"train": ...})  # type: ignore
 
     dataset.add(generator(10))
     dataset.make_splits({"custom_split": 1.0})

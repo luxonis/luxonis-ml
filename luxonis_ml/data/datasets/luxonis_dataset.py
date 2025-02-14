@@ -1055,7 +1055,13 @@ class LuxonisDataset(BaseDataset):
         ],
     ) -> Literal["ratios", "files"]:
         """Validate split format and values."""
-        value = next(iter(splits.values()))
+        try:
+            value = next(iter(splits.values()))
+        except Exception as e:
+            raise ValueError(
+                "Invalid split format. "
+                "Must be either ratios or file assignments"
+            ) from e
 
         if isinstance(value, (float, int)):
             sum_ratios = sum(splits.values())  # type: ignore
