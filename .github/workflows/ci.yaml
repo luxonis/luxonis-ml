@@ -111,7 +111,7 @@ jobs:
         overwrite: true
 
   check-requirements:
-    # if: ${{ startsWith(github.head_ref, 'release/') }}
+    if: ${{ startsWith(github.head_ref, 'release/') }}
     runs-on: ubuntu-latest
 
     steps:
