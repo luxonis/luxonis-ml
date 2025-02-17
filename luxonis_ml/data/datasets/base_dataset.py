@@ -3,6 +3,7 @@ from typing import (
     Dict,
     Iterator,
     List,
+    Mapping,
     Optional,
     Sequence,
     Tuple,
@@ -160,29 +161,21 @@ class BaseDataset(
         self,
         splits: Optional[
             Union[
-                Dict[str, Sequence[PathType]],
-                Dict[str, float],
-                Tuple[float, float, float],
+                Mapping[str, Sequence[PathType]],
+                Mapping[str, Union[float, int]],
+                Tuple[Union[float, int], Union[float, int], Union[float, int]],
             ]
         ] = None,
-        *,
-        ratios: Optional[
-            Union[Dict[str, float], Tuple[float, float, float]]
-        ] = None,
-        definitions: Optional[Dict[str, List[PathType]]] = None,
         replace_old_splits: bool = False,
     ) -> None:
         """Generates splits for the dataset.
 
         @type splits: Optional[Union[Dict[str, Sequence[PathType]], Dict[str, float], Tuple[float, float, float]]]
-        @param splits: A dictionary of splits or a tuple of ratios for train, val, and test splits. Can be one of:
-            - A dictionary of splits with keys as split names and values as lists of filepaths
-            - A dictionary of splits with keys as split names and values as ratios
-            - A 3-tuple of ratios for train, val, and test splits
-        @type ratios: Optional[Union[Dict[str, float], Tuple[float, float, float]]]
-        @param ratios: Deprecated! A dictionary of splits with keys as split names and values as ratios.
-        @type definitions: Optional[Dict[str, List[PathType]]]
-        @param definitions: Deprecated! A dictionary of splits with keys as split names and values as lists of filepaths.
+        @param splits: Splits can be defined in one of the following formats:
+            - Dict[str, List[PathType]]: Explicit file assignments for each split
+            - Tuple[float, float, float]: Ratios for C{"train"}, C{"val"}, and C{"test"} splits.
+                Must sum to 1.0
+            - Dict[str, float]: Ratios for arbitrary splits. Must sum to 1.0
         @type replace_old_splits: bool
         @param replace_old_splits: Whether to remove old splits and generate new ones. If set to False, only new files will be added to the splits. Default is False.
         """
