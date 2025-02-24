@@ -81,7 +81,18 @@ def extract(
     extract_path = Path(destination) / (Path(path).name.split(".")[0])
     extract_path.mkdir(exist_ok=True, parents=True)
 
-    with tarfile.open(path) as tar:
-        tar.extractall(extract_path)
+    def safe_members(tar):
+        """Filter members to prevent path traversal attacks."""
+        safe_files = []
+        for member in tar.getmembers():
+            # Normalize path and ensure it's within the extraction folder
+            if not member.name.startswith("/") and ".." not in member.name:
+                safe_files.append(member)
+            else:
+                typer.echo(f"Skipping unsafe file: {member.name}")
+        return safe_files
+
+    tf = tarfile.open(path, mode="r")
+    tf.extractall(extract_path, members=safe_members(tf))
 
     typer.echo(f"Archive extracted to: {extract_path}")
