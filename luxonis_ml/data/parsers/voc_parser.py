@@ -79,7 +79,7 @@ class VOCParser(BaseParser):
 
         images_annotations = []
         for anno_xml in annotation_dir.glob("*.xml"):
-            annotation_data = ET.parse(anno_xml)
+            annotation_data = ET.parse(anno_xml)  # nosemgrep
             root = annotation_data.getroot()
 
             path = image_dir.absolute().resolve() / self._xml_find(

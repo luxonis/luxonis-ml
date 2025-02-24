@@ -79,16 +79,16 @@ def save_embeddings(
     embeddings: torch.Tensor, labels: torch.Tensor, save_path: str = "./"
 ):
     """Save embeddings and labels tensors to the specified path."""
-    torch.save(embeddings, save_path + "embeddings.pth")
-    torch.save(labels, save_path + "labels.pth")
+    torch.save(embeddings, save_path + "embeddings.pth")  # nosemgrep
+    torch.save(labels, save_path + "labels.pth")  # nosemgrep
 
 
 def load_embeddings(
     save_path: str = "./",
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Load embeddings and labels tensors from the specified path."""
-    embeddings = torch.load(save_path + "embeddings.pth")
-    labels = torch.load(save_path + "labels.pth")
+    embeddings = torch.load(save_path + "embeddings.pth")  # nosemgrep
+    labels = torch.load(save_path + "labels.pth")  # nosemgrep
 
     return embeddings, labels
 

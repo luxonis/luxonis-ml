@@ -83,7 +83,11 @@ def load_mnist_data(
 
     # Create a data loader to load the dataset in batches
     data_loader = torch.utils.data.DataLoader(
-        subset, batch_size=batch_size, shuffle=True, num_workers=4
+        subset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=4,
+        pin_memory=True,
     )
 
     return data_loader
