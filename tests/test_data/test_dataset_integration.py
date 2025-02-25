@@ -9,9 +9,7 @@ from utils import gather_tasks
 
 from luxonis_ml.data import BucketStorage, LuxonisDataset, LuxonisLoader
 from luxonis_ml.typing import Params
-from luxonis_ml.utils import LuxonisFileSystem, setup_logging
-
-setup_logging(use_rich=True, rich_print=True)
+from luxonis_ml.utils import LuxonisFileSystem
 
 
 def get_annotations(sequence_path):

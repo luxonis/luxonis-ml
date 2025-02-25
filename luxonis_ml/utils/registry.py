@@ -39,6 +39,9 @@ class Registry(Generic[T]):
     def __setitem__(self, key: str, value: T) -> None:
         self._register(module=value, module_name=key, force=True)
 
+    def __contains__(self, key: str) -> bool:
+        return key in self._module_dict
+
     @property
     def name(self):
         return self._name

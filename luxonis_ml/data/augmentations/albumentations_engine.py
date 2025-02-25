@@ -1,4 +1,3 @@
-import logging
 import warnings
 from collections import defaultdict
 from math import prod
@@ -6,6 +5,7 @@ from typing import Any, Dict, Iterable, List, Literal, Tuple
 
 import albumentations as A
 import numpy as np
+from loguru import logger
 from typing_extensions import TypeAlias, override
 
 from luxonis_ml.data.utils.task_utils import get_task_name, task_is_metadata
@@ -23,8 +23,6 @@ from .utils import (
     preprocess_keypoints,
     preprocess_mask,
 )
-
-logger = logging.getLogger(__name__)
 
 Data: TypeAlias = Dict[str, np.ndarray]
 TargetType: TypeAlias = Literal[

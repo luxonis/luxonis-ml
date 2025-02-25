@@ -1,5 +1,4 @@
 import json
-import logging
 import random
 import warnings
 from collections import defaultdict
@@ -9,6 +8,7 @@ from typing import Dict, List, Literal, Optional, Tuple, Union, cast
 import cv2
 import numpy as np
 import yaml
+from loguru import logger
 from typing_extensions import override
 
 from luxonis_ml.data.augmentations import (
@@ -31,8 +31,6 @@ from luxonis_ml.data.utils import (
 )
 from luxonis_ml.data.utils.task_utils import task_is_metadata
 from luxonis_ml.typing import Labels, LoaderOutput, Params, PathType
-
-logger = logging.getLogger(__name__)
 
 
 class LuxonisLoader(BaseLoader):
@@ -109,7 +107,6 @@ class LuxonisLoader(BaseLoader):
             - UpdateMode.IF_EMPTY: Skip downloading if local data exists
         """
 
-        self.logger = logging.getLogger(__name__)
         self.exclude_empty_annotations = exclude_empty_annotations
         self.color_space = color_space
 
@@ -152,24 +149,11 @@ class LuxonisLoader(BaseLoader):
         for view in self.view:
             self.instances.extend(splits[view])
 
-        self.idx_to_df_row: list[list[int]] = []
+        self.idx_to_df_row: List[List[int]] = []
         for uuid in self.instances:
             boolean_mask = self.df["uuid"] == uuid
             row_indexes = boolean_mask.arg_true().to_list()
             self.idx_to_df_row.append(row_indexes)
-
-        self.class_mappings: Dict[str, Dict[str, int]] = {}
-        for task in self.df["task_name"].unique():
-            class_mapping = {
-                class_: i
-                for i, class_ in enumerate(
-                    sorted(
-                        self.classes.get(task, []),
-                        key=lambda x: {"background": -1}.get(x, 0),
-                    )
-                )
-            }
-            self.class_mappings[task] = class_mapping
 
         self.tasks_without_background = set()
 
@@ -177,8 +161,8 @@ class LuxonisLoader(BaseLoader):
         for task, seg_masks in task_type_iterator(test_labels, "segmentation"):
             task_name = get_task_name(task)
             if seg_masks.shape[0] > 1 and (
-                "background" not in self.class_mappings
-                or self.class_mappings[task_name]["background"] != 0
+                "background" not in self.classes[task_name]
+                or self.classes[task_name]["background"] != 0
             ):
                 unassigned_pixels = np.sum(seg_masks, axis=0) == 0
 
@@ -191,14 +175,15 @@ class LuxonisLoader(BaseLoader):
                     )
                     self.tasks_without_background.add(task)
                     if "background" not in self.classes[task_name]:
-                        self.classes[task_name].append("background")
-                        self.class_mappings[task_name] = {
-                            class_: idx + 1
-                            for class_, idx in self.class_mappings[
-                                task_name
-                            ].items()
+                        self.classes[task_name] = {
+                            "background": 0,
+                            **{
+                                class_name: i + 1
+                                for class_name, i in self.classes[
+                                    task_name
+                                ].items()
+                            },
                         }
-                        self.class_mappings[task_name]["background"] = 0
 
     @override
     def __len__(self) -> int:
@@ -245,7 +230,7 @@ class LuxonisLoader(BaseLoader):
                         labels[task] = np.zeros((0, 5))
                     elif task_type == "keypoints":
                         n_keypoints = self.dataset.get_n_keypoints()[task_name]
-                        labels[task] = np.zeros((0, n_keypoints, 3))
+                        labels[task] = np.zeros((0, n_keypoints * 3))
                     elif task_type == "segmentation":
                         labels[task] = np.zeros(
                             (0, img.shape[0], img.shape[1])
@@ -279,7 +264,8 @@ class LuxonisLoader(BaseLoader):
 
         if not self.idx_to_df_row:
             raise ValueError(
-                f"No data found in dataset '{self.dataset.identifier}' for {self.view} views"
+                f"No data found in dataset '{self.dataset.identifier}' "
+                f"for {self.view} views"
             )
 
         ann_indices = self.idx_to_df_row[idx]
@@ -330,7 +316,7 @@ class LuxonisLoader(BaseLoader):
                 labels_by_task[full_task_name].append(annotation)
                 if class_name is not None:
                     class_ids_by_task[full_task_name].append(
-                        self.class_mappings[task_name][class_name]
+                        self.classes[task_name][class_name]
                     )
                 else:
                     class_ids_by_task[full_task_name].append(0)
@@ -362,7 +348,7 @@ class LuxonisLoader(BaseLoader):
             )
             if task in self.tasks_without_background:
                 unassigned_pixels = ~np.any(array, axis=0)
-                background_idx = self.class_mappings[task_name]["background"]
+                background_idx = self.classes[task_name]["background"]
                 array[background_idx, unassigned_pixels] = 1
 
             labels[task] = array

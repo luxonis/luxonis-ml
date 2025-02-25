@@ -1,16 +1,14 @@
 import json
 from enum import Enum
-from logging import getLogger
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
+from loguru import logger
 
 from luxonis_ml.data import DatasetIterator
 
 from .base_parser import BaseParser, ParserOutput
-
-logger = getLogger(__name__)
 
 
 class Format(str, Enum):
@@ -213,7 +211,9 @@ class COCOParser(BaseParser):
             if "keypoints" in cat.keys() and "skeleton" in cat.keys():
                 skeletons[categories[cat["id"]]] = {
                     "labels": cat["keypoints"],
-                    "edges": (np.array(cat["skeleton"]) - 1).tolist(),
+                    "edges": list(
+                        map(tuple, (np.array(cat["skeleton"]) - 1).tolist())
+                    ),
                 }
 
         def generator() -> DatasetIterator:

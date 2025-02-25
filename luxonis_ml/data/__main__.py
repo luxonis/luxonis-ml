@@ -1,4 +1,3 @@
-import logging
 import random
 from pathlib import Path
 from typing import List, Optional, Set, Tuple
@@ -17,8 +16,6 @@ from typing_extensions import Annotated
 from luxonis_ml.data import LuxonisDataset, LuxonisLoader, LuxonisParser
 from luxonis_ml.data.utils.visualizations import visualize
 from luxonis_ml.enums import DatasetType
-
-logger = logging.getLogger(__name__)
 
 app = typer.Typer()
 

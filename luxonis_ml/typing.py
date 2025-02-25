@@ -1,9 +1,14 @@
+from contextlib import suppress
 from pathlib import Path, PurePosixPath
 from typing import Dict, Literal, Tuple, Union
 
-import numpy as np
 from pydantic import BaseModel, JsonValue
 from typing_extensions import TypeAlias
+
+# When used without installed dependencies
+with suppress(ImportError):
+    import numpy as np
+
 
 PathType: TypeAlias = Union[str, Path]
 """A string or a `pathlib.Path` object."""
@@ -22,11 +27,11 @@ TaskType: TypeAlias = Literal[
 ]
 
 
-Labels: TypeAlias = Dict[str, np.ndarray]
+Labels: TypeAlias = Dict[str, "np.ndarray"]
 """Dictionary mappping task names to the annotations as C{np.ndarray}"""
 
 
-LoaderOutput: TypeAlias = Tuple[np.ndarray, Labels]
+LoaderOutput: TypeAlias = Tuple["np.ndarray", Labels]
 """C{LoaderOutput} is a tuple of an image as a C{np.ndarray} and a
 dictionary of task group names and their annotations as
 L{Annotations}."""
