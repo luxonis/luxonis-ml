@@ -130,13 +130,6 @@ class LuxonisLoader(BaseLoader):
             self.df = self.df.join(file_index, on="uuid").drop("file_right")
 
         self.classes = self.dataset.get_classes()
-        self.augmentations = self._init_augmentations(
-            augmentation_engine,
-            augmentation_config or [],
-            height,
-            width,
-            keep_aspect_ratio,
-        )
         self.instances: List[str] = []
         splits_path = self.dataset.metadata_path / "splits.json"
         if not splits_path.exists():
@@ -184,6 +177,14 @@ class LuxonisLoader(BaseLoader):
                                 ].items()
                             },
                         }
+
+        self.augmentations = self._init_augmentations(
+            augmentation_engine,
+            augmentation_config or [],
+            height,
+            width,
+            keep_aspect_ratio,
+        )
 
     @override
     def __len__(self) -> int:

@@ -1,5 +1,4 @@
 from pathlib import Path
-from typing import Literal
 
 import pytest
 
@@ -7,8 +6,8 @@ from luxonis_ml.data.loaders.luxonis_loader import LuxonisLoader
 from tests.test_data.utils import create_dataset, create_image
 
 
-@pytest.mark.parametrize("n_samples", [0, 1, 2])
-def test_empty(dataset_name: str, tempdir: Path, n_samples: Literal[0, 1, 2]):
+@pytest.mark.parametrize("n_samples", range(20))
+def test_empty(dataset_name: str, tempdir: Path, n_samples: int):
     config = [
         {
             "name": "Defocus",
@@ -20,14 +19,14 @@ def test_empty(dataset_name: str, tempdir: Path, n_samples: Literal[0, 1, 2]):
         },
     ]
 
-    def generator(keep_samples: Literal[0, 1, 2]):
+    def generator(keep_samples: int):
         for i in range(20):
             img = create_image(i, tempdir)
             if i < keep_samples:
                 yield {
                     "file": img,
                     "annotation": {
-                        "class": ["dog", "cat"][i],
+                        "class": ["dog", "cat"][i % 2],
                         "segmentation": {
                             "points": [(0.2, 0.2), (0.2, 0.4), (0.4, 0.4)],
                             "height": 256,
