@@ -410,11 +410,18 @@ class LuxonisLoader(BaseLoader):
             for task_type in task_types
         }
 
+        n_classes = {
+            f"{task_name}/{task_type}": self.dataset.get_n_classes()[task_name]
+            for task_name, task_types in self.dataset.get_tasks().items()
+            for task_type in task_types
+        }
+
         return AUGMENTATION_ENGINES.get(augmentation_engine)(
             height=height,
             width=width,
             config=augmentation_config,
             targets=targets,
+            n_classes=n_classes,
             keep_aspect_ratio=keep_aspect_ratio,
             is_validation_pipeline="train" not in self.view,
         )

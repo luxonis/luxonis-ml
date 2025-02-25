@@ -630,13 +630,6 @@ class LuxonisDataset(BaseDataset):
 
     @override
     def update_source(self, source: LuxonisSource) -> None:
-        """Updates underlying source of the dataset with a new
-        L{LuxonisSource}.
-
-        @type source: LuxonisSource
-        @param source: The new C{LuxonisSource} to replace the old one.
-        """
-
         self._metadata.source = source
         self._write_metadata()
 
@@ -658,12 +651,18 @@ class LuxonisDataset(BaseDataset):
 
     @override
     def get_classes(self) -> Dict[str, Dict[str, int]]:
-        """Returns a bi-directional mapping of classes to class ids for
-        each task.
-
-        @type: Dict[str, Dict[str, int]]
-        """
         return self._metadata.classes
+
+    def get_n_classes(self) -> Dict[str, int]:
+        """Returns a mapping of task names to number of classes.
+
+        @rtype: Dict[str, int]
+        @return: A mapping from task names to number of classes.
+        """
+        return {
+            task_name: len(classes)
+            for task_name, classes in self.get_classes().items()
+        }
 
     @override
     def set_skeletons(

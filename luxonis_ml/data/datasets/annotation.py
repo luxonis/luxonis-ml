@@ -222,6 +222,9 @@ class KeypointAnnotation(Annotation):
     @model_validator(mode="before")
     @classmethod
     def validate_values(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        if "keypoints" not in values:
+            return values
+
         warn = False
         for i, keypoint in enumerate(values["keypoints"]):
             if (keypoint[0] < -2 or keypoint[0] > 2) or (

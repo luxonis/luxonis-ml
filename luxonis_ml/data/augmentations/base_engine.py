@@ -21,6 +21,7 @@ class AugmentationEngine(
         height: int,
         width: int,
         targets: Mapping[str, str],
+        n_classes: Mapping[str, int],
         config: Iterable[Params],
         keep_aspect_ratio: bool,
         is_validation_pipeline: bool,
@@ -39,6 +40,15 @@ class AugmentationEngine(
                 {
                     "detection/boundingbox": "bbox",
                     "detection/segmentation": "mask",
+                }
+
+        @type n_classes: Dict[str, int]
+        @param n_classes: Dictionary mapping task names to the number
+            of associated classes. Example::
+                {
+                    "cars/boundingbox": 2,
+                    "cars/segmentation": 2,
+                    "motorbikes/boundingbox": 1,
                 }
 
         @type config: List[Params]
