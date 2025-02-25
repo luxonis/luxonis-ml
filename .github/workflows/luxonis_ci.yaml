@@ -50,6 +50,11 @@ on:
         required: false
         type: string
         default: .github/labeler.yaml
+      semgrep:
+        description: 'Whether to run Semgrep'
+        required: false
+        type: boolean
+        default: false
       trigger:
         description: >
           The trigger for the workflow.
@@ -159,6 +164,59 @@ jobs:
 
       - name: Pyleft Check
         run: pyleft ${{ inputs.module }} --exclude __main__.py
+
+  semgrep:
+    runs-on: ubuntu-latest
+    container:
+      image: returntocorp/semgrep
+    if: ${{ github.actor != 'dependabot[bot]' && inputs.semgrep && inputs.trigger == 'pull_request' }})
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Perform Semgrep Analysis
+        run: >
+          semgrep scan
+            -q
+            --sarif
+            --config auto
+            --config "p/secrets" . > semgrep-results.sarif
+
+      - name: Pretty-Print SARIF Output
+        run: |
+          jq . semgrep-results.sarif > formatted-semgrep-results.sarif || echo "{}"
+          echo "Formatted SARIF Output (First 20 lines):"
+          head -n 20 formatted-semgrep-results.sarif || echo "{}"
+
+      - name: Validate JSON Output
+        run: |
+          if ! jq empty formatted-semgrep-results.sarif > /dev/null 2>&1; then
+            echo "⚠️ Semgrep output is not valid JSON. Skipping annotations."
+            exit 0
+          fi
+
+      - name: Add PR Annotations for Semgrep Findings
+        run: |
+          total_issues=$(jq '.runs[0].results | length' formatted-semgrep-results.sarif)
+          if [[ "$total_issues" -eq 0 ]]; then
+            echo "✅ No Semgrep issues found!"
+            exit 0
+          fi
+
+          jq -c '.runs[0].results[]' formatted-semgrep-results.sarif | while IFS= read -r issue; do
+            file=$(echo "$issue" | jq -r '.locations[0].physicalLocation.artifactLocation.uri')
+            line=$(echo "$issue" | jq -r '.locations[0].physicalLocation.region.startLine')
+            message=$(echo "$issue" | jq -r '.message.text')
+
+            if [[ -n "$file" && -n "$line" && -n "$message" ]]; then
+              echo "::error file=$file,line=$line,title=Semgrep Issue::${message}"
+            fi
+          done
 
   tests:
     strategy:
