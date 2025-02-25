@@ -11,6 +11,7 @@ from pathlib import Path, PurePosixPath
 from typing import (
     Any,
     Dict,
+    Iterable,
     List,
     Literal,
     Mapping,
@@ -47,7 +48,7 @@ from luxonis_ml.utils import (
     make_progress_bar,
 )
 
-from .annotation import Category, DatasetRecord
+from .annotation import Category, DatasetRecord, Detection
 from .base_dataset import BaseDataset, DatasetIterator
 from .metadata import Metadata
 from .migration import migrate_dataframe, migrate_metadata
@@ -698,6 +699,14 @@ class LuxonisDataset(BaseDataset):
     def get_tasks(self) -> Dict[str, List[str]]:
         return self._metadata.tasks
 
+    @override
+    def set_tasks(self, tasks: Mapping[str, Iterable[str]]) -> None:
+        self._metadata.tasks = {
+            task_name: sorted(task_types)
+            for task_name, task_types in tasks.items()
+        }
+        self._write_metadata()
+
     def get_categorical_encodings(
         self,
     ) -> Dict[str, Dict[str, int]]:
@@ -870,6 +879,7 @@ class LuxonisDataset(BaseDataset):
         data_batch: list[DatasetRecord] = []
 
         classes_per_task: Dict[str, Set[str]] = defaultdict(set)
+        tasks: Dict[str, Set[str]] = defaultdict(set)
         categorical_encodings = defaultdict(dict)
         metadata_types = {}
         num_kpts_per_task: Dict[str, int] = {}
@@ -894,36 +904,48 @@ class LuxonisDataset(BaseDataset):
                         record.task = infer_task(
                             record.task, ann.class_name, self.get_classes()
                         )
-                    if ann.class_name is not None:
-                        classes_per_task[record.task].add(ann.class_name)
-                    else:
-                        classes_per_task[record.task] = set()
-                    if ann.keypoints is not None:
-                        num_kpts_per_task[record.task] = len(
-                            ann.keypoints.keypoints
-                        )
-                    for name, value in ann.metadata.items():
-                        task = f"{record.task}/metadata/{name}"
-                        typ = type(value).__name__
-                        if (
-                            task in metadata_types
-                            and metadata_types[task] != typ
-                        ):
-                            if {typ, metadata_types[task]} == {"int", "float"}:
-                                metadata_types[task] = "float"
-                            else:
-                                raise ValueError(
-                                    f"Metadata type mismatch for {task}: {metadata_types[task]} and {typ}"
-                                )
-                        else:
-                            metadata_types[task] = typ
 
-                        if not isinstance(value, Category):
-                            continue
-                        if value not in categorical_encodings[task]:
-                            categorical_encodings[task][value] = len(
-                                categorical_encodings[task]
+                    def update_state(task_name: str, ann: Detection) -> None:
+                        if ann.class_name is not None:
+                            classes_per_task[task_name].add(ann.class_name)
+                        else:
+                            classes_per_task[task_name] = set()
+
+                        tasks[task_name] |= ann.get_task_types()
+
+                        if ann.keypoints is not None:
+                            num_kpts_per_task[task_name] = len(
+                                ann.keypoints.keypoints
                             )
+                        for name, value in ann.metadata.items():
+                            task = f"{task_name}/metadata/{name}"
+                            typ = type(value).__name__
+                            if (
+                                task in metadata_types
+                                and metadata_types[task] != typ
+                            ):
+                                if {typ, metadata_types[task]} == {
+                                    "int",
+                                    "float",
+                                }:
+                                    metadata_types[task] = "float"
+                                else:
+                                    raise ValueError(
+                                        f"Metadata type mismatch for {task}: {metadata_types[task]} and {typ}"
+                                    )
+                            else:
+                                metadata_types[task] = typ
+
+                            if not isinstance(value, Category):
+                                continue
+                            if value not in categorical_encodings[task]:
+                                categorical_encodings[task][value] = len(
+                                    categorical_encodings[task]
+                                )
+                        for name, sub_detection in ann.sub_detections.items():
+                            update_state(f"{task_name}/{name}", sub_detection)
+
+                    update_state(record.task, ann)
 
                 data_batch.append(record)
                 if i % batch_size == 0:
@@ -964,25 +986,10 @@ class LuxonisDataset(BaseDataset):
             self._write_index(index, new_index, path=tmp_file.name)
 
         self.fs.put_file(tmp_file.name, "metadata/file_index.parquet")
+        self.set_tasks(tasks)
         self._write_metadata()
         self._warn_on_duplicates()
-        self._save_tasks_to_metadata()
         return self
-
-    def _save_tasks_to_metadata(self) -> None:
-        df = self._load_df_offline()
-        if df is None:
-            return
-        tasks = defaultdict(list)
-        for task_name, task_type in (
-            df.select("task_name", "task_type")
-            .unique()
-            .drop_nulls()
-            .iter_rows()
-        ):
-            tasks[task_name].append(task_type)
-        self._metadata.tasks = tasks
-        self._write_metadata()
 
     def _warn_on_duplicates(self) -> None:
         df = self._load_df_offline(lazy=True)

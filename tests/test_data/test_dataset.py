@@ -5,7 +5,7 @@ from typing import Dict, List
 import numpy as np
 import pytest
 from pytest_subtests.plugin import SubTests
-from utils import compare_loader_output, create_dataset, create_image
+from utils import create_dataset, create_image, get_loader_output
 
 from luxonis_ml.data import (
     BucketStorage,
@@ -461,17 +461,14 @@ def test_deep_nested_labels(
         augmentation_config=augmentation_config,
         augmentation_engine="albumentations",
     )
-    compare_loader_output(
-        loader,
-        {
-            "/classification",
-            "/boundingbox",
-            "/driver/boundingbox",
-            "/driver/keypoints",
-            "/license_plate/boundingbox",
-            "/license_plate/metadata/text",
-        },
-    )
+    assert get_loader_output(loader) == {
+        "/classification",
+        "/boundingbox",
+        "/driver/boundingbox",
+        "/driver/keypoints",
+        "/license_plate/boundingbox",
+        "/license_plate/metadata/text",
+    }
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
@@ -526,15 +523,12 @@ def test_partial_labels(dataset_name: str, tempdir: Path):
         augmentation_config=[{"name": "Rotate"}],
     )
 
-    compare_loader_output(
-        loader,
-        {
-            "/classification",
-            "/boundingbox",
-            "/keypoints",
-            "/segmentation",
-        },
-    )
+    assert get_loader_output(loader) == {
+        "/classification",
+        "/boundingbox",
+        "/keypoints",
+        "/segmentation",
+    }
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")

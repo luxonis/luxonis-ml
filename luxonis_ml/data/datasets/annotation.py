@@ -2,7 +2,17 @@ import json
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple, Union
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Literal,
+    Optional,
+    Set,
+    Tuple,
+    Union,
+)
 
 import cv2
 import numpy as np
@@ -86,6 +96,25 @@ class Detection(BaseModelExtraForbid):
                 ]
             )
         return self
+
+    def get_task_types(self) -> Set[str]:
+        task_types = {
+            task_type
+            for task_type in [
+                "boundingbox",
+                "keypoints",
+                "segmentation",
+                "instance_segmentation",
+                "array",
+            ]
+            if getattr(self, task_type) is not None
+        }
+        if self.class_name is not None:
+            task_types.add("classification")
+        for metadata_key in self.metadata:
+            task_types.add(f"metadata/{metadata_key}")
+
+        return task_types
 
 
 class Annotation(ABC, BaseModelExtraForbid):
