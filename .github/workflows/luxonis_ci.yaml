@@ -135,26 +135,30 @@ jobs:
         run: pydoctor --docformat=${{ inputs.docstring-format }} ${{ inputs.module }}
 
   type-check:
-    if: ${{ inputs.type-check && inputs.trigger == 'pull_request' }}
+    if: ${{ inputs.trigger == 'pull_request' }}
     needs: pre-commit
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
+        if: ${{ inputs.type-check }}
         uses: actions/checkout@v4
         with:
           ref: ${{ github.head_ref }}
 
       - name: Set up Python
+        if: ${{ inputs.type-check }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ inputs.main-python-version }}
           cache: pip
 
       - name: Install dependencies
+        if: ${{ inputs.type-check }}
         run: pip install -e .[dev]
 
       - name: Pyright check
+        if: ${{ inputs.type-check }}
         uses: jakebailey/pyright-action@v2
         with:
           level: warning
@@ -163,12 +167,12 @@ jobs:
           project: pyproject.toml
 
       - name: Pyleft Check
+        if: ${{ inputs.type-check }}
         run: pyleft ${{ inputs.module }} --exclude __main__.py
 
   semgrep:
-    if: ${{ github.actor != 'dependabot[bot]' && inputs.semgrep && inputs.trigger == 'pull_request' }})
-    needs: ${{ inputs.type-check && 'type-check' || 'pre-commit' }}
-    # needs: type-check
+    if: ${{ github.actor != 'dependabot[bot]' && inputs.trigger == 'pull_request' }})
+    needs: pre-commit
     runs-on: ubuntu-latest
     container:
       image: returntocorp/semgrep
@@ -179,9 +183,11 @@ jobs:
 
     steps:
       - name: Checkout
+        if: ${{ inputs.semgrep }}
         uses: actions/checkout@v4
 
       - name: Perform Semgrep Analysis
+        if: ${{ inputs.semgrep }}
         run: >
           semgrep scan
             -q
@@ -190,12 +196,14 @@ jobs:
             --config "p/secrets" . > semgrep-results.sarif
 
       - name: Pretty-Print SARIF Output
+        if: ${{ inputs.semgrep }}
         run: |
           jq . semgrep-results.sarif > formatted-semgrep-results.sarif || echo "{}"
           echo "Formatted SARIF Output (First 20 lines):"
           head -n 20 formatted-semgrep-results.sarif || echo "{}"
 
       - name: Validate JSON Output
+        if: ${{ inputs.semgrep }}
         run: |
           if ! jq empty formatted-semgrep-results.sarif > /dev/null 2>&1; then
             echo "⚠️ Semgrep output is not valid JSON. Skipping annotations."
@@ -203,6 +211,7 @@ jobs:
           fi
 
       - name: Add PR Annotations for Semgrep Findings
+        if: ${{ inputs.semgrep }}
         run: |
           total_issues=$(jq '.runs[0].results | length' formatted-semgrep-results.sarif)
           if [[ "$total_issues" -eq 0 ]]; then
@@ -227,7 +236,7 @@ jobs:
         python-version: ${{ fromJson(inputs.python-versions) }}
 
     if: ${{ inputs.trigger == 'pull_request' }}
-    needs: semgrep
+    needs: [type-check, semgrep]
     runs-on: ${{ matrix.os }}
 
     env:
