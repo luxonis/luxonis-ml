@@ -211,7 +211,9 @@ class COCOParser(BaseParser):
             if "keypoints" in cat.keys() and "skeleton" in cat.keys():
                 skeletons[categories[cat["id"]]] = {
                     "labels": cat["keypoints"],
-                    "edges": (np.array(cat["skeleton"]) - 1).tolist(),
+                    "edges": list(
+                        map(tuple, (np.array(cat["skeleton"]) - 1).tolist())
+                    ),
                 }
 
         def generator() -> DatasetIterator:
