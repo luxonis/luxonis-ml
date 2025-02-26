@@ -72,6 +72,8 @@ You can create as many datasets as you want, each with a unique name.
 
 Datasets can be stored locally or in one of the supported cloud storage providers.
 
+### Dataset Creation
+
 First we import `LuxonisDataset` and create a dataset with the name `"parking_lot"`.
 
 ```python
@@ -91,8 +93,11 @@ dataset = LuxonisDataset(dataset_name)
 
 ### Adding Data
 
-The next step is to add data to the dataset.
-The data are provided as dictionaries with the following structure:
+After creating a dataset, the next step is to populate it with images and their annotations. This process involves preparing data entries and submitting them to the dataset through the `add` method.
+
+#### Data Format
+
+Each data entry should be a dictionary with the following structure:
 
 ```python
 {
@@ -101,9 +106,13 @@ The data are provided as dictionaries with the following structure:
 }
 ```
 
-The content of the `"annotation"` field depends on the task type.
+The content of the `"annotation"` field depends on the task type and follows the Annotation Format described later in this document.
 
-To add the data to the dataset, we first define a generator function that yields the data.
+#### Adding Data with a Generator Function
+
+The recommended approach for adding data is to create a generator function that yields data entries one by one.
+
+Here's an example that loads object detection annotations:
 
 ```python
 import json
@@ -148,6 +157,10 @@ def generator():
 ```
 
 The generator is then passed to the `add` method of the dataset.
+
+#### Adding the Data to the Dataset
+
+Once you've defined your data source, pass it to the dataset's add method:
 
 ```python
 dataset.add(generator())
