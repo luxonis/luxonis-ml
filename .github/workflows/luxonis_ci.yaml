@@ -340,7 +340,7 @@ jobs:
         with:
           script: |
             const runId = process.env.GITHUB_RUN_ID;
-            const response = await github.actions.listJobsForWorkflowRun({
+            const response = await github.rest.actions.listJobsForWorkflowRun({
               owner: context.repo.owner,
               repo: context.repo.repo,
               run_id: runId
@@ -370,7 +370,7 @@ jobs:
           result-encoding: string
 
       - name: Create or update PR comment
-        if: always()
+        if: ${{ steps.generate_table.outputs.result != '' }}
         uses: peter-evans/create-or-update-comment@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
