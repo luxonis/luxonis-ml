@@ -95,20 +95,15 @@ jobs:
           project: pyproject.toml
 
       - name: Pyleft Check
-        run: |
-          pyleft luxonis_ml > pyleft_output.txt
-          if [[ $? -eq 0 ]]; then
-            rm pyleft_output.txt
-            exit 0
-          else
-            exit 1
-          fi
+        run: pyleft luxonis_ml > pyleft_output.txt
 
       - name: Add PR Annotations for Pyleft Findings
+        if: failure()
         run: |
 
           if [[ ! -f pyleft_output.txt ]]; then
-            exit 0
+            echo "⚠️ pyleft output file not found. Skipping annotations."
+            exit 1
           fi
 
           while IFS= read -r line; do
