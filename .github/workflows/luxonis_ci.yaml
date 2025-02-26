@@ -40,7 +40,7 @@ on:
         required: false
         type: string
         default: 'luxonis-test-bucket'
-      use-labeler:
+      labeler:
         description: 'Whether to use automatic labeler for PRs'
         required: false
         type: boolean
@@ -87,7 +87,7 @@ jobs:
         uses: toshimaru/auto-author-assign@v2.1.1
 
   labeler:
-    if: ${{ inputs.use-labeler && inputs.trigger == 'pull_request' }}
+    if: ${{ inputs.labeler && inputs.trigger == 'pull_request' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -166,17 +166,19 @@ jobs:
         run: pyleft ${{ inputs.module }} --exclude __main__.py
 
   semgrep:
+    if: ${{ github.actor != 'dependabot[bot]' && inputs.semgrep && inputs.trigger == 'pull_request' }})
+    needs: ${{ inputs.type-check && 'type-check' || 'pre-commit' }}
+    # needs: type-check
     runs-on: ubuntu-latest
     container:
       image: returntocorp/semgrep
-    if: ${{ github.actor != 'dependabot[bot]' && inputs.semgrep && inputs.trigger == 'pull_request' }})
     permissions:
       security-events: write
       actions: read
       contents: read
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Perform Semgrep Analysis
@@ -225,9 +227,7 @@ jobs:
         python-version: ${{ fromJson(inputs.python-versions) }}
 
     if: ${{ inputs.trigger == 'pull_request' }}
-    needs:
-      - pre-commit
-      - type-check
+    needs: semgrep
     runs-on: ${{ matrix.os }}
 
     env:

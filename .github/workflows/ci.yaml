@@ -2,13 +2,15 @@ name: CI
 
 on:
   pull_request:
-    branches: [ main ]
   push:
     branches: [ main ]
 
 jobs:
   ci:
     uses: luxonis/luxonis-ml/.github/workflows/luxonis_ci.yaml@devops/reusable-workflow
+
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
 
     with:
       module: luxonis_ml
@@ -18,9 +20,9 @@ jobs:
       main-python-version: '3.8'
       docstring-format: epytext
       type-check: false
-      use-labeler: true
+      labeler: true
       labeler-config: .github/labeler.yaml
-      semgrep: true
+      semgrep: false
       trigger: ${{ github.event_name }}
 
     secrets:
