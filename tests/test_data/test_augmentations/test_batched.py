@@ -34,7 +34,7 @@ def labels() -> Labels:
 
 
 @pytest.fixture
-def targets() -> Dict[str, TaskType]:
+def targets() -> Dict[str, str]:
     return {
         "task/boundingbox": "boundingbox",
         "task/keypoints": "keypoints",
@@ -42,8 +42,20 @@ def targets() -> Dict[str, TaskType]:
     }
 
 
+@pytest.fixture
+def n_classes() -> Dict[str, int]:
+    return {
+        "task/boundingbox": 1,
+        "task/keypoints": 1,
+        "task/segmentation": 1,
+    }
+
+
 def test_mosaic4(
-    image: np.ndarray, labels: Labels, targets: Dict[str, TaskType]
+    image: np.ndarray,
+    labels: Labels,
+    targets: Dict[str, str],
+    n_classes: Dict[str, int],
 ):
     config = [
         {
@@ -51,20 +63,26 @@ def test_mosaic4(
             "params": {"p": 1.0, "out_width": 640, "out_height": 640},
         }
     ]
-    augmentations = AlbumentationsEngine(256, 256, targets, config)
+    augmentations = AlbumentationsEngine(256, 256, targets, n_classes, config)
     augmentations.apply([(image.copy(), deepcopy(labels)) for _ in range(4)])
 
 
 def test_mixup(
-    image: np.ndarray, labels: Labels, targets: Dict[str, TaskType]
+    image: np.ndarray,
+    labels: Labels,
+    targets: Dict[str, TaskType],
+    n_classes: Dict[str, int],
 ):
     config = [{"name": "MixUp", "params": {"p": 1.0}}]
-    augmentations = AlbumentationsEngine(256, 256, targets, config)
+    augmentations = AlbumentationsEngine(256, 256, targets, n_classes, config)
     augmentations.apply([(image.copy(), deepcopy(labels)) for _ in range(2)])
 
 
 def test_batched_p_0(
-    image: np.ndarray, labels: Labels, targets: Dict[str, TaskType]
+    image: np.ndarray,
+    labels: Labels,
+    targets: Dict[str, TaskType],
+    n_classes: Dict[str, int],
 ):
     config = [
         {
@@ -73,5 +91,5 @@ def test_batched_p_0(
         },
         {"name": "MixUp", "params": {"p": 0}},
     ]
-    augmentations = AlbumentationsEngine(256, 256, targets, config)
+    augmentations = AlbumentationsEngine(256, 256, targets, n_classes, config)
     augmentations.apply([(image.copy(), deepcopy(labels)) for _ in range(8)])

@@ -119,10 +119,14 @@ class Mosaic4(BatchTransform):
         @return: Transformed masks.
         """
         for i in range(len(mask_batch)):
-            if mask_batch[i].size == 0:
-                mask_batch[i] = np.zeros(
-                    (rows, cols), dtype=mask_batch[i].dtype
-                )
+            mask = mask_batch[i]
+            if mask.size == 0:
+                if len(mask.shape) == 2:
+                    mask_batch[i] = np.zeros((rows, cols), dtype=mask.dtype)
+                else:
+                    mask_batch[i] = np.zeros(
+                        (rows, cols, mask.shape[-1]), dtype=mask.dtype
+                    )
         return apply_mosaic4_to_images(
             mask_batch,
             self.out_height,

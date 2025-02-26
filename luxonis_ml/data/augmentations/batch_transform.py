@@ -61,11 +61,16 @@ class BatchTransform(ABC, A.DualTransform):
     def apply_to_classification(
         self, classification_batch: List[np.ndarray], **_
     ) -> np.ndarray:
+        for i in range(len(classification_batch)):
+            if classification_batch[i].size == 0:
+                classification_batch[i] = np.zeros(1)
         return np.clip(sum(classification_batch), 0, 1)
 
     def apply_to_metadata(
         self, metadata_batch: List[np.ndarray], **_
     ) -> np.ndarray:
+        if all(arr.size == 0 for arr in metadata_batch):
+            return np.array([])
         return np.concatenate([arr for arr in metadata_batch if arr.size > 0])
 
     @override

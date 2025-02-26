@@ -49,6 +49,15 @@ class BaseDataset(
         ...
 
     @abstractmethod
+    def set_tasks(self, tasks: Dict[str, List[str]]) -> None:
+        """Sets the tasks for the dataset.
+
+        @type tasks: Dict[str, List[str]]
+        @param tasks: A dictionary mapping task names to task types.
+        """
+        ...
+
+    @abstractmethod
     def get_tasks(self) -> Dict[str, str]:
         """Returns a dictionary mapping task names to task types.
 

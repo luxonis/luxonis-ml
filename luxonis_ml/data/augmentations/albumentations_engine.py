@@ -244,6 +244,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         height: int,
         width: int,
         targets: Dict[str, str],
+        n_classes: Dict[str, int],
         config: Iterable[Params],
         keep_aspect_ratio: bool = True,
         is_validation_pipeline: bool = False,
@@ -251,6 +252,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     ):
         self.targets: Dict[str, TargetType] = {}
         self.target_names_to_tasks = {}
+        self.n_classes = n_classes
         self.image_size = (height, width)
 
         for task, task_type in targets.items():
@@ -449,7 +451,18 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 task = self.target_names_to_tasks[target_name]
 
                 if task not in labels:
-                    data[target_name] = np.array([])
+                    if target_type == "mask":
+                        data[target_name] = np.empty(
+                            (
+                                0,
+                                0,
+                                self.n_classes[
+                                    self.target_names_to_tasks[target_name]
+                                ],
+                            )
+                        )
+                    else:
+                        data[target_name] = np.array([])
                     continue
 
                 array = labels[task]
