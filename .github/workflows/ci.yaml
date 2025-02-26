@@ -97,8 +97,17 @@ jobs:
       - name: Pyleft Check
         run: |
           pyleft luxonis_ml > pyleft_output.txt
-
           if [[ $? -eq 0 ]]; then
+            rm pyleft_output.txt
+            exit 0
+          else
+            exit 1
+          fi
+
+      - name: Add PR Annotations for Pyleft Findings
+        run: |
+
+          if [[ ! -f pyleft_output.txt ]]; then
             exit 0
           fi
 
@@ -110,11 +119,9 @@ jobs:
 
               file_path=$(echo "$full_path" | grep -o "luxonis_ml/.*")
 
-              echo "::error file=${file_path},line=${line_number}::${error_message}"
+              echo "::error file=${file_path},line=${line_number},title=Missing Type::${error_message}"
             fi
           done < pyleft_output.txt
-
-          exit 1
 
   semgrep:
     if: ${{ github.actor != 'dependabot[bot]' && github.event_name == 'pull_request' }})
