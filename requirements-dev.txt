@@ -7,3 +7,4 @@ pytest-xdist>=3.6.0
 gdown>=4.7.1
 onnx<1.17.0
 roboflow>=1.0.0
+pyleft>=1.2.0
