@@ -356,10 +356,10 @@ jobs:
             const skipJobs = ["update-status-comment", "labeler", "auto-assigner", "update-base-report"];
             const {TYPE_CHECK, SEMGREP} = process.env;
 
-            function getIcon(job) {
+            function getIcon(job, jobName) {
               if (jobName === "type-check" && TYPE_CHECK.toLowerCase() === "false") {
                 return "⏭️";
-              } else if (jobName === "semgrep" && INPUT_SEMGREP.toLowerCase() === "false") {
+              } else if (jobName === "semgrep" && SEMGREP.toLowerCase() === "false") {
                 return "⏭️";
               } else if (job.conclusion === "success" &&
                          (!job.steps ||
@@ -384,7 +384,7 @@ jobs:
 
               if (skipJobs.includes(jobName)) continue;
 
-              const icon = getIcon(job);
+              const icon = getIcon(job, jobName);
 
               const testMatch = jobName.match(/^tests\s*\(([^,]+),\s*([^)]+)\)/i);
               if (testMatch) {
