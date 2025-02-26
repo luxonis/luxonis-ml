@@ -332,6 +332,9 @@ jobs:
     if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     needs: [pre-commit, docs, type-check, semgrep, tests]
+    env:
+      TYPE_CHECK: ${{ inputs.type-check }}
+      SEMGREP: ${{ inputs.semgrep }}
     steps:
       - name: Generate job status table
         id: generate_table
@@ -345,34 +348,93 @@ jobs:
               repo: context.repo.repo,
               run_id: runId
             });
-            let table = "## CI Status Report\n\n| Job | Status |\n| --- | --- |\n";
-            for (const job of response.data.jobs) {
-              let icon = "";
-              if (
-                job.conclusion === "success" &&
-                job.steps &&
-                job.steps.length > 0 &&
-                job.steps.every(step => step.conclusion === "skipped")
-              ) {
-                icon = "⚠️";
+
+            let checks = [];
+            let tests = [];
+            let releaseChecks = [];
+
+            const skipJobs = ["update-status-comment", "labeler", "auto-assigner", "update-base-report"];
+            const {TYPE_CHECK, SEMGREP} = process.env;
+
+            function getIcon(job) {
+              if (jobName === "type-check" && TYPE_CHECK.toLowerCase() === "false") {
+                return "⏭️";
+              } else if (jobName === "semgrep" && INPUT_SEMGREP.toLowerCase() === "false") {
+                return "⏭️";
+              } else if (job.conclusion === "success" &&
+                         (!job.steps ||
+                         job.steps.length === 0 ||
+                         job.steps.every(step => step.conclusion === "skipped"))) {
+                return "⏭️";
+              } else if (job.conclusion === "skipped") {
+                return "⏭️";
               } else if (job.conclusion === "success") {
-                icon = "✅";
+                return "✅";
               } else if (job.conclusion === "failure") {
-                icon = "❌";
+                return "❌";
               } else if (job.conclusion === "cancelled") {
-                icon = "🚫";
+                return "🚫";
               } else {
-                icon = job.conclusion || job.status;
+                return job.conclusion || job.status;
               }
-              table += `| ${job.name} | ${icon} |\n`;
+            }
+
+            for (const job of response.data.jobs) {
+              let jobName = job.name.replace(/^.*\/\s*/, '');
+
+              if (skipJobs.includes(jobName)) continue;
+
+              const icon = getIcon(job);
+
+              const testMatch = jobName.match(/^tests\s*\(([^,]+),\s*([^)]+)\)/i);
+              if (testMatch) {
+                const os = testMatch[1].trim();
+                const py = testMatch[2].trim();
+                tests.push(`| ${os} | 🐍 ${py} | ${icon} |`);
+                continue;
+              }
+
+              const checksList = ["pre-commit", "docs", "type-check", "semgrep"];
+              const releaseList = ["check-requirements"];
+              if (checksList.includes(jobName)) {
+                checks.push(`| ${jobName} | ${icon} |`);
+              } else if (releaseList.includes(jobName)) {
+                releaseChecks.push(`| ${jobName} | ${icon} |`);
+              } else {
+                // Fallback: add to Checks.
+                checks.push(`| ${jobName} | ${icon} |`);
+              }
+            }
+
+            tests.sort();
+            let table = "";
+
+            if (checks.length > 0) {
+              table += "## Checks\n\n| Job | Status |\n| --- | --- |\n" + checks.join("\n") + "\n\n";
+            }
+            if (tests.length > 0) {
+              table += "## Tests\n\n| OS | Python | Status |\n| --- | --- | --- |\n" + tests.join("\n") + "\n\n";
+            }
+            if (releaseChecks.length > 0) {
+              table += "## Release Checks\n\n| Job | Status |\n| --- | --- |\n" + releaseChecks.join("\n") + "\n";
             }
             return table;
           result-encoding: string
 
-      - name: Create or update PR comment
-        if: ${{ steps.generate_table.outputs.result != '' }}
-        uses: peter-evans/create-or-update-comment@v2
+      - name: Find Comment
+        uses: peter-evans/find-comment@v3
+        id: fc
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
           issue-number: ${{ github.event.pull_request.number }}
-          body: ${{ steps.generate_table.outputs.result }}
+          comment-author: 'github-actions[bot]'
+          body-includes: <!-- ci-status-report -->
+
+      - name: Create or update comment
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          comment-id: ${{ steps.fc.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            <!-- ci-status-report -->
+            ${{ steps.generate_table.outputs.result }}
+          edit-mode: replace
