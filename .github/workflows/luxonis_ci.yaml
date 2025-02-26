@@ -351,7 +351,6 @@ jobs:
 
             let checks = [];
             let tests = [];
-            let releaseChecks = [];
 
             const skipJobs = ["update-status-comment", "labeler", "auto-assigner", "update-base-report"];
             const {TYPE_CHECK, SEMGREP} = process.env;
@@ -390,19 +389,15 @@ jobs:
               if (testMatch) {
                 const os = testMatch[1].trim();
                 const py = testMatch[2].trim();
-                tests.push(`| ${os} | 🐍 ${py} | ${icon} |`);
+                tests.push(`| \`${os}\` | 🐍 \`v${py}\` | ${icon} |`);
                 continue;
               }
 
               const checksList = ["pre-commit", "docs", "type-check", "semgrep"];
-              const releaseList = ["check-requirements"];
               if (checksList.includes(jobName)) {
-                checks.push(`| ${jobName} | ${icon} |`);
-              } else if (releaseList.includes(jobName)) {
-                releaseChecks.push(`| ${jobName} | ${icon} |`);
+                checks[checksList.indexOf(jobName)] = `| \`${jobName}\` | ${icon} |`;
               } else {
-                // Fallback: add to Checks.
-                checks.push(`| ${jobName} | ${icon} |`);
+                checks.push(`| \`${jobName}\` | ${icon} |`);
               }
             }
 
@@ -414,9 +409,6 @@ jobs:
             }
             if (tests.length > 0) {
               table += "## Tests\n\n| OS | Python | Status |\n| --- | --- | --- |\n" + tests.join("\n") + "\n\n";
-            }
-            if (releaseChecks.length > 0) {
-              table += "## Release Checks\n\n| Job | Status |\n| --- | --- |\n" + releaseChecks.join("\n") + "\n";
             }
             return table;
           result-encoding: string
