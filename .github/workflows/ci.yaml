@@ -114,7 +114,7 @@ jobs:
 
               file_path=$(echo "$full_path" | grep -o "luxonis_ml/.*")
 
-              echo "::error file=${file_path},line=${line_number},title=Missing Type::${error_message}"
+              echo "::error file=${file_path},line=${line_number},title=Missing Annotation::${error_message}"
             fi
           done < pyleft_output.txt
 
