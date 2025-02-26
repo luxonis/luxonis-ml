@@ -388,7 +388,7 @@ class LuxonisLoader(BaseLoader):
         augmentation_engine: Union[Literal["albumentations"], str],
         augmentation_config: Union[List[Params], PathType],
         height: Optional[int],
-        width: Optional[int],
+        width,
         keep_aspect_ratio: bool,
     ) -> Optional[AugmentationEngine]:
         if isinstance(augmentation_config, (Path, str)):

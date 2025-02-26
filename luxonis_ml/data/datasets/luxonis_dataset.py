@@ -645,7 +645,7 @@ class LuxonisDataset(BaseDataset):
         self,
         classes: Union[List[str], Dict[str, int]],
         task: Optional[str] = None,
-    ) -> None:
+    ):
         if task is None:
             tasks = self.get_task_names()
         else:

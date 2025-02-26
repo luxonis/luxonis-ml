@@ -95,7 +95,24 @@ jobs:
           project: pyproject.toml
 
       - name: Pyleft Check
-        run: pyleft luxonis_ml
+        run: |
+          pyleft luxonis_ml > pyleft_output.txt
+
+          if [[ $? -eq 0 ]]; then
+            exit 0
+          fi
+
+          while IFS= read -r line; do
+            if [[ "$line" =~ \"(.*/luxonis_ml/.*\.py):([0-9]+)\"\ (.*)$ ]]; then
+              full_path="${BASH_REMATCH[1]}"
+              line_number="${BASH_REMATCH[2]}"
+              error_message="${BASH_REMATCH[3]}"
+
+              file_path=$(echo "$full_path" | grep -o "luxonis_ml/.*")
+
+              echo "::error file=${file_path},line=${line_number}::${error_message}"
+            fi
+          done < pyleft_output.txt
 
   semgrep:
     if: ${{ github.actor != 'dependabot[bot]' && github.event_name == 'pull_request' }})
