@@ -1,5 +1,6 @@
 import time
 from pathlib import Path
+from typing import List
 
 import cv2
 import numpy as np
@@ -7,6 +8,7 @@ import typer
 from typing_extensions import Annotated
 
 from luxonis_ml.data import BucketStorage, LuxonisDataset, LuxonisLoader
+from luxonis_ml.typing import Params
 
 name = "benchmark"
 
@@ -52,12 +54,12 @@ def generator(size: int):
 
 app = typer.Typer()
 
-normal_config = [
+normal_config: List[Params] = [
     {"name": "Defocus", "params": {"p": 1}},
     {"name": "Sharpen", "params": {"p": 1}},
     {"name": "Affine", "params": {"p": 1}},
 ]
-batched_config = [
+batched_config: List[Params] = [
     {
         "name": "MixUp",
         "params": {"p": 1, "alpha": 0.5},

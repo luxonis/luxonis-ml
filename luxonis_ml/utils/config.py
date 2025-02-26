@@ -142,7 +142,7 @@ class LuxonisConfig(BaseModelExtraForbid):
 
         def _merge_recursive(
             data: Union[Dict, List], dot_name: str, value: Any
-        ):
+        ) -> None:
             key, *tail = dot_name.split(".")
             if not tail:
                 parsed_value = _parse_value(value)
@@ -206,6 +206,6 @@ class LuxonisConfig(BaseModelExtraForbid):
 
         for dot_name, value in overrides.items():
             try:
-                _merge_recursive(data, dot_name, value)
+                _merge_recursive(data, dot_name, value)  # type: ignore
             except Exception as e:
                 raise ValueError(f"Invalid option `{dot_name}`: {e}") from e

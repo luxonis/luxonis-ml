@@ -319,7 +319,9 @@ class SegmentationAnnotation(Annotation):
                     )
 
             rle: Any = pycocotools.mask.frPyObjects(
-                {"counts": counts, "size": [height, width]}, height, width
+                {"counts": counts, "size": [height, width]},  # type: ignore
+                height,
+                width,
             )
             values["counts"] = rle["counts"]
             values["height"] = rle["size"][0]

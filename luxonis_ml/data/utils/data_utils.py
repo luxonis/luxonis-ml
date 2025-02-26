@@ -89,7 +89,7 @@ def infer_task(
 
     def _log_once(
         cls_: Optional[str], task: str, message: str, level: str = "info"
-    ):
+    ) -> None:
         if not infer_task._logged_infered_classes[(cls_, task)]:
             infer_task._logged_infered_classes[(cls_, task)] = True
             getattr(logger, level)(message)

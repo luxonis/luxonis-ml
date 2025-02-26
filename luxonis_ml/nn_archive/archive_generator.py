@@ -59,7 +59,10 @@ class ArchiveGenerator:
 
         # construct .tar archive
         archive_path = os.path.join(self.save_path, self.archive_name)
-        with tarfile.open(archive_path, f"w:{self.compression}") as tar:
+        with tarfile.open(
+            archive_path,
+            f"w:{self.compression}",  # type: ignore
+        ) as tar:
             # add executables
             for executable_path in self.executables_paths:
                 tar.add(

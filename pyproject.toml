@@ -80,6 +80,12 @@ wrap-summaries = 72
 wrap-descriptions = 72
 
 [tool.pyright]
+exclude = [
+    "luxonis_ml/embeddings",
+    "luxonis_ml/tracker",
+    "examples",
+    "__main__.py",
+]
 typeCheckingMode = "basic"
 reportMissingTypeStubs = "none"
 reportPrivateImportUsage = "none"
@@ -88,12 +94,21 @@ reportIncompatibleVariableOverride = "none"
 reportIncompatibleMethodOverride = "none"
 reportUnnecessaryIsInstance = "none"
 
+[tool.pyleft]
+paths = ["luxonis_train"]
+exclude = [
+    "luxonis_ml/embeddings",
+    "luxonis_ml/tracker",
+    "examples",
+    "__main__.py",
+]
+
 [tool.pytest]
 doctest_optionflags = "NORMALIZE_WHITESPACE IGNORE_EXCEPTION_DETAIL NUMBER"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--disable-warnings"
+addopts = "--disable-warnings -n auto -x"
 
 [tool.coverage.run]
 omit = [

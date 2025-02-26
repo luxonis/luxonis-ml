@@ -259,8 +259,8 @@ class SOLOParser(BaseParser):
         return generator(), skeletons, added_images
 
     def _get_solo_annotation_types(
-        self, annotation_definitions_dict: dict
-    ) -> list:
+        self, annotation_definitions_dict: Dict[str, Any]
+    ) -> List[str]:
         """List all annotation types present in the dataset.
 
         @type annotation_definitions_dict: dict
@@ -276,7 +276,9 @@ class SOLOParser(BaseParser):
             )
         return annotation_types
 
-    def _get_solo_bbox_class_names(self, annotation_definitions_dict):
+    def _get_solo_bbox_class_names(
+        self, annotation_definitions_dict: Dict[str, Any]
+    ) -> List[str]:
         """List class names for BoundingBox2DAnnotation type.
 
         @type annotation_definitions_dict: dict
@@ -296,7 +298,9 @@ class SOLOParser(BaseParser):
                 class_names = [c for _, c in sorted(zip(ids, names))]
         return class_names
 
-    def _get_solo_keypoint_names(self, annotation_definitions_dict):
+    def _get_solo_keypoint_names(
+        self, annotation_definitions_dict: Dict[str, Any]
+    ) -> List[str]:
         """List keypoint labels for all classes.
 
         @type annotation_definitions_dict: dict

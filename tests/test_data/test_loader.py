@@ -1,9 +1,11 @@
 from pathlib import Path
+from typing import List
 
 import numpy as np
 from utils import create_image
 
 from luxonis_ml.data import BucketStorage, LuxonisDataset, LuxonisLoader
+from luxonis_ml.typing import Params
 
 
 def test_edge_cases(tempdir: Path):
@@ -220,7 +222,7 @@ def test_edge_cases(tempdir: Path):
 
     dataset.make_splits(ratios=(1, 0, 0))
 
-    augmentation_config = [
+    augmentation_config: List[Params] = [
         {
             "name": "Mosaic4",
             "params": {"p": 1, "out_width": 512, "out_height": 512},

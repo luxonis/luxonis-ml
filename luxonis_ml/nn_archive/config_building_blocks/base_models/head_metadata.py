@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -189,7 +189,10 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
     )
 
     @model_validator(mode="before")
-    def validate_task_specific_fields(cls, values):
+    @classmethod
+    def validate_task_specific_fields(
+        cls, values: Dict[str, Any]
+    ) -> Dict[str, Any]:
         defined_params = {k for k, v in dict(values).items() if v is not None}
 
         common_fields = [
