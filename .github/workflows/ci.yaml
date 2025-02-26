@@ -27,6 +27,15 @@ jobs:
       semgrep: false
       trigger: ${{ github.event_name }}
 
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_S3_ENDPOINT_URL: ${{ secrets.AWS_S3_ENDPOINT_URL }}
+      GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
+      ROBOFLOW_API_KEY: ${{ secrets.ROBOFLOW_API_KEY }}
+
+
   check-requirements:
     if: ${{ startsWith(github.head_ref, 'release/') }}
     runs-on: ubuntu-latest
