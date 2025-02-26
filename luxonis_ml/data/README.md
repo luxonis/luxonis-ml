@@ -55,7 +55,7 @@ We will be using our toy dataset `parking_lot` in all examples. The dataset cons
 | Object Detection            | Bounding Box      | car, motorcycle                                                                                        |
 | Keypoint Detection          | Keypoints         | car, motorcycle                                                                                        |
 | Color Segmentation          | Segmentation Mask | background, red, gree, blue                                                                            |
-| Type Segmentation           | Segmentation Mask | backgeound, car, motorcycle                                                                            |
+| Type Segmentation           | Segmentation Mask | background, car, motorcycle                                                                            |
 | Brand Segmentation          | Segmentation Mask | background, alfa-romeo, buick, ducati, harley, ferrari, infiniti, jeep, land-rover, roll-royce, yamaha |
 | Binary Vehicle Segmentation | Segmentation Mask | vehicle                                                                                                |
 
@@ -512,7 +512,7 @@ An array of arbitrary data. This can be used for any custom data that doesn't fi
 }
 ```
 
-## Instance Segmentation
+### Instance Segmentation
 
 Instance segmentation combines bounding boxes and segmentation masks for each instance in the image.
 
@@ -549,7 +549,7 @@ Instance segmentation combines bounding boxes and segmentation masks for each in
 }
 ```
 
-## Metadata
+### Metadata
 
 Metadata is a flexible catch-all field for storing additional information about annotations that doesn't fit into the standard annotation types. This can be used for a variety of custom needs such as OCR text content, embedding IDs, or other application-specific data.
 
@@ -564,7 +564,7 @@ Metadata is a flexible catch-all field for storing additional information about 
 }
 ```
 
-### OCR Example
+#### OCR Example
 
 For Optical Character Recognition (OCR) tasks, metadata can store text content and properties:
 
@@ -581,7 +581,7 @@ Where the `Category` class should be imported from `luxonis_ml.data`.
 
 For more information on using OCR annotations with training models, see the [OCR Heads documentation](https://github.com/luxonis/luxonis-train/tree/main/luxonis_train/nodes#ocr-heads).
 
-### Embeddings Example
+#### Embeddings Example
 
 For embedding-based tasks like re-identification or similarity search:
 
