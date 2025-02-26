@@ -31,7 +31,7 @@ jobs:
       - name: Labeler
         uses: actions/labeler@v5
         with:
-          configuration-path: .github/labeler.yml
+          configuration-path: .github/labeler.yaml
 
   pre-commit:
     if: ${{ github.event_name == 'pull_request' }}
