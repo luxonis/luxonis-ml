@@ -275,7 +275,7 @@ jobs:
           token_format: access_token
 
       - name: Run pytest
-        run: pytest --cov --junitxml=junit.xml -o junit_family=legacy -vv -x
+        run: pytest --cov --junitxml=junit.xml -o junit_family=legacy -vv
 
       - name: Upload test results to Codecov
         if: ${{ env.IS_MAIN_RUNNER && env.CODECOV_ENABLED }}
@@ -326,3 +326,52 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
+
+  update-status-comment:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    needs: [pre-commit, docs, type-check, semgrep, tests]
+    steps:
+      - name: Generate job status table
+        id: generate_table
+        if: always()
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const runId = process.env.GITHUB_RUN_ID;
+            const response = await github.actions.listJobsForWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: runId
+            });
+            let table = "## CI Status Report\n\n| Job | Status |\n| --- | --- |\n";
+            for (const job of response.data.jobs) {
+              let icon = "";
+              if (
+                job.conclusion === "success" &&
+                job.steps &&
+                job.steps.length > 0 &&
+                job.steps.every(step => step.conclusion === "skipped")
+              ) {
+                icon = "⚠️";
+              } else if (job.conclusion === "success") {
+                icon = "✅";
+              } else if (job.conclusion === "failure") {
+                icon = "❌";
+              } else if (job.conclusion === "cancelled") {
+                icon = "🚫";
+              } else {
+                icon = job.conclusion || job.status;
+              }
+              table += `| ${job.name} | ${icon} |\n`;
+            }
+            return table;
+          result-encoding: string
+
+      - name: Create or update PR comment
+        if: always()
+        uses: peter-evans/create-or-update-comment@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body: ${{ steps.generate_table.outputs.result }}
