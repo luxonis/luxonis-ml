@@ -114,6 +114,8 @@ jobs:
             fi
           done < pyleft_output.txt
 
+          exit 1
+
   semgrep:
     if: ${{ github.actor != 'dependabot[bot]' && github.event_name == 'pull_request' }})
     needs: pre-commit
