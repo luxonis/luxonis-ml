@@ -44,6 +44,11 @@ tracker = { file = ["luxonis_ml/tracker/requirements.txt"] }
 embedd = { file = ["luxonis_ml/embeddings/requirements.txt"] }
 nn_archive = { file = ["luxonis_ml/nn_archive/requirements.txt"] }
 
+roboflow = { file = ["extra_dependencies/roboflow.txt"] }
+gcs = { file = ["extra_dependencies/gcs.txt"] }
+s3 = { file = ["extra_dependencies/s3.txt"] }
+mlflow = { file = ["extra_dependencies/mlflow.txt"] }
+
 [tool.setuptools.dynamic.optional-dependencies.all]
 file = [
     "luxonis_ml/data/requirements.txt",
