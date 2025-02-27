@@ -55,7 +55,7 @@ We will be using our toy dataset `parking_lot` in all examples. The dataset cons
 | Object Detection            | Bounding Box      | car, motorcycle                                                                                        |
 | Keypoint Detection          | Keypoints         | car, motorcycle                                                                                        |
 | Color Segmentation          | Segmentation Mask | background, red, gree, blue                                                                            |
-| Type Segmentation           | Segmentation Mask | backgeound, car, motorcycle                                                                            |
+| Type Segmentation           | Segmentation Mask | background, car, motorcycle                                                                            |
 | Brand Segmentation          | Segmentation Mask | background, alfa-romeo, buick, ducati, harley, ferrari, infiniti, jeep, land-rover, roll-royce, yamaha |
 | Binary Vehicle Segmentation | Segmentation Mask | vehicle                                                                                                |
 
@@ -71,6 +71,8 @@ for adding data and creating splits.
 You can create as many datasets as you want, each with a unique name.
 
 Datasets can be stored locally or in one of the supported cloud storage providers.
+
+### Dataset Creation
 
 First we import `LuxonisDataset` and create a dataset with the name `"parking_lot"`.
 
@@ -91,8 +93,11 @@ dataset = LuxonisDataset(dataset_name)
 
 ### Adding Data
 
-The next step is to add data to the dataset.
-The data are provided as dictionaries with the following structure:
+After creating a dataset, the next step is to populate it with images and their annotations. This process involves preparing data entries and submitting them to the dataset through the `add` method.
+
+#### Data Format
+
+Each data entry should be a dictionary with the following structure:
 
 ```python
 {
@@ -101,9 +106,13 @@ The data are provided as dictionaries with the following structure:
 }
 ```
 
-The content of the `"annotation"` field depends on the task type.
+The content of the `"annotation"` field depends on the task type and follows the Annotation Format described later in this document.
 
-To add the data to the dataset, we first define a generator function that yields the data.
+#### Adding Data with a Generator Function
+
+The recommended approach for adding data is to create a generator function that yields data entries one by one.
+
+Here's an example that loads object detection annotations:
 
 ```python
 import json
@@ -148,6 +157,10 @@ def generator():
 ```
 
 The generator is then passed to the `add` method of the dataset.
+
+#### Adding the Data to the Dataset
+
+Once you've defined your data source, pass it to the dataset's add method:
 
 ```python
 dataset.add(generator())
@@ -341,9 +354,6 @@ A single class label for the entire image.
 
 ```python
 {
-    # type of the annotation, always "classification"
-    "type": "classification",
-
     # name of the class the image belongs to
     "class": str,
 }
@@ -356,20 +366,19 @@ The coordinates and dimensions are relative to the image size.
 
 ```python
 {
-    # type of the annotation, always "boundingbox"
-    "type": "boundingbox",
-
     # name of the class the bounding box belongs to
     "class": str,
 
     # unique identifier of the instance in the image
     "instance_id": Optional[int],
 
-    # bounding box coordinates, relative to the image size
-    "x": float, # x coordinate of the top-left corner
-    "y": float, # y coordinate of the top-left corner
-    "w": float, # width of the bounding box
-    "h": float, # height of the bounding box
+    # bounding box coordinates normalized to the image size
+    "boundingbox": {
+        "x": float, # x coordinate of the top-left corner
+        "y": float, # y coordinate of the top-left corner
+        "w": float, # width of the bounding box
+        "h": float, # height of the bounding box
+    },
 }
 ```
 
@@ -386,19 +395,19 @@ The visibility can be:
 
 ```python
 {
-    # type of the annotation, always "keypoints"
-    "type": "keypoints",
-
     # name of the class the keypoints belong to
     "class": str,
 
     # unique identifier of the instance in the image
     "instance_id": Optional[int],
 
-    # list of (x, y, visibility) coordinates of the keypoints
-    # coordinates are relative to the image size
-    # visibility is 0 for not visible, 1 for occluded and 2 for visible
-    "points": list[tuple[float, float, Literal[0, 1, 2]]],
+    # keypoints coordinates normalized to the image size
+    "keypoints": {
+        # List of keypoint coordinates as tuples of (x, y, visibility)
+        # x, y are floating point coordinates relative to image size
+        # visibility: 0=not visible, 1=occluded, 2=visible
+        "keypoints": list[tuple[float, float, Literal[0, 1, 2]]],
+    },
 }
 ```
 
@@ -414,17 +423,22 @@ The coordinates are relative to the image size.
 
 ```python
 {
-    # type of the annotation, always "polyline"
-    "type": "polyline",
-
     # name of the class this mask belongs to
     "class": str,
 
-    # list of (x, y) coordinates forming the polyline
-    # coordinates are relative to the image size
-    # the polyline will be closed to form a polygon,
-    #   i.e. the first and last point are the same
-    "polyline": list[tuple[float, float]],
+    "segmentation": {
+        # height of the mask
+        "height": int,
+        
+        # width of the mask
+        "width": int,
+        
+        # list of (x, y) coordinates forming the polyline
+        # coordinates are normalized with the image size
+        # the polyline will be closed to form a polygon,
+        #   i.e. the first and last point are the same
+        "points": list[tuple[float, float]],
+        },
 }
 ```
 
@@ -434,16 +448,15 @@ The mask is a binary 2D numpy array.
 
 ```python
 {
-    # type of the annotation, always "mask"
-    "type": "mask",
-
     # name of the class this mask belongs to
     "class": str,
 
     # binary mask as a 2D numpy array
     # 0 for background, 1 for the object
-    "mask": np.ndarray,
-}
+    "segmentation": {
+        "mask": np.ndarray,
+        },
+    }
 ```
 
 #### Run-Length Encoding
@@ -459,20 +472,20 @@ The RLE is composed of the height and width of the mask image and the counts of 
 
 ```python
 {
-    # type of the annotation, always "rle"
-    "type": "rle",
-
     # name of the class this mask belongs to
     "class": str,
 
-    # height of the mask
-    "height": int,
+    "segmentation":
+    {
+        # height of the mask
+        "height": int,
+        
+        # width of the mask
+        "width": int,
 
-    # width of the mask
-    "width": int,
-
-    # counts of the pixels belonging to the positive class
-    "counts": list[int] | bytes,
+        # counts of the pixels belonging to the positive class
+        "counts": list[int] | bytes,    
+    },
 
 }
 ```
@@ -489,16 +502,99 @@ An array of arbitrary data. This can be used for any custom data that doesn't fi
 
 ```python
 {
-    # type of the annotation, always "array"
-    "type": "array",
-
     # name of the class this array belongs to
     "class": str,
 
-    # path to a `.npy` file containing the array data
-    "path": str,
+    "array":{
+        # path to a `.npy` file containing the array data
+        "path": str,
+    },	
 }
 ```
+
+### Instance Segmentation
+
+Instance segmentation combines bounding boxes and segmentation masks for each instance in the image.
+
+```python
+{
+    # name of the class the bounding box belongs to
+    "class": str,
+
+    # unique identifier of the instance in the image
+    "instance_id": Optional[int],
+
+    # bounding box coordinates normalized to the image size
+    "boundingbox": {
+        "x": float, # x coordinate of the top-left corner
+        "y": float, # y coordinate of the top-left corner
+        "w": float, # width of the bounding box
+        "h": float, # height of the bounding box
+    },
+
+    # Instance segmentation mask - Can be in any of the segmentation formats described above. We'll use the polyline format here.
+    "instance_segmentation": {
+        # height of the mask
+        "height": int,
+        
+        # width of the mask
+        "width": int,
+        
+        # list of (x, y) coordinates forming the polyline
+        # coordinates are normalized with the image size
+        # the polyline will be closed to form a polygon,
+        #   i.e. the first and last point are the same
+        "points": list[tuple[float, float]],
+        },
+}
+```
+
+### Metadata
+
+Metadata is a flexible catch-all field for storing additional information about annotations that doesn't fit into the standard annotation types. This can be used for a variety of custom needs such as OCR text content, embedding IDs, or other application-specific data.
+
+```python
+{
+    "metadata": {
+        # Flexible key-value pairs for custom data
+        key1: value1,
+        key2: value2,
+        # ...
+    },
+}
+```
+
+#### OCR Example
+
+For Optical Character Recognition (OCR) tasks, metadata can store text content and properties:
+
+```python
+{
+    "metadata": {
+        "text": str,  # text content
+        "color": Category("red"),  # text color
+    },
+}
+```
+
+Where the `Category` class should be imported from `luxonis_ml.data`.
+
+For more information on using OCR annotations with training models, see the [OCR Heads documentation](https://github.com/luxonis/luxonis-train/tree/main/luxonis_train/nodes#ocr-heads).
+
+#### Embeddings Example
+
+For embedding-based tasks like re-identification or similarity search:
+
+```python
+{
+    "metadata": {
+        "id": int,  # unique identifier
+        "color": Category("red"),  # text color
+    },
+}
+```
+
+For more information on using OCR annotations with training models, see the [Embedding Heads documentation.](https://github.com/luxonis/luxonis-train/tree/main/luxonis_train/nodes#embedding-heads).
 
 ## Augmentation
 
@@ -588,20 +684,24 @@ The following example demonstrates a simple augmentation pipeline:
 
 ### Usage with LuxonisLoader
 
-For this example, we will assume the augmentation example above is stored in a JSON file named `augmentations.json`.
+For this example, we will assume the augmentation example above is stored in a YAML file named `augmentations.yaml`.
 
 ```python
 
 from luxonis_ml.data import LuxonisDataset, LuxonisLoader, AlbumentationsEngine
 import json
 
-with open("augmentations.json") as f:
-    augmentations = json.load(f)
-
-aug = AlbumentationsEngine(image_size=[256, 320], augmentations=augmentations)
 dataset = LuxonisDataset("parking_lot")
-loader = LuxonisLoader(dataset, view="train", augmentations=aug)
-
+loader = LuxonisLoader(
+    dataset,
+    view="train", 
+    augmentation_config="augmentations.yaml", 
+    augmentation_engine="albumentations",
+    height=256,
+    width=320,
+    keep_aspect_ratio=True,
+    color_space="RGB",
+)
 for img, labels in loader:
     ...
 ```
