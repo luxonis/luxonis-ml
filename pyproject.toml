@@ -55,7 +55,11 @@ file = [
     "luxonis_ml/utils/requirements.txt",
     "luxonis_ml/tracker/requirements.txt",
     "luxonis_ml/embeddings/requirements.txt",
-    "luxonis_ml/nn_archive/requirements.txt"
+    "luxonis_ml/nn_archive/requirements.txt",
+    "extra_dependencies/roboflow.txt",
+    "extra_dependencies/gcs.txt",
+    "extra_dependencies/s3.txt",
+    "extra_dependencies/mlflow.txt"
 ]
 
 [tool.setuptools.dynamic.optional-dependencies.dev]
@@ -66,6 +70,10 @@ file = [
     "luxonis_ml/tracker/requirements.txt",
     "luxonis_ml/embeddings/requirements.txt",
     "luxonis_ml/nn_archive/requirements.txt",
+    "extra_dependencies/roboflow.txt",
+    "extra_dependencies/gcs.txt",
+    "extra_dependencies/s3.txt",
+    "extra_dependencies/mlflow.txt",
     "requirements-dev.txt"
 ]
 

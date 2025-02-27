@@ -1,4 +1,4 @@
-pydantic~=2.4.0
+pydantic~=2.7.0
 pydantic-settings~=2.1.0
 PyYAML~=6.0
 fsspec>=2023.3.0
