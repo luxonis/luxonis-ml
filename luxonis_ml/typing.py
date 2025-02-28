@@ -64,7 +64,7 @@ PrimitiveType: TypeAlias = Union[str, int, float, bool, None]
 """Primitive types in Python."""
 
 # To avoid infinite recursion
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # pragma: no cover
     ParamValue: TypeAlias = Union[
         Dict[PrimitiveType, "ParamValue"],
         List["ParamValue"],

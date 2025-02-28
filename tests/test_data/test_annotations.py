@@ -263,6 +263,19 @@ def test_segmentation_annotation(subtests: SubTests, tempdir: Path):
         )
         assert seg == seg_clipped
 
+        with pytest.raises(ValueError):
+            SegmentationAnnotation(
+                points=[(0, 0), (1, 0), (1, 1)],  # type: ignore
+                height=4,
+                width="4",
+            )
+        with pytest.raises(ValueError):
+            SegmentationAnnotation(
+                points=[(0, 0, 0), (1, 0, 4)],  # type: ignore
+                height=4,
+                width=4,
+            )
+
     with subtests.test("rle_bytes"):
         seg = SegmentationAnnotation(counts=b"11213ON0", height=4, width=4)
         assert seg.height == 4
@@ -281,6 +294,13 @@ def test_segmentation_annotation(subtests: SubTests, tempdir: Path):
         assert seg.width == 4
         assert seg.counts == b"11213ON0"
         assert np.array_equal(seg.to_numpy(), mask)
+
+        with pytest.raises(ValueError):
+            SegmentationAnnotation(
+                counts=[1, 1, 2, 2, 5, 1, 3],  # type: ignore
+                height=4,
+                width="4",  # type: ignore
+            )
 
     with subtests.test("numpy_simple"):
         masks = np.array(
