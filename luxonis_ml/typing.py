@@ -100,10 +100,10 @@ class ConfigItem(BaseModel):
     params: Params = {}
 
 
-K = TypeVar("K")
+T = TypeVar("T")
 
 
-def check_type(value: Any, type_: Type[K]) -> TypeGuard[K]:
+def check_type(value: Any, type_: Type[T]) -> TypeGuard[T]:
     """Checks if the value has the correct type.
 
     @type value: Any
