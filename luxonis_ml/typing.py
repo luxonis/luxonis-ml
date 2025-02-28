@@ -81,6 +81,9 @@ Params: TypeAlias = Dict[str, ParamValue]
 Usually loaded from a YAML file.
 """
 
+Kwargs: TypeAlias = Dict[str, Any]
+"""A keyword dictionary of arbitrary parameters."""
+
 
 class ConfigItem(BaseModel):
     """Configuration schema for dynamic object instantiation. Typically
