@@ -73,9 +73,10 @@ if TYPE_CHECKING:
     """Possible values in a safely loaded YAML file."""
 else:
     ParamValue: TypeAlias = Any
+    """Possible values in a safely loaded YAML file."""
 
 Params: TypeAlias = Dict[str, ParamValue]
-"""A dictionary of additional parameters.
+"""A keyword dictionary of additional parameters.
 
 Usually loaded from a YAML file.
 """
