@@ -28,10 +28,10 @@ from pydantic import (
 )
 from pydantic.types import FilePath, PositiveInt
 from pydantic_core import core_schema
-from typeguard import check_type
 from typing_extensions import Annotated, Self, TypeAlias, override
 
 from luxonis_ml.data.utils.parquet import ParquetRecord
+from luxonis_ml.typing import check_type
 from luxonis_ml.utils import BaseModelExtraForbid
 
 KeypointVisibility: TypeAlias = Literal[0, 1, 2]
@@ -337,12 +337,16 @@ class SegmentationAnnotation(Annotation):
         if {"counts", "width", "height"} - set(values.keys()):
             return values
 
-        counts = values["counts"]
-        height = check_type(values["height"], int)
-        width = check_type(values["width"], int)
+        height = values["height"]
+        width = values["width"]
 
+        if not check_type(height, int) or not check_type(width, int):
+            raise ValueError("Height and width must be integers")
+
+        counts = values["counts"]
         if isinstance(counts, str):
             values["counts"] = counts.encode("utf-8")
+
         elif isinstance(counts, list):
             for c in counts:
                 if not isinstance(c, int) or c < 0:
@@ -414,14 +418,19 @@ class SegmentationAnnotation(Annotation):
 
         values = deepcopy(values)
 
-        points = check_type(values.pop("points"), List[Tuple[float, float]])
-        width = check_type(values.pop("width"), int)
-        height = check_type(values.pop("height"), int)
+        width = values.pop("width")
+        height = values.pop("height")
+        if not check_type(height, int) or not check_type(width, int):
+            raise ValueError("Height and width must be integers")
+
+        points = values.pop("points")
+        if not check_type(points, List[Tuple[float, float]]):
+            raise ValueError("Polyline must be a list of float 2D points")
 
         if len(points) < 3:
-            raise ValueError("Polyline must have at least 3 points")
+            raise ValueError("Polyline must contain at least 3 points")
 
-        SegmentationAnnotation._clip_points(points)
+        cls._clip_points(points)
 
         polyline = [(round(x * width), round(y * height)) for x, y in points]
         mask = Image.new("L", (width, height), 0)
