@@ -61,7 +61,11 @@ def setup_logging(
             **kwargs,
         ),
         level=level,
-        format="{message}",
+        # NOTE: Needs to be a constant function to avoid
+        # duplicate logging of exceptions, see
+        # https://github.com/Delgan/loguru/issues/1172
+        format=lambda _: "{message}",
+        backtrace=False,
     )
 
     if file is not None:
