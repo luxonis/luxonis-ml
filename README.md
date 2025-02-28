@@ -51,7 +51,7 @@ Additional dependencies for working with specific cloud services can be installe
 - `mlflow`: Dependencies for working with MLFlow
 
 > \[!NOTE\]
-> If some of the above dependencies are required but not installed (_e.g._ attempting to use Google Cloud Storage without installing the `gcs` extra), then the missing dependencies will be installed automatically.
+> If some of the additional dependencies are required but not installed (_e.g._ attempting to use Google Cloud Storage without installing the `gcs` extra), then the missing dependencies will be installed automatically.
 
 **Example**:
 
