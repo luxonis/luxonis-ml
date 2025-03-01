@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
 import yaml
 
-from luxonis_ml.typing import Params
+from luxonis_ml.typing import Params, PathType
 
 from .filesystem import LuxonisFileSystem
 from .pydantic_utils import BaseModelExtraForbid
@@ -72,7 +72,7 @@ class LuxonisConfig(BaseModelExtraForbid):
         """
         return self.model_json_schema(mode="validation")
 
-    def save_data(self, path: str) -> None:
+    def save_data(self, path: PathType) -> None:
         """Saves config to a yaml file.
 
         @type path: str

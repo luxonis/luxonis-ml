@@ -7,6 +7,8 @@ from rich.console import Console
 from rich.logging import RichHandler
 from rich.theme import Theme
 
+from luxonis_ml.typing import PathType
+
 from .environ import environ
 
 
@@ -15,7 +17,7 @@ def setup_logging(
     level: Optional[
         Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
     ] = None,
-    file: Optional[str] = None,
+    file: Optional[PathType] = None,
     **kwargs,
 ) -> None:  # pragma: no cover
     """Sets up global logging using loguru and rich.
