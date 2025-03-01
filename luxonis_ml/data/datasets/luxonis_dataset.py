@@ -107,17 +107,18 @@ class LuxonisDataset(BaseDataset):
         self.dataset_name = dataset_name
         self.team_id = team_id or self._get_credential("LUXONISML_TEAM_ID")
 
-        if delete_existing:
-            self._init_paths()
-            if self.exists(dataset_name, team_id, bucket_storage, self.bucket):
-                self.delete_dataset(delete_remote=delete_remote)
-
         self._init_paths()
 
         if not self.is_remote:
             self.fs = LuxonisFileSystem(f"file://{self.path}")
         else:
             self.fs = LuxonisFileSystem(self.path)
+
+        if delete_existing:
+            if self.exists(dataset_name, team_id, bucket_storage, self.bucket):
+                self.delete_dataset(delete_remote=delete_remote)
+
+            self._init_paths()
 
         _lock_metadata = self.base_path / ".metadata.lock"
 
