@@ -1,4 +1,5 @@
 import json
+import warnings
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from pathlib import Path
@@ -300,9 +301,10 @@ class SegmentationAnnotation(Annotation):
     counts: bytes
 
     def to_numpy(self) -> np.ndarray:
-        return pycocotools.mask.decode(
-            {"counts": self.counts, "size": [self.height, self.width]}
-        ).astype(np.uint8)
+        with warnings.catch_warnings(record=True):
+            return pycocotools.mask.decode(
+                {"counts": self.counts, "size": [self.height, self.width]}
+            ).astype(np.uint8)
 
     @staticmethod
     @override
@@ -350,9 +352,10 @@ class SegmentationAnnotation(Annotation):
                         "RLE counts must be a list of positive integers"
                     )
 
-            rle: Any = pycocotools.mask.frPyObjects(
-                {"counts": counts, "size": [height, width]}, height, width
-            )
+            with warnings.catch_warnings(record=True):
+                rle: Any = pycocotools.mask.frPyObjects(
+                    {"counts": counts, "size": [height, width]}, height, width
+                )
             values["counts"] = rle["counts"]
             values["height"] = rle["size"][0]
             values["width"] = rle["size"][1]
@@ -397,7 +400,8 @@ class SegmentationAnnotation(Annotation):
             raise ValueError("Mask must be a 2D binary array")
 
         mask = np.asfortranarray(mask.astype(np.uint8))
-        rle = pycocotools.mask.encode(mask)
+        with warnings.catch_warnings(record=True):
+            rle = pycocotools.mask.encode(mask)
 
         return {
             "height": rle["size"][0],
