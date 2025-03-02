@@ -153,6 +153,7 @@ def warn_on_duplicates(df: pl.LazyFrame) -> None:
         df.group_by(
             "original_filepath",
             "task_type",
+            "task_name",
             "annotation",
         )
         .agg(pl.len().alias("count"))
@@ -163,6 +164,7 @@ def warn_on_duplicates(df: pl.LazyFrame) -> None:
     for (
         file_name,
         task_type,
+        task_name,
         annotation,
         count,
     ) in duplicate_annotation.iter_rows():
@@ -170,6 +172,7 @@ def warn_on_duplicates(df: pl.LazyFrame) -> None:
             annotation = "<binary mask>"
         if not task_is_metadata(task_type):
             logger.warning(
-                f"File '{file_name}' has the same '{task_type}' annotation "
+                f"File '{file_name}' of task '{task_name}' has the f"
+                f"same '{task_type}' annotation "
                 f"'{annotation}' repeated {count} times."
             )
