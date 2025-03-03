@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 
-from ..enums import DataType
+from luxonis_ml.nn_archive.config_building_blocks.enums import DataType
 
 
 class Metadata(BaseModel):

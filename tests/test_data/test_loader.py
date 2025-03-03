@@ -5,6 +5,7 @@ import numpy as np
 from utils import create_image
 
 from luxonis_ml.data import BucketStorage, LuxonisDataset, LuxonisLoader
+from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.typing import Params
 
 
@@ -184,7 +185,7 @@ def test_edge_cases(tempdir: Path):
         ]
     )
 
-    def generator():
+    def generator() -> DatasetIterator:
         num_samples = len(keypoints_before)
         for i in range(num_samples):
             img = create_image(i, tempdir)
@@ -285,9 +286,9 @@ def test_edge_cases(tempdir: Path):
             keypoints = keypoints.reshape(-1, 3)
             for kp in keypoints:
                 x, y, v = kp
-                assert not (
-                    x == 0 and y == 0 and v in {1, 2}
-                ), f"Invalid keypoint detected: {kp}"
+                assert not (x == 0 and y == 0 and v in {1, 2}), (
+                    f"Invalid keypoint detected: {kp}"
+                )
                 assert 0 <= x <= 1, f"Keypoint x out of bounds: {kp}"
                 assert 0 <= y <= 1, f"Keypoint y out of bounds: {kp}"
 
@@ -303,6 +304,6 @@ def test_edge_cases(tempdir: Path):
                 assert 0 <= y_max <= 1, f"BBox y_max out of bounds: {bbox}"
 
                 bbox_area = width * height
-                assert (
-                    bbox_area >= 0.0004
-                ), f"BBox area too small: {bbox}, area={bbox_area}"
+                assert bbox_area >= 0.0004, (
+                    f"BBox area too small: {bbox}, area={bbox_area}"
+                )

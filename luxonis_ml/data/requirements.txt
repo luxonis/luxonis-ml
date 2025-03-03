@@ -12,3 +12,4 @@ semver>=3.0.0
 filelock>=3.0.0
 bidict>=0.21.0
 matplotlib>=3.4.3
+defusedxml>=0.7.1

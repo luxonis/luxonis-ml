@@ -10,13 +10,13 @@ from .base_models import (
 from .enums import DataType, InputType
 
 __all__ = [
+    "DataType",
     "Head",
     "HeadMetadata",
     "HeadType",
     "Input",
-    "PreprocessingBlock",
-    "Output",
-    "Metadata",
-    "DataType",
     "InputType",
+    "Metadata",
+    "Output",
+    "PreprocessingBlock",
 ]

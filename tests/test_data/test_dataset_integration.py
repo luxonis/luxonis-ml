@@ -12,7 +12,7 @@ from luxonis_ml.typing import Params
 from luxonis_ml.utils import LuxonisFileSystem
 
 
-def get_annotations(sequence_path):
+def get_annotations(sequence_path: Path):
     frame_data = sequence_path / "step0.frame_data.json"
     with open(frame_data) as f:
         data = json.load(f)["captures"][0]

@@ -5,10 +5,10 @@ from .output import Output
 
 __all__ = [
     "Head",
+    "HeadMetadata",
     "HeadType",
     "Input",
-    "PreprocessingBlock",
-    "Output",
     "Metadata",
-    "HeadMetadata",
+    "Output",
+    "PreprocessingBlock",
 ]

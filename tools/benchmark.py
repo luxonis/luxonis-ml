@@ -8,6 +8,7 @@ import typer
 from typing_extensions import Annotated
 
 from luxonis_ml.data import BucketStorage, LuxonisDataset, LuxonisLoader
+from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.typing import Params
 
 name = "benchmark"
@@ -16,7 +17,7 @@ DATA_DIR = Path("data/test_data")
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def generator(size: int):
+def generator(size: int) -> DatasetIterator:
     for i in range(size):
         img = np.random.randint(0, 255, (256, 256, 3), dtype=np.uint8)
         cv2.imwrite(str(DATA_DIR / f"img_{i}.jpg"), img)
@@ -85,7 +86,7 @@ def main(
             dataset.add(generator(size))
             dataset.make_splits()
             avg += time.time() - t
-        print(f"Time to write: {avg / repeat:.2f}s")
+        typer.echo(f"Time to write: {avg / repeat:.2f}s")
 
     if not no_read:
         avg = 0
@@ -105,7 +106,7 @@ def main(
                 pass
 
             avg += time.time() - t
-        print(f"Time to read: {avg / repeat:.2f}s")
+        typer.echo(f"Time to read: {avg / repeat:.2f}s")
 
 
 if __name__ == "__main__":

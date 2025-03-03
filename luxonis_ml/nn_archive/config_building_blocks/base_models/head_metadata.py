@@ -237,24 +237,18 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
         tasks = []
         # Extract the task type
         if all(
-            [
-                field in defined_params
-                for field in required_fields.get("instance_segmentation", [])
-            ]
+            field in defined_params
+            for field in required_fields.get("instance_segmentation", [])
         ):
             tasks.append("instance_segmentation")
         if all(
-            [
-                field in defined_params
-                for field in required_fields.get("keypoint_detection", [])
-            ]
+            field in defined_params
+            for field in required_fields.get("keypoint_detection", [])
         ):
             tasks.append("keypoint_detection")
         if all(
-            [
-                field not in defined_params
-                for field in unsupported_fields.get("object_detection", [])
-            ]
+            field not in defined_params
+            for field in unsupported_fields.get("object_detection", [])
         ):
             tasks.append("object_detection")
 
@@ -298,11 +292,9 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
 
         # Check if all required output fields are present
         if not all(
-            [
-                field in defined_params
-                for task in tasks
-                for field in supported_output_params[task]
-            ]
+            field in defined_params
+            for task in tasks
+            for field in supported_output_params[task]
         ):
             raise ValueError(f"Invalid output fields for tasks {tasks}")
 

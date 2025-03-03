@@ -57,7 +57,7 @@ def onnx_path(tempdir: Path):
 
 @pytest.mark.parametrize("compression", ["xz", "gz", "bz2"])
 @pytest.mark.parametrize(
-    "head, archive_name",
+    ("head", "archive_name"),
     [
         (classification_head, "classification"),
         (ssd_object_detection_head, "ssd_detection"),
@@ -220,14 +220,7 @@ def test_layout():
         }
     )
     assert inp.layout == "CHWD"
-    out = Output(
-        **{
-            "name": "output",
-            "dtype": "float32",
-            "shape": [1, 10],
-            "layout": "nc",
-        }
-    )
+    out = Output(name="output", dtype="float32", shape=[1, 10], layout="nc")
     assert out.layout == "NC"
 
     with pytest.raises(ValidationError):
@@ -258,20 +251,7 @@ def test_layout():
         )
 
     with pytest.raises(ValidationError):
-        Output(
-            **{
-                "name": "output",
-                "dtype": "float32",
-                "shape": [1, 10],
-                "layout": "ncn",
-            }
-        )
+        Output(name="output", dtype="float32", shape=[1, 10], layout="ncn")
 
     with pytest.raises(ValidationError):
-        Output(
-            **{
-                "name": "output",
-                "dtype": "float32",
-                "layout": list("nc"),
-            }
-        )
+        Output(name="output", dtype="float32", layout=list("nc"))

@@ -59,8 +59,7 @@ class Registry(Generic[T]):
         module_cls = self._module_dict.get(key, None)
         if module_cls is None:
             raise KeyError(f"'{key}' not in the '{self.name}' registry.")
-        else:
-            return module_cls
+        return module_cls
 
     @overload
     def register_module(

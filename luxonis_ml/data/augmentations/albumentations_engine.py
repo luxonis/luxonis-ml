@@ -547,10 +547,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                     image_width,
                     n_keypoints[target_name],
                 )
-            elif target_type == "array":
-                out_labels[task] = array[bbox_ordering]
-
-            elif target_type == "metadata":
+            elif target_type in {"array", "metadata"}:
                 out_labels[task] = array[bbox_ordering]
 
             elif target_type == "classification":

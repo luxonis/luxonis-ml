@@ -5,8 +5,8 @@ from .utils import infer_layout, is_nn_archive
 
 __all__ = [
     "ArchiveGenerator",
-    "Model",
     "Config",
-    "is_nn_archive",
+    "Model",
     "infer_layout",
+    "is_nn_archive",
 ]

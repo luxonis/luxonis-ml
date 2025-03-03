@@ -28,7 +28,7 @@ Usage
 from typing import Tuple
 
 import numpy as np
-import scipy.spatial.distance as distance
+from scipy.spatial import distance
 from sklearn.neighbors import KNeighborsClassifier
 
 

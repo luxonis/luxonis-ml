@@ -1,4 +1,3 @@
-import os
 import os.path as osp
 import subprocess
 import sys
@@ -88,7 +87,8 @@ class LuxonisFileSystem:
         supported_protocols = ["s3", "gcs", "file", "mlflow"]
         if self.protocol not in supported_protocols:
             raise ValueError(
-                f"Protocol `{self.protocol}` not supported. Choose from {supported_protocols}."
+                f"Protocol '{self.protocol}://' not supported. "
+                f"Choose from {supported_protocols}."
             )
 
         _check_package_installed(self.protocol)
@@ -259,7 +259,7 @@ class LuxonisFileSystem:
         """
         if self.is_mlflow:
             raise NotImplementedError
-        elif self.is_fsspec:
+        if self.is_fsspec:
             if isinstance(local_paths, (Path, str)):
                 local_paths = Path(local_paths)
                 if not Path(local_paths).is_dir():
@@ -278,15 +278,15 @@ class LuxonisFileSystem:
                 upload_dict = {}
                 with ThreadPoolExecutor() as executor:
                     for local_path in local_paths:
-                        local_path = str(local_path)
+                        local_path = Path(local_path)
                         if uuid_dict is not None:
-                            file_uuid = uuid_dict[local_path]
-                            ext = osp.splitext(local_path)[1]
+                            file_uuid = uuid_dict[str(local_path)]
+                            ext = local_path.suffix
                             basename = file_uuid + ext
                         else:
                             basename = Path(local_path).name
                         remote_path = str(PurePosixPath(remote_dir) / basename)
-                        upload_dict[local_path] = remote_path
+                        upload_dict[str(local_path)] = remote_path
                         executor.submit(self.put_file, local_path, remote_path)
                 return upload_dict
 
@@ -308,7 +308,7 @@ class LuxonisFileSystem:
         """
         if self.is_mlflow:
             raise NotImplementedError
-        elif self.is_fsspec:
+        if self.is_fsspec:
             full_path = str(self.path / remote_path)
             with self.fs.open(full_path, "wb") as file:
                 file.write(file_bytes)  # type: ignore
@@ -334,7 +334,7 @@ class LuxonisFileSystem:
         local_path = Path(local_path)
         if self.is_mlflow:
             raise NotImplementedError
-        elif self.is_fsspec:
+        if self.is_fsspec:
             self.fs.get(
                 str(self.path / remote_path), str(local_path), recursive=False
             )
@@ -394,10 +394,8 @@ class LuxonisFileSystem:
         local_dir = Path(local_dir)
         if self.is_mlflow:
             raise NotImplementedError
-        elif self.is_fsspec:
-            if isinstance(remote_paths, PurePosixPath) or isinstance(
-                remote_paths, str
-            ):
+        if self.is_fsspec:
+            if isinstance(remote_paths, (PurePosixPath, str)):
                 existed = local_dir.exists()
                 self.fs.get(
                     str(self.path / remote_paths),
@@ -408,7 +406,7 @@ class LuxonisFileSystem:
                     return local_dir
                 return local_dir / PurePosixPath(remote_paths).name
 
-            elif isinstance(remote_paths, list):
+            if isinstance(remote_paths, list):
                 local_dir.mkdir(parents=True, exist_ok=True)
                 with ThreadPoolExecutor() as executor:
                     for remote_path in remote_paths:
@@ -435,9 +433,6 @@ class LuxonisFileSystem:
                 f"No directory specified, this would the parent directory at `{self.path}`."
                 "If this is your intention, you must pass `allow_delete_parent=True`."
             )
-
-        elif remote_dir is None:
-            remote_dir = ""
 
         if self.is_fsspec:
             full_remote_dir = str(self.path / remote_dir)
@@ -513,22 +508,23 @@ class LuxonisFileSystem:
                 raise ValueError(
                     "Reading to byte buffer not available for active mlflow runs."
                 )
-            else:
-                if self.artifact_path is None:
-                    raise ValueError("No relative artifact path specified.")
-                import mlflow
+            if self.artifact_path is None:
+                raise ValueError("No relative artifact path specified.")
+            import mlflow
 
-                client = mlflow.MlflowClient(tracking_uri=self.tracking_uri)
-                if self.run_id is None:
-                    raise RuntimeError(
-                        "`run_id` cannot be `None` when using `mlflow`"
-                    )
-                download_path = client.download_artifacts(
+            client = mlflow.MlflowClient(tracking_uri=self.tracking_uri)
+            if self.run_id is None:
+                raise RuntimeError(
+                    "`run_id` cannot be `None` when using `mlflow`"
+                )
+            download_path = Path(
+                client.download_artifacts(
                     run_id=self.run_id, path=self.artifact_path, dst_path="."
                 )
+            )
             with open(download_path, "rb") as f:
                 buffer = BytesIO(f.read())
-            os.remove(download_path)  # remove local file
+            download_path.unlink()
 
         else:
             if remote_path is not None:
@@ -563,11 +559,7 @@ class LuxonisFileSystem:
             with self.fs.open(download_path, "rb") as f:
                 file_contents = cast(bytes, f.read())
 
-        file_hash_uuid = str(
-            uuid.uuid5(uuid.NAMESPACE_URL, file_contents.hex())
-        )
-
-        return file_hash_uuid
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, file_contents.hex()))
 
     def get_file_uuids(
         self, paths: Iterable[PathType], local: bool = False
@@ -740,5 +732,6 @@ def _pip_install(protocol: str, package: str, version: str) -> None:
     logger.error(f"'{package}' is necessary for '{protocol}://' protocol.")
     logger.info(f"Installing {package}...")
     subprocess.run(
-        [sys.executable, "-m", "pip", "install", f"{package}>={version}"]
+        [sys.executable, "-m", "pip", "install", f"{package}>={version}"],
+        check=False,
     )

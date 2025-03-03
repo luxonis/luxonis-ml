@@ -1,4 +1,4 @@
-from ..guard_extras import guard_missing_extra
+from luxonis_ml.guard_extras import guard_missing_extra
 
 with guard_missing_extra("utils"):
     from .config import LuxonisConfig
@@ -12,17 +12,17 @@ with guard_missing_extra("utils"):
 
 
 __all__ = [
-    "LuxonisConfig",
-    "LuxonisFileSystem",
     "PUT_FILE_REGISTRY",
     "AutoRegisterMeta",
+    "BaseModelExtraForbid",
+    "Environ",
+    "LuxonisConfig",
+    "LuxonisFileSystem",
     "Registry",
-    "setup_logging",
     "deprecated",
     "environ",
-    "Environ",
-    "BaseModelExtraForbid",
-    "make_progress_bar",
-    "traverse_graph",
     "is_acyclic",
+    "make_progress_bar",
+    "setup_logging",
+    "traverse_graph",
 ]

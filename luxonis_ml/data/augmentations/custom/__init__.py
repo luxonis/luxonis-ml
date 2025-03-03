@@ -16,4 +16,4 @@ TRANSFORMATIONS.register(module=LetterboxResize)
 TRANSFORMATIONS.register(module=MixUp)
 TRANSFORMATIONS.register(module=Mosaic4)
 
-__all__ = ["LetterboxResize", "MixUp", "Mosaic4", "TRANSFORMATIONS"]
+__all__ = ["TRANSFORMATIONS", "LetterboxResize", "MixUp", "Mosaic4"]

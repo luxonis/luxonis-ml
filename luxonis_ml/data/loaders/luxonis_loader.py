@@ -39,7 +39,7 @@ class LuxonisLoader(BaseLoader):
         dataset: LuxonisDataset,
         view: Union[str, List[str]] = "train",
         augmentation_engine: Union[
-            Literal["albumentations"], str
+            Literal["albumentations"], str  # noqa: PYI051
         ] = "albumentations",
         augmentation_config: Optional[Union[List[Params], PathType]] = None,
         height: Optional[int] = None,
@@ -143,7 +143,7 @@ class LuxonisLoader(BaseLoader):
             raise RuntimeError(
                 "Cannot find splits! Ensure you call dataset.make_splits()"
             )
-        with open(splits_path, "r") as file:
+        with open(splits_path) as file:
             splits = json.load(file)
 
         for view in self.view:
@@ -363,7 +363,8 @@ class LuxonisLoader(BaseLoader):
                 warnings.warn(
                     f"Augmentations batch_size ({self.augmentations.batch_size}) "
                     f"is larger than dataset size ({len(self)}). "
-                    "Samples will include repetitions."
+                    "Samples will include repetitions.",
+                    stacklevel=2,
                 )
                 other_indices = [i for i in range(len(self)) if i != idx]
                 picked_indices = random.choices(
@@ -385,7 +386,10 @@ class LuxonisLoader(BaseLoader):
 
     def _init_augmentations(
         self,
-        augmentation_engine: Union[Literal["albumentations"], str],
+        augmentation_engine: Union[
+            Literal["albumentations"],  # noqa: PYI051
+            str,
+        ],
         augmentation_config: Union[List[Params], PathType],
         height: Optional[int],
         width: Optional[int],

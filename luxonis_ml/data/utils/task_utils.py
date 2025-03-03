@@ -6,7 +6,7 @@ import numpy as np
 from luxonis_ml.typing import Labels, TaskType
 
 
-@lru_cache()
+@lru_cache
 def task_is_metadata(task: str) -> bool:
     """Returns whether a task is a metadata task.
 
@@ -18,7 +18,7 @@ def task_is_metadata(task: str) -> bool:
     return get_task_type(task).startswith("metadata/")
 
 
-@lru_cache()
+@lru_cache
 def split_task(task: str) -> Tuple[str, str]:
     """Splits a task into its task name and type.
 
@@ -33,7 +33,7 @@ def split_task(task: str) -> Tuple[str, str]:
     return splits[0], splits[1]
 
 
-@lru_cache()
+@lru_cache
 def get_task_name(task: str) -> str:
     """Returns the task name from a task.
 
@@ -45,7 +45,7 @@ def get_task_name(task: str) -> str:
     return task.split("/")[0]
 
 
-@lru_cache()
+@lru_cache
 def get_task_type(task: str) -> str:
     """Returns the task type from a task.
 

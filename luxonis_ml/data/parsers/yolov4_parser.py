@@ -92,7 +92,7 @@ class YoloV4Parser(BaseParser):
 
         def generator() -> DatasetIterator:
             with open(annotation_path) as f:
-                annotation_data = [line.rstrip() for line in f.readlines()]
+                annotation_data = [line.rstrip() for line in f]
 
             for ann_line in annotation_data:
                 data = ann_line.split(" ")

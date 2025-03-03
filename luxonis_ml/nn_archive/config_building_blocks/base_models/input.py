@@ -4,10 +4,12 @@ from typing import Any, Dict, List, Optional
 from pydantic import Field, model_validator
 from typing_extensions import Self
 
+from luxonis_ml.nn_archive.config_building_blocks.enums import (
+    DataType,
+    InputType,
+)
+from luxonis_ml.nn_archive.utils import infer_layout
 from luxonis_ml.utils import BaseModelExtraForbid
-
-from ...utils import infer_layout
-from ..enums import DataType, InputType
 
 
 class PreprocessingBlock(BaseModelExtraForbid):
@@ -110,11 +112,10 @@ class Input(BaseModelExtraForbid):
                 "If N (batch size) is included in the layout, it must be first"
             )
 
-        if self.input_type == InputType.IMAGE:
-            if "C" not in self.layout:
-                raise ValueError(
-                    "C letter must be present in layout for image input type."
-                )
+        if self.input_type is InputType.IMAGE and "C" not in self.layout:
+            raise ValueError(
+                "C letter must be present in layout for image input type."
+            )
 
         return self
 

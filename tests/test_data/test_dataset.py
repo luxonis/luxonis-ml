@@ -1,6 +1,6 @@
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, NoReturn
 
 import numpy as np
 import pytest
@@ -15,6 +15,7 @@ from luxonis_ml.data import (
     LuxonisParser,
     LuxonisSource,
 )
+from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.data.utils.task_utils import get_task_type
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.typing import Params
@@ -105,7 +106,7 @@ def test_dataset(
         loader = LuxonisLoader(dataset)
         for img, labels in loader:
             assert img is not None
-            for task in {"segmentation", "keypoints", "boundingbox"}:
+            for task in ["segmentation", "keypoints", "boundingbox"]:
                 assert f"coco/{task}" in labels
 
     with subtests.test("test_load_aug"):
@@ -118,7 +119,7 @@ def test_dataset(
         )
         for img, labels in loader:
             assert img is not None
-            for task in {"segmentation", "keypoints", "boundingbox"}:
+            for task in ["segmentation", "keypoints", "boundingbox"]:
                 assert f"coco/{task}" in labels
 
     with subtests.test("test_delete"):
@@ -130,7 +131,7 @@ def test_dataset(
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_dataset_fail(dataset_name: str, tempdir: Path):
-    def generator():
+    def generator() -> DatasetIterator:
         for i in range(10):
             img = create_image(i, tempdir)
             yield {
@@ -142,7 +143,7 @@ def test_dataset_fail(dataset_name: str, tempdir: Path):
 
     dataset = create_dataset(dataset_name, generator())
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Must provide either"):
         dataset.set_skeletons()
 
 
@@ -158,7 +159,7 @@ def test_loader_iterator(storage_url: str, tempdir: Path):
     ).parse()
     loader = LuxonisLoader(dataset)
 
-    def _raise(*_):
+    def _raise(*_) -> NoReturn:
         raise IndexError
 
     loader._load_data = _raise  # type: ignore
@@ -174,7 +175,7 @@ def test_make_splits(
 
     _start_index: int = 0
 
-    def generator(step=15):
+    def generator(step: int = 15) -> DatasetIterator:
         nonlocal _start_index
         definitions.clear()
         for i in range(_start_index, _start_index + step):
@@ -199,24 +200,24 @@ def test_make_splits(
     assert splits is not None
     assert set(splits.keys()) == {"train", "val", "test"}
     for split, split_data in splits.items():
-        assert (
-            len(split_data) == 5
-        ), f"Split {split} has {len(split_data)} samples"
+        assert len(split_data) == 5, (
+            f"Split {split} has {len(split_data)} samples"
+        )
 
     dataset.add(generator())
     splits = dataset.get_splits()
     assert splits is not None
     for split, split_data in splits.items():
-        assert (
-            len(split_data) == 5
-        ), f"Split {split} has {len(split_data)} samples"
+        assert len(split_data) == 5, (
+            f"Split {split} has {len(split_data)} samples"
+        )
     dataset.make_splits(definitions)  # type: ignore
     splits = dataset.get_splits()
     assert splits is not None
     for split, split_data in splits.items():
-        assert (
-            len(split_data) == 10
-        ), f"Split {split} has {len(split_data)} samples"
+        assert len(split_data) == 10, (
+            f"Split {split} has {len(split_data)} samples"
+        )
 
     dataset.add(generator())
     dataset.make_splits((1, 0, 0))
@@ -224,26 +225,26 @@ def test_make_splits(
     assert splits is not None
     for split, split_data in splits.items():
         expected_length = 25 if split == "train" else 10
-        assert (
-            len(split_data) == expected_length
-        ), f"Split {split} has {len(split_data)} samples"
+        assert len(split_data) == expected_length, (
+            f"Split {split} has {len(split_data)} samples"
+        )
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="No new files"):
         dataset.make_splits()
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Ratios must sum to 1.0"):
         dataset.make_splits((0.7, 0.1, 1))
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="must be a tuple of 3 floats"):
         dataset.make_splits((0.7, 0.1, 0.1, 0.1))  # type: ignore
 
-    with pytest.raises(ValueError):
-        dataset.make_splits((0.7, 0.1, 1), definitions=definitions)  # type: ignore
+    with pytest.raises(ValueError, match="Cannot provide both splits and"):
+        dataset.make_splits((0.7, 0.1, 0.2), definitions=definitions)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Ratios must sum to 1.0"):
         dataset.make_splits({"train": 1.5})
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Dataset size is smaller than"):
         dataset.make_splits(
             {split: defs * 2 for split, defs in splits.items()}
         )
@@ -255,25 +256,25 @@ def test_make_splits(
     assert set(splits.keys()) == {"train", "val", "test", "custom_split"}
     for split, split_data in splits.items():
         expected_length = 25 if split == "train" else 10
-        assert (
-            len(split_data) == expected_length
-        ), f"Split {split} has {len(split_data)} samples"
+        assert len(split_data) == expected_length, (
+            f"Split {split} has {len(split_data)} samples"
+        )
 
     dataset.make_splits(replace_old_splits=True)
     splits = dataset.get_splits()
     assert splits is not None
     for split, split_data in splits.items():
         expected_length = {"train": 44, "val": 6, "test": 5}
-        assert (
-            len(split_data) == expected_length[split]
-        ), f"Split {split} has {len(split_data)} samples"
+        assert len(split_data) == expected_length[split], (
+            f"Split {split} has {len(split_data)} samples"
+        )
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_metadata(
     bucket_storage: BucketStorage, dataset_name: str, tempdir: Path
 ):
-    def generator():
+    def generator() -> DatasetIterator:
         img = create_image(0, tempdir)
         for i in range(10):
             yield {
@@ -325,7 +326,7 @@ def test_metadata(
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_no_labels(dataset_name: str, tempdir: Path, subtests: SubTests):
-    def generator(total: bool):
+    def generator(total: bool) -> DatasetIterator:
         for i in range(10):
             img = create_image(i, tempdir)
             if i == 0:
@@ -413,7 +414,7 @@ def test_no_labels(dataset_name: str, tempdir: Path, subtests: SubTests):
 def test_deep_nested_labels(
     dataset_name: str, augmentation_config: List[Params], tempdir: Path
 ):
-    def generator():
+    def generator() -> DatasetIterator:
         for i in range(10):
             yield {
                 "file": create_image(i, tempdir),
@@ -476,7 +477,7 @@ def test_deep_nested_labels(
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_partial_labels(dataset_name: str, tempdir: Path):
-    def generator():
+    def generator() -> DatasetIterator:
         for i in range(8):
             img = create_image(i, tempdir)
             if i < 2:
@@ -541,7 +542,7 @@ def test_partial_labels(dataset_name: str, tempdir: Path):
 def test_clone_dataset(
     bucket_storage: BucketStorage, dataset_name: str, tempdir: Path
 ):
-    def generator1():
+    def generator1() -> DatasetIterator:
         for i in range(3):
             img = create_image(i, tempdir)
             yield {
@@ -584,7 +585,7 @@ def test_merge_datasets(
     dataset1_name = f"{dataset_name}_1"
     dataset2_name = f"{dataset_name}_2"
 
-    def generator1():
+    def generator1() -> DatasetIterator:
         for i in range(3):
             img = create_image(i, tempdir)
             yield {
@@ -595,7 +596,7 @@ def test_merge_datasets(
                 },
             }
 
-    def generator2():
+    def generator2() -> DatasetIterator:
         for i in range(3, 6):
             img = create_image(i, tempdir)
             yield {

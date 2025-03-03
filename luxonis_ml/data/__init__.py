@@ -38,22 +38,22 @@ load_dataset_plugins()
 load_loader_plugins()
 
 __all__ = [
+    "DATASETS_REGISTRY",
+    "LOADERS_REGISTRY",
     "AlbumentationsEngine",
     "BaseDataset",
     "BaseLoader",
     "BucketStorage",
     "BucketType",
-    "DatasetIterator",
-    "DATASETS_REGISTRY",
     "Category",
-    "Metadata",
-    "LOADERS_REGISTRY",
+    "DatasetIterator",
     "ImageType",
     "LuxonisComponent",
     "LuxonisDataset",
-    "UpdateMode",
     "LuxonisLoader",
     "LuxonisParser",
     "LuxonisSource",
     "MediaType",
+    "Metadata",
+    "UpdateMode",
 ]

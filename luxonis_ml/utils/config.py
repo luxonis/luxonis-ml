@@ -98,11 +98,12 @@ class LuxonisConfig(BaseModelExtraForbid):
         value = self
         for key in key_merged.split("."):
             if isinstance(value, list):
-                if not key.isdecimal():
+                try:
+                    index = int(key)
+                except ValueError:
                     raise ValueError(
                         f"Can't access list with non-int key `{key}`."
-                    )
-                index = int(key)
+                    ) from None
                 if index >= len(value):
                     return default
                 value = value[index]

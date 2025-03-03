@@ -84,13 +84,12 @@ def resolve_color(color: Color) -> RGB:
 
     if isinstance(color, str):
         return matplotlib.colors.to_rgb(color)  # type: ignore
-    elif isinstance(color, int):
+    if isinstance(color, int):
         _check_range(color)
         return color, color, color
-    else:
-        for c in color:
-            _check_range(c)
-        return color
+    for c in color:
+        _check_range(c)
+    return color
 
 
 def rgb_to_hsv(color: Color) -> HSV:
@@ -141,7 +140,7 @@ def str_to_rgb(string: str) -> RGB:
     @rtype: Tuple[int, int, int]
     @return: The RGB tuple.
     """
-    h = int(hashlib.md5(string.encode()).hexdigest(), 16)
+    h = int(hashlib.md5(string.encode()).hexdigest(), 16)  # noqa: S324
     r = (h & 0xFF0000) >> 16
     g = (h & 0x00FF00) >> 8
     b = h & 0x0000FF
@@ -184,8 +183,7 @@ def draw_dashed_rectangle(
             for i in range(0, line_length, 2 * dash_length)
         ]
         for start, end in dashes:
-            if end > line_length:
-                end = line_length
+            end = min(end, line_length)
             start_point = (
                 int(p1[0] + (p2[0] - p1[0]) * start / line_length),
                 int(p1[1] + (p2[1] - p1[1]) * start / line_length),
