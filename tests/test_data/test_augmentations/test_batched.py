@@ -42,6 +42,7 @@ def targets() -> Dict[str, str]:
     }
 
 
+@pytest.fixture
 def n_classes() -> Dict[str, int]:
     return {
         "task/boundingbox": 1,

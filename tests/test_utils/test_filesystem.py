@@ -214,7 +214,7 @@ def test_protocol():
         "local_path/to/file",
     )
 
-    with pytest.raises(ValueError, match="Protocol 'fpp://' not suppoerted"):
+    with pytest.raises(ValueError, match="Protocol 'foo://' not suppoerted"):
         LuxonisFileSystem("foo://bar")
 
 

@@ -2,11 +2,12 @@ from pathlib import Path
 from typing import List
 
 import numpy as np
-from utils import create_image
 
 from luxonis_ml.data import BucketStorage, LuxonisDataset, LuxonisLoader
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.typing import Params
+
+from .utils import create_image
 
 
 def test_edge_cases(tempdir: Path):

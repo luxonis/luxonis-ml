@@ -5,16 +5,6 @@ from typing import Literal
 
 import onnx
 import pytest
-from heads import (
-    classification_head,
-    custom_segmentation_head,
-    ssd_object_detection_head,
-    yolo_instance_seg_kpts_head,
-    yolo_instance_segmentation_head,
-    yolo_keypoint_detection_head,
-    yolo_obb_detection_head,
-    yolo_object_detection_head,
-)
 from onnx import checker, helper
 from onnx.onnx_pb import TensorProto
 from pydantic import ValidationError
@@ -26,6 +16,17 @@ from luxonis_ml.nn_archive.config_building_blocks.enums.data_type import (
 )
 from luxonis_ml.nn_archive.model import HeadType, Input, Output
 from luxonis_ml.typing import Params
+
+from .heads import (
+    classification_head,
+    custom_segmentation_head,
+    ssd_object_detection_head,
+    yolo_instance_seg_kpts_head,
+    yolo_instance_segmentation_head,
+    yolo_keypoint_detection_head,
+    yolo_obb_detection_head,
+    yolo_object_detection_head,
+)
 
 
 @lru_cache

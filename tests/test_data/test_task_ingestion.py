@@ -2,8 +2,6 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Dict
 
-from utils import create_image
-
 from luxonis_ml.data import (
     BucketStorage,
     LuxonisDataset,
@@ -12,6 +10,8 @@ from luxonis_ml.data import (
 )
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.data.utils import get_task_name, get_task_type
+
+from .utils import create_image
 
 STEP = 10
 

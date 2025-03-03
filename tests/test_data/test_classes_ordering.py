@@ -4,11 +4,12 @@ from typing import List
 
 import numpy as np
 from pytest_subtests.plugin import SubTests
-from utils import create_dataset, create_image
 
 from luxonis_ml.data import LuxonisLoader
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.data.datasets.luxonis_dataset import LuxonisDataset
+
+from .utils import create_dataset, create_image
 
 
 def build_segmentation(

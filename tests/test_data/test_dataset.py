@@ -5,7 +5,6 @@ from typing import Dict, List, NoReturn
 import numpy as np
 import pytest
 from pytest_subtests.plugin import SubTests
-from utils import create_dataset, create_image, get_loader_output
 
 from luxonis_ml.data import (
     BucketStorage,
@@ -19,6 +18,8 @@ from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.data.utils.task_utils import get_task_type
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.typing import Params
+
+from .utils import create_dataset, create_image, get_loader_output
 
 
 def test_dataset(
