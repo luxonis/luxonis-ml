@@ -2,15 +2,16 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Dict
 
-from utils import create_image
-
 from luxonis_ml.data import (
     BucketStorage,
     LuxonisDataset,
     LuxonisLoader,
     UpdateMode,
 )
+from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.data.utils import get_task_name, get_task_type
+
+from .utils import create_image
 
 STEP = 10
 
@@ -21,7 +22,7 @@ def compute_histogram(dataset: LuxonisDataset) -> Dict[str, int]:
         dataset, exclude_empty_annotations=True, update_mode=UpdateMode.ALWAYS
     )
     for _, record in loader:
-        for task, _ in record.items():
+        for task in record:
             if get_task_type(task) != "classification":
                 classes[get_task_name(task)] += 1
 
@@ -38,7 +39,7 @@ def test_task_ingestion(
         delete_remote=True,
     )
 
-    def generator1():
+    def generator1() -> DatasetIterator:
         for i in range(STEP):
             path = create_image(i, tempdir)
             yield {
@@ -97,7 +98,7 @@ def test_task_ingestion(
 
     assert compute_histogram(dataset) == {"animals": STEP, "landmass": STEP}
 
-    def generator2():
+    def generator2() -> DatasetIterator:
         for i in range(STEP, 2 * STEP):
             path = create_image(i, tempdir)
             yield {
@@ -125,7 +126,7 @@ def test_task_ingestion(
         "landmass": STEP,
     }
 
-    def generator3():
+    def generator3() -> DatasetIterator:
         for i in range(2 * STEP, 3 * STEP):
             path = create_image(i, tempdir)
             yield {
@@ -163,7 +164,7 @@ def test_task_ingestion(
         "landmass": 2 * STEP,
     }
 
-    def generator4():
+    def generator4() -> DatasetIterator:
         for i in range(3 * STEP, 4 * STEP):
             path = create_image(i, tempdir)
             yield {

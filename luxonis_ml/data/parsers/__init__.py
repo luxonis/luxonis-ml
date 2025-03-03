@@ -12,16 +12,16 @@ from .yolov4_parser import YoloV4Parser
 from .yolov6_parser import YoloV6Parser
 
 __all__ = [
-    "LuxonisParser",
     "BaseParser",
     "COCOParser",
+    "ClassificationDirectoryParser",
+    "CreateMLParser",
+    "DarknetParser",
+    "LuxonisParser",
+    "SOLOParser",
+    "SegmentationMaskDirectoryParser",
+    "TensorflowCSVParser",
     "VOCParser",
     "YoloV4Parser",
     "YoloV6Parser",
-    "DarknetParser",
-    "CreateMLParser",
-    "TensorflowCSVParser",
-    "ClassificationDirectoryParser",
-    "SegmentationMaskDirectoryParser",
-    "SOLOParser",
 ]

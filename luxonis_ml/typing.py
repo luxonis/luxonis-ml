@@ -1,6 +1,6 @@
 from contextlib import suppress
 from pathlib import Path, PurePosixPath
-from typing import Dict, Literal, Tuple, Union
+from typing import Dict, Literal, Mapping, Tuple, Union
 
 from pydantic import BaseModel, JsonValue
 from typing_extensions import TypeAlias
@@ -48,7 +48,7 @@ or a single value (in which case it is interpreted as a grayscale
 value).
 """
 
-Params: TypeAlias = Dict[str, JsonValue]
+Params: TypeAlias = Mapping[str, JsonValue]
 """A JSON-like dictionary of additioanl parameters."""
 
 

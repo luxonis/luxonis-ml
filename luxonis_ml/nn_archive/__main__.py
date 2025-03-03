@@ -1,6 +1,7 @@
 import json
 import tarfile
 from pathlib import Path
+from typing import List
 
 import typer
 from rich import print
@@ -81,7 +82,7 @@ def extract(
     extract_path = Path(destination) / (Path(path).name.split(".")[0])
     extract_path.mkdir(exist_ok=True, parents=True)
 
-    def safe_members(tar):
+    def safe_members(tar: tarfile.TarFile) -> List[tarfile.TarInfo]:
         """Filter members to prevent path traversal attacks."""
         safe_files = []
         for member in tar.getmembers():
@@ -92,7 +93,8 @@ def extract(
                 typer.echo(f"Skipping unsafe file: {member.name}")
         return safe_files
 
-    tf = tarfile.open(path, mode="r")
-    tf.extractall(extract_path, members=safe_members(tf))
+    with tarfile.open(path) as tf:
+        for member in safe_members(tf):
+            tf.extract(member, extract_path)
 
     typer.echo(f"Archive extracted to: {extract_path}")

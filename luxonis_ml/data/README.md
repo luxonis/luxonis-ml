@@ -429,10 +429,10 @@ The coordinates are relative to the image size.
     "segmentation": {
         # height of the mask
         "height": int,
-        
+
         # width of the mask
         "width": int,
-        
+
         # list of (x, y) coordinates forming the polyline
         # coordinates are normalized with the image size
         # the polyline will be closed to form a polygon,
@@ -479,12 +479,12 @@ The RLE is composed of the height and width of the mask image and the counts of 
     {
         # height of the mask
         "height": int,
-        
+
         # width of the mask
         "width": int,
 
         # counts of the pixels belonging to the positive class
-        "counts": list[int] | bytes,    
+        "counts": list[int] | bytes,
     },
 
 }
@@ -508,7 +508,7 @@ An array of arbitrary data. This can be used for any custom data that doesn't fi
     "array":{
         # path to a `.npy` file containing the array data
         "path": str,
-    },	
+    },
 }
 ```
 
@@ -536,10 +536,10 @@ Instance segmentation combines bounding boxes and segmentation masks for each in
     "instance_segmentation": {
         # height of the mask
         "height": int,
-        
+
         # width of the mask
         "width": int,
-        
+
         # list of (x, y) coordinates forming the polyline
         # coordinates are normalized with the image size
         # the polyline will be closed to form a polygon,
@@ -694,8 +694,8 @@ import json
 dataset = LuxonisDataset("parking_lot")
 loader = LuxonisLoader(
     dataset,
-    view="train", 
-    augmentation_config="augmentations.yaml", 
+    view="train",
+    augmentation_config="augmentations.yaml",
     augmentation_engine="albumentations",
     height=256,
     width=320,

@@ -1,14 +1,16 @@
 from pathlib import Path
+from typing import List
 
 import pytest
 
-from luxonis_ml.data.loaders.luxonis_loader import LuxonisLoader
+from luxonis_ml.data import DatasetIterator, LuxonisLoader
+from luxonis_ml.typing import Params
 from tests.test_data.utils import create_dataset, create_image
 
 
 @pytest.mark.parametrize("n_samples", range(20))
 def test_empty(dataset_name: str, tempdir: Path, n_samples: int):
-    config = [
+    config: List[Params] = [
         {
             "name": "Defocus",
             "params": {"p": 1.0},
@@ -19,7 +21,7 @@ def test_empty(dataset_name: str, tempdir: Path, n_samples: int):
         },
     ]
 
-    def generator(keep_samples: int):
+    def generator(keep_samples: int) -> DatasetIterator:
         for i in range(20):
             img = create_image(i, tempdir)
             if i < keep_samples:

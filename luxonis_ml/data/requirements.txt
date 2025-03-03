@@ -9,3 +9,4 @@ semver~=3.0.0
 filelock~=3.0.0
 bidict~=0.21.0
 gdown~=4.7.1
+defusedxml~=0.7.0

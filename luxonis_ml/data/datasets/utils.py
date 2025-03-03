@@ -76,8 +76,8 @@ def find_filepath_uuid(
     matched = index.filter(pl.col("original_filepath") == abs_path)
 
     if len(matched):
-        return list(matched.select("uuid"))[0][0]
-    elif raise_on_missing:
+        return next(iter(matched.select("uuid")))[0]
+    if raise_on_missing:
         raise ValueError(f"File {abs_path} not found in index")
     return None
 

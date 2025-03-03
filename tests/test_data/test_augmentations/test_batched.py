@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from luxonis_ml.data import AlbumentationsEngine
-from luxonis_ml.typing import Labels, TaskType
+from luxonis_ml.typing import Labels
 
 
 @pytest.fixture
@@ -70,7 +70,7 @@ def test_mosaic4(
 def test_mixup(
     image: np.ndarray,
     labels: Labels,
-    targets: Dict[str, TaskType],
+    targets: Dict[str, str],
     n_classes: Dict[str, int],
 ):
     config = [{"name": "MixUp", "params": {"p": 1.0}}]
@@ -81,7 +81,7 @@ def test_mixup(
 def test_batched_p_0(
     image: np.ndarray,
     labels: Labels,
-    targets: Dict[str, TaskType],
+    targets: Dict[str, str],
     n_classes: Dict[str, int],
 ):
     config = [

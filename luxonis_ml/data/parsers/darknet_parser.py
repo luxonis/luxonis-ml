@@ -89,9 +89,9 @@ class DarknetParser(BaseParser):
                     annotation_data = f.readlines()
 
                 for ann_line in annotation_data:
-                    class_id, x_center, y_center, width, height = [
-                        x for x in ann_line.split(" ")
-                    ]
+                    class_id, x_center, y_center, width, height = list(
+                        ann_line.split(" ")
+                    )
                     class_name = class_names[int(class_id)]
 
                     yield {

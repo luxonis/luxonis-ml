@@ -265,7 +265,8 @@ class LuxonisParser(Generic[T]):
                     "-y",
                     "opencv-python",
                     "opencv-python-headless",
-                ]
+                ],
+                check=False,
             )
             subprocess.run(
                 [
@@ -274,7 +275,8 @@ class LuxonisParser(Generic[T]):
                     "pip",
                     "install",
                     "opencv-python~=4.10.0",
-                ]
+                ],
+                check=False,
             )
 
         from roboflow import Roboflow

@@ -1,13 +1,13 @@
 import random
 from pathlib import Path
-from typing import List, Optional, Set, Tuple
+from typing import Iterator, List, Optional, Set, Tuple
 
 import cv2
 import numpy as np
 import rich.box
 import typer
 from rich import print
-from rich.console import Console, group
+from rich.console import Console, RenderableType, group
 from rich.panel import Panel
 from rich.rule import Rule
 from rich.table import Table
@@ -39,7 +39,7 @@ DatasetNameArgument = Annotated[
 def check_exists(name: str):
     if not LuxonisDataset.exists(name):
         print(f"[red]Dataset [magenta]'{name}'[red] does not exist.")
-        raise typer.Exit()
+        raise typer.Exit
 
 
 def get_dataset_info(dataset: LuxonisDataset) -> Tuple[Set[str], List[str]]:
@@ -87,7 +87,7 @@ def print_info(name: str) -> None:
     splits = dataset.get_splits()
 
     @group()
-    def get_sizes_panel():
+    def get_sizes_panel() -> Iterator[RenderableType]:
         if splits is not None:
             for split, files in splits.items():
                 yield f"[magenta b]{split}: [not b cyan]{len(files)}"
@@ -97,7 +97,7 @@ def print_info(name: str) -> None:
         yield f"[magenta b]Total: [not b cyan]{len(dataset)}"
 
     @group()
-    def get_panels():
+    def get_panels() -> Iterator[RenderableType]:
         yield f"[magenta b]Name: [not b cyan]{name}"
         yield f"[magenta b]Version: [not b cyan]{dataset.version}"
         yield ""

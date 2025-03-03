@@ -106,9 +106,7 @@ class YoloV6Parser(BaseParser):
         """
         with open(classes_path) as f:
             classes_data = yaml.safe_load(f)
-        class_names = {
-            i: class_name for i, class_name in enumerate(classes_data["names"])
-        }
+        class_names = dict(enumerate(classes_data["names"]))
 
         def generator() -> DatasetIterator:
             for img_path in self._list_images(image_dir):
@@ -118,9 +116,9 @@ class YoloV6Parser(BaseParser):
                     annotation_data = f.readlines()
 
                 for ann_line in annotation_data:
-                    class_id, x_center, y_center, width, height = [
-                        x for x in ann_line.split()
-                    ]
+                    class_id, x_center, y_center, width, height = list(
+                        ann_line.split()
+                    )
                     class_name = class_names[int(class_id)]
 
                     yield {
