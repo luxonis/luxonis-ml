@@ -249,6 +249,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         keep_aspect_ratio: bool = True,
         is_validation_pipeline: bool = False,
         min_bbox_visibility: float = 0.0,
+        seed: int | None = None,
     ):
         self.targets: Dict[str, TargetType] = {}
         self.target_names_to_tasks = {}
@@ -371,6 +372,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 "additional_targets": self.targets
                 if is_custom
                 else targets_without_instance_mask,
+                "seed": seed,
             }
 
         # Warning issued when "bbox_params" or "keypoint_params"
@@ -384,7 +386,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 A.Compose(spatial_transforms, **get_params())
             )
             self.pixel_transform = wrap_transform(
-                A.Compose(pixel_transforms), is_pixel=True
+                A.Compose(pixel_transforms, seed=seed), is_pixel=True
             )
             self.resize_transform = wrap_transform(
                 A.Compose([resize_transform], **get_params())

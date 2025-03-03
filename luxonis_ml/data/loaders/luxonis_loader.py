@@ -50,6 +50,7 @@ class LuxonisLoader(BaseLoader):
         *,
         keep_categorical_as_strings: bool = False,
         update_mode: UpdateMode = UpdateMode.ALWAYS,
+        seed: Optional[int] = None,
     ) -> None:
         """A loader class used for loading data from L{LuxonisDataset}.
 
@@ -105,6 +106,9 @@ class LuxonisLoader(BaseLoader):
         @param update_mode: Enum that determines the sync mode:
             - UpdateMode.ALWAYS: Force a fresh download
             - UpdateMode.IF_EMPTY: Skip downloading if local data exists
+
+        @type seed: Optional[int]
+        @param seed: Seed for random number generators.
         """
 
         self.exclude_empty_annotations = exclude_empty_annotations
@@ -184,6 +188,7 @@ class LuxonisLoader(BaseLoader):
             height,
             width,
             keep_aspect_ratio,
+            seed,
         )
 
     @override
@@ -391,6 +396,7 @@ class LuxonisLoader(BaseLoader):
         height: Optional[int],
         width: Optional[int],
         keep_aspect_ratio: bool,
+        seed: Optional[int],
     ) -> Optional[AugmentationEngine]:
         if isinstance(augmentation_config, (Path, str)):
             with open(augmentation_config) as file:
@@ -425,4 +431,5 @@ class LuxonisLoader(BaseLoader):
             n_classes=n_classes,
             keep_aspect_ratio=keep_aspect_ratio,
             is_validation_pipeline="train" not in self.view,
+            seed=seed,
         )
