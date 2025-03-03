@@ -1,11 +1,11 @@
 from copy import deepcopy
-from typing import Dict, Iterator, List, Set, Tuple, TypeVar
+from typing import Dict, Iterator, List, Mapping, Set, Tuple, TypeVar
 
 T = TypeVar("T")
 
 
 def traverse_graph(
-    graph: Dict[str, List[str]], nodes: Dict[str, T]
+    graph: Dict[str, List[str]], nodes: Mapping[str, T]
 ) -> Iterator[Tuple[str, T, List[str], List[str]]]:
     """Traverses the graph in topological order, starting from the nodes
     with no predecessors.
