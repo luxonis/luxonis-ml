@@ -10,7 +10,6 @@ from typing import Dict, List
 import numpy as np
 import pytest
 from _pytest.fixtures import SubRequest
-from pytest import FixtureRequest, Function, Metafunc, Parser
 from rich import print as rich_print
 
 from luxonis_ml.data import BucketStorage
@@ -31,7 +30,7 @@ def setup():
     environ.LUXONISML_BASE_PATH.mkdir(parents=True, exist_ok=True)
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def randint() -> int:
     return random.randint(0, 100_000)
 
@@ -45,8 +44,7 @@ def fix_seed(worker_id: str):
 @pytest.fixture(scope="session")
 def python_version():
     version = sys.version_info
-    formatted_version = f"{version.major}{version.minor}"
-    return formatted_version
+    return f"{version.major}{version.minor}"
 
 
 @pytest.fixture(scope="session")
@@ -54,15 +52,14 @@ def platform_name():  # pragma: no cover
     os_name = platform.system().lower()
     if "darwin" in os_name:
         return "mac"
-    elif "linux" in os_name:
+    if "linux" in os_name:
         return "lin"
-    elif "windows" in os_name:
+    if "windows" in os_name:
         return "win"
-    else:
-        raise ValueError(f"Unsupported operating system: {os_name}")
+    raise ValueError(f"Unsupported operating system: {os_name}")
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def dataset_name(request: SubRequest, randint: int) -> str:
     return f"{get_caller_name(request)}_{randint}"
 
@@ -79,7 +76,7 @@ def width() -> int:
 
 @pytest.fixture
 def augmentation_data(
-    height: int, width: int, request: FixtureRequest
+    height: int, width: int, request: pytest.FixtureRequest
 ) -> Dict[str, List[np.ndarray]]:
     batch_size: int = request.param
     return {
@@ -121,10 +118,10 @@ def base_tempdir(worker_id: str):
     path = Path("tests", "data", "tempdir", worker_id)
     shutil.rmtree(path, ignore_errors=True)
     path.mkdir(parents=True, exist_ok=True)
-    yield path
+    return path
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def tempdir(base_tempdir: Path, randint: int) -> Path:
     t = time.time()
     while True:
@@ -146,7 +143,7 @@ def storage_url() -> str:
     return "gs://luxonis-test-bucket/luxonis-ml-test-data/"
 
 
-def pytest_addoption(parser: Parser):
+def pytest_addoption(parser: pytest.Parser):
     parser.addoption(
         "--only-local",
         action="store_true",
@@ -155,7 +152,7 @@ def pytest_addoption(parser: Parser):
     )
 
 
-def pytest_generate_tests(metafunc: Metafunc):
+def pytest_generate_tests(metafunc: pytest.Metafunc):
     if "bucket_storage" in metafunc.fixturenames:
         only_local = metafunc.config.getoption("--only-local")
         storage_options = (
@@ -168,6 +165,6 @@ def pytest_generate_tests(metafunc: Metafunc):
 
 def get_caller_name(request: SubRequest) -> str:  # pragma: no cover
     node = request.node
-    if isinstance(node, Function):
+    if isinstance(node, pytest.Function):
         return node.function.__name__
     return node.name

@@ -1,7 +1,7 @@
-from ..guard_extras import guard_missing_extra
+from luxonis_ml.guard_extras import guard_missing_extra
 
 with guard_missing_extra("tracker"):
     from .mlflow_plugins import LuxonisRequestHeaderProvider
     from .tracker import LuxonisTracker
 
-__all__ = ["LuxonisTracker", "LuxonisRequestHeaderProvider"]
+__all__ = ["LuxonisRequestHeaderProvider", "LuxonisTracker"]

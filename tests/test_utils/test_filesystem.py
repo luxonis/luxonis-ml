@@ -214,18 +214,18 @@ def test_protocol():
         "local_path/to/file",
     )
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Protocol 'foo://' not supported"):
         LuxonisFileSystem("foo://bar")
 
 
 def test_fail(tempdir: Path, randint: int):
     file = tempdir / f"file_{randint}.txt"
     file.write_text("test")
-    with pytest.raises(ValueError):
-        LuxonisFileSystem(str(local_file), allow_local=False)
+    with pytest.raises(ValueError, match="Local filesystem is not allowed"):
+        LuxonisFileSystem(str(file), allow_local=False)
 
 
-def test_bytes(fs: LuxonisFileSystem, randint):
+def test_bytes(fs: LuxonisFileSystem, randint: int):
     bytes_file = f"bytes_test_{randint}.txt"
     fs.put_bytes(f"bytes test {randint}".encode(), bytes_file)
     assert fs.exists(bytes_file)

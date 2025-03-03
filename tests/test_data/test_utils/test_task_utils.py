@@ -48,7 +48,7 @@ def test_task_type_iterator():
 
     def compare(
         iterator: Iterator[Tuple[str, np.ndarray]], expected: Set[str]
-    ):
+    ) -> None:
         tasks = set()
         for task, _ in iterator:
             tasks.add(task)

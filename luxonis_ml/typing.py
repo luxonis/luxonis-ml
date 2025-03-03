@@ -1,4 +1,3 @@
-from contextlib import suppress
 from pathlib import Path, PurePosixPath
 from typing import (
     TYPE_CHECKING,
@@ -18,7 +17,7 @@ from pydantic import BaseModel
 from typing_extensions import TypeAlias, TypeGuard
 
 # When used without installed dependencies
-with suppress(ImportError):
+if TYPE_CHECKING:  # pragma: no cover
     import numpy as np
 
 
@@ -70,10 +69,8 @@ if TYPE_CHECKING:  # pragma: no cover
         List["ParamValue"],
         PrimitiveType,
     ]
-    """Possible values in a safely loaded YAML file."""
 else:
     ParamValue: TypeAlias = Any
-    """Possible values in a safely loaded YAML file."""
 
 Params: TypeAlias = Dict[str, ParamValue]
 """A keyword dictionary of additional parameters.

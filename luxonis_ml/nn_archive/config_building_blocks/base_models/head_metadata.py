@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -189,7 +189,10 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
     )
 
     @model_validator(mode="before")
-    def validate_task_specific_fields(cls, values):
+    @classmethod
+    def validate_task_specific_fields(
+        cls, values: Dict[str, Any]
+    ) -> Dict[str, Any]:
         defined_params = {k for k, v in dict(values).items() if v is not None}
 
         common_fields = [
@@ -234,24 +237,18 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
         tasks = []
         # Extract the task type
         if all(
-            [
-                field in defined_params
-                for field in required_fields.get("instance_segmentation", [])
-            ]
+            field in defined_params
+            for field in required_fields.get("instance_segmentation", [])
         ):
             tasks.append("instance_segmentation")
         if all(
-            [
-                field in defined_params
-                for field in required_fields.get("keypoint_detection", [])
-            ]
+            field in defined_params
+            for field in required_fields.get("keypoint_detection", [])
         ):
             tasks.append("keypoint_detection")
         if all(
-            [
-                field not in defined_params
-                for field in unsupported_fields.get("object_detection", [])
-            ]
+            field not in defined_params
+            for field in unsupported_fields.get("object_detection", [])
         ):
             tasks.append("object_detection")
 
@@ -295,11 +292,9 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
 
         # Check if all required output fields are present
         if not all(
-            [
-                field in defined_params
-                for task in tasks
-                for field in supported_output_params[task]
-            ]
+            field in defined_params
+            for task in tasks
+            for field in supported_output_params[task]
         ):
             raise ValueError(f"Invalid output fields for tasks {tasks}")
 

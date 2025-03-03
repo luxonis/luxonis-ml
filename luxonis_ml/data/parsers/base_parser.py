@@ -8,11 +8,6 @@ from luxonis_ml.data import BaseDataset, DatasetIterator
 from luxonis_ml.enums.enums import DatasetType
 
 ParserOutput = Tuple[DatasetIterator, Dict[str, Dict], List[Path]]
-"""Type alias for parser output.
-
-Contains a function to create the annotation generator, list of classes
-names, skeleton dictionary for keypoints and list of added images.
-"""
 
 
 @dataclass
@@ -90,7 +85,7 @@ class BaseParser(ABC):
         @rtype: List[str]
         @return: List of added images.
         """
-        old_cwd = os.getcwd()
+        old_cwd = Path.cwd()
         try:
             generator, skeletons, added_images = self.from_split(**kwargs)
             self.dataset.add(self._add_task(generator))
@@ -164,10 +159,10 @@ class BaseParser(ABC):
         @return: List of added images by generator function
         """
         return list(
-            set(
+            {
                 Path(item["file"] if isinstance(item, dict) else item.file)
                 for item in generator
-            )
+            }
         )
 
     @staticmethod
@@ -192,8 +187,8 @@ class BaseParser(ABC):
         @return: If the two sets of files are equal when compared by their stems.
             If the sets are empty, returns C{False}.
         """
-        set1 = set(Path(f).stem for f in list1)
-        set2 = set(Path(f).stem for f in list2)
+        set1 = {Path(f).stem for f in list1}
+        set2 = {Path(f).stem for f in list2}
         return len(set1) > 0 and set1 == set2
 
     @staticmethod

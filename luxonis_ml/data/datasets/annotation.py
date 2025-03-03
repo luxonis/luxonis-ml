@@ -1,4 +1,5 @@
 import json
+import warnings
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from pathlib import Path
@@ -36,8 +37,6 @@ from luxonis_ml.utils import BaseModelExtraForbid
 
 KeypointVisibility: TypeAlias = Literal[0, 1, 2]
 NormalizedFloat: TypeAlias = Annotated[float, Field(ge=0, le=1)]
-"""C{NormalizedFloat} is a float that is restricted to the range [0,
-1]."""
 
 
 class Category(str):
@@ -76,7 +75,7 @@ class Detection(BaseModelExtraForbid):
     def rescale_values(self) -> Self:
         if not self.scale_to_boxes:
             return self
-        elif self.boundingbox is None:
+        if self.boundingbox is None:
             raise ValueError(
                 "`scaled_to_boxes` is set to True, "
                 "but no bounding box is provided."
@@ -196,8 +195,7 @@ class BBoxAnnotation(Annotation):
                 "BBox annotation has values outside of [0, 1] range. Clipping them to [0, 1]."
             )
 
-        values = cls._clip_sum(values)
-        return values
+        return cls._clip_sum(values)
 
     @staticmethod
     def _clip_sum(values: Dict[str, Any]) -> Dict[str, Any]:
@@ -300,9 +298,10 @@ class SegmentationAnnotation(Annotation):
     counts: bytes
 
     def to_numpy(self) -> np.ndarray:
-        return pycocotools.mask.decode(
-            {"counts": self.counts, "size": [self.height, self.width]}
-        ).astype(np.uint8)
+        with warnings.catch_warnings(record=True):
+            return pycocotools.mask.decode(
+                {"counts": self.counts, "size": [self.height, self.width]}
+            ).astype(np.uint8)
 
     @staticmethod
     @override
@@ -354,9 +353,12 @@ class SegmentationAnnotation(Annotation):
                         "RLE counts must be a list of positive integers"
                     )
 
-            rle: Any = pycocotools.mask.frPyObjects(
-                {"counts": counts, "size": [height, width]}, height, width
-            )
+            with warnings.catch_warnings(record=True):
+                rle: Any = pycocotools.mask.frPyObjects(
+                    {"counts": counts, "size": [height, width]},  # type: ignore
+                    height,
+                    width,
+                )
             values["counts"] = rle["counts"]
             values["height"] = rle["size"][0]
             values["width"] = rle["size"][1]
@@ -373,26 +375,31 @@ class SegmentationAnnotation(Annotation):
         mask = values.pop("mask")
         if isinstance(mask, (str, Path)):
             mask_path = Path(mask)
-            try:
-                if mask_path.suffix == ".npy":
+            if mask_path.suffix == ".npy":
+                try:
                     mask = np.load(mask_path)
-                elif mask_path.suffix == ".png":
+                except Exception as e:
+                    raise ValueError(
+                        f"Failed to load mask from array at '{mask_path}'"
+                    ) from e
+            elif mask_path.suffix == ".png":
+                try:
                     mask = (
                         cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
                         .astype(bool)
                         .astype(np.uint8)
                     )
-                else:
+                except Exception as e:
                     raise ValueError(
-                        f"Unsupported mask format: {mask_path.suffix}. "
-                        "Supported formats are .npy and .png"
-                    )
-            except Exception as e:
+                        f"Failed to load mask from image at '{mask_path}'"
+                    ) from e
+            else:
                 raise ValueError(
-                    f"Failed to load mask from {mask_path}"
-                ) from e
+                    f"Unsupported mask format: {mask_path.suffix}. "
+                    "Supported formats are .npy and .png"
+                )
         if not isinstance(mask, np.ndarray):
-            raise ValueError(
+            raise TypeError(
                 "Mask must be either a numpy array, "
                 "or a path to a saved numpy array"
             )
@@ -401,7 +408,8 @@ class SegmentationAnnotation(Annotation):
             raise ValueError("Mask must be a 2D binary array")
 
         mask = np.asfortranarray(mask.astype(np.uint8))
-        rle = pycocotools.mask.encode(mask)
+        with warnings.catch_warnings(record=True):
+            rle = pycocotools.mask.encode(mask)
 
         return {
             "height": rle["size"][0],

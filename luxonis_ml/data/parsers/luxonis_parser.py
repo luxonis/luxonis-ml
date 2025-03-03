@@ -1,3 +1,5 @@
+import subprocess
+import sys
 import zipfile
 from enum import Enum
 from importlib.util import find_spec
@@ -253,7 +255,29 @@ class LuxonisParser(Generic[T]):
         self, dataset_dir: str, local_path: Optional[Path]
     ) -> Tuple[Path, str]:
         if find_spec("roboflow") is None:  # pragma: no cover
-            _pip_install("roboflow", "roboflow", "0.1.1")
+            _pip_install("roboflow", "roboflow~=1.1.0")
+            subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "uninstall",
+                    "-y",
+                    "opencv-python",
+                    "opencv-python-headless",
+                ],
+                check=False,
+            )
+            subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "install",
+                    "opencv-python~=4.10.0",
+                ],
+                check=False,
+            )
 
         from roboflow import Roboflow
 

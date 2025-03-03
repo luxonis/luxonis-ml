@@ -41,7 +41,27 @@ We offer several versions of the package:
 - `luxonis-ml[all]`: installs all dependencies
 - `luxonis-ml[dev]`: installs all dependencies, including development dependencies
 
-To install the package with all dependencies, run:
+### Additional dependencies
+
+Additional dependencies for working with specific cloud services can be installed using the following extras:
+
+- `gcs`: Dependencies for working with Google Cloud Storage
+- `s3`: Dependencies for working with AWS S3
+- `roboflow`: Dependencies for downloading datasets from Roboflow
+- `mlflow`: Dependencies for working with MLFlow
+
+> \[!NOTE\]
+> If some of the additional dependencies are required but not installed (_e.g._ attempting to use Google Cloud Storage without installing the `gcs` extra), then the missing dependencies will be installed automatically.
+
+**Example**:
+
+Installing the package with the `data` extra and dependencies for `gcs` and `roboflow`:
+
+```bash
+pip install luxonis-ml[data,gcs,roboflow]
+```
+
+Installing the package with all dependencies:
 
 ```bash
 pip install luxonis-ml[all]

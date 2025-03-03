@@ -1,7 +1,7 @@
 import warnings
 from collections import defaultdict
 from math import prod
-from typing import Any, Dict, Iterable, List, Literal, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Literal, Tuple
 
 import albumentations as A
 import numpy as np
@@ -560,10 +560,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                     image_width,
                     n_keypoints[target_name],
                 )
-            elif target_type == "array":
-                out_labels[task] = array[bbox_ordering]
-
-            elif target_type == "metadata":
+            elif target_type in {"array", "metadata"}:
                 out_labels[task] = array[bbox_ordering]
 
             elif target_type == "classification":
@@ -586,7 +583,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         return target
 
 
-def wrap_transform(transform: A.BaseCompose, is_pixel: bool = False):
+def wrap_transform(
+    transform: A.BaseCompose, is_pixel: bool = False
+) -> Callable[..., Data]:
     def apply_transform(**data: np.ndarray) -> Data:
         if not transform.transforms:
             return data

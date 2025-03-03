@@ -2,7 +2,7 @@ import colorsys
 import hashlib
 import math
 from collections import defaultdict
-from typing import Dict, Generator, Hashable, Mapping, Tuple
+from typing import Dict, Generator, Hashable, Iterator, Mapping, Tuple
 
 import cv2
 import matplotlib.colors
@@ -32,10 +32,10 @@ class ColorMap(Mapping[Hashable, RGB]):
             self._color_dict[label] = next(self._generator)
         return self._color_dict[label]
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Hashable]:
         return iter(self._color_dict)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._color_dict)
 
 
@@ -83,14 +83,13 @@ def resolve_color(color: Color) -> RGB:
             raise ValueError(f"Color value {val} is out of range [0, 255]")
 
     if isinstance(color, str):
-        return matplotlib.colors.to_rgb(color)
-    elif isinstance(color, int):
+        return matplotlib.colors.to_rgb(color)  # type: ignore
+    if isinstance(color, int):
         _check_range(color)
         return color, color, color
-    else:
-        for c in color:
-            _check_range(c)
-        return color
+    for c in color:
+        _check_range(c)
+    return color
 
 
 def rgb_to_hsv(color: Color) -> HSV:
@@ -141,7 +140,7 @@ def str_to_rgb(string: str) -> RGB:
     @rtype: Tuple[int, int, int]
     @return: The RGB tuple.
     """
-    h = int(hashlib.md5(string.encode()).hexdigest(), 16)
+    h = int(hashlib.md5(string.encode()).hexdigest(), 16)  # noqa: S324
     r = (h & 0xFF0000) >> 16
     g = (h & 0x00FF00) >> 8
     b = h & 0x0000FF
@@ -184,8 +183,7 @@ def draw_dashed_rectangle(
             for i in range(0, line_length, 2 * dash_length)
         ]
         for start, end in dashes:
-            if end > line_length:
-                end = line_length
+            end = min(end, line_length)
             start_point = (
                 int(p1[0] + (p2[0] - p1[0]) * start / line_length),
                 int(p1[1] + (p2[1] - p1[1]) * start / line_length),
@@ -353,7 +351,7 @@ def visualize(
     """
     h, w, _ = image.shape
     images = {"image": image}
-    classes = {task: bidict(c) for task, c in classes.items()}
+    mappings = {task: bidict(c) for task, c in classes.items()}
 
     def create_mask(
         image: np.ndarray, arr: np.ndarray, task_name: str, is_instance: bool
@@ -362,7 +360,7 @@ def visualize(
         for i, mask in enumerate(arr):
             mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST)
             if is_instance:
-                task_classes = classes[task_name]
+                task_classes = mappings[task_name]
                 if len(bbox_classes[task_name]) > i:
                     class_id = bbox_classes[task_name][i]
                     color = str_to_rgb(task_classes.inverse[class_id])
@@ -371,7 +369,7 @@ def visualize(
                 mask_viz[mask > 0] = color
             else:
                 mask_viz[mask == 1] = (
-                    str_to_rgb(classes[task_name].inverse[i])
+                    str_to_rgb(mappings[task_name].inverse[i])
                     if (i != 0 or len(arr) == 1)
                     else (0, 0, 0)
                 )
@@ -414,7 +412,7 @@ def visualize(
         for box in arr:
             class_id = int(box[0])
             bbox_classes[task_name].append(class_id)
-            color = str_to_rgb(classes[task_name].inverse[class_id])
+            color = str_to_rgb(mappings[task_name].inverse[class_id])
             draw_function(
                 curr_image,
                 (box[1], box[2]),
@@ -437,7 +435,7 @@ def visualize(
         image_name = task_name if task_name and not blend_all else "labels"
         curr_image = images.get(image_name, image.copy())
 
-        task_classes = classes[task_name]
+        task_classes = mappings[task_name]
 
         for i, kp in enumerate(arr):
             kp = kp.reshape(-1, 3)

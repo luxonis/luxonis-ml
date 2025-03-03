@@ -30,7 +30,7 @@ pre-trained on datasets like ImageNet and expect 3-channel RGB input.
 
 import torch
 import torchvision
-import torchvision.transforms as transforms
+from torchvision import transforms
 
 
 def mnist_transformations() -> transforms.Compose:

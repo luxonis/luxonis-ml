@@ -5,14 +5,15 @@ from typing import List
 
 import cv2
 import numpy as np
-from utils import gather_tasks
 
 from luxonis_ml.data import BucketStorage, LuxonisDataset, LuxonisLoader
 from luxonis_ml.typing import Params
 from luxonis_ml.utils import LuxonisFileSystem
 
+from .utils import gather_tasks
 
-def get_annotations(sequence_path):
+
+def get_annotations(sequence_path: Path):
     frame_data = sequence_path / "step0.frame_data.json"
     with open(frame_data) as f:
         data = json.load(f)["captures"][0]

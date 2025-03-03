@@ -1,7 +1,9 @@
-pre-commit>=3.2.1
+pre-commit<4.0.0
 pytest-cov>=4.1.0
 pytest-dependency>=0.6.0
 pytest-subtests>=0.12.1
 pytest-md>=0.2.0
 pytest-xdist>=3.6.0
 onnx<1.17.0
+roboflow>=1.0.0
+pyleft>=1.2.0

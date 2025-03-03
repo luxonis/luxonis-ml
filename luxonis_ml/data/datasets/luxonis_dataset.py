@@ -107,17 +107,18 @@ class LuxonisDataset(BaseDataset):
         self.dataset_name = dataset_name
         self.team_id = team_id or self._get_credential("LUXONISML_TEAM_ID")
 
-        if delete_existing:
-            self._init_paths()
-            if self.exists(dataset_name, team_id, bucket_storage, self.bucket):
-                self.delete_dataset(delete_remote=delete_remote)
-
         self._init_paths()
 
         if not self.is_remote:
             self.fs = LuxonisFileSystem(f"file://{self.path}")
         else:
             self.fs = LuxonisFileSystem(self.path)
+
+        if delete_existing:
+            if self.exists(dataset_name, team_id, bucket_storage, self.bucket):
+                self.delete_dataset(delete_remote=delete_remote)
+
+            self._init_paths()
 
         _lock_metadata = self.base_path / ".metadata.lock"
 
@@ -192,12 +193,11 @@ class LuxonisDataset(BaseDataset):
         """Gets secret credentials from credentials file or ENV
         variables."""
 
-        if key in self._credentials.keys():
+        if key in self._credentials:
             return self._credentials[key]
-        else:
-            if not hasattr(environ, key):
-                raise RuntimeError(f"Must set {key} in ENV variables")
-            return getattr(environ, key)
+        if not hasattr(environ, key):
+            raise RuntimeError(f"Must set {key} in ENV variables")
+        return getattr(environ, key)
 
     def _init_paths(self) -> None:
         """Configures local path or bucket directory."""
@@ -403,7 +403,7 @@ class LuxonisDataset(BaseDataset):
 
     def _load_splits(self, path: Path) -> Dict[str, List[str]]:
         splits_path = path / "splits.json"
-        with open(splits_path, "r") as f:
+        with open(splits_path) as f:
             return json.load(f)
 
     def _merge_splits(
@@ -614,16 +614,15 @@ class LuxonisDataset(BaseDataset):
                     self._load_df_offline(lazy=True, attempt_migration=False),
                 )
             return Metadata(**metadata_json)
-        else:
-            return Metadata(
-                source=LuxonisSource(),
-                ldf_version=str(LDF_VERSION),
-                classes={},
-                tasks={},
-                skeletons={},
-                categorical_encodings={},
-                metadata_types={},
-            )
+        return Metadata(
+            source=LuxonisSource(),
+            ldf_version=str(LDF_VERSION),
+            classes={},
+            tasks={},
+            skeletons={},
+            categorical_encodings={},
+            metadata_types={},
+        )
 
     @property
     def is_remote(self) -> bool:
@@ -645,8 +644,8 @@ class LuxonisDataset(BaseDataset):
         else:
             tasks = [task]
 
-        for task in tasks:
-            self._metadata.set_classes(classes, task)
+        for t in tasks:
+            self._metadata.set_classes(classes, t)
 
         self._write_metadata()
 
@@ -679,8 +678,8 @@ class LuxonisDataset(BaseDataset):
             tasks = self.get_task_names()
         else:
             tasks = [task]
-        for task in tasks:
-            self._metadata.skeletons[task] = {
+        for t in tasks:
+            self._metadata.skeletons[t] = {
                 "labels": labels or [],
                 "edges": edges or [],
             }
@@ -821,7 +820,7 @@ class LuxonisDataset(BaseDataset):
         new_index: Dict[str, List[str]],
         processed_uuids: Set[str],
     ) -> None:
-        paths = set(data.file for data in data_batch)
+        paths = {data.file for data in data_batch}
         logger.info("Generating UUIDs...")
         # TODO: support from bucket
         uuid_dict = self.fs.get_file_uuids(paths, local=True)
@@ -1006,7 +1005,7 @@ class LuxonisDataset(BaseDataset):
         if splits_path is None:
             return None
 
-        with open(splits_path, "r") as file:
+        with open(splits_path) as file:
             return json.load(file)
 
     @deprecated(
@@ -1085,12 +1084,12 @@ class LuxonisDataset(BaseDataset):
             default=self.metadata_path / "splits.json",
         )
         if splits_path.exists():
-            with open(splits_path, "r") as file:
+            with open(splits_path) as file:
                 old_splits = defaultdict(list, json.load(file))
 
-        defined_uuids = set(
+        defined_uuids = {
             uuid for uuids in old_splits.values() for uuid in uuids
-        )
+        }
 
         if definitions is None:
             ratios = ratios or {"train": 0.8, "val": 0.1, "test": 0.1}
@@ -1108,11 +1107,8 @@ class LuxonisDataset(BaseDataset):
                         "No new files to add to splits. "
                         "If you want to generate new splits, set `replace_old_splits=True`"
                     )
-                else:
-                    ids = (
-                        df.select("uuid").unique().get_column("uuid").to_list()
-                    )
-                    old_splits = defaultdict(list)
+                ids = df.select("uuid").unique().get_column("uuid").to_list()
+                old_splits = defaultdict(list)
 
             np.random.shuffle(ids)
             N = len(ids)
@@ -1130,7 +1126,7 @@ class LuxonisDataset(BaseDataset):
             for split, filepaths in definitions.items():
                 splits_to_update.append(split)
                 if not isinstance(filepaths, list):
-                    raise ValueError(
+                    raise TypeError(
                         "Must provide splits as a list of filepaths"
                     )
                 ids = [
@@ -1223,8 +1219,6 @@ class LuxonisDataset(BaseDataset):
             for path in fs.walk_dir("", recursive=False, typ="directory")
         )
         with ThreadPoolExecutor() as executor:
-            names = [
+            return [
                 name for name in executor.map(process_directory, paths) if name
             ]
-
-        return names

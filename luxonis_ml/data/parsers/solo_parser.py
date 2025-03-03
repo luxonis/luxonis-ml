@@ -1,6 +1,4 @@
-import glob
 import json
-import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -55,18 +53,14 @@ class SOLOParser(BaseParser):
             json_path = next(split_path.glob(json_fname), None)
             if not json_path:
                 return None
-        with open(os.path.join(split_path, "metadata.json")) as json_file:
+        with open(split_path / "metadata.json") as json_file:
             metadata_dict = json.load(json_file)
         # check if all sequences are present
         total_sequences_expected = metadata_dict["totalSequences"]
         total_sequences = len(
-            [
-                d
-                for d in glob.glob(os.path.join(split_path, "sequence*"))
-                if os.path.isdir(d)
-            ]
+            [d for d in split_path.glob("sequence*") if d.is_dir()]
         )
-        if not total_sequences == total_sequences_expected:
+        if total_sequences != total_sequences_expected:
             return None
         return {"split_path": split_path}
 
@@ -115,17 +109,17 @@ class SOLOParser(BaseParser):
             skeleton dictionary for keypoints and list of added images.
         """
 
-        if not os.path.exists(split_path):
-            raise Exception(f"{split_path} path non-existent.")
+        if not split_path.exists():
+            raise FileNotFoundError(f"{split_path} path non-existent.")
 
-        annotation_definitions_path = os.path.join(
-            split_path, "annotation_definitions.json"
+        annotation_definitions_path = (
+            split_path / "annotation_definitions.json"
         )
-        if os.path.exists(annotation_definitions_path):
+        if annotation_definitions_path.exists():
             with open(annotation_definitions_path) as json_file:
                 annotation_definitions_dict = json.load(json_file)
         else:
-            raise Exception(
+            raise FileNotFoundError(
                 f"{annotation_definitions_path} path non-existent."
             )
 
@@ -139,7 +133,7 @@ class SOLOParser(BaseParser):
         # TODO: We make an assumption here that bbox class_names are also valid for all other annotation types in the dataset. Is this OK?
         # TODO: Can we imagine a case where classes between annotation types are different? Which class names to return in this case?
         if not class_names:
-            raise Exception("No class_names identified. ")
+            raise ValueError("No class_names identified. ")
 
         keypoint_labels = self._get_solo_keypoint_names(
             annotation_definitions_dict
@@ -163,8 +157,8 @@ class SOLOParser(BaseParser):
                         img_fname = capture["filename"]
                         img_w, img_h = capture["dimension"]
                         annotations = capture["annotations"]
-                        img_path = os.path.join(sequence_path, img_fname)
-                        if not os.path.exists(img_path):
+                        img_path = sequence_path / img_fname
+                        if not img_path.exists():
                             raise FileNotFoundError(
                                 f"{img_path} not existent."
                             )
@@ -180,7 +174,7 @@ class SOLOParser(BaseParser):
                                     sseg_annotations = anno
 
                             mask_fname = sseg_annotations["filename"]
-                            mask_path = os.path.join(sequence_path, mask_fname)
+                            mask_path = sequence_path / mask_fname
                             mask = cv2.imread(mask_path)
 
                             for instance in sseg_annotations["instances"]:
@@ -259,8 +253,8 @@ class SOLOParser(BaseParser):
         return generator(), skeletons, added_images
 
     def _get_solo_annotation_types(
-        self, annotation_definitions_dict: dict
-    ) -> list:
+        self, annotation_definitions_dict: Dict[str, Any]
+    ) -> List[str]:
         """List all annotation types present in the dataset.
 
         @type annotation_definitions_dict: dict
@@ -276,7 +270,9 @@ class SOLOParser(BaseParser):
             )
         return annotation_types
 
-    def _get_solo_bbox_class_names(self, annotation_definitions_dict):
+    def _get_solo_bbox_class_names(
+        self, annotation_definitions_dict: Dict[str, Any]
+    ) -> List[str]:
         """List class names for BoundingBox2DAnnotation type.
 
         @type annotation_definitions_dict: dict
@@ -296,7 +292,9 @@ class SOLOParser(BaseParser):
                 class_names = [c for _, c in sorted(zip(ids, names))]
         return class_names
 
-    def _get_solo_keypoint_names(self, annotation_definitions_dict):
+    def _get_solo_keypoint_names(
+        self, annotation_definitions_dict: Dict[str, Any]
+    ) -> List[str]:
         """List keypoint labels for all classes.
 
         @type annotation_definitions_dict: dict

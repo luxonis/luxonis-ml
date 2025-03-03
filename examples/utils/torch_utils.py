@@ -3,10 +3,9 @@ from typing import List, Tuple
 import cv2
 import onnxruntime as ort
 import torch
-import torch.nn as nn
-import torchvision.models as models
-import torchvision.models.resnet as resnet
-import torchvision.transforms as transforms
+from torch import nn
+from torchvision import models, transforms
+from torchvision.models import resnet
 
 
 # PyTorch and ONNX model loading and exporting functions

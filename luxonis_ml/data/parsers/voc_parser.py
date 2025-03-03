@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
+from defusedxml.ElementTree import parse
 
 from luxonis_ml.data import DatasetIterator
 
@@ -79,7 +80,7 @@ class VOCParser(BaseParser):
 
         images_annotations = []
         for anno_xml in annotation_dir.glob("*.xml"):
-            annotation_data = ET.parse(anno_xml)  # nosemgrep
+            annotation_data = parse(anno_xml)
             root = annotation_data.getroot()
 
             path = image_dir.absolute().resolve() / self._xml_find(

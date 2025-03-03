@@ -89,9 +89,7 @@ def postprocess_keypoints(
     keypoints[..., 1] = y
     keypoints[..., 2] = v
 
-    keypoints = keypoints.reshape(-1, n_keypoints * 3)
-
-    return keypoints
+    return keypoints.reshape(-1, n_keypoints * 3)
 
 
 T = TypeVar("T")

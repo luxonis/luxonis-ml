@@ -335,7 +335,7 @@ class QdrantAPI(VectorDBAPI):
         """
         # Get all embeddings
         ids, embeddings = self.retrieve_all_embeddings()
-        print("Retrieved {} embeddings".format(len(embeddings)))
+        print(f"Retrieved {len(embeddings)} embeddings")
 
         # Create a list of search requests
         search_queries = [
@@ -347,7 +347,7 @@ class QdrantAPI(VectorDBAPI):
             )
             for emb in embeddings
         ]
-        print("Created {} search queries".format(len(search_queries)))
+        print(f"Created {len(search_queries)} search queries")
 
         # Perform batch search
         batch_search_results = []
@@ -357,9 +357,7 @@ class QdrantAPI(VectorDBAPI):
                 requests=search_queries[patch : patch + 100],
             )
             batch_search_results.extend(batch_search_results_i)
-            print(
-                "Completed search for batch {}-{}".format(patch, patch + 100)
-            )
+            print(f"Completed search for batch {patch}-{patch + 100}")
 
         # Create a dictionary for O(1) lookup of ids
         id_to_index = {id: index for index, id in enumerate(ids)}
