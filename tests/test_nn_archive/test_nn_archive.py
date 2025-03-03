@@ -21,6 +21,9 @@ from pydantic import ValidationError
 
 from luxonis_ml.nn_archive import ArchiveGenerator, is_nn_archive
 from luxonis_ml.nn_archive.config_building_blocks import HeadMetadata
+from luxonis_ml.nn_archive.config_building_blocks.enums.data_type import (
+    DataType,
+)
 from luxonis_ml.nn_archive.model import HeadType, Input, Output
 from luxonis_ml.typing import Params
 
@@ -220,7 +223,12 @@ def test_layout():
         }
     )
     assert inp.layout == "CHWD"
-    out = Output(name="output", dtype="float32", shape=[1, 10], layout="nc")
+    out = Output(
+        name="output",
+        dtype=DataType.FLOAT32,
+        shape=[1, 10],
+        layout="nc",
+    )
     assert out.layout == "NC"
 
     with pytest.raises(ValidationError):
@@ -251,7 +259,13 @@ def test_layout():
         )
 
     with pytest.raises(ValidationError):
-        Output(name="output", dtype="float32", shape=[1, 10], layout="ncn")
+        Output(
+            name="output", dtype=DataType.FLOAT32, shape=[1, 10], layout="ncn"
+        )
 
     with pytest.raises(ValidationError):
-        Output(name="output", dtype="float32", layout=list("nc"))
+        Output(
+            name="output",
+            dtype=DataType.FLOAT32,
+            layout=list("nc"),
+        )  # type: ignore
