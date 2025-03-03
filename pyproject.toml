@@ -190,7 +190,7 @@ doctest_optionflags = "NORMALIZE_WHITESPACE IGNORE_EXCEPTION_DETAIL NUMBER"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--disable-warnings -n auto -x"
+addopts = "--disable-warnings"
 
 [tool.coverage.run]
 omit = [
