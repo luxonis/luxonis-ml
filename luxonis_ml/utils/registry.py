@@ -1,4 +1,3 @@
-import warnings
 from abc import ABCMeta
 from typing import (
     Callable,
@@ -10,6 +9,8 @@ from typing import (
     Union,
     overload,
 )
+
+from typing_extensions import deprecated
 
 T = TypeVar("T", bound=type)
 
@@ -72,17 +73,16 @@ class Registry(Generic[T]):
         self, name: Optional[str] = ..., module: T = ..., force: bool = ...
     ) -> T: ...
 
+    @deprecated(
+        "Method `register_module` is deprecated, use `register` instead.",
+        category=DeprecationWarning,
+    )
     def register_module(
         self,
         name: Optional[str] = None,
         module: Optional[T] = None,
         force: bool = False,
     ) -> Union[T, Callable[[T], T]]:
-        warnings.warn(
-            "`register_module` is deprecated, use `register` instead.",
-            stacklevel=2,
-        )
-
         return self.register(name=name, module=module, force=force)
 
     @overload
@@ -167,6 +167,53 @@ class Registry(Generic[T]):
 
         self._module_dict[module_name] = module
 
+    def autoregister(self) -> Callable[[T], T]:
+        """Decorator that can be used to automatically register
+        subclasses of the decorated class.
+
+        Can be used instead of L{AutoRegisterMeta} metaclass, this
+        can be useful when multiple custom metaclasses are used.
+
+        Example:
+
+            >>> REGISTRY = Registry(name="modules")
+            >>> @REGISTRY.autoregister()
+            ... class Foo:
+            ...     pass
+            >>> class Bar(Foo):
+            ...     pass
+            >>> REGISTRY.get("Bar")
+            <class '__main__.Bar'>
+            >>> class Baz(Foo, register=False):
+            ...     pass
+            >>> print("Baz" in REGISTRY)
+            >>> False
+
+
+        @warning: Due to the limitations of Python's typing system,
+        passing arguments `register` or `register_name` will be
+        understood by type checkers as an error. This is a false
+        positive and can be safely ignored.
+        """
+
+        def wrapper(cls_: T) -> T:
+            @classmethod
+            def __init_subclass__(
+                cls: T,
+                register: bool = True,
+                register_name: Optional[str] = None,
+                **kwargs,
+            ) -> None:
+                name = register_name or cls.__name__
+                if register:
+                    self.register(module=cls, name=name)
+                super(cls).__init_subclass__(**kwargs)
+
+            cls_.__init_subclass__ = __init_subclass__
+            return cls_
+
+        return wrapper
+
 
 class AutoRegisterMeta(ABCMeta):
     """Metaclass for automatically registering modules.
@@ -177,14 +224,16 @@ class AutoRegisterMeta(ABCMeta):
     Example:
 
         >>> REGISTRY = Registry(name="modules")
-        >>> class BaseClass(metaclass=AutoRegisterMeta, registry=REGISTRY):
+        >>> class Foo(metaclass=AutoRegisterMeta, registry=REGISTRY):
         ...     pass
-        >>> class SubClass(BaseClass):
+        >>> class Bar(Foo):
         ...     pass
-        >>> REGISTRY.get("SubClass")
-        <class '__main__.SubClass'>
-        >>> BaseClass.REGISTRY.get("SubClass")
-        <class '__main__.SubClass'>
+        >>> REGISTRY.get("Bar")
+        <class '__main__.Bar'>
+        >>> class Baz(Foo, register=False):
+        ...     pass
+        >>> print("Baz" in REGISTRY)
+        >>> False
     """
 
     REGISTRY: Registry

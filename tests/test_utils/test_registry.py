@@ -57,7 +57,7 @@ def test_registry(registry: Registry):
         registry.get("Bar")
 
 
-def test_autoregistry(registry: Registry):
+def test_autoregistry_meta(registry: Registry):
     assert len(registry) == 0
 
     class Base(metaclass=AutoRegisterMeta, registry=registry, register=False):
@@ -108,3 +108,38 @@ def test_autoregistry(registry: Registry):
 
         class _(metaclass=AutoRegisterMeta, register=True):
             pass
+
+
+def test_autoregistry_decorator(registry: Registry):
+    assert len(registry) == 0
+
+    @registry.autoregister()
+    class Base:
+        pass
+
+    assert len(registry) == 0
+
+    class A(Base):
+        pass
+
+    class B(Base):
+        pass
+
+    assert len(registry) == 2
+    assert registry.get("A") is A
+    assert registry.get("B") is B
+
+    class C(Base, register_name="AliasC"):  # type: ignore
+        pass
+
+    assert len(registry) == 3
+    assert registry.get("AliasC") is C
+    with pytest.raises(KeyError):
+        registry.get("C")
+
+    class D(Base, register=False):  # type: ignore
+        pass
+
+    assert len(registry) == 3
+    with pytest.raises(KeyError):
+        registry.get("D")
