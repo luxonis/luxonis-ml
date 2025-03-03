@@ -6,6 +6,7 @@ import pytest
 import yaml
 from pydantic import BaseModel
 
+from luxonis_ml.typing import Params
 from luxonis_ml.utils import environ
 from luxonis_ml.utils.config import LuxonisConfig
 
@@ -91,7 +92,7 @@ def test_config_simple(config_file: str):
 
 
 def test_config_simple_override(config_file: str):
-    overrides = {
+    overrides: Params = {
         "sub_config.str_sub_param": "sub_param_override",
     }
     cfg = Config.get_config(config_file, overrides)
