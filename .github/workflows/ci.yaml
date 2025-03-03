@@ -190,7 +190,7 @@ jobs:
           token_format: access_token
 
       - name: Run pytest
-        run: pytest --cov --junitxml=junit.xml -o junit_family=legacy -vv
+        run: pytest --cov --junitxml=junit.xml -o junit_family=legacy -vv -n auto -x
 
       - name: Upload test results to Codecov
         if: ${{ env.IS_MAIN_RUNNER && env.CODECOV_ENABLED }}
