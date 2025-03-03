@@ -15,7 +15,7 @@ def test_metadata_no_boxes():
         },
     ]
     augmentations = AlbumentationsEngine(
-        256, 256, {"/metadata/id": "metadata/id"}, config
+        256, 256, {"/metadata/id": "metadata/id"}, {"/metadata/id": 0}, config
     )
     _, labels = augmentations.apply(
         [

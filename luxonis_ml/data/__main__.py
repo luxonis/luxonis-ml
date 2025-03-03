@@ -55,7 +55,7 @@ def print_info(name: str) -> None:
     class_table = Table(
         title="Classes", box=rich.box.ROUNDED, row_styles=["yellow", "cyan"]
     )
-    if len(classes) > 1 or next(iter(classes)):
+    if len(classes) > 1 or (classes and next(iter(classes))):
         class_table.add_column(
             "Task Name", header_style="magenta i", max_width=30
         )

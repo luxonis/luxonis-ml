@@ -1,8 +1,19 @@
 import json
+import warnings
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple, Union
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Literal,
+    Optional,
+    Set,
+    Tuple,
+    Union,
+)
 
 import cv2
 import numpy as np
@@ -84,6 +95,25 @@ class Detection(BaseModelExtraForbid):
                 ]
             )
         return self
+
+    def get_task_types(self) -> Set[str]:
+        task_types = {
+            task_type
+            for task_type in [
+                "boundingbox",
+                "keypoints",
+                "segmentation",
+                "instance_segmentation",
+                "array",
+            ]
+            if getattr(self, task_type) is not None
+        }
+        if self.class_name is not None:
+            task_types.add("classification")
+        for metadata_key in self.metadata:
+            task_types.add(f"metadata/{metadata_key}")
+
+        return task_types
 
 
 class Annotation(ABC, BaseModelExtraForbid):
@@ -219,6 +249,9 @@ class KeypointAnnotation(Annotation):
     @model_validator(mode="before")
     @classmethod
     def validate_values(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        if "keypoints" not in values:
+            return values
+
         warn = False
         for i, keypoint in enumerate(values["keypoints"]):
             if (keypoint[0] < -2 or keypoint[0] > 2) or (
@@ -265,9 +298,10 @@ class SegmentationAnnotation(Annotation):
     counts: bytes
 
     def to_numpy(self) -> np.ndarray:
-        return pycocotools.mask.decode(
-            {"counts": self.counts, "size": [self.height, self.width]}
-        ).astype(np.uint8)
+        with warnings.catch_warnings(record=True):
+            return pycocotools.mask.decode(
+                {"counts": self.counts, "size": [self.height, self.width]}
+            ).astype(np.uint8)
 
     @staticmethod
     @override
@@ -315,11 +349,12 @@ class SegmentationAnnotation(Annotation):
                         "RLE counts must be a list of positive integers"
                     )
 
-            rle: Any = pycocotools.mask.frPyObjects(
-                {"counts": counts, "size": [height, width]},  # type: ignore
-                height,
-                width,
-            )
+            with warnings.catch_warnings(record=True):
+                rle: Any = pycocotools.mask.frPyObjects(
+                    {"counts": counts, "size": [height, width]},  # type: ignore
+                    height,
+                    width,
+                )
             values["counts"] = rle["counts"]
             values["height"] = rle["size"][0]
             values["width"] = rle["size"][1]
@@ -369,7 +404,8 @@ class SegmentationAnnotation(Annotation):
             raise ValueError("Mask must be a 2D binary array")
 
         mask = np.asfortranarray(mask.astype(np.uint8))
-        rle = pycocotools.mask.encode(mask)
+        with warnings.catch_warnings(record=True):
+            rle = pycocotools.mask.encode(mask)
 
         return {
             "height": rle["size"][0],
