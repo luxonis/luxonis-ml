@@ -153,7 +153,7 @@ class SOLOParser(BaseParser):
                 for frame_path in sequence_path.glob("*.frame_data.json"):
                     frame = json.loads(frame_path.read_text())
 
-                    for capture in frame["captures"]:
+                    for capture in frame.get("captures", []):
                         img_fname = capture["filename"]
                         img_w, img_h = capture["dimension"]
                         annotations = capture["annotations"]
@@ -196,10 +196,7 @@ class SOLOParser(BaseParser):
                                     },
                                 }
 
-                        record = {
-                            "file": img_path,
-                            "annotation": {},
-                        }
+                        instances = {}
                         if "BoundingBox2DAnnotation" in annotation_types:
                             for anno in annotations:
                                 if anno["@type"].endswith(
@@ -209,18 +206,41 @@ class SOLOParser(BaseParser):
 
                             for bbox_annotation in bbox_annotations:
                                 class_name = bbox_annotation["labelName"]
-
                                 origin = bbox_annotation["origin"]
                                 dimension = bbox_annotation["dimension"]
                                 xmin, ymin = origin
                                 bbox_w, bbox_h = dimension
-                                record["annotation"]["class"] = class_name
-                                record["annotation"]["boundingbox"] = {
-                                    "x": xmin / img_w,
-                                    "y": ymin / img_h,
-                                    "w": bbox_w / img_w,
-                                    "h": bbox_h / img_h,
-                                }
+
+                                instance_id = bbox_annotation.get(
+                                    "instanceId", len(instances)
+                                )
+
+                                if instance_id not in instances:
+                                    instances[instance_id] = {
+                                        "file": img_path,
+                                        "annotation": {
+                                            "class": class_name,
+                                            "instance_id": instance_id,
+                                            "boundingbox": {
+                                                "x": xmin / img_w,
+                                                "y": ymin / img_h,
+                                                "w": bbox_w / img_w,
+                                                "h": bbox_h / img_h,
+                                            },
+                                        },
+                                    }
+                                else:
+                                    instances[instance_id]["annotation"][
+                                        "class"
+                                    ] = class_name
+                                    instances[instance_id]["annotation"][
+                                        "boundingbox"
+                                    ] = {
+                                        "x": xmin / img_w,
+                                        "y": ymin / img_h,
+                                        "w": bbox_w / img_w,
+                                        "h": bbox_h / img_h,
+                                    }
 
                         if "KeypointAnnotation" in annotation_types:
                             for anno in annotations:
@@ -243,10 +263,29 @@ class SOLOParser(BaseParser):
 
                                 class_name = class_names[label_id]
 
-                                record["annotation"]["keypoints"] = {
-                                    "keypoints": keypoints,
-                                }
-                        yield record
+                                instance_id = keypoints_annotation.get(
+                                    "instanceId", len(instances)
+                                )
+
+                                if instance_id not in instances:
+                                    instances[instance_id] = {
+                                        "file": img_path,
+                                        "annotation": {
+                                            "class": class_name,
+                                            "instance_id": instance_id,
+                                            "keypoints": {
+                                                "keypoints": keypoints,
+                                            },
+                                        },
+                                    }
+                                else:
+                                    instances[instance_id]["annotation"][
+                                        "keypoints"
+                                    ] = {
+                                        "keypoints": keypoints,
+                                    }
+
+                        yield from instances.values()
 
         added_images = self._get_added_images(generator())
 
