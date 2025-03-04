@@ -2,115 +2,249 @@ name: CI
 
 on:
   pull_request:
+  workflow_dispatch:
+  push:
     branches: [ main ]
-    paths:
-      - 'luxonis_ml/**'
-      - 'tests/**'
-      - .github/workflows/ci.yaml
 
-permissions:
-  pull-requests: write
-  contents: write
-  checks: write
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  pre-commit:
+  auto-assigner:
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
+
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      with:
-        ref: ${{ github.head_ref }}
+      - name: Auto-assign
+        uses: toshimaru/auto-author-assign@v2.1.1
 
-    - name: Install pre-commit
-      run: python3 -m pip install 'pre-commit<4.0.0'
-
-    - name: Run pre-commit
-      uses: pre-commit/action@v3.0.1
-
-  docs:
+  labeler:
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ github.head_ref }}
 
-      - name: Install dependencies
+      - name: Labeler
+        uses: actions/labeler@v5
+        with:
+          configuration-path: .github/labeler.yaml
+
+  pre-commit:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Install pre-commit
+        run: python3 -m pip install 'pre-commit<4.0.0'
+
+      - name: Run pre-commit
+        uses: pre-commit/action@v3.0.1
+
+  docs:
+    if: ${{ github.event_name == 'pull_request' }}
+    needs: pre-commit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Install pydoctor
         run: pip install pydoctor
 
       - name: Build docs
         run: pydoctor --docformat=epytext luxonis_ml
 
-  tests:
-    needs:
-      - pre-commit
-      - docs
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ['3.8', '3.10']
-
-    runs-on: ${{ matrix.os }}
+  type-check:
+    if: ${{ github.event_name == 'pull_request' }}
+    needs: pre-commit
+    runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      with:
-        ref: ${{ github.head_ref }}
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ matrix.python-version }}
-        cache: pip
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+          cache: pip
 
-    - name: Install package
-      run: pip install -e .[dev]
+      - name: Install dependencies
+        run: pip install -e .[dev]
 
-    - name: Authenticate to Google Cloud
-      id: google-auth
-      uses: google-github-actions/auth@v2
-      with:
-        credentials_json: ${{ secrets.GCP_CREDENTIALS }}
-        create_credentials_file: true
-        export_environment_variables: true
-        token_format: access_token
+      - name: Pyright check
+        uses: jakebailey/pyright-action@v2
+        with:
+          level: warning
+          warnings: true
+          python-version: '3.8'
+          project: pyproject.toml
 
-    - name: Run pytest
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        AWS_S3_ENDPOINT_URL: ${{ secrets.AWS_S3_ENDPOINT_URL }}
-        ROBOFLOW_API_KEY: ${{ secrets.ROBOFLOW_API_KEY }}
-        LUXONISML_BUCKET: luxonis-test-bucket
-      run:
-        pytest --cov --junitxml=junit.xml -o junit_family=legacy -n auto -vv -x
+  semgrep:
+    if: ${{ github.actor != 'dependabot[bot]' && github.event_name == 'pull_request' }})
+    needs: pre-commit
+    runs-on: ubuntu-latest
+    container:
+      image: returntocorp/semgrep
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
 
-    - name: Upload test results to Codecov
-      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8'
-      uses: codecov/test-results-action@v1
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        fail_ci_if_error: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Upload coverage results to Codecov
-      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8'
-      uses: codecov/codecov-action@v4
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        fail_ci_if_error: false
+      - name: Perform Semgrep Analysis
+        run: semgrep scan -q --sarif --config auto --config "p/secrets" . > semgrep-results.sarif
 
-    - name: Upload coverage as artifact
-      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8'
-      uses: actions/upload-artifact@v4
-      with:
-        name: coverage
-        path: coverage.xml
-        overwrite: true
+      - name: Pretty-Print SARIF Output
+        run: |
+          jq . semgrep-results.sarif > formatted-semgrep-results.sarif || echo "{}"
+          echo "Formatted SARIF Output (First 20 lines):"
+          head -n 20 formatted-semgrep-results.sarif || echo "{}"
 
-  check-requirements:
+      - name: Validate JSON Output
+        run: |
+          if ! jq empty formatted-semgrep-results.sarif > /dev/null 2>&1; then
+            echo "⚠️ Semgrep output is not valid JSON. Skipping annotations."
+            exit 0
+          fi
+
+      - name: Add PR Annotations for Semgrep Findings
+        run: |
+          total_issues=$(jq '.runs[0].results | length' formatted-semgrep-results.sarif)
+          if [[ "$total_issues" -eq 0 ]]; then
+            echo "✅ No Semgrep issues found!"
+            exit 0
+          fi
+
+          jq -c '.runs[0].results[]' formatted-semgrep-results.sarif | while IFS= read -r issue; do
+            file=$(echo "$issue" | jq -r '.locations[0].physicalLocation.artifactLocation.uri')
+            line=$(echo "$issue" | jq -r '.locations[0].physicalLocation.region.startLine')
+            message=$(echo "$issue" | jq -r '.message.text')
+
+            if [[ -n "$file" && -n "$line" && -n "$message" ]]; then
+              echo "::error file=$file,line=$line,title=Semgrep Issue::${message}"
+            fi
+          done
+
+  tests:
+    strategy:
+      matrix:
+        os: [ ubuntu-latest, windows-latest, macos-latest ]
+        python-version: [ '3.8', '3.10' ]
+
+    if: ${{ github.event_name == 'pull_request' }}
+    needs: [type-check, semgrep]
+    runs-on: ${{ matrix.os }}
+
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_S3_ENDPOINT_URL: ${{ secrets.AWS_S3_ENDPOINT_URL }}
+      ROBOFLOW_API_KEY: ${{ secrets.ROBOFLOW_API_KEY }}
+      IS_MAIN_RUNNER: ${{ matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8' }}
+      LUXONISML_BUCKET: luxonis-test-bucket
+      GHC_ENABLED: ${{ secrets.GCP_CREDENTIALS != null }}
+      CODECOV_ENABLED: ${{ secrets.CODECOV_TOKEN != null }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install the package
+        run: pip install -e .[dev]
+
+      - name: Authenticate to Google Cloud
+        if: ${{ env.GHC_ENABLED }}
+        id: google-auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+          create_credentials_file: true
+          export_environment_variables: true
+          token_format: access_token
+
+      - name: Run pytest
+        run: pytest --cov --junitxml=junit.xml -o junit_family=legacy -vv -n auto -x
+
+      - name: Upload test results to Codecov
+        if: ${{ env.IS_MAIN_RUNNER && env.CODECOV_ENABLED }}
+        uses: codecov/test-results-action@v1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+      - name: Upload coverage results to Codecov
+        if: ${{ env.IS_MAIN_RUNNER && env.CODECOV_ENABLED }}
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+      - name: Upload coverage as artifact
+        if: ${{ env.IS_MAIN_RUNNER && env.CODECOV_ENABLED }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.xml
+          overwrite: true
+
+  update-base-report:
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+
+    env:
+      CODECOV_ENABLED: ${{ secrets.CODECOV_TOKEN != null }}
+
+    steps:
+      - name: Checkout
+        if: ${{ env.CODECOV_ENABLED }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Download artifacts
+        if: ${{ env.CODECOV_ENABLED }}
+        uses: dawidd6/action-download-artifact@v7
+        with:
+          name: coverage
+          path: coverage.xml
+          workflow: luxonis_ci.yaml
+
+      - name: Upload coverage results to Codecov
+        if: ${{ env.CODECOV_ENABLED }}
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+
+  check-release-requirements:
     if: ${{ startsWith(github.head_ref, 'release/') }}
     runs-on: ubuntu-latest
 
@@ -123,7 +257,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ inputs.main-python-version }}
+          python-version: '3.8'
           cache: pip
 
       - name: Install the package
@@ -136,4 +270,3 @@ jobs:
           from luxonis_ml.utils import *
           from luxonis_ml.nn_archive import *
           EOF
-

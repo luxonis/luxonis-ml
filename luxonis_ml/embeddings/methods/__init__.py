@@ -8,12 +8,12 @@ from .representative import (
 )
 
 __all__ = [
-    "find_similar",
+    "calculate_similarity_matrix",
     "find_mismatches_centroids",
     "find_mismatches_knn",
-    "isolation_forest_OOD",
-    "leverage_OOD",
-    "calculate_similarity_matrix",
     "find_representative_greedy",
     "find_representative_kmedoids",
+    "find_similar",
+    "isolation_forest_OOD",
+    "leverage_OOD",
 ]

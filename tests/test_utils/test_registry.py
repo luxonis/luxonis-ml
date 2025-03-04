@@ -3,7 +3,7 @@ import pytest
 from luxonis_ml.utils.registry import AutoRegisterMeta, Registry
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def registry() -> Registry:
     return Registry("test")
 
@@ -104,7 +104,7 @@ def test_autoregistry(registry: Registry):
     assert len(foo_registry) == 1
     assert foo_registry.get("E") is E
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Registry has to be set"):
 
         class _(metaclass=AutoRegisterMeta, register=True):
             pass

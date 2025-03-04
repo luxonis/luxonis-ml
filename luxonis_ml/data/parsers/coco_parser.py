@@ -62,10 +62,9 @@ class COCOParser(BaseParser):
         roboflow_splits = ["train", "valid", "test"]
         if all((dataset_dir / split).exists() for split in fiftyone_splits):
             return Format.FIFTYONE, fiftyone_splits
-        elif all((dataset_dir / split).exists() for split in roboflow_splits):
+        if all((dataset_dir / split).exists() for split in roboflow_splits):
             return Format.ROBOFLOW, roboflow_splits
-        else:
-            return None, []
+        return None, []
 
     @staticmethod
     def validate_split(split_path: Path) -> Optional[Dict[str, Any]]:
@@ -78,13 +77,12 @@ class COCOParser(BaseParser):
             logger.info("Identified Roboflow format")
             image_dir = split_path
             return {"image_dir": image_dir, "annotation_path": json_path}
-        else:
-            logger.info("Identified FiftyOne format")
-            dirs = [d for d in split_path.iterdir() if d.is_dir()]
-            if len(dirs) != 1:
-                return None
-            image_dir = dirs[0]
-            return {"image_dir": image_dir, "annotation_path": json_path}
+        logger.info("Identified FiftyOne format")
+        dirs = [d for d in split_path.iterdir() if d.is_dir()]
+        if len(dirs) != 1:
+            return None
+        image_dir = dirs[0]
+        return {"image_dir": image_dir, "annotation_path": json_path}
 
     @staticmethod
     def validate(dataset_dir: Path) -> bool:
@@ -109,19 +107,22 @@ class COCOParser(BaseParser):
         if dir_format is None:
             raise ValueError("Dataset is not in any expected format.")
 
-        elif dir_format == Format.ROBOFLOW:
+        if dir_format is Format.ROBOFLOW:
             logger.warning(
                 "Roboflow dataset format detected, following arguments won't be taken "
                 "into account: ['use_keypoint_ann', 'keypoint_ann_paths', 'split_val_to_test']."
             )
-        elif dir_format == Format.FIFTYONE:
-            if use_keypoint_ann and not keypoint_ann_paths:
-                keypoint_ann_paths = {
-                    "train": "raw/person_keypoints_train2017.json",
-                    "val": "raw/person_keypoints_val2017.json",
-                    # NOTE: this file is not present by default
-                    "test": "raw/person_keypoints_test2017.json",
-                }
+        elif (
+            dir_format is Format.FIFTYONE
+            and use_keypoint_ann
+            and not keypoint_ann_paths
+        ):
+            keypoint_ann_paths = {
+                "train": "raw/person_keypoints_train2017.json",
+                "val": "raw/person_keypoints_val2017.json",
+                # NOTE: this file is not present by default
+                "test": "raw/person_keypoints_test2017.json",
+            }
 
         train_paths = COCOParser.validate_split(dataset_dir / splits[0])
         if train_paths is None:
@@ -131,7 +132,7 @@ class COCOParser(BaseParser):
             dataset_dir / keypoint_ann_paths["train"]
             if keypoint_ann_paths
             and use_keypoint_ann
-            and dir_format == Format.FIFTYONE
+            and dir_format is Format.FIFTYONE
             else train_paths["annotation_path"]
         )
         cleaned_annotation_path = clean_annotations(train_ann_path)
@@ -148,7 +149,7 @@ class COCOParser(BaseParser):
             dataset_dir / keypoint_ann_paths["val"]
             if keypoint_ann_paths
             and use_keypoint_ann
-            and dir_format == Format.FIFTYONE
+            and dir_format is Format.FIFTYONE
             else val_paths["annotation_path"]
         )
         _added_val_imgs = self._parse_split(
@@ -208,7 +209,7 @@ class COCOParser(BaseParser):
 
         skeletons = {}
         for cat in coco_categories:
-            if "keypoints" in cat.keys() and "skeleton" in cat.keys():
+            if "keypoints" in cat and "skeleton" in cat:
                 skeletons[categories[cat["id"]]] = {
                     "labels": cat["keypoints"],
                     "edges": list(
@@ -290,7 +291,7 @@ class COCOParser(BaseParser):
                             segmentation
                         )
 
-                    if "keypoints" in ann.keys():
+                    if "keypoints" in ann:
                         kpts = np.array(ann["keypoints"]).reshape(-1, 3)
 
                         np.clip(kpts[:, 0], 0, img_w, out=kpts[:, 0])
@@ -340,7 +341,7 @@ def clean_annotations(annotation_path: Path) -> Path:
         "000000578492.jpg",
         "000000531721.jpg",
     ]
-    with open(annotation_path, "r") as f:
+    with open(annotation_path) as f:
         annotation_data = json.load(f)
 
     filtered_images = [

@@ -1,12 +1,23 @@
-from contextlib import suppress
 from pathlib import Path, PurePosixPath
-from typing import Dict, Literal, Tuple, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Literal,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+)
 
-from pydantic import BaseModel, JsonValue
-from typing_extensions import TypeAlias
+import typeguard
+from pydantic import BaseModel
+from typing_extensions import TypeAlias, TypeGuard
 
 # When used without installed dependencies
-with suppress(ImportError):
+if TYPE_CHECKING:  # pragma: no cover
     import numpy as np
 
 
@@ -48,8 +59,27 @@ or a single value (in which case it is interpreted as a grayscale
 value).
 """
 
-Params: TypeAlias = Dict[str, JsonValue]
-"""A JSON-like dictionary of additioanl parameters."""
+PrimitiveType: TypeAlias = Union[str, int, float, bool, None]
+"""Primitive types in Python."""
+
+# To avoid infinite recursion
+if TYPE_CHECKING:  # pragma: no cover
+    ParamValue: TypeAlias = Union[
+        Dict[PrimitiveType, "ParamValue"],
+        List["ParamValue"],
+        PrimitiveType,
+    ]
+else:
+    ParamValue: TypeAlias = Any
+
+Params: TypeAlias = Dict[str, ParamValue]
+"""A keyword dictionary of additional parameters.
+
+Usually loaded from a YAML file.
+"""
+
+Kwargs: TypeAlias = Dict[str, Any]
+"""A keyword dictionary of arbitrary parameters."""
 
 
 class ConfigItem(BaseModel):
@@ -69,3 +99,47 @@ class ConfigItem(BaseModel):
     name: str
 
     params: Params = {}
+
+
+T = TypeVar("T")
+
+
+def check_type(value: Any, type_: Type[T]) -> TypeGuard[T]:
+    """Checks if the value has the correct type.
+
+    @type value: Any
+    @param value: The value to check.
+    @type type_: Type[K]
+    @param type_: The type to check against.
+    @rtype: bool
+    @return: C{True} if the value has the correct type, C{False}
+        otherwise.
+    """
+    try:
+        typeguard.check_type(value, type_)
+    except (typeguard.TypeCheckError, TypeError):
+        return False
+    return True
+
+
+def all_not_none(values: Iterable[Any]) -> bool:
+    """Checks if none of the values in the iterable is C{None}
+
+    @type values: Iterable[Any]
+    @param values: An iterable of values
+    @rtype: bool
+    @return: C{True} if all values are not C{None}, C{False} otherwise
+    """
+    return all(v is not None for v in values)
+
+
+def any_not_none(values: Iterable[Any]) -> bool:
+    """Checks if at least one value in the iterable is not C{None}
+
+    @type values: Iterable[Any]
+    @param values: An iterable of values
+    @rtype: bool
+    @return: C{True} if at least one value is not C{None}, C{False}
+        otherwise
+    """
+    return any(v is not None for v in values)

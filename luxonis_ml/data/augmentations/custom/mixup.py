@@ -102,7 +102,7 @@ class MixUp(BatchTransform):
 
         if mask1.size == 0:
             return mask2
-        elif mask2.size == 0:
+        if mask2.size == 0:
             return mask1
 
         if alpha >= 0.5:
@@ -137,7 +137,7 @@ class MixUp(BatchTransform):
 
         if mask1.size == 0:
             return mask2
-        elif mask2.size == 0:
+        if mask2.size == 0:
             return mask1
 
         return np.concatenate(mask_batch, axis=-1)
@@ -257,15 +257,15 @@ class MixUp(BatchTransform):
 
         if target_type == "image":
             return self.resize_transform.apply(data, *padding, **kwargs)
-        elif target_type == "mask":
+        if target_type == "mask":
             return self.resize_transform.apply_to_mask(
                 data, *padding, **kwargs
             )
-        elif target_type == "bboxes":
+        if target_type == "bboxes":
             return self.resize_transform.apply_to_bboxes(
                 data, *padding, **kwargs
             )
-        elif target_type == "keypoints":
+        if target_type == "keypoints":
             return self.resize_transform.apply_to_keypoints(
                 data, *padding, **kwargs
             )

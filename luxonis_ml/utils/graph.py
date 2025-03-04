@@ -1,11 +1,11 @@
 from copy import deepcopy
-from typing import Dict, Iterator, List, Set, Tuple, TypeVar
+from typing import Dict, Iterator, List, Mapping, Set, Tuple, TypeVar
 
 T = TypeVar("T")
 
 
 def traverse_graph(
-    graph: Dict[str, List[str]], nodes: Dict[str, T]
+    graph: Dict[str, List[str]], nodes: Mapping[str, T]
 ) -> Iterator[Tuple[str, T, List[str], List[str]]]:
     """Traverses the graph in topological order, starting from the nodes
     with no predecessors.
@@ -75,9 +75,10 @@ def is_acyclic(graph: Dict[str, List[str]]) -> bool:
         for predecessor in graph.get(node, []):
             if predecessor in recursion_stack:
                 return True
-            if predecessor not in visited:
-                if dfs(predecessor, visited, recursion_stack):
-                    return True
+            if predecessor not in visited and dfs(
+                predecessor, visited, recursion_stack
+            ):
+                return True
 
         recursion_stack.remove(node)
         return False
@@ -85,9 +86,8 @@ def is_acyclic(graph: Dict[str, List[str]]) -> bool:
     visited: set[str] = set()
     recursion_stack: set[str] = set()
 
-    for node in graph.keys():
-        if node not in visited:
-            if dfs(node, visited, recursion_stack):
-                return False
+    for node in graph:
+        if node not in visited and dfs(node, visited, recursion_stack):
+            return False
 
     return True

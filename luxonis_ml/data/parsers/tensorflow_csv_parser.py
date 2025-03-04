@@ -110,8 +110,7 @@ class TensorflowCSVParser(BaseParser):
             images_annotations[path]["bboxes"].append((class_name, bbox_xywh))
 
         def generator() -> DatasetIterator:
-            for path in images_annotations:
-                curr_annotations = images_annotations[path]
+            for path, curr_annotations in images_annotations.items():
                 for bbox_class, (x, y, w, h) in curr_annotations["bboxes"]:
                     yield {
                         "file": path,

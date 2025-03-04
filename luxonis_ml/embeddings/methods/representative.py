@@ -124,7 +124,7 @@ def find_representative_greedy_vectordb(
     if seed is None:
         seed = np.random.choice(all_ids)
     elif seed > len(all_ids):
-        raise ValueError(f"Seed must be in the range [0, {len(all_ids)-1}].")
+        raise ValueError(f"Seed must be in the range [0, {len(all_ids) - 1}].")
 
     selected_embeddings = set()
     selected_embeddings.add(all_ids[seed])

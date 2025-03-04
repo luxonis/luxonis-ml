@@ -1,9 +1,8 @@
 import json
 from pathlib import Path
+from typing import Any, Dict, List
 
 import numpy as np
-import pytest
-from utils import create_image
 
 from luxonis_ml.data import (
     BucketStorage,
@@ -11,7 +10,11 @@ from luxonis_ml.data import (
     LuxonisLoader,
     LuxonisParser,
 )
+from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.enums import DatasetType
+from luxonis_ml.typing import Params
+
+from .utils import create_image
 
 
 def test_edge_cases(tempdir: Path):
@@ -190,7 +193,7 @@ def test_edge_cases(tempdir: Path):
         ]
     )
 
-    def generator():
+    def generator() -> DatasetIterator:
         num_samples = len(keypoints_before)
         for i in range(num_samples):
             img = create_image(i, tempdir)
@@ -228,7 +231,7 @@ def test_edge_cases(tempdir: Path):
 
     dataset.make_splits(ratios=(1, 0, 0))
 
-    augmentation_config = [
+    augmentation_config: List[Params] = [
         {
             "name": "Mosaic4",
             "params": {"p": 1, "out_width": 512, "out_height": 512},
@@ -291,9 +294,9 @@ def test_edge_cases(tempdir: Path):
             keypoints = keypoints.reshape(-1, 3)
             for kp in keypoints:
                 x, y, v = kp
-                assert not (
-                    x == 0 and y == 0 and v in {1, 2}
-                ), f"Invalid keypoint detected: {kp}"
+                assert not (x == 0 and y == 0 and v in {1, 2}), (
+                    f"Invalid keypoint detected: {kp}"
+                )
                 assert 0 <= x <= 1, f"Keypoint x out of bounds: {kp}"
                 assert 0 <= y <= 1, f"Keypoint y out of bounds: {kp}"
 
@@ -309,12 +312,11 @@ def test_edge_cases(tempdir: Path):
                 assert 0 <= y_max <= 1, f"BBox y_max out of bounds: {bbox}"
 
                 bbox_area = width * height
-                assert (
-                    bbox_area >= 0.0004
-                ), f"BBox area too small: {bbox}, area={bbox_area}"
+                assert bbox_area >= 0.0004, (
+                    f"BBox area too small: {bbox}, area={bbox_area}"
+                )
 
 
-@pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
     dataset = LuxonisParser(
         f"{storage_url}/COCO_people_subset.zip",
@@ -378,7 +380,7 @@ def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
 
     original_aug_labels_path = Path("aug_labels.json")
 
-    def rle_encode(mask):
+    def rle_encode(mask: np.ndarray) -> List[int]:
         """Encodes a binary mask using Run-Length Encoding (RLE)."""
         pixels = mask.flatten()
         rle = []
@@ -396,7 +398,7 @@ def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
 
         return rle
 
-    def convert_annotation(ann):
+    def convert_annotation(ann: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "classification": ann["/classification"].tolist()
             if isinstance(ann["/classification"], np.ndarray)
@@ -423,7 +425,7 @@ def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
 
     new_aug_annotations = [convert_annotation(ann) for _, ann in loader_aug]
 
-    with open(original_aug_labels_path, "r") as f:
+    with open(original_aug_labels_path) as f:
         original_aug_annotations = json.load(f)
 
     assert original_aug_annotations == new_aug_annotations

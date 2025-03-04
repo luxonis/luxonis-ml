@@ -27,16 +27,16 @@ def test_valid_identifier():
     check_valid_identifier("variable_name", label="")
     check_valid_identifier("variable-name", label="")
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="can only contain alphanumeric"):
         check_valid_identifier("variable name", label="")
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="can only contain alphanumeric"):
         check_valid_identifier("?variable_name", label="")
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="can only contain alphanumeric"):
         check_valid_identifier("12variable_name", label="")
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="can only contain alphanumeric"):
         check_valid_identifier("variable/name", label="")
 
 
@@ -44,14 +44,14 @@ def test_load_annotation():
     assert load_annotation(
         "boundingbox", {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4}
     ) == BBoxAnnotation(x=0.1, y=0.2, w=0.3, h=0.4)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Unknown label type"):
         load_annotation("invalid_name", {})
 
 
 def test_dataset_record(tempdir: Path):
     def compare_parquet_rows(
         record: DatasetRecord, expected_rows: List[ParquetRecord]
-    ):
+    ) -> None:
         rows = list(record.to_parquet_rows())
         for row in rows:
             # for compatibility with Windows
@@ -109,13 +109,13 @@ def test_dataset_record(tempdir: Path):
         ],
     )
 
-    with pytest.raises(ValueError):
-        record = DatasetRecord(
-            files={
-                "left": tempdir / "left.jpg",
-                "right": tempdir / "right.jpg",
-            }
-        )
+    record = DatasetRecord(
+        files={
+            "left": tempdir / "left.jpg",
+            "right": tempdir / "right.jpg",
+        }
+    )
+    with pytest.raises(ValueError, match="must have exactly one file"):
         _ = record.file
 
 
@@ -131,9 +131,11 @@ def test_bbox_annotation(subtests: SubTests):
         base_dict = {"x": 0, "y": 0, "w": 0, "h": 0}
         for k in ["x", "y", "w", "h"]:
             for v in [-2.1, 2.3, -3.3, 3]:
-                with pytest.raises(pydantic.ValidationError):
-                    curr_dict = base_dict.copy()
-                    curr_dict[k] = v
+                curr_dict = base_dict.copy()
+                curr_dict[k] = v
+                with pytest.raises(
+                    ValueError, match="outside of automatic clipping"
+                ):
                     BBoxAnnotation(**curr_dict)  # type: ignore
 
         bbox_ann = BBoxAnnotation(x=0.9, y=0, w=0.2, h=0)
@@ -190,20 +192,14 @@ def test_keypoints_annotation(subtests: SubTests):
 
     with subtests.test("auto_clip"):
         kpt_ann = KeypointAnnotation(keypoints=[(-1.1, 1.1, 0)])
-        assert (
-            0 <= kpt_ann.keypoints[0][0] <= 1
-            and 0 <= kpt_ann.keypoints[0][1] <= 1
-        )
+        assert 0 <= kpt_ann.keypoints[0][0] <= 1
+        assert 0 <= kpt_ann.keypoints[0][1] <= 1
         kpt_ann = KeypointAnnotation(keypoints=[(0.1, 1.1, 1)])
-        assert (
-            0 <= kpt_ann.keypoints[0][0] <= 1
-            and 0 <= kpt_ann.keypoints[0][1] <= 1
-        )
+        assert 0 <= kpt_ann.keypoints[0][0] <= 1
+        assert 0 <= kpt_ann.keypoints[0][1] <= 1
         kpt_ann = KeypointAnnotation(keypoints=[(-2, 2, 2)])
-        assert (
-            0 <= kpt_ann.keypoints[0][0] <= 1
-            and 0 <= kpt_ann.keypoints[0][1] <= 1
-        )
+        assert 0 <= kpt_ann.keypoints[0][0] <= 1
+        assert 0 <= kpt_ann.keypoints[0][1] <= 1
     with subtests.test("numpy"):
         keypoints = KeypointAnnotation(keypoints=[(0.1, 0.2, 2)])
         assert np.allclose(keypoints.to_numpy(), np.array([0.1, 0.2, 2]))
@@ -263,6 +259,19 @@ def test_segmentation_annotation(subtests: SubTests, tempdir: Path):
         )
         assert seg == seg_clipped
 
+        with pytest.raises(ValueError, match="must be integers"):
+            SegmentationAnnotation(
+                points=[(0, 0), (1, 0), (1, 1)],  # type: ignore
+                height=4,
+                width="4",
+            )
+        with pytest.raises(ValueError, match="2D points"):
+            SegmentationAnnotation(
+                points=[(0, 0, 0), (1, 0, 4)],  # type: ignore
+                height=4,
+                width=4,
+            )
+
     with subtests.test("rle_bytes"):
         seg = SegmentationAnnotation(counts=b"11213ON0", height=4, width=4)
         assert seg.height == 4
@@ -281,6 +290,13 @@ def test_segmentation_annotation(subtests: SubTests, tempdir: Path):
         assert seg.width == 4
         assert seg.counts == b"11213ON0"
         assert np.array_equal(seg.to_numpy(), mask)
+
+        with pytest.raises(ValueError, match="must be integers"):
+            SegmentationAnnotation(
+                counts=[1, 1, 2, 2, 5, 1, 3],  # type: ignore
+                height=4,
+                width="4",  # type: ignore
+            )
 
     with subtests.test("numpy_simple"):
         masks = np.array(
@@ -385,43 +401,45 @@ def test_segmentation_annotation(subtests: SubTests, tempdir: Path):
         assert np.array_equal(combined, masks)
 
     with subtests.test("invalid"):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="Extra inputs"):
             SegmentationAnnotation(
                 mask=mask,  # type: ignore
                 points=[(1, 0), (2, 1)],  # type: ignore
             )
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="Unsupported mask format"):
+            SegmentationAnnotation(mask="file.jpeg")  # type: ignore
+
+        with pytest.raises(ValueError, match="Failed to load mask from image"):
+            SegmentationAnnotation(mask="file.png")  # type: ignore
+
+        with pytest.raises(TypeError, match="Mask must be either"):
+            SegmentationAnnotation(mask=[1, 2, 3])  # type: ignore
+
+        np.save(tempdir / "mask.npy", mask[None, None, ...])
+        with pytest.raises(ValueError, match="Mask must be a 2D binary array"):
+            SegmentationAnnotation(mask=tempdir / "mask.npy")  # type: ignore
+
+        with pytest.raises(ValueError, match="at least 3 points"):
             SegmentationAnnotation(
                 points=[(1, 0), (0, 1)],  # type: ignore
                 height=4,
                 width=4,
             )
 
-        with pytest.raises(ValueError):
-            SegmentationAnnotation(mask="file.jpeg")  # type: ignore
-
-        with pytest.raises(ValueError):
-            SegmentationAnnotation(mask="file.png")  # type: ignore
-
-        with pytest.raises(ValueError):
-            SegmentationAnnotation(mask=[1, 2, 3])  # type: ignore
-
-        with pytest.raises(ValueError):
-            np.save(tempdir / "mask.npy", mask[None, None, ...])
-            SegmentationAnnotation(mask=tempdir / "mask.npy")  # type: ignore
-
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="outside of automatic clipping"):
             SegmentationAnnotation(
                 points=[(-2.1, 0), (1.1, 0), (1, 1.5), (-0.6, 1)],  # type: ignore
                 height=4,
                 width=4,
             )
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="Field required"):
             SegmentationAnnotation(width=4)  # type: ignore
 
-        with pytest.raises(ValueError):
+        with pytest.raises(
+            ValueError, match="RLE counts must be a list of positive integers"
+        ):
             SegmentationAnnotation(
                 counts=[-1, 1, 2, 2],  # type: ignore
                 height=4,
@@ -457,11 +475,11 @@ def test_array_annotation(subtests: SubTests, tempdir: Path):
         assert np.allclose(array[4, 1, ...], arr)
 
     with subtests.test("invalid"):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="Path does not"):
             ArrayAnnotation(path=Path("non_existent.npy"))
 
-        with pytest.raises(ValueError):
-            cv2.imwrite(str(tempdir / "image.png"), np.zeros((100, 100, 3)))
+        cv2.imwrite(str(tempdir / "image.png"), np.zeros((100, 100, 3)))
+        with pytest.raises(ValueError, match="must be a .npy file"):
             ArrayAnnotation(path=tempdir / "image.png")
 
 
@@ -505,17 +523,18 @@ def test_detection(subtests: SubTests):
         assert detection.keypoints is not None
         assert detection.keypoints.keypoints == [(0.2, 0.4, 2), (0.5, 0.8, 2)]
 
-    with subtests.test("invalid"):
-        with pytest.raises(ValueError):
-            Detection(
-                **{
-                    "class": "person",
-                    "scale_to_boxes": True,
-                    "keypoints": {
-                        "keypoints": [(0.2, 0.4, 2), (0.5, 0.8, 2)],
-                    },
-                }
-            )
+    with subtests.test("invalid"), pytest.raises(
+        ValueError, match="no bounding box is provided"
+    ):
+        Detection(
+            **{
+                "class": "person",
+                "scale_to_boxes": True,
+                "keypoints": {
+                    "keypoints": [(0.2, 0.4, 2), (0.5, 0.8, 2)],
+                },
+            }
+        )
 
 
 def test_record(tempdir: Path):
@@ -562,11 +581,9 @@ def test_record(tempdir: Path):
     filename = str(tempdir / "image.jpg")
     cv2.imwrite(filename, np.zeros((256, 256, 3), dtype=np.uint8))
     record = DatasetRecord(
-        **{
-            "file": filename,
-            "annotation": detection,
-            "task": "test",
-        }
+        file=filename,  # type: ignore
+        annotation=detection,
+        task="test",
     )
     common = {
         "file": filename,

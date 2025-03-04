@@ -24,13 +24,13 @@ class Registry(Generic[T]):
         self._module_dict: Dict[str, T] = {}
         self._name = name
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"Registry('{self.name}')"
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return self.__str__()
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._module_dict)
 
     def __getitem__(self, key: str) -> T:
@@ -43,7 +43,7 @@ class Registry(Generic[T]):
         return key in self._module_dict
 
     @property
-    def name(self):
+    def name(self) -> str:
         return self._name
 
     def get(self, key: str) -> T:
@@ -59,8 +59,7 @@ class Registry(Generic[T]):
         module_cls = self._module_dict.get(key, None)
         if module_cls is None:
             raise KeyError(f"'{key}' not in the '{self.name}' registry.")
-        else:
-            return module_cls
+        return module_cls
 
     @overload
     def register_module(

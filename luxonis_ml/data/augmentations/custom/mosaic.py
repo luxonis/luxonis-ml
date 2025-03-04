@@ -52,11 +52,11 @@ class Mosaic4(BatchTransform):
 
         if out_height <= 0:
             raise ValueError(
-                f"out_height should be larger than 0, got {out_height}"
+                f"`out_height` must be larger than 0, got {out_height}"
             )
         if out_width <= 0:
             raise ValueError(
-                f"out_width should be larger than 0, got {out_width}"
+                f"`out_width` must be larger than 0, got {out_width}"
             )
 
         self.out_height = out_height
@@ -451,11 +451,9 @@ def apply_mosaic4_to_images(
             y1b : y1b + min_h, x1b : x1b + min_w
         ]
 
-    combined_image = combined_image[
+    return combined_image[
         y_crop : y_crop + out_height, x_crop : x_crop + out_width
     ]
-
-    return combined_image
 
 
 def apply_mosaic4_to_bboxes(
@@ -506,9 +504,7 @@ def apply_mosaic4_to_bboxes(
     bbox[:, 1] += shift_y - y_crop
     bbox[:, 3] += shift_y - y_crop
 
-    bbox = normalize_bboxes(bbox, (out_height, out_width))
-
-    return bbox
+    return normalize_bboxes(bbox, (out_height, out_width))
 
 
 def apply_mosaic4_to_keypoints(

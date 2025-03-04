@@ -6,6 +6,7 @@ import pytest
 import yaml
 from pydantic import BaseModel
 
+from luxonis_ml.typing import Params
 from luxonis_ml.utils import environ
 from luxonis_ml.utils.config import LuxonisConfig
 
@@ -23,11 +24,11 @@ CONFIG_DATA = {
 }
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def config_file():
     with tempfile.NamedTemporaryFile(delete=False) as f:
         f.write(yaml.dump(CONFIG_DATA).encode())
-    yield f.name
+    return f.name
 
 
 class SubConfigDefault(BaseModel):
@@ -68,7 +69,9 @@ def test_invalid_config_path():
     with pytest.raises(FileNotFoundError):
         Config.get_config("invalid_path")
 
-    with pytest.raises(ValueError):
+    with pytest.raises(
+        ValueError, match="At least one of `cfg` or `overrides`"
+    ):
         Config.get_config(None)
 
 
@@ -89,7 +92,7 @@ def test_config_simple(config_file: str):
 
 
 def test_config_simple_override(config_file: str):
-    overrides = {
+    overrides: Params = {
         "sub_config.str_sub_param": "sub_param_override",
     }
     cfg = Config.get_config(config_file, overrides)
@@ -118,7 +121,7 @@ def test_config_list_override(config_file: str):
         cfg.sub_config.float_sub_param
         == CONFIG_DATA["sub_config"]["float_sub_param"]
     )
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="length is not divisible by 2"):
         Config.get_config(config_file, ["sub_config.str_sub_param"])
 
 
@@ -197,11 +200,8 @@ def test_invalid_config(config_file: str):
         "extra_param": "test",
     }
     for key, value in overrides.items():
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError):  # noqa: PT011
             Config.get_config(config_file, {key: value})
-
-    with pytest.raises(ValueError):
-        Config.get_config()
 
 
 def test_from_dict():
@@ -261,8 +261,8 @@ def test_get(config_file: str):
 
     assert cfg.get("sub_config.str_sub_param.non", "default") == "default"
 
-    with pytest.raises(ValueError):
-        cfg.get("list_config.-1.int_list_param")
+    with pytest.raises(ValueError, match="Can't access list with non-int key"):
+        cfg.get("list_config.index.int_list_param")
 
 
 def test_environ():

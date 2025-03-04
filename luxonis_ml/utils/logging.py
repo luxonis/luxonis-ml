@@ -1,11 +1,13 @@
 import inspect
 import warnings
 from functools import wraps
-from typing import Dict, Literal, Optional, Type
+from typing import Any, Callable, Dict, Literal, Optional, Type
 
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.theme import Theme
+
+from luxonis_ml.typing import PathType
 
 from .environ import environ
 
@@ -15,7 +17,7 @@ def setup_logging(
     level: Optional[
         Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
     ] = None,
-    file: Optional[str] = None,
+    file: Optional[PathType] = None,
     **kwargs,
 ) -> None:  # pragma: no cover
     """Sets up global logging using loguru and rich.
@@ -83,7 +85,7 @@ def setup_logging(
         lineno: int,
         _file: Optional[str] = None,
         line: Optional[str] = None,
-    ):
+    ) -> None:
         text = warnings.formatwarning(
             message, category, filename, lineno, line
         )
@@ -97,7 +99,7 @@ def deprecated(
     suggest: Optional[Dict[str, str]] = None,
     additional_message: Optional[str] = None,
     altogether: bool = False,
-):
+) -> Callable[[Callable], Callable]:
     """Decorator to mark a function or its parameters as deprecated.
 
     Example:
@@ -127,11 +129,11 @@ def deprecated(
         marked as deprecated. Defaults to False.
     """
 
-    def decorator(func):
+    def decorator(func: Callable) -> Callable:
         sig = inspect.signature(func)
 
         @wraps(func)
-        def wrapper(*f_args, **f_kwargs):
+        def wrapper(*f_args, **f_kwargs) -> Any:
             fname = func.__name__
             if altogether:
                 msg = f"'{fname}' is deprecated and will be removed in future versions."
@@ -161,7 +163,12 @@ def deprecated(
     return decorator
 
 
-def _warn_deprecated(arg_name, fname, suggest, additional_message):
+def _warn_deprecated(
+    arg_name: str,
+    fname: str,
+    suggest: Optional[Dict[str, str]],
+    additional_message: Optional[str],
+) -> None:
     replacement = suggest.get(arg_name) if suggest else None
     msg = (
         f"Argument '{arg_name}' in function '{fname}' "

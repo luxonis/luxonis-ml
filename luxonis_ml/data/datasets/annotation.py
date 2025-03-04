@@ -29,16 +29,14 @@ from pydantic import (
 )
 from pydantic.types import FilePath, PositiveInt
 from pydantic_core import core_schema
-from typeguard import check_type
 from typing_extensions import Annotated, Self, TypeAlias, override
 
 from luxonis_ml.data.utils.parquet import ParquetRecord
+from luxonis_ml.typing import check_type
 from luxonis_ml.utils import BaseModelExtraForbid
 
 KeypointVisibility: TypeAlias = Literal[0, 1, 2]
 NormalizedFloat: TypeAlias = Annotated[float, Field(ge=0, le=1)]
-"""C{NormalizedFloat} is a float that is restricted to the range [0,
-1]."""
 
 
 class Category(str):
@@ -77,7 +75,7 @@ class Detection(BaseModelExtraForbid):
     def rescale_values(self) -> Self:
         if not self.scale_to_boxes:
             return self
-        elif self.boundingbox is None:
+        if self.boundingbox is None:
             raise ValueError(
                 "`scaled_to_boxes` is set to True, "
                 "but no bounding box is provided."
@@ -197,8 +195,7 @@ class BBoxAnnotation(Annotation):
                 "BBox annotation has values outside of [0, 1] range. Clipping them to [0, 1]."
             )
 
-        values = cls._clip_sum(values)
-        return values
+        return cls._clip_sum(values)
 
     @staticmethod
     def _clip_sum(values: Dict[str, Any]) -> Dict[str, Any]:
@@ -339,12 +336,16 @@ class SegmentationAnnotation(Annotation):
         if {"counts", "width", "height"} - set(values.keys()):
             return values
 
-        counts = values["counts"]
-        height = check_type(values["height"], int)
-        width = check_type(values["width"], int)
+        height = values["height"]
+        width = values["width"]
 
+        if not check_type(height, int) or not check_type(width, int):
+            raise ValueError("Height and width must be integers")
+
+        counts = values["counts"]
         if isinstance(counts, str):
             values["counts"] = counts.encode("utf-8")
+
         elif isinstance(counts, list):
             for c in counts:
                 if not isinstance(c, int) or c < 0:
@@ -354,7 +355,9 @@ class SegmentationAnnotation(Annotation):
 
             with warnings.catch_warnings(record=True):
                 rle: Any = pycocotools.mask.frPyObjects(
-                    {"counts": counts, "size": [height, width]}, height, width
+                    {"counts": counts, "size": [height, width]},  # type: ignore
+                    height,
+                    width,
                 )
             values["counts"] = rle["counts"]
             values["height"] = rle["size"][0]
@@ -372,26 +375,31 @@ class SegmentationAnnotation(Annotation):
         mask = values.pop("mask")
         if isinstance(mask, (str, Path)):
             mask_path = Path(mask)
-            try:
-                if mask_path.suffix == ".npy":
+            if mask_path.suffix == ".npy":
+                try:
                     mask = np.load(mask_path)
-                elif mask_path.suffix == ".png":
+                except Exception as e:
+                    raise ValueError(
+                        f"Failed to load mask from array at '{mask_path}'"
+                    ) from e
+            elif mask_path.suffix == ".png":
+                try:
                     mask = (
                         cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
                         .astype(bool)
                         .astype(np.uint8)
                     )
-                else:
+                except Exception as e:
                     raise ValueError(
-                        f"Unsupported mask format: {mask_path.suffix}. "
-                        "Supported formats are .npy and .png"
-                    )
-            except Exception as e:
+                        f"Failed to load mask from image at '{mask_path}'"
+                    ) from e
+            else:
                 raise ValueError(
-                    f"Failed to load mask from {mask_path}"
-                ) from e
+                    f"Unsupported mask format: {mask_path.suffix}. "
+                    "Supported formats are .npy and .png"
+                )
         if not isinstance(mask, np.ndarray):
-            raise ValueError(
+            raise TypeError(
                 "Mask must be either a numpy array, "
                 "or a path to a saved numpy array"
             )
@@ -418,14 +426,19 @@ class SegmentationAnnotation(Annotation):
 
         values = deepcopy(values)
 
-        points = check_type(values.pop("points"), List[Tuple[float, float]])
-        width = check_type(values.pop("width"), int)
-        height = check_type(values.pop("height"), int)
+        width = values.pop("width")
+        height = values.pop("height")
+        if not check_type(height, int) or not check_type(width, int):
+            raise ValueError("Height and width must be integers")
+
+        points = values.pop("points")
+        if not check_type(points, List[Tuple[float, float]]):
+            raise ValueError("Polyline must be a list of float 2D points")
 
         if len(points) < 3:
-            raise ValueError("Polyline must have at least 3 points")
+            raise ValueError("Polyline must contain at least 3 points")
 
-        SegmentationAnnotation._clip_points(points)
+        cls._clip_points(points)
 
         polyline = [(round(x * width), round(y * height)) for x, y in points]
         mask = Image.new("L", (width, height), 0)

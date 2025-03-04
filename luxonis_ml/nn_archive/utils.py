@@ -48,9 +48,9 @@ def infer_layout(shape: List[int]) -> str:
         i += 1
     if len(shape) - i == 3:
         if shape[i] < shape[i + 1] and shape[i] < shape[i + 2]:
-            return "".join(layout + ["C", "H", "W"])
-        elif shape[-1] < shape[-2] and shape[-1] < shape[-3]:
-            return "".join(layout + ["H", "W", "C"])
+            return "".join([*layout, "C", "H", "W"])
+        if shape[-1] < shape[-2] and shape[-1] < shape[-3]:
+            return "".join([*layout, "H", "W", "C"])
     i = 0
     while len(layout) < len(shape):
         # Starting with "C" for more sensible defaults

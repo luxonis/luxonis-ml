@@ -55,9 +55,9 @@ def test_mixup(
 
 
 def test_invalid():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="must be in range"):
         MixUp(alpha=(-1, 1))
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="must be in range"):
         MixUp(alpha=(1, -1))
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="ascending order"):
         MixUp(alpha=(0.8, 0.2))
