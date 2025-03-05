@@ -1,7 +1,16 @@
 import warnings
 from collections import defaultdict
 from math import prod
-from typing import Any, Callable, Dict, Iterable, List, Literal, Tuple
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+)
 
 import albumentations as A
 import numpy as np
@@ -249,7 +258,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         keep_aspect_ratio: bool = True,
         is_validation_pipeline: bool = False,
         min_bbox_visibility: float = 0.0,
-        seed: int | None = None,
+        seed: Optional[int] = None,
     ):
         self.targets: Dict[str, TargetType] = {}
         self.target_names_to_tasks = {}
