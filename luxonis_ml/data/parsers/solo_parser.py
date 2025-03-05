@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
+from loguru import logger
 
 from luxonis_ml.data import DatasetIterator
 
@@ -61,7 +62,10 @@ class SOLOParser(BaseParser):
             [d for d in split_path.glob("sequence*") if d.is_dir()]
         )
         if total_sequences != total_sequences_expected:
-            return None
+            logger.warning(
+                f"Expected {total_sequences_expected} based on metadata.json, "
+                f"but found {total_sequences} sequences."
+            )
         return {"split_path": split_path}
 
     @staticmethod
@@ -123,16 +127,11 @@ class SOLOParser(BaseParser):
                 f"{annotation_definitions_path} path non-existent."
             )
 
-        annotation_types = self._get_solo_annotation_types(
+        bbox_class_names = self._get_solo_bbox_class_names(
             annotation_definitions_dict
         )
 
-        class_names = self._get_solo_bbox_class_names(
-            annotation_definitions_dict
-        )
-        # TODO: We make an assumption here that bbox class_names are also valid for all other annotation types in the dataset. Is this OK?
-        # TODO: Can we imagine a case where classes between annotation types are different? Which class names to return in this case?
-        if not class_names:
+        if not bbox_class_names:
             raise ValueError("No class_names identified. ")
 
         keypoint_labels = self._get_solo_keypoint_names(
@@ -141,17 +140,19 @@ class SOLOParser(BaseParser):
 
         skeletons = {
             class_name: {"labels": keypoint_labels}
-            for class_name in class_names
+            for class_name in bbox_class_names
         }
-        # TODO: setting skeletons by assigning all keypoint names to each class_name. Is this OK?
-        # if NOT, set them manually with LuxonisDataset.set_skeletons() as SOLO format does not
-        # encode which keypoint_name belongs to which class
 
         def generator() -> DatasetIterator:
             for sequence_path in split_path.glob("sequence*"):
-                # single sequence can have multiple steps
-                for frame_path in sequence_path.glob("*.frame_data.json"):
+                # Because synth data team is not consistent with one json file per step
+                processed_annotations_per_step: Dict[str, set] = {}
+                for frame_path in sequence_path.glob("*.frame_data*.json"):
                     frame = json.loads(frame_path.read_text())
+
+                    curent_step = frame["step"]
+                    if curent_step not in processed_annotations_per_step:
+                        processed_annotations_per_step[curent_step] = set()
 
                     for capture in frame.get("captures", []):
                         img_fname = capture["filename"]
@@ -162,61 +163,71 @@ class SOLOParser(BaseParser):
                             raise FileNotFoundError(
                                 f"{img_path} not existent."
                             )
-
-                        if (
-                            "SemanticSegmentationAnnotation"
-                            in annotation_types
-                        ):
-                            for anno in annotations:
-                                if anno["@type"].endswith(
+                        for anno in annotations:
+                            if (
+                                "SemanticSegmentationAnnotation"
+                                not in processed_annotations_per_step[
+                                    curent_step
+                                ]
+                                and anno["@type"].endswith(
                                     "SemanticSegmentationAnnotation"
-                                ):
-                                    sseg_annotations = anno
+                                )
+                            ):
+                                processed_annotations_per_step[
+                                    curent_step
+                                ].add("SemanticSegmentationAnnotation")
 
-                            mask_fname = sseg_annotations["filename"]
-                            mask_path = sequence_path / mask_fname
-                            mask = cv2.imread(mask_path)
+                                mask_fname = anno["filename"]
+                                mask_path = sequence_path / mask_fname
+                                mask = cv2.imread(mask_path)
 
-                            for instance in sseg_annotations["instances"]:
-                                class_name = instance["labelName"]
-                                r, g, b, _ = instance["pixelValue"]
-                                curr_mask = np.zeros_like(mask)
-                                curr_mask[
-                                    np.all(mask == [b, g, r], axis=2)
-                                ] = 1
-                                curr_mask = np.max(curr_mask, axis=2)  # 3D->2D
-                                yield {
-                                    "file": img_path,
-                                    "task": "segmentation",
-                                    "annotation": {
-                                        "class": class_name,
-                                        "segmentation": {
-                                            "mask": curr_mask,
-                                        },
-                                    },
-                                }
-
-                        instances = {}
-                        if "BoundingBox2DAnnotation" in annotation_types:
-                            for anno in annotations:
-                                if anno["@type"].endswith(
-                                    "BoundingBox2DAnnotation"
-                                ):
-                                    bbox_annotations = anno["values"]
-
-                            for bbox_annotation in bbox_annotations:
-                                class_name = bbox_annotation["labelName"]
-                                origin = bbox_annotation["origin"]
-                                dimension = bbox_annotation["dimension"]
-                                xmin, ymin = origin
-                                bbox_w, bbox_h = dimension
-
-                                instance_id = bbox_annotation.get(
-                                    "instanceId", len(instances)
+                                mask_int = (
+                                    (mask[..., 0].astype(np.uint32) << 16)
+                                    | (mask[..., 1].astype(np.uint32) << 8)
+                                    | mask[..., 2].astype(np.uint32)
                                 )
 
-                                if instance_id not in instances:
-                                    instances[instance_id] = {
+                                for instance in anno.get("instances", []):
+                                    class_name = instance["labelName"]
+                                    r, g, b, _ = instance["pixelValue"]
+                                    target_int = (b << 16) | (g << 8) | r
+                                    curr_mask = (
+                                        mask_int == target_int
+                                    ).astype(np.uint8)
+                                    yield {
+                                        "file": img_path,
+                                        "task": "semantic_segmentation",
+                                        "annotation": {
+                                            "class": class_name,
+                                            "segmentation": {
+                                                "mask": curr_mask,
+                                            },
+                                        },
+                                    }
+
+                            elif (
+                                "BoundingBox2DAnnotation"
+                                not in processed_annotations_per_step[
+                                    curent_step
+                                ]
+                                and anno["@type"].endswith(
+                                    "BoundingBox2DAnnotation"
+                                )
+                            ):
+                                processed_annotations_per_step[
+                                    curent_step
+                                ].add("BoundingBox2DAnnotation")
+                                bbox_annotations = anno.get("values", [])
+
+                                for bbox_annotation in bbox_annotations:
+                                    class_name = bbox_annotation["labelName"]
+                                    origin = bbox_annotation["origin"]
+                                    dimension = bbox_annotation["dimension"]
+                                    xmin, ymin = origin
+                                    bbox_w, bbox_h = dimension
+
+                                    instance_id = bbox_annotation["instanceId"]
+                                    yield {
                                         "file": img_path,
                                         "annotation": {
                                             "class": class_name,
@@ -229,67 +240,87 @@ class SOLOParser(BaseParser):
                                             },
                                         },
                                     }
-                                else:
-                                    instances[instance_id]["annotation"][
-                                        "class"
-                                    ] = class_name
-                                    instances[instance_id]["annotation"][
-                                        "boundingbox"
-                                    ] = {
-                                        "x": xmin / img_w,
-                                        "y": ymin / img_h,
-                                        "w": bbox_w / img_w,
-                                        "h": bbox_h / img_h,
-                                    }
 
-                        if "KeypointAnnotation" in annotation_types:
-                            for anno in annotations:
-                                if anno["@type"].endswith(
-                                    "KeypointAnnotation"
-                                ):
-                                    keypoint_annotations = anno["values"]
+                            elif (
+                                "InstanceSegmentationAnnotation"
+                                not in processed_annotations_per_step[
+                                    curent_step
+                                ]
+                                and anno["@type"].endswith(
+                                    "InstanceSegmentationAnnotation"
+                                )
+                            ):
+                                processed_annotations_per_step[
+                                    curent_step
+                                ].add("InstanceSegmentationAnnotation")
 
-                            for keypoints_annotation in keypoint_annotations:
-                                label_id = keypoints_annotation["labelId"]
-                                keypoints = []
-                                for keypoint in keypoints_annotation[
-                                    "keypoints"
-                                ]:
-                                    x, y = keypoint["location"]
-                                    visibility = keypoint["state"]
-                                    keypoints.append(
-                                        (x / img_w, y / img_h, visibility)
-                                    )
+                                mask_fname = anno["filename"]
+                                mask_path = sequence_path / mask_fname
+                                mask = cv2.imread(mask_path)
 
-                                class_name = class_names[label_id]
-
-                                instance_id = keypoints_annotation.get(
-                                    "instanceId", len(instances)
+                                mask_int = (
+                                    (mask[..., 0].astype(np.uint32) << 16)
+                                    | (mask[..., 1].astype(np.uint32) << 8)
+                                    | mask[..., 2].astype(np.uint32)
                                 )
 
-                                if instance_id not in instances:
-                                    instances[instance_id] = {
+                                for instance in anno.get("instances", []):
+                                    r, g, b, _ = instance["color"]
+                                    target_int = (b << 16) | (g << 8) | r
+                                    curr_mask = (
+                                        mask_int == target_int
+                                    ).astype(np.uint8)
+                                    instance_id = instance["instanceId"]
+                                    yield {
                                         "file": img_path,
                                         "annotation": {
-                                            "class": class_name,
+                                            "instance_id": instance_id,
+                                            "instance_segmentation": {
+                                                "mask": curr_mask,
+                                            },
+                                        },
+                                    }
+
+                            elif (
+                                "KeypointAnnotation"
+                                not in processed_annotations_per_step[
+                                    curent_step
+                                ]
+                                and anno["@type"].endswith(
+                                    "KeypointAnnotation"
+                                )
+                            ):
+                                processed_annotations_per_step[
+                                    curent_step
+                                ].add("KeypointAnnotation")
+                                keypoint_annotations = anno.get("values", [])
+
+                                for (
+                                    keypoints_annotation
+                                ) in keypoint_annotations:
+                                    keypoints = []
+                                    for keypoint in keypoints_annotation[
+                                        "keypoints"
+                                    ]:
+                                        x, y = keypoint["location"]
+                                        visibility = keypoint["state"]
+                                        keypoints.append(
+                                            (x / img_w, y / img_h, visibility)
+                                        )
+
+                                    instance_id = bbox_annotation["instanceId"]
+
+                                    yield {
+                                        "file": img_path,
+                                        "annotation": {
                                             "instance_id": instance_id,
                                             "keypoints": {
                                                 "keypoints": keypoints,
                                             },
                                         },
                                     }
-                                else:
-                                    instances[instance_id]["annotation"][
-                                        "keypoints"
-                                    ] = {
-                                        "keypoints": keypoints,
-                                    }
 
-                        yield from instances.values()
-
-        added_images = self._get_added_images(generator())
-
-        return generator(), skeletons, added_images
+        return generator(), skeletons, []
 
     def _get_solo_annotation_types(
         self, annotation_definitions_dict: Dict[str, Any]
