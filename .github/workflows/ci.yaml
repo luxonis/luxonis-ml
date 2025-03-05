@@ -234,7 +234,7 @@ jobs:
         with:
           name: coverage
           path: coverage.xml
-          workflow: luxonis_ci.yaml
+          workflow: ci.yaml
 
       - name: Upload coverage results to Codecov
         if: ${{ env.CODECOV_ENABLED }}
