@@ -9,11 +9,13 @@ import typer
 from rich import print
 from rich.console import Console, RenderableType, group
 from rich.panel import Panel
+from rich.prompt import Confirm
 from rich.rule import Rule
 from rich.table import Table
 from typing_extensions import Annotated
 
 from luxonis_ml.data import LuxonisDataset, LuxonisLoader, LuxonisParser
+from luxonis_ml.data.utils.enums import BucketStorage
 from luxonis_ml.data.utils.visualizations import visualize
 from luxonis_ml.enums import DatasetType
 
@@ -35,9 +37,16 @@ DatasetNameArgument = Annotated[
     ),
 ]
 
+bucket_option = typer.Option(
+    "local",
+    "--bucket-storage",
+    "-b",
+    help="Storage type for the dataset.",
+)
 
-def check_exists(name: str):
-    if not LuxonisDataset.exists(name):
+
+def check_exists(name: str, bucket_storage: BucketStorage):
+    if not LuxonisDataset.exists(name, bucket_storage=bucket_storage):
         print(f"[red]Dataset [magenta]'{name}'[red] does not exist.")
         raise typer.Exit
 
@@ -49,8 +58,7 @@ def get_dataset_info(dataset: LuxonisDataset) -> Tuple[Set[str], List[str]]:
     return all_classes, dataset.get_task_names()
 
 
-def print_info(name: str) -> None:
-    dataset = LuxonisDataset(name)
+def print_info(dataset: LuxonisDataset) -> None:
     classes = dataset.get_classes()
     class_table = Table(
         title="Classes", box=rich.box.ROUNDED, row_styles=["yellow", "cyan"]
@@ -98,7 +106,7 @@ def print_info(name: str) -> None:
 
     @group()
     def get_panels() -> Iterator[RenderableType]:
-        yield f"[magenta b]Name: [not b cyan]{name}"
+        yield f"[magenta b]Name: [not b cyan]{dataset.identifier}"
         yield f"[magenta b]Version: [not b cyan]{dataset.version}"
         yield ""
         yield Panel.fit(get_sizes_panel(), title="Split Sizes")
@@ -109,30 +117,45 @@ def print_info(name: str) -> None:
 
 
 @app.command()
-def info(name: DatasetNameArgument):
+def info(
+    name: DatasetNameArgument,
+    bucket_storage: BucketStorage = bucket_option,
+):
     """Prints information about a dataset."""
-    check_exists(name)
-    print_info(name)
+    check_exists(name, bucket_storage)
+    print_info(LuxonisDataset(name, bucket_storage=bucket_storage))
 
 
 @app.command()
-def delete(name: DatasetNameArgument):
+def delete(
+    name: DatasetNameArgument,
+    bucket_storage: BucketStorage = bucket_option,
+):
     """Deletes a dataset."""
-    check_exists(name)
+    check_exists(name, bucket_storage)
 
-    dataset = LuxonisDataset(name)
-    dataset.delete_dataset()
+    if bucket_storage is not BucketStorage.LOCAL and not Confirm.ask(
+        f"Are you sure you want to delete the dataset '{name}' "
+        f"from remote storage? This will delete all remote files "
+        "and cannot be undone. If you only want to delete your local "
+        "copy, leave the '--bucket-storage' option as 'local' (default).",
+    ):
+        raise typer.Exit
+    LuxonisDataset(name).delete_dataset(
+        delete_remote=bucket_storage is not BucketStorage.LOCAL
+    )
     print(f"Dataset '{name}' deleted.")
 
 
 @app.command()
 def ls(
-    full: Annotated[
-        bool, typer.Option("--full", "-f", help="Show full information.")
-    ] = False,
+    full: bool = typer.Option(
+        False, "--full", "-f", help="Show full information."
+    ),
+    bucket_storage: BucketStorage = bucket_option,
 ):
     """Lists all datasets."""
-    datasets = LuxonisDataset.list_datasets()
+    datasets = LuxonisDataset.list_datasets(bucket_storage=bucket_storage)
     table = Table(
         title="Datasets" + (" - Full Table" if full else ""),
         box=rich.box.ROUNDED,
@@ -144,11 +167,11 @@ def ls(
         table.add_column("Classes", header_style="magenta i")
         table.add_column("Tasks", header_style="magenta i")
     for name in datasets:
-        dataset = LuxonisDataset(name)
+        dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
         rows = [name]
         try:
             size = len(dataset)
-        except KeyError:
+        except Exception:
             size = -1
         rows.append(str(size))
         if full:
@@ -232,6 +255,7 @@ def inspect(
             "Doesn't apply to semantic segmentations.",
         ),
     ] = False,
+    bucket_storage: BucketStorage = bucket_option,
 ):
     """Inspects images and annotations in a dataset."""
 
@@ -240,7 +264,7 @@ def inspect(
         random.seed(42)
 
     view = view or ["train"]
-    dataset = LuxonisDataset(name)
+    dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
     loader = LuxonisLoader(dataset, view=view)
 
     if aug_config is not None:
@@ -342,7 +366,7 @@ def parse(
     print()
     print(Rule())
     print()
-    print_info(dataset.identifier)
+    print_info(dataset)
 
 
 if __name__ == "__main__":

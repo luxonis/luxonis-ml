@@ -185,6 +185,8 @@ class LuxonisDataset(BaseDataset):
 
     def __len__(self) -> int:
         """Returns the number of instances in the dataset."""
+        if self.is_remote:
+            return len(list(self.fs.walk_dir("media")))
 
         df = self._load_df_offline()
         return len(df.select("uuid").unique()) if df is not None else 0
@@ -1219,6 +1221,6 @@ class LuxonisDataset(BaseDataset):
             for path in fs.walk_dir("", recursive=False, typ="directory")
         )
         with ThreadPoolExecutor() as executor:
-            return [
+            return sorted(
                 name for name in executor.map(process_directory, paths) if name
-            ]
+            )
