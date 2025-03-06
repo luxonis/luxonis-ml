@@ -132,4 +132,6 @@ def migrate_metadata(
             )
         new_metadata["classes"] = dict(new_classes)
         new_metadata["tasks"] = dict(tasks)
-    return Metadata(**new_metadata)
+
+    metadata.update(new_metadata)
+    return Metadata(**metadata)  # type: ignore
