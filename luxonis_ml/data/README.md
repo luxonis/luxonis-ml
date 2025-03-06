@@ -10,6 +10,7 @@ The lifecycle of an LDF dataset is as follows:
 1. Adding data
 1. Defining splits
 1. (Optional) Adding new data or redefining splits
+1. Cloning and merging datasets
 1. Loading the dataset with `LuxonisLoader` for use in a training pipeline
 1. (Optional) Deleting the dataset if it is no longer needed
 
@@ -24,6 +25,7 @@ Each of these steps will be explained in more detail in the following examples.
   - [LuxonisDataset](#luxonisdataset)
     - [Adding Data](#adding-data)
     - [Defining Splits](#defining-splits)
+    - [Cloning and merging datasets](#cloning-and-merging-datasets)
     - [LuxonisML CLI](#luxonisml-cli)
   - [LuxonisLoader](#luxonisloader)
     - [Dataset Loading](#dataset-loading)
@@ -206,6 +208,38 @@ If you wish to delete old splits and create new ones using all the data, pass `r
 > \[!NOTE\]
 > There are no restrictions on the split names,
 > however for most cases one should stick to `"train"`, `"val"`, and `"test"`.
+
+### Cloning and Merging Datasets
+
+LuxonisML provides functionality to clone existing datasets and merge multiple datasets together.
+
+**Cloning a Dataset**
+
+You can clone an existing dataset to create a copy with a new name. This is useful for testing changes without affecting the original dataset.
+
+```python
+# Cloning the dataset
+cloned_dataset = dataset.clone(new_dataset_name="dataset_cloned")
+```
+
+**Merging Datasets**
+
+There are two ways to merge datasets:
+
+1. In-place merge - Modifies the first dataset to include data from the second:
+
+```python
+# In-place merge (the first dataset is modified to include data from the second dataset)
+dataset1.merge_with(dataset2, inplace=True)
+```
+
+2. Out-of-place merge - Creates a new dataset containing data from both sources:
+
+```python
+# Out-of-place merge (creates a new dataset from the combination of two existing datasets)
+merged_dataset = dataset1.merge_with(dataset2, inplace=False, new_dataset_name="merged_dataset")
+
+```
 
 ### LuxonisML CLI
 
