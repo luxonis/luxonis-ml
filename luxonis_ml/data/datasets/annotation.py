@@ -535,7 +535,9 @@ class ArrayAnnotation(Annotation):
 class DatasetRecord(BaseModelExtraForbid):
     files: Dict[str, FilePath]
     annotation: Optional[Detection] = None
-    task_name: str = Field(validation_alias=AliasChoices("task", "task_name"))
+    task_name: str = Field(
+        "", validation_alias=AliasChoices("task", "task_name")
+    )
 
     @property
     def file(self) -> FilePath:
