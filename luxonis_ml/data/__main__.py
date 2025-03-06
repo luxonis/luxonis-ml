@@ -325,11 +325,12 @@ def export(
             help="Delete an existing `save_dir` before exporting.",
         ),
     ] = False,
+    bucket_storage: BucketStorage = bucket_option,
 ):
     save_dir = save_dir or dataset_name
     if delete_existing and Path(save_dir).exists():
         shutil.rmtree(save_dir)
-    dataset = LuxonisDataset(dataset_name)
+    dataset = LuxonisDataset(dataset_name, bucket_storage=bucket_storage)
     dataset.export(save_dir, dataset_type)
 
 
