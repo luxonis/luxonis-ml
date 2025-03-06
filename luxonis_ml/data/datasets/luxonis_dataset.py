@@ -689,7 +689,7 @@ class LuxonisDataset(BaseDataset):
         for t in tasks:
             self._metadata.skeletons[t] = {
                 "labels": labels or [],
-                "edges": edges or [],
+                "edges": sorted(edges or []),
             }
         self._write_metadata()
 
@@ -1235,7 +1235,7 @@ class LuxonisDataset(BaseDataset):
         self,
         output_path: PathType,
         dataset_type: DatasetType = DatasetType.COCO,
-    ) -> None:
+    ) -> Path:
         if dataset_type is not DatasetType.COCO:
             raise NotImplementedError(
                 "Only COCO dataset export is supported at the moment"
@@ -1275,7 +1275,10 @@ class LuxonisDataset(BaseDataset):
             if skeletons:
                 labels, edges = next(iter(skeletons.values()))
                 for cat in coco_categories:
-                    cat["skeleton"] = list(map(list, edges))
+                    cat["skeleton"] = [
+                        [in_edge + 1, out_edge + 1]
+                        for in_edge, out_edge in edges
+                    ]
                     cat["keypoints"] = labels
 
             for image_id, (img, labels) in enumerate(loader):
@@ -1334,3 +1337,4 @@ class LuxonisDataset(BaseDataset):
                     file = Path(root, file)
                     zipf.write(file, file.relative_to(output_path))
         logger.info(f"Dataset '{self.identifier}' exported to '{zip_path}'")
+        return zip_path
