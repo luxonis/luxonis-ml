@@ -1236,6 +1236,17 @@ class LuxonisDataset(BaseDataset):
         output_path: PathType,
         dataset_type: DatasetType = DatasetType.COCO,
     ) -> Path:
+        """Exportes the dataset into on of the supported formats.
+
+        @type output_path: PathType
+        @param output_path: Path to the directory where the dataset will
+            be exported.
+        @type dataset_type: DatasetType
+        @param dataset_type: To what format to export the dataset.
+            Currently only DatasetType.COCO is supported.
+        @rtype: Path
+        @return: Path to the zip file containing the exported dataset.
+        """
         if dataset_type is not DatasetType.COCO:
             raise NotImplementedError(
                 "Only COCO dataset export is supported at the moment"
