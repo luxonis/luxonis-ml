@@ -1,4 +1,5 @@
 import random
+import shutil
 from pathlib import Path
 from typing import Iterator, List, Optional, Set, Tuple
 
@@ -288,6 +289,48 @@ def inspect(
         cv2.imshow("image", image)
         if cv2.waitKey() == ord("q"):
             break
+
+
+@app.command()
+def export(
+    dataset_name: DatasetNameArgument,
+    save_dir: Annotated[
+        Optional[str],
+        typer.Option(
+            ...,
+            "--save-dir",
+            "-s",
+            help="Directory where the dataset should be saved. "
+            "If not provided, the dataset will be saved in the "
+            "current working directory under the name of the dataset.",
+            show_default=False,
+        ),
+    ] = None,
+    dataset_type: Annotated[
+        DatasetType,
+        typer.Option(
+            ...,
+            "--type",
+            "-t",
+            help="Format of the exported dataset",
+            show_default=False,
+        ),
+    ] = "coco",  # type: ignore
+    delete_existing: Annotated[
+        bool,
+        typer.Option(
+            ...,
+            "--delete",
+            "-d",
+            help="Delete an existing `save_dir` before exporting.",
+        ),
+    ] = False,
+):
+    save_dir = save_dir or dataset_name
+    if delete_existing and Path(save_dir).exists():
+        shutil.rmtree(save_dir)
+    dataset = LuxonisDataset(dataset_name)
+    dataset.export(save_dir, dataset_type)
 
 
 @app.command()
