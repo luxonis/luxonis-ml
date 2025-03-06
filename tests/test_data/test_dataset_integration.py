@@ -225,13 +225,13 @@ def generator(base_path: Path, tempdir: Path):
             for annotation in annotations_list:
                 yield {
                     "file": combined_filepath,
-                    "task": annotation["class"],
+                    "task_name": annotation["class"],
                     "annotation": annotation,
                 }
             for i, color in enumerate(["red", "green", "blue"]):
                 yield {
                     "file": combined_filepath,
-                    "task": "color",
+                    "task_name": "color",
                     "annotation": {
                         "class": color,
                         "segmentation": {"mask": color_mask[i]},

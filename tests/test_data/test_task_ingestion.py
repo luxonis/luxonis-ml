@@ -44,7 +44,7 @@ def test_task_ingestion(
             path = create_image(i, tempdir)
             yield {
                 "file": str(path),
-                "task": "animals",
+                "task_name": "animals",
                 "annotation": {
                     "class": "dog",
                     "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
@@ -52,7 +52,7 @@ def test_task_ingestion(
             }
             yield {
                 "file": str(path),
-                "task": "animals",
+                "task_name": "animals",
                 "annotation": {
                     "class": "cat",
                     "boundingbox": {"x": 0.5, "y": 0.5, "w": 0.1, "h": 0.3},
@@ -60,7 +60,7 @@ def test_task_ingestion(
             }
             yield {
                 "file": str(path),
-                "task": "landmass",
+                "task_name": "landmass",
                 "annotation": {
                     "class": "water",
                     "segmentation": {
@@ -78,7 +78,7 @@ def test_task_ingestion(
             }
             yield {
                 "file": str(path),
-                "task": "landmass",
+                "task_name": "landmass",
                 "annotation": {
                     "class": "grass",
                     "segmentation": {
@@ -131,7 +131,7 @@ def test_task_ingestion(
             path = create_image(i, tempdir)
             yield {
                 "file": str(path),
-                "task": "animals",
+                "task_name": "animals",
                 "annotation": {
                     "class": "dog",
                     "boundingbox": {"x": 0.15, "y": 0.25, "w": 0.1, "h": 0.1},
@@ -169,7 +169,7 @@ def test_task_ingestion(
             path = create_image(i, tempdir)
             yield {
                 "file": str(path),
-                "task": "detection",
+                "task_name": "detection",
                 "annotation": {
                     "class": "bike",
                     "boundingbox": {"x": 0.9, "y": 0.8, "w": 0.1, "h": 0.4},
@@ -177,7 +177,7 @@ def test_task_ingestion(
             }
             yield {
                 "file": str(path),
-                "task": "segmentation",
+                "task_name": "segmentation",
                 "annotation": {
                     "class": "body",
                     "segmentation": {
@@ -194,7 +194,7 @@ def test_task_ingestion(
             }
             yield {
                 "file": str(path),
-                "task": "landmass-2",
+                "task_name": "landmass-2",
                 "annotation": {
                     "class": "water",
                     "segmentation": {

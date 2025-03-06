@@ -187,7 +187,6 @@ class SOLOParser(BaseParser):
                                 curr_mask = np.max(curr_mask, axis=2)  # 3D->2D
                                 yield {
                                     "file": img_path,
-                                    "task": "segmentation",
                                     "annotation": {
                                         "class": class_name,
                                         "segmentation": {

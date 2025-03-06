@@ -240,7 +240,7 @@ def test_visualize():
         "labels": expected_semantic + expected_labels,
     }
     classes = {
-        "task": {"class_name": 0},
+        "task_name": {"class_name": 0},
         "semantic": {"background": 0, "red": 1, "green": 2, "blue": 3},
         "task2": {"class_name2": 0},
     }
