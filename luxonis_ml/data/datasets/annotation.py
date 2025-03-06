@@ -21,6 +21,7 @@ import pycocotools.mask
 from loguru import logger
 from PIL import Image, ImageDraw
 from pydantic import (
+    AliasChoices,
     Field,
     GetCoreSchemaHandler,
     field_serializer,
@@ -534,7 +535,9 @@ class ArrayAnnotation(Annotation):
 class DatasetRecord(BaseModelExtraForbid):
     files: Dict[str, FilePath]
     annotation: Optional[Detection] = None
-    task: str = ""
+    task_name: str = Field(
+        ..., validation_alias=AliasChoices("task", "task_name")
+    )
 
     @property
     def file(self) -> FilePath:
@@ -543,9 +546,19 @@ class DatasetRecord(BaseModelExtraForbid):
         return next(iter(self.files.values()))
 
     @model_validator(mode="after")
-    def validate_task_name(self) -> Self:
-        check_valid_identifier(self.task, label="Task name")
+    def validate_task_name_valid_identifier(self) -> Self:
+        check_valid_identifier(self.task_name, label="Task name")
         return self
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_task_name(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        if "task" in values:
+            warnings.warn(
+                "The 'task' field is deprecated. Use 'task_name' instead.",
+                stacklevel=2,
+            )
+        return values
 
     @model_validator(mode="before")
     @classmethod
@@ -562,7 +575,7 @@ class DatasetRecord(BaseModelExtraForbid):
         @rtype: L{ParquetDict}
         @return: A dictionary of annotation data.
         """
-        yield from self._to_parquet_rows(self.annotation, self.task)
+        yield from self._to_parquet_rows(self.annotation, self.task_name)
 
     def _to_parquet_rows(
         self, annotation: Optional[Detection], task_name: str

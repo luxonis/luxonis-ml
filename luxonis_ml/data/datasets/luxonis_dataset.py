@@ -908,8 +908,10 @@ class LuxonisDataset(BaseDataset):
                 ann = record.annotation
                 if ann is not None:
                     if not explicit_task:
-                        record.task = infer_task(
-                            record.task, ann.class_name, self.get_classes()
+                        record.task_name = infer_task(
+                            record.task_name,
+                            ann.class_name,
+                            self.get_classes(),
                         )
 
                     def update_state(task_name: str, ann: Detection) -> None:
@@ -952,7 +954,7 @@ class LuxonisDataset(BaseDataset):
                         for name, sub_detection in ann.sub_detections.items():
                             update_state(f"{task_name}/{name}", sub_detection)
 
-                    update_state(record.task, ann)
+                    update_state(record.task_name, ann)
 
                 data_batch.append(record)
                 if i % batch_size == 0:
