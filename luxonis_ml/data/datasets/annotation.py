@@ -21,7 +21,6 @@ import pycocotools.mask
 from loguru import logger
 from PIL import Image, ImageDraw
 from pydantic import (
-    AliasChoices,
     Field,
     GetCoreSchemaHandler,
     field_serializer,
@@ -535,9 +534,7 @@ class ArrayAnnotation(Annotation):
 class DatasetRecord(BaseModelExtraForbid):
     files: Dict[str, FilePath]
     annotation: Optional[Detection] = None
-    task_name: str = Field(
-        "", validation_alias=AliasChoices("task", "task_name")
-    )
+    task_name: str = ""
 
     @property
     def file(self) -> FilePath:
@@ -558,6 +555,7 @@ class DatasetRecord(BaseModelExtraForbid):
                 "The 'task' field is deprecated. Use 'task_name' instead.",
                 stacklevel=2,
             )
+            values["task_name"] = values.pop("task")
         return values
 
     @model_validator(mode="before")
