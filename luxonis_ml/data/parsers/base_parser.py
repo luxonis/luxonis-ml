@@ -94,7 +94,7 @@ class BaseParser(ABC):
                     self.dataset.set_skeletons(
                         skeleton.get("labels"),
                         skeleton.get("edges"),
-                        self.dataset_type.value,
+                        self.task_name,
                     )
             return added_images
         finally:
