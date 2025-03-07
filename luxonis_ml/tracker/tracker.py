@@ -88,8 +88,6 @@ class LuxonisTracker:
         self.project_name = project_name
         self.project_id = project_id
         self.save_directory = Path(save_directory)
-        if not self.save_directory.exists():
-            self.save_directory.mkdir(parents=True)
         self.is_tensorboard = is_tensorboard
         self.is_wandb = is_wandb
         self.is_mlflow = is_mlflow
@@ -142,9 +140,8 @@ class LuxonisTracker:
             time.sleep(1)  # DDP hotfix
             self.run_name = self._get_latest_run_name()
 
-        Path(f"{self.save_directory}/{self.run_name}").mkdir(
-            parents=True, exist_ok=True
-        )
+        self.run_directory = self.save_directory / self.run_name
+        self.run_directory.mkdir(parents=True, exist_ok=True)
 
     @staticmethod
     def rank_zero_only(fn: Callable) -> Callable:
@@ -246,11 +243,9 @@ class LuxonisTracker:
     def save_logs_locally(self) -> None:
         """Saves metrics, parameters, images, artifacts, and matrices
         locally."""
-        run_dir = Path(self.save_directory) / self.run_name
-        image_dir = run_dir / "images"
-        artifact_dir = run_dir / "artifacts"
+        image_dir = self.run_directory / "images"
+        artifact_dir = self.run_directory / "artifacts"
 
-        run_dir.mkdir(parents=True, exist_ok=True)
         image_dir.mkdir(exist_ok=True)
         artifact_dir.mkdir(exist_ok=True)
 
@@ -268,7 +263,8 @@ class LuxonisTracker:
                 local_path.write_bytes(artifact_path.read_bytes())
                 artifact["path"] = str(local_path)
 
-        with open(run_dir / "local_logs.json", "w") as f:
+        log_dir = self.run_directory / "local_logs.json"
+        with open(log_dir, "w") as f:
             json.dump(
                 {
                     k: self.local_logs[k]
@@ -285,7 +281,8 @@ class LuxonisTracker:
             )
 
         logger.info(
-            f"Logs saved locally at {run_dir / 'local_logs.json'}, images in {image_dir}, artifacts in {artifact_dir}"
+            f"Logs saved locally at '{log_dir}', "
+            f"images in {image_dir}, artifacts in {artifact_dir}"
         )
 
     @property
@@ -317,7 +314,7 @@ class LuxonisTracker:
         if self.is_tensorboard and "tensorboard" not in self._experiment:
             from torch.utils.tensorboard.writer import SummaryWriter
 
-            log_dir = f"{self.save_directory}/tensorboard_logs/{self.run_name}"
+            log_dir = self.save_directory / "tensorboard_logs" / self.run_name
             self._experiment["tensorboard"] = SummaryWriter(log_dir=log_dir)
 
         if self.is_wandb and "wandb" not in self._experiment:
@@ -325,8 +322,8 @@ class LuxonisTracker:
 
             self._experiment["wandb"] = wandb
 
-            log_dir = f"{self.save_directory}/wandb_logs"
-            Path(log_dir).mkdir(parents=True, exist_ok=True)
+            log_dir = self.save_directory / "wandb_logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
 
             self._experiment["wandb"].init(
                 project=self.project_name
@@ -356,10 +353,8 @@ class LuxonisTracker:
 
                 self._experiment["mlflow"] = mlflow
 
-                self.artifacts_dir = (
-                    f"{self.save_directory}/{self.run_name}/artifacts"
-                )
-                Path(self.artifacts_dir).mkdir(parents=True, exist_ok=True)
+                self.artifacts_dir = self.run_directory / "artifacts"
+                self.artifacts_dir.mkdir(parents=True, exist_ok=True)
 
                 self._experiment["mlflow"].set_tracking_uri(
                     self.mlflow_tracking_uri
@@ -367,6 +362,7 @@ class LuxonisTracker:
 
                 if self.project_id is not None:
                     self.project_name = None
+
                 experiment = self._experiment["mlflow"].set_experiment(
                     experiment_name=self.project_name,
                     experiment_id=self.project_id,
