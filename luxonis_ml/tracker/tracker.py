@@ -88,6 +88,8 @@ class LuxonisTracker:
         self.project_name = project_name
         self.project_id = project_id
         self.save_directory = Path(save_directory)
+        if not self.save_directory.exists():
+            self.save_directory.mkdir(parents=True)
         self.is_tensorboard = is_tensorboard
         self.is_wandb = is_wandb
         self.is_mlflow = is_mlflow
