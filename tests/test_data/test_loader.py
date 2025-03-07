@@ -1,10 +1,17 @@
+import json
 from pathlib import Path
-from typing import List
+from typing import Any, Dict, List
 
 import numpy as np
 
-from luxonis_ml.data import BucketStorage, LuxonisDataset, LuxonisLoader
+from luxonis_ml.data import (
+    BucketStorage,
+    LuxonisDataset,
+    LuxonisLoader,
+    LuxonisParser,
+)
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
+from luxonis_ml.enums import DatasetType
 from luxonis_ml.typing import Params
 
 from .utils import create_image
@@ -308,3 +315,117 @@ def test_edge_cases(tempdir: Path):
                 assert bbox_area >= 0.0004, (
                     f"BBox area too small: {bbox}, area={bbox_area}"
                 )
+
+
+def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
+    dataset = LuxonisParser(
+        f"{storage_url}/COCO_people_subset.zip",
+        dataset_name="_augmentation_reproducibility",
+        save_dir=tempdir,
+        dataset_type=DatasetType.COCO,
+        delete_existing=True,
+        task_name="coco",
+    ).parse()
+    aug_config = [
+        {
+            "name": "Rotate",
+            "params": {
+                "limit": 3,
+                "p": 1,
+                "border_mode": 0,
+                "value": [0, 0, 0],
+                "random_state": 42,
+            },
+        },
+        {
+            "name": "Perspective",
+            "params": {
+                "scale": [0.04, 0.08],
+                "keep_size": True,
+                "pad_mode": 0,
+                "pad_val": 0,
+                "mask_pad_val": 0,
+                "fit_output": False,
+                "interpolation": 1,
+                "always_apply": False,
+                "p": 1,
+                "random_state": 42,
+            },
+        },
+        {
+            "name": "Affine",
+            "params": {
+                "scale": 1,
+                "translate_percent": 0,
+                "rotate": 0,
+                "shear": 10,
+                "interpolation": 1,
+                "mask_interpolation": 0,
+                "cval": 0,
+                "cval_mask": 0,
+                "mode": 0,
+                "fit_output": False,
+                "keep_ratio": False,
+                "rotate_method": "largest_box",
+                "always_apply": False,
+                "p": 1,
+                "random_state": 42,
+            },
+        },
+        {
+            "name": "Mosaic4",
+            "params": {"out_width": 512, "out_height": 512, "p": 1.0},
+        },
+    ]
+
+    original_aug_labels_path = Path("aug_labels.json")
+
+    def rle_encode(mask: np.ndarray) -> List[int]:
+        """Encodes a binary mask using Run-Length Encoding (RLE)."""
+        pixels = mask.flatten()
+        rle = []
+        prev_pixel = pixels[0]
+        count = 0
+
+        for pixel in pixels:
+            if pixel == prev_pixel:
+                count += 1
+            else:
+                rle.append(count)
+                count = 1
+                prev_pixel = pixel
+        rle.append(count)
+
+        return rle
+
+    def convert_annotation(ann: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "classification": ann["/classification"].tolist()
+            if isinstance(ann["/classification"], np.ndarray)
+            else ann["/classification"],
+            "bounding_box": ann["/boundingbox"].tolist()
+            if isinstance(ann["/boundingbox"], np.ndarray)
+            else ann["/boundingbox"],
+            "segmentation": rle_encode(ann["/segmentation"])
+            if isinstance(ann["/segmentation"], np.ndarray)
+            else ann["/segmentation"],
+            "keypoints": ann["/keypoints"].tolist()
+            if isinstance(ann["/keypoints"], np.ndarray)
+            else ann["/keypoints"],
+        }
+
+    loader_aug = LuxonisLoader(
+        dataset,
+        height=512,
+        width=512,
+        augmentation_config=aug_config,
+        view="train",
+        seed=42,
+    )
+
+    new_aug_annotations = [convert_annotation(ann) for _, ann in loader_aug]
+
+    with open(original_aug_labels_path) as f:
+        original_aug_annotations = json.load(f)
+
+    assert original_aug_annotations == new_aug_annotations
