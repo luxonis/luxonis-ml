@@ -33,7 +33,6 @@ class BaseParser(ABC):
         """
         self.dataset = dataset
         self.dataset_type = dataset_type
-        task_name = task_name or ""
         if isinstance(task_name, str):
             self.task_name = defaultdict(lambda: task_name)
         else:
