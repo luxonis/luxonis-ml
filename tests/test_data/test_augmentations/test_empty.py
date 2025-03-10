@@ -57,5 +57,14 @@ def test_empty(dataset_name: str, tempdir: Path, n_samples: int):
     loader = LuxonisLoader(
         dataset, augmentation_config=config, height=256, width=256
     )
-    for _ in loader:
-        pass
+    for _, labels in loader:
+        if "/classification" not in labels:
+            continue
+
+        n_classes = dataset.get_n_classes()[""]
+        if labels["/classification"].sum() == 0:
+            assert labels["/classification"].shape == (n_classes,)
+            assert labels["/boundingbox"].shape == (0, 5)
+            assert labels["/keypoints"].shape == (0, 2 * 3)
+            assert labels["/segmentation"].shape == (n_classes, 256, 256)
+            assert labels["/segmentation"].sum() == 0
