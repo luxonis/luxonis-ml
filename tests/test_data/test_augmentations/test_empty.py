@@ -37,7 +37,7 @@ def test_empty(dataset_name: str, tempdir: Path, n_samples: int):
                         "instance_segmentation": {
                             "height": 256,
                             "width": 256,
-                            "points": [(0.25, 0.25), (0.3, 0.3)],
+                            "points": [(0.25, 0.25), (0.3, 0.3), (0.4, 0.4)],
                         },
                         "boundingbox": {
                             "x": 0.2,
