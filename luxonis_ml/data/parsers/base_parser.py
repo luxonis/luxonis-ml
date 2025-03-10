@@ -37,7 +37,7 @@ class BaseParser(ABC):
         if isinstance(task_name, str):
             self.task_name = defaultdict(lambda: task_name)
         else:
-            self.task_name = defaultdict(str, task_name)
+            self.task_name = task_name
 
     @staticmethod
     @abstractmethod
@@ -274,6 +274,11 @@ class BaseParser(ABC):
                 else:
                     class_name = item.annotation.class_name
                     if class_name is not None:
+                        if class_name not in self.task_name:
+                            raise ValueError(
+                                f"Class '{class_name}' not found in task names."
+                            )
+
                         item.task_name = self.task_name[class_name]
                     yield item
             else:
