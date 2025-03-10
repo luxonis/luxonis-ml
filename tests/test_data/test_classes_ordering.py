@@ -126,7 +126,7 @@ def test_ordering_dataset(
             img = create_image(i, tempdir)
             yield {
                 "file": img,
-                "task": "ordering",
+                "task_name": "ordering",
                 "annotation": {
                     "class": class_name,
                 },

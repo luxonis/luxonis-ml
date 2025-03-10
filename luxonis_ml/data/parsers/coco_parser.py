@@ -238,7 +238,7 @@ class COCOParser(BaseParser):
                 img_w = img["width"]
 
                 for i, ann in enumerate(img_anns):
-                    if ann.get("iscrowd", True):
+                    if ann.get("iscrowd"):
                         continue
                     class_name = categories[ann["category_id"]]
 

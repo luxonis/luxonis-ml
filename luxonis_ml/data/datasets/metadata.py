@@ -2,6 +2,7 @@ from typing import Dict, Iterable, List, Literal, Optional, Tuple, Union
 
 from typing_extensions import TypedDict
 
+from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.utils.pydantic_utils import BaseModelExtraForbid
 
 from .source import LuxonisSource
@@ -14,12 +15,12 @@ class Skeletons(TypedDict):
 
 class Metadata(BaseModelExtraForbid):
     source: Optional[LuxonisSource]
-    ldf_version: str
-    classes: Dict[str, Dict[str, int]]
-    tasks: Dict[str, List[str]]
-    skeletons: Dict[str, Skeletons]
-    categorical_encodings: Dict[str, Dict[str, int]]
-    metadata_types: Dict[str, Literal["float", "int", "str", "Category"]]
+    ldf_version: str = str(LDF_VERSION)
+    classes: Dict[str, Dict[str, int]] = {}
+    tasks: Dict[str, List[str]] = {}
+    skeletons: Dict[str, Skeletons] = {}
+    categorical_encodings: Dict[str, Dict[str, int]] = {}
+    metadata_types: Dict[str, Literal["float", "int", "str", "Category"]] = {}
     parent_dataset: Optional[str] = None
 
     def set_classes(

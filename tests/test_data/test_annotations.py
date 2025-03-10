@@ -583,7 +583,7 @@ def test_record(tempdir: Path):
     record = DatasetRecord(
         file=filename,  # type: ignore
         annotation=detection,
-        task="test",
+        task_name="test",
     )
     common = {
         "file": filename,
