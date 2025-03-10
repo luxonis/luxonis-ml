@@ -64,7 +64,7 @@ def test_empty(dataset_name: str, tempdir: Path, n_samples: int):
     )
     for _img, labels in loader:
         if labels["/class"].shape[0] == 0:
-            assert labels["/class"].shape == (0, 2)
+            assert labels["/classification"].shape == (0, 2)
             assert labels["/boundingbox"].shape == (0, 5)
             assert labels["/keypoints"].shape == (0, 2 * 3)
             assert labels["/segmentation"].shape == (0, 256, 256)
