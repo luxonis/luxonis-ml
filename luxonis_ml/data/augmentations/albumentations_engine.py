@@ -461,6 +461,12 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                                 ],
                             )
                         )
+                    elif target_type == "classification":
+                        data[target_name] = np.zeros(
+                            self.n_classes[
+                                self.target_names_to_tasks[target_name]
+                            ]
+                        )
                     else:
                         data[target_name] = np.array([])
                     continue
