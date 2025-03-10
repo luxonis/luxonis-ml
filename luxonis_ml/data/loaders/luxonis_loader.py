@@ -232,17 +232,12 @@ class LuxonisLoader(BaseLoader):
                     elif task_type == "keypoints":
                         n_keypoints = self.dataset.get_n_keypoints()[task_name]
                         labels[task] = np.zeros((0, n_keypoints * 3))
-                    elif task_type == "segmentation":
+                    elif task_type in {
+                        "segmentation",
+                        "instance_segmentation",
+                    }:
                         labels[task] = np.zeros(
                             (0, img.shape[0], img.shape[1])
-                        )
-                    elif task_type == "instance_segmentation":
-                        labels[task] = np.zeros(
-                            (
-                                len(self.dataset.get_classes()[task_name]),
-                                img.shape[0],
-                                img.shape[1],
-                            )
                         )
                     elif task_type == "classification" or task_is_metadata(
                         task

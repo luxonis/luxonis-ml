@@ -34,6 +34,11 @@ def test_empty(dataset_name: str, tempdir: Path, n_samples: int):
                             "height": 256,
                             "width": 256,
                         },
+                        "instance_segmentation": {
+                            "height": 256,
+                            "width": 256,
+                            "points": [(0.25, 0.25), (0.3, 0.3)],
+                        },
                         "boundingbox": {
                             "x": 0.2,
                             "y": 0.2,
@@ -57,5 +62,11 @@ def test_empty(dataset_name: str, tempdir: Path, n_samples: int):
     loader = LuxonisLoader(
         dataset, augmentation_config=config, height=256, width=256
     )
-    for _ in loader:
-        pass
+    for _img, labels in loader:
+        if labels["/class"].shape[0] == 0:
+            assert labels["/class"].shape == (0, 2)
+            assert labels["/boundingbox"].shape == (0, 5)
+            assert labels["/keypoints"].shape == (0, 2 * 3)
+            assert labels["/segmentation"].shape == (0, 256, 256)
+            assert labels["/instance_segmentation"].shape == (0, 256, 256)
+            continue
