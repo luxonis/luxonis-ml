@@ -63,7 +63,7 @@ class BatchTransform(ABC, A.DualTransform):
     ) -> np.ndarray:
         for i in range(len(classification_batch)):
             if classification_batch[i].size == 0:
-                classification_batch[i] = np.zeros(1)
+                classification_batch[i] = np.zeros(3)
         return np.clip(sum(classification_batch), 0, 1)
 
     def apply_to_metadata(
