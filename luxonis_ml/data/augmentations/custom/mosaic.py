@@ -352,6 +352,9 @@ def apply_mosaic4_to_instance_masks(
     out_masks = []
     out_shape = [out_height * 2, out_width * 2]
 
+    if not any(m.size for m in masks_batch):
+        return np.zeros((out_height, out_width, 0), dtype=np.uint8)
+
     for quadrant, masks in enumerate(masks_batch):
         if masks.size == 0:
             continue
@@ -394,6 +397,9 @@ def apply_mosaic4_to_instance_masks(
                 y_crop : y_crop + out_height, x_crop : x_crop + out_width
             ]
             out_masks.append(combined_mask)
+
+    if not out_masks:
+        return np.zeros((out_height, out_width, 0), dtype=np.uint8)
 
     return np.stack(out_masks, axis=-1)
 
