@@ -145,8 +145,9 @@ class SOLOParser(BaseParser):
 
         def generator() -> DatasetIterator:
             for sequence_path in split_path.glob("sequence*"):
-                # Because synth data team is not consistent with one json file per step
-                processed_annotations_per_step: Dict[str, set] = {}
+                processed_annotations_per_step: Dict[
+                    str, set
+                ] = {}  # Seperate json files can have the same annotations in them
                 for frame_path in sequence_path.glob("*.frame_data*.json"):
                     frame = json.loads(frame_path.read_text())
 
@@ -163,6 +164,9 @@ class SOLOParser(BaseParser):
                             raise FileNotFoundError(
                                 f"{img_path} not existent."
                             )
+                        instance_segmentations = {}
+                        instance_keypoints = {}
+                        bounding_boxes = {}
                         for anno in annotations:
                             if (
                                 "SemanticSegmentationAnnotation"
@@ -196,7 +200,6 @@ class SOLOParser(BaseParser):
                                     ).astype(np.uint8)
                                     yield {
                                         "file": img_path,
-                                        "task": "semantic_segmentation",
                                         "annotation": {
                                             "class": class_name,
                                             "segmentation": {
@@ -227,7 +230,7 @@ class SOLOParser(BaseParser):
                                     bbox_w, bbox_h = dimension
 
                                     instance_id = bbox_annotation["instanceId"]
-                                    yield {
+                                    bounding_boxes[instance_id] = {
                                         "file": img_path,
                                         "annotation": {
                                             "class": class_name,
@@ -271,7 +274,8 @@ class SOLOParser(BaseParser):
                                         mask_int == target_int
                                     ).astype(np.uint8)
                                     instance_id = instance["instanceId"]
-                                    yield {
+
+                                    instance_segmentations[instance_id] = {
                                         "file": img_path,
                                         "annotation": {
                                             "instance_id": instance_id,
@@ -308,9 +312,11 @@ class SOLOParser(BaseParser):
                                             (x / img_w, y / img_h, visibility)
                                         )
 
-                                    instance_id = bbox_annotation["instanceId"]
+                                    instance_id = keypoints_annotation[
+                                        "instanceId"
+                                    ]
 
-                                    yield {
+                                    instance_keypoints[instance_id] = {
                                         "file": img_path,
                                         "annotation": {
                                             "instance_id": instance_id,
@@ -319,6 +325,54 @@ class SOLOParser(BaseParser):
                                             },
                                         },
                                     }
+                        # Hard dependencies between bbox, keypoints and instance_segmentations
+                        non_empty_annotations = []
+                        if bounding_boxes:
+                            non_empty_annotations.append(bounding_boxes)
+                        if instance_keypoints:
+                            non_empty_annotations.append(instance_keypoints)
+                        if instance_segmentations:
+                            non_empty_annotations.append(
+                                instance_segmentations
+                            )
+
+                        if non_empty_annotations:
+                            common_instance_ids = set.intersection(
+                                *[
+                                    set(ann.keys())
+                                    for ann in non_empty_annotations
+                                ]
+                            )
+                        else:
+                            common_instance_ids = set()
+
+                        for instance_id in common_instance_ids:
+                            annotation_entry = {
+                                "class": bounding_boxes[instance_id][
+                                    "annotation"
+                                ]["class"],
+                                "instance_id": instance_id,
+                                "boundingbox": bounding_boxes[instance_id][
+                                    "annotation"
+                                ]["boundingbox"],
+                            }
+                            if instance_keypoints:
+                                annotation_entry["keypoints"] = (
+                                    instance_keypoints[instance_id][
+                                        "annotation"
+                                    ]["keypoints"]
+                                )
+                            if instance_segmentations:
+                                annotation_entry["instance_segmentation"] = (
+                                    instance_segmentations[instance_id][
+                                        "annotation"
+                                    ]["instance_segmentation"]
+                                )
+
+                            yield {
+                                "file": img_path,
+                                "annotation": annotation_entry,
+                            }
 
         return generator(), skeletons, []
 
