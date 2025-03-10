@@ -901,13 +901,11 @@ class LuxonisDataset(BaseDataset):
 
         with ParquetFileManager(annotations_path) as pfm:
             for i, record in enumerate(generator, start=1):
-                explicit_task = False
                 if not isinstance(record, DatasetRecord):
-                    explicit_task = "task_name" in record or "task" in record
                     record = DatasetRecord(**record)
                 ann = record.annotation
                 if ann is not None:
-                    if not explicit_task:
+                    if not record.task_name:
                         record.task_name = infer_task(
                             record.task_name,
                             ann.class_name,
@@ -976,7 +974,7 @@ class LuxonisDataset(BaseDataset):
             new_classes = list(classes - old_classes)
             if new_classes or task not in curr_classes:
                 logger.info(
-                    f"Detected new classes for task {task}: {new_classes}"
+                    f"Detected new classes for task group '{task}': {new_classes}"
                 )
 
                 self.set_classes(list(classes | old_classes), task=task)

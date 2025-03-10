@@ -67,7 +67,7 @@ class LuxonisParser(Generic[T]):
         save_dir: Optional[Union[Path, str]] = None,
         dataset_plugin: T = None,
         dataset_type: Optional[DatasetType] = None,
-        task_name: Optional[str] = None,
+        task_name: Optional[Union[str, Dict[str, str]]] = None,
         **kwargs,
     ):
         """High-level abstraction over various parsers.
@@ -100,9 +100,13 @@ class LuxonisParser(Generic[T]):
         @param dataset_type: If provided, the parser will use this
             dataset type instead of trying to recognize it
             automatically.
-        @type task_name: Optional[str]
-        @param task_name: Name of the task. If C{None}, the task name
-            is derived from the dataset format.
+        @type task_name: Optional[Union[str, Dict[str, str]]]
+        @param task_name: Optional task name(s) for the dataset.
+            Can be either a single string, in which case all the records
+            added to the dataset will use this value as `task_name`, or
+            a dictionary with class names as keys and task names as values.
+            In the latter case, the task name for a record with a given
+            class name will be taken from the dictionary.
         @type kwargs: Dict[str, Any]
         @param kwargs: Additional C{kwargs} to be passed to the
             constructor of specific L{BaseDataset} implementation.
