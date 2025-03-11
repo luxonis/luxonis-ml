@@ -1,10 +1,17 @@
+import random
 from pathlib import Path
-from typing import List
+from typing import Any, Dict, List, Union
 
 import numpy as np
 
-from luxonis_ml.data import BucketStorage, LuxonisDataset, LuxonisLoader
+from luxonis_ml.data import (
+    BucketStorage,
+    LuxonisDataset,
+    LuxonisLoader,
+    LuxonisParser,
+)
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
+from luxonis_ml.enums import DatasetType
 from luxonis_ml.typing import Params
 
 from .utils import create_image
@@ -308,3 +315,80 @@ def test_edge_cases(tempdir: Path):
                 assert bbox_area >= 0.0004, (
                     f"BBox area too small: {bbox}, area={bbox_area}"
                 )
+
+
+def test_dataset_reproducibility(storage_url: str, tempdir: Path):
+    def rle_encode(mask: np.ndarray) -> List[int]:
+        """Encodes a binary mask using Run-Length Encoding (RLE)."""
+        pixels = mask.flatten()
+        rle = []
+        prev_pixel = pixels[0]
+        count = 0
+
+        for pixel in pixels:
+            if pixel == prev_pixel:
+                count += 1
+            else:
+                rle.append(count)
+                count = 1
+                prev_pixel = pixel
+        rle.append(count)
+
+        return rle
+
+    def convert_annotation(ann: Dict[str, Any]) -> Dict[str, Any]:
+        def round_nested_list(
+            data: Union[List[Any], float], decimals: int = 3
+        ) -> Union[List[Any], float]:
+            if isinstance(data, list):
+                return [round_nested_list(elem, decimals) for elem in data]
+            if isinstance(data, float):
+                return round(data, decimals)
+            return data
+
+        return {
+            "classification": round_nested_list(
+                ann["/classification"].tolist()
+                if isinstance(ann["/classification"], np.ndarray)
+                else ann["/classification"]
+            ),
+            "bounding_box": round_nested_list(
+                ann["/boundingbox"].tolist()
+                if isinstance(ann["/boundingbox"], np.ndarray)
+                else ann["/boundingbox"]
+            ),
+            "segmentation": rle_encode(ann["/segmentation"])
+            if isinstance(ann["/segmentation"], np.ndarray)
+            else ann["/segmentation"],
+            "keypoints": round_nested_list(
+                ann["/keypoints"].tolist()
+                if isinstance(ann["/keypoints"], np.ndarray)
+                else ann["/keypoints"]
+            ),
+        }
+
+    np.random.seed(42)
+    random.seed(42)
+    dataset = LuxonisParser(
+        f"{storage_url}/COCO_people_subset.zip",
+        dataset_name="_augmentation_reproducibility",
+        save_dir=tempdir,
+        dataset_type=DatasetType.COCO,
+        delete_existing=True,
+    ).parse()
+    loader_aug = LuxonisLoader(
+        dataset,
+        height=512,
+        width=512,
+        view="train",
+    )
+
+    np.random.seed(42)
+    random.seed(42)
+    new_aug_annotations = [convert_annotation(ann) for _, ann in loader_aug]
+
+    np.random.seed(42)
+    random.seed(42)
+    assert new_aug_annotations == [
+        convert_annotation(ann) for _, ann in loader_aug
+    ]
