@@ -51,7 +51,7 @@ class LuxonisConfig(BaseModelExtraForbid):
         if isinstance(cfg, str):
             fs = LuxonisFileSystem(cfg)
             buffer = fs.read_to_byte_buffer()
-            data = yaml.load(buffer, Loader=yaml.SafeLoader)
+            data = yaml.safe_load(buffer)
         else:
             data = cfg
 
@@ -79,7 +79,7 @@ class LuxonisConfig(BaseModelExtraForbid):
         @param path: Path to output yaml file.
         """
         with open(path, "w+") as f:
-            yaml.dump(self.model_dump(), f, default_flow_style=False)
+            yaml.safe_dump(self.model_dump(), f, default_flow_style=False)
 
     def get(self, key_merged: str, default: Any = None) -> Any:
         """Returns a value from L{Config} based on the given key.
