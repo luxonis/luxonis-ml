@@ -94,7 +94,7 @@ class BaseParser(ABC):
                     self.dataset.set_skeletons(
                         skeleton.get("labels"),
                         skeleton.get("edges"),
-                        self.dataset_type.value,
+                        self.task_name,
                     )
             return added_images
         finally:
@@ -242,8 +242,8 @@ class BaseParser(ABC):
         task_name = self.task_name or ""
         for item in generator:
             if isinstance(item, dict):
-                if "task" not in item or self.task_name is not None:
-                    item["task"] = task_name
-            elif not item.task or self.task_name is not None:
-                item.task = task_name
+                if "task_name" not in item or self.task_name is not None:
+                    item["task_name"] = task_name
+            elif not item.task_name or self.task_name is not None:
+                item.task_name = task_name
             yield item

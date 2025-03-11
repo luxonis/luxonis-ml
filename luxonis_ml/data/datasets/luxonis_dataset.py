@@ -1,7 +1,9 @@
 import json
 import math
+import os
 import shutil
 import tempfile
+import zipfile
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
@@ -23,9 +25,11 @@ from typing import (
     overload,
 )
 
+import cv2
 import numpy as np
 import polars as pl
 import pyarrow.parquet as pq
+from bidict import bidict
 from filelock import FileLock
 from loguru import logger
 from semver.version import Version
@@ -40,6 +44,8 @@ from luxonis_ml.data.utils import (
     warn_on_duplicates,
 )
 from luxonis_ml.data.utils.constants import LDF_VERSION
+from luxonis_ml.data.utils.task_utils import get_task_type
+from luxonis_ml.enums.enums import DatasetType
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import (
     LuxonisFileSystem,
@@ -185,6 +191,8 @@ class LuxonisDataset(BaseDataset):
 
     def __len__(self) -> int:
         """Returns the number of instances in the dataset."""
+        if self.is_remote:
+            return len(list(self.fs.walk_dir("media")))
 
         df = self._load_df_offline()
         return len(df.select("uuid").unique()) if df is not None else 0
@@ -681,7 +689,7 @@ class LuxonisDataset(BaseDataset):
         for t in tasks:
             self._metadata.skeletons[t] = {
                 "labels": labels or [],
-                "edges": edges or [],
+                "edges": sorted(edges or []),
             }
         self._write_metadata()
 
@@ -900,8 +908,10 @@ class LuxonisDataset(BaseDataset):
                 ann = record.annotation
                 if ann is not None:
                     if not explicit_task:
-                        record.task = infer_task(
-                            record.task, ann.class_name, self.get_classes()
+                        record.task_name = infer_task(
+                            record.task_name,
+                            ann.class_name,
+                            self.get_classes(),
                         )
 
                     def update_state(task_name: str, ann: Detection) -> None:
@@ -944,7 +954,7 @@ class LuxonisDataset(BaseDataset):
                         for name, sub_detection in ann.sub_detections.items():
                             update_state(f"{task_name}/{name}", sub_detection)
 
-                    update_state(record.task, ann)
+                    update_state(record.task_name, ann)
 
                 data_batch.append(record)
                 if i % batch_size == 0:
@@ -1219,6 +1229,125 @@ class LuxonisDataset(BaseDataset):
             for path in fs.walk_dir("", recursive=False, typ="directory")
         )
         with ThreadPoolExecutor() as executor:
-            return [
+            return sorted(
                 name for name in executor.map(process_directory, paths) if name
+            )
+
+    def export(
+        self,
+        output_path: PathType,
+        dataset_type: DatasetType = DatasetType.COCO,
+    ) -> Path:
+        """Exportes the dataset into on of the supported formats.
+
+        @type output_path: PathType
+        @param output_path: Path to the directory where the dataset will
+            be exported.
+        @type dataset_type: DatasetType
+        @param dataset_type: To what format to export the dataset.
+            Currently only DatasetType.COCO is supported.
+        @rtype: Path
+        @return: Path to the zip file containing the exported dataset.
+        """
+        if dataset_type is not DatasetType.COCO:
+            raise NotImplementedError(
+                "Only COCO dataset export is supported at the moment"
+            )
+        logger.info(f"Exporting '{self.identifier}' to COCO format")
+        from luxonis_ml.data import LuxonisLoader
+
+        splits = self.get_splits()
+        if splits is None:
+            raise ValueError("Cannot export dataset without splits")
+        if len(self.get_tasks()) > 1:
+            raise NotImplementedError(
+                "Only single-task datasets are supported for export"
+            )
+        output_path = Path(output_path)
+        if output_path.exists():
+            raise ValueError(
+                f"Export path '{output_path}' already exists. Please remove it first."
+            )
+        output_path.mkdir(parents=True)
+        classes = bidict(
+            self.get_classes()[next(iter(self.get_tasks()))]
+        ).inverse
+        for split in splits:
+            loader = LuxonisLoader(self, view=[split])
+            if split == "val":
+                split = "valid"
+            split_path = output_path / self.identifier / split
+            data_path = split_path / "data"
+            data_path.mkdir(parents=True, exist_ok=True)
+            coco_annotations = []
+            coco_images = []
+            coco_categories = [
+                {"id": i, "name": name} for i, name in classes.items()
             ]
+            skeletons = self.get_skeletons()
+            if skeletons:
+                labels, edges = next(iter(skeletons.values()))
+                for cat in coco_categories:
+                    cat["skeleton"] = [
+                        [in_edge + 1, out_edge + 1]
+                        for in_edge, out_edge in edges
+                    ]
+                    cat["keypoints"] = labels
+
+            for image_id, (img, labels) in enumerate(loader):
+                img_h, img_w = img.shape[:2]
+                img_path = data_path / f"{image_id:06}.png"
+                cv2.imwrite(
+                    str(img_path), cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+                )
+                instances = defaultdict(dict)
+                for task, arrays in labels.items():
+                    task_type = get_task_type(task)
+                    if task_type == "boundingbox":
+                        for instance_id, arr in enumerate(arrays):
+                            class_id = arr[0].astype(int).item()
+                            instances[instance_id].update(
+                                {"image_id": image_id, "category_id": class_id}
+                            )
+                            bbox = arr[1:]
+                            bbox[::2] *= img_w
+                            bbox[1::2] *= img_h
+                            instances[instance_id]["bbox"] = bbox.tolist()
+
+                    elif task_type == "keypoints":
+                        for instance_id, arr in enumerate(arrays):
+                            arr = arr.reshape(-1, 3)
+                            arr[:, 0] *= img_w
+                            arr[:, 1] *= img_h
+                            instances[instance_id]["keypoints"] = arr.tolist()
+
+                coco_annotations.extend(instances.values())
+
+                coco_images.append(
+                    {
+                        "id": image_id,
+                        "file_name": img_path.name,
+                        "width": img_w,
+                        "height": img_h,
+                    }
+                )
+
+            with open(split_path / "labels.json", "w") as f:
+                json.dump(
+                    {
+                        "annotations": coco_annotations,
+                        "images": coco_images,
+                        "categories": coco_categories,
+                    },
+                    f,
+                    indent=4,
+                )
+
+        zip_path = output_path / f"{self.identifier}.zip"
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
+            for root, _, files in os.walk(output_path / self.identifier):
+                for file in files:
+                    file = Path(root, file)
+                    zipf.write(file, file.relative_to(output_path))
+        logger.info(f"Dataset '{self.identifier}' exported to '{zip_path}'")
+        return zip_path
