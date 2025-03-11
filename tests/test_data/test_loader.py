@@ -1,13 +1,32 @@
+import random
+from contextlib import contextmanager
 from pathlib import Path
 from typing import List
 
 import numpy as np
 
-from luxonis_ml.data import BucketStorage, LuxonisDataset, LuxonisLoader
+from luxonis_ml.data import (
+    BucketStorage,
+    LuxonisDataset,
+    LuxonisLoader,
+    LuxonisParser,
+)
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
+from luxonis_ml.enums import DatasetType
 from luxonis_ml.typing import Params
 
 from .utils import create_image
+
+
+@contextmanager
+def set_seed(seed: int):
+    np_state = np.random.get_state()
+    random_state = random.getstate()
+    np.random.seed(seed)
+    random.seed(seed)
+    yield
+    np.random.set_state(np_state)
+    random.setstate(random_state)
 
 
 def test_edge_cases(tempdir: Path):
@@ -308,3 +327,38 @@ def test_edge_cases(tempdir: Path):
                 assert bbox_area >= 0.0004, (
                     f"BBox area too small: {bbox}, area={bbox_area}"
                 )
+
+
+def test_dataset_reproducibility(storage_url: str, tempdir: Path):
+    def create_loader(storage_url: str, tempdir: Path) -> LuxonisLoader:
+        with set_seed(42):
+            dataset = LuxonisParser(
+                f"{storage_url}/COCO_people_subset.zip",
+                dataset_name="_augmentation_reproducibility",
+                save_dir=tempdir,
+                dataset_type=DatasetType.COCO,
+                delete_existing=True,
+            ).parse()
+            return LuxonisLoader(
+                dataset,
+                height=512,
+                width=512,
+                view="train",
+            )
+
+    loader1 = create_loader(storage_url, tempdir)
+    run1 = [ann for _, ann in loader1]
+
+    loader2 = create_loader(storage_url, tempdir)
+    run2 = [ann for _, ann in loader2]
+
+    assert all(
+        a1.keys() == a2.keys()
+        and all(
+            np.array_equal(a1[k], a2[k])
+            if isinstance(a1[k], np.ndarray)
+            else a1[k] == a2[k]
+            for k in a1
+        )
+        for a1, a2 in zip(run1, run2)
+    )

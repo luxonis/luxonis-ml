@@ -1114,6 +1114,7 @@ class LuxonisDataset(BaseDataset):
                 df.filter(~pl.col("uuid").is_in(defined_uuids))
                 .select("uuid")
                 .unique()
+                .sort("uuid")
                 .get_column("uuid")
                 .to_list()
             )
