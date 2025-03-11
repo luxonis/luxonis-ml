@@ -367,28 +367,27 @@ def test_dataset_reproducibility(storage_url: str, tempdir: Path):
             ),
         }
 
-    np.random.seed(42)
-    random.seed(42)
-    dataset = LuxonisParser(
-        f"{storage_url}/COCO_people_subset.zip",
-        dataset_name="_augmentation_reproducibility",
-        save_dir=tempdir,
-        dataset_type=DatasetType.COCO,
-        delete_existing=True,
-    ).parse()
-    loader_aug = LuxonisLoader(
-        dataset,
-        height=512,
-        width=512,
-        view="train",
-    )
+    def create_loader(storage_url: str, tempdir: Path) -> LuxonisLoader:
+        np.random.seed(42)
+        random.seed(42)
+        dataset = LuxonisParser(
+            f"{storage_url}/COCO_people_subset.zip",
+            dataset_name="_augmentation_reproducibility",
+            save_dir=tempdir,
+            dataset_type=DatasetType.COCO,
+            delete_existing=True,
+        ).parse()
+        return LuxonisLoader(
+            dataset,
+            height=512,
+            width=512,
+            view="train",
+        )
 
-    np.random.seed(42)
-    random.seed(42)
-    new_aug_annotations = [convert_annotation(ann) for _, ann in loader_aug]
+    loader_aug_1 = create_loader(storage_url, tempdir)
+    run1 = [convert_annotation(ann) for _, ann in loader_aug_1]
 
-    np.random.seed(42)
-    random.seed(42)
-    assert new_aug_annotations == [
-        convert_annotation(ann) for _, ann in loader_aug
-    ]
+    loader_aug_2 = create_loader(storage_url, tempdir)
+    run2 = [convert_annotation(ann) for _, ann in loader_aug_2]
+
+    assert run1 == run2
