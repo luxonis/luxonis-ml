@@ -336,7 +336,6 @@ def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
                 "p": 1,
                 "border_mode": 0,
                 "value": [0, 0, 0],
-                "random_state": 42,
             },
         },
         {
@@ -351,7 +350,6 @@ def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
                 "interpolation": 1,
                 "always_apply": False,
                 "p": 1,
-                "random_state": 42,
             },
         },
         {
@@ -371,7 +369,6 @@ def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
                 "rotate_method": "largest_box",
                 "always_apply": False,
                 "p": 1,
-                "random_state": 42,
             },
         },
         {
@@ -422,7 +419,6 @@ def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
         width=512,
         augmentation_config=aug_config,
         view="train",
-        seed=42,
     )
 
     np.random.seed(42)
