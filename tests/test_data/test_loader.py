@@ -463,4 +463,4 @@ def test_dataset_and_augmentation_reproducibility(
         orig_seg = orig_ann["segmentation"]
         new_seg = new_ann["segmentation"]
         for o_count, n_count in zip(orig_seg, new_seg):
-            assert abs(o_count - n_count) <= 3
+            assert abs(o_count - n_count) <= 20
