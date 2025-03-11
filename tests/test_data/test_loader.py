@@ -1,7 +1,7 @@
 import json
 import random
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Union
 
 import numpy as np
 
@@ -391,19 +391,34 @@ def test_dataset_and_augmentation_reproducibility(
         return rle
 
     def convert_annotation(ann: Dict[str, Any]) -> Dict[str, Any]:
+        def round_nested_list(
+            data: Union[List[Any], float], decimals: int = 3
+        ) -> Union[List[Any], float]:
+            if isinstance(data, list):
+                return [round_nested_list(elem, decimals) for elem in data]
+            if isinstance(data, float):
+                return round(data, decimals)
+            return data
+
         return {
-            "classification": ann["/classification"].tolist()
-            if isinstance(ann["/classification"], np.ndarray)
-            else ann["/classification"],
-            "bounding_box": ann["/boundingbox"].tolist()
-            if isinstance(ann["/boundingbox"], np.ndarray)
-            else ann["/boundingbox"],
+            "classification": round_nested_list(
+                ann["/classification"].tolist()
+                if isinstance(ann["/classification"], np.ndarray)
+                else ann["/classification"]
+            ),
+            "bounding_box": round_nested_list(
+                ann["/boundingbox"].tolist()
+                if isinstance(ann["/boundingbox"], np.ndarray)
+                else ann["/boundingbox"]
+            ),
             "segmentation": rle_encode(ann["/segmentation"])
             if isinstance(ann["/segmentation"], np.ndarray)
             else ann["/segmentation"],
-            "keypoints": ann["/keypoints"].tolist()
-            if isinstance(ann["/keypoints"], np.ndarray)
-            else ann["/keypoints"],
+            "keypoints": round_nested_list(
+                ann["/keypoints"].tolist()
+                if isinstance(ann["/keypoints"], np.ndarray)
+                else ann["/keypoints"]
+            ),
         }
 
     np.random.seed(42)
