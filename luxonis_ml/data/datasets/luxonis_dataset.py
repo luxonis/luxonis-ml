@@ -7,7 +7,6 @@ import zipfile
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
-from copy import deepcopy
 from functools import cached_property
 from pathlib import Path, PurePosixPath
 from typing import (
@@ -67,8 +66,12 @@ class LuxonisDataset(BaseDataset):
         self,
         dataset_name: str,
         team_id: Optional[str] = None,
-        bucket_type: BucketType = BucketType.INTERNAL,
-        bucket_storage: BucketStorage = BucketStorage.LOCAL,
+        bucket_type: Union[
+            BucketType, Literal["internal", "external"]
+        ] = BucketType.INTERNAL,
+        bucket_storage: Union[
+            BucketStorage, Literal["local", "gcs", "s3", "azure"]
+        ] = BucketStorage.LOCAL,
         *,
         delete_existing: bool = False,
         delete_remote: bool = False,
@@ -93,14 +96,17 @@ class LuxonisDataset(BaseDataset):
             cloud as well
         """
 
+        self.dataset_name = dataset_name
         self.base_path = environ.LUXONISML_BASE_PATH
         self.base_path.mkdir(exist_ok=True)
 
         self._credentials = self._init_credentials()
         self._is_synced = False
 
-        self.bucket_type = bucket_type
-        self.bucket_storage = bucket_storage
+        # What is this for?
+        self.bucket_type = BucketType(bucket_type)
+
+        self.bucket_storage = BucketStorage(bucket_storage)
 
         if self.bucket_storage == BucketStorage.AZURE_BLOB:
             raise NotImplementedError("Azure Blob Storage not yet supported")
@@ -108,28 +114,30 @@ class LuxonisDataset(BaseDataset):
         self.bucket = self._get_credential("LUXONISML_BUCKET")
 
         if self.is_remote and self.bucket is None:
-            raise ValueError("Must set LUXONISML_BUCKET environment variable!")
+            raise ValueError(
+                "The `LUXONISML_BUCKET` environment variable "
+                "must be set for remote datasets"
+            )
 
-        self.dataset_name = dataset_name
         self.team_id = team_id or self._get_credential("LUXONISML_TEAM_ID")
 
         self._init_paths()
 
-        if not self.is_remote:
-            self.fs = LuxonisFileSystem(f"file://{self.path}")
-        else:
-            self.fs = LuxonisFileSystem(self.path)
+        self.fs = LuxonisFileSystem(self.path)
 
         if delete_existing:
-            if self.exists(dataset_name, team_id, bucket_storage, self.bucket):
+            if self.exists(
+                self.dataset_name,
+                self.team_id,
+                self.bucket_storage,
+                self.bucket,
+            ):
                 self.delete_dataset(delete_remote=delete_remote)
 
             self._init_paths()
 
-        _lock_metadata = self.base_path / ".metadata.lock"
-
         # For DDP GCS training - multiple processes
-        with FileLock(str(_lock_metadata)):
+        with FileLock(self.base_path / ".metadata.lock"):
             self._metadata = self._get_metadata()
 
         if self.version != LDF_VERSION:
@@ -170,7 +178,7 @@ class LuxonisDataset(BaseDataset):
 
         @type: L{Metadata}
         """
-        return deepcopy(self._metadata)
+        return self._metadata.model_copy(deep=True)
 
     @cached_property
     def version(self) -> Version:

@@ -49,7 +49,9 @@ class LuxonisLoader(BaseLoader):
         color_space: Literal["RGB", "BGR"] = "RGB",
         *,
         keep_categorical_as_strings: bool = False,
-        update_mode: UpdateMode = UpdateMode.ALWAYS,
+        update_mode: Union[
+            UpdateMode, Literal["always", "if_empty"]
+        ] = UpdateMode.ALWAYS,
     ) -> None:
         """A loader class used for loading data from L{LuxonisDataset}.
 
@@ -108,14 +110,16 @@ class LuxonisLoader(BaseLoader):
         """
 
         self.exclude_empty_annotations = exclude_empty_annotations
-        self.color_space = color_space
+        self.color_space: Literal["RGB", "BGR"] = color_space
+        self.height = height
+        self.width = width
 
         self.dataset = dataset
         self.sync_mode = self.dataset.is_remote
         self.keep_categorical_as_strings = keep_categorical_as_strings
 
         if self.sync_mode:
-            self.dataset.sync_from_cloud(update_mode=update_mode)
+            self.dataset.sync_from_cloud(update_mode=UpdateMode(update_mode))
 
         if isinstance(view, str):
             view = [view]
