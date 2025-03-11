@@ -318,16 +318,9 @@ def test_edge_cases(tempdir: Path):
                 )
 
 
-def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
-    np.random.seed(42)  # For the dataset creation
-    random.seed(42)
-    dataset = LuxonisParser(
-        f"{storage_url}/COCO_people_subset.zip",
-        dataset_name="_augmentation_reproducibility",
-        save_dir=tempdir,
-        dataset_type=DatasetType.COCO,
-        delete_existing=True,
-    ).parse()
+def test_dataset_and_augmentation_reproducibility(
+    storage_url: str, tempdir: Path
+):
     aug_config = [
         {
             "name": "Rotate",
@@ -377,7 +370,7 @@ def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
         },
     ]
 
-    original_aug_labels_path = Path("aug_labels.json")
+    original_aug_labels_path = Path.cwd() / "tests/test_data/aug_labels.json"
 
     def rle_encode(mask: np.ndarray) -> List[int]:
         """Encodes a binary mask using Run-Length Encoding (RLE)."""
@@ -413,6 +406,15 @@ def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
             else ann["/keypoints"],
         }
 
+    np.random.seed(42)
+    random.seed(42)
+    dataset = LuxonisParser(
+        f"{storage_url}/COCO_people_subset.zip",
+        dataset_name="_augmentation_reproducibility",
+        save_dir=tempdir,
+        dataset_type=DatasetType.COCO,
+        delete_existing=True,
+    ).parse()
     loader_aug = LuxonisLoader(
         dataset,
         height=512,
@@ -425,7 +427,7 @@ def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
     random.seed(42)
     new_aug_annotations = [convert_annotation(ann) for _, ann in loader_aug]
 
-    # Test reproducibility
+    # Test dataset reproducibility
     np.random.seed(42)
     random.seed(42)
     assert new_aug_annotations == [
