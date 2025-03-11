@@ -1,6 +1,6 @@
 import random
 from pathlib import Path
-from typing import Any, Dict, List, Union
+from typing import List
 
 import numpy as np
 
@@ -318,55 +318,6 @@ def test_edge_cases(tempdir: Path):
 
 
 def test_dataset_reproducibility(storage_url: str, tempdir: Path):
-    def rle_encode(mask: np.ndarray) -> List[int]:
-        """Encodes a binary mask using Run-Length Encoding (RLE)."""
-        pixels = mask.flatten()
-        rle = []
-        prev_pixel = pixels[0]
-        count = 0
-
-        for pixel in pixels:
-            if pixel == prev_pixel:
-                count += 1
-            else:
-                rle.append(count)
-                count = 1
-                prev_pixel = pixel
-        rle.append(count)
-
-        return rle
-
-    def convert_annotation(ann: Dict[str, Any]) -> Dict[str, Any]:
-        def round_nested_list(
-            data: Union[List[Any], float], decimals: int = 3
-        ) -> Union[List[Any], float]:
-            if isinstance(data, list):
-                return [round_nested_list(elem, decimals) for elem in data]
-            if isinstance(data, float):
-                return round(data, decimals)
-            return data
-
-        return {
-            "classification": round_nested_list(
-                ann["/classification"].tolist()
-                if isinstance(ann["/classification"], np.ndarray)
-                else ann["/classification"]
-            ),
-            "bounding_box": round_nested_list(
-                ann["/boundingbox"].tolist()
-                if isinstance(ann["/boundingbox"], np.ndarray)
-                else ann["/boundingbox"]
-            ),
-            "segmentation": rle_encode(ann["/segmentation"])
-            if isinstance(ann["/segmentation"], np.ndarray)
-            else ann["/segmentation"],
-            "keypoints": round_nested_list(
-                ann["/keypoints"].tolist()
-                if isinstance(ann["/keypoints"], np.ndarray)
-                else ann["/keypoints"]
-            ),
-        }
-
     def create_loader(storage_url: str, tempdir: Path) -> LuxonisLoader:
         np.random.seed(42)
         random.seed(42)
@@ -385,9 +336,18 @@ def test_dataset_reproducibility(storage_url: str, tempdir: Path):
         )
 
     loader1 = create_loader(storage_url, tempdir)
-    run1 = [convert_annotation(ann) for _, ann in loader1]
+    run1 = [ann for _, ann in loader1]
 
     loader2 = create_loader(storage_url, tempdir)
-    run2 = [convert_annotation(ann) for _, ann in loader2]
+    run2 = [ann for _, ann in loader2]
 
-    assert run1 == run2
+    assert all(
+        a1.keys() == a2.keys()
+        and all(
+            np.array_equal(a1[k], a2[k])
+            if isinstance(a1[k], np.ndarray)
+            else a1[k] == a2[k]
+            for k in a1
+        )
+        for a1, a2 in zip(run1, run2)
+    )
