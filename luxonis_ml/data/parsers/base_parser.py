@@ -1,20 +1,42 @@
 import os
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 from luxonis_ml.data import BaseDataset, DatasetIterator
+from luxonis_ml.data.datasets.annotation import DatasetRecord
 from luxonis_ml.enums.enums import DatasetType
 
 ParserOutput = Tuple[DatasetIterator, Dict[str, Dict], List[Path]]
 
 
-@dataclass
 class BaseParser(ABC):
-    dataset: BaseDataset
-    dataset_type: DatasetType
-    task_name: Optional[str]
+    def __init__(
+        self,
+        dataset: BaseDataset,
+        dataset_type: DatasetType,
+        task_name: Optional[Union[str, Dict[str, str]]],
+    ):
+        """
+        @type dataset: BaseDataset
+        @param dataset: Dataset to add the parsed data to.
+        @type dataset_type: DatasetType
+        @param dataset_type: Type of the dataset.
+        @type task_name: Optional[Union[str, Dict[str, str]]]
+        @param task_name: Optional task name(s) for the dataset.
+            Can be either a single string, in which case all the records
+            added to the dataset will use this value as `task_name`, or
+            a dictionary with class names as keys and task names as values.
+            In the latter case, the task name for a record with a given
+            class name will be taken from the dictionary.
+        """
+        self.dataset = dataset
+        self.dataset_type = dataset_type
+        if isinstance(task_name, str):
+            self.task_name = defaultdict(lambda: task_name)
+        else:
+            self.task_name = task_name
 
     @staticmethod
     @abstractmethod
@@ -88,13 +110,12 @@ class BaseParser(ABC):
         old_cwd = Path.cwd()
         try:
             generator, skeletons, added_images = self.from_split(**kwargs)
-            self.dataset.add(self._add_task(generator))
+            self.dataset.add(self._wrap_generator(generator))
             if skeletons:
                 for skeleton in skeletons.values():
                     self.dataset.set_skeletons(
                         skeleton.get("labels"),
                         skeleton.get("edges"),
-                        self.task_name,
                     )
             return added_images
         finally:
@@ -230,7 +251,7 @@ class BaseParser(ABC):
             if img.suffix in cv2_supported_image_formats
         ]
 
-    def _add_task(self, generator: DatasetIterator) -> DatasetIterator:
+    def _wrap_generator(self, generator: DatasetIterator) -> DatasetIterator:
         """Adds task to the generator.
 
         @type generator: DatasetIterator
@@ -239,11 +260,27 @@ class BaseParser(ABC):
         @return: Generator function with added task
         """
 
-        task_name = self.task_name or ""
         for item in generator:
             if isinstance(item, dict):
-                if "task_name" not in item or self.task_name is not None:
-                    item["task_name"] = task_name
-            elif not item.task_name or self.task_name is not None:
-                item.task_name = task_name
-            yield item
+                item = DatasetRecord(**item)
+
+            if self.task_name is not None:
+                if item.annotation is None:
+                    for task_name in set(self.task_name.values()):
+                        yield item.model_copy(
+                            update={"task_name": task_name}, deep=True
+                        )
+                else:
+                    class_name = item.annotation.class_name
+                    if class_name is not None:
+                        try:
+                            task_name = self.task_name[class_name]
+                        except KeyError:
+                            raise ValueError(
+                                f"Class '{class_name}' not found in task names."
+                            ) from None
+
+                        item.task_name = self.task_name[class_name]
+                    yield item
+            else:
+                yield item
