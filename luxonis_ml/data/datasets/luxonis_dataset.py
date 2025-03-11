@@ -1108,6 +1108,7 @@ class LuxonisDataset(BaseDataset):
                 df.filter(~pl.col("uuid").is_in(defined_uuids))
                 .select("uuid")
                 .unique()
+                .sort("uuid")  # For optional determinisms
                 .get_column("uuid")
                 .to_list()
             )
