@@ -1,7 +1,15 @@
 import warnings
 from collections import defaultdict
 from math import prod
-from typing import Any, Callable, Dict, Iterable, List, Literal, Tuple
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Literal,
+    Tuple,
+)
 
 import albumentations as A
 import numpy as np
