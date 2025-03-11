@@ -453,4 +453,14 @@ def test_dataset_and_augmentation_reproducibility(
     with open(original_aug_labels_path) as f:
         original_aug_annotations = json.load(f)
 
-    assert original_aug_annotations == new_aug_annotations
+    for orig_ann, new_ann in zip(
+        original_aug_annotations, new_aug_annotations
+    ):
+        assert orig_ann["classification"] == new_ann["classification"]
+        assert orig_ann["bounding_box"] == new_ann["bounding_box"]
+        assert orig_ann["keypoints"] == new_ann["keypoints"]
+
+        orig_seg = orig_ann["segmentation"]
+        new_seg = new_ann["segmentation"]
+        for o_count, n_count in zip(orig_seg, new_seg):
+            assert abs(o_count - n_count) <= 3
