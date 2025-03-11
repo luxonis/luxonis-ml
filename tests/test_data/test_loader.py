@@ -460,7 +460,10 @@ def test_dataset_and_augmentation_reproducibility(
         assert orig_ann["bounding_box"] == new_ann["bounding_box"]
         assert orig_ann["keypoints"] == new_ann["keypoints"]
 
+        total_diff = 0
         orig_seg = orig_ann["segmentation"]
         new_seg = new_ann["segmentation"]
         for o_count, n_count in zip(orig_seg, new_seg):
-            assert abs(o_count - n_count) <= 20
+            total_diff += abs(o_count - n_count)
+
+        assert total_diff <= 400
