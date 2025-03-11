@@ -1,4 +1,5 @@
 import random
+from contextlib import contextmanager
 from pathlib import Path
 from typing import List
 
@@ -15,6 +16,17 @@ from luxonis_ml.enums import DatasetType
 from luxonis_ml.typing import Params
 
 from .utils import create_image
+
+
+@contextmanager
+def set_seed(seed: int):
+    np_state = np.random.get_state()
+    random_state = random.getstate()
+    np.random.seed(seed)
+    random.seed(seed)
+    yield
+    np.random.set_state(np_state)
+    random.setstate(random_state)
 
 
 def test_edge_cases(tempdir: Path):
@@ -319,21 +331,20 @@ def test_edge_cases(tempdir: Path):
 
 def test_dataset_reproducibility(storage_url: str, tempdir: Path):
     def create_loader(storage_url: str, tempdir: Path) -> LuxonisLoader:
-        np.random.seed(42)
-        random.seed(42)
-        dataset = LuxonisParser(
-            f"{storage_url}/COCO_people_subset.zip",
-            dataset_name="_augmentation_reproducibility",
-            save_dir=tempdir,
-            dataset_type=DatasetType.COCO,
-            delete_existing=True,
-        ).parse()
-        return LuxonisLoader(
-            dataset,
-            height=512,
-            width=512,
-            view="train",
-        )
+        with set_seed(42):
+            dataset = LuxonisParser(
+                f"{storage_url}/COCO_people_subset.zip",
+                dataset_name="_augmentation_reproducibility",
+                save_dir=tempdir,
+                dataset_type=DatasetType.COCO,
+                delete_existing=True,
+            ).parse()
+            return LuxonisLoader(
+                dataset,
+                height=512,
+                width=512,
+                view="train",
+            )
 
     loader1 = create_loader(storage_url, tempdir)
     run1 = [ann for _, ann in loader1]
