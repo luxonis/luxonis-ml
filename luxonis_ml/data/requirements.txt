@@ -1,6 +1,6 @@
 numpy~=1.22
 opencv-python~=4.10.0
-albumentations>=1.4.21,<1.4.23
+albumentations==1.4.18
 pyarrow~=17.0.0
 pycocotools~=2.0.7
 polars[timezone]~=0.20.31

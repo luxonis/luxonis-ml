@@ -1,4 +1,5 @@
 import json
+import random
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -318,13 +319,14 @@ def test_edge_cases(tempdir: Path):
 
 
 def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
+    np.random.seed(42)  # For the dataset creation
+    random.seed(42)
     dataset = LuxonisParser(
         f"{storage_url}/COCO_people_subset.zip",
         dataset_name="_augmentation_reproducibility",
         save_dir=tempdir,
         dataset_type=DatasetType.COCO,
         delete_existing=True,
-        task_name="coco",
     ).parse()
     aug_config = [
         {
@@ -423,8 +425,18 @@ def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
         seed=42,
     )
 
+    np.random.seed(42)
+    random.seed(42)
     new_aug_annotations = [convert_annotation(ann) for _, ann in loader_aug]
 
+    # Test reproducibility
+    np.random.seed(42)
+    random.seed(42)
+    assert new_aug_annotations == [
+        convert_annotation(ann) for _, ann in loader_aug
+    ]
+
+    # Test that the original annotations are the same as the new
     with open(original_aug_labels_path) as f:
         original_aug_annotations = json.load(f)
 
