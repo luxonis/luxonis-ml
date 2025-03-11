@@ -384,10 +384,10 @@ def test_dataset_reproducibility(storage_url: str, tempdir: Path):
             view="train",
         )
 
-    loader_aug_1 = create_loader(storage_url, tempdir)
-    run1 = [convert_annotation(ann) for _, ann in loader_aug_1]
+    loader_1 = create_loader(storage_url, tempdir)
+    run1 = [convert_annotation(ann) for _, ann in loader_1]
 
-    loader_aug_2 = create_loader(storage_url, tempdir)
-    run2 = [convert_annotation(ann) for _, ann in loader_aug_2]
+    loader_2 = create_loader(storage_url, tempdir)
+    run2 = [convert_annotation(ann) for _, ann in loader_2]
 
     assert run1 == run2
