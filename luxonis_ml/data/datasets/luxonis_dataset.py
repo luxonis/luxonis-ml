@@ -923,7 +923,7 @@ class LuxonisDataset(BaseDataset):
                     def update_state(task_name: str, ann: Detection) -> None:
                         if ann.class_name is not None:
                             classes_per_task[task_name].add(ann.class_name)
-                        else:
+                        elif not classes_per_task[task_name]:
                             classes_per_task[task_name] = set()
 
                         tasks[task_name] |= ann.get_task_types()
