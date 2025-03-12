@@ -705,23 +705,27 @@ def test_classes_per_task(dataset_name: str, tempdir: Path):
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_keypoints_solo(dataset_name: str, tempdir: Path):
     def generator() -> DatasetIterator:
-        img = create_image(0, tempdir)
-        keypoints_data = [
-            [(0.15, 0.15, 0), (0.15, 0.15, 1)],
-            [(0.2, 0.15, 0), (0.15, 0.2, 1)],
-        ]
-
-        for instance_id, keypoints in enumerate(keypoints_data):
+        for i in range(4):
+            img = create_image(i, tempdir)
             yield {
                 "file": img,
                 "annotation": {
                     "class": "person",
-                    "keypoints": {"keypoints": keypoints},
-                    "instance_id": instance_id,
+                    "keypoints": {"keypoints": [[0.1, 0.1, 0], [0.2, 0.2, 1]]},
                 },
             }
 
+    augs = [
+        {"name": "Normalize"},
+        {"name": "Defocus", "params": {"p": 1}},
+        {
+            "name": "Mosaic4",
+            "params": {"out_width": 512, "out_height": 512, "p": 1},
+        },
+    ]
     dataset = create_dataset(dataset_name, generator())
-    loader = LuxonisLoader(dataset)
+    loader = LuxonisLoader(
+        dataset, height=512, width=512, augmentation_config=augs
+    )
     for _ in loader:
         pass
