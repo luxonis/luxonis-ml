@@ -1,4 +1,5 @@
 import ast
+from pathlib import PurePath
 from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
 import yaml
@@ -78,6 +79,14 @@ class LuxonisConfig(BaseModelExtraForbid):
         @type path: str
         @param path: Path to output yaml file.
         """
+
+        def path_representer(
+            dumper: yaml.SafeDumper, data: PurePath
+        ) -> yaml.ScalarNode:
+            return dumper.represent_scalar("tag:yaml.org,2002:str", str(data))
+
+        yaml.SafeDumper.add_multi_representer(PurePath, path_representer)
+
         with open(path, "w+") as f:
             yaml.safe_dump(self.model_dump(), f, default_flow_style=False)
 
