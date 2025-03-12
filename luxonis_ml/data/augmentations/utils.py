@@ -56,7 +56,7 @@ def postprocess_bboxes(bboxes: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
 
     out_bboxes = raw_bboxes[:, [4, 0, 1, 2, 3]]
 
-    return out_bboxes, refined_ordering.astype(np.uint8)
+    return out_bboxes, refined_ordering.astype(int)
 
 
 def postprocess_keypoints(
