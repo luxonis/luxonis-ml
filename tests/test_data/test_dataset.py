@@ -674,3 +674,29 @@ def test_merge_datasets(
     assert df_merged is not None
     assert df_cloned_merged is not None
     assert df_merged.equals(df_cloned_merged)
+
+
+@pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
+def test_classes_per_task(dataset_name: str, tempdir: Path):
+    def generator() -> DatasetIterator:
+        img = create_image(0, tempdir)
+        yield {
+            "file": img,
+            "annotation": {
+                "class": "person",
+                "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
+                "instance_id": 0,
+            },
+        }
+        # Yield a second annotation with only an `instance_id` to check that we don't encounter the issue: "Detected new classes for task group '': []".
+        yield {
+            "file": img,
+            "annotation": {
+                "keypoints": {"keypoints": [[0.1, 0.1, 0], [0.2, 0.2, 1]]},
+                "instance_id": 0,
+            },
+        }
+
+    dataset = create_dataset(dataset_name, generator())
+
+    assert dataset.get_classes() == {"": {"person": 0}}
