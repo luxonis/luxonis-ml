@@ -546,6 +546,10 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             if task_name not in bboxes_indices:
                 if "bboxes" in self.targets.values():
                     bbox_ordering = np.array([], dtype=int)
+                elif target_type == "keypoints":
+                    bbox_ordering = np.arange(
+                        array.shape[0] // n_keypoints[target_name]
+                    )
                 else:
                     bbox_ordering = np.arange(array.shape[0])
             else:
