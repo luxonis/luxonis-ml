@@ -700,3 +700,28 @@ def test_classes_per_task(dataset_name: str, tempdir: Path):
     dataset = create_dataset(dataset_name, generator())
 
     assert dataset.get_classes() == {"": {"person": 0}}
+
+
+@pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
+def test_keypoints_solo(dataset_name: str, tempdir: Path):
+    def generator() -> DatasetIterator:
+        img = create_image(0, tempdir)
+        keypoints_data = [
+            [(0.15, 0.15, 0), (0.15, 0.15, 1)],
+            [(0.2, 0.15, 0), (0.15, 0.2, 1)],
+        ]
+
+        for instance_id, keypoints in enumerate(keypoints_data):
+            yield {
+                "file": img,
+                "annotation": {
+                    "class": "person",
+                    "keypoints": {"keypoints": keypoints},
+                    "instance_id": instance_id,
+                },
+            }
+
+    dataset = create_dataset(dataset_name, generator())
+    loader = LuxonisLoader(dataset)
+    for _ in loader:
+        pass
