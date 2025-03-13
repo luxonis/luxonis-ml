@@ -390,8 +390,8 @@ The dataset directory can either be a local directory or a directory in one of t
 
 The directory can also be a zip file containing the dataset.
 
-The `task_name` argument can be specified as a single string or as a dictionary. If a string is provided, it will be used as the task name for all records.\
-Alternatively, you can provide a dictionary that maps class names to task names. In this case, the task name will be selected based on the class of the annotation.
+The `task_name` argument can be specified as a single string or as a dictionary. If a string is provided, it will be used as the task name for all records.
+Alternatively, you can provide a dictionary that maps class names to task names for better dataset organization. See the example below.
 
 > \[!NOTE\]
 > 📚 For a complete list of all parameters of the `LuxonisParser` class, see the [parsers README.md](parsers/README.md).
