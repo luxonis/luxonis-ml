@@ -122,8 +122,7 @@ The recommended approach for adding data is to create a generator function that 
 
 The following example demonstrates how to load **bounding box annotations** along with their corresponding **keypoints annotations**, which are linked via `"instance_id"`.
 
-Additionally, we yield **segmentation masks** while ensuring clear separation between tasks. To achieve this, we use the `"task_name"` field—\
-assigning `"instance_keypoints_car"` and `"instance_keypoints_motorbike"` for keypoints-related annotations and `"segmentation"` for segmentation tasks.
+Additionally, we yield **segmentation masks** while ensuring a clear separation between tasks. To achieve this, we use the `"task_name"` field—assigning `"instance_keypoints_car"` and `"instance_keypoints_motorbike"` for instance-keypoint-related annotations, and `"segmentation"` for the semantic segmentation task.
 
 ```python
 import json
