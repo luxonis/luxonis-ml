@@ -50,7 +50,7 @@ Each of these steps will be explained in more detail in the following examples.
 
 We will be using our toy dataset `parking_lot` in all examples. The dataset consists of images of cars and motorcycles in a parking lot. Each image has a corresponding annotation in the form of a bounding box, keypoints and several segmentation masks.
 
-**Dataset Annotations:**
+**Dataset Information:**
 
 | Task                        | Annotation Type   | Classes                                                                                                |
 | --------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------ |
@@ -74,12 +74,15 @@ You can create as many datasets as you want, each with a unique name.
 
 Datasets can be stored locally or in one of the supported cloud storage providers.
 
+> \[!NOTE\]
+> 📚 For a complete list of all parameters and methods of the `LuxonisDataset` class, see the [datasets README.md](datasets/README.md).
+
 ### Dataset Creation
 
 First we import `LuxonisDataset` and create a dataset with the name `"parking_lot"`.
 
 ```python
-from luxonisml.data import LuxonisDataset
+from luxonis_ml.data import LuxonisDataset
 
 dataset_name = "parking_lot"
 
@@ -104,58 +107,96 @@ Each data entry should be a dictionary with the following structure:
 ```python
 {
     "file": str,  # path to the image file
-    "annotation": Optional[dict]  # annotation of the file
+    "task_name": Optional[str], # task type for this annotation
+    "annotation": Optional[dict]  # annotation of the instance in the file
 }
 ```
 
-The content of the `"annotation"` field depends on the task type and follows the Annotation Format described later in this document.
+Luxonis Data Format supports having **annotation types optionally structured into different tasks**, which improves dataset organization.\
+For example, a dataset might contain both instance keypoints (where keypoints are provided for each bounding box) and segmentation labels. In such cases, it's beneficial to define separate tasks—one called `"instance_keypoints"` and another called `"segmentation"`—allowing for clear organization and task-specific processing.\
+Each task type can be **selected independently or left unset**. If **none of the yielded annotations have a task set, all annotation types will be grouped under the same task type**.
+
+The content of the `"annotation"` field depends on the annotation type and follows the Annotation Format described later in this document.
 
 #### Adding Data with a Generator Function
 
 The recommended approach for adding data is to create a generator function that yields data entries one by one.
 
-Here's an example that loads object detection annotations:
+The following example demonstrates how to load **bounding box annotations** along with their corresponding **keypoints annotations**, which are linked via `"instance_id"`.
+
+Additionally, we yield **segmentation masks** while ensuring clear separation between tasks. To achieve this, we use the `"task_name"` field—\
+assigning `"instance_keypoints_car"` and `"instance_keypoints_motorbike"` for keypoints-related annotations and `"segmentation"` for segmentation tasks.
 
 ```python
 import json
 from pathlib import Path
+import cv2
+import numpy as np
 
 # path to the dataset, replace it with the actual path on your system
 dataset_root = Path("data/parking_lot")
 
 def generator():
     for annotation_dir in dataset_root.iterdir():
-        with open(annotation_dir / "annotations.json") as f:
+        annotation_file = annotation_dir / "annotations.json"
+        if not annotation_file.exists():
+            continue
+
+        with open(annotation_file) as f:
             data = json.load(f)
 
-        # get the width and height of the image
-        W = data["dimensions"]["width"]
-        H = data["dimensions"]["height"]
+        W, H = data.get("dimensions", {}).get("width", 1), data.get("dimensions", {}).get("height", 1)
+        image_path = str(annotation_dir / data.get("filename", ""))
 
-        image_path = annotation_dir / data["filename"]
-
-        for instance_id, bbox in data["BoundingBoxAnnotation"].items():
-
-            # get unnormalized bounding box coordinates
+        # Process Bounding Box Annotations
+        for instance_id, bbox in data.get("BoundingBoxAnnotation", {}).items():
             x, y = bbox["origin"]
             w, h = bbox["dimension"]
-
-            # get the class name of the bounding box
-            class_name = bbox["labelName"]
             yield {
                 "file": image_path,
+                "task_name": "instance_keypoints" + "_" + bbox["labelName"],
                 "annotation": {
-                    "class": class_name,
-
+                    "class": bbox["labelName"],
+                    "instance_id": instance_id,
                     "boundingbox": {
-                      # normalized bounding box
-                      "x": x / W,
-                      "y": y / H,
-                      "w": w / W,
-                      "h": h / H,
+                        "x": x / W, "y": y / H, "w": w / W, "h": h / H
                     }
                 },
             }
+
+        # Process Keypoints Annotations
+        for instance_id, keypoints_data in data.get("KeypointsAnnotation", {}).items():
+            keypoints = [
+                (kp["location"][0] / W, kp["location"][1] / H, kp["visibility"])
+                for kp in keypoints_data["keypoints"]
+            ]
+            yield {
+                "file": image_path,
+                "task_name": "instance_keypoints" + "_" + keypoints_data["labelName"],
+                "annotation": {
+                    "instance_id": instance_id,
+                    "keypoints": {"keypoints": keypoints},
+                },
+            }
+
+        # Process Segmentation Annotations
+        segmentation_data = data.get("VehicleTypeSegmentation", {})
+        if "filename" in segmentation_data:
+            mask_path = annotation_dir / segmentation_data["filename"]
+            mask_rgb = cv2.cvtColor(cv2.imread(str(mask_path)), cv2.COLOR_BGR2RGB)
+            if mask_rgb is not None:
+                for instance in segmentation_data.get("instances", []):
+                    label = instance["labelName"]
+                    color = np.array(instance["pixelValue"], dtype=np.uint8)
+                    binary_mask = (mask_rgb == color).all(axis=-1).astype(np.uint8)
+                    yield {
+                        "file": image_path,
+                        "task_name": "segmentation",
+                        "annotation": {
+                            "class": label,
+                            "segmentation": {"mask": binary_mask},
+                        },
+                    }
 ```
 
 The generator is then passed to the `add` method of the dataset.
@@ -264,6 +305,9 @@ This guide covers the loading of datasets using the `LuxonisLoader` class.
 
 The `LuxonisLoader` class can also take care of data augmentation, for more info see [Augmentation](#augmentation).
 
+> \[!NOTE\]
+> 📚 For a complete list of all parameters of the `LuxonisLoader` class, see the [loaders README.md](loaders/README.md).
+
 ### Dataset Loading
 
 To load a dataset with `LuxonisLoader`, we need an instance of `LuxonisDataset`, and we need to specify what view of the dataset we want to load.
@@ -299,6 +343,7 @@ The supported formats are:
 - [**MT YOLOv6**](https://roboflow.com/formats/mt-yolov6)
 - [**CreateML JSON**](https://roboflow.com/formats/createml-json)
 - [**TensorFlow Object Detection CSV**](https://roboflow.com/formats/tensorflow-object-detection-csv)
+- [**SOLO**](https://docs.unity3d.com/Packages/com.unity.perception@1.0/manual/Schema/SoloSchema.html)
 - **Classification Directory** - A directory with subdirectories for each class
 
 ```plaintext
@@ -348,6 +393,12 @@ The dataset directory can either be a local directory or a directory in one of t
 
 The directory can also be a zip file containing the dataset.
 
+The `task_name` argument can be specified as a single string or as a dictionary. If a string is provided, it will be used as the task name for all records.\
+Alternatively, you can provide a dictionary that maps class names to task names. In this case, the task name will be selected based on the class of the annotation.
+
+> \[!NOTE\]
+> 📚 For a complete list of all parameters of the `LuxonisParser` class, see the [parsers README.md](parsers/README.md).
+
 ```python
 from luxonisml.data import LuxonisParser
 from luxonis_ml.enums import DatasetType
@@ -357,8 +408,12 @@ dataset_dir = "path/to/dataset"
 parser = LuxonisParser(
   dataset_dir=dataset_dir,
   dataset_name="my_dataset",
-  dataset_type=DatasetType.COCO
-)
+  dataset_type=DatasetType.COCO,
+  task_name={
+      "semantic_segmentation": "TorsoLimbs",
+      "semantic_segmentation": "HeadNeck",
+      "instance_keypoints": "FullPersonBody"
+  },
 ```
 
 After initializing the parser, you can parse the dataset to create a `LuxonisDataset` instance. The `LuxonisDataset` instance will contain the data from the dataset with splits for training, validation, and testing based on the dataset directory structure.
@@ -379,7 +434,7 @@ For more detailed information, run `luxonis_ml data parse --help`.
 
 ## Annotation Format
 
-The Luxonis Data Format supports several task types, each with its own annotation structure.
+The Luxonis Data Format supports several annotation types, each with its own annotation structure.
 Each annotation describes a single instance of the corresponding task type in the image.
 
 ### Classification
