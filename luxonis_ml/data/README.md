@@ -112,11 +112,9 @@ Each data entry should be a dictionary with the following structure:
 }
 ```
 
-Luxonis Data Format supports having **annotation types optionally structured into different tasks**, which improves dataset organization.\
-For example, a dataset might contain both instance keypoints (where keypoints are provided for each bounding box) and segmentation labels. In such cases, it's beneficial to define separate tasks—one called `"instance_keypoints"` and another called `"segmentation"`—allowing for clear organization and task-specific processing.\
-Each task type can be **selected independently or left unset**. If **none of the yielded annotations have a task set, all annotation types will be grouped under the same task type**.
+Luxonis Data Format supports **annotation types optionally structured into different tasks** for improved organization. Tasks can be explicitly named or left unset - if none are specified, all annotations will be grouped under a single task type. The [example below](#adding-data-with-a-generator-function) demonstrates this with instance keypoints and segmentation tasks.
 
-The content of the `"annotation"` field depends on the annotation type and follows the Annotation Format described later in this document.
+The content of the `"annotation"` field depends on the annotation type and follows the [Annotation Format](#annotation-format) described later in this document.
 
 #### Adding Data with a Generator Function
 
