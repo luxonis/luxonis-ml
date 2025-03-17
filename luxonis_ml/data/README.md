@@ -112,9 +112,9 @@ Each data entry should be a dictionary with the following structure:
 }
 ```
 
-Luxonis Data Format supports **annotation types optionally structured into different tasks** for improved organization. Tasks can be explicitly named or left unset - if none are specified, all annotations will be grouped under a single task type. The [example below](#adding-data-with-a-generator-function) demonstrates this with instance keypoints and segmentation tasks.
+Luxonis Data Format supports **annotations optionally structured into different tasks** for improved organization. Tasks can be explicitly named or left unset - if none are specified, all annotations will be grouped under a single `task_name` set by default to `""` . The [example below](#adding-data-with-a-generator-function) demonstrates this with instance keypoints and segmentation tasks.
 
-The content of the `"annotation"` field depends on the annotation type and follows the [Annotation Format](#annotation-format) described later in this document.
+The content of the `"annotation"` field depends on the task type and follows the [Annotation Format](#annotation-format) described later in this document.
 
 #### Adding Data with a Generator Function
 
@@ -122,7 +122,7 @@ The recommended approach for adding data is to create a generator function that 
 
 The following example demonstrates how to load **bounding box annotations** along with their corresponding **keypoints annotations**, which are linked via `"instance_id"`.
 
-Additionally, we yield **segmentation masks** while ensuring a clear separation between tasks. To achieve this, we use the `"task_name"` field—assigning `"instance_keypoints_car"` and `"instance_keypoints_motorbike"` for instance-keypoint-related annotations, and `"segmentation"` for the semantic segmentation task.
+Additionally, we yield **segmentation masks** while ensuring a clear separation between task groups. To achieve this, we use the `"task_name"` field—assigning `"instance_keypoints_car"` and `"instance_keypoints_motorbike"` for instance-keypoint-related annotations, and `"segmentation"` for the semantic segmentation task.
 
 ```python
 import json
@@ -431,7 +431,7 @@ For more detailed information, run `luxonis_ml data parse --help`.
 
 ## Annotation Format
 
-The Luxonis Data Format supports several annotation types, each with its own annotation structure.
+The Luxonis Data Format supports several task types, each with its own annotation structure.
 Each annotation describes a single instance of the corresponding task type in the image.
 
 ### Classification

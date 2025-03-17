@@ -85,9 +85,7 @@ def print_info(dataset: LuxonisDataset) -> None:
         task_table.add_column(
             "Task Name", header_style="magenta i", max_width=30
         )
-    task_table.add_column(
-        "Annotation Types", header_style="magenta i", max_width=50
-    )
+    task_table.add_column("Task Types", header_style="magenta i", max_width=50)
     for task_name, task_types in tasks.items():
         task_types.sort()
         if not task_name:
