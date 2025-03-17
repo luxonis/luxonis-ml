@@ -162,7 +162,6 @@ jobs:
       IS_MAIN_RUNNER: ${{ matrix.os == 'ubuntu-latest' && matrix.python-version == '3.8' }}
       LUXONISML_BUCKET: luxonis-test-bucket
       GHC_ENABLED: ${{ secrets.GCP_CREDENTIALS != null }}
-      CODECOV_ENABLED: ${{ secrets.CODECOV_TOKEN != null }}
 
     steps:
       - name: Checkout
@@ -193,21 +192,21 @@ jobs:
         run: pytest --cov --junitxml=junit.xml -o junit_family=legacy -vv -n auto -x
 
       - name: Upload test results to Codecov
-        if: ${{ env.IS_MAIN_RUNNER && env.CODECOV_ENABLED }}
+        if: ${{ env.IS_MAIN_RUNNER == true }}
         uses: codecov/test-results-action@v1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
       - name: Upload coverage results to Codecov
-        if: ${{ env.IS_MAIN_RUNNER && env.CODECOV_ENABLED }}
+        if: ${{ env.IS_MAIN_RUNNER == true }}
         uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
       - name: Upload coverage as artifact
-        if: ${{ env.IS_MAIN_RUNNER && env.CODECOV_ENABLED }}
+        if: ${{ env.IS_MAIN_RUNNER == true }}
         uses: actions/upload-artifact@v4
         with:
           name: coverage
@@ -218,18 +217,13 @@ jobs:
     if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
 
-    env:
-      CODECOV_ENABLED: ${{ secrets.CODECOV_TOKEN != null }}
-
     steps:
       - name: Checkout
-        if: ${{ env.CODECOV_ENABLED }}
         uses: actions/checkout@v4
         with:
           ref: ${{ github.head_ref }}
 
       - name: Download artifacts
-        if: ${{ env.CODECOV_ENABLED }}
         uses: dawidd6/action-download-artifact@v7
         with:
           name: coverage
@@ -237,7 +231,6 @@ jobs:
           workflow: ci.yaml
 
       - name: Upload coverage results to Codecov
-        if: ${{ env.CODECOV_ENABLED }}
         uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
