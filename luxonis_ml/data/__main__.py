@@ -1,7 +1,7 @@
 import random
 import shutil
 from pathlib import Path
-from typing import Iterator, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Set, Tuple
 
 import cv2
 import matplotlib.pyplot as plt
@@ -414,14 +414,66 @@ def parse(
     print_info(dataset)
 
 
+def _plot_class_distribution(
+    ax: plt.Axes, task_type: str, task_data: List[Dict[str, Any]]
+) -> None:
+    if not task_data:
+        ax.axis("off")
+        ax.set_title(f"{task_type} Class Distribution (None)", fontsize=12)
+        return
+
+    counts = [x["count"] for x in task_data]
+    classes = [x["class_name"] for x in task_data]
+    num_classes = len(classes)
+    bar_width = 1 / (num_classes**0.1) if num_classes else 1
+    bars = ax.bar(classes, counts, width=bar_width, color="royalblue")
+
+    if counts:
+        ax.set_ylim(top=max(counts) * 1.15)
+
+    ax.set_title(f"{task_type} Class Distribution", fontsize=12, pad=15)
+    ax.set_ylabel("Count", fontsize=12)
+    ax.tick_params(axis="x", rotation=90)
+    ax.margins(x=0.01)
+
+    for bar in bars:
+        height = bar.get_height()
+        ax.annotate(
+            f"{height}",
+            xy=(bar.get_x() + bar.get_width() / 2, height),
+            xytext=(0, 5),
+            textcoords="offset points",
+            ha="center",
+            va="bottom",
+            fontsize=7,
+        )
+
+
+def _plot_heatmap(
+    ax: plt.Axes,
+    fig: plt.Figure,
+    task_type: str,
+    heatmap_data: Optional[List[List[float]]],
+) -> None:
+    if heatmap_data is None:
+        ax.axis("off")
+        ax.set_title(f"{task_type} Heatmap (None)", fontsize=12)
+        return
+
+    matrix = np.array(heatmap_data, dtype=np.float32)
+    max_val = matrix.max()
+    matrix /= max_val if max_val > 0 else 1
+    im = ax.imshow(matrix, cmap="viridis", extent=[0, 1, 0, 1], vmin=0, vmax=1)
+    fig.colorbar(im, ax=ax, label="Relative Annotation Density")
+    ax.set_title(f"{task_type} Heatmap", fontsize=12)
+
+
 @app.command()
 def health(
     name: DatasetNameArgument,
     bucket_storage: BucketStorage = bucket_option,
     save_path: Optional[str] = None,
 ):
-    """Checks the health of a dataset."""
-
     check_exists(name, bucket_storage)
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
     stats = dataset.get_statistics()
@@ -495,60 +547,12 @@ def health(
             axs = [axs]
 
         for i, task_type in enumerate(all_task_types):
-            ax_bar = axs[i][0]
-            task_data = class_dist_by_type.get(task_type, [])
-            if task_data:
-                counts = [x["count"] for x in task_data]
-                classes = [x["class_name"] for x in task_data]
-                num_classes = len(classes)
-                bar_width = 1 / (num_classes**0.1) if num_classes else 1
-                bars = ax_bar.bar(
-                    classes, counts, width=bar_width, color="royalblue"
-                )
-
-                if counts:
-                    ax_bar.set_ylim(top=max(counts) * 1.15)
-
-                ax_bar.set_title(
-                    f"{task_type} Class Distribution", fontsize=12, pad=15
-                )
-                ax_bar.set_ylabel("Count", fontsize=12)
-                ax_bar.tick_params(axis="x", rotation=90)
-                ax_bar.margins(x=0.01)
-
-                for bar in bars:
-                    height = bar.get_height()
-                    ax_bar.annotate(
-                        f"{height}",
-                        xy=(bar.get_x() + bar.get_width() / 2, height),
-                        xytext=(0, 5),
-                        textcoords="offset points",
-                        ha="center",
-                        va="bottom",
-                        fontsize=7,
-                    )
-            else:
-                ax_bar.axis("off")
-                ax_bar.set_title(
-                    f"{task_type} Class Distribution (None)", fontsize=12
-                )
-
-            ax_heat = axs[i][1]
-            heatmap_data = heatmaps_by_type.get(task_type)
-            if heatmap_data is not None:
-                matrix = np.array(heatmap_data, dtype=np.float32)
-                max_val = matrix.max()
-                matrix /= max_val if max_val > 0 else 1
-                im = ax_heat.imshow(
-                    matrix, cmap="viridis", extent=[0, 1, 0, 1], vmin=0, vmax=1
-                )
-                fig.colorbar(
-                    im, ax=ax_heat, label="Relative Annotation Density"
-                )
-                ax_heat.set_title(f"{task_type} Heatmap", fontsize=12)
-            else:
-                ax_heat.axis("off")
-                ax_heat.set_title(f"{task_type} Heatmap (None)", fontsize=12)
+            _plot_class_distribution(
+                axs[i][0], task_type, class_dist_by_type.get(task_type, [])
+            )
+            _plot_heatmap(
+                axs[i][1], fig, task_type, heatmaps_by_type.get(task_type)
+            )
 
         plt.tight_layout()
         plt.subplots_adjust(top=0.9, hspace=0.5)
