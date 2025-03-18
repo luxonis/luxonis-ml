@@ -552,7 +552,7 @@ def health(
             )
             _plot_heatmap(
                 axs[i][1],
-                fig,
+                fig,  # type: ignore
                 task_type,
                 heatmaps_by_type.get(task_type),  # type: ignore
             )
