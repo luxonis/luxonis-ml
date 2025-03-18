@@ -1386,7 +1386,7 @@ class LuxonisDataset(BaseDataset):
         "missing_annotations": List of file paths lacking annotations
 
         "heatmaps": Dict with task-type keys ('boundingbox', 'keypoints', etc.) and
-        20x20 grid matrices (list of lists) showing annotation density. None if
+        15x15 grid matrices (list of lists) showing annotation density. None if
         no data exists for a task type.
 
         @rtype: Dict[str, Any]
