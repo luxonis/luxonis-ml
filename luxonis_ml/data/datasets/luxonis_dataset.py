@@ -1372,26 +1372,25 @@ class LuxonisDataset(BaseDataset):
         return zip_path
 
     def get_statistics(self) -> Dict[str, Any]:
-        """
-        Returns dataset statistics as a dictionary with these keys:
+        """Returns comprehensive dataset statistics as a structured
+        dictionary.
 
-        "duplicates": Contains:
-            - "duplicate_uuids": List of {"uuid": str, "files": List[str]}
-            - "duplicate_annotations": List of dicts with file_name, task_name,
-            task_type, annotation, and count
+        The returned dictionary contains:
 
-        "class_distribution": List of {"task_type", "class_name", "count"} dicts
-            showing class frequencies per task (excluding classification tasks)
+            - "duplicates": Analysis of duplicated content
+                - "duplicate_uuids": List of {"uuid": str, "files": List[str]} for images with same UUID
+                - "duplicate_annotations": List of repeated annotations with file_name, task_name, task_type,
+                    annotation content, and count
 
-        "missing_annotations": List of file paths lacking annotations
+            - "class_distributions": Nested dictionary of class frequencies organized by task_name and task_type
+            (excludes classification tasks)
 
-        "heatmaps": Dict with task-type keys ('boundingbox', 'keypoints', etc.) and
-        15x15 grid matrices (list of lists) showing annotation density. None if
-        no data exists for a task type.
+            - "missing_annotations": List of file paths that exist in the dataset but lack annotations
+
+            - "heatmaps": Spatial distribution of annotations as 15x15 grid matrices organized by task_name and task_type
 
         @rtype: Dict[str, Any]
-        @return: Dictionary containing the keys "duplicates", "class_distribution",
-                "missing_annotations", and "heatmaps" as described above.
+        @return: Dataset statistics dictionary as described above
         """
         df = self._load_df_offline(lazy=True)
         index = self._get_file_index(lazy=True, sync_from_cloud=self.is_remote)
