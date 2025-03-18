@@ -1511,7 +1511,7 @@ class LuxonisDataset(BaseDataset):
                         "counts": annotation["counts"],
                         "size": [annotation["height"], annotation["width"]],
                     }
-                    mask = mask_utils.decode(rle)
+                    mask = mask_utils.decode(rle)  # type: ignore
                     h, w = mask.shape
                     rows, cols = np.where(mask)
                     if rows.size > 0:
@@ -1537,7 +1537,9 @@ class LuxonisDataset(BaseDataset):
 
                 data = np.array(coords)
                 heatmap, _, _ = np.histogram2d(
-                    data[:, 0], data[:, 1], bins=[x_edges, y_edges]
+                    data[:, 0],
+                    data[:, 1],
+                    bins=[x_edges, y_edges],  # type: ignore
                 )
                 stats["heatmaps"][task_name][task_type] = heatmap.T.tolist()
 

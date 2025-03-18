@@ -551,14 +551,17 @@ def health(
                 axs[i][0], task_type, class_dist_by_type.get(task_type, [])
             )
             _plot_heatmap(
-                axs[i][1], fig, task_type, heatmaps_by_type.get(task_type)
+                axs[i][1],
+                fig,
+                task_type,
+                heatmaps_by_type.get(task_type),  # type: ignore
             )
 
         plt.tight_layout()
         plt.subplots_adjust(top=0.9, hspace=0.5)
 
         if save_path:
-            fig.savefig(f"{save_path}/dataset_health_{task_name}.png", dpi=150)
+            fig.savefig(f"{save_path}/dataset_health_{task_name}.png", dpi=150)  # type: ignore
             plt.close(fig)
         else:
             plt.show(block=False)
