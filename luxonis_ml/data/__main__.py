@@ -1,9 +1,11 @@
+import math
 import random
 import shutil
 from pathlib import Path
 from typing import Iterator, List, Optional, Set, Tuple
 
 import cv2
+import matplotlib.pyplot as plt
 import numpy as np
 import rich.box
 import typer
@@ -411,6 +413,157 @@ def parse(
     print(Rule())
     print()
     print_info(dataset)
+
+
+@app.command()
+def health(
+    name: DatasetNameArgument,
+    bucket_storage: BucketStorage = bucket_option,
+    save_path: Optional[str] = None,
+):
+    """Checks the health of a dataset."""
+
+    check_exists(name, bucket_storage)
+    dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
+    stats = dataset.get_statistics()
+    console = Console()
+
+    duplicate_uuids = stats["duplicates"]["duplicate_uuids"]
+    for item in duplicate_uuids:
+        console.print(
+            f"[bold red]Warning:[/bold red] UUID [magenta]{item['uuid']}[/magenta] "
+            f"appears in multiple files: [cyan]{item['files']}[/cyan]"
+        )
+
+    duplicate_annotations = stats.get("duplicates", {}).get(
+        "duplicate_annotations", []
+    )
+    for item in duplicate_annotations:
+        console.print(
+            f"[bold red]Duplicate Annotation:[/bold red] File [cyan]'{item['file_name']}'[/cyan] "
+            f"in task [magenta]'{item['task_name']}'[/magenta] has annotation "
+            f"[yellow]'{item['annotation']}'[/yellow] (task type: [magenta]{item['task_type']}[/magenta]) repeated "
+            f"{item['count']} times."
+        )
+
+    missing_annotations = stats["missing_annotations"]
+    for file in missing_annotations:
+        console.print(
+            f"[bold yellow]Missing Annotation:[/bold yellow] File [cyan]'{file}'[/cyan]"
+        )
+
+    console.print(
+        "\n[bold underline]Dataset Statistics Summary:[/bold underline]"
+    )
+    console.print(
+        f"- Files with missing annotations: [cyan]{len(missing_annotations)}[/cyan]"
+    )
+    console.print(
+        f"- Files with duplicate UUIDs: [cyan]{len(duplicate_uuids)}[/cyan]"
+    )
+    console.print(
+        f"- Files with duplicate annotations: [cyan]{len(duplicate_annotations)}[/cyan]"
+    )
+
+    class_dist = stats["class_distribution"]
+    bar_task_types = sorted(
+        {
+            item["task_type"]
+            for item in class_dist
+            if item["task_type"] is not None
+        }
+    )
+    heat_task_types = [
+        task_type
+        for task_type, heat in stats["heatmaps"].items()
+        if heat is not None
+    ]
+
+    all_task_types = sorted(set(bar_task_types) | set(heat_task_types))
+    if not all_task_types:
+        console.print("[info]No plots to display.[/info]")
+        return
+
+    nrows = len(all_task_types)
+    square_size = 4
+    fig, axs = plt.subplots(
+        nrows, 2, figsize=(square_size * 2, square_size * nrows)
+    )
+
+    if nrows == 1:
+        axs = [axs]
+
+    for i, task in enumerate(all_task_types):
+        ax_bar = axs[i][0]
+        if task in bar_task_types:
+            task_data = [
+                item for item in class_dist if item["task_type"] == task
+            ]
+            if task_data:
+                counts = [x["count"] for x in task_data]
+                classes = [x["class_name"] for x in task_data]
+                num_classes = len(classes)
+                bar_width = (
+                    1 / math.pow(num_classes, 0.2) if num_classes > 0 else 1
+                )
+                bars = ax_bar.bar(
+                    classes, counts, width=bar_width, color="royalblue"
+                )
+
+                if counts:
+                    max_count = max(counts)
+                    ax_bar.set_ylim(top=max_count * 1.15)
+
+                ax_bar.set_title(
+                    f"{task} Class Distribution", fontsize=12, pad=15
+                )
+                ax_bar.set_ylabel("Count", fontsize=12)
+                ax_bar.tick_params(axis="x", rotation=90, labelbottom=True)
+                ax_bar.margins(x=0.01)
+
+                for bar in bars:
+                    height = bar.get_height()
+                    ax_bar.annotate(
+                        f"{height}",
+                        xy=(bar.get_x() + bar.get_width() / 2, height),
+                        xytext=(0, 5),
+                        textcoords="offset points",
+                        ha="center",
+                        va="bottom",
+                    )
+            else:
+                ax_bar.text(
+                    0.5, 0.5, "No Distribution Data", ha="center", va="center"
+                )
+                ax_bar.set_title(f"{task} Class Distribution", fontsize=12)
+        else:
+            ax_bar.axis("off")
+            ax_bar.set_title(f"{task} Class Distribution", fontsize=12)
+
+        ax_heat = axs[i][1]
+        heatmap_data = stats["heatmaps"].get(task)
+        if heatmap_data is not None:
+            matrix = np.array(heatmap_data, dtype=np.float32)
+            im = ax_heat.imshow(matrix, cmap="viridis", extent=[0, 1, 0, 1])
+            fig.colorbar(im, ax=ax_heat, label="Annotation Density")
+            ax_heat.set_title(f"{task} Heatmap", fontsize=12)
+        else:
+            ax_heat.axis("off")
+            ax_heat.set_title(f"{task} Heatmap", fontsize=12)
+
+    plt.tight_layout()
+    plt.subplots_adjust(hspace=0.5)
+
+    if save_path:
+        plt.savefig(f"{save_path}/dataset_health.png", dpi=150)
+        console.print(f"[green]Plot saved to:[/green] {save_path}")
+    else:
+        plt.show(block=False)
+        console.print(
+            "[info]Displaying plot. Close the window or press any key to continue.[/info]"
+        )
+        if plt.waitforbuttonpress():
+            plt.close()
 
 
 if __name__ == "__main__":

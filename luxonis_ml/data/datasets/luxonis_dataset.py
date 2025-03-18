@@ -31,6 +31,7 @@ import pyarrow.parquet as pq
 from bidict import bidict
 from filelock import FileLock
 from loguru import logger
+from pycocotools import mask as mask_utils
 from semver.version import Version
 from typing_extensions import Self, override
 
@@ -39,8 +40,8 @@ from luxonis_ml.data.utils import (
     BucketType,
     ParquetFileManager,
     UpdateMode,
+    find_duplicates,
     infer_task,
-    warn_on_duplicates,
 )
 from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.data.utils.task_utils import get_task_type
@@ -1012,7 +1013,18 @@ class LuxonisDataset(BaseDataset):
         if df is None or index is None:
             return
         df = df.join(index, on="uuid").drop("file_right")
-        warn_on_duplicates(df)
+        duplicates_info = find_duplicates(df)
+        if duplicates_info["duplicate_uuids"]:
+            for item in duplicates_info["duplicate_uuids"]:
+                logger.warning(
+                    f"UUID {item['uuid']} is the same for multiple files: {item['files']}"
+                )
+
+        for item in duplicates_info["duplicate_annotations"]:
+            logger.warning(
+                f"File '{item['file_name']}' of task '{item['task_name']}' has the "
+                f"same '{item['task_type']}' annotation '{item['annotation']}' repeated {item['count']} times."
+            )
 
     def get_splits(self) -> Optional[Dict[str, List[str]]]:
         splits_path = get_file(
@@ -1358,3 +1370,153 @@ class LuxonisDataset(BaseDataset):
                     zipf.write(file, file.relative_to(output_path))
         logger.info(f"Dataset '{self.identifier}' exported to '{zip_path}'")
         return zip_path
+
+    def get_statistics(self) -> Dict[str, Any]:
+        """
+        Returns dataset statistics as a dictionary with these keys:
+
+        "duplicates": Contains:
+            - "duplicate_uuids": List of {"uuid": str, "files": List[str]}
+            - "duplicate_annotations": List of dicts with file_name, task_name,
+            task_type, annotation, and count
+
+        "class_distribution": List of {"task_type", "class_name", "count"} dicts
+            showing class frequencies per task (excluding classification tasks)
+
+        "missing_annotations": List of file paths lacking annotations
+
+        "heatmaps": Dict with task-type keys ('boundingbox', 'keypoints', etc.) and
+        20x20 grid matrices (list of lists) showing annotation density. None if
+        no data exists for a task type.
+
+        @rtype: Dict[str, Any]
+        @return: Dictionary containing the keys "duplicates", "class_distribution",
+                "missing_annotations", and "heatmaps" as described above.
+        """
+        df = self._load_df_offline(lazy=True)
+        index = self._get_file_index(lazy=True, sync_from_cloud=self.is_remote)
+
+        stats = {
+            "duplicates": {},
+            "class_distribution": {},
+            "missing_annotations": 0,
+            "heatmaps": {},
+        }
+
+        if df is None or index is None:
+            return stats
+
+        df = df.join(index, on="uuid").drop("file_right")
+
+        # 1. Duplicate Analysis
+        duplicates_info = find_duplicates(df)
+        stats["duplicates"] = {
+            "duplicate_uuids": [
+                {"uuid": item["uuid"], "files": item["files"]}
+                for item in duplicates_info["duplicate_uuids"]
+            ],
+            "duplicate_annotations": [
+                {
+                    "file_name": item["file_name"],
+                    "task_name": item["task_name"],
+                    "task_type": item["task_type"],
+                    "annotation": item["annotation"],
+                    "count": item["count"],
+                }
+                for item in duplicates_info["duplicate_annotations"]
+            ],
+        }
+
+        # 2. Class Distribution Statistics
+        class_distribution = (
+            df.filter(pl.col("task_type") != "classification")
+            .group_by("task_type", "class_name")
+            .agg(pl.count().alias("count"))
+            .sort("task_type", "count", descending=True)
+            .collect()
+            .to_dicts()
+        )
+        stats["class_distribution"] = class_distribution
+
+        # 3. Missing Annotations
+        all_files = df.select(pl.col("file").unique())
+        annotated_files = df.filter(
+            pl.col("annotation").is_not_null() & (pl.col("annotation") != "")
+        ).select(pl.col("file").unique())
+        missing_files_df = all_files.join(
+            annotated_files, on="file", how="anti"
+        ).collect()
+        stats["missing_annotations"] = missing_files_df["file"].to_list()
+
+        # 4. Heatmap Data Generation
+        task_types = [
+            "boundingbox",
+            "keypoints",
+            "segmentation",
+            "instance_segmentation",
+        ]
+        points = {task: [] for task in task_types}
+
+        annotations = (
+            df.filter(pl.col("task_type").is_not_null())
+            .select("task_type", "annotation")
+            .collect()
+            .to_dicts()
+        )
+
+        for row in annotations:
+            task_type = row["task_type"]
+            annotation_str = row["annotation"]
+
+            if task_type not in task_types or not annotation_str:
+                continue
+
+            try:
+                annotation = json.loads(annotation_str)
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+            try:
+                if task_type == "boundingbox":
+                    x_center = annotation["x"] + annotation["w"] / 2
+                    y_center = annotation["y"] + annotation["h"] / 2
+                    points[task_type].append((x_center, y_center))
+
+                elif task_type == "keypoints":
+                    for kp in annotation.get("keypoints", []):
+                        if len(kp) >= 3 and kp[2] > 0:
+                            points[task_type].append((kp[0], kp[1]))
+
+                elif task_type in ["segmentation", "instance_segmentation"]:
+                    rle = {
+                        "counts": annotation["counts"],
+                        "size": [annotation["height"], annotation["width"]],
+                    }
+                    mask = mask_utils.decode(rle)
+                    h, w = mask.shape
+                    rows, cols = np.where(mask)
+                    if rows.size > 0:
+                        x_coords = cols / w
+                        y_coords = rows / h
+                        points[task_type].extend(zip(x_coords, y_coords))
+            except KeyError as e:
+                logger.warning(f"Missing key in annotation: {e}")
+                continue
+
+        grid_size = 15
+        x_edges = np.linspace(0, 1, grid_size + 1)
+        y_edges = np.linspace(0, 1, grid_size + 1)
+
+        for task_type in task_types:
+            data = np.array(points.get(task_type, []))
+            if len(data) == 0:
+                stats["heatmaps"][task_type] = None
+                continue
+
+            heatmap, _, _ = np.histogram2d(
+                data[:, 0], data[:, 1], bins=[x_edges, y_edges]
+            )
+
+            stats["heatmaps"][task_type] = heatmap.T.tolist()
+
+        return stats

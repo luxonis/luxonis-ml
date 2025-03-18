@@ -1,4 +1,4 @@
-from .data_utils import infer_task, rgb_to_bool_masks, warn_on_duplicates
+from .data_utils import find_duplicates, infer_task, rgb_to_bool_masks
 from .enums import BucketStorage, BucketType, ImageType, MediaType, UpdateMode
 from .parquet import ParquetFileManager, ParquetRecord
 from .task_utils import (
@@ -28,6 +28,7 @@ __all__ = [
     "concat_images",
     "create_text_image",
     "distinct_color_generator",
+    "find_duplicates",
     "get_task_name",
     "get_task_type",
     "infer_task",
@@ -36,5 +37,4 @@ __all__ = [
     "task_is_metadata",
     "task_type_iterator",
     "visualize",
-    "warn_on_duplicates",
 ]

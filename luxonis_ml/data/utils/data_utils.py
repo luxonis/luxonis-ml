@@ -1,5 +1,6 @@
+import json
 from collections import defaultdict
-from typing import Dict, Iterator, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import numpy as np
 import polars as pl
@@ -129,7 +130,24 @@ def infer_task(
     return old_task
 
 
-def warn_on_duplicates(df: pl.LazyFrame) -> None:
+def find_duplicates(df: pl.LazyFrame) -> Dict[str, List[Dict[str, Any]]]:
+    """Collects information about duplicate UUIDs and duplicate
+    annotations in the dataset.
+
+    @type df: pl.LazyFrame
+    @param df: Polars lazy frame containing dataset information.
+    @rtype: Dict[str, List[Dict[str, Any]]]
+    @return: A dictionary with two keys:
+        - "duplicate_uuids": list of dicts with "uuid" as key and "files" as value
+        - "duplicate_annotations": list of dicts with "file_name", "task_type",
+          "task_name", "annotation", and "count"
+    """
+
+    result = {
+        "duplicate_uuids": [],
+        "duplicate_annotations": [],
+    }
+
     # Warn on duplicate UUIDs
     uuid_file_pairs = df.select("uuid", "file").unique().collect()
 
@@ -146,11 +164,35 @@ def warn_on_duplicates(df: pl.LazyFrame) -> None:
             files = uuid_file_pairs.filter(pl.col("uuid") == uuid)[
                 "file"
             ].to_list()
-            logger.warning(f"UUID {uuid} is used in multiple files: {files}")
+            result["duplicate_uuids"].append(
+                {
+                    "uuid": uuid,
+                    "files": files,
+                }
+            )
 
     # Warn on duplicate annotations
+    def is_all_zero_keypoints(annotation_str: str) -> bool:
+        """Check if a keypoints annotation has all zeros (x, y,
+        visibility)."""
+        annotation = json.loads(annotation_str)
+        if "keypoints" in annotation:
+            for kp in annotation["keypoints"]:
+                if len(kp) >= 3:
+                    x, y, v = kp[0], kp[1], kp[2]
+                    if x != 0 or y != 0 or v != 0:
+                        return False
+            return True
+        return False
+
+    filtered_df = df.filter(
+        ~(
+            (pl.col("task_type") == "keypoints")
+            & (pl.col("annotation").map_elements(is_all_zero_keypoints))
+        )
+    )
     duplicate_annotation = (
-        df.group_by(
+        filtered_df.group_by(
             "original_filepath",
             "task_type",
             "task_name",
@@ -171,8 +213,14 @@ def warn_on_duplicates(df: pl.LazyFrame) -> None:
         if task_type == "segmentation":
             annotation = "<binary mask>"
         if not task_is_metadata(task_type):
-            logger.warning(
-                f"File '{file_name}' of task '{task_name}' has the "
-                f"same '{task_type}' annotation "
-                f"'{annotation}' repeated {count} times."
+            result["duplicate_annotations"].append(
+                {
+                    "file_name": file_name,
+                    "task_type": task_type,
+                    "task_name": task_name,
+                    "annotation": annotation,
+                    "count": count,
+                }
             )
+
+    return result
