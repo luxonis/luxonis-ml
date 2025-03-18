@@ -148,7 +148,7 @@ def find_duplicates(df: pl.LazyFrame) -> Dict[str, List[Dict[str, Any]]]:
         "duplicate_annotations": [],
     }
 
-    # Warn on duplicate UUIDs
+    # Find duplicate UUIDs
     uuid_file_pairs = df.select("uuid", "file").unique().collect()
 
     duplicates = (
@@ -171,18 +171,21 @@ def find_duplicates(df: pl.LazyFrame) -> Dict[str, List[Dict[str, Any]]]:
                 }
             )
 
-    # Warn on duplicate annotations
+    # Find duplicate annotations
     def is_all_zero_keypoints(annotation_str: str) -> bool:
         """Check if a keypoints annotation has all zeros (x, y,
         visibility)."""
-        annotation = json.loads(annotation_str)
-        if "keypoints" in annotation:
-            for kp in annotation["keypoints"]:
-                if len(kp) >= 3:
-                    x, y, v = kp[0], kp[1], kp[2]
-                    if x != 0 or y != 0 or v != 0:
-                        return False
-            return True
+        try:
+            annotation = json.loads(annotation_str)
+            if "keypoints" in annotation:
+                for kp in annotation["keypoints"]:
+                    if len(kp) >= 3:
+                        x, y, v = kp[0], kp[1], kp[2]
+                        if x != 0 or y != 0 or v != 0:
+                            return False
+                return True
+        except (TypeError, ValueError):
+            return False
         return False
 
     filtered_df = df.filter(
