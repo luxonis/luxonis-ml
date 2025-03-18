@@ -175,7 +175,9 @@ jobs:
           cache: pip
 
       - name: Install the package
-        run: pip install -e .[dev]
+        run: |
+          pip install 'pillow-heif<0.22.0'
+          pip install -e .[dev]
 
       - name: Authenticate to Google Cloud
         if: ${{ env.GHC_ENABLED }}
