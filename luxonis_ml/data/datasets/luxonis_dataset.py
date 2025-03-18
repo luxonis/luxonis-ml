@@ -1428,15 +1428,28 @@ class LuxonisDataset(BaseDataset):
         }
 
         # 2. Class Distribution Statistics
-        class_distribution = (
+        class_distribution_raw = (
             df.filter(pl.col("task_type") != "classification")
-            .group_by("task_type", "class_name")
+            .group_by(["task_name", "task_type", "class_name"])
             .agg(pl.count().alias("count"))
-            .sort("task_type", "count", descending=True)
+            .sort(["task_name", "task_type", "count"], descending=True)
             .collect()
             .to_dicts()
         )
-        stats["class_distribution"] = class_distribution
+
+        class_distributions = {}
+        for record in class_distribution_raw:
+            task_name = record["task_name"]
+            task_type = record["task_type"]
+            class_distributions.setdefault(task_name, {}).setdefault(
+                task_type, []
+            ).append(
+                {
+                    "class_name": record["class_name"],
+                    "count": record["count"],
+                }
+            )
+        stats["class_distributions"] = class_distributions
 
         # 3. Missing Annotations
         all_files = df.select(pl.col("file").unique())
@@ -1455,21 +1468,28 @@ class LuxonisDataset(BaseDataset):
             "segmentation",
             "instance_segmentation",
         ]
-        points = {task: [] for task in task_types}
+
+        points = {}
 
         annotations = (
-            df.filter(pl.col("task_type").is_not_null())
-            .select("task_type", "annotation")
+            df.filter(
+                pl.col("task_type").is_not_null()
+                & pl.col("task_name").is_not_null()
+            )
+            .select("task_name", "task_type", "annotation")
             .collect()
             .to_dicts()
         )
 
         for row in annotations:
+            task_name = row["task_name"]
             task_type = row["task_type"]
             annotation_str = row["annotation"]
 
             if task_type not in task_types or not annotation_str:
                 continue
+
+            points.setdefault(task_name, {}).setdefault(task_type, [])
 
             try:
                 annotation = json.loads(annotation_str)
@@ -1480,12 +1500,12 @@ class LuxonisDataset(BaseDataset):
                 if task_type == "boundingbox":
                     x_center = annotation["x"] + annotation["w"] / 2
                     y_center = annotation["y"] + annotation["h"] / 2
-                    points[task_type].append((x_center, y_center))
+                    points[task_name][task_type].append((x_center, y_center))
 
                 elif task_type == "keypoints":
                     for kp in annotation.get("keypoints", []):
                         if len(kp) >= 3 and kp[2] > 0:
-                            points[task_type].append((kp[0], kp[1]))
+                            points[task_name][task_type].append((kp[0], kp[1]))
 
                 elif task_type in ["segmentation", "instance_segmentation"]:
                     rle = {
@@ -1498,7 +1518,9 @@ class LuxonisDataset(BaseDataset):
                     if rows.size > 0:
                         x_coords = cols / w
                         y_coords = rows / h
-                        points[task_type].extend(zip(x_coords, y_coords))
+                        points[task_name][task_type].extend(
+                            zip(x_coords, y_coords)
+                        )
             except KeyError as e:
                 logger.warning(f"Missing key in annotation: {e}")
                 continue
@@ -1507,16 +1529,17 @@ class LuxonisDataset(BaseDataset):
         x_edges = np.linspace(0, 1, grid_size + 1)
         y_edges = np.linspace(0, 1, grid_size + 1)
 
-        for task_type in task_types:
-            data = np.array(points.get(task_type, []))
-            if len(data) == 0:
-                stats["heatmaps"][task_type] = None
-                continue
+        for task_name, tasks in points.items():
+            stats["heatmaps"].setdefault(task_name, {})
+            for task_type, coords in tasks.items():
+                if not coords:
+                    stats["heatmaps"][task_name][task_type] = None
+                    continue
 
-            heatmap, _, _ = np.histogram2d(
-                data[:, 0], data[:, 1], bins=[x_edges, y_edges]
-            )
-
-            stats["heatmaps"][task_type] = heatmap.T.tolist()
+                data = np.array(coords)
+                heatmap, _, _ = np.histogram2d(
+                    data[:, 0], data[:, 1], bins=[x_edges, y_edges]
+                )
+                stats["heatmaps"][task_name][task_type] = heatmap.T.tolist()
 
         return stats

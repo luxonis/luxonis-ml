@@ -1,4 +1,3 @@
-import math
 import random
 import shutil
 from pathlib import Path
@@ -465,60 +464,56 @@ def health(
         f"- Files with duplicate annotations: [cyan]{len(duplicate_annotations)}[/cyan]"
     )
 
-    class_dist = stats["class_distribution"]
-    bar_task_types = sorted(
-        {
-            item["task_type"]
-            for item in class_dist
-            if item["task_type"] is not None
-        }
+    all_task_names = sorted(
+        set(stats["class_distributions"].keys())
+        | set(stats["heatmaps"].keys())
     )
-    heat_task_types = [
-        task_type
-        for task_type, heat in stats["heatmaps"].items()
-        if heat is not None
-    ]
-
-    all_task_types = sorted(set(bar_task_types) | set(heat_task_types))
-    if not all_task_types:
+    if not all_task_names:
         console.print("[info]No plots to display.[/info]")
         return
 
-    nrows = len(all_task_types)
-    square_size = 4
-    fig, axs = plt.subplots(
-        nrows, 2, figsize=(square_size * 2, square_size * nrows)
-    )
+    for task_name in all_task_names:
+        class_dist_by_type = stats["class_distributions"].get(task_name, {})
+        heatmaps_by_type = stats["heatmaps"].get(task_name, {})
+        all_task_types = sorted(
+            set(class_dist_by_type.keys()) | set(heatmaps_by_type.keys())
+        )
 
-    if nrows == 1:
-        axs = [axs]
+        if not all_task_types:
+            console.print(f"[info]No plots for task name: {task_name}[/info]")
+            continue
 
-    for i, task in enumerate(all_task_types):
-        ax_bar = axs[i][0]
-        if task in bar_task_types:
-            task_data = [
-                item for item in class_dist if item["task_type"] == task
-            ]
+        nrows = len(all_task_types)
+        square_size = 4
+        fig, axs = plt.subplots(
+            nrows, 2, figsize=(square_size * 2, square_size * nrows)
+        )
+        if task_name != "":
+            fig.suptitle(f"Task Name: {task_name}", fontsize=14)
+
+        if nrows == 1:
+            axs = [axs]
+
+        for i, task_type in enumerate(all_task_types):
+            ax_bar = axs[i][0]
+            task_data = class_dist_by_type.get(task_type, [])
             if task_data:
                 counts = [x["count"] for x in task_data]
                 classes = [x["class_name"] for x in task_data]
                 num_classes = len(classes)
-                bar_width = (
-                    1 / math.pow(num_classes, 0.2) if num_classes > 0 else 1
-                )
+                bar_width = 1 / (num_classes**0.1) if num_classes else 1
                 bars = ax_bar.bar(
                     classes, counts, width=bar_width, color="royalblue"
                 )
 
                 if counts:
-                    max_count = max(counts)
-                    ax_bar.set_ylim(top=max_count * 1.15)
+                    ax_bar.set_ylim(top=max(counts) * 1.15)
 
                 ax_bar.set_title(
-                    f"{task} Class Distribution", fontsize=12, pad=15
+                    f"{task_type} Class Distribution", fontsize=12, pad=15
                 )
                 ax_bar.set_ylabel("Count", fontsize=12)
-                ax_bar.tick_params(axis="x", rotation=90, labelbottom=True)
+                ax_bar.tick_params(axis="x", rotation=90)
                 ax_bar.margins(x=0.01)
 
                 for bar in bars:
@@ -530,40 +525,41 @@ def health(
                         textcoords="offset points",
                         ha="center",
                         va="bottom",
+                        fontsize=7,
                     )
             else:
-                ax_bar.text(
-                    0.5, 0.5, "No Distribution Data", ha="center", va="center"
+                ax_bar.axis("off")
+                ax_bar.set_title(
+                    f"{task_type} Class Distribution (None)", fontsize=12
                 )
-                ax_bar.set_title(f"{task} Class Distribution", fontsize=12)
+
+            ax_heat = axs[i][1]
+            heatmap_data = heatmaps_by_type.get(task_type)
+            if heatmap_data is not None:
+                matrix = np.array(heatmap_data, dtype=np.float32)
+                max_val = matrix.max()
+                matrix /= max_val if max_val > 0 else 1
+                im = ax_heat.imshow(
+                    matrix, cmap="viridis", extent=[0, 1, 0, 1], vmin=0, vmax=1
+                )
+                fig.colorbar(
+                    im, ax=ax_heat, label="Relative Annotation Density"
+                )
+                ax_heat.set_title(f"{task_type} Heatmap", fontsize=12)
+            else:
+                ax_heat.axis("off")
+                ax_heat.set_title(f"{task_type} Heatmap (None)", fontsize=12)
+
+        plt.tight_layout()
+        plt.subplots_adjust(top=0.9, hspace=0.5)
+
+        if save_path:
+            fig.savefig(f"{save_path}/dataset_health_{task_name}.png", dpi=150)
+            plt.close(fig)
         else:
-            ax_bar.axis("off")
-            ax_bar.set_title(f"{task} Class Distribution", fontsize=12)
-
-        ax_heat = axs[i][1]
-        heatmap_data = stats["heatmaps"].get(task)
-        if heatmap_data is not None:
-            matrix = np.array(heatmap_data, dtype=np.float32)
-            im = ax_heat.imshow(matrix, cmap="viridis", extent=[0, 1, 0, 1])
-            fig.colorbar(im, ax=ax_heat, label="Annotation Density")
-            ax_heat.set_title(f"{task} Heatmap", fontsize=12)
-        else:
-            ax_heat.axis("off")
-            ax_heat.set_title(f"{task} Heatmap", fontsize=12)
-
-    plt.tight_layout()
-    plt.subplots_adjust(hspace=0.5)
-
-    if save_path:
-        plt.savefig(f"{save_path}/dataset_health.png", dpi=150)
-        console.print(f"[green]Plot saved to:[/green] {save_path}")
-    else:
-        plt.show(block=False)
-        console.print(
-            "[info]Displaying plot. Close the window or press any key to continue.[/info]"
-        )
-        if plt.waitforbuttonpress():
-            plt.close()
+            plt.show(block=False)
+            if plt.waitforbuttonpress():
+                plt.close(fig)
 
 
 if __name__ == "__main__":
