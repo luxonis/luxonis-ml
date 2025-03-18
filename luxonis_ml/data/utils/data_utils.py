@@ -188,7 +188,11 @@ def find_duplicates(df: pl.LazyFrame) -> Dict[str, List[Dict[str, Any]]]:
     filtered_df = df.filter(
         ~(
             (pl.col("task_type") == "keypoints")
-            & (pl.col("annotation").map_elements(is_all_zero_keypoints))
+            & (
+                pl.col("annotation").map_elements(
+                    is_all_zero_keypoints, return_dtype=pl.Boolean
+                )
+            )
         )
     )
     duplicate_annotation = (
