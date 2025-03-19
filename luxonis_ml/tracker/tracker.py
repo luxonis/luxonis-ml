@@ -531,6 +531,7 @@ class LuxonisTracker:
                 )
             except Exception as e:
                 if _retry_counter < 10:
+                    time.sleep(1)
                     logger.warning(
                         f"Failed to upload artifact to MLflow (retry {_retry_counter}/10): {e}"
                     )
