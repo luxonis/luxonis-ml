@@ -534,7 +534,7 @@ class LuxonisTracker:
                         self.upload_artifact, path, name, typ
                     )  # Stores details for retrying later
                     self.log_stored_logs_to_mlflow(
-                        _retry_counter=_retry_counter
+                        _retry_counter=_retry_counter + 1
                     )
                 else:
                     raise
