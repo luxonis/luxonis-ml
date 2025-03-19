@@ -1,6 +1,7 @@
 import tempfile
 from copy import deepcopy
-from typing import Dict, List, Optional
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 import pytest
 import yaml
@@ -25,7 +26,7 @@ CONFIG_DATA = {
 
 
 @pytest.fixture
-def config_file():
+def config_file() -> str:
     with tempfile.NamedTemporaryFile(delete=False) as f:
         f.write(yaml.dump(CONFIG_DATA).encode())
     return f.name
@@ -55,6 +56,11 @@ class ListConfig(BaseModel):
     str_list_param: Optional[str] = None
 
 
+class UnsafeConfig(BaseModel):
+    tuple_param: Tuple[int, int] = (1, 2)
+    path_param: Path = Path.cwd()
+
+
 class Config(LuxonisConfig):
     sub_config: SubConfig
     sub_config_default: SubConfigDefault = SubConfigDefault()
@@ -63,6 +69,7 @@ class Config(LuxonisConfig):
     list_config: List[ListConfig] = []
     nested_list_param: List[List[int]] = []
     nested_dict_param: Dict[str, Dict[str, int]] = {}
+    unsafe_config: UnsafeConfig = UnsafeConfig()
 
 
 def test_invalid_config_path():
@@ -267,3 +274,12 @@ def test_get(config_file: str):
 
 def test_environ():
     assert environ.model_dump() == {}
+
+
+def test_safe_load(config_file: str):
+    cfg = Config.get_config(config_file)
+    with tempfile.NamedTemporaryFile(delete=False) as f:
+        cfg.save_data(f.name)
+
+    cfg2 = Config.get_config(f.name)
+    assert cfg == cfg2
