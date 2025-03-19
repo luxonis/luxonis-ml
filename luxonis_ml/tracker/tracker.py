@@ -222,7 +222,10 @@ class LuxonisTracker:
                 )
             for artifact in self.local_logs["artifacts"]:
                 self.upload_artifact(
-                    Path(artifact["path"]), artifact["name"], artifact["type"]
+                    Path(artifact["path"]),
+                    artifact["name"],
+                    artifact["type"],
+                    fail_fast=True,
                 )
             for matrix in self.local_logs["matrices"]:
                 self.experiment["mlflow"].log_dict(
@@ -485,7 +488,12 @@ class LuxonisTracker:
 
     @rank_zero_only
     def upload_artifact(
-        self, path: PathType, name: Optional[str] = None, typ: str = "artifact"
+        self,
+        path: PathType,
+        name: Optional[str] = None,
+        typ: str = "artifact",
+        *,
+        fail_fast: bool = False,
     ) -> None:
         """Uploads artifact to the logging service.
 
@@ -519,11 +527,13 @@ class LuxonisTracker:
                     mlflow_instance=self.experiment.get("mlflow"),
                 )
             except Exception as e:
-                logger.warning(f"Failed to upload artifact to MLflow: {e}")
-                self.store_log_locally(
-                    self.upload_artifact, path, name, typ
-                )  # Stores details for retrying later
-                self.log_stored_logs_to_mlflow()
+                if not fail_fast:
+                    time.sleep(10)
+                    logger.warning(f"Failed to upload artifact to MLflow: {e}")
+                    self.store_log_locally(
+                        self.upload_artifact, path, name, typ
+                    )  # Stores details for retrying later
+                    self.log_stored_logs_to_mlflow()
 
     @rank_zero_only
     def log_matrix(self, matrix: np.ndarray, name: str, step: int) -> None:
