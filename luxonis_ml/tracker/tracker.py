@@ -220,16 +220,19 @@ class LuxonisTracker:
                 self.experiment["mlflow"].log_image(
                     image["image_data"], image["name"]
                 )
-            for artifact in self.local_logs["artifacts"]:
+            for matrix in self.local_logs["matrices"]:
+                self.experiment["mlflow"].log_dict(
+                    matrix["matrix"], matrix["name"]
+                )
+
+            artifacts_to_process = list(self.local_logs["artifacts"])
+            self.local_logs["artifacts"].clear()
+            for artifact in artifacts_to_process:
                 self.upload_artifact(
                     Path(artifact["path"]),
                     artifact["name"],
                     artifact["type"],
                     _retry_counter=_retry_counter,
-                )
-            for matrix in self.local_logs["matrices"]:
-                self.experiment["mlflow"].log_dict(
-                    matrix["matrix"], matrix["name"]
                 )
 
             self.local_logs = {
@@ -527,18 +530,24 @@ class LuxonisTracker:
                     mlflow_instance=self.experiment.get("mlflow"),
                 )
             except Exception as e:
-                time.sleep(2)
                 if _retry_counter < 10:
-                    time.sleep(2)
                     logger.warning(
                         f"Failed to upload artifact to MLflow (retry {_retry_counter}/10): {e}"
                     )
-                    return self.upload_artifact(
-                        path, name, typ, _retry_counter=_retry_counter + 1
+                    self.store_log_locally(
+                        self.upload_artifact, path, name, typ
                     )
-                logger.error("Reached maximum retries. Storing logs locally.")
-                self.store_log_locally(self.upload_artifact, path, name, typ)
-                raise
+                    self.log_stored_logs_to_mlflow(
+                        _retry_counter=_retry_counter + 1
+                    )
+                else:
+                    logger.error(
+                        "Max retries reached. Saving artifact locally."
+                    )
+                    self.save_logs_locally()
+                    raise RuntimeError(
+                        "Failed to upload artifact after 10 retries."
+                    ) from e
 
     @rank_zero_only
     def log_matrix(self, matrix: np.ndarray, name: str, step: int) -> None:
