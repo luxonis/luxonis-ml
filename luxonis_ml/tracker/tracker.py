@@ -200,7 +200,7 @@ class LuxonisTracker:
                 {"matrix": args[0], "name": args[1]}
             )
 
-    def log_stored_logs_to_mlflow(self) -> None:
+    def log_stored_logs_to_mlflow(self, *, _retry_counter: int = 0) -> None:
         """Attempts to log any data stored in local_logs to MLflow."""
         if not self.mlflow_initialized or not any(self.local_logs.values()):
             return
@@ -225,7 +225,7 @@ class LuxonisTracker:
                     Path(artifact["path"]),
                     artifact["name"],
                     artifact["type"],
-                    fail_fast=True,
+                    _retry_counter=_retry_counter,
                 )
             for matrix in self.local_logs["matrices"]:
                 self.experiment["mlflow"].log_dict(
@@ -493,7 +493,7 @@ class LuxonisTracker:
         name: Optional[str] = None,
         typ: str = "artifact",
         *,
-        fail_fast: bool = False,
+        _retry_counter: int = 0,
     ) -> None:
         """Uploads artifact to the logging service.
 
@@ -527,13 +527,17 @@ class LuxonisTracker:
                     mlflow_instance=self.experiment.get("mlflow"),
                 )
             except Exception as e:
-                if not fail_fast:
-                    time.sleep(10)
+                time.sleep(5)
+                if _retry_counter < 10:
                     logger.warning(f"Failed to upload artifact to MLflow: {e}")
                     self.store_log_locally(
                         self.upload_artifact, path, name, typ
                     )  # Stores details for retrying later
-                    self.log_stored_logs_to_mlflow()
+                    self.log_stored_logs_to_mlflow(
+                        _retry_counter=_retry_counter
+                    )
+                else:
+                    raise
 
     @rank_zero_only
     def log_matrix(self, matrix: np.ndarray, name: str, step: int) -> None:
