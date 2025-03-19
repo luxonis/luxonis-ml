@@ -527,17 +527,18 @@ class LuxonisTracker:
                     mlflow_instance=self.experiment.get("mlflow"),
                 )
             except Exception as e:
-                time.sleep(5)
+                time.sleep(2)
                 if _retry_counter < 10:
-                    logger.warning(f"Failed to upload artifact to MLflow: {e}")
-                    self.store_log_locally(
-                        self.upload_artifact, path, name, typ
-                    )  # Stores details for retrying later
-                    self.log_stored_logs_to_mlflow(
-                        _retry_counter=_retry_counter + 1
+                    time.sleep(2)
+                    logger.warning(
+                        f"Failed to upload artifact to MLflow (retry {_retry_counter}/10): {e}"
                     )
-                else:
-                    raise
+                    return self.upload_artifact(
+                        path, name, typ, _retry_counter=_retry_counter + 1
+                    )
+                logger.error("Reached maximum retries. Storing logs locally.")
+                self.store_log_locally(self.upload_artifact, path, name, typ)
+                raise
 
     @rank_zero_only
     def log_matrix(self, matrix: np.ndarray, name: str, step: int) -> None:
