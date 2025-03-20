@@ -50,10 +50,16 @@ from luxonis_ml.utils import (
     LuxonisFileSystem,
     deprecated,
     environ,
+    log_once,
     make_progress_bar,
 )
 
-from .annotation import Category, DatasetRecord, Detection
+from .annotation import (
+    Category,
+    DatasetRecord,
+    Detection,
+    SegmentationAnnotation,
+)
 from .base_dataset import BaseDataset, DatasetIterator
 from .metadata import Metadata
 from .migration import migrate_dataframe, migrate_metadata
@@ -1276,11 +1282,11 @@ class LuxonisDataset(BaseDataset):
                 f"Export path '{output_path}' already exists. Please remove it first."
             )
         output_path.mkdir(parents=True)
-        classes = bidict(
-            self.get_classes()[next(iter(self.get_tasks()))]
-        ).inverse
         for split in splits:
             loader = LuxonisLoader(self, view=[split])
+            classes = bidict(
+                loader.classes[next(iter(self.get_tasks()))]
+            ).inverse
             if split == "val":
                 split = "valid"
             split_path = output_path / self.identifier / split
@@ -1327,6 +1333,36 @@ class LuxonisDataset(BaseDataset):
                             arr[:, 0] *= img_w
                             arr[:, 1] *= img_h
                             instances[instance_id]["keypoints"] = arr.tolist()
+                    elif task_type == "instance_segmentation":
+                        for instance_id, mask in enumerate(arrays):
+                            rle = SegmentationAnnotation._numpy_to_rle(mask)
+                            coco_rle = {
+                                "size": [rle["height"], rle["width"]],
+                                "counts": rle["counts"],
+                            }
+                            instances[instance_id]["segmentation"] = coco_rle
+                    elif task_type == "segmentation":
+                        for class_id, mask in enumerate(arrays):
+                            rle = SegmentationAnnotation._numpy_to_rle(mask)
+                            coco_rle = {
+                                "size": [rle["height"], rle["width"]],
+                                "counts": rle["counts"],
+                            }
+                            instances[class_id].update(
+                                {
+                                    "image_id": image_id,
+                                    "category_id": class_id,
+                                    "segmentation": coco_rle,
+                                    "bbox": [0, 0, img_w, img_h],
+                                }
+                            )
+                    else:
+                        log_once(
+                            logger.warning,
+                            f"Task type '{task_type}' is currently "
+                            "unsupported. It won't be included in "
+                            "the exported dataset.",
+                        )
 
                 coco_annotations.extend(instances.values())
 

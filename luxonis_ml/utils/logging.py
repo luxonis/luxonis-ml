@@ -1,7 +1,7 @@
 import inspect
 import warnings
 from functools import wraps
-from typing import Any, Callable, Dict, Literal, Optional, Type
+from typing import Any, Callable, Dict, Literal, Optional, Set, Type
 
 from rich.console import Console
 from rich.logging import RichHandler
@@ -161,6 +161,24 @@ def deprecated(
         return wrapper
 
     return decorator
+
+
+def log_once(logger: Callable[[str], None], message: str) -> None:
+    """Logs a message only once.
+
+    @type logger: Logger
+    @param logger: The logger to use.
+    @type message: str
+    @param message: The message to log.
+    """
+    _cache: Set[str]
+
+    if not hasattr(log_once, "_cache"):
+        log_once._cache = set()
+
+    if message not in log_once._cache:
+        logger(message)
+        log_once._cache.add(message)
 
 
 def _warn_deprecated(
