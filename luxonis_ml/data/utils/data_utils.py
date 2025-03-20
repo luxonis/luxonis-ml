@@ -319,7 +319,9 @@ def get_duplicates_info(df: pl.LazyFrame) -> Dict[str, Any]:
 
 
 def get_heatmaps(
-    df: pl.LazyFrame, sample_size: Optional[int] = None
+    df: pl.LazyFrame,
+    sample_size: Optional[int] = None,
+    downsample_factor: int = 5,
 ) -> Dict[str, Dict[str, List[List[int]]]]:
     """Generates heatmaps for bounding boxes, keypoints, and
     segmentations.
@@ -329,6 +331,9 @@ def get_heatmaps(
     @type sample_size: Optional[int]
     @param sample_size: Number of samples to take from the dataset.
         Default is None.
+    @type downsample_factor: int
+    @param downsample_factor: Factor to downsample the segmentation
+        masks.
     @rtype: Dict[str, Dict[str, List[List[int]]]]
     @return: A dictionary with task names as keys, and dictionaries with
         task types as keys and lists of lists of integers representing
@@ -395,6 +400,8 @@ def get_heatmaps(
                     "size": [annotation["height"], annotation["width"]],
                 }
                 mask = mask_utils.decode(rle)
+                if downsample_factor > 1:
+                    mask = mask[::downsample_factor, ::downsample_factor]
                 rows_idx, cols_idx = np.where(mask)
                 if rows_idx.size == 0:
                     continue

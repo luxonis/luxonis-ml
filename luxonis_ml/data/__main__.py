@@ -422,9 +422,16 @@ def parse(
 def health(
     name: DatasetNameArgument,
     bucket_storage: BucketStorage = bucket_option,
-    save_path: Optional[str] = None,
-    sample_size: int = typer.Option(
-        50000,
+    save_dir: Optional[str] = typer.Option(
+        None,
+        "--save-dir",
+        "-s",
+        help="Directory where the plots should be saved. "
+        "If not provided, the plots will be displayed.",
+        show_default=False,
+    ),
+    sample_size: Optional[int] = typer.Option(
+        None,
         "--sample-size",
         "-s",
         help="Number of annotation rows to sample from the dataset. Note that each task type annotation is in a separate row.",
@@ -517,8 +524,8 @@ def health(
         plt.tight_layout()
         plt.subplots_adjust(top=0.9, hspace=0.5)
 
-        if save_path:
-            fig.savefig(f"{save_path}/dataset_health_{task_name}.png", dpi=150)  # type: ignore
+        if save_dir:
+            fig.savefig(f"{save_dir}/dataset_health_{task_name}.png", dpi=150)  # type: ignore
             plt.close(fig)
         else:
             plt.show(block=False)
