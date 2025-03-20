@@ -419,7 +419,7 @@ def get_heatmaps(
                     "counts": annotation["counts"],
                     "size": [annotation["height"], annotation["width"]],
                 }
-                mask = mask_utils.decode(rle)
+                mask = mask_utils.decode(rle)  # type: ignore
                 if downsample_factor > 1:
                     mask = mask[::downsample_factor, ::downsample_factor]
                 rows_idx, cols_idx = np.where(mask)
