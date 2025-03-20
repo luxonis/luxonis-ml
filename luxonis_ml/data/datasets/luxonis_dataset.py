@@ -31,7 +31,6 @@ import pyarrow.parquet as pq
 from bidict import bidict
 from filelock import FileLock
 from loguru import logger
-from pycocotools import mask as mask_utils
 from semver.version import Version
 from typing_extensions import Self, override
 
@@ -41,6 +40,10 @@ from luxonis_ml.data.utils import (
     ParquetFileManager,
     UpdateMode,
     find_duplicates,
+    get_class_distributions,
+    get_duplicates_info,
+    get_heatmaps,
+    get_missing_annotations,
     infer_task,
 )
 from luxonis_ml.data.utils.constants import LDF_VERSION
@@ -1371,7 +1374,9 @@ class LuxonisDataset(BaseDataset):
         logger.info(f"Dataset '{self.identifier}' exported to '{zip_path}'")
         return zip_path
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(
+        self, sample_size: Optional[int] = None
+    ) -> Dict[str, Any]:
         """Returns comprehensive dataset statistics as a structured
         dictionary.
 
@@ -1407,140 +1412,12 @@ class LuxonisDataset(BaseDataset):
 
         df = df.join(index, on="uuid").drop("file_right")
 
-        # 1. Duplicate Analysis
-        duplicates_info = find_duplicates(df)
-        stats["duplicates"] = {
-            "duplicate_uuids": [
-                {"uuid": item["uuid"], "files": item["files"]}
-                for item in duplicates_info["duplicate_uuids"]
-            ],
-            "duplicate_annotations": [
-                {
-                    "file_name": item["file_name"],
-                    "task_name": item["task_name"],
-                    "task_type": item["task_type"],
-                    "annotation": item["annotation"],
-                    "count": item["count"],
-                }
-                for item in duplicates_info["duplicate_annotations"]
-            ],
-        }
+        stats["duplicates"] = get_duplicates_info(df)
 
-        # 2. Class Distribution Statistics
-        class_distribution_raw = (
-            df.filter(pl.col("task_type") != "classification")
-            .group_by(["task_name", "task_type", "class_name"])
-            .agg(pl.count().alias("count"))
-            .sort(["task_name", "task_type", "count"], descending=True)
-            .collect()
-            .to_dicts()
-        )
+        stats["class_distributions"] = get_class_distributions(df)
 
-        class_distributions = {}
-        for record in class_distribution_raw:
-            task_name = record["task_name"]
-            task_type = record["task_type"]
-            class_distributions.setdefault(task_name, {}).setdefault(
-                task_type, []
-            ).append(
-                {
-                    "class_name": record["class_name"],
-                    "count": record["count"],
-                }
-            )
-        stats["class_distributions"] = class_distributions
+        stats["missing_annotations"] = get_missing_annotations(df)
 
-        # 3. Missing Annotations
-        all_files = df.select(pl.col("file").unique())
-        annotated_files = df.filter(
-            pl.col("annotation").is_not_null() & (pl.col("annotation") != "")
-        ).select(pl.col("file").unique())
-        missing_files_df = all_files.join(
-            annotated_files, on="file", how="anti"
-        ).collect()
-        stats["missing_annotations"] = missing_files_df["file"].to_list()
-
-        # 4. Heatmap Data Generation
-        task_types = [
-            "boundingbox",
-            "keypoints",
-            "segmentation",
-            "instance_segmentation",
-        ]
-
-        points = {}
-
-        annotations = (
-            df.filter(
-                pl.col("task_type").is_not_null()
-                & pl.col("task_name").is_not_null()
-            )
-            .select("task_name", "task_type", "annotation")
-            .collect()
-            .to_dicts()
-        )
-
-        for row in annotations:
-            task_name = row["task_name"]
-            task_type = row["task_type"]
-            annotation_str = row["annotation"]
-
-            if task_type not in task_types or not annotation_str:
-                continue
-
-            points.setdefault(task_name, {}).setdefault(task_type, [])
-
-            try:
-                annotation = json.loads(annotation_str)
-            except (json.JSONDecodeError, TypeError):
-                continue
-
-            try:
-                if task_type == "boundingbox":
-                    x_center = annotation["x"] + annotation["w"] / 2
-                    y_center = annotation["y"] + annotation["h"] / 2
-                    points[task_name][task_type].append((x_center, y_center))
-
-                elif task_type == "keypoints":
-                    for kp in annotation.get("keypoints", []):
-                        if len(kp) >= 3 and kp[2] > 0:
-                            points[task_name][task_type].append((kp[0], kp[1]))
-
-                elif task_type in ["segmentation", "instance_segmentation"]:
-                    rle = {
-                        "counts": annotation["counts"],
-                        "size": [annotation["height"], annotation["width"]],
-                    }
-                    mask = mask_utils.decode(rle)  # type: ignore
-                    h, w = mask.shape
-                    rows, cols = np.where(mask)
-                    if rows.size > 0:
-                        x_coords = cols / w
-                        y_coords = rows / h
-                        points[task_name][task_type].extend(
-                            zip(x_coords, y_coords)
-                        )
-            except KeyError as e:
-                logger.warning(f"Missing key in annotation: {e}")
-                continue
-
-        grid_size = 15
-        x_edges = np.linspace(0, 1, grid_size + 1)
-        y_edges = np.linspace(0, 1, grid_size + 1)
-
-        for task_name, tasks in points.items():
-            stats["heatmaps"].setdefault(task_name, {})
-            for task_type, coords in tasks.items():
-                if not coords:
-                    stats["heatmaps"][task_name][task_type] = None
-                    continue
-
-                data = np.array(coords)
-                heatmap, _, _ = np.histogram2d(
-                    data[:, 0],
-                    data[:, 1],
-                    bins=[x_edges, y_edges],  # type: ignore
-                )
-                stats["heatmaps"][task_name][task_type] = heatmap.T.tolist()
+        stats["heatmaps"] = get_heatmaps(df, sample_size)
 
         return stats

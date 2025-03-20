@@ -1,7 +1,7 @@
 import random
 import shutil
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Set, Tuple
+from typing import Iterator, List, Optional, Set, Tuple
 
 import cv2
 import matplotlib.pyplot as plt
@@ -18,6 +18,10 @@ from typing_extensions import Annotated
 
 from luxonis_ml.data import LuxonisDataset, LuxonisLoader, LuxonisParser
 from luxonis_ml.data.utils.enums import BucketStorage
+from luxonis_ml.data.utils.plot_utils import (
+    plot_class_distribution,
+    plot_heatmap,
+)
 from luxonis_ml.data.utils.visualizations import visualize
 from luxonis_ml.enums import DatasetType
 
@@ -414,69 +418,22 @@ def parse(
     print_info(dataset)
 
 
-def _plot_class_distribution(
-    ax: plt.Axes, task_type: str, task_data: List[Dict[str, Any]]
-) -> None:
-    if not task_data:
-        ax.axis("off")
-        ax.set_title(f"{task_type} Class Distribution (None)", fontsize=12)
-        return
-
-    counts = [x["count"] for x in task_data]
-    classes = [x["class_name"] for x in task_data]
-    num_classes = len(classes)
-    bar_width = 1 / (num_classes**0.1) if num_classes else 1
-    bars = ax.bar(classes, counts, width=bar_width, color="royalblue")
-
-    if counts:
-        ax.set_ylim(top=max(counts) * 1.15)
-
-    ax.set_title(f"{task_type} Class Distribution", fontsize=12, pad=15)
-    ax.set_ylabel("Count", fontsize=12)
-    ax.tick_params(axis="x", rotation=90)
-    ax.margins(x=0.01)
-
-    for bar in bars:
-        height = bar.get_height()
-        ax.annotate(
-            f"{height}",
-            xy=(bar.get_x() + bar.get_width() / 2, height),
-            xytext=(0, 5),
-            textcoords="offset points",
-            ha="center",
-            va="bottom",
-            fontsize=7,
-        )
-
-
-def _plot_heatmap(
-    ax: plt.Axes,
-    fig: plt.Figure,
-    task_type: str,
-    heatmap_data: Optional[List[List[float]]],
-) -> None:
-    if heatmap_data is None:
-        ax.axis("off")
-        ax.set_title(f"{task_type} Heatmap (None)", fontsize=12)
-        return
-
-    matrix = np.array(heatmap_data, dtype=np.float32)
-    max_val = matrix.max()
-    matrix /= max_val if max_val > 0 else 1
-    im = ax.imshow(matrix, cmap="viridis", extent=[0, 1, 0, 1], vmin=0, vmax=1)
-    fig.colorbar(im, ax=ax, label="Relative Annotation Density")
-    ax.set_title(f"{task_type} Heatmap", fontsize=12)
-
-
 @app.command()
 def health(
     name: DatasetNameArgument,
     bucket_storage: BucketStorage = bucket_option,
     save_path: Optional[str] = None,
+    sample_size: int = typer.Option(
+        50000,
+        "--sample-size",
+        "-s",
+        help="Number of annotation rows to sample from the dataset. Note that each task type annotation is in a separate row.",
+        show_default=False,
+    ),
 ):
     check_exists(name, bucket_storage)
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
-    stats = dataset.get_statistics()
+    stats = dataset.get_statistics(sample_size=sample_size)
     console = Console()
 
     duplicate_uuids = stats["duplicates"]["duplicate_uuids"]
@@ -547,10 +504,10 @@ def health(
             axs = [axs]
 
         for i, task_type in enumerate(all_task_types):
-            _plot_class_distribution(
+            plot_class_distribution(
                 axs[i][0], task_type, class_dist_by_type.get(task_type, [])
             )
-            _plot_heatmap(
+            plot_heatmap(
                 axs[i][1],
                 fig,  # type: ignore
                 task_type,

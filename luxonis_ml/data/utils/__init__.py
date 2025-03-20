@@ -1,6 +1,15 @@
-from .data_utils import find_duplicates, infer_task, rgb_to_bool_masks
+from .data_utils import (
+    find_duplicates,
+    get_class_distributions,
+    get_duplicates_info,
+    get_heatmaps,
+    get_missing_annotations,
+    infer_task,
+    rgb_to_bool_masks,
+)
 from .enums import BucketStorage, BucketType, ImageType, MediaType, UpdateMode
 from .parquet import ParquetFileManager, ParquetRecord
+from .plot_utils import plot_class_distribution, plot_heatmap
 from .task_utils import (
     get_task_name,
     get_task_type,
@@ -29,9 +38,15 @@ __all__ = [
     "create_text_image",
     "distinct_color_generator",
     "find_duplicates",
+    "get_class_distributions",
+    "get_duplicates_info",
+    "get_heatmaps",
+    "get_missing_annotations",
     "get_task_name",
     "get_task_type",
     "infer_task",
+    "plot_class_distribution",
+    "plot_heatmap",
     "rgb_to_bool_masks",
     "split_task",
     "task_is_metadata",

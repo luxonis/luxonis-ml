@@ -5,6 +5,7 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 import numpy as np
 import polars as pl
 from loguru import logger
+from pycocotools import mask as mask_utils
 
 from luxonis_ml.data.utils.task_utils import task_is_metadata
 from luxonis_ml.typing import RGB
@@ -229,5 +230,205 @@ def find_duplicates(df: pl.LazyFrame) -> Dict[str, List[Dict[str, Any]]]:
                     "count": count,
                 }
             )
+
+    return result
+
+
+def get_class_distributions(
+    df: pl.LazyFrame,
+) -> Dict[str, Dict[str, List[Dict[str, Any]]]]:
+    """Gets class distribution info for non-classification tasks.
+
+    @type df: pl.LazyFrame
+    @param df: Polars lazy frame containing dataset information.
+    @rtype: Dict[str, Dict[str, List[Dict[str, Any]]]]
+    @return: A dictionary with task names as keys, and dictionaries with
+        task types as keys and lists of dictionaries with class names
+        and counts as values.
+    """
+    class_distribution_raw = (
+        df.filter(pl.col("task_type") != "classification")
+        .group_by(["task_name", "task_type", "class_name"])
+        .agg(pl.count().alias("count"))
+        .sort(["task_name", "task_type", "count"], descending=True)
+        .collect()
+        .to_dicts()
+    )
+    class_distributions: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
+    for record in class_distribution_raw:
+        task_name = record["task_name"]
+        task_type = record["task_type"]
+        class_distributions.setdefault(task_name, {}).setdefault(
+            task_type, []
+        ).append(
+            {
+                "class_name": record["class_name"],
+                "count": record["count"],
+            }
+        )
+    return class_distributions
+
+
+def get_missing_annotations(df: pl.LazyFrame) -> List[str]:
+    """Returns file paths that exist but have no annotations.
+
+    @type df: pl.LazyFrame
+    @param df: Polars lazy frame containing dataset information.
+    @rtype: List[str]
+    @return: A list of file paths that exist but have no annotations.
+    """
+    all_files = df.select(pl.col("file").unique())
+    annotated_files = df.filter(
+        pl.col("annotation").is_not_null() & (pl.col("annotation") != "")
+    ).select(pl.col("file").unique())
+    missing_files_df = all_files.join(
+        annotated_files, on="file", how="anti"
+    ).collect()
+    return missing_files_df["file"].to_list()
+
+
+def get_duplicates_info(df: pl.LazyFrame) -> Dict[str, Any]:
+    """Collects and returns information about duplicate UUIDs and
+    annotations.
+
+    @type df: pl.DataFrame
+    @param df: Polars DataFrame containing dataset information.
+    @rtype: Dict[str, Any]
+    @return: A dictionary with two keys:
+        - "duplicate_uuids": list of dicts with "uuid" as key and "files" as value
+        - "duplicate_annotations": list of dicts with "file_name", "task_name",
+          "task_type", "annotation", and "count"
+    """
+    duplicates_info = find_duplicates(df)
+    return {
+        "duplicate_uuids": [
+            {"uuid": item["uuid"], "files": item["files"]}
+            for item in duplicates_info["duplicate_uuids"]
+        ],
+        "duplicate_annotations": [
+            {
+                "file_name": item["file_name"],
+                "task_name": item["task_name"],
+                "task_type": item["task_type"],
+                "annotation": item["annotation"],
+                "count": item["count"],
+            }
+            for item in duplicates_info["duplicate_annotations"]
+        ],
+    }
+
+
+def get_heatmaps(
+    df: pl.LazyFrame, sample_size: Optional[int] = None
+) -> Dict[str, Dict[str, List[List[int]]]]:
+    """Generates heatmaps for bounding boxes, keypoints, and
+    segmentations.
+
+    @type df: pl.LazyFrame
+    @param df: Polars lazy frame containing dataset information.
+    @type sample_size: Optional[int]
+    @param sample_size: Number of samples to take from the dataset.
+        Default is None.
+    @rtype: Dict[str, Dict[str, List[List[int]]]]
+    @return: A dictionary with task names as keys, and dictionaries with
+        task types as keys and lists of lists of integers representing
+        the heatmaps as values
+    """
+    task_types = [
+        "boundingbox",
+        "keypoints",
+        "segmentation",
+        "instance_segmentation",
+    ]
+    grid_size = 15
+    x_edges = np.linspace(0, 1, grid_size + 1)
+    y_edges = np.linspace(0, 1, grid_size + 1)
+    heatmaps: Dict[str, Dict[str, np.ndarray]] = {}
+
+    annotations_df = df.filter(
+        pl.col("task_type").is_not_null() & pl.col("task_name").is_not_null()
+    )
+
+    annotations_df = annotations_df.select(
+        "task_name", "task_type", "annotation"
+    ).collect()
+
+    if sample_size is not None and sample_size > 0:
+        if sample_size > len(annotations_df):
+            sample_size = None
+        else:
+            annotations_df = annotations_df.sample(n=sample_size, shuffle=True)
+
+    rows = annotations_df.iter_rows(named=True)
+    for row in rows:
+        task_name = row["task_name"]
+        task_type = row["task_type"]
+        annotation_str = row["annotation"]
+
+        if task_type not in task_types or not annotation_str:
+            continue
+
+        try:
+            annotation = json.loads(annotation_str)
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+        try:
+            if task_type == "boundingbox":
+                w, h = annotation["w"], annotation["h"]
+                x = np.array([annotation["x"] + w / 2])
+                y = np.array([annotation["y"] + h / 2])
+            elif task_type == "keypoints":
+                kps = [
+                    kp
+                    for kp in annotation.get("keypoints", [])
+                    if len(kp) >= 3 and kp[2] > 0
+                ]
+                if not kps:
+                    continue
+                coords = np.array([(kp[0], kp[1]) for kp in kps])
+                x = coords[:, 0]
+                y = coords[:, 1]
+            elif task_type in ["segmentation", "instance_segmentation"]:
+                rle = {
+                    "counts": annotation["counts"],
+                    "size": [annotation["height"], annotation["width"]],
+                }
+                mask = mask_utils.decode(rle)
+                rows_idx, cols_idx = np.where(mask)
+                if rows_idx.size == 0:
+                    continue
+                h_, w_ = mask.shape
+                x = cols_idx / w_
+                y = rows_idx / h_
+            else:
+                continue
+
+            xi = np.digitize(x, x_edges) - 1
+            xi = np.clip(xi, 0, grid_size - 1)
+            yi = np.digitize(y, y_edges) - 1
+            yi = np.clip(yi, 0, grid_size - 1)
+            indices = xi * grid_size + yi
+            counts = np.bincount(
+                indices, minlength=grid_size * grid_size
+            ).reshape(grid_size, grid_size)
+
+            if task_name not in heatmaps:
+                heatmaps[task_name] = {}
+            if task_type not in heatmaps[task_name]:
+                heatmaps[task_name][task_type] = np.zeros(
+                    (grid_size, grid_size), dtype=np.int64
+                )
+            heatmaps[task_name][task_type] += counts
+
+        except KeyError as e:
+            logger.warning(f"Missing key in annotation: {e}")
+            continue
+
+    result: Dict[str, Dict[str, List[List[int]]]] = {}
+    for t_name, tasks in heatmaps.items():
+        result[t_name] = {}
+        for t_type, grid in tasks.items():
+            result[t_name][t_type] = grid.T.tolist()
 
     return result
