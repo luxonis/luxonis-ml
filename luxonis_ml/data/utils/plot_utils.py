@@ -56,7 +56,11 @@ def plot_class_distribution(
         ax.set_ylim(top=max(counts) * 1.15)
     ax.set_title(f"{task_type} Class Distribution", fontsize=12, pad=15)
     ax.set_ylabel("Count", fontsize=12)
-    ax.tick_params(axis="x", rotation=90)
+    ax.tick_params(
+        axis="x", rotation=90 if num_classes > 5 else 45, labelsize=8
+    )
+    for tick in ax.get_xticklabels():
+        tick.set_ha("center")
     ax.margins(x=0.01)
 
     _annotate_bars(ax, bars)

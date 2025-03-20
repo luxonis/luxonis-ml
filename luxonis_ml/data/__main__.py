@@ -433,7 +433,7 @@ def health(
     sample_size: Optional[int] = typer.Option(
         None,
         "--sample-size",
-        "-s",
+        "-n",
         help="Number of annotation rows to sample from the dataset. Note that each task type annotation is in a separate row.",
         show_default=False,
     ),
@@ -443,42 +443,79 @@ def health(
     stats = dataset.get_statistics(sample_size=sample_size)
     console = Console()
 
+    missing_annotations = stats["missing_annotations"]
     duplicate_uuids = stats["duplicates"]["duplicate_uuids"]
-    for item in duplicate_uuids:
-        console.print(
-            f"[bold red]Warning:[/bold red] UUID [magenta]{item['uuid']}[/magenta] "
-            f"appears in multiple files: [cyan]{item['files']}[/cyan]"
-        )
-
     duplicate_annotations = stats.get("duplicates", {}).get(
         "duplicate_annotations", []
     )
-    for item in duplicate_annotations:
-        console.print(
-            f"[bold red]Duplicate Annotation:[/bold red] File [cyan]'{item['file_name']}'[/cyan] "
-            f"in task [magenta]'{item['task_name']}'[/magenta] has annotation "
-            f"[yellow]'{item['annotation']}'[/yellow] (task type: [magenta]{item['task_type']}[/magenta]) repeated "
-            f"{item['count']} times."
-        )
 
-    missing_annotations = stats["missing_annotations"]
-    for file in missing_annotations:
-        console.print(
-            f"[bold yellow]Missing Annotation:[/bold yellow] File [cyan]'{file}'[/cyan]"
+    if duplicate_uuids:
+        duuid_table = Table(
+            title="Duplicate UUIDs", box=rich.box.ROUNDED, row_styles=["red"]
         )
+        duuid_table.add_column("UUID", style="magenta")
+        duuid_table.add_column("Files", style="cyan")
 
-    console.print(
-        "\n[bold underline]Dataset Statistics Summary:[/bold underline]"
+        for item in duplicate_uuids:
+            duuid_table.add_row(item["uuid"], ", ".join(item["files"]))
+
+        console.print(duuid_table)
+
+    if duplicate_annotations:
+        dann_table = Table(
+            title="Duplicate Annotations",
+            box=rich.box.ROUNDED,
+            row_styles=["red"],
+        )
+        dann_table.add_column("File Name", style="cyan")
+        dann_table.add_column("Task Name", style="magenta")
+        dann_table.add_column("Task Type", style="magenta")
+        dann_table.add_column("Annotation", style="yellow")
+        dann_table.add_column("Count", style="green")
+
+        for item in duplicate_annotations:
+            dann_table.add_row(
+                item["file_name"],
+                item["task_name"],
+                item["task_type"],
+                str(item["annotation"]),
+                str(item["count"]),
+            )
+
+        console.print(dann_table)
+
+    if missing_annotations:
+        missing_table = Table(
+            title="Files With Missing Annotations",
+            box=rich.box.ROUNDED,
+            row_styles=["yellow"],
+        )
+        missing_table.add_column("File Name", style="cyan")
+
+        for file in missing_annotations:
+            missing_table.add_row(file)
+
+        console.print(missing_table)
+
+    summary_table = Table(
+        title="Dataset Health Summary",
+        box=rich.box.ROUNDED,
+        show_header=False,
+        row_styles=["cyan", "yellow", "green"],
     )
-    console.print(
-        f"- Files with missing annotations: [cyan]{len(missing_annotations)}[/cyan]"
+    summary_table.add_column("Metric")
+    summary_table.add_column("Count")
+    summary_table.add_row(
+        "Files with missing annotations", str(len(missing_annotations))
     )
-    console.print(
-        f"- Files with duplicate UUIDs: [cyan]{len(duplicate_uuids)}[/cyan]"
+    summary_table.add_row(
+        "Files with duplicate UUIDs", str(len(duplicate_uuids))
     )
-    console.print(
-        f"- Files with duplicate annotations: [cyan]{len(duplicate_annotations)}[/cyan]"
+    summary_table.add_row(
+        "Files with duplicate annotations", str(len(duplicate_annotations))
     )
+
+    console.print(summary_table)
 
     all_task_names = sorted(
         set(stats["class_distributions"].keys())
