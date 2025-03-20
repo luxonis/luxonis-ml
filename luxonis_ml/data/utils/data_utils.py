@@ -234,6 +234,26 @@ def find_duplicates(df: pl.LazyFrame) -> Dict[str, List[Dict[str, Any]]]:
     return result
 
 
+def warn_on_duplicates(df: pl.LazyFrame) -> None:
+    """Logs warnings for duplicate UUIDs and annotations in the dataset.
+
+    @type df: pl.LazyFrame
+    @param df: Polars lazy frame containing dataset information.
+    """
+    duplicates_info = find_duplicates(df)
+    if duplicates_info["duplicate_uuids"]:
+        for item in duplicates_info["duplicate_uuids"]:
+            logger.warning(
+                f"UUID {item['uuid']} is the same for multiple files: {item['files']}"
+            )
+
+    for item in duplicates_info["duplicate_annotations"]:
+        logger.warning(
+            f"File '{item['file_name']}' of task '{item['task_name']}' has the "
+            f"same '{item['task_type']}' annotation '{item['annotation']}' repeated {item['count']} times."
+        )
+
+
 def get_class_distributions(
     df: pl.LazyFrame,
 ) -> Dict[str, Dict[str, List[Dict[str, Any]]]]:

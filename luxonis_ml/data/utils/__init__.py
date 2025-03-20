@@ -6,6 +6,7 @@ from .data_utils import (
     get_missing_annotations,
     infer_task,
     rgb_to_bool_masks,
+    warn_on_duplicates,
 )
 from .enums import BucketStorage, BucketType, ImageType, MediaType, UpdateMode
 from .parquet import ParquetFileManager, ParquetRecord
@@ -52,4 +53,5 @@ __all__ = [
     "task_is_metadata",
     "task_type_iterator",
     "visualize",
+    "warn_on_duplicates",
 ]

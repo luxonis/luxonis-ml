@@ -39,12 +39,12 @@ from luxonis_ml.data.utils import (
     BucketType,
     ParquetFileManager,
     UpdateMode,
-    find_duplicates,
     get_class_distributions,
     get_duplicates_info,
     get_heatmaps,
     get_missing_annotations,
     infer_task,
+    warn_on_duplicates,
 )
 from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.data.utils.task_utils import get_task_type
@@ -1016,18 +1016,7 @@ class LuxonisDataset(BaseDataset):
         if df is None or index is None:
             return
         df = df.join(index, on="uuid").drop("file_right")
-        duplicates_info = find_duplicates(df)
-        if duplicates_info["duplicate_uuids"]:
-            for item in duplicates_info["duplicate_uuids"]:
-                logger.warning(
-                    f"UUID {item['uuid']} is the same for multiple files: {item['files']}"
-                )
-
-        for item in duplicates_info["duplicate_annotations"]:
-            logger.warning(
-                f"File '{item['file_name']}' of task '{item['task_name']}' has the "
-                f"same '{item['task_type']}' annotation '{item['annotation']}' repeated {item['count']} times."
-            )
+        warn_on_duplicates(df)
 
     def get_splits(self) -> Optional[Dict[str, List[str]]]:
         splits_path = get_file(
