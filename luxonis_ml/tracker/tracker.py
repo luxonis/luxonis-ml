@@ -200,7 +200,7 @@ class LuxonisTracker:
                 {"matrix": args[0], "name": args[1]}
             )
 
-    def log_stored_logs_to_mlflow(self) -> None:
+    def log_stored_logs_to_mlflow(self, *, _retry_counter: int = 0) -> None:
         """Attempts to log any data stored in local_logs to MLflow."""
         if not self.mlflow_initialized or not any(self.local_logs.values()):
             return
@@ -220,13 +220,19 @@ class LuxonisTracker:
                 self.experiment["mlflow"].log_image(
                     image["image_data"], image["name"]
                 )
-            for artifact in self.local_logs["artifacts"]:
-                self.upload_artifact(
-                    Path(artifact["path"]), artifact["name"], artifact["type"]
-                )
             for matrix in self.local_logs["matrices"]:
                 self.experiment["mlflow"].log_dict(
                     matrix["matrix"], matrix["name"]
+                )
+
+            artifacts_to_process = list(self.local_logs["artifacts"])
+            self.local_logs["artifacts"].clear()
+            for artifact in artifacts_to_process:
+                self.upload_artifact(
+                    Path(artifact["path"]),
+                    artifact["name"],
+                    artifact["type"],
+                    _retry_counter=_retry_counter,
                 )
 
             self.local_logs = {
@@ -485,7 +491,12 @@ class LuxonisTracker:
 
     @rank_zero_only
     def upload_artifact(
-        self, path: PathType, name: Optional[str] = None, typ: str = "artifact"
+        self,
+        path: PathType,
+        name: Optional[str] = None,
+        typ: str = "artifact",
+        *,
+        _retry_counter: int = 0,
     ) -> None:
         """Uploads artifact to the logging service.
 
@@ -519,11 +530,25 @@ class LuxonisTracker:
                     mlflow_instance=self.experiment.get("mlflow"),
                 )
             except Exception as e:
-                logger.warning(f"Failed to upload artifact to MLflow: {e}")
-                self.store_log_locally(
-                    self.upload_artifact, path, name, typ
-                )  # Stores details for retrying later
-                self.log_stored_logs_to_mlflow()
+                if _retry_counter < 10:
+                    time.sleep(1)
+                    logger.warning(
+                        f"Failed to upload artifact to MLflow (retry {_retry_counter}/10): {e}"
+                    )
+                    self.store_log_locally(
+                        self.upload_artifact, path, name, typ
+                    )
+                    self.log_stored_logs_to_mlflow(
+                        _retry_counter=_retry_counter + 1
+                    )
+                else:
+                    logger.error(
+                        "Max retries reached. Saving artifact locally."
+                    )
+                    self.save_logs_locally()
+                    raise RuntimeError(
+                        "Failed to upload artifact after 10 retries."
+                    ) from e
 
     @rank_zero_only
     def log_matrix(self, matrix: np.ndarray, name: str, step: int) -> None:
