@@ -1406,8 +1406,8 @@ class LuxonisDataset(BaseDataset):
         df = df.join(index, on="uuid").drop("file_right")
 
         splits = self.get_splits()
-        if view and view in splits:
-            df = df.filter(pl.col("uuid").is_in(splits[view]))
+        if splits is not None and view and view in splits:
+            df = df.filter(pl.col("uuid").is_in(splits[view]))  # type: ignore
 
         stats["duplicates"] = get_duplicates_info(df)
 
