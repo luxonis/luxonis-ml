@@ -1,5 +1,4 @@
 import json
-import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -43,16 +42,13 @@ class NativeParser(BaseParser):
         self, dataset_dir: Path
     ) -> Tuple[List[Path], List[Path], List[Path]]:
         added_train_imgs = self._parse_split(
-            image_dir=dataset_dir / "train",
-            annotation_dir=dataset_dir / "train",
+            annotation_path=dataset_dir / "train" / "annotations.json",
         )
         added_val_imgs = self._parse_split(
-            image_dir=dataset_dir / "valid",
-            annotation_dir=dataset_dir / "valid",
+            annotation_path=dataset_dir / "val" / "annotations.json",
         )
         added_test_imgs = self._parse_split(
-            image_dir=dataset_dir / "test",
-            annotation_dir=dataset_dir / "test",
+            annotation_path=dataset_dir / "test" / "annotations.json",
         )
         return added_train_imgs, added_val_imgs, added_test_imgs
 
@@ -67,10 +63,14 @@ class NativeParser(BaseParser):
         """
 
         data = json.loads(annotation_path.read_text())
-        os.chdir(annotation_path.parent)
 
         def generator() -> DatasetIterator:
-            yield from data
+            for record in data:
+                record["file"] = (
+                    annotation_path.parent / record["file"]
+                ).absolute()
+
+                yield record
 
         added_images = self._get_added_images(generator())
 

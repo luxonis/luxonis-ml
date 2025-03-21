@@ -1,4 +1,3 @@
-import os
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from pathlib import Path
@@ -107,19 +106,15 @@ class BaseParser(ABC):
         @rtype: List[str]
         @return: List of added images.
         """
-        old_cwd = Path.cwd()
-        try:
-            generator, skeletons, added_images = self.from_split(**kwargs)
-            self.dataset.add(self._wrap_generator(generator))
-            if skeletons:
-                for skeleton in skeletons.values():
-                    self.dataset.set_skeletons(
-                        skeleton.get("labels"),
-                        skeleton.get("edges"),
-                    )
-            return added_images
-        finally:
-            os.chdir(old_cwd)
+        generator, skeletons, added_images = self.from_split(**kwargs)
+        self.dataset.add(self._wrap_generator(generator))
+        if skeletons:
+            for skeleton in skeletons.values():
+                self.dataset.set_skeletons(
+                    skeleton.get("labels"),
+                    skeleton.get("edges"),
+                )
+        return added_images
 
     def parse_split(
         self,

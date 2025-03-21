@@ -245,6 +245,16 @@ def inspect(
             help="Deterministic mode. Useful for debugging.",
         ),
     ] = False,
+    force_update: Annotated[
+        bool,
+        typer.Option(
+            ...,
+            "--force-update",
+            "-f",
+            help="Force synchronization of the dataset with the "
+            "remote storage. Only relevant for remote datasets.",
+        ),
+    ] = False,
     blend_all: Annotated[
         bool,
         typer.Option(
@@ -266,7 +276,11 @@ def inspect(
 
     view = view or ["train"]
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
-    loader = LuxonisLoader(dataset, view=view)
+    loader = LuxonisLoader(
+        dataset,
+        view=view,
+        update_mode="always" if force_update else "if_empty",
+    )
 
     if aug_config is not None:
         h, w, _ = loader[0][0].shape
@@ -315,7 +329,7 @@ def export(
             help="Format of the exported dataset",
             show_default=False,
         ),
-    ] = "coco",  # type: ignore
+    ] = "native",  # type: ignore
     delete_existing: Annotated[
         bool,
         typer.Option(

@@ -24,13 +24,12 @@ from typing import (
     overload,
 )
 
-import cv2
 import numpy as np
 import polars as pl
 import pyarrow.parquet as pq
-from bidict import bidict
 from filelock import FileLock
 from loguru import logger
+from rich.progress import track
 from semver.version import Version
 from typing_extensions import Self, override
 
@@ -43,14 +42,12 @@ from luxonis_ml.data.utils import (
     warn_on_duplicates,
 )
 from luxonis_ml.data.utils.constants import LDF_VERSION
-from luxonis_ml.data.utils.task_utils import get_task_type
 from luxonis_ml.enums.enums import DatasetType
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import (
     LuxonisFileSystem,
     deprecated,
     environ,
-    log_once,
     make_progress_bar,
 )
 
@@ -58,7 +55,6 @@ from .annotation import (
     Category,
     DatasetRecord,
     Detection,
-    SegmentationAnnotation,
 )
 from .base_dataset import BaseDataset, DatasetIterator
 from .metadata import Metadata
@@ -1249,7 +1245,7 @@ class LuxonisDataset(BaseDataset):
     def export(
         self,
         output_path: PathType,
-        dataset_type: DatasetType = DatasetType.COCO,
+        dataset_type: DatasetType = DatasetType.NATIVE,
     ) -> Path:
         """Exportes the dataset into on of the supported formats.
 
@@ -1262,12 +1258,11 @@ class LuxonisDataset(BaseDataset):
         @rtype: Path
         @return: Path to the zip file containing the exported dataset.
         """
-        if dataset_type is not DatasetType.COCO:
+        if dataset_type is not DatasetType.NATIVE:
             raise NotImplementedError(
-                "Only COCO dataset export is supported at the moment"
+                "Only 'NATIVE' dataset export is supported at the moment"
             )
         logger.info(f"Exporting '{self.identifier}' to COCO format")
-        from luxonis_ml.data import LuxonisLoader
 
         splits = self.get_splits()
         if splits is None:
@@ -1282,127 +1277,76 @@ class LuxonisDataset(BaseDataset):
                 f"Export path '{output_path}' already exists. Please remove it first."
             )
         output_path.mkdir(parents=True)
-        for i, split in enumerate(splits):
-            loader = LuxonisLoader(
-                self,
-                view=[split],
-                update_mode="always" if i == 0 else "if_empty",
-            )
-            classes = bidict(
-                loader.classes[next(iter(self.get_tasks()))]
-            ).inverse
-            if split == "val":
-                split = "valid"
+        image_indices = {}
+        annotations = {"train": [], "val": [], "test": []}
+        df = self._load_df_offline(raise_when_empty=True)
+        splits = self.get_splits()
+        assert splits is not None
+        for row in track(
+            df.iter_rows(),
+            total=len(df),
+            description=f"Exporting '{self.identifier}'",
+        ):
+            uuid = row[-1]
+            if self.is_remote:
+                file_extension = row[0].rsplit(".", 1)[-1]
+                file = self.media_path / f"{uuid}.{file_extension}"
+                assert file.exists()
+            else:
+                file = Path(row[0])
+
+            split = None
+            for s, uuids in splits.items():
+                if uuid in uuids:
+                    split = s
+                    break
+
+            assert split is not None
             split_path = output_path / self.identifier / split
-            data_path = split_path / "data"
+            data_path = split_path / "images"
             data_path.mkdir(parents=True, exist_ok=True)
-            coco_annotations = []
-            coco_images = []
-            coco_categories = [
-                {"id": i, "name": name} for i, name in classes.items()
-            ]
-            segmentation_categories = []
-            skeletons = self.get_skeletons()
-            if skeletons:
-                labels, edges = next(iter(skeletons.values()))
-                for cat in coco_categories:
-                    cat["skeleton"] = [
-                        [in_edge + 1, out_edge + 1]
-                        for in_edge, out_edge in edges
-                    ]
-                    cat["keypoints"] = labels
 
-            for image_id, (img, labels) in enumerate(loader):
-                img_h, img_w = img.shape[:2]
-                img_path = data_path / f"{image_id:06}.png"
-                cv2.imwrite(
-                    str(img_path), cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-                )
-                instances = defaultdict(dict)
-                for task, arrays in labels.items():
-                    task_type = get_task_type(task)
-                    if task_type == "boundingbox":
-                        for instance_id, arr in enumerate(arrays):
-                            class_id = arr[0].astype(int).item()
-                            instances[instance_id].update(
-                                {"image_id": image_id, "category_id": class_id}
-                            )
-                            bbox = arr[1:]
-                            bbox[::2] *= img_w
-                            bbox[1::2] *= img_h
-                            instances[instance_id]["bbox"] = bbox.tolist()
+            if file not in image_indices:
+                image_indices[file] = len(image_indices)
+            task_name: str = row[2]
+            class_name: Optional[str] = row[3]
+            instance_id: int = row[4]
+            task_type: str = row[5]
+            ann_str: Optional[str] = row[6]
+            if ann_str is None:
+                continue
+            data = []
+            data = json.loads(ann_str)
+            shutil.copy(
+                file, (data_path / f"{image_indices[file]}{file.suffix}")
+            )
+            record = {
+                "file": str(
+                    Path(
+                        data_path.name,
+                        str(image_indices[file]) + file.suffix,
+                    )
+                ),
+                "task_name": task_name,
+                "annotation": {
+                    "instance_id": instance_id,
+                    "class": class_name,
+                },
+            }
+            if task_type in {
+                "instance_segmentation",
+                "segmentation",
+                "boundingbox",
+                "keypoints",
+            }:
+                record["annotation"][task_type] = data
+                annotations[split].append(record)
 
-                    elif task_type == "keypoints":
-                        for instance_id, arr in enumerate(arrays):
-                            arr = arr.reshape(-1, 3)
-                            arr[:, 0] *= img_w
-                            arr[:, 1] *= img_h
-                            instances[instance_id]["keypoints"] = arr.tolist()
-                    elif task_type == "instance_segmentation":
-                        for instance_id, mask in enumerate(arrays):
-                            rle = SegmentationAnnotation._numpy_to_rle(mask)
-                            coco_rle = {
-                                "size": [rle["height"], rle["width"]],
-                                "counts": rle["counts"],
-                            }
-                            instances[instance_id]["segmentation"] = coco_rle
-                    elif task_type == "segmentation":
-                        for class_id, mask in enumerate(arrays):
-                            rle = SegmentationAnnotation._numpy_to_rle(mask)
-                            coco_rle = {
-                                "size": [rle["height"], rle["width"]],
-                                "counts": rle["counts"],
-                            }
-                            instances[class_id].update(
-                                {
-                                    "image_id": image_id,
-                                    "category_id": -class_id,
-                                    "segmentation": coco_rle,
-                                    "bbox": [0, 0, img_w, img_h],
-                                }
-                            )
-                            class_name = coco_categories[class_id]["name"]
-                            if class_name != "background":
-                                class_name = (
-                                    f"{class_name}_semantic_segmentation"
-                                )
-                            if {
-                                "id": -class_id,
-                                "name": class_name,
-                            } not in segmentation_categories:
-                                segmentation_categories.append(
-                                    {"id": -class_id, "name": class_name}
-                                )
-                    else:
-                        log_once(
-                            logger.warning,
-                            f"Task type '{task_type}' is currently "
-                            "unsupported. It won't be included in "
-                            "the exported dataset.",
-                        )
-
-                coco_annotations.extend(instances.values())
-
-                coco_images.append(
-                    {
-                        "id": image_id,
-                        "file_name": img_path.name,
-                        "width": img_w,
-                        "height": img_h,
-                    }
-                )
-
-            with open(split_path / "labels.json", "w") as f:
-                json.dump(
-                    {
-                        "annotations": coco_annotations,
-                        "images": coco_images,
-                        "categories": coco_categories
-                        + segmentation_categories,
-                    },
-                    f,
-                    indent=4,
-                )
+        for split, annotation in annotations.items():
+            split_path = output_path / self.identifier / split
+            split_path.mkdir(parents=True, exist_ok=True)
+            with open(split_path / "annotations.json", "w") as f:
+                json.dump(annotation, f, indent=4)
 
         zip_path = output_path / f"{self.identifier}.zip"
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
