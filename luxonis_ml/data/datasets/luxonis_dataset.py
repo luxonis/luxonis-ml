@@ -1291,7 +1291,7 @@ class LuxonisDataset(BaseDataset):
         for row in track(
             df.iter_rows(),
             total=len(df),
-            description=f"Exporting '{self.identifier}'",
+            description="Exporting ...",
         ):
             uuid = row[7]
             if self.is_remote:
