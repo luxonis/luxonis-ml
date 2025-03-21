@@ -32,7 +32,7 @@ class NativeParser(BaseParser):
 
     @staticmethod
     def validate(dataset_dir: Path) -> bool:
-        for split in ["train", "valid", "test"]:
+        for split in ["train", "val", "test"]:
             split_path = dataset_dir / split
             if NativeParser.validate_split(split_path) is None:
                 return False
