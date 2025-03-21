@@ -1282,8 +1282,12 @@ class LuxonisDataset(BaseDataset):
                 f"Export path '{output_path}' already exists. Please remove it first."
             )
         output_path.mkdir(parents=True)
-        for split in splits:
-            loader = LuxonisLoader(self, view=[split])
+        for i, split in enumerate(splits):
+            loader = LuxonisLoader(
+                self,
+                view=[split],
+                update_mode="always" if i == 0 else "if_empty",
+            )
             classes = bidict(
                 loader.classes[next(iter(self.get_tasks()))]
             ).inverse
@@ -1297,6 +1301,7 @@ class LuxonisDataset(BaseDataset):
             coco_categories = [
                 {"id": i, "name": name} for i, name in classes.items()
             ]
+            segmentation_categories = []
             skeletons = self.get_skeletons()
             if skeletons:
                 labels, edges = next(iter(skeletons.values()))
@@ -1351,11 +1356,23 @@ class LuxonisDataset(BaseDataset):
                             instances[class_id].update(
                                 {
                                     "image_id": image_id,
-                                    "category_id": class_id,
+                                    "category_id": -class_id,
                                     "segmentation": coco_rle,
                                     "bbox": [0, 0, img_w, img_h],
                                 }
                             )
+                            class_name = coco_categories[class_id]["name"]
+                            if class_name != "background":
+                                class_name = (
+                                    f"{class_name}_semantic_segmentation"
+                                )
+                            if {
+                                "id": -class_id,
+                                "name": class_name,
+                            } not in segmentation_categories:
+                                segmentation_categories.append(
+                                    {"id": -class_id, "name": class_name}
+                                )
                     else:
                         log_once(
                             logger.warning,
@@ -1380,7 +1397,8 @@ class LuxonisDataset(BaseDataset):
                     {
                         "annotations": coco_annotations,
                         "images": coco_images,
-                        "categories": coco_categories,
+                        "categories": coco_categories
+                        + segmentation_categories,
                     },
                     f,
                     indent=4,
