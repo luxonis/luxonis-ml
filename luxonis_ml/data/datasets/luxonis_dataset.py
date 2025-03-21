@@ -1280,6 +1280,12 @@ class LuxonisDataset(BaseDataset):
         image_indices = {}
         annotations = {"train": [], "val": [], "test": []}
         df = self._load_df_offline(raise_when_empty=True)
+        if not self.is_remote:
+            file_index = self._get_file_index()
+            if file_index is None:  # pragma: no cover
+                raise FileNotFoundError("Cannot find file index")
+            df = df.join(file_index, on="uuid").drop("file_right")
+
         splits = self.get_splits()
         assert splits is not None
         for row in track(
@@ -1287,13 +1293,13 @@ class LuxonisDataset(BaseDataset):
             total=len(df),
             description=f"Exporting '{self.identifier}'",
         ):
-            uuid = row[-1]
+            uuid = row[7]
             if self.is_remote:
                 file_extension = row[0].rsplit(".", 1)[-1]
                 file = self.media_path / f"{uuid}.{file_extension}"
                 assert file.exists()
             else:
-                file = Path(row[0])
+                file = Path(row[-1])
 
             split = None
             for s, uuids in splits.items():
@@ -1315,7 +1321,6 @@ class LuxonisDataset(BaseDataset):
             ann_str: Optional[str] = row[6]
             if ann_str is None:
                 continue
-            data = []
             data = json.loads(ann_str)
             shutil.copy(
                 file, (data_path / f"{image_indices[file]}{file.suffix}")
