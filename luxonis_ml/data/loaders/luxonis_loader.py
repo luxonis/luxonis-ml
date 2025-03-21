@@ -276,12 +276,12 @@ class LuxonisLoader(BaseLoader):
         ann_indices = self.idx_to_df_row[idx]
 
         ann_rows = [self.df.row(row) for row in ann_indices]
-        if not self.dataset.is_remote:
-            img_path = ann_rows[0][-1]
-        else:
+        if self.dataset.is_remote:
             uuid = ann_rows[0][7]
             file_extension = ann_rows[0][0].rsplit(".", 1)[-1]
             img_path = self.dataset.media_path / f"{uuid}.{file_extension}"
+        else:
+            img_path = ann_rows[0][-1]
 
         img = cv2.cvtColor(cv2.imread(str(img_path)), cv2.COLOR_BGR2RGB)
 

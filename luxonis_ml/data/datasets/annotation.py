@@ -365,6 +365,17 @@ class SegmentationAnnotation(Annotation):
 
         return values
 
+    @staticmethod
+    def _numpy_to_rle(mask: np.ndarray) -> Dict[str, Any]:
+        mask = np.asfortranarray(mask.astype(np.uint8))
+        with warnings.catch_warnings(record=True):
+            rle = pycocotools.mask.encode(mask)
+        return {
+            "height": rle["size"][0],
+            "width": rle["size"][1],
+            "counts": rle["counts"].decode("utf-8"),  # type: ignore
+        }
+
     @model_validator(mode="before")
     @classmethod
     def validate_mask(cls, values: Dict[str, Any]) -> Dict[str, Any]:
@@ -407,16 +418,7 @@ class SegmentationAnnotation(Annotation):
         if mask.ndim != 2:
             raise ValueError("Mask must be a 2D binary array")
 
-        mask = np.asfortranarray(mask.astype(np.uint8))
-        with warnings.catch_warnings(record=True):
-            rle = pycocotools.mask.encode(mask)
-
-        return {
-            "height": rle["size"][0],
-            "width": rle["size"][1],
-            "counts": rle["counts"].decode("utf-8"),  # type: ignore
-            **values,
-        }
+        return {**cls._numpy_to_rle(mask), **values}
 
     @model_validator(mode="before")
     @classmethod
