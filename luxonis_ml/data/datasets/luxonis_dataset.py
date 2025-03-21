@@ -1364,10 +1364,10 @@ class LuxonisDataset(BaseDataset):
         return zip_path
 
     def get_statistics(
-        self, sample_size: Optional[int] = None
+        self, sample_size: Optional[int] = None, view: Optional[str] = None
     ) -> Dict[str, Any]:
         """Returns comprehensive dataset statistics as a structured
-        dictionary.
+        dictionary for the given view or the entire dataset.
 
         The returned dictionary contains:
 
@@ -1383,6 +1383,10 @@ class LuxonisDataset(BaseDataset):
 
             - "heatmaps": Spatial distribution of annotations as 15x15 grid matrices organized by task_name and task_type
 
+        @type sample_size: Optional[int]
+        @param sample_size: Number of samples to use for heatmap generation
+        @type view: Optional[str]
+        @param view: Name of the view to analyze. If None, the entire dataset is analyzed.
         @rtype: Dict[str, Any]
         @return: Dataset statistics dictionary as described above
         """
@@ -1400,6 +1404,10 @@ class LuxonisDataset(BaseDataset):
             return stats
 
         df = df.join(index, on="uuid").drop("file_right")
+
+        splits = self.get_splits()
+        if view and view in splits:
+            df = df.filter(pl.col("uuid").is_in(splits[view]))
 
         stats["duplicates"] = get_duplicates_info(df)
 

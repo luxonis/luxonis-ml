@@ -103,8 +103,13 @@ def print_info(dataset: LuxonisDataset) -> None:
     @group()
     def get_sizes_panel() -> Iterator[RenderableType]:
         if splits is not None:
+            total_files = len(dataset)
             for split, files in splits.items():
-                yield f"[magenta b]{split}: [not b cyan]{len(files)}"
+                split_size = len(files)
+                percentage = (
+                    (split_size / total_files * 100) if total_files > 0 else 0
+                )
+                yield f"[magenta b]{split}: [not b cyan]{split_size:,} [dim]({percentage:.1f}%)[/dim]"
         else:
             yield "[red]No splits found"
         yield Rule()
@@ -421,13 +426,11 @@ def parse(
 @app.command()
 def health(
     name: DatasetNameArgument,
-    bucket_storage: BucketStorage = bucket_option,
-    save_dir: Optional[str] = typer.Option(
+    view: Optional[str] = typer.Option(
         None,
-        "--save-dir",
-        "-s",
-        help="Directory where the plots should be saved. "
-        "If not provided, the plots will be displayed.",
+        "--view",
+        "-v",
+        help="Which splits of the dataset to inspect. If not provided, all dataset will be used.",
         show_default=False,
     ),
     sample_size: Optional[int] = typer.Option(
@@ -437,10 +440,19 @@ def health(
         help="Number of annotation rows to sample from the dataset. Note that each task type annotation is in a separate row.",
         show_default=False,
     ),
+    save_dir: Optional[str] = typer.Option(
+        None,
+        "--save-dir",
+        "-s",
+        help="Directory where the plots should be saved. "
+        "If not provided, the plots will be displayed.",
+        show_default=False,
+    ),
+    bucket_storage: BucketStorage = bucket_option,
 ):
     check_exists(name, bucket_storage)
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
-    stats = dataset.get_statistics(sample_size=sample_size)
+    stats = dataset.get_statistics(sample_size=sample_size, view=view)
     console = Console()
 
     missing_annotations = stats["missing_annotations"]
