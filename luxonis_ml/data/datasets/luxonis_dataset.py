@@ -1353,6 +1353,8 @@ class LuxonisDataset(BaseDataset):
             for root, _, files in os.walk(output_path / self.identifier):
                 for file in files:
                     file = Path(root, file)
-                    zipf.write(file, file.relative_to(output_path))
+                    zipf.write(
+                        file, file.relative_to(output_path / self.identifier)
+                    )
         logger.info(f"Dataset '{self.identifier}' exported to '{zip_path}'")
         return zip_path
