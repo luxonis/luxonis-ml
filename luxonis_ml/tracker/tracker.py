@@ -206,37 +206,35 @@ class LuxonisTracker:
             return
 
         try:
-            for metric in self.local_logs["metric"]:
+            if self.local_logs["params"]:
+                self.experiment["mlflow"].log_params(self.local_logs["params"])
+                self.local_logs["params"] = {}
+            for metric in list(self.local_logs["metric"]):
                 self.experiment["mlflow"].log_metric(
                     metric["name"], metric["value"], metric["step"]
                 )
-            for metrics in self.local_logs["metrics"]:
+                self.local_logs["metric"].remove(metric)
+            for metrics in list(self.local_logs["metrics"]):
                 self.experiment["mlflow"].log_metrics(
                     metrics["metrics"], metrics["step"]
                 )
-            if self.local_logs["params"]:
-                self.experiment["mlflow"].log_params(self.local_logs["params"])
-            for image in self.local_logs["images"]:
+                self.local_logs["metrics"].remove(metrics)
+            for image in list(self.local_logs["images"]):
                 self.experiment["mlflow"].log_image(
                     image["image_data"], image["name"]
                 )
-            for matrix in self.local_logs["matrices"]:
+                self.local_logs["images"].remove(image)
+            for matrix in list(self.local_logs["matrices"]):
                 self.experiment["mlflow"].log_dict(
                     matrix["matrix"], matrix["name"]
                 )
-            for artifact in self.local_logs["artifacts"]:
+                self.local_logs["matrices"].remove(matrix)
+            for artifact in list(self.local_logs["artifacts"]):
                 self.upload_artifact_to_mlflow(
                     Path(artifact["path"]), artifact["name"]
                 )
+                self.local_logs["artifacts"].remove(artifact)
 
-            self.local_logs = {
-                "metrics": [],
-                "params": {},
-                "images": [],
-                "artifacts": [],
-                "matrices": [],
-                "metric": [],
-            }
             logger.info("Successfully re-logged stored logs to MLflow.")
         except Exception as e:
             logger.warning(f"Failed to re-log stored logs to MLflow: {e}")
