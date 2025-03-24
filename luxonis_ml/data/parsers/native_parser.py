@@ -1,4 +1,5 @@
 import json
+from contextlib import suppress
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -66,10 +67,15 @@ class NativeParser(BaseParser):
 
         def generator() -> DatasetIterator:
             for record in data:
-                record["file"] = (
-                    annotation_path.parent / record["file"]
-                ).absolute()
-
+                with suppress(KeyError):
+                    record["file"] = (
+                        annotation_path.parent / record["file"]
+                    ).absolute()
+                    mask = record["annotation"]["segmentation"]["mask"]
+                    if isinstance(mask, (str, Path)):
+                        record["annotation"]["segmentation"]["mask"] = (
+                            annotation_path.parent / mask
+                        ).absolute()
                 yield record
 
         added_images = self._get_added_images(generator())
