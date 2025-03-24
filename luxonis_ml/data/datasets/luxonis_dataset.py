@@ -1262,7 +1262,9 @@ class LuxonisDataset(BaseDataset):
             raise NotImplementedError(
                 "Only 'NATIVE' dataset export is supported at the moment"
             )
-        logger.info(f"Exporting '{self.identifier}' to COCO format")
+        logger.info(
+            f"Exporting '{self.identifier}' to '{dataset_type.name}' format"
+        )
 
         splits = self.get_splits()
         if splits is None:
