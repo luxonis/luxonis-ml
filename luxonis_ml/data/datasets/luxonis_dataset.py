@@ -1395,7 +1395,6 @@ class LuxonisDataset(BaseDataset):
 
         stats = {
             "duplicates": {},
-            "class_distribution": {},
             "missing_annotations": 0,
             "heatmaps": {},
         }
