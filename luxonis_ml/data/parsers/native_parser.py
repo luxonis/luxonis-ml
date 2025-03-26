@@ -71,11 +71,13 @@ class NativeParser(BaseParser):
                     record["file"] = (
                         annotation_path.parent / record["file"]
                     ).absolute()
-                    mask = record["annotation"]["segmentation"]["mask"]
-                    if isinstance(mask, (str, Path)):
-                        record["annotation"]["segmentation"]["mask"] = (
-                            annotation_path.parent / mask
-                        ).absolute()
+                for mask_type in ["segmentation", "instance_segmentation"]:
+                    with suppress(KeyError):
+                        mask = record["annotation"][mask_type]["mask"]
+                        if isinstance(mask, (str, Path)):
+                            record["annotation"][mask_type]["mask"] = (
+                                annotation_path.parent / mask
+                            ).absolute()
                 yield record
 
         added_images = self._get_added_images(generator())
