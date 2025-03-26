@@ -290,6 +290,7 @@ The available commands are:
 - `luxonis_ml data ls` - lists all datasets
 - `luxonis_ml data info <dataset_name>` - prints information about the dataset
 - `luxonis_ml data inspect <dataset_name>` - renders the data in the dataset on screen using `cv2`
+- `luxonis_ml data health <dataset_name>` -  checks the health of the dataset and logs and renders dataset statistics
 - `luxonis_ml data delete <dataset_name>` - deletes the dataset
 
 For more information, run `luxonis_ml data --help` or pass the `--help` flag to any of the above commands.

@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Iterator, List, Optional, Set, Tuple
 
 import cv2
+import matplotlib.pyplot as plt
 import numpy as np
 import rich.box
 import typer
@@ -17,6 +18,10 @@ from typing_extensions import Annotated
 
 from luxonis_ml.data import LuxonisDataset, LuxonisLoader, LuxonisParser
 from luxonis_ml.data.utils.enums import BucketStorage
+from luxonis_ml.data.utils.plot_utils import (
+    plot_class_distribution,
+    plot_heatmap,
+)
 from luxonis_ml.data.utils.visualizations import visualize
 from luxonis_ml.enums import DatasetType
 
@@ -98,8 +103,13 @@ def print_info(dataset: LuxonisDataset) -> None:
     @group()
     def get_sizes_panel() -> Iterator[RenderableType]:
         if splits is not None:
+            total_files = len(dataset)
             for split, files in splits.items():
-                yield f"[magenta b]{split}: [not b cyan]{len(files)}"
+                split_size = len(files)
+                percentage = (
+                    (split_size / total_files * 100) if total_files > 0 else 0
+                )
+                yield f"[magenta b]{split}: [not b cyan]{split_size:,} [dim]({percentage:.1f}%)[/dim]"
         else:
             yield "[red]No splits found"
         yield Rule()
@@ -425,6 +435,165 @@ def parse(
     print(Rule())
     print()
     print_info(dataset)
+
+
+@app.command()
+def health(
+    name: DatasetNameArgument,
+    view: Optional[str] = typer.Option(
+        None,
+        "--view",
+        "-v",
+        help="Which splits of the dataset to inspect. If not provided, all dataset will be used.",
+        show_default=False,
+    ),
+    sample_size: Optional[int] = typer.Option(
+        None,
+        "--sample-size",
+        "-n",
+        help="Number of annotation rows to sample from the dataset. Note that each task type annotation is in a separate row.",
+        show_default=False,
+    ),
+    save_dir: Optional[str] = typer.Option(
+        None,
+        "--save-dir",
+        "-s",
+        help="Directory where the plots should be saved. "
+        "If not provided, the plots will be displayed.",
+        show_default=False,
+    ),
+    bucket_storage: BucketStorage = bucket_option,
+):
+    check_exists(name, bucket_storage)
+    dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
+    stats = dataset.get_statistics(sample_size=sample_size, view=view)
+    console = Console()
+
+    missing_annotations = stats["missing_annotations"]
+    duplicate_uuids = stats["duplicates"]["duplicate_uuids"]
+    duplicate_annotations = stats.get("duplicates", {}).get(
+        "duplicate_annotations", []
+    )
+
+    if duplicate_uuids:
+        duuid_table = Table(
+            title="Duplicate UUIDs", box=rich.box.ROUNDED, row_styles=["red"]
+        )
+        duuid_table.add_column("UUID", style="magenta")
+        duuid_table.add_column("Files", style="cyan")
+
+        for item in duplicate_uuids:
+            duuid_table.add_row(item["uuid"], ", ".join(item["files"]))
+
+        console.print(duuid_table)
+
+    if duplicate_annotations:
+        dann_table = Table(
+            title="Duplicate Annotations",
+            box=rich.box.ROUNDED,
+            row_styles=["red"],
+        )
+        dann_table.add_column("File Name", style="cyan")
+        dann_table.add_column("Task Name", style="magenta")
+        dann_table.add_column("Task Type", style="magenta")
+        dann_table.add_column("Annotation", style="yellow")
+        dann_table.add_column("Count", style="green")
+
+        for item in duplicate_annotations:
+            dann_table.add_row(
+                item["file_name"],
+                item["task_name"],
+                item["task_type"],
+                str(item["annotation"]),
+                str(item["count"]),
+            )
+
+        console.print(dann_table)
+
+    if missing_annotations:
+        missing_table = Table(
+            title="Files With Missing Annotations",
+            box=rich.box.ROUNDED,
+            row_styles=["yellow"],
+        )
+        missing_table.add_column("File Name", style="cyan")
+
+        for file in missing_annotations:
+            missing_table.add_row(file)
+
+        console.print(missing_table)
+
+    summary_table = Table(
+        title="Dataset Health Summary",
+        box=rich.box.ROUNDED,
+        show_header=False,
+        row_styles=["cyan", "yellow", "green"],
+    )
+    summary_table.add_column("Metric")
+    summary_table.add_column("Count")
+    summary_table.add_row(
+        "Files with missing annotations", str(len(missing_annotations))
+    )
+    summary_table.add_row(
+        "Files with duplicate UUIDs", str(len(duplicate_uuids))
+    )
+    summary_table.add_row(
+        "Files with duplicate annotations", str(len(duplicate_annotations))
+    )
+
+    console.print(summary_table)
+
+    all_task_names = sorted(
+        set(stats["class_distributions"].keys())
+        | set(stats["heatmaps"].keys())
+    )
+    if not all_task_names:
+        console.print("[info]No plots to display.[/info]")
+        return
+
+    for task_name in all_task_names:
+        class_dist_by_type = stats["class_distributions"].get(task_name, {})
+        heatmaps_by_type = stats["heatmaps"].get(task_name, {})
+        all_task_types = sorted(
+            set(class_dist_by_type.keys()) | set(heatmaps_by_type.keys())
+        )
+
+        if not all_task_types:
+            console.print(f"[info]No plots for task name: {task_name}[/info]")
+            continue
+
+        nrows = len(all_task_types)
+        square_size = 4
+        fig, axs = plt.subplots(
+            nrows, 2, figsize=(square_size * 2, square_size * nrows)
+        )
+        if task_name != "":
+            fig.suptitle(f"Task Name: {task_name}", fontsize=14)
+
+        if nrows == 1:
+            axs = [axs]
+
+        for i, task_type in enumerate(all_task_types):
+            plot_class_distribution(
+                axs[i][0], task_type, class_dist_by_type.get(task_type, [])
+            )
+            plot_heatmap(
+                axs[i][1],
+                fig,  # type: ignore
+                task_type,
+                heatmaps_by_type.get(task_type),  # type: ignore
+            )
+
+        plt.tight_layout()
+        plt.subplots_adjust(top=0.9, hspace=0.5)
+
+        if save_dir:
+            fig.savefig(f"{save_dir}/dataset_health_{task_name}.png", dpi=150)  # type: ignore
+            plt.close(fig)
+        else:
+            plt.show(block=False)
+            if plt.waitforbuttonpress():
+                plt.close(fig)
 
 
 if __name__ == "__main__":
