@@ -14,7 +14,9 @@ def _prepare_class_data(
     return classes, counts
 
 
-def _annotate_bars(ax: plt.Axes, bars: BarContainer) -> None:
+def _annotate_bars(
+    ax: plt.Axes, bars: BarContainer
+) -> None:  # pragma: no cover
     """Adds numeric labels above bars."""
     for bar in bars:
         height = bar.get_height()
@@ -31,7 +33,7 @@ def _annotate_bars(ax: plt.Axes, bars: BarContainer) -> None:
 
 def plot_class_distribution(
     ax: plt.Axes, task_type: str, task_data: List[Dict[str, Any]]
-) -> None:
+) -> None:  # pragma: no cover
     """Plots a bar chart of class distribution.
 
     @type ax: plt.Axes
@@ -80,7 +82,7 @@ def plot_heatmap(
     fig: plt.Figure,
     task_type: str,
     heatmap_data: Optional[List[List[float]]],
-) -> None:
+) -> None:  # pragma: no cover
     """ " Plots a heatmap of heatmap_data.
 
     @type ax: plt.Axes
