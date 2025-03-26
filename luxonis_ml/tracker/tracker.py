@@ -191,58 +191,50 @@ class LuxonisTracker:
             self.local_logs["images"].append(
                 {"image_data": args[0], "name": args[1]}
             )
-        elif log_fn == self.upload_artifact:
+        elif log_fn == self.upload_artifact_to_mlflow:
             self.local_logs["artifacts"].append(
-                {"path": str(args[0]), "name": args[1], "type": args[2]}
+                {"path": str(args[0]), "name": args[1]}
             )
         elif log_fn == self.experiment["mlflow"].log_dict:
             self.local_logs["matrices"].append(
                 {"matrix": args[0], "name": args[1]}
             )
 
-    def log_stored_logs_to_mlflow(self, *, _retry_counter: int = 0) -> None:
+    def log_stored_logs_to_mlflow(self) -> None:
         """Attempts to log any data stored in local_logs to MLflow."""
         if not self.mlflow_initialized or not any(self.local_logs.values()):
             return
 
         try:
-            for metric in self.local_logs["metric"]:
+            if self.local_logs["params"]:
+                self.experiment["mlflow"].log_params(self.local_logs["params"])
+                self.local_logs["params"] = {}
+            for metric in list(self.local_logs["metric"]):
                 self.experiment["mlflow"].log_metric(
                     metric["name"], metric["value"], metric["step"]
                 )
-            for metrics in self.local_logs["metrics"]:
+                self.local_logs["metric"].remove(metric)
+            for metrics in list(self.local_logs["metrics"]):
                 self.experiment["mlflow"].log_metrics(
                     metrics["metrics"], metrics["step"]
                 )
-            if self.local_logs["params"]:
-                self.experiment["mlflow"].log_params(self.local_logs["params"])
-            for image in self.local_logs["images"]:
+                self.local_logs["metrics"].remove(metrics)
+            for image in list(self.local_logs["images"]):
                 self.experiment["mlflow"].log_image(
                     image["image_data"], image["name"]
                 )
-            for matrix in self.local_logs["matrices"]:
+                self.local_logs["images"].remove(image)
+            for matrix in list(self.local_logs["matrices"]):
                 self.experiment["mlflow"].log_dict(
                     matrix["matrix"], matrix["name"]
                 )
-
-            artifacts_to_process = list(self.local_logs["artifacts"])
-            self.local_logs["artifacts"].clear()
-            for artifact in artifacts_to_process:
-                self.upload_artifact(
-                    Path(artifact["path"]),
-                    artifact["name"],
-                    artifact["type"],
-                    _retry_counter=_retry_counter,
+                self.local_logs["matrices"].remove(matrix)
+            for artifact in list(self.local_logs["artifacts"]):
+                self.upload_artifact_to_mlflow(
+                    Path(artifact["path"]), artifact["name"]
                 )
+                self.local_logs["artifacts"].remove(artifact)
 
-            self.local_logs = {
-                "metrics": [],
-                "params": {},
-                "images": [],
-                "artifacts": [],
-                "matrices": [],
-                "metric": [],
-            }
             logger.info("Successfully re-logged stored logs to MLflow.")
         except Exception as e:
             logger.warning(f"Failed to re-log stored logs to MLflow: {e}")
@@ -495,8 +487,6 @@ class LuxonisTracker:
         path: PathType,
         name: Optional[str] = None,
         typ: str = "artifact",
-        *,
-        _retry_counter: int = 0,
     ) -> None:
         """Uploads artifact to the logging service.
 
@@ -518,37 +508,31 @@ class LuxonisTracker:
             artifact.save()
 
         if self.is_mlflow:
-            try:
-                fs = LuxonisFileSystem(
-                    "mlflow://",
-                    allow_active_mlflow_run=True,
-                    allow_local=False,
-                )
-                fs.put_file(
-                    local_path=path,
-                    remote_path=name or path.name,
-                    mlflow_instance=self.experiment.get("mlflow"),
-                )
-            except Exception as e:
-                if _retry_counter < 10:
-                    time.sleep(1)
-                    logger.warning(
-                        f"Failed to upload artifact to MLflow (retry {_retry_counter}/10): {e}"
-                    )
-                    self.store_log_locally(
-                        self.upload_artifact, path, name, typ
-                    )
-                    self.log_stored_logs_to_mlflow(
-                        _retry_counter=_retry_counter + 1
-                    )
-                else:
-                    logger.error(
-                        "Max retries reached. Saving artifact locally."
-                    )
-                    self.save_logs_locally()
-                    raise RuntimeError(
-                        "Failed to upload artifact after 10 retries."
-                    ) from e
+            self.log_to_mlflow(self.upload_artifact_to_mlflow, path, name)
+
+    def upload_artifact_to_mlflow(
+        self,
+        path: PathType,
+        name: Optional[str] = None,
+    ) -> None:
+        """Uploads artifact specifically to MLflow.
+
+        @type path: PathType
+        @param path: Path to the artifact
+        @type name: Optional[str]
+        @param name: Name of the artifact, if None then use the name of
+            the file
+        """
+        fs = LuxonisFileSystem(
+            "mlflow://",
+            allow_active_mlflow_run=True,
+            allow_local=False,
+        )
+        fs.put_file(
+            local_path=path,
+            remote_path=name or path.name,
+            mlflow_instance=self.experiment.get("mlflow"),
+        )
 
     @rank_zero_only
     def log_matrix(self, matrix: np.ndarray, name: str, step: int) -> None:
