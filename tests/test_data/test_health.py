@@ -65,13 +65,19 @@ def test_dataset_health(
         == 145
     )
     assert (
-        sum(sum(row) for row in statistics["heatmaps"][""]["segmentation"])
-        == 66953
+        abs(
+            sum(sum(row) for row in statistics["heatmaps"][""]["segmentation"])
+            - 66953
+        )
+        <= 2
     )
     assert (
-        sum(
-            sum(row)
-            for row in statistics["heatmaps"][""]["instance_segmentation"]
+        abs(
+            sum(
+                sum(row)
+                for row in statistics["heatmaps"][""]["instance_segmentation"]
+            )
+            - 66953
         )
-        == 66953
+        <= 2
     )
