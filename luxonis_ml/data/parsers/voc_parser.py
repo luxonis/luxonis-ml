@@ -82,6 +82,8 @@ class VOCParser(BaseParser):
         for anno_xml in annotation_dir.glob("*.xml"):
             annotation_data = parse(anno_xml)
             root = annotation_data.getroot()
+            if root is None:
+                raise ValueError(f"Could not parse {anno_xml}")
 
             path = image_dir.absolute().resolve() / self._xml_find(
                 root, "filename"
