@@ -1,6 +1,6 @@
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 import numpy as np
 from defusedxml.ElementTree import parse
@@ -82,6 +82,9 @@ class VOCParser(BaseParser):
         for anno_xml in annotation_dir.glob("*.xml"):
             annotation_data = parse(anno_xml)
             root = annotation_data.getroot()
+            if root is None:
+                raise ValueError(f"'{anno_xml}' is empty")
+            root = cast(ET.Element, root)
 
             path = image_dir.absolute().resolve() / self._xml_find(
                 root, "filename"
