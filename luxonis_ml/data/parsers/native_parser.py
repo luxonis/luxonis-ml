@@ -1,5 +1,5 @@
 import json
-import os
+from contextlib import suppress
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -33,7 +33,7 @@ class NativeParser(BaseParser):
 
     @staticmethod
     def validate(dataset_dir: Path) -> bool:
-        for split in ["train", "valid", "test"]:
+        for split in ["train", "val", "test"]:
             split_path = dataset_dir / split
             if NativeParser.validate_split(split_path) is None:
                 return False
@@ -43,16 +43,13 @@ class NativeParser(BaseParser):
         self, dataset_dir: Path
     ) -> Tuple[List[Path], List[Path], List[Path]]:
         added_train_imgs = self._parse_split(
-            image_dir=dataset_dir / "train",
-            annotation_dir=dataset_dir / "train",
+            annotation_path=dataset_dir / "train" / "annotations.json",
         )
         added_val_imgs = self._parse_split(
-            image_dir=dataset_dir / "valid",
-            annotation_dir=dataset_dir / "valid",
+            annotation_path=dataset_dir / "val" / "annotations.json",
         )
         added_test_imgs = self._parse_split(
-            image_dir=dataset_dir / "test",
-            annotation_dir=dataset_dir / "test",
+            annotation_path=dataset_dir / "test" / "annotations.json",
         )
         return added_train_imgs, added_val_imgs, added_test_imgs
 
@@ -67,10 +64,21 @@ class NativeParser(BaseParser):
         """
 
         data = json.loads(annotation_path.read_text())
-        os.chdir(annotation_path.parent)
 
         def generator() -> DatasetIterator:
-            yield from data
+            for record in data:
+                with suppress(KeyError):
+                    record["file"] = (
+                        annotation_path.parent / record["file"]
+                    ).absolute()
+                for mask_type in ["segmentation", "instance_segmentation"]:
+                    with suppress(KeyError):
+                        mask = record["annotation"][mask_type]["mask"]
+                        if isinstance(mask, (str, Path)):
+                            record["annotation"][mask_type]["mask"] = (
+                                annotation_path.parent / mask
+                            ).absolute()
+                yield record
 
         added_images = self._get_added_images(generator())
 
