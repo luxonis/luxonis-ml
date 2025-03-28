@@ -437,6 +437,9 @@ def visualize(
 
         task_classes = mappings[task_name]
 
+        min_dimension = min(h, w)
+        font_scale = max(0.25, min(1.1, 0.4 * min_dimension / 500))
+
         for i, kp in enumerate(arr):
             kp = kp.reshape(-1, 3)
             if len(bbox_classes[task_name]) > i:
@@ -446,7 +449,7 @@ def visualize(
                 )
             else:
                 color = (255, 0, 0)
-            for k in kp:
+            for j, k in enumerate(kp):
                 visibility = int(k[-1])
                 if visibility == 0:
                     continue
@@ -458,12 +461,29 @@ def visualize(
                     draw_function = draw_cross
                     size = 5
 
+                point = (int(k[0] * w), int(k[1] * h))
                 draw_function(
                     curr_image,
-                    (int(k[0] * w), int(k[1] * h)),
+                    point,
                     size,
                     color=color,
                     thickness=2,
+                )
+
+                text = str(j)
+                text_size = cv2.getTextSize(text, font, font_scale, 1)[0]
+                text_x = point[0] + size + 2
+                text_y = point[1] + text_size[1] // 2
+
+                cv2.putText(
+                    curr_image,
+                    text,
+                    (text_x, text_y),
+                    font,
+                    font_scale,
+                    color,
+                    1,
+                    cv2.LINE_AA,
                 )
         images[image_name] = curr_image
 
