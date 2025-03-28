@@ -63,9 +63,7 @@ def platform_name():  # pragma: no cover
 
 
 @pytest.fixture
-def dataset_name(
-    request: SubRequest, randint: int, dataset_registry: List[str]
-) -> str:
+def dataset_name(request: SubRequest, randint: int) -> str:
     name = f"{get_caller_name(request)}_{randint}"
     CREATED_DATASETS.append(name)
     return name
