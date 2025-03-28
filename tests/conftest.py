@@ -10,11 +10,14 @@ from typing import Dict, List
 import numpy as np
 import pytest
 from _pytest.fixtures import SubRequest
+from _pytest.main import Session
 from rich import print as rich_print
 
-from luxonis_ml.data import BucketStorage
+from luxonis_ml.data import BucketStorage, LuxonisDataset
 from luxonis_ml.typing import Params
 from luxonis_ml.utils.environ import environ
+
+CREATED_DATASETS = []
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -61,7 +64,16 @@ def platform_name():  # pragma: no cover
 
 @pytest.fixture
 def dataset_name(request: SubRequest, randint: int) -> str:
-    return f"{get_caller_name(request)}_{randint}"
+    name = f"{get_caller_name(request)}_{randint}"
+    CREATED_DATASETS.append(name)
+    return name
+
+
+def pytest_sessionfinish(session: Session, exitstatus: int) -> None:
+    for ds_name in CREATED_DATASETS:
+        LuxonisDataset(
+            ds_name, bucket_storage=BucketStorage.GCS
+        ).delete_dataset(delete_remote=True)
 
 
 @pytest.fixture(scope="session")

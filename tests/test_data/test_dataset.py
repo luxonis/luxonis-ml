@@ -653,6 +653,16 @@ def test_merge_datasets(
         cloned_dataset1_merged_with_dataset2 = cloned_dataset1.merge_with(
             dataset2, inplace=True
         )
+        cloned_dataset1_merged_with_dataset2_stats = (
+            cloned_dataset1_merged_with_dataset2.get_statistics()
+        )
+        found = {
+            (item["count"], item["class_name"])
+            for item in cloned_dataset1_merged_with_dataset2_stats[
+                "class_distributions"
+            ][""]["boundingbox"]
+        }
+        assert found == {(3, "person"), (3, "dog")}
 
         classes = cloned_dataset1_merged_with_dataset2.get_classes()
         assert set(classes[""]) == {"person", "dog"}
@@ -666,6 +676,16 @@ def test_merge_datasets(
 
     classes = dataset1_merged_with_dataset2.get_classes()
     assert set(classes[""]) == {"person", "dog"}
+    dataset1_merged_with_dataset2_stats = (
+        dataset1_merged_with_dataset2.get_statistics()
+    )
+    found = {
+        (item["count"], item["class_name"])
+        for item in dataset1_merged_with_dataset2_stats["class_distributions"][
+            ""
+        ]["boundingbox"]
+    }
+    assert found == {(3, "person"), (3, "dog")}
 
     df_merged = dataset1_merged_with_dataset2._load_df_offline()
     df_cloned_merged = dataset1.merge_with(
