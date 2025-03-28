@@ -437,6 +437,9 @@ def visualize(
 
         task_classes = mappings[task_name]
 
+        min_dimension = min(h, w)
+        font_scale = max(0.25, min(1.1, 0.4 * min_dimension / 500))
+
         for i, kp in enumerate(arr):
             kp = kp.reshape(-1, 3)
             if len(bbox_classes[task_name]) > i:
@@ -467,7 +470,6 @@ def visualize(
                     thickness=2,
                 )
 
-                font_scale = 0.4
                 text = str(j)
                 text_size = cv2.getTextSize(text, font, font_scale, 1)[0]
                 text_x = point[0] + size + 2
