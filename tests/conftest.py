@@ -12,9 +12,11 @@ import pytest
 from _pytest.fixtures import SubRequest
 from rich import print as rich_print
 
-from luxonis_ml.data import BucketStorage
+from luxonis_ml.data import BucketStorage, LuxonisDataset
 from luxonis_ml.typing import Params
 from luxonis_ml.utils.environ import environ
+
+ALL_DATASETS = []
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -59,9 +61,23 @@ def platform_name():  # pragma: no cover
     raise ValueError(f"Unsupported operating system: {os_name}")
 
 
+@pytest.fixture(scope="session")
+def dataset_registry():
+    registry = []
+    yield registry
+    for ds_name in registry:
+        LuxonisDataset(
+            ds_name, bucket_storage=BucketStorage.GCS
+        ).delete_dataset(delete_remote=True)
+
+
 @pytest.fixture
-def dataset_name(request: SubRequest, randint: int) -> str:
-    return f"{get_caller_name(request)}_{randint}"
+def dataset_name(
+    request: SubRequest, randint: int, dataset_registry: List[str]
+) -> str:
+    name = f"{get_caller_name(request)}_{randint}"
+    dataset_registry.append(name)
+    return name
 
 
 @pytest.fixture(scope="session")
