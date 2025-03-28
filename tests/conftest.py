@@ -16,8 +16,6 @@ from luxonis_ml.data import BucketStorage, LuxonisDataset
 from luxonis_ml.typing import Params
 from luxonis_ml.utils.environ import environ
 
-ALL_DATASETS = []
-
 
 @pytest.fixture(autouse=True, scope="session")
 def setup():
