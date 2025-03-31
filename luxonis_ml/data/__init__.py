@@ -22,14 +22,14 @@ with guard_missing_extra("data"):
 
 def load_dataset_plugins() -> None:  # pragma: no cover
     """Registers any external dataset BaseDataset class plugins."""
-    for entry_point in entry_points().get("dataset_plugins", []):
+    for entry_point in entry_points().select(group="dataset_plugins"):
         plugin_class = entry_point.load()
         DATASETS_REGISTRY.register(module=plugin_class)
 
 
 def load_loader_plugins() -> None:  # pragma: no cover
     """Registers any external dataset BaseLoader class plugins."""
-    for entry_point in entry_points().get("loader_plugins", []):
+    for entry_point in entry_points().select(group="loader_plugins"):
         plugin_class = entry_point.load()
         DATASETS_REGISTRY.register(module=plugin_class)
 
