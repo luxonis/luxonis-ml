@@ -250,7 +250,6 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 "Flip",
             ],
             "boundingbox": ["Perspective"],
-            "segmentation": ["Perspective"],
             "instance_segmentation": ["Perspective"],
         }
         augmentation_name = config_item["name"]
