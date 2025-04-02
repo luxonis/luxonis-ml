@@ -249,8 +249,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 "VerticalFlip",
                 "Flip",
             ],
-            "boundingbox": ["Perspective"],
-            "instance_segmentation": ["Perspective"],
+            "bboxes": ["Perspective"],
+            "instance_mask": ["Perspective"],
         }
         augmentation_name = config_item["name"]
         skipped_for = [
@@ -261,7 +261,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         ]
         if skipped_for:
             logger.warning(
-                f"Skipping augmentation '{augmentation_name}' due to known issues for '{skipped_for}' target types."
+                f"Skipping augmentation '{augmentation_name}' due to known issues for {skipped_for} target types."
             )
             return True
         return False
