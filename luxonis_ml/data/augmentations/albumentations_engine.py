@@ -241,6 +241,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     def _should_skip_augmentation(
         self, config_item: Dict[str, Any], available_target_types: set
     ) -> bool:
+        # Perspective issue was fixed in 1.4.19 albumentations version.
         skip_rules = {
             "keypoints": [
                 "Perspective",
@@ -248,7 +249,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 "VerticalFlip",
                 "Flip",
             ],
-            "bboxes": ["Perspective"],
+            "boundingbox": ["Perspective"],
+            "segmentation": ["Perspective"],
+            "instance_segmentation": ["Perspective"],
         }
         augmentation_name = config_item["name"]
         skipped_for = [
