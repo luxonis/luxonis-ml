@@ -67,7 +67,7 @@ def test_skip_augmentations():
     spatial_transform_names = next(
         (
             [t.__class__.__name__ for t in cell.cell_contents.transforms]
-            for cell in augmentations.spatial_transform.__closure__
+            for cell in augmentations.spatial_transform.__closure__  # type: ignore
             if hasattr(cell.cell_contents, "transforms")
         ),
         [],
