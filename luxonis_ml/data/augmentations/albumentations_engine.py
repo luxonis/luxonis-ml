@@ -259,7 +259,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         ]
         if skipped_for:
             logger.warning(
-                f"Skipping augmentation '{augmentation_name}' for target types {skipped_for} due to known issues."
+                f"Skipping augmentation '{augmentation_name}' due to known issues for '{skipped_for}' target types."
             )
             return True
         return False
