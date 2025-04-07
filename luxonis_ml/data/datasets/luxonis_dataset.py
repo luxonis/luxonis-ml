@@ -724,16 +724,18 @@ class LuxonisDataset(BaseDataset):
 
             df = self._load_df_offline()
 
-            missing_media_paths = [
-                f"media/{row[0]}{Path(str(row[1])).suffix}"
-                for row in df.select(["uuid", "file"]).unique().iter_rows()
-                if not Path(str(row[1])).exists()
-                and not (
-                    Path("local_dir")
-                    / "media"
-                    / f"{row[0]}{Path(str(row[1])).suffix}"
-                ).exists()
-            ]
+            missing_media_paths = []
+            if df is not None:
+                missing_media_paths = [
+                    f"media/{row[0]}{Path(str(row[1])).suffix}"
+                    for row in df.select(["uuid", "file"]).unique().iter_rows()
+                    if not Path(str(row[1])).exists()
+                    and not (
+                        Path("local_dir")
+                        / "media"
+                        / f"{row[0]}{Path(str(row[1])).suffix}"
+                    ).exists()
+                ]
 
             if update_mode == UpdateMode.ALWAYS:
                 logger.info("Force-syncing all media files...")
@@ -832,7 +834,9 @@ class LuxonisDataset(BaseDataset):
 
             # TODO: support from bucket (likely with a self.fs.copy_dir)
             self.fs.put_dir(
-                local_paths=paths, remote_dir="media", uuid_dict=uuid_dict
+                local_paths=paths,
+                remote_dir="media",
+                uuid_dict=dict(uuid_dict),
             )
             logger.info("Media uploaded")
 
