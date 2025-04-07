@@ -1,6 +1,7 @@
+import shutil
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, NoReturn
+from typing import Dict, List, NamedTuple, NoReturn, Tuple, Union
 
 import numpy as np
 import pytest
@@ -13,6 +14,7 @@ from luxonis_ml.data import (
     LuxonisLoader,
     LuxonisParser,
     LuxonisSource,
+    UpdateMode,
 )
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.data.utils.task_utils import get_task_type
@@ -749,3 +751,73 @@ def test_keypoints_solo(dataset_name: str, tempdir: Path):
     )
     for _ in loader:
         pass
+
+
+def test_dataset_push_pull(dataset_name: str, tempdir: Path):
+    class TestCase(NamedTuple):
+        gen_range: Tuple[int, int]
+        bucket_storage: BucketStorage
+        delete_existing: bool
+        delete_remote: bool
+        splits: Union[Tuple[float, float, float], bool]
+        expected_count: int
+
+    test_cases = [
+        TestCase((0, 6), BucketStorage.LOCAL, True, True, (1, 0, 0), 6),
+        TestCase((0, 6), BucketStorage.GCS, False, False, False, 6),
+        TestCase((0, 2), BucketStorage.LOCAL, True, False, (1, 0, 0), 2),
+        TestCase((3, 9), BucketStorage.GCS, True, False, (1, 0, 0), 9),
+    ]
+
+    def generator(start: int, end: int) -> DatasetIterator:
+        for i in range(start, end):
+            img = create_image(i, tempdir)
+            yield {
+                "file": img,
+                "annotation": {
+                    "class": "person",
+                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
+                    "instance_id": i,
+                },
+            }
+
+    for case in test_cases:
+        dataset = create_dataset(
+            dataset_name,
+            generator(*case.gen_range),
+            bucket_storage=case.bucket_storage,
+            delete_existing=case.delete_existing,
+            delete_remote=case.delete_remote,
+            splits=case.splits,
+        )
+        stats = dataset.get_statistics()
+        assert stats["class_distributions"][""]["boundingbox"] == [
+            {"count": case.expected_count, "class_name": "person"}
+        ]
+        assert (
+            sum(1 for _ in LuxonisLoader(dataset, view="train"))
+            == case.expected_count
+        )
+
+    dataset = LuxonisDataset(
+        dataset_name,
+        bucket_storage=BucketStorage.GCS,
+        delete_existing=True,
+        delete_remote=False,
+    )
+    loader = LuxonisLoader(
+        dataset, view="train", update_mode=UpdateMode.IF_EMPTY
+    )
+    assert sum(1 for _ in loader) == 9
+
+    shutil.rmtree(tempdir)
+    LuxonisLoader(dataset, view="train", update_mode=UpdateMode.IF_EMPTY)
+    media_dir = (
+        dataset.base_path
+        / "data"
+        / dataset.team_id
+        / "datasets"
+        / dataset_name
+        / "media"
+    )
+    assert len(list(media_dir.glob("*.jpg"))) == 9

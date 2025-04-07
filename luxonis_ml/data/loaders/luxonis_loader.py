@@ -105,8 +105,8 @@ class LuxonisLoader(BaseLoader):
 
         @type update_mode: UpdateMode
         @param update_mode: Enum that determines the sync mode:
-            - UpdateMode.ALWAYS: Force a fresh download
-            - UpdateMode.IF_EMPTY: Skip downloading if local data exists
+            - UpdateMode.ALWAYS: Force a fresh download of dataset's media
+            - UpdateMode.IF_EMPTY: Skip downloading if local dataset media exists
         """
 
         self.exclude_empty_annotations = exclude_empty_annotations
@@ -128,7 +128,7 @@ class LuxonisLoader(BaseLoader):
         self.df = self.dataset._load_df_offline(raise_when_empty=True)
 
         if not self.dataset.is_remote:
-            file_index = self.dataset._get_file_index()
+            file_index = self.dataset._get_index()
             if file_index is None:  # pragma: no cover
                 raise FileNotFoundError("Cannot find file index")
             self.df = self.df.join(file_index, on="uuid").drop("file_right")
@@ -153,6 +153,8 @@ class LuxonisLoader(BaseLoader):
             self.idx_to_df_row.append(row_indexes)
 
         self.tasks_without_background = set()
+
+        self._precompute_image_paths()
 
         _, test_labels = self._load_data(0)
         for task, seg_masks in task_type_iterator(test_labels, "segmentation"):
@@ -276,12 +278,8 @@ class LuxonisLoader(BaseLoader):
         ann_indices = self.idx_to_df_row[idx]
 
         ann_rows = [self.df.row(row) for row in ann_indices]
-        if self.dataset.is_remote:
-            uuid = ann_rows[0][7]
-            file_extension = ann_rows[0][0].rsplit(".", 1)[-1]
-            img_path = self.dataset.media_path / f"{uuid}.{file_extension}"
-        else:
-            img_path = ann_rows[0][-1]
+
+        img_path = self.idx_to_img_path[idx]
 
         img = cv2.cvtColor(cv2.imread(str(img_path)), cv2.COLOR_BGR2RGB)
 
@@ -434,3 +432,18 @@ class LuxonisLoader(BaseLoader):
             keep_aspect_ratio=keep_aspect_ratio,
             is_validation_pipeline="train" not in self.view,
         )
+
+    def _precompute_image_paths(self) -> None:
+        self.idx_to_img_path = {}
+
+        for idx, ann_indices in enumerate(self.idx_to_df_row):
+            ann_indices = self.idx_to_df_row[idx]
+
+            ann_rows = [self.df.row(row) for row in ann_indices]
+            img_path = ann_rows[0][0]
+            if not Path(img_path).exists():
+                uuid = ann_rows[0][7]
+                file_extension = ann_rows[0][0].rsplit(".", 1)[-1]
+                img_path = self.dataset.media_path / f"{uuid}.{file_extension}"
+
+            self.idx_to_img_path[idx] = img_path
