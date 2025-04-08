@@ -808,8 +808,6 @@ class LuxonisDataset(BaseDataset):
         data_batch: List[DatasetRecord],
         pfm: ParquetFileManager,
         index: Optional[pl.DataFrame],
-        new_index: Dict[str, List[str]],
-        processed_uuids: Set[str],
     ) -> None:
         paths = {data.file for data in data_batch}
         logger.info("Generating UUIDs...")
@@ -821,8 +819,8 @@ class LuxonisDataset(BaseDataset):
             if matched_id is not None:
                 overwrite_uuids.add(matched_id)
                 logger.warning(
-                    f"File {file_path} with UUID: {matched_id} already exists in the dataset. "
-                    "Old data will be overwritten."
+                    f"File {file_path} with UUID: {matched_id} already existed in the dataset. "
+                    "Old data will be overwritten with the new data."
                 )
 
         if overwrite_uuids:
@@ -849,20 +847,9 @@ class LuxonisDataset(BaseDataset):
         with self.progress:
             for record in data_batch:
                 filepath = record.file
-                file = filepath.name
                 uuid = uuid_dict[str(filepath)]
-                matched_id = find_filepath_uuid(filepath, index)
-                if uuid not in processed_uuids:
-                    new_index["uuid"].append(uuid)
-                    new_index["file"].append(file)
-                    new_index["original_filepath"].append(
-                        str(filepath.absolute().resolve())
-                    )
-                    processed_uuids.add(uuid)
-
                 for row in record.to_parquet_rows():
                     pfm.write(uuid, row)
-
                 self.progress.update(task, advance=1)
         self.progress.remove_task(task)
 
@@ -870,8 +857,6 @@ class LuxonisDataset(BaseDataset):
         self, generator: DatasetIterator, batch_size: int = 1_000_000
     ) -> Self:
         logger.info(f"Adding data to dataset '{self.dataset_name}'...")
-        new_index = {"uuid": [], "file": [], "original_filepath": []}
-        processed_uuids = set()
 
         data_batch: list[DatasetRecord] = []
 
@@ -892,7 +877,7 @@ class LuxonisDataset(BaseDataset):
 
         assert annotations_path is not None
 
-        with ParquetFileManager(annotations_path) as pfm:
+        with ParquetFileManager(annotations_path, batch_size) as pfm:
             for i, record in enumerate(generator, start=1):
                 if not isinstance(record, DatasetRecord):
                     record = DatasetRecord(**record)
@@ -949,14 +934,10 @@ class LuxonisDataset(BaseDataset):
 
                 data_batch.append(record)
                 if i % batch_size == 0:
-                    self._add_process_batch(
-                        data_batch, pfm, index, new_index, processed_uuids
-                    )
+                    self._add_process_batch(data_batch, pfm, index)
                     data_batch = []
 
-            self._add_process_batch(
-                data_batch, pfm, index, new_index, processed_uuids
-            )
+            self._add_process_batch(data_batch, pfm, index)
 
         with suppress(shutil.SameFileError):
             self.fs.put_dir(annotations_path, "")
