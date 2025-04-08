@@ -25,7 +25,6 @@ from typing import (
 
 import numpy as np
 import polars as pl
-from bidict import bidict
 from filelock import FileLock
 from loguru import logger
 from rich.progress import track
@@ -814,7 +813,7 @@ class LuxonisDataset(BaseDataset):
     ) -> None:
         paths = {data.file for data in data_batch}
         logger.info("Generating UUIDs...")
-        uuid_dict = bidict(self.fs.get_file_uuids(paths, local=True))
+        uuid_dict = self.fs.get_file_uuids(paths, local=True)
 
         overwrite_uuids = set()
         for file_path in paths:
@@ -822,7 +821,7 @@ class LuxonisDataset(BaseDataset):
             if matched_id is not None:
                 overwrite_uuids.add(matched_id)
                 logger.warning(
-                    f"File {file_path} already exists in the dataset as: {uuid_dict.inverse[matched_id]}. "
+                    f"File {file_path} with UUID: {matched_id} already exists in the dataset. "
                     "Old data will be overwritten."
                 )
 
