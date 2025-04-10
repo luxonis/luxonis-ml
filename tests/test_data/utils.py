@@ -42,13 +42,13 @@ def create_dataset(
     bucket_storage: BucketStorage = BucketStorage.LOCAL,
     *,
     splits: Union[bool, Dict[str, float], Tuple] = True,
-    delete_existing: bool = True,
+    delete_local: bool = True,
     delete_remote: bool = True,
     **kwargs,
 ) -> LuxonisDataset:
     dataset = LuxonisDataset(
         dataset_name,
-        delete_existing=delete_existing,
+        delete_local=delete_local,
         delete_remote=delete_remote,
         bucket_storage=bucket_storage,
         **kwargs,

@@ -36,7 +36,7 @@ def test_parking_lot_generate(
     )
     dataset = LuxonisDataset(
         dataset_name,
-        delete_existing=True,
+        delete_local=True,
         bucket_storage=bucket_storage,
         delete_remote=True,
     )

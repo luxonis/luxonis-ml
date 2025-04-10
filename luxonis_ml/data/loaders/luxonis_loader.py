@@ -50,8 +50,8 @@ class LuxonisLoader(BaseLoader):
         *,
         keep_categorical_as_strings: bool = False,
         update_mode: Union[
-            UpdateMode, Literal["always", "if_empty"]
-        ] = UpdateMode.ALWAYS,
+            UpdateMode, Literal["all", "missing"]
+        ] = UpdateMode.ALL,
     ) -> None:
         """A loader class used for loading data from L{LuxonisDataset}.
 
@@ -104,9 +104,9 @@ class LuxonisLoader(BaseLoader):
             Defaults to C{False} (i.e. convert categorical labels to integers).
 
         @type update_mode: UpdateMode
-        @param update_mode: Enum that determines the sync mode:
-            - UpdateMode.ALWAYS: Force a fresh download of dataset's media
-            - UpdateMode.IF_EMPTY: Skip downloading if local dataset media exists
+        @param update_mode: Enum that determines the sync mode for media files of the remote dataset (annotations and metadata are always overwritten):
+            - UpdateMode.MISSING: Downloads only the missing media files for the dataset.
+            - UpdateMode.ALL: Always downloads and overwrites all media files in the local dataset.
         """
 
         self.exclude_empty_annotations = exclude_empty_annotations
@@ -119,7 +119,7 @@ class LuxonisLoader(BaseLoader):
         self.keep_categorical_as_strings = keep_categorical_as_strings
 
         if self.sync_mode:
-            self.dataset.sync_from_cloud(update_mode=UpdateMode(update_mode))
+            self.dataset.pull_from_cloud(update_mode=UpdateMode(update_mode))
 
         if isinstance(view, str):
             view = [view]

@@ -90,11 +90,12 @@ dataset = LuxonisDataset(dataset_name)
 ```
 
 > \[!NOTE\]
-> By default, the dataset will be created locally. For details on different storage methods, see TODO.
+> By default, the dataset will be created locally. For more information on creating a remote dataset, see [this section](datasets/README.md#creating-a-dataset-remotely).
 
 > \[!NOTE\]
 > If there already is a dataset with the same name, it will be loaded instead of creating a new one.
-> If you want to always create a new dataset, you can pass `delete_existing=True` to the `LuxonisDataset` constructor.
+> If you want to always create a new dataset, you can pass `delete_local=True` to the `LuxonisDataset` constructor.\
+> For detailed information about how the luxonis-ml dataset is stored in both local and remote storage, please check the [datasets README.md](datasets/README.md#in-depth-explanation-of-luxonis-ml-dataset-storage)
 
 ### Adding Data
 

@@ -16,7 +16,12 @@ from rich.rule import Rule
 from rich.table import Table
 from typing_extensions import Annotated
 
-from luxonis_ml.data import LuxonisDataset, LuxonisLoader, LuxonisParser
+from luxonis_ml.data import (
+    LuxonisDataset,
+    LuxonisLoader,
+    LuxonisParser,
+    UpdateMode,
+)
 from luxonis_ml.data.utils.enums import BucketStorage
 from luxonis_ml.data.utils.plot_utils import (
     plot_class_distribution,
@@ -66,37 +71,41 @@ def get_dataset_info(dataset: LuxonisDataset) -> Tuple[Set[str], List[str]]:
 
 def print_info(dataset: LuxonisDataset) -> None:
     classes = dataset.get_classes()
+    has_named_classes = any(k for k in classes if k)
     class_table = Table(
         title="Classes", box=rich.box.ROUNDED, row_styles=["yellow", "cyan"]
     )
-    if len(classes) > 1 or (classes and next(iter(classes))):
+    if has_named_classes:
         class_table.add_column(
             "Task Name", header_style="magenta i", max_width=30
         )
     class_table.add_column(
         "Class Names", header_style="magenta i", max_width=50
     )
+
     for task_name, c in classes.items():
-        if not task_name:
-            class_table.add_row(", ".join(c))
-        else:
+        if has_named_classes:
             class_table.add_row(task_name, ", ".join(c))
+        else:
+            class_table.add_row(", ".join(c))
 
     tasks = dataset.get_tasks()
+    has_named_tasks = any(k for k in tasks if k)
+
     task_table = Table(
         title="Tasks", box=rich.box.ROUNDED, row_styles=["yellow", "cyan"]
     )
-    if tasks and (len(tasks) > 1 or next(iter(tasks))):
+    if has_named_tasks:
         task_table.add_column(
             "Task Name", header_style="magenta i", max_width=30
         )
     task_table.add_column("Task Types", header_style="magenta i", max_width=50)
     for task_name, task_types in tasks.items():
         task_types.sort()
-        if not task_name:
-            task_table.add_row(", ".join(task_types))
-        else:
+        if has_named_tasks:
             task_table.add_row(task_name, ", ".join(task_types))
+        else:
+            task_table.add_row(", ".join(task_types))
 
     splits = dataset.get_splits()
 
@@ -289,7 +298,7 @@ def inspect(
     loader = LuxonisLoader(
         dataset,
         view=view,
-        update_mode="always" if force_update else "if_empty",
+        update_mode="all" if force_update else "missing",
     )
 
     if aug_config is not None:
@@ -385,13 +394,13 @@ def parse(
             show_default=False,
         ),
     ] = None,
-    delete_existing: Annotated[
+    delete_local: Annotated[
         bool,
         typer.Option(
             ...,
             "--delete",
             "-d",
-            help="If an existing dataset with the same name should "
+            help="If an existing local dataset with the same name should "
             "be deleted before parsing.",
         ),
     ] = False,
@@ -425,7 +434,7 @@ def parse(
         dataset_dir,
         dataset_name=name,
         dataset_type=dataset_type,
-        delete_existing=delete_existing,
+        delete_local=delete_local,
         save_dir=save_dir,
         task_name=task_name,
     )
@@ -464,6 +473,12 @@ def health(
     ),
     bucket_storage: BucketStorage = bucket_option,
 ):
+    """Plots class distributions and heatmaps for each task type for
+    each task name in the dataset.
+
+    Also checks for files with missing annotations and files with
+    duplicate UUIDs and duplicate annotations.
+    """
     check_exists(name, bucket_storage)
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
     stats = dataset.get_statistics(sample_size=sample_size, view=view)
@@ -594,6 +609,154 @@ def health(
             plt.show(block=False)
             if plt.waitforbuttonpress():
                 plt.close(fig)
+
+
+@app.command()
+def push(
+    name: DatasetNameArgument,
+    force_update: Annotated[
+        bool,
+        typer.Option(
+            ...,
+            "--force-update",
+            "-f",
+            help="Force pushing all media files, even if they already exist in the cloud. Annotations and metadata will always be pushed.",
+        ),
+    ] = False,
+    target_bucket_storage: BucketStorage = bucket_option,
+):
+    """Push a local dataset to cloud storage."""
+    check_exists(name, BucketStorage.LOCAL)
+    dataset = LuxonisDataset(name, bucket_storage=BucketStorage.LOCAL)
+
+    if target_bucket_storage == BucketStorage.LOCAL:
+        print(
+            "[red]Cannot push to LOCAL storage. Please specify a cloud target."
+        )
+        raise typer.Exit(1)
+
+    print(
+        f"Pushing dataset '{name}' to {target_bucket_storage.value} storage..."
+    )
+
+    update_mode = UpdateMode.ALL if force_update else UpdateMode.MISSING
+    dataset.push_to_cloud(
+        bucket_storage=target_bucket_storage, update_mode=update_mode
+    )
+
+    print(
+        f"[green]Dataset '{name}' successfully pushed to {target_bucket_storage.value}."
+    )
+
+
+@app.command()
+def clone(
+    name: DatasetNameArgument,
+    new_name: Annotated[
+        str,
+        typer.Argument(
+            ..., help="Name of the new dataset.", show_default=False
+        ),
+    ],
+    push_to_cloud: Annotated[
+        bool,
+        typer.Option(
+            "--push/--no-push",
+            help="Whether to upload the newly cloned remote dataset back to cloud storage.",
+            show_default=True,
+        ),
+    ] = True,
+    bucket_storage: BucketStorage = bucket_option,
+):
+    """Clone an existing dataset with a new name.
+
+    Optionally push it to cloud storage if it is a remote dataset.
+    """
+
+    check_exists(name, bucket_storage)
+
+    if LuxonisDataset.exists(
+        new_name, bucket_storage=BucketStorage.LOCAL
+    ) and not Confirm.ask(
+        f"Dataset '{new_name}' already exists locally. Overwrite it?"
+    ):
+        raise typer.Exit
+
+    print(f"Cloning dataset '{name}' to '{new_name}'...")
+    dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
+    dataset.clone(new_dataset_name=new_name, push_to_cloud=push_to_cloud)
+    print(f"[green]Dataset '{name}' successfully cloned to '{new_name}'.")
+
+
+@app.command()
+def merge(
+    source_name: Annotated[
+        str,
+        typer.Argument(
+            ...,
+            help="Name of the source dataset.",
+            autocompletion=complete_dataset_name,
+        ),
+    ],
+    target_name: Annotated[
+        str,
+        typer.Argument(
+            ...,
+            help="Name of the target dataset.",
+            autocompletion=complete_dataset_name,
+        ),
+    ],
+    new_name: Annotated[
+        Optional[str],
+        typer.Option(
+            ...,
+            "--new-name",
+            "-n",
+            help="Name for the new merged dataset. If not provided, will merge into the target dataset.",
+            show_default=False,
+        ),
+    ] = None,
+    bucket_storage: BucketStorage = bucket_option,
+):
+    """Merge two datasets stored in the same type of bucket."""
+    check_exists(source_name, bucket_storage)
+    check_exists(target_name, bucket_storage)
+
+    inplace = new_name is None
+    if inplace and not Confirm.ask(
+        f"This will merge dataset '{source_name}' into '{target_name}'. Continue?"
+    ):
+        raise typer.Exit
+
+    if (
+        not inplace
+        and LuxonisDataset.exists(new_name, bucket_storage=bucket_storage)
+        and not Confirm.ask(
+            f"Dataset '{new_name}' already exists in {bucket_storage.value} bucket. Overwrite it?"
+        )
+    ):
+        raise typer.Exit
+
+    source_dataset = LuxonisDataset(source_name, bucket_storage=bucket_storage)
+    target_dataset = LuxonisDataset(target_name, bucket_storage=bucket_storage)
+
+    operation = "into" if inplace else "creating new dataset"
+    print(
+        f"Merging dataset '{source_name}' with '{target_name}', {operation}..."
+    )
+
+    _ = target_dataset.merge_with(
+        source_dataset, inplace=inplace, new_dataset_name=new_name
+    )
+
+    if inplace:
+        print(
+            f"[green]Dataset '{source_name}' successfully merged into '{target_name}'."
+        )
+    else:
+        print(
+            f"[green]Datasets merged successfully into new dataset '{new_name}'."
+        )
 
 
 if __name__ == "__main__":

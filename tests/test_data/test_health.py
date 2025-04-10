@@ -20,7 +20,7 @@ def test_dataset_health(
     dataset = LuxonisParser(
         url,
         dataset_name=dataset_name,
-        delete_existing=True,
+        delete_local=True,
         save_dir=tempdir,
     ).parse()
 
