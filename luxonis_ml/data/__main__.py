@@ -150,21 +150,55 @@ def info(
 def delete(
     name: DatasetNameArgument,
     bucket_storage: BucketStorage = bucket_option,
+    local: bool = typer.Option(
+        False,
+        "--local/--no-local",
+        help="Delete the dataset from local storage.",
+    ),
+    remote: bool = typer.Option(
+        False,
+        "--remote/--no-remote",
+        help="Delete the dataset from remote storage.",
+    ),
 ):
-    """Deletes a dataset."""
+    """Deletes a dataset from local storage or remote storage (or both),
+    based on which options are passed."""
     check_exists(name, bucket_storage)
 
-    if bucket_storage is not BucketStorage.LOCAL and not Confirm.ask(
-        f"Are you sure you want to delete the dataset '{name}' "
-        f"from remote storage? This will delete all remote files "
-        "and cannot be undone. If you only want to delete your local "
-        "copy, leave the '--bucket-storage' option as 'local' (default).",
+    if bucket_storage is BucketStorage.LOCAL and remote:
+        print(
+            "[yellow]Warning: You specified remote deletion, but the bucket is local. "
+            "Remote deletion will not be performed.[/yellow]"
+        )
+        remote = False
+
+    where = " and ".join(
+        filter(None, ["local" if local else "", "remote" if remote else ""])
+    )
+
+    if not where:
+        print(
+            "[yellow]No deletion target specified (local or remote). Nothing to delete.[/yellow]"
+        )
+        raise typer.Exit
+
+    if not Confirm.ask(
+        f"Delete dataset '{name}' with specified bucket '{bucket_storage}' from {where} storage?"
     ):
         raise typer.Exit
-    LuxonisDataset(name).delete_dataset(
-        delete_remote=bucket_storage is not BucketStorage.LOCAL
+
+    dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
+    dataset.delete_dataset(
+        delete_local=local,
+        delete_remote=remote,
     )
-    print(f"Dataset '{name}' deleted.")
+
+    print(
+        f"Dataset '{name}' deleted from: "
+        f"{'local ' if local else ''}"
+        f"{'remote ' if remote else ''}"
+        f"storage."
+    )
 
 
 @app.command()
@@ -473,11 +507,11 @@ def health(
     ),
     bucket_storage: BucketStorage = bucket_option,
 ):
-    """Plots class distributions and heatmaps for each task type for
-    each task name in the dataset.
+    """Plots class distributions and heatmaps for every task type and
+    corresponding task name in the dataset.
 
-    Also checks for files with missing annotations and files with
-    duplicate UUIDs and duplicate annotations.
+    Also checks for files with missing annotations, files that share the
+    same UUIDs, and files with duplicate annotations.
     """
     check_exists(name, bucket_storage)
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
@@ -634,6 +668,13 @@ def push(
             "[red]Cannot push to LOCAL storage. Please specify a cloud target."
         )
         raise typer.Exit(1)
+
+    if LuxonisDataset.exists(
+        name, bucket_storage=target_bucket_storage
+    ) and not Confirm.ask(
+        f"Dataset '{name}' already exists in {target_bucket_storage} bucket. If you are unsure about the dataset, please delete it from the cloud storage and try again. Do you want to overwrite it?"
+    ):
+        raise typer.Exit
 
     print(
         f"Pushing dataset '{name}' to {target_bucket_storage.value} storage..."

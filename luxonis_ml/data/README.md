@@ -293,6 +293,10 @@ The available commands are:
 - `luxonis_ml data inspect <dataset_name>` - renders the data in the dataset on screen using `cv2`
 - `luxonis_ml data health <dataset_name>` -  checks the health of the dataset and logs and renders dataset statistics
 - `luxonis_ml data delete <dataset_name>` - deletes the dataset
+- `luxonis_ml data export <dataset_name>` - exports the dataset to a chosen format and directory
+- `luxonis_ml data push <dataset_name>` - pushes local dataset to remote storage
+- `luxonis_ml data clone <dataset_name> <new_name>` - creates a copy of an existing dataset under a new name
+- `luxonis_ml data merge <source_name> <target_name>` - merges two datasets, optionally creating a new dataset
 
 For more information, run `luxonis_ml data --help` or pass the `--help` flag to any of the above commands.
 

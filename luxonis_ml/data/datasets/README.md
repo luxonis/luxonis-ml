@@ -12,6 +12,7 @@ The `LuxonisDataset` class provides functionality for creating, managing, and in
     - [Merging Datasets](#merging-datasets)
     - [Cloning the Dataset](#cloning-the-dataset)
     - [Pulling from remote storage](#pulling-from-remote-storage)
+    - [Pushing existing local dataset to cloud](#pushing-existing-local-dataset-to-cloud)
 - [In-Depth Explanation of luxonis-ml Dataset Storage](#in-depth-explanation-of-luxonis-ml-dataset-storage)
   - [File Structure](#file-structure)
     - [Local dataset storage](#local-dataset-storage)
@@ -91,9 +92,12 @@ The annotations and metadata subfolders of the dataset are always updated, overw
 
 ### Pushing existing local dataset to cloud
 
-#### Parameters
+The `push_to_cloud()` method is used to upload a local dataset to the specified bucket storage. Depending on the update mode, it can either always overwrite existing media files or only upload missing files to the media folder of the dataset. Annotations and metadata are always uploaded.
 
-TODO !!!
+| Parameter        | Type            | Default              | Description                                                                                              |
+| ---------------- | --------------- | -------------------- | -------------------------------------------------------------------------------------------------------- |
+| `update_mode`    | `UpdateMode`    | `UpdateMode.MISSING` | Whether to always push (overwrite) the dataset’s media folder to the cloud or only upload missing files. |
+| `bucket_storage` | `BucketStorage` | Required             | The cloud storage destination to which local media files should be uploaded (e.g., GCS, S3, Azure).      |
 
 ## In-Depth Explanation of luxonis-ml Dataset Storage
 
