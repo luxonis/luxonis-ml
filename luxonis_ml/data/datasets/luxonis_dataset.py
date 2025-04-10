@@ -732,19 +732,24 @@ class LuxonisDataset(BaseDataset):
             for dir_name in ["annotations", "metadata"]:
                 _ = get_dir(self.fs, dir_name, self.local_path)
 
-            df = self._load_df_offline()
-
+            index = self._get_index(lazy=False)
             missing_media_paths = []
-            if df is not None:
+            if index is not None:
+                missing = index.filter(
+                    pl.col("original_filepath").apply(
+                        lambda path: not Path(path).exists()
+                    )
+                    & pl.col("uuid").apply(
+                        lambda uid: not (
+                            Path("local_dir")
+                            / "media"
+                            / f"{uid}{Path(str(uid)).suffix}"
+                        ).exists()
+                    )
+                )
                 missing_media_paths = [
                     f"media/{row[0]}{Path(str(row[1])).suffix}"
-                    for row in df.select(["uuid", "file"]).unique().iter_rows()
-                    if not Path(str(row[1])).exists()
-                    and not (
-                        Path("local_dir")
-                        / "media"
-                        / f"{row[0]}{Path(str(row[1])).suffix}"
-                    ).exists()
+                    for row in missing.select(["uuid", "file"]).iter_rows()
                 ]
 
             if update_mode == UpdateMode.ALL:
@@ -777,6 +782,11 @@ class LuxonisDataset(BaseDataset):
             - UpdateMode.ALL:  Always pushes and overwrites all media files in the cloud dataset.
         """
         index = self._get_index(lazy=False)
+
+        if index is None:
+            raise ValueError(
+                "Cannot push to cloud. The dataset is empty or not initialized."
+            )
 
         dataset = LuxonisDataset(
             dataset_name=self.dataset_name,

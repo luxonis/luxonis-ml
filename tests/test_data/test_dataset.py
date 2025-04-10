@@ -681,6 +681,14 @@ def test_merge_datasets(
             synced_stats = (
                 cloned_dataset1_merged_with_dataset2.get_statistics()
             )
+            synced_stats["class_distributions"][""]["boundingbox"] = sorted(
+                synced_stats["class_distributions"][""]["boundingbox"],
+                key=lambda x: x["class_name"],
+            )
+            local_stats["class_distributions"][""]["boundingbox"] = sorted(
+                local_stats["class_distributions"][""]["boundingbox"],
+                key=lambda x: x["class_name"],
+            )
             assert local_stats == synced_stats
 
         cloned_dataset1_merged_with_dataset2_stats = (
@@ -716,6 +724,14 @@ def test_merge_datasets(
                 update_mode=UpdateMode.MISSING
             )
             synced_stats = dataset1_merged_with_dataset2.get_statistics()
+            synced_stats["class_distributions"][""]["boundingbox"] = sorted(
+                synced_stats["class_distributions"][""]["boundingbox"],
+                key=lambda x: x["class_name"],
+            )
+            local_stats["class_distributions"][""]["boundingbox"] = sorted(
+                local_stats["class_distributions"][""]["boundingbox"],
+                key=lambda x: x["class_name"],
+            )
             assert local_stats == synced_stats
 
     classes = dataset1_merged_with_dataset2.get_classes()
