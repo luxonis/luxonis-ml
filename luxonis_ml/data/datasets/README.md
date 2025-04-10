@@ -103,6 +103,9 @@ The `push_to_cloud()` method is used to upload a local dataset to the specified 
 
 ### File Structure
 
+`LUXONISML_BASE_PATH` defaults to `Path.home() / "luxonis_ml"`
+and `LUXONISML_TEAM_ID` defaults to `"offline"`.
+
 **Local dataset storage**:
 
 The dataset structure is as follows:
@@ -117,15 +120,12 @@ LUXONISML_BASE_PATH / data / LUXONISML_TEAM_ID / datasets / dataset_name
 │   ...
 │   └── xxxxxxxxxx.parquet
 │
-├── media                      // Empty for local datasets
+├── media (Empty for local datasets unless images are pulled from the cloud when missing locally)
 │
 └── metadata
     ├── metadata.json
     └── splits.json
 ```
-
-Where `LUXONISML_BASE_PATH` defaults to `Path.home() / "luxonis_ml"`
-and `LUXONISML_TEAM_ID` defaults to `"offline"`.
 
 **Remote dataset storage**:
 
@@ -139,7 +139,7 @@ LUXONISML_BASE_PATH / data / LUXONISML_TEAM_ID / datasets / dataset_name
 │   ...
 │   └── xxxxxxxxxx.parquet
 │
-├── media                      // Media folder is locally empty but contains images on remote storage
+├── media
 │   ├── fe163bd9-6381-5533-9d41-c1735edf96d5.jpg
 │   ├── ge163bd9-6311-5553-9d41-d1735edf96d5.jpg
 │   ...
@@ -167,7 +167,7 @@ The parquet file content will look like:
 9  Absolute/path/to/COCO...       image    "coco"     person            0         classification                                                 {}  83c3579c-d27c-5701-8436-31a72090343f
 ```
 
-Parquet content is determined by the `generator()` function the user provides. For tasks like `instance_segmentation` or `keypoints`, either supply `instance_id`s or yield annotations for keypoints and bounding boxes together (or bounding boxes and instance segmentation masks together). This is because the order in which the generator yields data is important. Each new line corresponds to a new `instance_id`. In the example above, each instance’s annotations were yielded separately.
+Parquet content is determined by the `generator()` function provided by the user. For tasks such as `instance_segmentation` or `keypoints`, you must either supply an `instance_id` for annotations that are yielded separately but represent the same object (instance) or yield all annotations for each instance together (e.g., yield keypoints and bounding boxes together, or yield bounding boxes and instance segmentation masks together).
 
 ### Creating a Dataset Locally
 
@@ -212,7 +212,7 @@ dataset.add(generator(), batch_size=100_000_000)
 dataset.make_splits((0.8, 0.1, 0.1))
 ```
 
-A remote dataset functions similarly to a local dataset. When a remote dataset is created, the same folder structure appears locally, and the equivalent structure appears in the cloud. The media folder is empty locally but is filled with images on the remote storage, where filenames become UUIDs with the appropriate suffix.
+[A remote dataset functions similarly to a local dataset](#in-depth-explanation-of-luxonis-ml-dataset-storage). When a remote dataset is created, the same folder structure appears locally, and the equivalent structure appears in the cloud. The media folder is empty locally but is filled with images on the remote storage, where filenames become UUIDs with the appropriate suffix.
 
 **IMPORTANT:** Be careful when creating a remote dataset with the same name as an already existing local dataset, because corruption of datasets may occur if not handled properly.
 
