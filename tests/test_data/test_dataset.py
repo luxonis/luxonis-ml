@@ -1,7 +1,7 @@
 import shutil
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, NamedTuple, NoReturn, Tuple, Union
+from typing import Dict, List, NoReturn
 
 import numpy as np
 import pytest
@@ -811,23 +811,12 @@ def test_keypoints_solo(dataset_name: str, tempdir: Path):
         pass
 
 
-def test_dataset_push_pull(dataset_name: str, tempdir: Path):
-    class TestCase(NamedTuple):
-        gen_range: Tuple[int, int]
-        bucket_storage: BucketStorage
-        delete_local: bool
-        delete_remote: bool
-        splits: Union[Tuple[float, float, float], bool]
-        expected_count: int
-
-    test_cases = [
-        TestCase((0, 6), BucketStorage.LOCAL, True, True, (1, 0, 0), 6),
-        TestCase((0, 6), BucketStorage.GCS, False, False, False, 6),
-        TestCase((0, 2), BucketStorage.LOCAL, True, False, (1, 0, 0), 2),
-        TestCase((3, 9), BucketStorage.GCS, True, False, (1, 0, 0), 9),
-    ]
-
+@pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
+def test_dataset_push_pull(
+    dataset_name: str, tempdir: Path, subtests: SubTests
+):
     def generator(start: int, end: int) -> DatasetIterator:
+        """Generate sample dataset items with bounding boxes."""
         for i in range(start, end):
             img = create_image(i, tempdir)
             yield {
@@ -839,43 +828,69 @@ def test_dataset_push_pull(dataset_name: str, tempdir: Path):
                 },
             }
 
-    for case in test_cases:
-        dataset = create_dataset(
+    with subtests.test("create_initial_dataset"):
+        original_dataset = create_dataset(
             dataset_name,
-            generator(*case.gen_range),
-            bucket_storage=case.bucket_storage,
-            delete_local=case.delete_local,
-            delete_remote=case.delete_remote,
-            splits=case.splits,
+            generator(0, 3),
+            bucket_storage=BucketStorage.LOCAL,
+            delete_local=True,
+            delete_remote=True,
+            splits=(1, 0, 0),
         )
-        stats = dataset.get_statistics()
-        assert stats["class_distributions"][""]["boundingbox"] == [
-            {"count": case.expected_count, "class_name": "person"}
-        ]
-        assert (
-            sum(1 for _ in LuxonisLoader(dataset, view="train"))
-            == case.expected_count
+        original_stats = original_dataset.get_statistics()
+
+    with subtests.test("verify_dataset_overwrite"):
+        overwritten_dataset = create_dataset(
+            dataset_name,
+            generator(0, 3),
+            bucket_storage=BucketStorage.LOCAL,
+            delete_local=False,
+            delete_remote=False,
+            splits=False,
+        )
+        assert overwritten_dataset.get_statistics() == original_stats
+
+    with subtests.test("push_to_cloud"):
+        overwritten_dataset.push_to_cloud(bucket_storage=BucketStorage.GCS)
+
+        overwritten_dataset.delete_dataset(
+            delete_local=True, delete_remote=False
+        )
+        del overwritten_dataset
+
+        assert not LuxonisDataset.exists(
+            dataset_name, bucket_storage=BucketStorage.LOCAL
+        )
+        assert LuxonisDataset.exists(
+            dataset_name, bucket_storage=BucketStorage.GCS
         )
 
-    dataset = LuxonisDataset(
-        dataset_name,
-        bucket_storage=BucketStorage.GCS,
-        delete_local=True,
-        delete_remote=False,
-    )
-    loader = LuxonisLoader(
-        dataset, view="train", update_mode=UpdateMode.MISSING
-    )
-    assert sum(1 for _ in loader) == 9
+    with subtests.test("pull_from_cloud_with_local_media"):
+        cloud_dataset = LuxonisDataset(
+            dataset_name,
+            bucket_storage=BucketStorage.GCS,
+            delete_local=True,
+            delete_remote=False,
+        )
 
-    shutil.rmtree(tempdir)
-    LuxonisLoader(dataset, view="train", update_mode=UpdateMode.MISSING)
-    media_dir = (
-        dataset.base_path
-        / "data"
-        / dataset.team_id
-        / "datasets"
-        / dataset_name
-        / "media"
-    )
-    assert len(list(media_dir.glob("*.jpg"))) == 9
+        cloud_dataset.pull_from_cloud(update_mode=UpdateMode.MISSING)
+
+        assert cloud_dataset.get_statistics() == original_stats
+        assert sum(1 for _ in LuxonisLoader(cloud_dataset)) == 3
+
+    with subtests.test("pull_from_cloud_without_local_media"):
+        cloud_dataset.delete_dataset(delete_local=True, delete_remote=False)
+        shutil.rmtree(tempdir)
+        del cloud_dataset
+
+        cloud_dataset_again = LuxonisDataset(
+            dataset_name,
+            bucket_storage=BucketStorage.GCS,
+            delete_local=True,
+            delete_remote=False,
+        )
+
+        cloud_dataset_again.pull_from_cloud(update_mode=UpdateMode.MISSING)
+
+        assert cloud_dataset_again.get_statistics() == original_stats
+        assert sum(1 for _ in LuxonisLoader(cloud_dataset_again)) == 3

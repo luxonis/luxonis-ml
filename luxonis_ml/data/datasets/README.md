@@ -214,6 +214,7 @@ dataset.make_splits((0.8, 0.1, 0.1))
 
 [A remote dataset functions similarly to a local dataset](#in-depth-explanation-of-luxonis-ml-dataset-storage). When a remote dataset is created, the same folder structure appears locally, and the equivalent structure appears in the cloud. The media folder is empty locally but is filled with images on the remote storage, where filenames become UUIDs with the appropriate suffix.
 
-**IMPORTANT:** Be careful when creating a remote dataset with the same name as an already existing local dataset, because corruption of datasets may occur if not handled properly.
-
-Use `delete_local=True` and `delete_remote=True` to create a new dataset (deleting both local and remote storage) before calling `dataset.add()`, or use `dataset.push_to_cloud()` to push an existing local dataset to the cloud. To append data to an existing dataset using `dataset.add()`, keep `delete_local=False` and `delete_remote=False`. In that case, ensure both local and remote datasets are healthy. If the local dataset might be corrupted but the remote version is healthy, use `delete_local=True` and `delete_remote=False` so that the local dataset is deleted, while the remote stays intact.
+> \[!NOTE\]
+> **IMPORTANT:** Be careful when creating a remote dataset with the same name as an already existing local dataset, because corruption of datasets may occur if not handled properly.
+>
+> Use `delete_local=True` and `delete_remote=True` to create a new dataset (deleting both local and remote storage) before calling `dataset.add()`, or use `dataset.push_to_cloud()` to push an existing local dataset to the cloud. To append data to an existing dataset using `dataset.> add()`, keep `delete_local=False` and `delete_remote=False`. In that case, ensure both local and remote datasets are healthy. If the local dataset might be corrupted but the remote version is healthy, use `delete_local=True` and `delete_remote=False` so that the local dataset is > deleted, while the remote stays intact.

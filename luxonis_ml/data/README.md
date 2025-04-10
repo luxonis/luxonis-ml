@@ -295,6 +295,7 @@ The available commands are:
 - `luxonis_ml data delete <dataset_name>` - deletes the dataset
 - `luxonis_ml data export <dataset_name>` - exports the dataset to a chosen format and directory
 - `luxonis_ml data push <dataset_name>` - pushes local dataset to remote storage
+- `luxonis_ml data pull <dataset_name>` - pulls remote dataset to local storage
 - `luxonis_ml data clone <dataset_name> <new_name>` - creates a copy of an existing dataset under a new name
 - `luxonis_ml data merge <source_name> <target_name>` - merges two datasets, optionally creating a new dataset
 

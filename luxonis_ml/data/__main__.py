@@ -691,6 +691,44 @@ def push(
 
 
 @app.command()
+def pull(
+    name: DatasetNameArgument,
+    force_update: Annotated[
+        bool,
+        typer.Option(
+            ...,
+            "--force-update",
+            "-f",
+            help="Force pulling all media files, even if they already exist locally.",
+        ),
+    ] = False,
+    bucket_storage: BucketStorage = bucket_option,
+):
+    """Pull a remote dataset to local storage."""
+    if bucket_storage == BucketStorage.LOCAL:
+        print(
+            "[red]Cannot pull from LOCAL storage. Please specify a cloud source."
+        )
+        raise typer.Exit(1)
+
+    if not LuxonisDataset.exists(name, bucket_storage=bucket_storage):
+        print(
+            f"[red]Dataset '{name}' does not exist in {bucket_storage.value} storage."
+        )
+        raise typer.Exit
+
+    print(f"Pulling dataset '{name}' from {bucket_storage.value} storage...")
+
+    update_mode = UpdateMode.ALL if force_update else UpdateMode.MISSING
+    dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
+    dataset.pull_from_cloud(update_mode=update_mode)
+
+    print(
+        f"[green]Dataset '{name}' successfully pulled from {bucket_storage.value}."
+    )
+
+
+@app.command()
 def clone(
     name: DatasetNameArgument,
     new_name: Annotated[
