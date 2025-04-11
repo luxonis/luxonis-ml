@@ -445,5 +445,9 @@ class LuxonisLoader(BaseLoader):
                 uuid = ann_rows[0][7]
                 file_extension = ann_rows[0][0].rsplit(".", 1)[-1]
                 img_path = self.dataset.media_path / f"{uuid}.{file_extension}"
+                if not img_path.exists():
+                    raise FileNotFoundError(
+                        f"Cannot find image for uuid {uuid}"
+                    )
 
             self.idx_to_img_path[idx] = img_path

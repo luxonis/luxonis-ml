@@ -865,7 +865,7 @@ def test_dataset_push_pull(
             dataset_name, bucket_storage=BucketStorage.GCS
         )
 
-    with subtests.test("pull_from_cloud_with_local_media"):
+    with subtests.test("pull_from_cloud_local_media_empty"):
         cloud_dataset = LuxonisDataset(
             dataset_name,
             bucket_storage=BucketStorage.GCS,
@@ -878,7 +878,7 @@ def test_dataset_push_pull(
         assert cloud_dataset.get_statistics() == original_stats
         assert sum(1 for _ in LuxonisLoader(cloud_dataset)) == 3
 
-    with subtests.test("pull_from_cloud_without_local_media"):
+    with subtests.test("pull_from_cloud_local_media_full"):
         cloud_dataset.delete_dataset(delete_local=True, delete_remote=False)
         shutil.rmtree(tempdir)
         del cloud_dataset
@@ -894,3 +894,27 @@ def test_dataset_push_pull(
 
         assert cloud_dataset_again.get_statistics() == original_stats
         assert sum(1 for _ in LuxonisLoader(cloud_dataset_again)) == 3
+
+        cloud_dataset_again.delete_dataset(
+            delete_local=False, delete_remote=True
+        )
+
+    with subtests.test("push_to_cloud_local_media_full_loader_resync"):
+        local_dataset = LuxonisDataset(
+            dataset_name,
+            bucket_storage=BucketStorage.LOCAL,
+            delete_local=False,
+        )
+        local_dataset.push_to_cloud(bucket_storage=BucketStorage.GCS)
+        assert cloud_dataset_again.get_statistics() == original_stats
+
+        cloud_dataset = LuxonisDataset(
+            dataset_name,
+            bucket_storage=BucketStorage.GCS,
+            delete_local=True,
+            delete_remote=False,
+        )
+
+        loader = LuxonisLoader(cloud_dataset)
+        assert sum(1 for _ in loader) == 3
+        assert cloud_dataset.get_statistics() == original_stats

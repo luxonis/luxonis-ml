@@ -737,14 +737,16 @@ class LuxonisDataset(BaseDataset):
             if index is not None:
                 missing = index.filter(
                     pl.col("original_filepath").apply(
-                        lambda path: not Path(path).exists()
+                        lambda path: not Path(path).exists(),
+                        return_dtype=pl.Boolean,
                     )
                     & pl.col("uuid").apply(
                         lambda uid: not (
                             Path("local_dir")
                             / "media"
                             / f"{uid}{Path(str(uid)).suffix}"
-                        ).exists()
+                        ).exists(),
+                        return_dtype=pl.Boolean,
                     )
                 )
                 missing_media_paths = [
@@ -810,12 +812,22 @@ class LuxonisDataset(BaseDataset):
 
         missing_df = index.filter(~pl.col("uuid").is_in(bucket_uuids))
 
-        missing_uuid_dict = dict(
-            zip(
-                missing_df["original_filepath"].to_list(),
-                missing_df["uuid"].to_list(),
-            )
-        )
+        missing_uuid_dict = {}
+        for original_path, uuid in zip(
+            missing_df["original_filepath"].to_list(),
+            missing_df["uuid"].to_list(),
+        ):
+            if not Path(original_path).exists():
+                suffix = Path(original_path).suffix
+                fallback_path = self.local_path / "media" / f"{uuid}{suffix}"
+                if fallback_path.exists():
+                    missing_uuid_dict[str(fallback_path)] = uuid
+                else:
+                    raise FileNotFoundError(
+                        f"File {original_path} and {fallback_path} do not exist!"
+                    )
+            else:
+                missing_uuid_dict[original_path] = uuid
 
         for dir_name in ["annotations", "metadata"]:
             dataset.fs.put_dir(
