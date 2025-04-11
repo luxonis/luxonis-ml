@@ -238,6 +238,34 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 ...
     """
 
+    def _should_skip_augmentation(
+        self, config_item: Dict[str, Any], available_target_types: set
+    ) -> bool:
+        # Perspective issue was fixed in 1.4.19 albumentations version.
+        skip_rules = {
+            "keypoints": [
+                "Perspective",
+                "HorizontalFlip",
+                "VerticalFlip",
+                "Flip",
+            ],
+            "bboxes": ["Perspective"],
+            "instance_mask": ["Perspective"],
+        }
+        augmentation_name = config_item["name"]
+        skipped_for = [
+            target_type
+            for target_type, skip_list in skip_rules.items()
+            if target_type in available_target_types
+            and augmentation_name in skip_list
+        ]
+        if skipped_for:
+            logger.warning(
+                f"Skipping augmentation '{augmentation_name}' due to known issues for {skipped_for} target types."
+            )
+            return True
+        return False
+
     @override
     def __init__(
         self,
@@ -327,7 +355,14 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         if is_validation_pipeline:
             config = (a for a in config if a["name"] == "Normalize")
 
+        available_target_types = set(self.targets.values())
+
         for config_item in config:
+            if self._should_skip_augmentation(
+                config_item, available_target_types
+            ):
+                continue
+
             cfg = AlbumentationConfigItem(**config_item)  # type: ignore
 
             transform = self.create_transformation(cfg)
