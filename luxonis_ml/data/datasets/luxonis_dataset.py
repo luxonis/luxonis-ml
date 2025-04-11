@@ -834,7 +834,7 @@ class LuxonisDataset(BaseDataset):
                 local_paths=self.local_path / dir_name,
                 remote_dir=dir_name,
                 copy_contents=True,
-            )  # Not sure about that
+            )
 
         if update_mode == UpdateMode.ALL:
             logger.info("Force-pushing all media files...")
@@ -902,9 +902,7 @@ class LuxonisDataset(BaseDataset):
                 continue
             ann = record.annotation.array
             if self.is_remote:
-                uuid = self.fs.get_file_uuid(
-                    ann.path, local=True
-                )  # TODO: support from bucket
+                uuid = self.fs.get_file_uuid(ann.path, local=True)
                 uuid_dict[str(ann.path)] = uuid
                 ann.path = Path(uuid).with_suffix(ann.path.suffix)
             else:
@@ -913,7 +911,6 @@ class LuxonisDataset(BaseDataset):
         self.progress.remove_task(task)
         if self.is_remote:
             logger.info("Uploading arrays...")
-            # TODO: support from bucket (likely with a self.fs.copy_dir)
             self.fs.put_dir(
                 local_paths=uuid_dict.keys(),
                 remote_dir="arrays",
