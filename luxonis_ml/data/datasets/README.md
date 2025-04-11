@@ -84,7 +84,7 @@ The `clone()` method creates a complete copy of a dataset with a new name. It co
 ### Pulling from remote storage
 
 The `pull_from_cloud()` method is used to download the remote dataset locally.
-The annotations and metadata subfolders of the dataset are always updated, overwriting any existing local definitions. For media files, if `update_mode=UpdateMode.ALWAYS`, all files are overwritten in the local media folder. If `update_mode=IF_EMPTY`, only missing media files are downloaded. A file is considered missing if it does not exist locally under the path specified in the "file" column of the Parquet file and does not exist as the `media/uuid.suffix`, where the UUID is derived from the "uuid" column of the Parquet file.
+The annotations and metadata subfolders of the dataset are always updated, overwriting any existing local definitions. For media files, if `update_mode=UpdateMode.ALL`, all files are overwritten in the local media folder. If `update_mode=UpdateMode.MISSING`, only missing media files are downloaded. A file is considered missing if it does not exist locally under the path specified in the "file" column of the Parquet file and does not exist as the `media/uuid.suffix`, where the UUID is derived from the "uuid" column of the Parquet file.
 
 | Parameter     | Type         | Default              | Description                                                                                           |
 | ------------- | ------------ | -------------------- | ----------------------------------------------------------------------------------------------------- |
