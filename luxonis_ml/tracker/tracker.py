@@ -314,6 +314,22 @@ class LuxonisTracker:
             from torch.utils.tensorboard.writer import SummaryWriter
 
             log_dir = self.save_directory / "tensorboard_logs" / self.run_name
+            if self.is_sweep:
+                trial_id = 0
+                if log_dir.exists():
+                    trial_id = (
+                        max(
+                            (
+                                int(f.split("_")[-1])
+                                for f in os.listdir(log_dir)
+                                if f.startswith("trial_")
+                            ),
+                            default=0,
+                        )
+                        + 1
+                    )
+                log_dir = log_dir / f"trial_{trial_id}"
+
             self._experiment["tensorboard"] = SummaryWriter(log_dir=log_dir)
 
         if self.is_wandb and "wandb" not in self._experiment:
