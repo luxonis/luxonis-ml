@@ -249,7 +249,10 @@ class LuxonisLoader(BaseLoader):
         self, img: np.ndarray, labels: Labels
     ) -> LoaderOutput:
         for task_name, task_types in self.dataset.get_tasks().items():
-            if task_name not in self.filter_task_names:
+            if (
+                self.filter_task_names is not None
+                and task_name not in self.filter_task_names
+            ):
                 continue
             for task_type in task_types:
                 task = f"{task_name}/{task_type}"
