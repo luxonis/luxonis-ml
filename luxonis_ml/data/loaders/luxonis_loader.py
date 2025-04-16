@@ -7,6 +7,7 @@ from typing import Dict, List, Literal, Optional, Tuple, Union, cast
 
 import cv2
 import numpy as np
+import polars as pl
 import yaml
 from loguru import logger
 from typing_extensions import override
@@ -52,6 +53,7 @@ class LuxonisLoader(BaseLoader):
         update_mode: Union[
             UpdateMode, Literal["always", "if_empty"]
         ] = UpdateMode.ALWAYS,
+        filter_task_names: Optional[List[str]] = None,
     ) -> None:
         """A loader class used for loading data from L{LuxonisDataset}.
 
@@ -107,6 +109,11 @@ class LuxonisLoader(BaseLoader):
         @param update_mode: Enum that determines the sync mode:
             - UpdateMode.ALWAYS: Force a fresh download
             - UpdateMode.IF_EMPTY: Skip downloading if local data exists
+
+        @type filter_task_names: Optional[List[str]]
+        @param filter_task_names: List of task names to filter the dataset by.
+            Only tasks in this list will be loaded. If C{None}, all tasks will be loaded.
+            Defaults to C{None}.
         """
 
         self.exclude_empty_annotations = exclude_empty_annotations
@@ -117,6 +124,7 @@ class LuxonisLoader(BaseLoader):
         self.dataset = dataset
         self.sync_mode = self.dataset.is_remote
         self.keep_categorical_as_strings = keep_categorical_as_strings
+        self.filter_task_names = filter_task_names
 
         if self.sync_mode:
             self.dataset.sync_from_cloud(update_mode=UpdateMode(update_mode))
@@ -126,14 +134,27 @@ class LuxonisLoader(BaseLoader):
         self.view = view
 
         self.df = self.dataset._load_df_offline(raise_when_empty=True)
+        self.classes = self.dataset.get_classes()
+
+        if self.filter_task_names is not None:
+            self.df = self.df.filter(
+                pl.col("task_name").is_in(self.filter_task_names)
+            )
+            self.classes = {
+                task_name: self.classes[task_name]
+                for task_name in self.filter_task_names
+                if task_name in self.classes
+            }
 
         if not self.dataset.is_remote:
             file_index = self.dataset._get_file_index()
             if file_index is None:  # pragma: no cover
                 raise FileNotFoundError("Cannot find file index")
+            file_index = file_index.filter(
+                pl.col("uuid").is_in(self.df["uuid"])
+            )
             self.df = self.df.join(file_index, on="uuid").drop("file_right")
 
-        self.classes = self.dataset.get_classes()
         self.instances: List[str] = []
         splits_path = self.dataset.metadata_path / "splits.json"
         if not splits_path.exists():
@@ -228,6 +249,8 @@ class LuxonisLoader(BaseLoader):
         self, img: np.ndarray, labels: Labels
     ) -> LoaderOutput:
         for task_name, task_types in self.dataset.get_tasks().items():
+            if task_name not in self.filter_task_names:
+                continue
             for task_type in task_types:
                 task = f"{task_name}/{task_type}"
                 if task not in labels:
@@ -413,15 +436,21 @@ class LuxonisLoader(BaseLoader):
         if height is None or width is None:
             return None
 
+        dataset_tasks = self.dataset.get_tasks()
+
         targets = {
             f"{task_name}/{task_type}": task_type
-            for task_name, task_types in self.dataset.get_tasks().items()
+            for task_name, task_types in dataset_tasks.items()
+            if self.filter_task_names is None
+            or task_name in self.filter_task_names
             for task_type in task_types
         }
 
         n_classes = {
             f"{task_name}/{task_type}": self.dataset.get_n_classes()[task_name]
-            for task_name, task_types in self.dataset.get_tasks().items()
+            for task_name, task_types in dataset_tasks.items()
+            if self.filter_task_names is None
+            or task_name in self.filter_task_names
             for task_type in task_types
         }
 
