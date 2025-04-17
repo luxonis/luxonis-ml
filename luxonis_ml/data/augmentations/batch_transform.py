@@ -78,10 +78,11 @@ class BatchTransform(ABC, A.DualTransform):
         return params
 
     @override
-    def update_params_shape(
+    def update_transform_params(
         self, params: Dict[str, Any], data: Dict[str, Any]
     ) -> Dict[str, Any]:
-        shape = data["image"][0].shape
-        params["shape"] = shape
-        params.update({"cols": shape[1], "rows": shape[0]})
+        image_batch = data["image"]
+        params["image_shapes"] = [
+            tuple(image.shape[:2]) for image in image_batch
+        ]
         return params
