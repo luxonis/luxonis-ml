@@ -158,8 +158,6 @@ def draw_dashed_rectangle(
 ) -> None:
     """Draws a dashed rectangle on the image.
 
-    Adheres to OpenCV's rectangle drawing convention.
-
     @type image: np.ndarray
     @param image: The image to draw on.
     @type pt1: Tuple[int, int]
@@ -335,8 +333,6 @@ def draw_bbox_label(
     """Draws the classname label at the top-left corner of the bounding
     box.
 
-    Adheres to OpenCV's rectangle drawing convention.
-
     @type image: np.ndarray
     @param image: The image to draw on.
     @type class_name: str
@@ -384,8 +380,6 @@ def draw_keypoint_label(
     font_scale: float,
 ) -> None:
     """Draws a text label next to a keypoint on the image.
-
-    Adheres to OpenCV's rectangle drawing convention.
 
     @type image: np.ndarray
     @param image: The image to draw on.
