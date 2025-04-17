@@ -327,6 +327,96 @@ def concat_images(
     return output
 
 
+def draw_bbox_label(
+    image: np.ndarray,
+    class_name: str,
+    box: np.ndarray,
+    color: Tuple[int, int, int],
+    font_scale: int,
+) -> None:
+    """Draws the classname label at the top-left corner of the bounding
+    box.
+
+    Adheres to OpenCV's rectangle drawing convention.
+
+    @type image: np.ndarray
+    @param image: The image to draw on.
+    @type class_name: str
+    @param class_name: The name of the class.
+    @type box: np.ndarray
+    @param box: The bounding box coordinates. The format is [class_id,
+        x1, y1, x2, y2], where (x1, y1) is the top-left corner and (x2,
+        y2) is the bottom-right corner.
+    @type color: Tuple[int, int, int]
+    @param color: The color of the label.
+    @type font_scale: int
+    @param font_scale: The scale of the font.
+    """
+    text = class_name
+
+    text_size = cv2.getTextSize(text, font, font_scale, 1)[0]
+    text_x = box[1]
+    text_y = max(box[2] - 5, text_size[1])
+
+    cv2.rectangle(
+        image,
+        (text_x - 2, text_y - text_size[1] - 2),
+        (text_x + text_size[0] + 2, text_y + 2),
+        color,
+        -1,
+    )
+    cv2.putText(
+        image,
+        text,
+        (text_x, text_y),
+        font,
+        font_scale,
+        (255, 255, 255),
+        1,
+        cv2.LINE_AA,
+    )
+
+
+def draw_keypoint_label(
+    image: np.ndarray,
+    text: str,
+    point: Tuple[int, int],
+    size: int,
+    color: Tuple[int, int, int],
+    font_scale: float,
+) -> None:
+    """Draws a text label next to a keypoint on the image.
+
+    Adheres to OpenCV's rectangle drawing convention.
+
+    @type image: np.ndarray
+    @param image: The image to draw on.
+    @type text: str
+    @param text: The text to draw.
+    @type point: Tuple[int, int]
+    @param point: The coordinates of the keypoint.
+    @type size: int
+    @param size: The size of the keypoint.
+    @type color: Tuple[int, int, int]
+    @param color: The color of the text.
+    @type font_scale: float
+    """
+    text_size = cv2.getTextSize(text, font, font_scale, 1)[0]
+    text_x = point[0] + size + 2
+    text_y = point[1] + text_size[1] // 2
+
+    cv2.putText(
+        image,
+        text,
+        (text_x, text_y),
+        font,
+        font_scale,
+        color,
+        1,
+        cv2.LINE_AA,
+    )
+
+
 def visualize(
     image: np.ndarray,
     labels: Labels,
@@ -352,6 +442,11 @@ def visualize(
     h, w, _ = image.shape
     images = {"image": image}
     mappings = {task: bidict(c) for task, c in classes.items()}
+
+    min_dimension = min(h, w)
+    font_scale = max(0.25, min(1.1, 0.4 * min_dimension / 500))
+    small_kp_size = max(2, round(0.002 * min_dimension))
+    large_kp_size = max(4, round(0.004 * min_dimension))
 
     def create_mask(
         image: np.ndarray, arr: np.ndarray, task_name: str, is_instance: bool
@@ -412,7 +507,8 @@ def visualize(
         for box in arr:
             class_id = int(box[0])
             bbox_classes[task_name].append(class_id)
-            color = str_to_rgb(mappings[task_name].inverse[class_id])
+            class_name = mappings[task_name].inverse[class_id]
+            color = str_to_rgb(class_name)
             draw_function(
                 curr_image,
                 (box[1], box[2]),
@@ -420,6 +516,7 @@ def visualize(
                 color,
                 thickness=2,
             )
+            draw_bbox_label(curr_image, class_name, box, color, font_scale)
         images[image_name] = curr_image
 
     for task, arr in task_type_iterator(labels, "instance_segmentation"):
@@ -437,9 +534,6 @@ def visualize(
 
         task_classes = mappings[task_name]
 
-        min_dimension = min(h, w)
-        font_scale = max(0.25, min(1.1, 0.4 * min_dimension / 500))
-
         for i, kp in enumerate(arr):
             kp = kp.reshape(-1, 3)
             if len(bbox_classes[task_name]) > i:
@@ -456,10 +550,10 @@ def visualize(
 
                 if visibility == 2:
                     draw_function = cv2.circle
-                    size = 2
+                    size = small_kp_size
                 else:
                     draw_function = draw_cross
-                    size = 5
+                    size = large_kp_size
 
                 point = (int(k[0] * w), int(k[1] * h))
                 draw_function(
@@ -471,20 +565,10 @@ def visualize(
                 )
 
                 text = str(j)
-                text_size = cv2.getTextSize(text, font, font_scale, 1)[0]
-                text_x = point[0] + size + 2
-                text_y = point[1] + text_size[1] // 2
-
-                cv2.putText(
-                    curr_image,
-                    text,
-                    (text_x, text_y),
-                    font,
-                    font_scale,
-                    color,
-                    1,
-                    cv2.LINE_AA,
+                draw_keypoint_label(
+                    curr_image, text, point, size, color, font_scale
                 )
+
         images[image_name] = curr_image
 
     return concat_images(images)
