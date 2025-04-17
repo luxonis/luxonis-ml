@@ -254,8 +254,6 @@ def create_text_image(
     """
     img = np.full((height, width, 3), resolve_color(bg_color), dtype=np.uint8)
 
-    font = cv2.FONT_HERSHEY_SIMPLEX
-
     text_size = cv2.getTextSize(text, font, font_size, 1)[0]
 
     text_x = (width - text_size[0]) // 2
@@ -332,7 +330,7 @@ def draw_bbox_label(
     class_name: str,
     box: np.ndarray,
     color: Tuple[int, int, int],
-    font_scale: int,
+    font_scale: float,
 ) -> None:
     """Draws the classname label at the top-left corner of the bounding
     box.
@@ -349,7 +347,7 @@ def draw_bbox_label(
         y2) is the bottom-right corner.
     @type color: Tuple[int, int, int]
     @param color: The color of the label.
-    @type font_scale: int
+    @type font_scale: float
     @param font_scale: The scale of the font.
     """
     text = class_name
