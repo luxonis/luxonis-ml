@@ -134,7 +134,7 @@ class MixUp(BatchTransform):
             mask2 = self.resize(mask2, image_shapes, "mask")
             if mask2.ndim == 2:
                 mask2 = mask2[..., None]
-
+            mask_batch[1] = mask2
         if mask1.size == 0:
             return mask2
         if mask2.size == 0:
@@ -222,13 +222,16 @@ class MixUp(BatchTransform):
 
         @param params: Dictionary containing parameters.
         @type params: Dict[str, Any]
+        @param data: Dictionary containing data.
+        @type data: Dict[str, Any]
         @return: Dictionary containing parameters dependent on the
             targets.
         @rtype: Dict[str, Any]
         """
-        params = super().get_params_dependent_on_data(params, data)
-        image_batch = data["image"]
-        return {"image_shapes": [image.shape[:2] for image in image_batch]}
+        return {
+            "cols": params["image_shapes"][0][0],
+            "rows": params["image_shapes"][0][1],
+        }
 
     def resize(
         self,

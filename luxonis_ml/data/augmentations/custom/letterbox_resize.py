@@ -59,35 +59,31 @@ class LetterboxResize(A.DualTransform):
         return targets
 
     @override
-    def update_params(
-        self, params: Dict[str, Any], **kwargs
+    def get_params_dependent_on_data(
+        self, params: Dict[str, Any], data: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Updates augmentation parameters with the necessary metadata.
 
         @param params: The existing augmentation parameters dictionary.
         @type params: Dict[str, Any]
-        @param kwargs: Additional keyword arguments to add the
-            parameters.
-        @type kwargs: Any
-        @return: Updated dictionary containing the merged parameters.
+        @param data: The data dictionary.
+        @type data: Dict[str, Any]
+        @return: Additional parameters for the augmentation.
         @rtype: Dict[str, Any]
         """
+        rows, cols, _ = params["shape"]
 
-        params = super().update_params(params, **kwargs)
         pad_top, pad_bottom, pad_left, pad_right = self.compute_padding(
-            params["rows"], params["cols"], self.height, self.width
+            cols, rows, self.height, self.width
         )
-
-        params.update(
-            {
-                "pad_top": pad_top,
-                "pad_bottom": pad_bottom,
-                "pad_left": pad_left,
-                "pad_right": pad_right,
-            }
-        )
-
-        return params
+        return {
+            "pad_top": pad_top,
+            "pad_bottom": pad_bottom,
+            "pad_left": pad_left,
+            "pad_right": pad_right,
+            "rows": rows,
+            "cols": cols,
+        }
 
     @staticmethod
     def compute_padding(
@@ -157,7 +153,7 @@ class LetterboxResize(A.DualTransform):
     @override
     def apply_to_mask(
         self,
-        img: np.ndarray,
+        mask: np.ndarray,
         pad_top: int,
         pad_bottom: int,
         pad_left: int,
@@ -166,7 +162,7 @@ class LetterboxResize(A.DualTransform):
     ) -> np.ndarray:
         """Applies letterbox augmentation to the input mask."""
         return self._apply_to_image_data(
-            img,
+            mask,
             pad_top,
             pad_bottom,
             pad_left,

@@ -249,8 +249,6 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 "VerticalFlip",
                 "Flip",
             ],
-            "bboxes": ["Perspective"],
-            "instance_mask": ["Perspective"],
         }
         augmentation_name = config_item["name"]
         skipped_for = [
@@ -594,8 +592,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 out_labels[task] = postprocess_mask(array)
 
             elif target_type == "instance_mask":
-                mask = postprocess_mask(array)
-                out_labels[task] = mask[bbox_ordering]
+                masks = postprocess_mask(array)
+                out_labels[task] = masks[bbox_ordering]
 
             elif target_type == "keypoints":
                 out_labels[task] = postprocess_keypoints(

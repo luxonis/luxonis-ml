@@ -64,6 +64,28 @@ class Mosaic4(BatchTransform):
         self.value = value
         self.mask_value = mask_value
 
+    @override
+    def get_params_dependent_on_data(
+        self, params: Dict[str, Any], data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Get parameters dependent on the targets.
+
+        @param params: Dictionary containing parameters.
+        @type params: Dict[str, Any]
+        @param data: Dictionary containing data.
+        @type data: Dict[str, Any]
+        @return: Dictionary containing parameters dependent on the
+            targets.
+        @rtype: Dict[str, Any]
+        """
+        x_crop, y_crop = self.generate_random_crop_center()
+        return {
+            "x_crop": x_crop,
+            "y_crop": y_crop,
+            "rows": self.out_height,
+            "cols": self.out_width,
+        }
+
     def generate_random_crop_center(self) -> Tuple[int, int]:
         """Generate a random crop center within the bounds of the mosaic
         image size."""
@@ -241,7 +263,7 @@ class Mosaic4(BatchTransform):
             zip(keypoints_batch, image_shapes)
         ):
             if keypoints.size == 0:
-                keypoints = np.zeros((0, 5), dtype=keypoints.dtype)
+                keypoints = np.zeros((0, 6), dtype=keypoints.dtype)
 
             new_keypoint = apply_mosaic4_to_keypoints(
                 keypoints,
@@ -255,27 +277,6 @@ class Mosaic4(BatchTransform):
             )
             new_keypoints.append(new_keypoint)
         return np.concatenate(new_keypoints, axis=0)
-
-    @override
-    def get_params_dependent_on_data(
-        self, params: Dict[str, Any], data: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Get parameters dependent on the targets.
-
-        @type params: Dict[str, Any]
-        @param params: Dictionary containing parameters.
-        @rtype: Dict[str, Any]
-        @return: Dictionary containing parameters dependent on the
-            targets.
-        """
-        additional_params = super().get_params_dependent_on_data(params, data)
-        image_batch = data["image"]
-        image_shapes = [tuple(image.shape[:2]) for image in image_batch]
-        x_crop, y_crop = self.generate_random_crop_center()
-        additional_params.update(
-            {"image_shapes": image_shapes, "x_crop": x_crop, "y_crop": y_crop}
-        )
-        return additional_params
 
 
 def compute_mosaic4_corners(
