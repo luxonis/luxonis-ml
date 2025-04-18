@@ -150,7 +150,14 @@ def find_duplicates(df: pl.LazyFrame) -> Dict[str, List[Dict[str, Any]]]:
     }
 
     # Find duplicate UUIDs
-    uuid_file_pairs = df.select("uuid", "file").unique().collect()
+    uuid_file_pairs = (
+        df.select(
+            pl.col("uuid").map_elements(lambda x: x, return_dtype=pl.Utf8),
+            pl.col("file").map_elements(lambda x: x, return_dtype=pl.Utf8),
+        )
+        .unique()
+        .collect()
+    )
 
     duplicates = (
         uuid_file_pairs.group_by("uuid")

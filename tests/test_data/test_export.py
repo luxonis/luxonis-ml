@@ -18,7 +18,7 @@ def test_dir_parser(
     dataset = LuxonisParser(
         url,
         dataset_name=dataset_name,
-        delete_existing=True,
+        delete_local=True,
         save_dir=tempdir,
     ).parse()
 
@@ -46,7 +46,7 @@ def test_dir_parser(
         str(zip),
         dataset_type=DatasetType.NATIVE,
         dataset_name=dataset_name,
-        delete_existing=True,
+        delete_local=True,
         save_dir=tempdir,
     ).parse()
     imported_metadata = exported_dataset._metadata.model_dump()

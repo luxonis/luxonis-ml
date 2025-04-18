@@ -231,8 +231,6 @@ class COCOParser(BaseParser):
                 if not file.exists():
                     continue
 
-                yield {"file": file}
-
                 img_anns = ann_dict.get(img_id, [])
                 img_h = img["height"]
                 img_w = img["width"]

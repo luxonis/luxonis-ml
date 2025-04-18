@@ -73,7 +73,7 @@ def pytest_sessionfinish(session: Session, exitstatus: int) -> None:
     for ds_name in CREATED_DATASETS:
         LuxonisDataset(
             ds_name, bucket_storage=BucketStorage.GCS
-        ).delete_dataset(delete_remote=True)
+        ).delete_dataset(delete_remote=True, delete_local=True)
 
 
 @pytest.fixture(scope="session")

@@ -1,3 +1,4 @@
+import shutil
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, NoReturn
@@ -13,6 +14,7 @@ from luxonis_ml.data import (
     LuxonisLoader,
     LuxonisParser,
     LuxonisSource,
+    UpdateMode,
 )
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.data.utils.task_utils import get_task_type
@@ -37,7 +39,7 @@ def test_dataset(
             save_dir=tempdir,
             dataset_type=DatasetType.COCO,
             bucket_storage=bucket_storage,
-            delete_existing=True,
+            delete_local=True,
             delete_remote=True,
             task_name="coco",
         ).parse()
@@ -126,7 +128,7 @@ def test_dataset(
                 assert f"coco/{task}" in labels
 
     with subtests.test("test_delete"):
-        dataset.delete_dataset(delete_remote=True)
+        dataset.delete_dataset(delete_remote=True, delete_local=True)
         assert not LuxonisDataset.exists(
             dataset_name, bucket_storage=bucket_storage
         )
@@ -157,7 +159,7 @@ def test_loader_iterator(storage_url: str, tempdir: Path):
         dataset_name="_iterator_test",
         save_dir=tempdir,
         dataset_type=DatasetType.COCO,
-        delete_existing=True,
+        delete_local=True,
         task_name="coco",
     ).parse()
     loader = LuxonisLoader(dataset)
@@ -586,6 +588,17 @@ def test_clone_dataset(
     )
 
     cloned_dataset = dataset.clone(new_dataset_name=dataset_name + "_cloned")
+    if bucket_storage == BucketStorage.GCS:  # test GCS push/pull
+        local_stats = cloned_dataset.get_statistics()
+        cloned_dataset = LuxonisDataset(
+            cloned_dataset.dataset_name,
+            bucket_storage=bucket_storage,
+            delete_local=True,
+            delete_remote=False,
+        )
+        cloned_dataset.pull_from_cloud(update_mode=UpdateMode.MISSING)
+        synced_stats = cloned_dataset.get_statistics()
+        assert local_stats == synced_stats
 
     assert cloned_dataset.get_splits() == dataset.get_splits()
     assert cloned_dataset.get_classes() == dataset.get_classes()
@@ -653,6 +666,31 @@ def test_merge_datasets(
         cloned_dataset1_merged_with_dataset2 = cloned_dataset1.merge_with(
             dataset2, inplace=True
         )
+
+        if bucket_storage == BucketStorage.GCS:  # test GCS push/pull
+            local_stats = cloned_dataset1_merged_with_dataset2.get_statistics()
+            cloned_dataset1_merged_with_dataset2 = LuxonisDataset(
+                cloned_dataset1_merged_with_dataset2.dataset_name,
+                bucket_storage=bucket_storage,
+                delete_local=True,
+                delete_remote=False,
+            )
+            cloned_dataset1_merged_with_dataset2.pull_from_cloud(
+                update_mode=UpdateMode.MISSING
+            )
+            synced_stats = (
+                cloned_dataset1_merged_with_dataset2.get_statistics()
+            )
+            synced_stats["class_distributions"][""]["boundingbox"] = sorted(
+                synced_stats["class_distributions"][""]["boundingbox"],
+                key=lambda x: x["class_name"],
+            )
+            local_stats["class_distributions"][""]["boundingbox"] = sorted(
+                local_stats["class_distributions"][""]["boundingbox"],
+                key=lambda x: x["class_name"],
+            )
+            assert local_stats == synced_stats
+
         cloned_dataset1_merged_with_dataset2_stats = (
             cloned_dataset1_merged_with_dataset2.get_statistics()
         )
@@ -673,6 +711,28 @@ def test_merge_datasets(
             inplace=False,
             new_dataset_name=f"{dataset1_name}_{dataset2_name}_merged",
         )
+
+        if bucket_storage == BucketStorage.GCS:  # test GCS push/pull
+            local_stats = dataset1_merged_with_dataset2.get_statistics()
+            dataset1_merged_with_dataset2 = LuxonisDataset(
+                dataset1_merged_with_dataset2.dataset_name,
+                bucket_storage=bucket_storage,
+                delete_local=True,
+                delete_remote=False,
+            )
+            dataset1_merged_with_dataset2.pull_from_cloud(
+                update_mode=UpdateMode.MISSING
+            )
+            synced_stats = dataset1_merged_with_dataset2.get_statistics()
+            synced_stats["class_distributions"][""]["boundingbox"] = sorted(
+                synced_stats["class_distributions"][""]["boundingbox"],
+                key=lambda x: x["class_name"],
+            )
+            local_stats["class_distributions"][""]["boundingbox"] = sorted(
+                local_stats["class_distributions"][""]["boundingbox"],
+                key=lambda x: x["class_name"],
+            )
+            assert local_stats == synced_stats
 
     classes = dataset1_merged_with_dataset2.get_classes()
     assert set(classes[""]) == {"person", "dog"}
@@ -749,3 +809,112 @@ def test_keypoints_solo(dataset_name: str, tempdir: Path):
     )
     for _ in loader:
         pass
+
+
+@pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
+def test_dataset_push_pull(
+    dataset_name: str, tempdir: Path, subtests: SubTests
+):
+    def generator(start: int, end: int) -> DatasetIterator:
+        """Generate sample dataset items with bounding boxes."""
+        for i in range(start, end):
+            img = create_image(i, tempdir)
+            yield {
+                "file": img,
+                "annotation": {
+                    "class": "person",
+                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
+                    "instance_id": i,
+                },
+            }
+
+    with subtests.test("create_initial_dataset"):
+        original_dataset = create_dataset(
+            dataset_name,
+            generator(0, 3),
+            bucket_storage=BucketStorage.LOCAL,
+            delete_local=True,
+            delete_remote=True,
+            splits=(1, 0, 0),
+        )
+        original_stats = original_dataset.get_statistics()
+
+    with subtests.test("verify_dataset_overwrite"):
+        overwritten_dataset = create_dataset(
+            dataset_name,
+            generator(0, 3),
+            bucket_storage=BucketStorage.LOCAL,
+            delete_local=False,
+            delete_remote=False,
+            splits=False,
+        )
+        assert overwritten_dataset.get_statistics() == original_stats
+
+    with subtests.test("push_to_cloud"):
+        overwritten_dataset.push_to_cloud(bucket_storage=BucketStorage.GCS)
+
+        overwritten_dataset.delete_dataset(
+            delete_local=True, delete_remote=False
+        )
+        del overwritten_dataset
+
+        assert not LuxonisDataset.exists(
+            dataset_name, bucket_storage=BucketStorage.LOCAL
+        )
+        assert LuxonisDataset.exists(
+            dataset_name, bucket_storage=BucketStorage.GCS
+        )
+
+    with subtests.test("pull_from_cloud_local_media_empty"):
+        cloud_dataset = LuxonisDataset(
+            dataset_name,
+            bucket_storage=BucketStorage.GCS,
+            delete_local=True,
+            delete_remote=False,
+        )
+
+        cloud_dataset.pull_from_cloud(update_mode=UpdateMode.MISSING)
+
+        assert cloud_dataset.get_statistics() == original_stats
+        assert sum(1 for _ in LuxonisLoader(cloud_dataset)) == 3
+
+    with subtests.test("pull_from_cloud_local_media_full"):
+        cloud_dataset.delete_dataset(delete_local=True, delete_remote=False)
+        shutil.rmtree(tempdir)
+        del cloud_dataset
+
+        cloud_dataset_again = LuxonisDataset(
+            dataset_name,
+            bucket_storage=BucketStorage.GCS,
+            delete_local=True,
+            delete_remote=False,
+        )
+
+        cloud_dataset_again.pull_from_cloud(update_mode=UpdateMode.MISSING)
+
+        assert cloud_dataset_again.get_statistics() == original_stats
+        assert sum(1 for _ in LuxonisLoader(cloud_dataset_again)) == 3
+
+        cloud_dataset_again.delete_dataset(
+            delete_local=False, delete_remote=True
+        )
+
+    with subtests.test("push_to_cloud_local_media_full_loader_resync"):
+        local_dataset = LuxonisDataset(
+            dataset_name,
+            bucket_storage=BucketStorage.LOCAL,
+            delete_local=False,
+        )
+        local_dataset.push_to_cloud(bucket_storage=BucketStorage.GCS)
+        assert cloud_dataset_again.get_statistics() == original_stats
+
+        cloud_dataset = LuxonisDataset(
+            dataset_name,
+            bucket_storage=BucketStorage.GCS,
+            delete_local=True,
+            delete_remote=False,
+        )
+
+        loader = LuxonisLoader(cloud_dataset)
+        assert sum(1 for _ in loader) == 3
+        assert cloud_dataset.get_statistics() == original_stats

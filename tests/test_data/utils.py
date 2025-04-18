@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Dict, Set, Union
+from typing import Dict, Set, Tuple, Union
 
 import cv2
 import numpy as np
@@ -41,13 +41,15 @@ def create_dataset(
     generator: DatasetIterator,
     bucket_storage: BucketStorage = BucketStorage.LOCAL,
     *,
-    splits: Union[bool, Dict[str, float]] = True,
+    splits: Union[bool, Dict[str, float], Tuple] = True,
+    delete_local: bool = True,
+    delete_remote: bool = True,
     **kwargs,
 ) -> LuxonisDataset:
     dataset = LuxonisDataset(
         dataset_name,
-        delete_existing=True,
-        delete_remote=True,
+        delete_local=delete_local,
+        delete_remote=delete_remote,
         bucket_storage=bucket_storage,
         **kwargs,
     ).add(generator)

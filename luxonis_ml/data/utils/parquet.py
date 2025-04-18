@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Optional, TypedDict
+from typing import Optional, Set, TypedDict
 
 import polars as pl
 
@@ -79,6 +79,18 @@ class ParquetFileManager:
             self.num += 1
             self.current_file = self._generate_filename(self.num)
             self._read()
+
+    def remove_duplicate_uuids(self, overwrite_uuids: Set[str]) -> None:
+        self._flush()
+
+        for parquet_file in self.dir.glob("*.parquet"):
+            if parquet_file.is_file():
+                df = pl.read_parquet(parquet_file)
+                df = df.filter(~pl.col("uuid").is_in(list(overwrite_uuids)))
+                parquet_file.unlink()
+                df.write_parquet(parquet_file)
+
+        self._read()
 
     def _flush(self) -> None:
         """Writes buffered data to parquet."""

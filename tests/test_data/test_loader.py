@@ -236,7 +236,7 @@ def test_edge_cases(tempdir: Path):
 
     dataset = LuxonisDataset(
         "test_edge_cases",
-        delete_existing=True,
+        delete_local=True,
         delete_remote=True,
         bucket_storage=BucketStorage.LOCAL,
     ).add(generator())
@@ -337,7 +337,7 @@ def test_dataset_reproducibility(storage_url: str, tempdir: Path):
                 dataset_name="_augmentation_reproducibility",
                 save_dir=tempdir,
                 dataset_type=DatasetType.COCO,
-                delete_existing=True,
+                delete_local=True,
             ).parse()
             return LuxonisLoader(
                 dataset,
