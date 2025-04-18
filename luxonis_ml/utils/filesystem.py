@@ -2,7 +2,7 @@ import os.path as osp
 import subprocess
 import sys
 import uuid
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from enum import Enum
 from importlib.util import find_spec
 from io import BytesIO
@@ -23,6 +23,7 @@ from typing import (
 
 import fsspec
 from loguru import logger
+from tqdm import tqdm
 from typeguard import typechecked
 
 from luxonis_ml.typing import PathType, PosixPathType
@@ -276,6 +277,7 @@ class LuxonisFileSystem:
                 )
             else:
                 upload_dict = {}
+                futures = []
                 with ThreadPoolExecutor() as executor:
                     for local_path in local_paths:
                         local_path = Path(local_path)
@@ -287,7 +289,17 @@ class LuxonisFileSystem:
                             basename = Path(local_path).name
                         remote_path = str(PurePosixPath(remote_dir) / basename)
                         upload_dict[str(local_path)] = remote_path
-                        executor.submit(self.put_file, local_path, remote_path)
+                        futures.append(
+                            executor.submit(
+                                self.put_file, local_path, remote_path
+                            )
+                        )
+                    for _ in tqdm(
+                        as_completed(futures),
+                        total=len(futures),
+                        desc="Uploading files",
+                    ):
+                        pass
                 return upload_dict
 
     def put_bytes(
