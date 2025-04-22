@@ -4,24 +4,12 @@ import os
 import shutil
 import zipfile
 from collections import defaultdict
+from collections.abc import Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from functools import cached_property
 from pathlib import Path, PurePosixPath
-from typing import (
-    Any,
-    Dict,
-    Iterable,
-    List,
-    Literal,
-    Mapping,
-    Optional,
-    Sequence,
-    Set,
-    Tuple,
-    Union,
-    overload,
-)
+from typing import Any, Literal, overload
 
 import numpy as np
 import polars as pl
@@ -53,11 +41,7 @@ from luxonis_ml.utils import (
     make_progress_bar,
 )
 
-from .annotation import (
-    Category,
-    DatasetRecord,
-    Detection,
-)
+from .annotation import Category, DatasetRecord, Detection
 from .base_dataset import BaseDataset, DatasetIterator
 from .metadata import Metadata
 from .migration import migrate_dataframe, migrate_metadata
@@ -69,13 +53,11 @@ class LuxonisDataset(BaseDataset):
     def __init__(
         self,
         dataset_name: str,
-        team_id: Optional[str] = None,
-        bucket_type: Union[
-            BucketType, Literal["internal", "external"]
-        ] = BucketType.INTERNAL,
-        bucket_storage: Union[
-            BucketStorage, Literal["local", "gcs", "s3", "azure"]
-        ] = BucketStorage.LOCAL,
+        team_id: str | None = None,
+        bucket_type: BucketType
+        | Literal["internal", "external"] = BucketType.INTERNAL,
+        bucket_storage: BucketStorage
+        | Literal["local", "gcs", "s3", "azure"] = BucketStorage.LOCAL,
         *,
         delete_local: bool = False,
         delete_remote: bool = False,
@@ -344,7 +326,7 @@ class LuxonisDataset(BaseDataset):
         self,
         other: "LuxonisDataset",
         inplace: bool = True,
-        new_dataset_name: Optional[str] = None,
+        new_dataset_name: str | None = None,
     ) -> "LuxonisDataset":
         """Merge all data from `other` LuxonisDataset into the current
         dataset (in-place or in a new dataset).
@@ -415,15 +397,15 @@ class LuxonisDataset(BaseDataset):
 
         return target_dataset
 
-    def _load_splits(self, path: Path) -> Dict[str, List[str]]:
+    def _load_splits(self, path: Path) -> dict[str, list[str]]:
         splits_path = path / "splits.json"
         with open(splits_path) as f:
             return json.load(f)
 
     def _merge_splits(
         self,
-        splits_self: Dict[str, List[str]],
-        splits_other: Dict[str, List[str]],
+        splits_self: dict[str, list[str]],
+        splits_other: dict[str, list[str]],
     ) -> None:
         for split_name, uuids_other in splits_other.items():
             if split_name not in splits_self:
@@ -431,7 +413,7 @@ class LuxonisDataset(BaseDataset):
             combined_uuids = set(splits_self[split_name]).union(uuids_other)
             splits_self[split_name] = list(combined_uuids)
 
-    def _save_splits(self, splits: Dict[str, List[str]]) -> None:
+    def _save_splits(self, splits: dict[str, list[str]]) -> None:
         splits_path_self = self.metadata_path / "splits.json"
         with open(splits_path_self, "w") as f:
             json.dump(splits, f, indent=4)
@@ -442,7 +424,7 @@ class LuxonisDataset(BaseDataset):
         lazy: Literal[False] = ...,
         raise_when_empty: Literal[False] = ...,
         attempt_migration: bool = ...,
-    ) -> Optional[pl.DataFrame]: ...
+    ) -> pl.DataFrame | None: ...
 
     @overload
     def _load_df_offline(
@@ -458,7 +440,7 @@ class LuxonisDataset(BaseDataset):
         lazy: Literal[True] = ...,
         raise_when_empty: Literal[False] = ...,
         attempt_migration: bool = ...,
-    ) -> Optional[pl.LazyFrame]: ...
+    ) -> pl.LazyFrame | None: ...
 
     @overload
     def _load_df_offline(
@@ -473,7 +455,7 @@ class LuxonisDataset(BaseDataset):
         lazy: bool = False,
         raise_when_empty: bool = False,
         attempt_migration: bool = True,
-    ) -> Optional[Union[pl.DataFrame, pl.LazyFrame]]:
+    ) -> pl.DataFrame | pl.LazyFrame | None:
         """Loads the dataset DataFrame **always** from the local
         storage."""
         path = (
@@ -511,7 +493,7 @@ class LuxonisDataset(BaseDataset):
         self,
         lazy: Literal[False] = ...,
         raise_when_empty: Literal[False] = ...,
-    ) -> Optional[pl.DataFrame]: ...
+    ) -> pl.DataFrame | None: ...
 
     @overload
     def _get_index(
@@ -525,13 +507,13 @@ class LuxonisDataset(BaseDataset):
         self,
         lazy: Literal[True] = ...,
         raise_when_empty: Literal[False] = ...,
-    ) -> Optional[pl.LazyFrame]: ...
+    ) -> pl.LazyFrame | None: ...
 
     def _get_index(
         self,
         lazy: bool = False,
         raise_when_empty: bool = False,
-    ) -> Optional[Union[pl.DataFrame, pl.LazyFrame]]:
+    ) -> pl.DataFrame | pl.LazyFrame | None:
         """Loads unique file entries from annotation data."""
         df = self._load_df_offline(
             lazy=lazy, raise_when_empty=raise_when_empty
@@ -573,7 +555,7 @@ class LuxonisDataset(BaseDataset):
         return f"{bucket_storage.value}://{bucket}/{team_id}/datasets/{dataset_name}"
 
     # TODO: Is the cache used anywhere at all?
-    def _init_credentials(self) -> Dict[str, Any]:
+    def _init_credentials(self) -> dict[str, Any]:
         credentials_cache_file = self.base_path / "credentials.json"
         if credentials_cache_file.exists():
             return json.loads(credentials_cache_file.read_text())
@@ -622,8 +604,8 @@ class LuxonisDataset(BaseDataset):
     @override
     def set_classes(
         self,
-        classes: Union[List[str], Dict[str, int]],
-        task: Optional[str] = None,
+        classes: list[str] | dict[str, int],
+        task: str | None = None,
     ) -> None:
         if task is None:
             tasks = self.get_task_names()
@@ -636,10 +618,10 @@ class LuxonisDataset(BaseDataset):
         self._write_metadata()
 
     @override
-    def get_classes(self) -> Dict[str, Dict[str, int]]:
+    def get_classes(self) -> dict[str, dict[str, int]]:
         return self._metadata.classes
 
-    def get_n_classes(self) -> Dict[str, int]:
+    def get_n_classes(self) -> dict[str, int]:
         """Returns a mapping of task names to number of classes.
 
         @rtype: Dict[str, int]
@@ -653,9 +635,9 @@ class LuxonisDataset(BaseDataset):
     @override
     def set_skeletons(
         self,
-        labels: Optional[List[str]] = None,
-        edges: Optional[List[Tuple[int, int]]] = None,
-        task: Optional[str] = None,
+        labels: list[str] | None = None,
+        edges: list[tuple[int, int]] | None = None,
+        task: str | None = None,
     ) -> None:
         if labels is None and edges is None:
             raise ValueError("Must provide either keypoint names or edges")
@@ -674,14 +656,14 @@ class LuxonisDataset(BaseDataset):
     @override
     def get_skeletons(
         self,
-    ) -> Dict[str, Tuple[List[str], List[Tuple[int, int]]]]:
+    ) -> dict[str, tuple[list[str], list[tuple[int, int]]]]:
         return {
             task: (skel["labels"], skel["edges"])
             for task, skel in self._metadata.skeletons.items()
         }
 
     @override
-    def get_tasks(self) -> Dict[str, List[str]]:
+    def get_tasks(self) -> dict[str, list[str]]:
         return self._metadata.tasks
 
     @override
@@ -694,12 +676,12 @@ class LuxonisDataset(BaseDataset):
 
     def get_categorical_encodings(
         self,
-    ) -> Dict[str, Dict[str, int]]:
+    ) -> dict[str, dict[str, int]]:
         return self._metadata.categorical_encodings
 
     def get_metadata_types(
         self,
-    ) -> Dict[str, Literal["float", "int", "str", "Category"]]:
+    ) -> dict[str, Literal["float", "int", "str", "Category"]]:
         return self._metadata.metadata_types
 
     def pull_from_cloud(
@@ -816,6 +798,7 @@ class LuxonisDataset(BaseDataset):
         for original_path, uuid in zip(
             missing_df["original_filepath"].to_list(),
             missing_df["uuid"].to_list(),
+            strict=True,
         ):
             if not Path(original_path).exists():
                 suffix = Path(original_path).suffix
@@ -889,7 +872,7 @@ class LuxonisDataset(BaseDataset):
             if self.local_path.exists():
                 shutil.rmtree(self.local_path)
 
-    def _process_arrays(self, data_batch: List[DatasetRecord]) -> None:
+    def _process_arrays(self, data_batch: list[DatasetRecord]) -> None:
         logger.info("Checking arrays...")
         task = self.progress.add_task(
             "[magenta]Processing arrays...", total=len(data_batch)
@@ -919,9 +902,9 @@ class LuxonisDataset(BaseDataset):
 
     def _add_process_batch(
         self,
-        data_batch: List[DatasetRecord],
+        data_batch: list[DatasetRecord],
         pfm: ParquetFileManager,
-        index: Optional[pl.DataFrame],
+        index: pl.DataFrame | None,
     ) -> None:
         paths = {data.file for data in data_batch}
         logger.info("Generating UUIDs...")
@@ -974,11 +957,11 @@ class LuxonisDataset(BaseDataset):
 
         data_batch: list[DatasetRecord] = []
 
-        classes_per_task: Dict[str, Set[str]] = defaultdict(set)
-        tasks: Dict[str, Set[str]] = defaultdict(set)
+        classes_per_task: dict[str, set[str]] = defaultdict(set)
+        tasks: dict[str, set[str]] = defaultdict(set)
         categorical_encodings = defaultdict(dict)
         metadata_types = {}
-        num_kpts_per_task: Dict[str, int] = {}
+        num_kpts_per_task: dict[str, int] = {}
 
         annotations_path = get_dir(
             self.fs,
@@ -1090,7 +1073,7 @@ class LuxonisDataset(BaseDataset):
         df = df.join(index, on="uuid").drop("file_right")
         warn_on_duplicates(df)
 
-    def get_splits(self) -> Optional[Dict[str, List[str]]]:
+    def get_splits(self) -> dict[str, list[str]] | None:
         splits_path = get_file(
             self.fs, "metadata/splits.json", self.metadata_path
         )
@@ -1108,18 +1091,13 @@ class LuxonisDataset(BaseDataset):
     @override
     def make_splits(
         self,
-        splits: Optional[
-            Union[
-                Mapping[str, Sequence[PathType]],
-                Mapping[str, float],
-                Tuple[float, float, float],
-            ]
-        ] = None,
+        splits: Mapping[str, Sequence[PathType]]
+        | Mapping[str, float]
+        | tuple[float, float, float]
+        | None = None,
         *,
-        ratios: Optional[
-            Union[Dict[str, float], Tuple[float, float, float]]
-        ] = None,
-        definitions: Optional[Dict[str, List[PathType]]] = None,
+        ratios: dict[str, float] | tuple[float, float, float] | None = None,
+        definitions: dict[str, list[PathType]] | None = None,
         replace_old_splits: bool = False,
     ) -> None:
         if ratios is not None and definitions is not None:
@@ -1165,9 +1143,9 @@ class LuxonisDataset(BaseDataset):
                     f"Dataset size: {len(self)}, Definitions: {n_files}."
                 )
 
-        splits_to_update: List[str] = []
-        new_splits: Dict[str, List[str]] = {}
-        old_splits: Dict[str, List[str]] = defaultdict(list)
+        splits_to_update: list[str] = []
+        new_splits: dict[str, list[str]] = {}
+        old_splits: dict[str, list[str]] = defaultdict(list)
 
         splits_path = get_file(
             self.fs,
@@ -1240,9 +1218,9 @@ class LuxonisDataset(BaseDataset):
     @override
     def exists(
         dataset_name: str,
-        team_id: Optional[str] = None,
+        team_id: str | None = None,
         bucket_storage: BucketStorage = BucketStorage.LOCAL,
-        bucket: Optional[str] = None,
+        bucket: str | None = None,
     ) -> bool:
         """Checks if a dataset exists.
 
@@ -1264,10 +1242,10 @@ class LuxonisDataset(BaseDataset):
 
     @staticmethod
     def list_datasets(
-        team_id: Optional[str] = None,
+        team_id: str | None = None,
         bucket_storage: BucketStorage = BucketStorage.LOCAL,
-        bucket: Optional[str] = None,
-    ) -> List[str]:
+        bucket: str | None = None,
+    ) -> list[str]:
         """Returns a list of all datasets.
 
         @type team_id: Optional[str]
@@ -1301,7 +1279,7 @@ class LuxonisDataset(BaseDataset):
         if not fs.exists():
             return []
 
-        def process_directory(path: PurePosixPath) -> Optional[str]:
+        def process_directory(path: PurePosixPath) -> str | None:
             metadata_path = path / "metadata"
             if fs.exists(metadata_path):
                 return path.name
@@ -1391,10 +1369,10 @@ class LuxonisDataset(BaseDataset):
             if file not in image_indices:
                 image_indices[file] = len(image_indices)
             task_name: str = row[2]
-            class_name: Optional[str] = row[3]
+            class_name: str | None = row[3]
             instance_id: int = row[4]
             task_type: str = row[5]
-            ann_str: Optional[str] = row[6]
+            ann_str: str | None = row[6]
             if ann_str is None:
                 continue
             data = json.loads(ann_str)
@@ -1441,8 +1419,8 @@ class LuxonisDataset(BaseDataset):
         return zip_path
 
     def get_statistics(
-        self, sample_size: Optional[int] = None, view: Optional[str] = None
-    ) -> Dict[str, Any]:
+        self, sample_size: int | None = None, view: str | None = None
+    ) -> dict[str, Any]:
         """Returns comprehensive dataset statistics as a structured
         dictionary for the given view or the entire dataset.
 

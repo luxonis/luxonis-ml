@@ -1,7 +1,7 @@
 import shutil
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, NoReturn
+from typing import NoReturn
 
 import numpy as np
 import pytest
@@ -27,7 +27,7 @@ from .utils import create_dataset, create_image, get_loader_output
 def test_dataset(
     bucket_storage: BucketStorage,
     dataset_name: str,
-    augmentation_config: List[Params],
+    augmentation_config: list[Params],
     subtests: SubTests,
     storage_url: str,
     tempdir: Path,
@@ -176,7 +176,7 @@ def test_loader_iterator(storage_url: str, tempdir: Path):
 def test_make_splits(
     bucket_storage: BucketStorage, dataset_name: str, tempdir: Path
 ):
-    definitions: Dict[str, List[str]] = defaultdict(list)
+    definitions: dict[str, list[str]] = defaultdict(list)
 
     _start_index: int = 0
 
@@ -417,7 +417,7 @@ def test_no_labels(dataset_name: str, tempdir: Path, subtests: SubTests):
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_deep_nested_labels(
-    dataset_name: str, augmentation_config: List[Params], tempdir: Path
+    dataset_name: str, augmentation_config: list[Params], tempdir: Path
 ):
     def generator() -> DatasetIterator:
         for i in range(10):

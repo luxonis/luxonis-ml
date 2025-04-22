@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -6,8 +6,8 @@ from matplotlib.container import BarContainer
 
 
 def _prepare_class_data(
-    task_data: List[Dict[str, Any]],
-) -> Tuple[List[str], List[int]]:
+    task_data: list[dict[str, Any]],
+) -> tuple[list[str], list[int]]:
     """Extracts class names and counts from task_data."""
     classes = [x["class_name"] for x in task_data]
     counts = [x["count"] for x in task_data]
@@ -32,7 +32,7 @@ def _annotate_bars(
 
 
 def plot_class_distribution(
-    ax: plt.Axes, task_type: str, task_data: List[Dict[str, Any]]
+    ax: plt.Axes, task_type: str, task_data: list[dict[str, Any]]
 ) -> None:  # pragma: no cover
     """Plots a bar chart of class distribution.
 
@@ -69,7 +69,7 @@ def plot_class_distribution(
 
 
 def _prepare_heatmap_data(
-    heatmap_data: Optional[List[List[float]]],
+    heatmap_data: list[list[float]] | None,
 ) -> np.ndarray:
     """Converts heatmap_data to a normalized NumPy array."""
     matrix = np.array(heatmap_data, dtype=np.float32)
@@ -81,7 +81,7 @@ def plot_heatmap(
     ax: plt.Axes,
     fig: plt.Figure,
     task_type: str,
-    heatmap_data: Optional[List[List[float]]],
+    heatmap_data: list[list[float]] | None,
 ) -> None:  # pragma: no cover
     """ " Plots a heatmap of heatmap_data.
 

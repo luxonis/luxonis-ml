@@ -1,19 +1,10 @@
 import json
 import warnings
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
 from copy import deepcopy
 from pathlib import Path
-from typing import (
-    Any,
-    Dict,
-    Iterable,
-    List,
-    Literal,
-    Optional,
-    Set,
-    Tuple,
-    Union,
-)
+from typing import Annotated, Any, Literal, Optional, TypeAlias
 
 import cv2
 import numpy as np
@@ -29,10 +20,10 @@ from pydantic import (
 )
 from pydantic.types import FilePath, PositiveInt
 from pydantic_core import core_schema
-from typing_extensions import Annotated, Self, TypeAlias, override
+from typing_extensions import Self, override
 
 from luxonis_ml.data.utils.parquet import ParquetRecord
-from luxonis_ml.typing import check_type
+from luxonis_ml.typing import PathType, check_type
 from luxonis_ml.utils import BaseModelExtraForbid
 
 KeypointVisibility: TypeAlias = Literal[0, 1, 2]
@@ -48,10 +39,10 @@ class Category(str):
 
 
 class Detection(BaseModelExtraForbid):
-    class_name: Optional[str] = Field(None, alias="class")
+    class_name: str | None = Field(None, alias="class")
     instance_id: int = -1
 
-    metadata: Dict[str, Union[int, float, str, Category]] = {}
+    metadata: dict[str, int | float | str | Category] = {}
 
     boundingbox: Optional["BBoxAnnotation"] = None
     keypoints: Optional["KeypointAnnotation"] = None
@@ -61,7 +52,7 @@ class Detection(BaseModelExtraForbid):
 
     scale_to_boxes: bool = False
 
-    sub_detections: Dict[str, "Detection"] = {}
+    sub_detections: dict[str, "Detection"] = {}
 
     @model_validator(mode="after")
     def validate_names(self) -> Self:
@@ -96,7 +87,7 @@ class Detection(BaseModelExtraForbid):
             )
         return self
 
-    def get_task_types(self) -> Set[str]:
+    def get_task_types(self) -> set[str]:
         task_types = {
             task_type
             for task_type in [
@@ -122,7 +113,7 @@ class Annotation(ABC, BaseModelExtraForbid):
     @staticmethod
     @abstractmethod
     def combine_to_numpy(
-        annotations: List["Annotation"], classes: List[int], n_classes: int
+        annotations: list["Annotation"], classes: list[int], n_classes: int
     ) -> np.ndarray: ...
 
 
@@ -130,8 +121,8 @@ class ClassificationAnnotation(Annotation):
     @staticmethod
     @override
     def combine_to_numpy(
-        annotations: List["ClassificationAnnotation"],
-        classes: List[int],
+        annotations: list["ClassificationAnnotation"],
+        classes: list[int],
         n_classes: int,
     ) -> np.ndarray:
         classify_vector = np.zeros(n_classes)
@@ -168,8 +159,8 @@ class BBoxAnnotation(Annotation):
     @staticmethod
     @override
     def combine_to_numpy(
-        annotations: List["BBoxAnnotation"],
-        classes: List[int],
+        annotations: list["BBoxAnnotation"],
+        classes: list[int],
         n_classes: int | None = None,
     ) -> np.ndarray:
         boxes = np.empty((len(annotations), 5))
@@ -179,7 +170,7 @@ class BBoxAnnotation(Annotation):
 
     @model_validator(mode="before")
     @classmethod
-    def validate_values(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_values(cls, values: dict[str, Any]) -> dict[str, Any]:
         warn = False
         for key in ["x", "y", "w", "h"]:
             if values[key] < -2 or values[key] > 2:
@@ -198,7 +189,7 @@ class BBoxAnnotation(Annotation):
         return cls._clip_sum(values)
 
     @staticmethod
-    def _clip_sum(values: Dict[str, Any]) -> Dict[str, Any]:
+    def _clip_sum(values: dict[str, Any]) -> dict[str, Any]:
         if values["x"] + values["w"] > 1:
             values["w"] = 1 - values["x"]
             logger.warning(
@@ -225,8 +216,8 @@ class KeypointAnnotation(Annotation):
             - 2: Visible
     """
 
-    keypoints: List[
-        Tuple[NormalizedFloat, NormalizedFloat, KeypointVisibility]
+    keypoints: list[
+        tuple[NormalizedFloat, NormalizedFloat, KeypointVisibility]
     ]
 
     def to_numpy(self) -> np.ndarray:
@@ -235,8 +226,8 @@ class KeypointAnnotation(Annotation):
     @staticmethod
     @override
     def combine_to_numpy(
-        annotations: List["KeypointAnnotation"],
-        classes: List[int] | None = None,
+        annotations: list["KeypointAnnotation"],
+        classes: list[int] | None = None,
         n_classes: int | None = None,
     ) -> np.ndarray:
         keypoints = np.empty(
@@ -248,7 +239,7 @@ class KeypointAnnotation(Annotation):
 
     @model_validator(mode="before")
     @classmethod
-    def validate_values(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_values(cls, values: dict[str, Any]) -> dict[str, Any]:
         if "keypoints" not in values:
             return values
 
@@ -306,8 +297,8 @@ class SegmentationAnnotation(Annotation):
     @staticmethod
     @override
     def combine_to_numpy(
-        annotations: List["SegmentationAnnotation"],
-        classes: List[int],
+        annotations: list["SegmentationAnnotation"],
+        classes: list[int],
         n_classes: int,
     ) -> np.ndarray:
         ref = annotations[0]
@@ -332,7 +323,7 @@ class SegmentationAnnotation(Annotation):
 
     @model_validator(mode="before")
     @classmethod
-    def validate_rle(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_rle(cls, values: dict[str, Any]) -> dict[str, Any]:
         if {"counts", "width", "height"} - set(values.keys()):
             return values
 
@@ -366,7 +357,7 @@ class SegmentationAnnotation(Annotation):
         return values
 
     @staticmethod
-    def _numpy_to_rle(mask: np.ndarray) -> Dict[str, Any]:
+    def _numpy_to_rle(mask: np.ndarray) -> dict[str, Any]:
         mask = np.asfortranarray(mask.astype(np.uint8))
         with warnings.catch_warnings(record=True):
             rle = pycocotools.mask.encode(mask)
@@ -378,13 +369,13 @@ class SegmentationAnnotation(Annotation):
 
     @model_validator(mode="before")
     @classmethod
-    def validate_mask(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_mask(cls, values: dict[str, Any]) -> dict[str, Any]:
         if "mask" not in values:
             return values
         values = deepcopy(values)
 
         mask = values.pop("mask")
-        if isinstance(mask, (str, Path)):
+        if isinstance(mask, PathType):
             mask_path = Path(mask)
             if mask_path.suffix == ".npy":
                 try:
@@ -422,7 +413,7 @@ class SegmentationAnnotation(Annotation):
 
     @model_validator(mode="before")
     @classmethod
-    def validate_polyline(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_polyline(cls, values: dict[str, Any]) -> dict[str, Any]:
         if {"points", "width", "height"} - set(values.keys()):
             return values
 
@@ -434,7 +425,7 @@ class SegmentationAnnotation(Annotation):
             raise ValueError("Height and width must be integers")
 
         points = values.pop("points")
-        if not check_type(points, List[Tuple[float, float]]):
+        if not check_type(points, list[tuple[float, float]]):
             raise ValueError("Polyline must be a list of float 2D points")
 
         if len(points) < 3:
@@ -449,7 +440,7 @@ class SegmentationAnnotation(Annotation):
         return {"mask": np.array(mask).astype(np.uint8), **values}
 
     @staticmethod
-    def _clip_points(points: List[Tuple[float, float]]) -> None:
+    def _clip_points(points: list[tuple[float, float]]) -> None:
         warn = False
         for i in range(len(points)):
             x, y = points[i]
@@ -478,8 +469,8 @@ class InstanceSegmentationAnnotation(SegmentationAnnotation):
     @staticmethod
     @override
     def combine_to_numpy(
-        annotations: List["InstanceSegmentationAnnotation"],
-        classes: List[int] | None = None,
+        annotations: list["InstanceSegmentationAnnotation"],
+        classes: list[int] | None = None,
         n_classes: int | None = None,
     ) -> np.ndarray:
         return np.stack([ann.to_numpy() for ann in annotations])
@@ -502,8 +493,8 @@ class ArrayAnnotation(Annotation):
     @staticmethod
     @override
     def combine_to_numpy(
-        annotations: List["ArrayAnnotation"],
-        classes: List[int],
+        annotations: list["ArrayAnnotation"],
+        classes: list[int],
         n_classes: int,
     ) -> np.ndarray:
         out_arr = np.zeros(
@@ -534,8 +525,8 @@ class ArrayAnnotation(Annotation):
 
 
 class DatasetRecord(BaseModelExtraForbid):
-    files: Dict[str, FilePath]
-    annotation: Optional[Detection] = None
+    files: dict[str, FilePath]
+    annotation: Detection | None = None
     task_name: str = ""
 
     @property
@@ -551,7 +542,7 @@ class DatasetRecord(BaseModelExtraForbid):
 
     @model_validator(mode="before")
     @classmethod
-    def validate_task_name(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_task_name(cls, values: dict[str, Any]) -> dict[str, Any]:
         if "task" in values:
             warnings.warn(
                 "The 'task' field is deprecated. Use 'task_name' instead.",
@@ -562,7 +553,7 @@ class DatasetRecord(BaseModelExtraForbid):
 
     @model_validator(mode="before")
     @classmethod
-    def validate_files(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_files(cls, values: dict[str, Any]) -> dict[str, Any]:
         values = deepcopy(values)
         if "file" in values:
             values["files"] = {"image": values.pop("file")}
@@ -578,7 +569,7 @@ class DatasetRecord(BaseModelExtraForbid):
         yield from self._to_parquet_rows(self.annotation, self.task_name)
 
     def _to_parquet_rows(
-        self, annotation: Optional[Detection], task_name: str
+        self, annotation: Detection | None, task_name: str
     ) -> Iterable[ParquetRecord]:
         """Converts an annotation to a dictionary for writing to a
         parquet file.
@@ -605,9 +596,7 @@ class DatasetRecord(BaseModelExtraForbid):
                     "instance_segmentation",
                     "array",
                 ]:
-                    label: Optional[Annotation] = getattr(
-                        annotation, task_type
-                    )
+                    label: Annotation | None = getattr(annotation, task_type)
 
                     if label is not None:
                         yield {
@@ -661,7 +650,7 @@ def check_valid_identifier(name: str, *, label: str) -> None:
         )
 
 
-def load_annotation(task_type: str, data: Dict[str, Any]) -> "Annotation":
+def load_annotation(task_type: str, data: dict[str, Any]) -> "Annotation":
     classes = {
         "classification": ClassificationAnnotation,
         "boundingbox": BBoxAnnotation,

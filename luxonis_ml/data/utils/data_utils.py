@@ -1,6 +1,7 @@
 import json
 from collections import defaultdict
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from collections.abc import Iterator
+from typing import Any
 
 import numpy as np
 import polars as pl
@@ -13,9 +14,9 @@ from luxonis_ml.typing import RGB
 
 def rgb_to_bool_masks(
     segmentation_mask: np.ndarray,
-    class_colors: Dict[str, RGB],
+    class_colors: dict[str, RGB],
     add_background_class: bool = False,
-) -> Iterator[Tuple[str, np.ndarray]]:
+) -> Iterator[tuple[str, np.ndarray]]:
     """Helper function to convert an RGB segmentation mask to boolean
     masks for each class.
 
@@ -83,14 +84,14 @@ def rgb_to_bool_masks(
 
 def infer_task(
     old_task: str,
-    class_name: Optional[str],
-    current_classes: Dict[str, Dict[str, int]],
+    class_name: str | None,
+    current_classes: dict[str, dict[str, int]],
 ) -> str:
     if not hasattr(infer_task, "_logged_infered_classes"):
         infer_task._logged_infered_classes = defaultdict(bool)
 
     def _log_once(
-        cls_: Optional[str], task: str, message: str, level: str = "info"
+        cls_: str | None, task: str, message: str, level: str = "info"
     ) -> None:
         if not infer_task._logged_infered_classes[(cls_, task)]:
             infer_task._logged_infered_classes[(cls_, task)] = True
@@ -131,7 +132,7 @@ def infer_task(
     return old_task
 
 
-def find_duplicates(df: pl.LazyFrame) -> Dict[str, List[Dict[str, Any]]]:
+def find_duplicates(df: pl.LazyFrame) -> dict[str, list[dict[str, Any]]]:
     """Collects information about duplicate UUIDs and duplicate
     annotations in the dataset.
 
@@ -263,7 +264,7 @@ def warn_on_duplicates(df: pl.LazyFrame) -> None:
 
 def get_class_distributions(
     df: pl.LazyFrame,
-) -> Dict[str, Dict[str, List[Dict[str, Any]]]]:
+) -> dict[str, dict[str, list[dict[str, Any]]]]:
     """Gets class distribution info for non-classification tasks.
 
     @type df: pl.LazyFrame
@@ -281,7 +282,7 @@ def get_class_distributions(
         .collect()
         .to_dicts()
     )
-    class_distributions: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
+    class_distributions: dict[str, dict[str, list[dict[str, Any]]]] = {}
     for record in class_distribution_raw:
         task_name = record["task_name"]
         task_type = record["task_type"]
@@ -296,7 +297,7 @@ def get_class_distributions(
     return class_distributions
 
 
-def get_missing_annotations(df: pl.LazyFrame) -> List[str]:
+def get_missing_annotations(df: pl.LazyFrame) -> list[str]:
     """Returns file paths that exist but have no annotations.
 
     @type df: pl.LazyFrame
@@ -314,7 +315,7 @@ def get_missing_annotations(df: pl.LazyFrame) -> List[str]:
     return missing_files_df["file"].to_list()
 
 
-def get_duplicates_info(df: pl.LazyFrame) -> Dict[str, Any]:
+def get_duplicates_info(df: pl.LazyFrame) -> dict[str, Any]:
     """Collects and returns information about duplicate UUIDs and
     annotations.
 
@@ -347,9 +348,9 @@ def get_duplicates_info(df: pl.LazyFrame) -> Dict[str, Any]:
 
 def get_heatmaps(
     df: pl.LazyFrame,
-    sample_size: Optional[int] = None,
+    sample_size: int | None = None,
     downsample_factor: int = 5,
-) -> Dict[str, Dict[str, List[List[int]]]]:
+) -> dict[str, dict[str, list[list[int]]]]:
     """Generates heatmaps for bounding boxes, keypoints, and
     segmentations.
 
@@ -375,7 +376,7 @@ def get_heatmaps(
     grid_size = 15
     x_edges = np.linspace(0, 1, grid_size + 1)
     y_edges = np.linspace(0, 1, grid_size + 1)
-    heatmaps: Dict[str, Dict[str, np.ndarray]] = {}
+    heatmaps: dict[str, dict[str, np.ndarray]] = {}
 
     annotations_df = df.filter(
         pl.col("task_type").is_not_null() & pl.col("task_name").is_not_null()
@@ -459,7 +460,7 @@ def get_heatmaps(
             logger.warning(f"Missing key in annotation: {e}")
             continue
 
-    result: Dict[str, Dict[str, List[List[int]]]] = {}
+    result: dict[str, dict[str, list[list[int]]]] = {}
     for t_name, tasks in heatmaps.items():
         result[t_name] = {}
         for t_type, grid in tasks.items():

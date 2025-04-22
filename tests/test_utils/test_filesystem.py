@@ -1,5 +1,4 @@
 from pathlib import Path
-from typing import List
 
 import pytest
 from _pytest.fixtures import SubRequest
@@ -181,7 +180,7 @@ def test_walk_dir(fs: LuxonisFileSystem, local_dir: Path, subtests: SubTests):
 
     fs.put_dir(local_dir, uploaded_dir)
 
-    def check_walk(expected: List[str], **kwargs) -> None:
+    def check_walk(expected: list[str], **kwargs) -> None:
         paths = {
             Path(path).relative_to(Path(uploaded_dir))
             for path in fs.walk_dir(uploaded_dir, **kwargs)

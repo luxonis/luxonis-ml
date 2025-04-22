@@ -1,13 +1,14 @@
 from abc import ABC, abstractmethod
 from collections import defaultdict
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
+from typing import Any
 
 from luxonis_ml.data import BaseDataset, DatasetIterator
 from luxonis_ml.data.datasets.annotation import DatasetRecord
 from luxonis_ml.enums.enums import DatasetType
 
-ParserOutput = Tuple[DatasetIterator, Dict[str, Dict], List[Path]]
+ParserOutput = tuple[DatasetIterator, dict[str, dict], list[Path]]
 
 
 class BaseParser(ABC):
@@ -15,7 +16,7 @@ class BaseParser(ABC):
         self,
         dataset: BaseDataset,
         dataset_type: DatasetType,
-        task_name: Optional[Union[str, Dict[str, str]]],
+        task_name: str | dict[str, str] | None,
     ):
         """
         @type dataset: BaseDataset
@@ -39,7 +40,7 @@ class BaseParser(ABC):
 
     @staticmethod
     @abstractmethod
-    def validate_split(split_path: Path) -> Optional[Dict[str, Any]]:
+    def validate_split(split_path: Path) -> dict[str, Any] | None:
         """Validates if a split subdirectory is in an expected format.
         If so, returns kwargs to pass to L{from_split} method.
 
@@ -66,7 +67,7 @@ class BaseParser(ABC):
     @abstractmethod
     def from_dir(
         self, dataset_dir: Path, **kwargs
-    ) -> Tuple[List[str], List[str], List[str]]:
+    ) -> tuple[list[str], list[str], list[str]]:
         """Parses all present data to L{LuxonisDataset} format.
 
         @type dataset_dir: str
@@ -97,7 +98,7 @@ class BaseParser(ABC):
         """
         ...
 
-    def _parse_split(self, **kwargs) -> List[Path]:
+    def _parse_split(self, **kwargs) -> list[Path]:
         """Parses data in a split subdirectory.
 
         @type kwargs: Dict[str, Any]
@@ -118,9 +119,9 @@ class BaseParser(ABC):
 
     def parse_split(
         self,
-        split: Optional[str] = None,
+        split: str | None = None,
         random_split: bool = False,
-        split_ratios: Optional[Dict[str, float]] = None,
+        split_ratios: dict[str, float] | None = None,
         **kwargs,
     ) -> BaseDataset:
         """Parses data in a split subdirectory to L{LuxonisDataset}
@@ -165,7 +166,7 @@ class BaseParser(ABC):
         return self.dataset
 
     @staticmethod
-    def _get_added_images(generator: DatasetIterator) -> List[Path]:
+    def _get_added_images(generator: DatasetIterator) -> list[Path]:
         """Returns list of unique images added by the generator
         function.
 
@@ -208,7 +209,7 @@ class BaseParser(ABC):
         return len(set1) > 0 and set1 == set2
 
     @staticmethod
-    def _list_images(image_dir: Path) -> List[Path]:
+    def _list_images(image_dir: Path) -> list[Path]:
         """Returns list of all images in the directory supported by
         opencv.
 

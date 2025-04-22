@@ -1,7 +1,8 @@
 import random
 import shutil
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator, List, Optional, Set, Tuple
+from typing import Annotated
 
 import cv2
 import matplotlib.pyplot as plt
@@ -14,7 +15,6 @@ from rich.panel import Panel
 from rich.prompt import Confirm
 from rich.rule import Rule
 from rich.table import Table
-from typing_extensions import Annotated
 
 from luxonis_ml.data import (
     LuxonisDataset,
@@ -62,7 +62,7 @@ def check_exists(name: str, bucket_storage: BucketStorage):
         raise typer.Exit
 
 
-def get_dataset_info(dataset: LuxonisDataset) -> Tuple[Set[str], List[str]]:
+def get_dataset_info(dataset: LuxonisDataset) -> tuple[set[str], list[str]]:
     all_classes = {
         c for classes in dataset.get_classes().values() for c in classes
     }
@@ -245,7 +245,7 @@ def ls(
 def inspect(
     name: DatasetNameArgument,
     view: Annotated[
-        Optional[List[str]],
+        list[str] | None,
         typer.Option(
             ...,
             "--view",
@@ -256,7 +256,7 @@ def inspect(
         ),
     ] = None,
     aug_config: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             ...,
             "--aug-config",
@@ -362,7 +362,7 @@ def inspect(
 def export(
     dataset_name: DatasetNameArgument,
     save_dir: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             ...,
             "--save-dir",
@@ -407,7 +407,7 @@ def parse(
         str, typer.Argument(..., help="Path or URL to the dataset.")
     ],
     name: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             ...,
             "--name",
@@ -418,7 +418,7 @@ def parse(
         ),
     ] = None,
     dataset_type: Annotated[
-        Optional[DatasetType],
+        DatasetType | None,
         typer.Option(
             ...,
             "--type",
@@ -439,7 +439,7 @@ def parse(
         ),
     ] = False,
     save_dir: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option(
             ...,
             "--save-dir",
@@ -452,7 +452,7 @@ def parse(
         ),
     ] = None,
     task_name: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             ...,
             "--task-name",
@@ -483,21 +483,21 @@ def parse(
 @app.command()
 def health(
     name: DatasetNameArgument,
-    view: Optional[str] = typer.Option(
+    view: str | None = typer.Option(
         None,
         "--view",
         "-v",
         help="Which splits of the dataset to inspect. If not provided, all dataset will be used.",
         show_default=False,
     ),
-    sample_size: Optional[int] = typer.Option(
+    sample_size: int | None = typer.Option(
         None,
         "--sample-size",
         "-n",
         help="Number of annotation rows to sample from the dataset. Note that each task type annotation is in a separate row.",
         show_default=False,
     ),
-    save_dir: Optional[str] = typer.Option(
+    save_dir: str | None = typer.Option(
         None,
         "--save-dir",
         "-s",
@@ -786,7 +786,7 @@ def merge(
         ),
     ],
     new_name: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             ...,
             "--new-name",

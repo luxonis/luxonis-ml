@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Optional, Set, TypedDict
+from typing import TypedDict
 
 import polars as pl
 
@@ -10,10 +10,10 @@ class ParquetRecord(TypedDict):
     file: str
     source_name: str
     task_name: str
-    class_name: Optional[str]
-    instance_id: Optional[int]
-    task_type: Optional[str]
-    annotation: Optional[str]
+    class_name: str | None
+    instance_id: int | None
+    task_type: str | None
+    annotation: str | None
 
 
 class ParquetFileManager:
@@ -80,7 +80,7 @@ class ParquetFileManager:
             self.current_file = self._generate_filename(self.num)
             self._read()
 
-    def remove_duplicate_uuids(self, overwrite_uuids: Set[str]) -> None:
+    def remove_duplicate_uuids(self, overwrite_uuids: set[str]) -> None:
         self._flush()
 
         for parquet_file in self.dir.glob("*.parquet"):

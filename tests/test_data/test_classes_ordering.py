@@ -1,6 +1,5 @@
 import random
 from pathlib import Path
-from typing import List
 
 import numpy as np
 from pytest_subtests.plugin import SubTests
@@ -13,7 +12,7 @@ from .utils import create_dataset, create_image
 
 
 def build_segmentation(
-    polylines: List[List[float]], img_w: int, img_h: int
+    polylines: list[list[float]], img_w: int, img_h: int
 ) -> dict:
     points = []
     for polyline in polylines:
@@ -33,7 +32,7 @@ def test_ordering_loader_background(tempdir: Path, subtests: SubTests):
         height,
     )
 
-    def generator(classes_list: List[str]) -> DatasetIterator:
+    def generator(classes_list: list[str]) -> DatasetIterator:
         for i, class_name in enumerate(classes_list):
             yield {
                 "file": create_image(i, tempdir),
@@ -121,7 +120,7 @@ def test_ordering_dataset(
 ):
     class_names = list("abcdefghijKLM")
 
-    def generator(classes: List[str]) -> DatasetIterator:
+    def generator(classes: list[str]) -> DatasetIterator:
         for i, class_name in enumerate(classes):
             img = create_image(i, tempdir)
             yield {

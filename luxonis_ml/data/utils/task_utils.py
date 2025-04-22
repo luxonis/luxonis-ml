@@ -1,5 +1,5 @@
+from collections.abc import Iterator
 from functools import lru_cache
-from typing import Iterator, Tuple
 
 import numpy as np
 
@@ -19,7 +19,7 @@ def task_is_metadata(task: str) -> bool:
 
 
 @lru_cache
-def split_task(task: str) -> Tuple[str, str]:
+def split_task(task: str) -> tuple[str, str]:
     """Splits a task into its task name and type.
 
     @type task: str
@@ -78,7 +78,7 @@ def get_task_type(task: str) -> str:
 
 def task_type_iterator(
     labels: Labels, task_type: TaskType
-) -> Iterator[Tuple[str, np.ndarray]]:
+) -> Iterator[tuple[str, np.ndarray]]:
     """Iterates over labels of a specific type.
 
     @type labels: Labels

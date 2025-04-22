@@ -1,7 +1,6 @@
 import random
 from contextlib import contextmanager
 from pathlib import Path
-from typing import List
 
 import numpy as np
 
@@ -243,7 +242,7 @@ def test_edge_cases(tempdir: Path):
 
     dataset.make_splits(ratios=(1, 0, 0))
 
-    augmentation_config: List[Params] = [
+    augmentation_config: list[Params] = [
         {
             "name": "Mosaic4",
             "params": {"p": 1, "out_width": 512, "out_height": 512},
@@ -360,5 +359,5 @@ def test_dataset_reproducibility(storage_url: str, tempdir: Path):
             else a1[k] == a2[k]
             for k in a1
         )
-        for a1, a2 in zip(run1, run2)
+        for a1, a2 in zip(run1, run2, strict=True)
     )

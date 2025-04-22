@@ -1,30 +1,19 @@
+from collections.abc import Iterable
 from pathlib import Path, PurePosixPath
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Dict,
-    Iterable,
-    List,
-    Literal,
-    Tuple,
-    Type,
-    TypeVar,
-    Union,
-)
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeGuard, TypeVar
 
 import typeguard
 from pydantic import BaseModel
-from typing_extensions import TypeAlias, TypeGuard
 
 # When used without installed dependencies
 if TYPE_CHECKING:  # pragma: no cover
     import numpy as np
 
 
-PathType: TypeAlias = Union[str, Path]
+PathType: TypeAlias = str | Path
 """A string or a `pathlib.Path` object."""
 
-PosixPathType: TypeAlias = Union[str, PurePosixPath]
+PosixPathType: TypeAlias = str | PurePosixPath
 """A string or a `pathlib.PurePosixPath` object."""
 
 
@@ -38,20 +27,20 @@ TaskType: TypeAlias = Literal[
 ]
 
 
-Labels: TypeAlias = Dict[str, "np.ndarray"]
+Labels: TypeAlias = dict[str, "np.ndarray"]
 """Dictionary mappping task names to the annotations as C{np.ndarray}"""
 
 
-LoaderOutput: TypeAlias = Tuple["np.ndarray", Labels]
+LoaderOutput: TypeAlias = tuple["np.ndarray", Labels]
 """C{LoaderOutput} is a tuple of an image as a C{np.ndarray} and a
 dictionary of task group names and their annotations as
 L{Annotations}."""
 
-RGB: TypeAlias = Tuple[int, int, int]
+RGB: TypeAlias = tuple[int, int, int]
 
-HSV: TypeAlias = Tuple[float, float, float]
+HSV: TypeAlias = tuple[float, float, float]
 
-Color: TypeAlias = Union[str, int, RGB]
+Color: TypeAlias = str | int | RGB
 """Color type alias.
 
 Can be either a string (e.g. "red", "#FF5512"),  a tuple of RGB values,
@@ -59,26 +48,24 @@ or a single value (in which case it is interpreted as a grayscale
 value).
 """
 
-PrimitiveType: TypeAlias = Union[str, int, float, bool, None]
+PrimitiveType: TypeAlias = str | int | float | bool | None
 """Primitive types in Python."""
 
 # To avoid infinite recursion
 if TYPE_CHECKING:  # pragma: no cover
-    ParamValue: TypeAlias = Union[
-        Dict[PrimitiveType, "ParamValue"],
-        List["ParamValue"],
-        PrimitiveType,
-    ]
+    ParamValue: TypeAlias = (
+        dict[PrimitiveType, "ParamValue"] | list["ParamValue"] | PrimitiveType
+    )
 else:
     ParamValue: TypeAlias = Any
 
-Params: TypeAlias = Dict[str, ParamValue]
+Params: TypeAlias = dict[str, ParamValue]
 """A keyword dictionary of additional parameters.
 
 Usually loaded from a YAML file.
 """
 
-Kwargs: TypeAlias = Dict[str, Any]
+Kwargs: TypeAlias = dict[str, Any]
 """A keyword dictionary of arbitrary parameters."""
 
 
@@ -104,7 +91,7 @@ class ConfigItem(BaseModel):
 T = TypeVar("T")
 
 
-def check_type(value: Any, type_: Type[T]) -> TypeGuard[T]:
+def check_type(value: Any, type_: type[T]) -> TypeGuard[T]:
     """Checks if the value has the correct type.
 
     @type value: Any

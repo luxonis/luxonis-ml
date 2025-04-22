@@ -1,5 +1,5 @@
 import random
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Literal
 
 import albumentations as A
 import cv2
@@ -13,7 +13,7 @@ from luxonis_ml.data.augmentations.custom import LetterboxResize
 class MixUp(BatchTransform):
     def __init__(
         self,
-        alpha: Union[float, Tuple[float, float]] = 0.5,
+        alpha: float | tuple[float, float] = 0.5,
         keep_aspect_ratio: bool = True,
         p: float = 0.5,
     ):
@@ -34,7 +34,7 @@ class MixUp(BatchTransform):
         super().__init__(batch_size=2, p=p)
 
         self.alpha = (
-            alpha if isinstance(alpha, (list, tuple)) else (alpha, alpha)
+            alpha if isinstance(alpha, list | tuple) else (alpha, alpha)
         )
         if keep_aspect_ratio:
             self.resize_transform = LetterboxResize(1, 1)
@@ -50,8 +50,8 @@ class MixUp(BatchTransform):
     @override
     def apply(
         self,
-        image_batch: List[np.ndarray],
-        image_shapes: List[Tuple[int, int]],
+        image_batch: list[np.ndarray],
+        image_shapes: list[tuple[int, int]],
         alpha: float,
         **_,
     ) -> np.ndarray:
@@ -74,8 +74,8 @@ class MixUp(BatchTransform):
     @override
     def apply_to_mask(
         self,
-        mask_batch: List[np.ndarray],
-        image_shapes: List[Tuple[int, int]],
+        mask_batch: list[np.ndarray],
+        image_shapes: list[tuple[int, int]],
         alpha: float,
         **_,
     ) -> np.ndarray:
@@ -117,8 +117,8 @@ class MixUp(BatchTransform):
     @override
     def apply_to_instance_mask(
         self,
-        mask_batch: List[np.ndarray],
-        image_shapes: List[Tuple[int, int]],
+        mask_batch: list[np.ndarray],
+        image_shapes: list[tuple[int, int]],
         **_,
     ) -> np.ndarray:
         """Applies the transformation to a batch of instance masks.
@@ -145,8 +145,8 @@ class MixUp(BatchTransform):
     @override
     def apply_to_bboxes(
         self,
-        bboxes_batch: List[np.ndarray],
-        image_shapes: List[Tuple[int, int]],
+        bboxes_batch: list[np.ndarray],
+        image_shapes: list[tuple[int, int]],
         rows: int,
         cols: int,
         **_,
@@ -173,8 +173,8 @@ class MixUp(BatchTransform):
     @override
     def apply_to_keypoints(
         self,
-        keypoints_batch: List[np.ndarray],
-        image_shapes: List[Tuple[int, int]],
+        keypoints_batch: list[np.ndarray],
+        image_shapes: list[tuple[int, int]],
         **_,
     ) -> np.ndarray:
         """Applies the transformation to a batch of keypoints.
@@ -203,7 +203,7 @@ class MixUp(BatchTransform):
         return np.concatenate(keypoints_batch, axis=0)
 
     @override
-    def get_params(self) -> Dict[str, Any]:
+    def get_params(self) -> dict[str, Any]:
         """Update parameters.
 
         @param params: Dictionary containing parameters.
@@ -216,8 +216,8 @@ class MixUp(BatchTransform):
 
     @override
     def get_params_dependent_on_data(
-        self, params: Dict[str, Any], data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, params: dict[str, Any], data: dict[str, Any]
+    ) -> dict[str, Any]:
         """Get parameters dependent on the targets.
 
         @param params: Dictionary containing parameters.
@@ -233,9 +233,9 @@ class MixUp(BatchTransform):
     def resize(
         self,
         data: np.ndarray,
-        shapes: List[Tuple[int, int]],
+        shapes: list[tuple[int, int]],
         target_type: Literal["image", "mask", "bboxes", "keypoints"],
-        alpha: Optional[float] = None,
+        alpha: float | None = None,
         **kwargs,
     ) -> np.ndarray:
         out_height, out_width = shapes[0]

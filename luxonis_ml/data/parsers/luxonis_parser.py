@@ -4,16 +4,7 @@ import zipfile
 from enum import Enum
 from importlib.util import find_spec
 from pathlib import Path
-from typing import (
-    Dict,
-    Generic,
-    Optional,
-    Tuple,
-    Type,
-    TypeVar,
-    Union,
-    overload,
-)
+from typing import Generic, TypeVar, overload
 
 from loguru import logger
 
@@ -45,7 +36,7 @@ T = TypeVar("T", str, None)
 
 
 class LuxonisParser(Generic[T]):
-    parsers: Dict[DatasetType, Type[BaseParser]] = {
+    parsers: dict[DatasetType, type[BaseParser]] = {
         DatasetType.COCO: COCOParser,
         DatasetType.VOC: VOCParser,
         DatasetType.DARKNET: DarknetParser,
@@ -63,11 +54,11 @@ class LuxonisParser(Generic[T]):
         self,
         dataset_dir: str,
         *,
-        dataset_name: Optional[str] = None,
-        save_dir: Optional[Union[Path, str]] = None,
+        dataset_name: str | None = None,
+        save_dir: Path | str | None = None,
         dataset_plugin: T = None,
-        dataset_type: Optional[DatasetType] = None,
-        task_name: Optional[Union[str, Dict[str, str]]] = None,
+        dataset_type: DatasetType | None = None,
+        task_name: str | dict[str, str] | None = None,
         **kwargs,
     ):
         """High-level abstraction over various parsers.
@@ -182,7 +173,7 @@ class LuxonisParser(Generic[T]):
         logger.info("Dataset parsed successfully.")
         return dataset
 
-    def _recognize_dataset(self) -> Tuple[DatasetType, ParserType]:
+    def _recognize_dataset(self) -> tuple[DatasetType, ParserType]:
         """Recognizes the dataset format and parser type.
 
         @rtype: Tuple[DatasetType, ParserType]
@@ -220,9 +211,9 @@ class LuxonisParser(Generic[T]):
 
     def _parse_split(
         self,
-        split: Optional[str] = None,
+        split: str | None = None,
         random_split: bool = True,
-        split_ratios: Optional[Dict[str, float]] = None,
+        split_ratios: dict[str, float] | None = None,
         **kwargs,
     ) -> BaseDataset:
         """Parses data from a subdirectory representing a single split.
@@ -256,8 +247,8 @@ class LuxonisParser(Generic[T]):
         )
 
     def _download_roboflow_dataset(
-        self, dataset_dir: str, local_path: Optional[Path]
-    ) -> Tuple[Path, str]:
+        self, dataset_dir: str, local_path: Path | None
+    ) -> tuple[Path, str]:
         if find_spec("roboflow") is None:  # pragma: no cover
             _pip_install("roboflow", "roboflow~=1.1.0")
             subprocess.run(

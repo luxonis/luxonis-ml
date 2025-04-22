@@ -1,10 +1,10 @@
 from abc import ABC, abstractmethod
-from typing import Iterator, Type
+from collections.abc import Iterator
 
 from luxonis_ml.typing import LoaderOutput
 from luxonis_ml.utils import AutoRegisterMeta, Registry
 
-LOADERS_REGISTRY: Registry[Type["BaseLoader"]] = Registry(name="loaders")
+LOADERS_REGISTRY: Registry[type["BaseLoader"]] = Registry(name="loaders")
 
 
 class BaseLoader(
