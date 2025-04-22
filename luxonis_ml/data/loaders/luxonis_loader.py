@@ -7,6 +7,7 @@ from typing import Literal, cast
 
 import cv2
 import numpy as np
+import polars as pl
 import yaml
 from loguru import logger
 from typing_extensions import override
@@ -49,6 +50,7 @@ class LuxonisLoader(BaseLoader):
         *,
         keep_categorical_as_strings: bool = False,
         update_mode: UpdateMode | Literal["all", "missing"] = UpdateMode.ALL,
+        filter_task_names: list[str] | None = None,
     ) -> None:
         """A loader class used for loading data from L{LuxonisDataset}.
 
@@ -104,6 +106,11 @@ class LuxonisLoader(BaseLoader):
         @param update_mode: Enum that determines the sync mode for media files of the remote dataset (annotations and metadata are always overwritten):
             - UpdateMode.MISSING: Downloads only the missing media files for the dataset.
             - UpdateMode.ALL: Always downloads and overwrites all media files in the local dataset.
+
+        @type filter_task_names: Optional[List[str]]
+        @param filter_task_names: List of task names to filter the dataset by.
+            If C{None}, all task names are included. Defaults to C{None}.
+            This is useful for filtering out tasks that are not needed for a specific use case.
         """
 
         self.exclude_empty_annotations = exclude_empty_annotations
@@ -114,6 +121,7 @@ class LuxonisLoader(BaseLoader):
         self.dataset = dataset
         self.sync_mode = self.dataset.is_remote
         self.keep_categorical_as_strings = keep_categorical_as_strings
+        self.filter_task_names = filter_task_names
 
         if self.sync_mode:
             self.dataset.pull_from_cloud(update_mode=UpdateMode(update_mode))
@@ -123,11 +131,25 @@ class LuxonisLoader(BaseLoader):
         self.view = view
 
         self.df = self.dataset._load_df_offline(raise_when_empty=True)
+        self.classes = self.dataset.get_classes()
+
+        if self.filter_task_names is not None:
+            self.df = self.df.filter(
+                pl.col("task_name").is_in(self.filter_task_names)
+            )
+            self.classes = {
+                task_name: self.classes[task_name]
+                for task_name in self.filter_task_names
+                if task_name in self.classes
+            }
 
         if not self.dataset.is_remote:
             file_index = self.dataset._get_index()
             if file_index is None:  # pragma: no cover
                 raise FileNotFoundError("Cannot find file index")
+            file_index = file_index.filter(
+                pl.col("uuid").is_in(self.df["uuid"])
+            )
             self.df = self.df.join(file_index, on="uuid").drop("file_right")
 
         self.classes = self.dataset.get_classes()
@@ -144,6 +166,12 @@ class LuxonisLoader(BaseLoader):
             self.instances.extend(splits[view])
 
         self.idx_to_df_row: list[list[int]] = []
+        self.instances = [
+            uuid
+            for uuid in self.instances
+            if uuid in self.df["uuid"].to_list()
+        ]
+
         for uuid in self.instances:
             boolean_mask = self.df["uuid"] == uuid
             row_indexes = boolean_mask.arg_true().to_list()
@@ -227,6 +255,11 @@ class LuxonisLoader(BaseLoader):
         self, img: np.ndarray, labels: Labels
     ) -> LoaderOutput:
         for task_name, task_types in self.dataset.get_tasks().items():
+            if (
+                self.filter_task_names is not None
+                and task_name not in self.filter_task_names
+            ):
+                continue
             for task_type in task_types:
                 task = f"{task_name}/{task_type}"
                 if task not in labels:
@@ -405,15 +438,21 @@ class LuxonisLoader(BaseLoader):
         if height is None or width is None:
             return None
 
+        dataset_tasks = self.dataset.get_tasks()
+
         targets = {
             f"{task_name}/{task_type}": task_type
-            for task_name, task_types in self.dataset.get_tasks().items()
+            for task_name, task_types in dataset_tasks.items()
+            if self.filter_task_names is None
+            or task_name in self.filter_task_names
             for task_type in task_types
         }
 
         n_classes = {
             f"{task_name}/{task_type}": self.dataset.get_n_classes()[task_name]
-            for task_name, task_types in self.dataset.get_tasks().items()
+            for task_name, task_types in dataset_tasks.items()
+            if self.filter_task_names is None
+            or task_name in self.filter_task_names
             for task_type in task_types
         }
 
