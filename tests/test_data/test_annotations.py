@@ -169,7 +169,7 @@ def test_bbox_annotation(subtests: SubTests):
             BBoxAnnotation(x=0.3, y=0.4, w=0.5, h=0.6),
         ]
         assert np.allclose(
-            BBoxAnnotation.combine_to_numpy(bboxes, [1, 2, 3], ...),
+            BBoxAnnotation.combine_to_numpy(bboxes, [1, 2, 3]),
             np.array(
                 [
                     [1, 0.1, 0.2, 0.3, 0.4],
@@ -208,7 +208,7 @@ def test_keypoints_annotation(subtests: SubTests):
             KeypointAnnotation(keypoints=[(0.3, 0.4, 1)]),
         ]
         assert np.allclose(
-            KeypointAnnotation.combine_to_numpy(keypoints_list, ..., ...),
+            KeypointAnnotation.combine_to_numpy(keypoints_list),
             np.array([[0.1, 0.2, 2], [0.2, 0.3, 0], [0.3, 0.4, 1]]),
         )
 
