@@ -362,3 +362,27 @@ def test_dataset_reproducibility(storage_url: str, tempdir: Path):
         )
         for a1, a2 in zip(run1, run2)
     )
+
+
+def test_filter_by_task_name(tempdir: Path):
+    def generator() -> DatasetIterator:
+        for i in range(6):
+            yield {
+                "file": create_image(i, tempdir),
+                "task_name": "person_cls" if i % 2 == 0 else "car_cls",
+                "annotation": {"class": "person" if i % 2 == 0 else "car"},
+            }
+
+    dataset = LuxonisDataset(
+        "test_filter_by_task_name",
+        delete_local=True,
+        bucket_storage=BucketStorage.LOCAL,
+    )
+    dataset.add(generator())
+    dataset.make_splits(splits=(1, 0, 0))
+
+    for task_name in ["person_cls", "car_cls"]:
+        loader = LuxonisLoader(
+            dataset, view="train", filter_task_names=[task_name]
+        )
+        assert len(loader) == 3
