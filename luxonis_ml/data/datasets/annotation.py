@@ -170,7 +170,7 @@ class BBoxAnnotation(Annotation):
     def combine_to_numpy(
         annotations: List["BBoxAnnotation"],
         classes: List[int],
-        n_classes: int = ...,
+        n_classes: int | None = None,
     ) -> np.ndarray:
         boxes = np.empty((len(annotations), 5))
         for i, ann in enumerate(annotations):
@@ -236,8 +236,8 @@ class KeypointAnnotation(Annotation):
     @override
     def combine_to_numpy(
         annotations: List["KeypointAnnotation"],
-        classes: List[int] = ...,
-        n_classes: int = ...,
+        classes: List[int] | None = None,
+        n_classes: int | None = None,
     ) -> np.ndarray:
         keypoints = np.empty(
             (len(annotations), len(annotations[0].keypoints) * 3)
@@ -479,8 +479,8 @@ class InstanceSegmentationAnnotation(SegmentationAnnotation):
     @override
     def combine_to_numpy(
         annotations: List["InstanceSegmentationAnnotation"],
-        classes: List[int] = ...,
-        n_classes: int = ...,
+        classes: List[int] | None = None,
+        n_classes: int | None = None,
     ) -> np.ndarray:
         return np.stack([ann.to_numpy() for ann in annotations])
 
