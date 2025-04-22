@@ -80,7 +80,7 @@ def main(
         avg = 0
         for _ in range(repeat):
             dataset = LuxonisDataset(
-                name, delete_existing=True, bucket_storage=BucketStorage.LOCAL
+                name, delete_local=True, bucket_storage=BucketStorage.LOCAL
             )
             t = time.time()
             dataset.add(generator(size))

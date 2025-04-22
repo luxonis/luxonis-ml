@@ -36,5 +36,5 @@ class BucketStorage(Enum):
 class UpdateMode(Enum):
     """Update mode for the dataset."""
 
-    ALWAYS = "always"
-    IF_EMPTY = "if_empty"
+    ALL = "all"
+    MISSING = "missing"
