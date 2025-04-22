@@ -12,7 +12,7 @@ from bidict import bidict
 from luxonis_ml.data.utils import get_task_name, task_type_iterator
 from luxonis_ml.typing import HSV, RGB, Color, Labels
 
-font = cv2.FONT_HERSHEY_SIMPLEX
+FONT = cv2.FONT_HERSHEY_SIMPLEX
 
 
 class ColorMap(Mapping[Hashable, RGB]):
@@ -252,7 +252,7 @@ def create_text_image(
     """
     img = np.full((height, width, 3), resolve_color(bg_color), dtype=np.uint8)
 
-    text_size = cv2.getTextSize(text, font, font_size, 1)[0]
+    text_size = cv2.getTextSize(text, FONT, font_size, 1)[0]
 
     text_x = (width - text_size[0]) // 2
     text_y = (height + text_size[1]) // 2
@@ -261,7 +261,7 @@ def create_text_image(
         img,
         text,
         (text_x, text_y),
-        fontFace=font,
+        fontFace=FONT,
         fontScale=font_size,
         color=resolve_color(text_color),
         thickness=1,
@@ -348,7 +348,7 @@ def draw_bbox_label(
     """
     text = class_name
 
-    text_size = cv2.getTextSize(text, font, font_scale, 1)[0]
+    text_size = cv2.getTextSize(text, FONT, font_scale, 1)[0]
     text_x = box[1]
     text_y = max(box[2] - 5, text_size[1])
 
@@ -363,7 +363,7 @@ def draw_bbox_label(
         image,
         text,
         (text_x, text_y),
-        font,
+        FONT,
         font_scale,
         (255, 255, 255),
         1,
@@ -393,7 +393,7 @@ def draw_keypoint_label(
     @param color: The color of the text.
     @type font_scale: float
     """
-    text_size = cv2.getTextSize(text, font, font_scale, 1)[0]
+    text_size = cv2.getTextSize(text, FONT, font_scale, 1)[0]
     text_x = point[0] + size + 2
     text_y = point[1] + text_size[1] // 2
 
@@ -401,7 +401,7 @@ def draw_keypoint_label(
         image,
         text,
         (text_x, text_y),
-        font,
+        FONT,
         font_scale,
         color,
         1,
