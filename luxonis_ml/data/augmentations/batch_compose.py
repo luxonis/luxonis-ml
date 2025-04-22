@@ -1,3 +1,4 @@
+import random
 from typing import Dict, List
 
 import albumentations as A
@@ -21,6 +22,9 @@ class BatchCompose(A.Compose):
         @param kwargs: Additional arguments to pass to A.Compose
         """
         super().__init__(transforms, is_check_shapes=False, **kwargs)
+
+        random.seed(self.seed)
+        np.random.seed(self.seed)
 
         self.batch_size = 1
         for transform in self.transforms:

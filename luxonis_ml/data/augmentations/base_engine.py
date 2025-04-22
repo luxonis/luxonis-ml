@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Iterable, List, Mapping, Type
+from typing import Iterable, List, Mapping, Optional, Type
 
 from luxonis_ml.typing import LoaderOutput, Params
 from luxonis_ml.utils import AutoRegisterMeta, Registry
@@ -26,6 +26,7 @@ class AugmentationEngine(
         keep_aspect_ratio: bool,
         is_validation_pipeline: bool,
         min_bbox_visibility: float = 0.0,
+        seed: Optional[int] = None,
     ):
         """Initialize augmentation pipeline from configuration.
 
@@ -63,6 +64,9 @@ class AugmentationEngine(
             pipeline (in which case some augmentations are skipped)
         @type min_bbox_visibility: float
         @param min_bbox_visibility: Minimum fraction of the original bounding box that must remain visible after augmentation.
+        @type seed: Optional[int]
+        @param seed: Random seed for reproducibility. If None, a random seed will be used.
+            If provided, it will be used to initialize the random number generator.
         """
         ...
 

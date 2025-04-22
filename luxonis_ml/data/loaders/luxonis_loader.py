@@ -47,6 +47,7 @@ class LuxonisLoader(BaseLoader):
         keep_aspect_ratio: bool = True,
         exclude_empty_annotations: bool = False,
         color_space: Literal["RGB", "BGR"] = "RGB",
+        seed: Optional[int] = None,
         *,
         keep_categorical_as_strings: bool = False,
         update_mode: Union[
@@ -93,6 +94,8 @@ class LuxonisLoader(BaseLoader):
         @type color_space: Literal["RGB", "BGR"]
         @param color_space: The color space of the output images. Defaults
             to C{"RGB"}.
+        @type seed: Optional[int]
+        @param seed: The random seed to use for the augmentations.
         @type exclude_empty_annotations: bool
         @param exclude_empty_annotations: Whether to exclude
             empty annotations from the final label dictionary.
@@ -188,6 +191,7 @@ class LuxonisLoader(BaseLoader):
             height,
             width,
             keep_aspect_ratio,
+            seed,
         )
 
     @override
@@ -399,6 +403,7 @@ class LuxonisLoader(BaseLoader):
         height: Optional[int],
         width: Optional[int],
         keep_aspect_ratio: bool,
+        seed: Optional[int] = None,
     ) -> Optional[AugmentationEngine]:
         if isinstance(augmentation_config, (Path, str)):
             with open(augmentation_config) as file:
@@ -433,4 +438,5 @@ class LuxonisLoader(BaseLoader):
             n_classes=n_classes,
             keep_aspect_ratio=keep_aspect_ratio,
             is_validation_pipeline="train" not in self.view,
+            seed=seed,
         )

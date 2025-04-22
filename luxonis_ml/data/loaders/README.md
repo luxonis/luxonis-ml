@@ -22,5 +22,6 @@ The `LuxonisLoader` class provides efficient access to dataset samples with conf
 | `keep_aspect_ratio`           | `bool`                                    | `True`              | Whether to keep image aspect ratio                             |
 | `exclude_empty_annotations`   | `bool`                                    | `False`             | Whether to exclude empty annotations                           |
 | `color_space`                 | `Literal["RGB", "BGR"]`                   | `"RGB"`             | Color space of output images                                   |
+| `seed`                        | `Optional[int]`                           | `None`              | The random seed to use for the augmentations                   |
 | `keep_categorical_as_strings` | `bool`                                    | `False`             | Whether to keep categorical metadata as strings                |
 | `update_mode`                 | `UpdateMode`                              | `UpdateMode.ALWAYS` | Whether to always download dataset from cloud or only if empty |
