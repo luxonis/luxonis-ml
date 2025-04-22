@@ -167,6 +167,12 @@ class LuxonisLoader(BaseLoader):
         for view in self.view:
             self.instances.extend(splits[view])
 
+        self.instances = [
+            uuid
+            for uuid in self.instances
+            if uuid in self.df["uuid"].to_list()
+        ]
+
         self.idx_to_df_row: List[List[int]] = []
         for uuid in self.instances:
             boolean_mask = self.df["uuid"] == uuid
