@@ -109,6 +109,11 @@ class LuxonisLoader(BaseLoader):
         @param update_mode: Enum that determines the sync mode for media files of the remote dataset (annotations and metadata are always overwritten):
             - UpdateMode.MISSING: Downloads only the missing media files for the dataset.
             - UpdateMode.ALL: Always downloads and overwrites all media files in the local dataset.
+
+        @type filter_task_names: Optional[List[str]]
+        @param filter_task_names: List of task names to filter the dataset by.
+            If C{None}, all task names are included. Defaults to C{None}.
+            This is useful for filtering out tasks that are not needed for a specific use case.
         """
 
         self.exclude_empty_annotations = exclude_empty_annotations
