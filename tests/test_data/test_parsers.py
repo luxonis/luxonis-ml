@@ -94,7 +94,7 @@ def test_dir_parser(
     parser = LuxonisParser(
         url,
         dataset_name=dataset_name,
-        delete_existing=True,
+        delete_local=True,
         save_dir=tempdir,
     )
     dataset = parser.parse()

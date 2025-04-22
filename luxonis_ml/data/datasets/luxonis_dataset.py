@@ -2,7 +2,6 @@ import json
 import math
 import os
 import shutil
-import tempfile
 import zipfile
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
@@ -26,7 +25,6 @@ from typing import (
 
 import numpy as np
 import polars as pl
-import pyarrow.parquet as pq
 from filelock import FileLock
 from loguru import logger
 from rich.progress import track
@@ -79,7 +77,7 @@ class LuxonisDataset(BaseDataset):
             BucketStorage, Literal["local", "gcs", "s3", "azure"]
         ] = BucketStorage.LOCAL,
         *,
-        delete_existing: bool = False,
+        delete_local: bool = False,
         delete_remote: bool = False,
     ) -> None:
         """Luxonis Dataset Format (LDF) is used to define datasets in
@@ -94,9 +92,9 @@ class LuxonisDataset(BaseDataset):
         @type bucket_storage: BucketStorage
         @param bucket_storage: Underlying bucket storage. Can be one of
             C{local}, C{S3}, or C{GCS}.
-        @type delete_existing: bool
-        @param delete_existing: Whether to delete a dataset with the
-            same name if it exists
+        @type delete_local: bool
+        @param delete_local: Whether to delete a dataset with the same
+            name if it exists
         @type delete_remote: bool
         @param delete_remote: Whether to delete the dataset from the
             cloud as well
@@ -131,14 +129,16 @@ class LuxonisDataset(BaseDataset):
 
         self.fs = LuxonisFileSystem(self.path)
 
-        if delete_existing:
+        if delete_local or delete_remote:
             if self.exists(
                 self.dataset_name,
                 self.team_id,
                 self.bucket_storage,
                 self.bucket,
             ):
-                self.delete_dataset(delete_remote=delete_remote)
+                self.delete_dataset(
+                    delete_remote=delete_remote, delete_local=delete_local
+                )
 
             self._init_paths()
 
@@ -307,12 +307,12 @@ class LuxonisDataset(BaseDataset):
             team_id=self.team_id,
             bucket_type=self.bucket_type,
             bucket_storage=self.bucket_storage,
-            delete_existing=True,
+            delete_local=True,
             delete_remote=True,
         )
 
         if self.is_remote:
-            self.sync_from_cloud()
+            self.pull_from_cloud(update_mode=UpdateMode.MISSING)
 
         new_dataset_path = Path(new_dataset.local_path)
         new_dataset_path.mkdir(parents=True, exist_ok=True)
@@ -325,24 +325,20 @@ class LuxonisDataset(BaseDataset):
 
         new_dataset._metadata.parent_dataset = self.dataset_name
 
-        if self.is_remote and push_to_cloud:
-            new_dataset.sync_to_cloud()
+        if push_to_cloud:
+            if self.is_remote:
+                new_dataset.push_to_cloud(
+                    update_mode=UpdateMode.MISSING,
+                    bucket_storage=self.bucket_storage,
+                )
+            else:
+                logger.warning(
+                    f"Cannot push to cloud. The cloned dataset '{new_dataset.dataset_name}' is local. "
+                )
 
-        path = self.metadata_path / "metadata.json"
-        path.write_text(self._metadata.model_dump_json(indent=4))
+        new_dataset._write_metadata()
 
         return new_dataset
-
-    def sync_to_cloud(self) -> None:
-        """Uploads data to a remote cloud bucket."""
-        if not self.is_remote:
-            logger.warning("This is a local dataset! Cannot sync")
-            return
-
-        logger.info("Syncing to cloud...")
-        self.fs.put_dir(
-            local_paths=self.local_path, remote_dir="", copy_contents=True
-        )
 
     def merge_with(
         self,
@@ -365,6 +361,10 @@ class LuxonisDataset(BaseDataset):
         if inplace:
             target_dataset = self
         elif new_dataset_name:
+            if self.bucket_storage != other.bucket_storage:
+                raise ValueError(
+                    "Cannot merge datasets with different bucket storage types."
+                )
             target_dataset = self.clone(new_dataset_name, push_to_cloud=False)
         else:
             raise ValueError(
@@ -373,17 +373,17 @@ class LuxonisDataset(BaseDataset):
             )
 
         if self.is_remote:
-            other.sync_from_cloud(update_mode=UpdateMode.ALWAYS)
-            self.sync_from_cloud(
-                update_mode=UpdateMode.ALWAYS
-                if inplace
-                else UpdateMode.IF_EMPTY
-            )
+            other.pull_from_cloud(UpdateMode.MISSING)
+            self.pull_from_cloud(UpdateMode.MISSING)
 
         df_self = self._load_df_offline(raise_when_empty=True)
         df_other = other._load_df_offline(raise_when_empty=True)
         duplicate_uuids = set(df_self["uuid"]).intersection(df_other["uuid"])
         if duplicate_uuids:
+            logger.warning(
+                f"Found {len(duplicate_uuids)} duplicate UUIDs in the datasets. "
+                "Merging will remove these duplicates from the incoming dataset."
+            )
             df_other = df_other.filter(
                 ~df_other["uuid"].is_in(duplicate_uuids)
             )
@@ -391,25 +391,14 @@ class LuxonisDataset(BaseDataset):
         df_merged = pl.concat([df_self, df_other])
         target_dataset._save_df_offline(df_merged)
 
-        file_index_self = self._get_file_index(raise_when_empty=True)
-        file_index_other = other._get_file_index(raise_when_empty=True)
-        file_index_duplicates = set(file_index_self["uuid"]).intersection(
-            file_index_other["uuid"]
-        )
-        if file_index_duplicates:
-            file_index_other = file_index_other.filter(
-                ~file_index_other["uuid"].is_in(file_index_duplicates)
-            )
-
-        merged_file_index = pl.concat([file_index_self, file_index_other])
-        if merged_file_index is not None:
-            file_index_path = (
-                target_dataset.metadata_path / "file_index.parquet"
-            )
-            merged_file_index.write_parquet(file_index_path)
-
         splits_self = self._load_splits(self.metadata_path)
-        splits_other = self._load_splits(other.metadata_path)
+        splits_other = self._load_splits(
+            other.metadata_path
+        )  # dict of split names to list of uuids
+        splits_other = {
+            split_name: [uuid for uuid in uuids if uuid not in duplicate_uuids]
+            for split_name, uuids in splits_other.items()
+        }
         self._merge_splits(splits_self, splits_other)
         target_dataset._save_splits(splits_self)
 
@@ -417,7 +406,10 @@ class LuxonisDataset(BaseDataset):
             shutil.copytree(
                 other.media_path, target_dataset.media_path, dirs_exist_ok=True
             )
-            target_dataset.sync_to_cloud()
+            target_dataset.push_to_cloud(
+                bucket_storage=target_dataset.bucket_storage,
+                update_mode=UpdateMode.MISSING,
+            )
 
         target_dataset._merge_metadata_with(other)
 
@@ -515,82 +507,54 @@ class LuxonisDataset(BaseDataset):
         return migrate_dataframe(df)  # pragma: no cover
 
     @overload
-    def _get_file_index(
+    def _get_index(
         self,
         lazy: Literal[False] = ...,
-        sync_from_cloud: bool = ...,
         raise_when_empty: Literal[False] = ...,
     ) -> Optional[pl.DataFrame]: ...
+
     @overload
-    def _get_file_index(
+    def _get_index(
         self,
         lazy: Literal[False] = ...,
-        sync_from_cloud: bool = ...,
         raise_when_empty: Literal[True] = ...,
     ) -> pl.DataFrame: ...
 
     @overload
-    def _get_file_index(
+    def _get_index(
         self,
         lazy: Literal[True] = ...,
-        sync_from_cloud: bool = ...,
         raise_when_empty: Literal[False] = ...,
     ) -> Optional[pl.LazyFrame]: ...
-    @overload
-    def _get_file_index(
-        self,
-        lazy: Literal[True] = ...,
-        sync_from_cloud: bool = ...,
-        raise_when_empty: Literal[True] = ...,
-    ) -> pl.LazyFrame: ...
 
-    def _get_file_index(
+    def _get_index(
         self,
         lazy: bool = False,
-        sync_from_cloud: bool = False,
         raise_when_empty: bool = False,
     ) -> Optional[Union[pl.DataFrame, pl.LazyFrame]]:
-        """Loads the file index DataFrame from the local storage or the
-        cloud if sync_from_cloud.
+        """Loads unique file entries from annotation data."""
+        df = self._load_df_offline(
+            lazy=lazy, raise_when_empty=raise_when_empty
+        )
+        if df is None:
+            return None
 
-        @type lazy: bool
-        @param lazy: Whether to return a LazyFrame instead of a
-            DataFrame
-        @type sync_from_cloud: bool
-        @param sync_from_cloud: Whether to sync from cloud before
-            loading the index
-        """
-        if sync_from_cloud:
-            get_file(
-                self.fs, "metadata/file_index.parquet", self.metadata_path
-            )
+        processed = df.select(
+            pl.col("uuid"),
+            pl.col("file").str.extract(r"([^\/\\]+)$").alias("file"),
+            pl.col("file")
+            .apply(lambda x: str(Path(x).resolve()), return_dtype=pl.Utf8)
+            .alias("original_filepath"),
+        )
 
-        path = self.metadata_path / "file_index.parquet"
-        if path is not None and path.exists():
-            if not lazy:
-                df = pl.read_parquet(path)
-            else:
-                df = pl.scan_parquet(path)
+        processed = processed.unique(
+            subset=["uuid", "original_filepath"], maintain_order=False
+        )
 
-            return df.select(pl.all().exclude("^__index_level_.*$"))
+        if not lazy and isinstance(processed, pl.LazyFrame):
+            processed = processed.collect()
 
-        if raise_when_empty:
-            raise FileNotFoundError(
-                f"File index for dataset '{self.dataset_name}' is empty."
-            )
-        return None
-
-    def _write_index(
-        self,
-        index: Optional[pl.DataFrame],
-        new_index: Dict[str, List[str]],
-        path: Optional[PathType] = None,
-    ) -> None:
-        path = Path(path or self.metadata_path / "file_index.parquet")
-        df = pl.DataFrame(new_index)
-        if index is not None:
-            df = pl.concat([index, df])
-        pq.write_table(df.to_arrow(), path)
+        return processed
 
     def _write_metadata(self) -> None:
         path = self.metadata_path / "metadata.json"
@@ -738,19 +702,19 @@ class LuxonisDataset(BaseDataset):
     ) -> Dict[str, Literal["float", "int", "str", "Category"]]:
         return self._metadata.metadata_types
 
-    def sync_from_cloud(
-        self, update_mode: UpdateMode = UpdateMode.IF_EMPTY
+    def pull_from_cloud(
+        self, update_mode: UpdateMode = UpdateMode.MISSING
     ) -> None:
         """Synchronizes the dataset from a remote cloud bucket to the
         local directory.
 
-        This method performs the download only if local data is empty, or always downloads
+        This method performs the download only if some local dataset media files are missing, or always downloads
         depending on the provided update_mode.
 
         @type update_mode: UpdateMode
         @param update_mode: Specifies the update behavior.
-            - UpdateMode.IF_EMPTY: Downloads data only if the local dataset is empty.
-            - UpdateMode.ALWAYS: Always downloads and overwrites the local dataset.
+            - UpdateMode.MISSING: Downloads only the missing media files for the dataset.
+            - UpdateMode.ALL: Always downloads and overwrites all media files in the local dataset.
         """
         if not self.is_remote:
             logger.warning("This is a local dataset! Cannot sync from cloud.")
@@ -762,46 +726,168 @@ class LuxonisDataset(BaseDataset):
         lock_path = local_dir / ".sync.lock"
 
         with FileLock(str(lock_path)):  # DDP GCS training - multiple processes
-            any_subfolder_empty = any(
-                subfolder.is_dir() and not any(subfolder.iterdir())
-                for subfolder in (local_dir / self.dataset_name).iterdir()
-                if subfolder.is_dir()
+            logger.info(
+                "Pulling remote's dataset annotations and metadata to local dataset ..."
             )
-            if update_mode == UpdateMode.IF_EMPTY and not any_subfolder_empty:
-                logger.info(
-                    "Local dataset directory already exists. Skipping download."
+            for dir_name in ["annotations", "metadata"]:
+                _ = get_dir(self.fs, dir_name, self.local_path)
+
+            index = self._get_index(lazy=False)
+            missing_media_paths = []
+            if index is not None:
+                missing = index.filter(
+                    pl.col("original_filepath").apply(
+                        lambda path: not Path(path).exists(),
+                        return_dtype=pl.Boolean,
+                    )
+                    & pl.col("uuid").apply(
+                        lambda uid: not (
+                            Path("local_dir")
+                            / "media"
+                            / f"{uid}{Path(str(uid)).suffix}"
+                        ).exists(),
+                        return_dtype=pl.Boolean,
+                    )
                 )
-                return
-            if update_mode == UpdateMode.ALWAYS or not self._is_synced:
-                logger.info("Syncing from cloud...")
+                missing_media_paths = [
+                    f"media/{row[0]}{Path(str(row[1])).suffix}"
+                    for row in missing.select(["uuid", "file"]).iter_rows()
+                ]
+
+            if update_mode == UpdateMode.ALL:
+                logger.info("Force-pulling all media files...")
                 self.fs.get_dir(remote_paths="", local_dir=local_dir)
-                self._is_synced = True
-            else:
-                logger.warning(
-                    "Already synced. Use update_mode=ALWAYS to resync."
+            elif update_mode == UpdateMode.MISSING and missing_media_paths:
+                logger.info(
+                    f"Pulling {len(missing_media_paths)} missing files..."
                 )
+                self.fs.get_dir(
+                    remote_paths=missing_media_paths,
+                    local_dir=local_dir / f"{self.dataset_name}" / "media",
+                )
+            else:
+                logger.info("Media already synced")
+
+    def push_to_cloud(
+        self,
+        bucket_storage: BucketStorage,
+        update_mode: UpdateMode = UpdateMode.MISSING,
+    ) -> None:
+        """Pushes the local dataset to a remote cloud bucket.
+
+        This method performs the pushing only for missing cloud media files or always pushes
+        depending on the provided update_mode.
+
+        @type update_mode: UpdateMode
+        @param update_mode: Specifies the update behavior. Annotations and metadata are always pushed.
+            - UpdateMode.MISSING: Pushes only the missing media files for the dataset.
+            - UpdateMode.ALL:  Always pushes and overwrites all media files in the cloud dataset.
+        """
+        index = self._get_index(lazy=False)
+
+        if index is None:
+            raise ValueError(
+                "Cannot push to cloud. The dataset is empty or not initialized."
+            )
+
+        dataset = LuxonisDataset(
+            dataset_name=self.dataset_name,
+            team_id=self.team_id,
+            bucket_type=self.bucket_type,
+            bucket_storage=bucket_storage,
+            delete_local=False,
+            delete_remote=False,
+        )
+
+        bucket_uuids = (
+            [
+                PurePosixPath(path).stem
+                for path in dataset.fs.walk_dir(
+                    "media", recursive=False, typ="file"
+                )
+            ]
+            if dataset.fs.exists("media")
+            else []
+        )
+
+        missing_df = index.filter(~pl.col("uuid").is_in(bucket_uuids))
+
+        missing_uuid_dict = {}
+        for original_path, uuid in zip(
+            missing_df["original_filepath"].to_list(),
+            missing_df["uuid"].to_list(),
+        ):
+            if not Path(original_path).exists():
+                suffix = Path(original_path).suffix
+                fallback_path = self.local_path / "media" / f"{uuid}{suffix}"
+                if fallback_path.exists():
+                    missing_uuid_dict[str(fallback_path)] = uuid
+                else:
+                    raise FileNotFoundError(
+                        f"File {original_path} and {fallback_path} do not exist!"
+                    )
+            else:
+                missing_uuid_dict[original_path] = uuid
+
+        for dir_name in ["annotations", "metadata"]:
+            dataset.fs.put_dir(
+                local_paths=self.local_path / dir_name,
+                remote_dir=dir_name,
+                copy_contents=True,
+            )
+
+        if update_mode == UpdateMode.ALL:
+            logger.info("Force-pushing all media files...")
+            dataset.fs.put_dir(
+                local_paths=self.local_path / "media", remote_dir="media"
+            )
+        elif update_mode == UpdateMode.MISSING and missing_uuid_dict:
+            logger.info(
+                f"Pushing {len(missing_uuid_dict)} missing files to cloud..."
+            )
+            dataset.fs.put_dir(
+                local_paths=missing_uuid_dict.keys(),
+                remote_dir="media",
+                uuid_dict=missing_uuid_dict,
+            )
+        else:
+            logger.info("Media already synced")
 
     @override
-    def delete_dataset(self, *, delete_remote: bool = False) -> None:
+    def delete_dataset(
+        self, *, delete_remote: bool = False, delete_local: bool = False
+    ) -> None:
         """Deletes the dataset from local storage and optionally from
         the cloud.
 
         @type delete_remote: bool
         @param delete_remote: Whether to delete the dataset from the
             cloud.
+        @type delete_local: bool
+        @param delete_local: Whether to delete the dataset from local
+            storage.
         """
-        if not self.is_remote:
+        if not self.is_remote and delete_local:
+            logger.info(
+                f"Deleting local dataset '{self.dataset_name}' from local storage"
+            )
             shutil.rmtree(self.path)
-            logger.info(f"Deleted dataset '{self.dataset_name}'")
 
         if self.is_remote and delete_remote:
-            logger.info(f"Deleting dataset '{self.dataset_name}' from cloud")
+            logger.info(
+                f"Deleting remote dataset '{self.dataset_name}' from cloud storage"
+            )
             assert self.path
             assert self.dataset_name
             assert self.local_path
+            self.fs.delete_dir(allow_delete_parent=True)
+
+        if self.is_remote and delete_local:
+            logger.info(
+                f"Deleting remote dataset '{self.dataset_name}' from local storage"
+            )
             if self.local_path.exists():
                 shutil.rmtree(self.local_path)
-            self.fs.delete_dir(allow_delete_parent=True)
 
     def _process_arrays(self, data_batch: List[DatasetRecord]) -> None:
         logger.info("Checking arrays...")
@@ -816,9 +902,7 @@ class LuxonisDataset(BaseDataset):
                 continue
             ann = record.annotation.array
             if self.is_remote:
-                uuid = self.fs.get_file_uuid(
-                    ann.path, local=True
-                )  # TODO: support from bucket
+                uuid = self.fs.get_file_uuid(ann.path, local=True)
                 uuid_dict[str(ann.path)] = uuid
                 ann.path = Path(uuid).with_suffix(ann.path.suffix)
             else:
@@ -827,7 +911,6 @@ class LuxonisDataset(BaseDataset):
         self.progress.remove_task(task)
         if self.is_remote:
             logger.info("Uploading arrays...")
-            # TODO: support from bucket (likely with a self.fs.copy_dir)
             self.fs.put_dir(
                 local_paths=uuid_dict.keys(),
                 remote_dir="arrays",
@@ -839,19 +922,32 @@ class LuxonisDataset(BaseDataset):
         data_batch: List[DatasetRecord],
         pfm: ParquetFileManager,
         index: Optional[pl.DataFrame],
-        new_index: Dict[str, List[str]],
-        processed_uuids: Set[str],
     ) -> None:
         paths = {data.file for data in data_batch}
         logger.info("Generating UUIDs...")
-        # TODO: support from bucket
         uuid_dict = self.fs.get_file_uuids(paths, local=True)
+
+        overwrite_uuids = set()
+        for file_path in paths:
+            matched_id = find_filepath_uuid(file_path, index)
+            if matched_id is not None:
+                overwrite_uuids.add(matched_id)
+                logger.warning(
+                    f"File {file_path} with UUID: {matched_id} already existed in the dataset from previous dataset.add() call. "
+                    "Old data will be overwritten with the new data."
+                )
+
+        if overwrite_uuids:
+            pfm.remove_duplicate_uuids(overwrite_uuids)
+
         if self.is_remote:
             logger.info("Uploading media...")
 
             # TODO: support from bucket (likely with a self.fs.copy_dir)
             self.fs.put_dir(
-                local_paths=paths, remote_dir="media", uuid_dict=uuid_dict
+                local_paths=paths,
+                remote_dir="media",
+                uuid_dict=dict(uuid_dict),
             )
             logger.info("Media uploaded")
 
@@ -865,27 +961,9 @@ class LuxonisDataset(BaseDataset):
         with self.progress:
             for record in data_batch:
                 filepath = record.file
-                file = filepath.name
                 uuid = uuid_dict[str(filepath)]
-                matched_id = find_filepath_uuid(filepath, index)
-                if matched_id is not None:
-                    if matched_id != uuid:
-                        # TODO: not sure if this should be an exception or how we should really handle it
-                        raise ValueError(
-                            f"{filepath} already added to the dataset! Please skip or rename the file."
-                        )
-                        # TODO: we may also want to check for duplicate uuids to get a one-to-one relationship
-                elif uuid not in processed_uuids:
-                    new_index["uuid"].append(uuid)
-                    new_index["file"].append(file)
-                    new_index["original_filepath"].append(
-                        str(filepath.absolute().resolve())
-                    )
-                    processed_uuids.add(uuid)
-
                 for row in record.to_parquet_rows():
                     pfm.write(uuid, row)
-
                 self.progress.update(task, advance=1)
         self.progress.remove_task(task)
 
@@ -893,9 +971,6 @@ class LuxonisDataset(BaseDataset):
         self, generator: DatasetIterator, batch_size: int = 1_000_000
     ) -> Self:
         logger.info(f"Adding data to dataset '{self.dataset_name}'...")
-        index = self._get_file_index(sync_from_cloud=True)
-        new_index = {"uuid": [], "file": [], "original_filepath": []}
-        processed_uuids = set()
 
         data_batch: list[DatasetRecord] = []
 
@@ -911,9 +986,12 @@ class LuxonisDataset(BaseDataset):
             self.local_path,
             default=self.annotations_path,
         )
+
+        index = self._get_index()
+
         assert annotations_path is not None
 
-        with ParquetFileManager(annotations_path) as pfm:
+        with ParquetFileManager(annotations_path, batch_size) as pfm:
             for i, record in enumerate(generator, start=1):
                 if not isinstance(record, DatasetRecord):
                     record = DatasetRecord(**record)
@@ -970,14 +1048,10 @@ class LuxonisDataset(BaseDataset):
 
                 data_batch.append(record)
                 if i % batch_size == 0:
-                    self._add_process_batch(
-                        data_batch, pfm, index, new_index, processed_uuids
-                    )
+                    self._add_process_batch(data_batch, pfm, index)
                     data_batch = []
 
-            self._add_process_batch(
-                data_batch, pfm, index, new_index, processed_uuids
-            )
+            self._add_process_batch(data_batch, pfm, index)
 
         with suppress(shutil.SameFileError):
             self.fs.put_dir(annotations_path, "")
@@ -1003,10 +1077,6 @@ class LuxonisDataset(BaseDataset):
         self._metadata.categorical_encodings = dict(categorical_encodings)
         self._metadata.metadata_types = metadata_types
 
-        with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
-            self._write_index(index, new_index, path=tmp_file.name)
-
-        self.fs.put_file(tmp_file.name, "metadata/file_index.parquet")
         self.set_tasks(tasks)
         self._write_metadata()
         self._warn_on_duplicates()
@@ -1014,7 +1084,7 @@ class LuxonisDataset(BaseDataset):
 
     def _warn_on_duplicates(self) -> None:
         df = self._load_df_offline(lazy=True)
-        index = self._get_file_index(lazy=True, sync_from_cloud=self.is_remote)
+        index = self._get_index(lazy=True)
         if df is None or index is None:
             return
         df = df.join(index, on="uuid").drop("file_right")
@@ -1143,7 +1213,7 @@ class LuxonisDataset(BaseDataset):
                 lower_bound = upper_bound
 
         else:
-            index = self._get_file_index(sync_from_cloud=True)
+            index = self._get_index()
             if index is None:
                 raise FileNotFoundError("File index not found")
             for split, filepaths in definitions.items():
@@ -1232,7 +1302,7 @@ class LuxonisDataset(BaseDataset):
             return []
 
         def process_directory(path: PurePosixPath) -> Optional[str]:
-            metadata_path = path / "metadata" / "metadata.json"
+            metadata_path = path / "metadata"
             if fs.exists(metadata_path):
                 return path.name
             return None
@@ -1287,10 +1357,10 @@ class LuxonisDataset(BaseDataset):
         annotations = {"train": [], "val": [], "test": []}
         df = self._load_df_offline(raise_when_empty=True)
         if not self.is_remote:
-            file_index = self._get_file_index()
-            if file_index is None:  # pragma: no cover
-                raise FileNotFoundError("Cannot find file index")
-            df = df.join(file_index, on="uuid").drop("file_right")
+            index = self._get_index()
+            if index is None:  # pragma: no cover
+                raise FileNotFoundError("Cannot find dataset index")
+            df = df.join(index, on="uuid").drop("file_right")
 
         splits = self.get_splits()
         assert splits is not None
@@ -1398,7 +1468,7 @@ class LuxonisDataset(BaseDataset):
         @return: Dataset statistics dictionary as described above
         """
         df = self._load_df_offline(lazy=True)
-        index = self._get_file_index(lazy=True, sync_from_cloud=self.is_remote)
+        index = self._get_index(lazy=True)
 
         stats = {
             "duplicates": {},
