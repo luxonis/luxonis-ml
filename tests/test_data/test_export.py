@@ -23,7 +23,7 @@ def test_dir_parser(
         dataset_name=dataset_name,
         delete_local=True,
         save_dir=tempdir,
-    ).parse(random_split=True, split_ratio=(1, 0, 0))
+    ).parse()
 
     metadata = dataset._metadata.model_dump()
     del metadata["tasks"]
