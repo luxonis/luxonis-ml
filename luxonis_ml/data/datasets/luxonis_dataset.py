@@ -1375,12 +1375,11 @@ class LuxonisDataset(BaseDataset):
         image_indices = {}
         annotations = {"train": [], "val": [], "test": []}
         df = self._load_df_offline(raise_when_empty=True)
-        self.df = df.filter(
-            pl.col("task_name").is_in([task_name] if task_name else [])
-        )
+        if task_name is not None:
+            df = df.filter(pl.col("task_name").is_in([task_name]))
         if not self.is_remote:
             index = self._get_index()
-            index = index.filter(pl.col("uuid").is_in(self.df["uuid"]))
+            index = index.filter(pl.col("uuid").is_in(df["uuid"]))
             if index is None:  # pragma: no cover
                 raise FileNotFoundError("Cannot find dataset index")
             df = df.join(index, on="uuid").drop("file_right")
