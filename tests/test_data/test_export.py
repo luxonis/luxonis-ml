@@ -1,9 +1,12 @@
+import shutil
+import zipfile
 from pathlib import Path
 
 import polars as pl
 import pytest
+from pytest_subtests import SubTests
 
-from luxonis_ml.data import LuxonisParser
+from luxonis_ml.data import LuxonisLoader, LuxonisParser
 from luxonis_ml.enums.enums import DatasetType
 
 
@@ -20,7 +23,7 @@ def test_dir_parser(
         dataset_name=dataset_name,
         delete_local=True,
         save_dir=tempdir,
-    ).parse()
+    ).parse(random_split=True, split_ratio=(1, 0, 0))
 
     metadata = dataset._metadata.model_dump()
     del metadata["tasks"]
@@ -69,3 +72,55 @@ def test_dir_parser(
     del imported_metadata["skeletons"]
     assert imported_metadata == metadata
     assert imported_anns == anns
+
+
+@pytest.mark.parametrize("url", ["COCO_people_subset.zip"])
+def test_export_edge_cases(
+    dataset_name: str,
+    storage_url: str,
+    tempdir: Path,
+    url: str,
+    subtests: SubTests,
+):
+    url = f"{storage_url}/{url}"
+    dataset = LuxonisParser(
+        url,
+        dataset_name=dataset_name,
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()
+
+    dataset.make_splits(ratios=(1, 0, 0), replace_old_splits=True)
+
+    loader = LuxonisLoader(dataset, view="train")
+    original_data = [img for img, _ in loader]
+
+    with subtests.test("Export with max_zip_size_gb=0.003"):
+        dataset.export(output_path=tempdir / "exported", max_zip_size_gb=0.003)
+
+        shutil.rmtree(tempdir / "exported" / dataset_name)
+        zip_files = sorted((tempdir / "exported").glob("*.zip"))
+
+        assert len(zip_files) == 2
+
+        merged_dir = tempdir / "exported" / dataset_name
+        merged_dir.mkdir(parents=True, exist_ok=True)
+
+        for zip_file in zip_files:
+            with zipfile.ZipFile(zip_file, "r") as zf:
+                zf.extractall(merged_dir)
+
+    with subtests.test("Parse empty test and val splits"):
+        dataset = LuxonisParser(
+            str(merged_dir),
+            dataset_name=dataset_name,
+            delete_local=True,
+            save_dir=tempdir,
+        ).parse()
+
+        dataset.make_splits(ratios=(1, 0, 0), replace_old_splits=True)
+
+        loader = LuxonisLoader(dataset, view="train")
+
+        new_data = [img for img, _ in loader]
+        assert len(new_data) == len(original_data)

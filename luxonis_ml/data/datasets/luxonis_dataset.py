@@ -686,6 +686,8 @@ class LuxonisDataset(BaseDataset):
 
     @override
     def set_tasks(self, tasks: Mapping[str, Iterable[str]]) -> None:
+        if len(tasks) == 0:
+            return
         self._metadata.tasks = {
             task_name: sorted(task_types)
             for task_name, task_types in tasks.items()
@@ -1076,9 +1078,7 @@ class LuxonisDataset(BaseDataset):
 
         self._metadata.categorical_encodings = dict(categorical_encodings)
         self._metadata.metadata_types = metadata_types
-
         self.set_tasks(tasks)
-        self._write_metadata()
         self._warn_on_duplicates()
         return self
 
@@ -1415,14 +1415,26 @@ class LuxonisDataset(BaseDataset):
             instance_id: int = row[4]
             task_type: str = row[5]
             ann_str: Optional[str] = row[6]
-            if ann_str is None:
-                continue
 
             if file not in image_indices:
                 image_indices[file] = len(image_indices)
                 dest_file = data_path / f"{image_indices[file]}{file.suffix}"
                 if not dest_file.exists():
                     shutil.copy(file, dest_file)
+
+            if ann_str is None:
+                annotations[split].append(
+                    {
+                        "file": str(
+                            Path(
+                                data_path.name,
+                                str(image_indices[file]) + file.suffix,
+                            )
+                        ),
+                        "task_name": task_name,
+                    }
+                )
+                continue
 
             data = json.loads(ann_str)
             record = {
