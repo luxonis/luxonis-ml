@@ -392,7 +392,7 @@ def export(
             help="Delete an existing `save_dir` before exporting.",
         ),
     ] = False,
-    task_name: Annotated[
+    task_name_to_keep: Annotated[
         Optional[str],
         typer.Option(
             "--task-name",
@@ -424,7 +424,7 @@ def export(
     if delete_existing and Path(save_dir).exists():
         shutil.rmtree(save_dir)
     dataset = LuxonisDataset(dataset_name, bucket_storage=bucket_storage)
-    dataset.export(save_dir, dataset_type, max_zip_size_gb, task_name)
+    dataset.export(save_dir, dataset_type, max_zip_size_gb, task_name_to_keep)
 
 
 @app.command()

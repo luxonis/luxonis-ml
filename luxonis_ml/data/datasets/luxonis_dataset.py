@@ -1321,7 +1321,7 @@ class LuxonisDataset(BaseDataset):
         output_path: PathType,
         dataset_type: DatasetType = DatasetType.NATIVE,
         max_zip_size_gb: Optional[float] = None,
-        task_name: Optional[List[str]] = None,
+        task_name_to_keep: Optional[str] = None,
     ) -> Union[Path, List[Path]]:
         """Exports the dataset into one of the supported formats.
 
@@ -1335,8 +1335,8 @@ class LuxonisDataset(BaseDataset):
         @param max_zip_size_gb: Maximum size of each ZIP file in
             gigabytes. If None, the dataset is exported into a single
             ZIP file.
-        @type task_name: Optional[List[str]]
-        @param task_name: List of task names to export. If dataset has
+        @type task_name_to_keep: Optional[str]
+        @param task_name_to_keep: Task name to keep. If dataset has
             multiple tasks, this parameter is required.
         @rtype: Union[Path, List[Path]]
         @return: Path(s) to the ZIP file(s) containing the exported
@@ -1353,16 +1353,19 @@ class LuxonisDataset(BaseDataset):
         splits = self.get_splits()
         if splits is None:
             raise ValueError("Cannot export dataset without splits")
-        if len(self.get_tasks()) > 1 and task_name is None:
+        if len(self.get_tasks()) > 1 and task_name_to_keep is None:
             raise NotImplementedError(
                 "This dataset contains multiple tasks. "
                 "Multi-task export is not yet supported; please specify the "
                 "'task_name' parameter to export one task at a time."
             )
 
-        if task_name is not None and task_name not in self.get_task_names():
+        if (
+            task_name_to_keep is not None
+            and task_name_to_keep not in self.get_task_names()
+        ):
             raise ValueError(
-                f"Task name '{task_name}' not found in the dataset. "
+                f"Task name '{task_name_to_keep}' not found in the dataset. "
                 "Please provide a valid task name."
             )
 
@@ -1375,13 +1378,13 @@ class LuxonisDataset(BaseDataset):
         image_indices = {}
         annotations = {"train": [], "val": [], "test": []}
         df = self._load_df_offline(raise_when_empty=True)
-        if task_name is not None:
-            df = df.filter(pl.col("task_name").is_in([task_name]))
+        if task_name_to_keep is not None:
+            df = df.filter(pl.col("task_name").is_in([task_name_to_keep]))
         if not self.is_remote:
             index = self._get_index()
-            index = index.filter(pl.col("uuid").is_in(df["uuid"]))
             if index is None:  # pragma: no cover
                 raise FileNotFoundError("Cannot find dataset index")
+            index = index.filter(pl.col("uuid").is_in(df["uuid"]))
             df = df.join(index, on="uuid").drop("file_right")
 
         splits = self.get_splits()
