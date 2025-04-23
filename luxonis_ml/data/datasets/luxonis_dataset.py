@@ -1320,17 +1320,27 @@ class LuxonisDataset(BaseDataset):
         self,
         output_path: PathType,
         dataset_type: DatasetType = DatasetType.NATIVE,
-    ) -> Path:
-        """Exportes the dataset into on of the supported formats.
+        max_zip_size_gb: Optional[float] = None,
+        task_name: Optional[List[str]] = None,
+    ) -> Union[Path, List[Path]]:
+        """Exports the dataset into one of the supported formats.
 
         @type output_path: PathType
         @param output_path: Path to the directory where the dataset will
             be exported.
         @type dataset_type: DatasetType
         @param dataset_type: To what format to export the dataset.
-            Currently only DatasetType.COCO is supported.
-        @rtype: Path
-        @return: Path to the zip file containing the exported dataset.
+            Currently only DatasetType.NATIVE is supported.
+        @type max_zip_size_gb: Optional[float]
+        @param max_zip_size_gb: Maximum size of each ZIP file in
+            gigabytes. If None, the dataset is exported into a single
+            ZIP file.
+        @type task_name: Optional[List[str]]
+        @param task_name: List of task names to export. If dataset has
+            multiple tasks, this parameter is required.
+        @rtype: Union[Path, List[Path]]
+        @return: Path(s) to the ZIP file(s) containing the exported
+            dataset.
         """
         if dataset_type is not DatasetType.NATIVE:
             raise NotImplementedError(
@@ -1343,10 +1353,19 @@ class LuxonisDataset(BaseDataset):
         splits = self.get_splits()
         if splits is None:
             raise ValueError("Cannot export dataset without splits")
-        if len(self.get_tasks()) > 1:
+        if len(self.get_tasks()) > 1 and task_name is None:
             raise NotImplementedError(
-                "Only single-task datasets are supported for export"
+                "This dataset contains multiple tasks. "
+                "Multi-task export is not yet supported; please specify the "
+                "'task_name' parameter to export one task at a time."
             )
+
+        if task_name is not None and task_name not in self.get_task_names():
+            raise ValueError(
+                f"Task name '{task_name}' not found in the dataset. "
+                "Please provide a valid task name."
+            )
+
         output_path = Path(output_path)
         if output_path.exists():
             raise ValueError(
@@ -1356,8 +1375,12 @@ class LuxonisDataset(BaseDataset):
         image_indices = {}
         annotations = {"train": [], "val": [], "test": []}
         df = self._load_df_offline(raise_when_empty=True)
+        self.df = df.filter(
+            pl.col("task_name").is_in([task_name] if task_name else [])
+        )
         if not self.is_remote:
             index = self._get_index()
+            index = index.filter(pl.col("uuid").is_in(self.df["uuid"]))
             if index is None:  # pragma: no cover
                 raise FileNotFoundError("Cannot find dataset index")
             df = df.join(index, on="uuid").drop("file_right")
@@ -1388,8 +1411,6 @@ class LuxonisDataset(BaseDataset):
             data_path = split_path / "images"
             data_path.mkdir(parents=True, exist_ok=True)
 
-            if file not in image_indices:
-                image_indices[file] = len(image_indices)
             task_name: str = row[2]
             class_name: Optional[str] = row[3]
             instance_id: int = row[4]
@@ -1397,10 +1418,14 @@ class LuxonisDataset(BaseDataset):
             ann_str: Optional[str] = row[6]
             if ann_str is None:
                 continue
+
+            if file not in image_indices:
+                image_indices[file] = len(image_indices)
+                dest_file = data_path / f"{image_indices[file]}{file.suffix}"
+                if not dest_file.exists():
+                    shutil.copy(file, dest_file)
+
             data = json.loads(ann_str)
-            shutil.copy(
-                file, (data_path / f"{image_indices[file]}{file.suffix}")
-            )
             record = {
                 "file": str(
                     Path(
@@ -1429,16 +1454,66 @@ class LuxonisDataset(BaseDataset):
             with open(split_path / "annotations.json", "w") as f:
                 json.dump(annotation, f, indent=4)
 
-        zip_path = output_path / f"{self.identifier}.zip"
-        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
-            for root, _, files in os.walk(output_path / self.identifier):
-                for file in files:
-                    file = Path(root, file)
-                    zipf.write(
-                        file, file.relative_to(output_path / self.identifier)
-                    )
-        logger.info(f"Dataset '{self.identifier}' exported to '{zip_path}'")
-        return zip_path
+        root_dir = output_path / self.identifier
+
+        if max_zip_size_gb is None:
+            zip_path = output_path / f"{self.identifier}.zip"
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
+                for root_dir_path, _, files in os.walk(root_dir):
+                    for file_name in files:
+                        file_path = Path(root_dir_path) / file_name
+                        relative_path = file_path.relative_to(root_dir)
+                        zipf.write(file_path, relative_path)
+            logger.info(
+                f"Dataset '{self.identifier}' exported to '{zip_path}'"
+            )
+            return zip_path
+        max_zip_size_bytes = int(max_zip_size_gb * (1024**3))
+        all_files = []
+        total_size = 0
+
+        for file_path in root_dir.glob("**/*"):
+            if file_path.is_file():
+                file_size = file_path.stat().st_size
+                all_files.append((file_path, file_size))
+                total_size += file_size
+
+        for file_path, file_size in all_files:
+            if file_size > max_zip_size_bytes:
+                raise ValueError(
+                    f"File {file_path} ({file_size} bytes) exceeds the maximum ZIP size of "
+                    f"{max_zip_size_gb} GB ({max_zip_size_bytes} bytes)."
+                )
+
+        chunks = []
+        current_chunk = []
+        current_chunk_size = 0
+
+        for file_path, file_size in all_files:
+            if current_chunk_size + file_size > max_zip_size_bytes:
+                chunks.append(current_chunk)
+                current_chunk = []
+                current_chunk_size = 0
+            current_chunk.append((file_path, file_size))
+            current_chunk_size += file_size
+
+        if current_chunk:
+            chunks.append(current_chunk)
+
+        zip_paths = []
+        for i, chunk in enumerate(chunks, 1):
+            zip_path = output_path / f"{self.identifier}_part{i}.zip"
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
+                for file_path, _ in chunk:
+                    relative_path = file_path.relative_to(root_dir)
+                    zipf.write(file_path, relative_path)
+            zip_paths.append(zip_path)
+            logger.info(f"Created part {i}: {zip_path}")
+
+        logger.info(
+            f"Dataset '{self.identifier}' exported to {len(zip_paths)} ZIP files."
+        )
+        return zip_paths
 
     def get_statistics(
         self, sample_size: Optional[int] = None, view: Optional[str] = None
