@@ -366,20 +366,21 @@ def inspect(
             "/keypoints",
             "/instance_segmentation",
         ]
-        if per_instance and any(k in labels for k in instance_keys):
-            extra_keys = [k for k in labels if k not in instance_keys]
+        matched_instance_keys = [
+            k for k in labels if any(k.endswith(ik) for ik in instance_keys)
+        ]
+        if per_instance and matched_instance_keys:
+            extra_keys = [k for k in labels if k not in matched_instance_keys]
             if extra_keys:
                 print(
                     f"[yellow]Warning: Ignoring non-instance keys in labels: {extra_keys}[/yellow]"
                 )
-            n_instances = len(
-                labels[next(k for k in instance_keys if k in labels)]
-            )
+            n_instances = len(labels[matched_instance_keys[0]])
             for i in range(n_instances):
                 instance_labels = {
                     k: np.expand_dims(v[i], axis=0)
                     for k, v in labels.items()
-                    if k in instance_keys and len(v) > i
+                    if k in matched_instance_keys and len(v) > i
                 }
                 instance_image = visualize(
                     image.copy(), instance_labels, classes, blend_all=blend_all
