@@ -405,26 +405,45 @@ def export(
             show_default=False,
         ),
     ] = None,
-    max_zip_size_gb: Annotated[
+    max_partition_size_gb: Annotated[
         Optional[float],
         typer.Option(
             ...,
-            "--max-zip-size-gb",
+            "--max-partition-size-gb",
             "-m",
-            help="Maximum size *per* ZIP archive, in gigabytes. "
-            "If the export grows beyond this limit, it is automatically split into "
-            "multiple parts (…_part1.zip, …_part2.zip, etc.). "
-            "Omit this option to create a single ZIP file, regardless of size.",
+            help=(
+                "Maximum size of each partition in GB. If the dataset"
+                " exceeds this size, it will be split into multiple partitions named {dataset_name}_part{partition_number}."
+                " Default is None, meaning the dataset will be exported as a single partition named {dataset_name}."
+            ),
             show_default=False,
         ),
     ] = None,
+    zip_output: Annotated[
+        bool,
+        typer.Option(
+            ...,
+            "--zip-output",
+            "-z",
+            help=(
+                "Whether to zip the exported dataset (or each partition)"
+                " after export. Default is False."
+            ),
+        ),
+    ] = False,
     bucket_storage: BucketStorage = bucket_option,
 ):
     save_dir = save_dir or dataset_name
     if delete_existing and Path(save_dir).exists():
         shutil.rmtree(save_dir)
     dataset = LuxonisDataset(dataset_name, bucket_storage=bucket_storage)
-    dataset.export(save_dir, dataset_type, max_zip_size_gb, task_name_to_keep)
+    dataset.export(
+        save_dir,
+        dataset_type,
+        task_name_to_keep,
+        max_partition_size_gb,
+        zip_output,
+    )
 
 
 @app.command()

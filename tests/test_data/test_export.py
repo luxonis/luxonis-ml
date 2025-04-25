@@ -1,5 +1,3 @@
-import shutil
-import zipfile
 from pathlib import Path
 
 import polars as pl
@@ -96,25 +94,28 @@ def test_export_edge_cases(
     original_data = [img for img, _ in loader]
 
     with subtests.test("Export with max_zip_size_gb=0.003"):
-        dataset.export(output_path=tempdir / "exported", max_zip_size_gb=0.003)
-
-        shutil.rmtree(tempdir / "exported" / dataset_name)
+        dataset.export(
+            output_path=tempdir / "exported",
+            max_partition_size_gb=0.003,
+            zip_output=True,
+        )
         zip_files = sorted((tempdir / "exported").glob("*.zip"))
-
         assert len(zip_files) == 2
 
-        merged_dir = tempdir / "exported" / dataset_name
-        merged_dir.mkdir(parents=True, exist_ok=True)
-
-        for zip_file in zip_files:
-            with zipfile.ZipFile(zip_file, "r") as zf:
-                zf.extractall(merged_dir)
-
-    with subtests.test("Parse empty test and val splits"):
+    with subtests.test(
+        "Parse zip dirs into single dataset, having some splits empty"
+    ):
         dataset = LuxonisParser(
-            str(merged_dir),
+            str(zip_files[0]),
             dataset_name=dataset_name,
             delete_local=True,
+            save_dir=tempdir,
+        ).parse()
+
+        dataset = LuxonisParser(
+            str(zip_files[1]),
+            dataset_name=dataset_name,
+            delete_local=False,
             save_dir=tempdir,
         ).parse()
 

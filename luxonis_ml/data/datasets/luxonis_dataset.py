@@ -1,8 +1,6 @@
 import json
 import math
-import os
 import shutil
-import zipfile
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
@@ -1320,8 +1318,9 @@ class LuxonisDataset(BaseDataset):
         self,
         output_path: PathType,
         dataset_type: DatasetType = DatasetType.NATIVE,
-        max_zip_size_gb: Optional[float] = None,
         task_name_to_keep: Optional[str] = None,
+        max_partition_size_gb: Optional[float] = None,
+        zip_output: bool = False,
     ) -> Union[Path, List[Path]]:
         """Exports the dataset into one of the supported formats.
 
@@ -1331,17 +1330,41 @@ class LuxonisDataset(BaseDataset):
         @type dataset_type: DatasetType
         @param dataset_type: To what format to export the dataset.
             Currently only DatasetType.NATIVE is supported.
-        @type max_zip_size_gb: Optional[float]
-        @param max_zip_size_gb: Maximum size of each ZIP file in
-            gigabytes. If None, the dataset is exported into a single
-            ZIP file.
         @type task_name_to_keep: Optional[str]
         @param task_name_to_keep: Task name to keep. If dataset has
             multiple tasks, this parameter is required.
+        @type max_partition_size_gb: Optional[float]
+        @param max_partition_size_gb: Maximum size of each partition in
+            GB. If the dataset exceeds this size, it will be split into
+            multiple partitions named
+            {dataset_name}_part{partition_number}. Default is None,
+            meaning the dataset will be exported as a single partition
+            named {dataset_name}.
+        @type zip_output: bool
+        @param zip_output: Whether to zip the exported dataset (or each
+            partition) after export. Default is False.
         @rtype: Union[Path, List[Path]]
         @return: Path(s) to the ZIP file(s) containing the exported
             dataset.
         """
+
+        def _dump_annotations(
+            annotations: Dict[str, List[Any]],
+            output_path: Path,
+            identifier: str,
+            part: Optional[int] = None,
+        ) -> None:
+            for split_name, annotation_data in annotations.items():
+                if part is not None:
+                    split_path = (
+                        output_path / f"{identifier}_part{part}" / split_name
+                    )
+                else:
+                    split_path = output_path / identifier / split_name
+                split_path.mkdir(parents=True, exist_ok=True)
+                with open(split_path / "annotations.json", "w") as f:
+                    json.dump(annotation_data, f, indent=4)
+
         if dataset_type is not DatasetType.NATIVE:
             raise NotImplementedError(
                 "Only 'NATIVE' dataset export is supported at the moment"
@@ -1387,8 +1410,26 @@ class LuxonisDataset(BaseDataset):
             index = index.filter(pl.col("uuid").is_in(df["uuid"]))
             df = df.join(index, on="uuid").drop("file_right")
 
+        # If instances are not sorted by file, sort them by the first occurrence of the file in the dataset.
+        # Within each group, original row ordering is preserved.
+        df = (
+            df.with_row_count("row_idx")
+            .with_columns(
+                pl.col("row_idx").min().over("file").alias("first_occur")
+            )
+            .sort(["first_occur", "row_idx"])
+            .drop(["first_occur", "row_idx"])
+        )
+
         splits = self.get_splits()
         assert splits is not None
+
+        current_size = 0
+        part = 0 if max_partition_size_gb else None
+        max_partition_size = (
+            max_partition_size_gb * 1024**3 if max_partition_size_gb else None
+        )
+
         for row in track(
             df.iter_rows(),
             total=len(df),
@@ -1409,9 +1450,6 @@ class LuxonisDataset(BaseDataset):
                     break
 
             assert split is not None
-            split_path = output_path / self.identifier / split
-            data_path = split_path / "images"
-            data_path.mkdir(parents=True, exist_ok=True)
 
             task_name: str = row[2]
             class_name: Optional[str] = row[3]
@@ -1420,10 +1458,34 @@ class LuxonisDataset(BaseDataset):
             ann_str: Optional[str] = row[6]
 
             if file not in image_indices:
+                file_size = file.stat().st_size
+                if (
+                    max_partition_size
+                    and current_size + file_size > max_partition_size
+                ):
+                    _dump_annotations(
+                        annotations, output_path, self.identifier, part
+                    )
+                    current_size = 0
+                    part += 1
+                    annotations = {"train": [], "val": [], "test": []}
+
                 image_indices[file] = len(image_indices)
+                if max_partition_size:
+                    data_path = (
+                        output_path
+                        / f"{self.identifier}_part{part}"
+                        / split
+                        / "images"
+                    )
+                else:
+                    data_path = (
+                        output_path / self.identifier / split / "images"
+                    )
+                data_path.mkdir(parents=True, exist_ok=True)
                 dest_file = data_path / f"{image_indices[file]}{file.suffix}"
-                if not dest_file.exists():
-                    shutil.copy(file, dest_file)
+                shutil.copy(file, dest_file)
+                current_size += file_size
 
             if ann_str is None:
                 annotations[split].append(
@@ -1462,72 +1524,27 @@ class LuxonisDataset(BaseDataset):
                 record["annotation"][task_type] = data
                 annotations[split].append(record)
 
-        for split, annotation in annotations.items():
-            split_path = output_path / self.identifier / split
-            split_path.mkdir(parents=True, exist_ok=True)
-            with open(split_path / "annotations.json", "w") as f:
-                json.dump(annotation, f, indent=4)
+        _dump_annotations(annotations, output_path, self.identifier, part)
 
-        root_dir = output_path / self.identifier
-
-        if max_zip_size_gb is None:
-            zip_path = output_path / f"{self.identifier}.zip"
-            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
-                for root_dir_path, _, files in os.walk(root_dir):
-                    for file_name in files:
-                        file_path = Path(root_dir_path) / file_name
-                        relative_path = file_path.relative_to(root_dir)
-                        zipf.write(file_path, relative_path)
-            logger.info(
-                f"Dataset '{self.identifier}' exported to '{zip_path}'"
-            )
-            return zip_path
-        max_zip_size_bytes = int(max_zip_size_gb * (1024**3))
-        all_files = []
-        total_size = 0
-
-        for file_path in root_dir.glob("**/*"):
-            if file_path.is_file():
-                file_size = file_path.stat().st_size
-                all_files.append((file_path, file_size))
-                total_size += file_size
-
-        for file_path, file_size in all_files:
-            if file_size > max_zip_size_bytes:
-                raise ValueError(
-                    f"File {file_path} ({file_size} bytes) exceeds the maximum ZIP size of "
-                    f"{max_zip_size_gb} GB ({max_zip_size_bytes} bytes)."
-                )
-
-        chunks = []
-        current_chunk = []
-        current_chunk_size = 0
-
-        for file_path, file_size in all_files:
-            if current_chunk_size + file_size > max_zip_size_bytes:
-                chunks.append(current_chunk)
-                current_chunk = []
-                current_chunk_size = 0
-            current_chunk.append((file_path, file_size))
-            current_chunk_size += file_size
-
-        if current_chunk:
-            chunks.append(current_chunk)
-
-        zip_paths = []
-        for i, chunk in enumerate(chunks, 1):
-            zip_path = output_path / f"{self.identifier}_part{i}.zip"
-            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
-                for file_path, _ in chunk:
-                    relative_path = file_path.relative_to(root_dir)
-                    zipf.write(file_path, relative_path)
-            zip_paths.append(zip_path)
-            logger.info(f"Created part {i}: {zip_path}")
-
-        logger.info(
-            f"Dataset '{self.identifier}' exported to {len(zip_paths)} ZIP files."
-        )
-        return zip_paths
+        if zip_output:
+            archives = []
+            if max_partition_size:
+                for i in range(part + 1):
+                    folder = output_path / f"{self.identifier}_part{i}"
+                    if folder.exists():
+                        archive_file = shutil.make_archive(
+                            str(folder), "zip", root_dir=folder
+                        )
+                        archives.append(Path(archive_file))
+            else:
+                folder = output_path / self.identifier
+                if folder.exists():
+                    archive_file = shutil.make_archive(
+                        str(folder), "zip", root_dir=folder
+                    )
+                    archives.append(Path(archive_file))
+            return archives if len(archives) > 1 else archives[0]
+        return output_path
 
     def get_statistics(
         self, sample_size: Optional[int] = None, view: Optional[str] = None
