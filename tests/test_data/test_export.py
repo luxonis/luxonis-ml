@@ -106,23 +106,57 @@ def test_export_edge_cases(
     with subtests.test(
         "Parse zip dirs into single dataset, having some splits empty"
     ):
-        dataset = LuxonisParser(
-            str(zip_files[0]),
-            dataset_name=dataset_name,
-            delete_local=True,
-            save_dir=tempdir,
-        ).parse()
-
-        dataset = LuxonisParser(
-            str(zip_files[1]),
-            dataset_name=dataset_name,
-            delete_local=False,
-            save_dir=tempdir,
-        ).parse()
-
+        for i, zip_file in enumerate(zip_files):
+            dataset = LuxonisParser(
+                str(zip_file),
+                dataset_name=dataset_name,
+                delete_local=(i == 0),
+                save_dir=tempdir,
+            ).parse()
         dataset.make_splits(ratios=(1, 0, 0), replace_old_splits=True)
-
         loader = LuxonisLoader(dataset, view="train")
-
         new_data = [img for img, _ in loader]
         assert len(new_data) == len(original_data)
+
+
+@pytest.mark.parametrize("url", ["COCO_people_subset.zip"])
+def test_export_regular_splits(
+    dataset_name: str,
+    storage_url: str,
+    tempdir: Path,
+    url: str,
+):
+    url = f"{storage_url}/{url}"
+    dataset = LuxonisParser(
+        url,
+        dataset_name=dataset_name,
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()
+
+    original_splits = dataset.get_splits()
+
+    dataset.export(
+        output_path=tempdir / "exported",
+        max_partition_size_gb=0.003,
+        zip_output=True,
+    )
+    zip_files = sorted((tempdir / "exported").glob("*.zip"))
+
+    assert len(zip_files) == 2
+
+    for i, zip_file in enumerate(zip_files):
+        dataset = LuxonisParser(
+            str(zip_file),
+            dataset_name=dataset_name,
+            delete_local=(i == 0),
+            save_dir=tempdir,
+        ).parse()
+
+    new_splits = dataset.get_splits()
+    assert len(new_splits) == len(original_splits)
+
+    for split in original_splits:
+        original_split = sorted(original_splits[split])
+        new_split = sorted(new_splits[split])
+        assert original_split == new_split

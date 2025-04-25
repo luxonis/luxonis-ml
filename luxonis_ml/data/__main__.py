@@ -419,16 +419,11 @@ def export(
             show_default=False,
         ),
     ] = None,
-    zip_output: Annotated[
+    no_zip: Annotated[
         bool,
         typer.Option(
-            ...,
-            "--zip-output",
-            "-z",
-            help=(
-                "Whether to zip the exported dataset (or each partition)"
-                " after export. Default is False."
-            ),
+            "--no-zip",
+            help="Skip zipping the exported dataset. By default, the dataset (or each partition) will be zipped.",
         ),
     ] = False,
     bucket_storage: BucketStorage = bucket_option,
@@ -442,7 +437,7 @@ def export(
         dataset_type,
         task_name_to_keep,
         max_partition_size_gb,
-        zip_output,
+        not no_zip,
     )
 
 
