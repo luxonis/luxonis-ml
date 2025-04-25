@@ -44,7 +44,7 @@ def test_dir_parser(
 
     zip = dataset.export(tempdir / "exported")
     exported_dataset = LuxonisParser(
-        str(zip),
+        str(zip / dataset_name),
         dataset_type=DatasetType.NATIVE,
         dataset_name=dataset_name,
         delete_local=True,
