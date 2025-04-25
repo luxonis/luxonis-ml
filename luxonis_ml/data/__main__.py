@@ -319,6 +319,15 @@ def inspect(
             "Doesn't apply to semantic segmentations.",
         ),
     ] = False,
+    per_instance: Annotated[
+        bool,
+        typer.Option(
+            ...,
+            "--per-instance",
+            "-pi",
+            help="Show each label instance in a separate window.",
+        ),
+    ] = False,
     bucket_storage: BucketStorage = bucket_option,
 ):
     """Inspects images and annotations in a dataset."""
@@ -352,10 +361,43 @@ def inspect(
         h, w, _ = image.shape
         new_h, new_w = int(h * size_multiplier), int(w * size_multiplier)
         image = cv2.resize(image, (new_w, new_h))
-        image = visualize(image, labels, classes, blend_all=blend_all)
-        cv2.imshow("image", image)
-        if cv2.waitKey() == ord("q"):
-            break
+        instance_keys = [
+            "/boundingbox",
+            "/keypoints",
+            "/instance_segmentation",
+        ]
+        matched_instance_keys = [
+            k for k in labels if any(k.endswith(ik) for ik in instance_keys)
+        ]
+        if per_instance and matched_instance_keys:
+            extra_keys = [k for k in labels if k not in matched_instance_keys]
+            if extra_keys:
+                print(
+                    f"[yellow]Warning: Ignoring non-instance keys in labels: {extra_keys}[/yellow]"
+                )
+            n_instances = len(labels[matched_instance_keys[0]])
+            for i in range(n_instances):
+                instance_labels = {
+                    k: np.expand_dims(v[i], axis=0)
+                    for k, v in labels.items()
+                    if k in matched_instance_keys and len(v) > i
+                }
+                instance_image = visualize(
+                    image.copy(), instance_labels, classes, blend_all=blend_all
+                )
+                cv2.imshow("image", instance_image)
+                if cv2.waitKey() == ord("q"):
+                    break
+        else:
+            if per_instance:
+                print(
+                    "[yellow]Warning: Per-instance mode is not supported for this dataset. "
+                    "Showing all labels in one window.[/yellow]"
+                )
+            image = visualize(image, labels, classes, blend_all=blend_all)
+            cv2.imshow("image", image)
+            if cv2.waitKey() == ord("q"):
+                break
 
 
 @app.command()
