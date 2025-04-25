@@ -1467,6 +1467,7 @@ class LuxonisDataset(BaseDataset):
                         annotations, output_path, self.identifier, part
                     )
                     current_size = 0
+                    assert part is not None
                     part += 1
                     annotations = {"train": [], "val": [], "test": []}
 
@@ -1529,6 +1530,7 @@ class LuxonisDataset(BaseDataset):
         if zip_output:
             archives = []
             if max_partition_size:
+                assert part is not None
                 for i in range(part + 1):
                     folder = output_path / f"{self.identifier}_part{i}"
                     if folder.exists():
