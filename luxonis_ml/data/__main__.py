@@ -434,13 +434,53 @@ def export(
             help="Delete an existing `save_dir` before exporting.",
         ),
     ] = False,
+    task_name_to_keep: Annotated[
+        Optional[str],
+        typer.Option(
+            "--task-name",
+            "-tn",
+            help=(
+                "Name of the single task to export. "
+                "Required when the dataset contains multiple tasks; "
+                "ignored if the dataset has exactly one task."
+            ),
+            show_default=False,
+        ),
+    ] = None,
+    max_partition_size_gb: Annotated[
+        Optional[float],
+        typer.Option(
+            ...,
+            "--max-partition-size-gb",
+            "-m",
+            help=(
+                "Maximum size of each partition in GB. If the dataset"
+                " exceeds this size, it will be split into multiple partitions named {dataset_name}_part{partition_number}."
+                " Default is None, meaning the dataset will be exported as a single partition named {dataset_name}."
+            ),
+            show_default=False,
+        ),
+    ] = None,
+    no_zip: Annotated[
+        bool,
+        typer.Option(
+            "--no-zip",
+            help="Skip zipping the exported dataset. By default, the dataset (or each partition) will be zipped.",
+        ),
+    ] = False,
     bucket_storage: BucketStorage = bucket_option,
 ):
     save_dir = save_dir or dataset_name
     if delete_existing and Path(save_dir).exists():
         shutil.rmtree(save_dir)
     dataset = LuxonisDataset(dataset_name, bucket_storage=bucket_storage)
-    dataset.export(save_dir, dataset_type)
+    dataset.export(
+        save_dir,
+        dataset_type,
+        task_name_to_keep,
+        max_partition_size_gb,
+        not no_zip,
+    )
 
 
 @app.command()

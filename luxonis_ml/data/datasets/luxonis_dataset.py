@@ -1,8 +1,6 @@
 import json
 import math
-import os
 import shutil
-import zipfile
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
@@ -686,6 +684,8 @@ class LuxonisDataset(BaseDataset):
 
     @override
     def set_tasks(self, tasks: Mapping[str, Iterable[str]]) -> None:
+        if len(tasks) == 0:
+            return
         self._metadata.tasks = {
             task_name: sorted(task_types)
             for task_name, task_types in tasks.items()
@@ -1076,9 +1076,7 @@ class LuxonisDataset(BaseDataset):
 
         self._metadata.categorical_encodings = dict(categorical_encodings)
         self._metadata.metadata_types = metadata_types
-
         self.set_tasks(tasks)
-        self._write_metadata()
         self._warn_on_duplicates()
         return self
 
@@ -1320,18 +1318,53 @@ class LuxonisDataset(BaseDataset):
         self,
         output_path: PathType,
         dataset_type: DatasetType = DatasetType.NATIVE,
-    ) -> Path:
-        """Exportes the dataset into on of the supported formats.
+        task_name_to_keep: Optional[str] = None,
+        max_partition_size_gb: Optional[float] = None,
+        zip_output: bool = False,
+    ) -> Union[Path, List[Path]]:
+        """Exports the dataset into one of the supported formats.
 
         @type output_path: PathType
         @param output_path: Path to the directory where the dataset will
             be exported.
         @type dataset_type: DatasetType
         @param dataset_type: To what format to export the dataset.
-            Currently only DatasetType.COCO is supported.
-        @rtype: Path
-        @return: Path to the zip file containing the exported dataset.
+            Currently only DatasetType.NATIVE is supported.
+        @type task_name_to_keep: Optional[str]
+        @param task_name_to_keep: Task name to keep. If dataset has
+            multiple tasks, this parameter is required.
+        @type max_partition_size_gb: Optional[float]
+        @param max_partition_size_gb: Maximum size of each partition in
+            GB. If the dataset exceeds this size, it will be split into
+            multiple partitions named
+            {dataset_name}_part{partition_number}. Default is None,
+            meaning the dataset will be exported as a single partition
+            named {dataset_name}.
+        @type zip_output: bool
+        @param zip_output: Whether to zip the exported dataset (or each
+            partition) after export. Default is False.
+        @rtype: Union[Path, List[Path]]
+        @return: Path(s) to the ZIP file(s) containing the exported
+            dataset.
         """
+
+        def _dump_annotations(
+            annotations: Dict[str, List[Any]],
+            output_path: Path,
+            identifier: str,
+            part: Optional[int] = None,
+        ) -> None:
+            for split_name, annotation_data in annotations.items():
+                if part is not None:
+                    split_path = (
+                        output_path / f"{identifier}_part{part}" / split_name
+                    )
+                else:
+                    split_path = output_path / identifier / split_name
+                split_path.mkdir(parents=True, exist_ok=True)
+                with open(split_path / "annotations.json", "w") as f:
+                    json.dump(annotation_data, f, indent=4)
+
         if dataset_type is not DatasetType.NATIVE:
             raise NotImplementedError(
                 "Only 'NATIVE' dataset export is supported at the moment"
@@ -1343,10 +1376,22 @@ class LuxonisDataset(BaseDataset):
         splits = self.get_splits()
         if splits is None:
             raise ValueError("Cannot export dataset without splits")
-        if len(self.get_tasks()) > 1:
+        if len(self.get_tasks()) > 1 and task_name_to_keep is None:
             raise NotImplementedError(
-                "Only single-task datasets are supported for export"
+                "This dataset contains multiple tasks. "
+                "Multi-task export is not yet supported; please specify the "
+                "'task_name' parameter to export one task at a time."
             )
+
+        if (
+            task_name_to_keep is not None
+            and task_name_to_keep not in self.get_task_names()
+        ):
+            raise ValueError(
+                f"Task name '{task_name_to_keep}' not found in the dataset. "
+                "Please provide a valid task name."
+            )
+
         output_path = Path(output_path)
         if output_path.exists():
             raise ValueError(
@@ -1356,14 +1401,35 @@ class LuxonisDataset(BaseDataset):
         image_indices = {}
         annotations = {"train": [], "val": [], "test": []}
         df = self._load_df_offline(raise_when_empty=True)
+        if task_name_to_keep is not None:
+            df = df.filter(pl.col("task_name").is_in([task_name_to_keep]))
         if not self.is_remote:
             index = self._get_index()
             if index is None:  # pragma: no cover
                 raise FileNotFoundError("Cannot find dataset index")
+            index = index.filter(pl.col("uuid").is_in(df["uuid"]))
             df = df.join(index, on="uuid").drop("file_right")
+
+        # If instances are not sorted by file, sort them by the first occurrence of the file in the dataset.
+        # Within each group, original row ordering is preserved.
+        df = (
+            df.with_row_count("row_idx")
+            .with_columns(
+                pl.col("row_idx").min().over("file").alias("first_occur")
+            )
+            .sort(["first_occur", "row_idx"])
+            .drop(["first_occur", "row_idx"])
+        )
 
         splits = self.get_splits()
         assert splits is not None
+
+        current_size = 0
+        part = 0 if max_partition_size_gb else None
+        max_partition_size = (
+            max_partition_size_gb * 1024**3 if max_partition_size_gb else None
+        )
+
         for row in track(
             df.iter_rows(),
             total=len(df),
@@ -1384,23 +1450,59 @@ class LuxonisDataset(BaseDataset):
                     break
 
             assert split is not None
-            split_path = output_path / self.identifier / split
-            data_path = split_path / "images"
-            data_path.mkdir(parents=True, exist_ok=True)
 
-            if file not in image_indices:
-                image_indices[file] = len(image_indices)
             task_name: str = row[2]
             class_name: Optional[str] = row[3]
             instance_id: int = row[4]
             task_type: str = row[5]
             ann_str: Optional[str] = row[6]
+
+            if file not in image_indices:
+                file_size = file.stat().st_size
+                if (
+                    max_partition_size
+                    and current_size + file_size > max_partition_size
+                ):
+                    _dump_annotations(
+                        annotations, output_path, self.identifier, part
+                    )
+                    current_size = 0
+                    assert part is not None
+                    part += 1
+                    annotations = {"train": [], "val": [], "test": []}
+
+                image_indices[file] = len(image_indices)
+                if max_partition_size:
+                    data_path = (
+                        output_path
+                        / f"{self.identifier}_part{part}"
+                        / split
+                        / "images"
+                    )
+                else:
+                    data_path = (
+                        output_path / self.identifier / split / "images"
+                    )
+                data_path.mkdir(parents=True, exist_ok=True)
+                dest_file = data_path / f"{image_indices[file]}{file.suffix}"
+                shutil.copy(file, dest_file)
+                current_size += file_size
+
             if ann_str is None:
+                annotations[split].append(
+                    {
+                        "file": str(
+                            Path(
+                                data_path.name,
+                                str(image_indices[file]) + file.suffix,
+                            )
+                        ),
+                        "task_name": task_name,
+                    }
+                )
                 continue
+
             data = json.loads(ann_str)
-            shutil.copy(
-                file, (data_path / f"{image_indices[file]}{file.suffix}")
-            )
             record = {
                 "file": str(
                     Path(
@@ -1423,22 +1525,28 @@ class LuxonisDataset(BaseDataset):
                 record["annotation"][task_type] = data
                 annotations[split].append(record)
 
-        for split, annotation in annotations.items():
-            split_path = output_path / self.identifier / split
-            split_path.mkdir(parents=True, exist_ok=True)
-            with open(split_path / "annotations.json", "w") as f:
-                json.dump(annotation, f, indent=4)
+        _dump_annotations(annotations, output_path, self.identifier, part)
 
-        zip_path = output_path / f"{self.identifier}.zip"
-        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
-            for root, _, files in os.walk(output_path / self.identifier):
-                for file in files:
-                    file = Path(root, file)
-                    zipf.write(
-                        file, file.relative_to(output_path / self.identifier)
+        if zip_output:
+            archives = []
+            if max_partition_size:
+                assert part is not None
+                for i in range(part + 1):
+                    folder = output_path / f"{self.identifier}_part{i}"
+                    if folder.exists():
+                        archive_file = shutil.make_archive(
+                            str(folder), "zip", root_dir=folder
+                        )
+                        archives.append(Path(archive_file))
+            else:
+                folder = output_path / self.identifier
+                if folder.exists():
+                    archive_file = shutil.make_archive(
+                        str(folder), "zip", root_dir=folder
                     )
-        logger.info(f"Dataset '{self.identifier}' exported to '{zip_path}'")
-        return zip_path
+                    archives.append(Path(archive_file))
+            return archives if len(archives) > 1 else archives[0]
+        return output_path
 
     def get_statistics(
         self, sample_size: Optional[int] = None, view: Optional[str] = None
