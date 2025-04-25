@@ -42,9 +42,10 @@ def test_dir_parser(
     )
     anns = {k: sorted(v) for k, v in anns.items()}
 
-    zip = dataset.export(tempdir / "exported")
+    zip_result = dataset.export(tempdir / "exported")
+    zip_path = zip_result[0] if isinstance(zip_result, list) else zip_result
     exported_dataset = LuxonisParser(
-        str(zip / dataset_name),
+        str(zip_path / dataset_name),
         dataset_type=DatasetType.NATIVE,
         dataset_name=dataset_name,
         delete_local=True,
