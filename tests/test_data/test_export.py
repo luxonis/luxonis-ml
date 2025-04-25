@@ -135,6 +135,7 @@ def test_export_regular_splits(
     ).parse()
 
     original_splits = dataset.get_splits()
+    assert original_splits is not None
 
     dataset.export(
         output_path=tempdir / "exported",
@@ -154,6 +155,7 @@ def test_export_regular_splits(
         ).parse()
 
     new_splits = dataset.get_splits()
+    assert new_splits is not None
     assert len(new_splits) == len(original_splits)
 
     for split in original_splits:
