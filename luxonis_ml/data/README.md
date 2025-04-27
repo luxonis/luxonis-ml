@@ -711,6 +711,8 @@ On top of that, we provide a handful of custom batch augmentations:
 - `Mosaic4` - Mosaic augmentation with 4 images. Combines crops of 4 images into a single image in a mosaic pattern.
 - `MixUp` - MixUp augmentation. Overlays two images with a random weight.
 
+To learn more in detail about the augmentations, see the [Augmentations documentation](./augmentations/README.md).
+
 ### Example
 
 The following example demonstrates a simple augmentation pipeline:

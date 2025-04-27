@@ -9,6 +9,9 @@ AUGMENTATION_ENGINES: Registry[Type["AugmentationEngine"]] = Registry(
 )
 
 
+# TODO: The engine should probably also handle normalization
+# so it doesn't have to be done by injecting a normalization
+# transformation to the config in LuxonisTrain.
 class AugmentationEngine(
     ABC,
     metaclass=AutoRegisterMeta,
