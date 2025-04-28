@@ -4,6 +4,9 @@
 
 LuxonisML Data is a library for creating and interacting with datasets in the LuxonisDataFormat (LDF).
 
+> \[!NOTE\]
+> For hands-on examples of how to prepare and iteract with `LuxonisML` datasets, check out [this guide](https://github.com/luxonis/depthai-ml-training/tree/main/training#%EF%B8%8F-prepare-data-using-luxonis-ml).
+
 The lifecycle of an LDF dataset is as follows:
 
 1. Creating new dataset
