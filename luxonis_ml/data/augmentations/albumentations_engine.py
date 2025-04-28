@@ -95,7 +95,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         2. spatial transformations: Subclasses of `A.DualTransform`.
 
         3. custom transformations: Subclasses of `A.BasicTransform`,
-            but not subclasses of any of more specific base classes above.
+            but not subclasses of more specific base classes above.
 
         4. pixel transformations: Subclasses of `A.ImageOnlyTransform`.
             These transformations act only on the image.
