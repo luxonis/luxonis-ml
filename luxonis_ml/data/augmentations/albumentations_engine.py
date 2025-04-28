@@ -241,10 +241,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     def _should_skip_augmentation(
         self, config_item: Dict[str, Any], available_target_types: set
     ) -> bool:
-        # Perspective issue was fixed in 1.4.19 albumentations version.
         skip_rules = {
             "keypoints": [
-                "Perspective",
                 "HorizontalFlip",
                 "VerticalFlip",
                 "Flip",
@@ -258,8 +256,15 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             and augmentation_name in skip_list
         ]
         if skipped_for:
+            extra_msg = ""
+            if "keypoints" in skipped_for and augmentation_name in [
+                "HorizontalFlip",
+                "VerticalFlip",
+                "Flip",
+            ]:
+                extra_msg = " For keypoints, please use 'HorizontalSymetricKeypointsFlip' or 'VerticalSymetricKeypointsFlip'."
             logger.warning(
-                f"Skipping augmentation '{augmentation_name}' due to known issues for {skipped_for} target types."
+                f"Skipping augmentation '{augmentation_name}' due to known issues for {skipped_for} target types.{extra_msg}"
             )
             return True
         return False
