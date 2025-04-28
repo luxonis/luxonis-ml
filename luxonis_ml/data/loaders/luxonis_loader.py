@@ -3,7 +3,7 @@ import random
 import warnings
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Tuple, Union, cast
+from typing import Literal, cast
 
 import cv2
 import numpy as np
@@ -38,22 +38,19 @@ class LuxonisLoader(BaseLoader):
     def __init__(
         self,
         dataset: LuxonisDataset,
-        view: Union[str, List[str]] = "train",
-        augmentation_engine: Union[
-            Literal["albumentations"], str  # noqa: PYI051
-        ] = "albumentations",
-        augmentation_config: Optional[Union[List[Params], PathType]] = None,
-        height: Optional[int] = None,
-        width: Optional[int] = None,
+        view: str | list[str] = "train",
+        augmentation_engine: Literal["albumentations"]
+        | str = "albumentations",
+        augmentation_config: list[Params] | PathType | None = None,
+        height: int | None = None,
+        width: int | None = None,
         keep_aspect_ratio: bool = True,
         exclude_empty_annotations: bool = False,
         color_space: Literal["RGB", "BGR"] = "RGB",
         *,
         keep_categorical_as_strings: bool = False,
-        update_mode: Union[
-            UpdateMode, Literal["all", "missing"]
-        ] = UpdateMode.ALL,
-        filter_task_names: Optional[List[str]] = None,
+        update_mode: UpdateMode | Literal["all", "missing"] = UpdateMode.ALL,
+        filter_task_names: list[str] | None = None,
     ) -> None:
         """A loader class used for loading data from L{LuxonisDataset}.
 
@@ -155,7 +152,8 @@ class LuxonisLoader(BaseLoader):
             )
             self.df = self.df.join(file_index, on="uuid").drop("file_right")
 
-        self.instances: List[str] = []
+        self.classes = self.dataset.get_classes()
+        self.instances: list[str] = []
         splits_path = self.dataset.metadata_path / "splits.json"
         if not splits_path.exists():
             raise RuntimeError(
@@ -167,13 +165,13 @@ class LuxonisLoader(BaseLoader):
         for view in self.view:
             self.instances.extend(splits[view])
 
+        self.idx_to_df_row: list[list[int]] = []
         self.instances = [
             uuid
             for uuid in self.instances
             if uuid in self.df["uuid"].to_list()
         ]
 
-        self.idx_to_df_row: List[List[int]] = []
         for uuid in self.instances:
             boolean_mask = self.df["uuid"] == uuid
             row_indexes = boolean_mask.arg_true().to_list()
@@ -291,7 +289,7 @@ class LuxonisLoader(BaseLoader):
 
         return img, labels
 
-    def _load_data(self, idx: int) -> Tuple[np.ndarray, Labels]:
+    def _load_data(self, idx: int) -> tuple[np.ndarray, Labels]:
         """Loads image and its annotations based on index.
 
         @type idx: int
@@ -315,19 +313,19 @@ class LuxonisLoader(BaseLoader):
 
         img = cv2.cvtColor(cv2.imread(str(img_path)), cv2.COLOR_BGR2RGB)
 
-        labels_by_task: Dict[str, List[Annotation]] = defaultdict(list)
-        class_ids_by_task: Dict[str, List[int]] = defaultdict(list)
-        instance_ids_by_task: Dict[str, List[int]] = defaultdict(list)
-        metadata_by_task: Dict[str, List[Union[str, int, float, Category]]] = (
+        labels_by_task: dict[str, list[Annotation]] = defaultdict(list)
+        class_ids_by_task: dict[str, list[int]] = defaultdict(list)
+        instance_ids_by_task: dict[str, list[int]] = defaultdict(list)
+        metadata_by_task: dict[str, list[str | int | float | Category]] = (
             defaultdict(list)
         )
 
         for annotation_data in ann_rows:
             task_name: str = annotation_data[2]
-            class_name: Optional[str] = annotation_data[3]
+            class_name: str | None = annotation_data[3]
             instance_id: int = annotation_data[4]
             task_type: str = annotation_data[5]
-            ann_str: Optional[str] = annotation_data[6]
+            ann_str: str | None = annotation_data[6]
 
             if ann_str is None:
                 continue
@@ -371,7 +369,7 @@ class LuxonisLoader(BaseLoader):
             anns = [
                 ann
                 for _, ann in sorted(
-                    zip(instance_ids, anns), key=lambda x: x[0]
+                    zip(instance_ids, anns, strict=True), key=lambda x: x[0]
                 )
             ]
 
@@ -421,19 +419,16 @@ class LuxonisLoader(BaseLoader):
 
     def _init_augmentations(
         self,
-        augmentation_engine: Union[
-            Literal["albumentations"],  # noqa: PYI051
-            str,
-        ],
-        augmentation_config: Union[List[Params], PathType],
-        height: Optional[int],
-        width: Optional[int],
+        augmentation_engine: Literal["albumentations"] | str,
+        augmentation_config: list[Params] | PathType,
+        height: int | None,
+        width: int | None,
         keep_aspect_ratio: bool,
-    ) -> Optional[AugmentationEngine]:
-        if isinstance(augmentation_config, (Path, str)):
+    ) -> AugmentationEngine | None:
+        if isinstance(augmentation_config, PathType):
             with open(augmentation_config) as file:
                 augmentation_config = cast(
-                    List[Params], yaml.safe_load(file) or []
+                    list[Params], yaml.safe_load(file) or []
                 )
         if augmentation_config and (width is None or height is None):
             raise ValueError(

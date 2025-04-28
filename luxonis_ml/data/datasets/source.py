@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any
 
 from pydantic import Field, field_validator
 
@@ -45,7 +45,7 @@ class LuxonisSource(BaseModelExtraForbid):
     """
 
     name: str = "default"
-    components: Dict[str, LuxonisComponent] = Field(
+    components: dict[str, LuxonisComponent] = Field(
         default_factory=lambda: {"default": LuxonisComponent(name="default")}
     )
     main_component: str = "default"

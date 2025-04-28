@@ -1,5 +1,3 @@
-from typing import Dict, List, Tuple
-
 import pytest
 
 from luxonis_ml.utils import is_acyclic, traverse_graph
@@ -18,7 +16,7 @@ from luxonis_ml.utils import is_acyclic, traverse_graph
         ({"a": ["b", "c"], "b": ["d"], "c": ["d"], "d": ["a"]}, False),
     ],
 )
-def test_acyclic(graph: Dict[str, List[str]], acyclic: bool):
+def test_acyclic(graph: dict[str, list[str]], acyclic: bool):
     assert is_acyclic(graph) == acyclic
 
 
@@ -58,9 +56,9 @@ def test_acyclic(graph: Dict[str, List[str]], acyclic: bool):
     ],
 )
 def test_traverse(
-    graph: Dict[str, List[str]],
-    nodes: Dict[str, int],
-    expected: List[Tuple[str, int, List[str], List[str]]],
+    graph: dict[str, list[str]],
+    nodes: dict[str, int],
+    expected: list[tuple[str, int, list[str], list[str]]],
 ):
     result = list(traverse_graph(graph, nodes))
     assert result == expected
@@ -76,6 +74,6 @@ def test_traverse(
         ),
     ],
 )
-def test_traverse_fail(graph: Dict[str, List[str]], nodes: Dict[str, int]):
+def test_traverse_fail(graph: dict[str, list[str]], nodes: dict[str, int]):
     with pytest.raises(RuntimeError):
         list(traverse_graph(graph, nodes))

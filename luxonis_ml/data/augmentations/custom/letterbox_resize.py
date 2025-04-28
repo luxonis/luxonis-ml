@@ -1,4 +1,4 @@
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import albumentations as A
 import cv2
@@ -53,15 +53,15 @@ class LetterboxResize(A.DualTransform):
 
     @property
     @override
-    def targets(self) -> Dict[str, Any]:
+    def targets(self) -> dict[str, Any]:
         targets = super().targets
         targets["instance_mask"] = self.apply_to_mask
         return targets
 
     @override
     def update_params(
-        self, params: Dict[str, Any], **kwargs
-    ) -> Dict[str, Any]:
+        self, params: dict[str, Any], **kwargs
+    ) -> dict[str, Any]:
         """Updates augmentation parameters with the necessary metadata.
 
         @param params: The existing augmentation parameters dictionary.
@@ -92,7 +92,7 @@ class LetterboxResize(A.DualTransform):
     @staticmethod
     def compute_padding(
         orig_height: int, orig_width: int, out_height: int, out_width: int
-    ) -> Tuple[int, int, int, int]:
+    ) -> tuple[int, int, int, int]:
         """Computes the padding required to resize an image to a
         letterbox format.
 

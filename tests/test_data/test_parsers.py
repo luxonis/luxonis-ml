@@ -1,5 +1,4 @@
 from pathlib import Path
-from typing import Set
 
 import pytest
 
@@ -81,7 +80,7 @@ from luxonis_ml.utils import environ
 def test_dir_parser(
     dataset_name: str,
     url: str,
-    expected_task_types: Set[str],
+    expected_task_types: set[str],
     storage_url: str,
     tempdir: Path,
 ):

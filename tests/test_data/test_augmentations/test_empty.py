@@ -1,5 +1,4 @@
 from pathlib import Path
-from typing import List
 
 import pytest
 
@@ -10,7 +9,7 @@ from tests.test_data.utils import create_dataset, create_image
 
 @pytest.mark.parametrize("n_samples", range(20))
 def test_empty(dataset_name: str, tempdir: Path, n_samples: int):
-    config: List[Params] = [
+    config: list[Params] = [
         {
             "name": "Defocus",
             "params": {"p": 1.0},

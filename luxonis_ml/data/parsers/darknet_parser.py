@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from luxonis_ml.data import DatasetIterator
 
@@ -25,7 +25,7 @@ class DarknetParser(BaseParser):
     """
 
     @staticmethod
-    def validate_split(split_path: Path) -> Optional[Dict[str, Any]]:
+    def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
         if not (split_path / "_darknet.labels").exists():
@@ -49,7 +49,7 @@ class DarknetParser(BaseParser):
 
     def from_dir(
         self, dataset_dir: Path
-    ) -> Tuple[List[Path], List[Path], List[Path]]:
+    ) -> tuple[list[Path], list[Path], list[Path]]:
         added_train_imgs = self._parse_split(
             image_dir=dataset_dir / "train",
             classes_path=dataset_dir / "train" / "_darknet.labels",

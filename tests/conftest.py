@@ -5,7 +5,6 @@ import shutil
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List
 
 import numpy as np
 import pytest
@@ -89,7 +88,7 @@ def width() -> int:
 @pytest.fixture
 def augmentation_data(
     height: int, width: int, request: pytest.FixtureRequest
-) -> Dict[str, List[np.ndarray]]:
+) -> dict[str, list[np.ndarray]]:
     batch_size: int = request.param
     return {
         "image": [
@@ -111,7 +110,7 @@ def augmentation_data(
 
 
 @pytest.fixture(scope="session")
-def augmentation_config() -> List[Params]:
+def augmentation_config() -> list[Params]:
     return [
         {
             "name": "Mosaic4",

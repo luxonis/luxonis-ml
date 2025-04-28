@@ -1,5 +1,3 @@
-from typing import List
-
 from luxonis_ml.typing import all_not_none, any_not_none, check_type
 
 
@@ -20,5 +18,5 @@ def test_any_not_none():
 def test_check_type():
     assert check_type(1, int)
     assert not check_type(1, str)
-    assert check_type([1, 2, 3], List[int])
-    assert not check_type([1, 2, 3], List[str])
+    assert check_type([1, 2, 3], list[int])
+    assert not check_type([1, 2, 3], list[str])

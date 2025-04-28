@@ -1,6 +1,5 @@
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict
 
 from luxonis_ml.data import (
     BucketStorage,
@@ -16,7 +15,7 @@ from .utils import create_image
 STEP = 10
 
 
-def compute_histogram(dataset: LuxonisDataset) -> Dict[str, int]:
+def compute_histogram(dataset: LuxonisDataset) -> dict[str, int]:
     classes = defaultdict(int)
     loader = LuxonisLoader(
         dataset, exclude_empty_annotations=True, update_mode=UpdateMode.ALL

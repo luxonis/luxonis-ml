@@ -1,10 +1,10 @@
 from abc import ABC, abstractmethod
-from typing import Iterable, List, Mapping, Type
+from collections.abc import Iterable, Mapping
 
 from luxonis_ml.typing import LoaderOutput, Params
 from luxonis_ml.utils import AutoRegisterMeta, Registry
 
-AUGMENTATION_ENGINES: Registry[Type["AugmentationEngine"]] = Registry(
+AUGMENTATION_ENGINES: Registry[type["AugmentationEngine"]] = Registry(
     name="augmentation_engines"
 )
 
@@ -70,7 +70,7 @@ class AugmentationEngine(
         ...
 
     @abstractmethod
-    def apply(self, data: List[LoaderOutput]) -> LoaderOutput:
+    def apply(self, data: list[LoaderOutput]) -> LoaderOutput:
         """Apply the augmentation pipeline to the data.
 
         @type data: List[LuxonisLoaderOutput]

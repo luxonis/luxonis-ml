@@ -1,7 +1,6 @@
 import json
 import uuid
 from pathlib import Path
-from typing import List
 
 import cv2
 import numpy as np
@@ -26,7 +25,7 @@ def test_parking_lot_generate(
     tempdir: Path,
     bucket_storage: BucketStorage,
     dataset_name: str,
-    augmentation_config: List[Params],
+    augmentation_config: list[Params],
     height: int,
     width: int,
     storage_url: str,

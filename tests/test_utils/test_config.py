@@ -1,7 +1,6 @@
 import tempfile
 from copy import deepcopy
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 import pytest
 import yaml
@@ -37,8 +36,8 @@ class SubConfigDefault(BaseModel):
     int_sub_param: int = 42
     float_sub_param: float = 1.0
 
-    list_sub_param: List[int] = []
-    dict_sub_param: Dict[str, int] = {}
+    list_sub_param: list[int] = []
+    dict_sub_param: dict[str, int] = {}
 
 
 class SubConfig(BaseModel):
@@ -46,18 +45,18 @@ class SubConfig(BaseModel):
     int_sub_param: int
     float_sub_param: float
 
-    list_sub_param: List[int]
-    dict_sub_param: Dict[str, int]
+    list_sub_param: list[int]
+    dict_sub_param: dict[str, int]
 
 
 class ListConfig(BaseModel):
     int_list_param: int
     float_list_param: float = 1.0
-    str_list_param: Optional[str] = None
+    str_list_param: str | None = None
 
 
 class UnsafeConfig(BaseModel):
-    tuple_param: Tuple[int, int] = (1, 2)
+    tuple_param: tuple[int, int] = (1, 2)
     path_param: Path = Path.cwd()
 
 
@@ -65,10 +64,10 @@ class Config(LuxonisConfig):
     sub_config: SubConfig
     sub_config_default: SubConfigDefault = SubConfigDefault()
 
-    optional_int: Optional[int] = None
-    list_config: List[ListConfig] = []
-    nested_list_param: List[List[int]] = []
-    nested_dict_param: Dict[str, Dict[str, int]] = {}
+    optional_int: int | None = None
+    list_config: list[ListConfig] = []
+    nested_list_param: list[list[int]] = []
+    nested_dict_param: dict[str, dict[str, int]] = {}
     unsafe_config: UnsafeConfig = UnsafeConfig()
 
 

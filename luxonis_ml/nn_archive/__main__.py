@@ -1,13 +1,12 @@
 import json
 import tarfile
 from pathlib import Path
-from typing import List
+from typing import Annotated, TypeAlias
 
 import typer
 from rich import print
 from rich.panel import Panel
 from rich.pretty import Pretty
-from typing_extensions import Annotated, TypeAlias
 
 from luxonis_ml.nn_archive import Config
 
@@ -82,7 +81,7 @@ def extract(
     extract_path = Path(destination) / (Path(path).name.split(".")[0])
     extract_path.mkdir(exist_ok=True, parents=True)
 
-    def safe_members(tar: tarfile.TarFile) -> List[tarfile.TarInfo]:
+    def safe_members(tar: tarfile.TarFile) -> list[tarfile.TarInfo]:
         """Filter members to prevent path traversal attacks."""
         safe_files = []
         for member in tar.getmembers():

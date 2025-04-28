@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import yaml
 
@@ -38,7 +38,7 @@ class YoloV6Parser(BaseParser):
     """
 
     @staticmethod
-    def validate_split(split_path: Path) -> Optional[Dict[str, Any]]:
+    def validate_split(split_path: Path) -> dict[str, Any] | None:
         label_split = split_path.parent.parent / "labels" / split_path.name
         if not split_path.exists():
             return None
@@ -68,7 +68,7 @@ class YoloV6Parser(BaseParser):
 
     def from_dir(
         self, dataset_dir: Path
-    ) -> Tuple[List[Path], List[Path], List[Path]]:
+    ) -> tuple[list[Path], list[Path], list[Path]]:
         classes_path = dataset_dir / "data.yaml"
         added_train_imgs = self._parse_split(
             image_dir=dataset_dir / "images" / "train",

@@ -2,7 +2,7 @@ import colorsys
 import hashlib
 import math
 from collections import defaultdict
-from typing import Dict, Generator, Hashable, Iterator, Mapping, Tuple
+from collections.abc import Generator, Hashable, Iterator, Mapping
 
 import cv2
 import matplotlib.colors
@@ -25,7 +25,7 @@ class ColorMap(Mapping[Hashable, RGB]):
 
     def __init__(self):
         self._generator = distinct_color_generator()
-        self._color_dict: Dict[Hashable, RGB] = {}
+        self._color_dict: dict[Hashable, RGB] = {}
 
     def __getitem__(self, label: Hashable) -> RGB:
         if label not in self._color_dict:
@@ -150,8 +150,8 @@ def str_to_rgb(string: str) -> RGB:
 
 def draw_dashed_rectangle(
     image: np.ndarray,
-    pt1: Tuple[int, int],
-    pt2: Tuple[int, int],
+    pt1: tuple[int, int],
+    pt2: tuple[int, int],
     color: Color,
     thickness: int = 1,
     dash_length: int = 10,
@@ -174,7 +174,7 @@ def draw_dashed_rectangle(
     x1, y1 = pt1
     x2, y2 = pt2
 
-    def draw_dashed_line(p1: Tuple[int, int], p2: Tuple[int, int]) -> None:
+    def draw_dashed_line(p1: tuple[int, int], p2: tuple[int, int]) -> None:
         line_length = int(np.hypot(p2[0] - p1[0], p2[1] - p1[1]))
         dashes = [
             (i, i + dash_length)
@@ -202,7 +202,7 @@ def draw_dashed_rectangle(
 
 def draw_cross(
     img: np.ndarray,
-    center: Tuple[int, int],
+    center: tuple[int, int],
     size: int = 5,
     color: Color = 0,
     thickness: int = 1,
@@ -272,7 +272,7 @@ def create_text_image(
 
 
 def concat_images(
-    image_dict: Dict[str, np.ndarray],
+    image_dict: dict[str, np.ndarray],
     padding: int = 10,
     label_height: int = 30,
 ) -> np.ndarray:
@@ -327,7 +327,7 @@ def draw_bbox_label(
     image: np.ndarray,
     class_name: str,
     box: np.ndarray,
-    color: Tuple[int, int, int],
+    color: tuple[int, int, int],
     font_scale: float,
 ) -> None:
     """Draws the classname label at the top-left corner of the bounding
@@ -374,9 +374,9 @@ def draw_bbox_label(
 def draw_keypoint_label(
     image: np.ndarray,
     text: str,
-    point: Tuple[int, int],
+    point: tuple[int, int],
     size: int,
-    color: Tuple[int, int, int],
+    color: tuple[int, int, int],
     font_scale: float,
 ) -> None:
     """Draws a text label next to a keypoint on the image.
@@ -412,7 +412,7 @@ def draw_keypoint_label(
 def visualize(
     image: np.ndarray,
     labels: Labels,
-    classes: Dict[str, Dict[str, int]],
+    classes: dict[str, dict[str, int]],
     blend_all: bool = False,
 ) -> np.ndarray:
     """Visualizes the labels on the image.
