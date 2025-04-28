@@ -191,7 +191,7 @@ class MixUp(BatchTransform):
                     (0, 5), dtype=keypoints_batch[i].dtype
                 )
 
-        rows, cols = image_shapes[1]
+        cols, rows = image_shapes[1]
         keypoints_batch[1] = self.resize(
             keypoints_batch[1],
             image_shapes,

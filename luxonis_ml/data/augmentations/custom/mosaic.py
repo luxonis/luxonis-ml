@@ -82,8 +82,8 @@ class Mosaic4(BatchTransform):
         return {
             "x_crop": x_crop,
             "y_crop": y_crop,
-            "rows": self.out_height,
-            "cols": self.out_width,
+            "rows": self.out_width,
+            "cols": self.out_height,
         }
 
     def generate_random_crop_center(self) -> Tuple[int, int]:
@@ -211,7 +211,7 @@ class Mosaic4(BatchTransform):
         @return: List of transformed bboxes.
         """
         new_bboxes = []
-        for i, (bboxes, (rows, cols)) in enumerate(
+        for i, (bboxes, (cols, rows)) in enumerate(
             zip(bboxes_batch, image_shapes)
         ):
             if bboxes.size == 0:  # pragma: no cover
@@ -219,8 +219,8 @@ class Mosaic4(BatchTransform):
 
             bbox = apply_mosaic4_to_bboxes(
                 bboxes,
-                rows,
                 cols,
+                rows,
                 i,
                 self.out_height,
                 self.out_width,
@@ -259,7 +259,7 @@ class Mosaic4(BatchTransform):
         @return: List of transformed keypoints.
         """
         new_keypoints = []
-        for i, (keypoints, (rows, cols)) in enumerate(
+        for i, (keypoints, (cols, rows)) in enumerate(
             zip(keypoints_batch, image_shapes)
         ):
             if keypoints.size == 0:
@@ -267,8 +267,8 @@ class Mosaic4(BatchTransform):
 
             new_keypoint = apply_mosaic4_to_keypoints(
                 keypoints,
-                rows,
                 cols,
+                rows,
                 i,
                 self.out_height,
                 self.out_width,
