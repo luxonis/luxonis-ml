@@ -1296,10 +1296,10 @@ class LuxonisDataset(BaseDataset):
         self,
         output_path: PathType,
         dataset_type: DatasetType = DatasetType.NATIVE,
-        task_name_to_keep: Optional[str] = None,
-        max_partition_size_gb: Optional[float] = None,
+        task_name_to_keep: str | None = None,
+        max_partition_size_gb: float | None = None,
         zip_output: bool = False,
-    ) -> Union[Path, List[Path]]:
+    ) -> Path | list[Path]:
         """Exports the dataset into one of the supported formats.
 
         @type output_path: PathType
@@ -1327,10 +1327,10 @@ class LuxonisDataset(BaseDataset):
         """
 
         def _dump_annotations(
-            annotations: Dict[str, List[Any]],
+            annotations: dict[str, list[Any]],
             output_path: Path,
             identifier: str,
-            part: Optional[int] = None,
+            part: int | None = None,
         ) -> None:
             for split_name, annotation_data in annotations.items():
                 if part is not None:

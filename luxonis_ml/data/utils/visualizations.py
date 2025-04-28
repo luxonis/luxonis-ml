@@ -327,7 +327,7 @@ def draw_bbox_label(
     image: np.ndarray,
     class_name: str,
     box: np.ndarray,
-    color: Tuple[int, int, int],
+    color: tuple[int, int, int],
     font_scale: float,
 ) -> None:
     """Draws the classname label at the top-left corner of the bounding
@@ -374,9 +374,9 @@ def draw_bbox_label(
 def draw_keypoint_label(
     image: np.ndarray,
     text: str,
-    point: Tuple[int, int],
+    point: tuple[int, int],
     size: int,
-    color: Tuple[int, int, int],
+    color: tuple[int, int, int],
     font_scale: float,
 ) -> None:
     """Draws a text label next to a keypoint on the image.

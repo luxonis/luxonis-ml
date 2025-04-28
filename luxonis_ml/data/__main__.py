@@ -435,7 +435,7 @@ def export(
         ),
     ] = False,
     task_name_to_keep: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             "--task-name",
             "-tn",
@@ -448,7 +448,7 @@ def export(
         ),
     ] = None,
     max_partition_size_gb: Annotated[
-        Optional[float],
+        float | None,
         typer.Option(
             ...,
             "--max-partition-size-gb",
