@@ -71,7 +71,7 @@ class LetterboxResize(A.DualTransform):
         @return: Additional parameters for the augmentation.
         @rtype: Dict[str, Any]
         """
-        rows, cols, _ = params["shape"]
+        cols, rows, _ = params["shape"]
 
         pad_top, pad_bottom, pad_left, pad_right = self.compute_padding(
             cols, rows, self.height, self.width
@@ -229,8 +229,8 @@ class LetterboxResize(A.DualTransform):
         if keypoint.size == 0:
             return keypoint
 
-        scale_x = (self.width - pad_left - pad_right) / cols
-        scale_y = (self.height - pad_top - pad_bottom) / rows
+        scale_x = (self.width - pad_left - pad_right) / rows
+        scale_y = (self.height - pad_top - pad_bottom) / cols
         keypoint[:, 0] *= scale_x
         keypoint[:, 0] += pad_left
 
