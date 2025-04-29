@@ -3,10 +3,11 @@ import random
 import warnings
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Tuple, Union, cast
+from typing import Literal, cast
 
 import cv2
 import numpy as np
+import polars as pl
 import yaml
 from loguru import logger
 from typing_extensions import override
@@ -37,21 +38,19 @@ class LuxonisLoader(BaseLoader):
     def __init__(
         self,
         dataset: LuxonisDataset,
-        view: Union[str, List[str]] = "train",
-        augmentation_engine: Union[
-            Literal["albumentations"], str  # noqa: PYI051
-        ] = "albumentations",
-        augmentation_config: Optional[Union[List[Params], PathType]] = None,
-        height: Optional[int] = None,
-        width: Optional[int] = None,
+        view: str | list[str] = "train",
+        augmentation_engine: Literal["albumentations"]
+        | str = "albumentations",
+        augmentation_config: list[Params] | PathType | None = None,
+        height: int | None = None,
+        width: int | None = None,
         keep_aspect_ratio: bool = True,
         exclude_empty_annotations: bool = False,
         color_space: Literal["RGB", "BGR"] = "RGB",
         *,
         keep_categorical_as_strings: bool = False,
-        update_mode: Union[
-            UpdateMode, Literal["always", "if_empty"]
-        ] = UpdateMode.ALWAYS,
+        update_mode: UpdateMode | Literal["all", "missing"] = UpdateMode.ALL,
+        filter_task_names: list[str] | None = None,
     ) -> None:
         """A loader class used for loading data from L{LuxonisDataset}.
 
@@ -104,9 +103,14 @@ class LuxonisLoader(BaseLoader):
             Defaults to C{False} (i.e. convert categorical labels to integers).
 
         @type update_mode: UpdateMode
-        @param update_mode: Enum that determines the sync mode:
-            - UpdateMode.ALWAYS: Force a fresh download
-            - UpdateMode.IF_EMPTY: Skip downloading if local data exists
+        @param update_mode: Enum that determines the sync mode for media files of the remote dataset (annotations and metadata are always overwritten):
+            - UpdateMode.MISSING: Downloads only the missing media files for the dataset.
+            - UpdateMode.ALL: Always downloads and overwrites all media files in the local dataset.
+
+        @type filter_task_names: Optional[List[str]]
+        @param filter_task_names: List of task names to filter the dataset by.
+            If C{None}, all task names are included. Defaults to C{None}.
+            This is useful for filtering out tasks that are not needed for a specific use case.
         """
 
         self.exclude_empty_annotations = exclude_empty_annotations
@@ -117,24 +121,39 @@ class LuxonisLoader(BaseLoader):
         self.dataset = dataset
         self.sync_mode = self.dataset.is_remote
         self.keep_categorical_as_strings = keep_categorical_as_strings
+        self.filter_task_names = filter_task_names
 
         if self.sync_mode:
-            self.dataset.sync_from_cloud(update_mode=UpdateMode(update_mode))
+            self.dataset.pull_from_cloud(update_mode=UpdateMode(update_mode))
 
         if isinstance(view, str):
             view = [view]
         self.view = view
 
         self.df = self.dataset._load_df_offline(raise_when_empty=True)
+        self.classes = self.dataset.get_classes()
+
+        if self.filter_task_names is not None:
+            self.df = self.df.filter(
+                pl.col("task_name").is_in(self.filter_task_names)
+            )
+            self.classes = {
+                task_name: self.classes[task_name]
+                for task_name in self.filter_task_names
+                if task_name in self.classes
+            }
 
         if not self.dataset.is_remote:
-            file_index = self.dataset._get_file_index()
+            file_index = self.dataset._get_index()
             if file_index is None:  # pragma: no cover
                 raise FileNotFoundError("Cannot find file index")
+            file_index = file_index.filter(
+                pl.col("uuid").is_in(self.df["uuid"])
+            )
             self.df = self.df.join(file_index, on="uuid").drop("file_right")
 
         self.classes = self.dataset.get_classes()
-        self.instances: List[str] = []
+        self.instances: list[str] = []
         splits_path = self.dataset.metadata_path / "splits.json"
         if not splits_path.exists():
             raise RuntimeError(
@@ -146,13 +165,21 @@ class LuxonisLoader(BaseLoader):
         for view in self.view:
             self.instances.extend(splits[view])
 
-        self.idx_to_df_row: List[List[int]] = []
+        self.idx_to_df_row: list[list[int]] = []
+        self.instances = [
+            uuid
+            for uuid in self.instances
+            if uuid in self.df["uuid"].to_list()
+        ]
+
         for uuid in self.instances:
             boolean_mask = self.df["uuid"] == uuid
             row_indexes = boolean_mask.arg_true().to_list()
             self.idx_to_df_row.append(row_indexes)
 
         self.tasks_without_background = set()
+
+        self._precompute_image_paths()
 
         _, test_labels = self._load_data(0)
         for task, seg_masks in task_type_iterator(test_labels, "segmentation"):
@@ -228,6 +255,11 @@ class LuxonisLoader(BaseLoader):
         self, img: np.ndarray, labels: Labels
     ) -> LoaderOutput:
         for task_name, task_types in self.dataset.get_tasks().items():
+            if (
+                self.filter_task_names is not None
+                and task_name not in self.filter_task_names
+            ):
+                continue
             for task_type in task_types:
                 task = f"{task_name}/{task_type}"
                 if task not in labels:
@@ -257,7 +289,7 @@ class LuxonisLoader(BaseLoader):
 
         return img, labels
 
-    def _load_data(self, idx: int) -> Tuple[np.ndarray, Labels]:
+    def _load_data(self, idx: int) -> tuple[np.ndarray, Labels]:
         """Loads image and its annotations based on index.
 
         @type idx: int
@@ -276,28 +308,24 @@ class LuxonisLoader(BaseLoader):
         ann_indices = self.idx_to_df_row[idx]
 
         ann_rows = [self.df.row(row) for row in ann_indices]
-        if self.dataset.is_remote:
-            uuid = ann_rows[0][7]
-            file_extension = ann_rows[0][0].rsplit(".", 1)[-1]
-            img_path = self.dataset.media_path / f"{uuid}.{file_extension}"
-        else:
-            img_path = ann_rows[0][-1]
+
+        img_path = self.idx_to_img_path[idx]
 
         img = cv2.cvtColor(cv2.imread(str(img_path)), cv2.COLOR_BGR2RGB)
 
-        labels_by_task: Dict[str, List[Annotation]] = defaultdict(list)
-        class_ids_by_task: Dict[str, List[int]] = defaultdict(list)
-        instance_ids_by_task: Dict[str, List[int]] = defaultdict(list)
-        metadata_by_task: Dict[str, List[Union[str, int, float, Category]]] = (
+        labels_by_task: dict[str, list[Annotation]] = defaultdict(list)
+        class_ids_by_task: dict[str, list[int]] = defaultdict(list)
+        instance_ids_by_task: dict[str, list[int]] = defaultdict(list)
+        metadata_by_task: dict[str, list[str | int | float | Category]] = (
             defaultdict(list)
         )
 
         for annotation_data in ann_rows:
             task_name: str = annotation_data[2]
-            class_name: Optional[str] = annotation_data[3]
+            class_name: str | None = annotation_data[3]
             instance_id: int = annotation_data[4]
             task_type: str = annotation_data[5]
-            ann_str: Optional[str] = annotation_data[6]
+            ann_str: str | None = annotation_data[6]
 
             if ann_str is None:
                 continue
@@ -341,7 +369,7 @@ class LuxonisLoader(BaseLoader):
             anns = [
                 ann
                 for _, ann in sorted(
-                    zip(instance_ids, anns), key=lambda x: x[0]
+                    zip(instance_ids, anns, strict=True), key=lambda x: x[0]
                 )
             ]
 
@@ -391,19 +419,16 @@ class LuxonisLoader(BaseLoader):
 
     def _init_augmentations(
         self,
-        augmentation_engine: Union[
-            Literal["albumentations"],  # noqa: PYI051
-            str,
-        ],
-        augmentation_config: Union[List[Params], PathType],
-        height: Optional[int],
-        width: Optional[int],
+        augmentation_engine: Literal["albumentations"] | str,
+        augmentation_config: list[Params] | PathType,
+        height: int | None,
+        width: int | None,
         keep_aspect_ratio: bool,
-    ) -> Optional[AugmentationEngine]:
-        if isinstance(augmentation_config, (Path, str)):
+    ) -> AugmentationEngine | None:
+        if isinstance(augmentation_config, PathType):
             with open(augmentation_config) as file:
                 augmentation_config = cast(
-                    List[Params], yaml.safe_load(file) or []
+                    list[Params], yaml.safe_load(file) or []
                 )
         if augmentation_config and (width is None or height is None):
             raise ValueError(
@@ -413,15 +438,21 @@ class LuxonisLoader(BaseLoader):
         if height is None or width is None:
             return None
 
+        dataset_tasks = self.dataset.get_tasks()
+
         targets = {
             f"{task_name}/{task_type}": task_type
-            for task_name, task_types in self.dataset.get_tasks().items()
+            for task_name, task_types in dataset_tasks.items()
+            if self.filter_task_names is None
+            or task_name in self.filter_task_names
             for task_type in task_types
         }
 
         n_classes = {
             f"{task_name}/{task_type}": self.dataset.get_n_classes()[task_name]
-            for task_name, task_types in self.dataset.get_tasks().items()
+            for task_name, task_types in dataset_tasks.items()
+            if self.filter_task_names is None
+            or task_name in self.filter_task_names
             for task_type in task_types
         }
 
@@ -434,3 +465,22 @@ class LuxonisLoader(BaseLoader):
             keep_aspect_ratio=keep_aspect_ratio,
             is_validation_pipeline="train" not in self.view,
         )
+
+    def _precompute_image_paths(self) -> None:
+        self.idx_to_img_path = {}
+
+        for idx, ann_indices in enumerate(self.idx_to_df_row):
+            ann_indices = self.idx_to_df_row[idx]
+
+            ann_rows = [self.df.row(row) for row in ann_indices]
+            img_path = ann_rows[0][0]
+            if not Path(img_path).exists():
+                uuid = ann_rows[0][7]
+                file_extension = ann_rows[0][0].rsplit(".", 1)[-1]
+                img_path = self.dataset.media_path / f"{uuid}.{file_extension}"
+                if not img_path.exists():
+                    raise FileNotFoundError(
+                        f"Cannot find image for uuid {uuid}"
+                    )
+
+            self.idx_to_img_path[idx] = img_path

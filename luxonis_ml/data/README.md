@@ -4,6 +4,9 @@
 
 LuxonisML Data is a library for creating and interacting with datasets in the LuxonisDataFormat (LDF).
 
+> \[!NOTE\]
+> For hands-on examples of how to prepare and iteract with `LuxonisML` datasets, check out [this guide](https://github.com/luxonis/depthai-ml-training/tree/main/training#%EF%B8%8F-prepare-data-using-luxonis-ml).
+
 The lifecycle of an LDF dataset is as follows:
 
 1. Creating new dataset
@@ -90,11 +93,12 @@ dataset = LuxonisDataset(dataset_name)
 ```
 
 > \[!NOTE\]
-> By default, the dataset will be created locally. For details on different storage methods, see TODO.
+> By default, the dataset will be created locally. For more information on creating a remote dataset, see [this section](datasets/README.md#creating-a-dataset-remotely).
 
 > \[!NOTE\]
 > If there already is a dataset with the same name, it will be loaded instead of creating a new one.
-> If you want to always create a new dataset, you can pass `delete_existing=True` to the `LuxonisDataset` constructor.
+> If you want to always create a new dataset, you can pass `delete_local=True` to the `LuxonisDataset` constructor.\
+> For detailed information about how the luxonis-ml dataset is stored in both local and remote storage, please check the [datasets README.md](datasets/README.md#in-depth-explanation-of-luxonis-ml-dataset-storage)
 
 ### Adding Data
 
@@ -292,6 +296,11 @@ The available commands are:
 - `luxonis_ml data inspect <dataset_name>` - renders the data in the dataset on screen using `cv2`
 - `luxonis_ml data health <dataset_name>` -  checks the health of the dataset and logs and renders dataset statistics
 - `luxonis_ml data delete <dataset_name>` - deletes the dataset
+- `luxonis_ml data export <dataset_name>` - exports the dataset to a chosen format and directory
+- `luxonis_ml data push <dataset_name>` - pushes local dataset to remote storage
+- `luxonis_ml data pull <dataset_name>` - pulls remote dataset to local storage
+- `luxonis_ml data clone <dataset_name> <new_name>` - creates a copy of an existing dataset under a new name
+- `luxonis_ml data merge <source_name> <target_name>` - merges two datasets, optionally creating a new dataset
 
 For more information, run `luxonis_ml data --help` or pass the `--help` flag to any of the above commands.
 
@@ -704,6 +713,8 @@ On top of that, we provide a handful of custom batch augmentations:
 
 - `Mosaic4` - Mosaic augmentation with 4 images. Combines crops of 4 images into a single image in a mosaic pattern.
 - `MixUp` - MixUp augmentation. Overlays two images with a random weight.
+
+To learn more in detail about the augmentations, see the [Augmentations documentation](./augmentations/README.md).
 
 ### Example
 

@@ -1,7 +1,8 @@
 import random
 import shutil
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator, List, Optional, Set, Tuple
+from typing import Annotated
 
 import cv2
 import matplotlib.pyplot as plt
@@ -14,9 +15,13 @@ from rich.panel import Panel
 from rich.prompt import Confirm
 from rich.rule import Rule
 from rich.table import Table
-from typing_extensions import Annotated
 
-from luxonis_ml.data import LuxonisDataset, LuxonisLoader, LuxonisParser
+from luxonis_ml.data import (
+    LuxonisDataset,
+    LuxonisLoader,
+    LuxonisParser,
+    UpdateMode,
+)
 from luxonis_ml.data.utils.enums import BucketStorage
 from luxonis_ml.data.utils.plot_utils import (
     plot_class_distribution,
@@ -57,7 +62,7 @@ def check_exists(name: str, bucket_storage: BucketStorage):
         raise typer.Exit
 
 
-def get_dataset_info(dataset: LuxonisDataset) -> Tuple[Set[str], List[str]]:
+def get_dataset_info(dataset: LuxonisDataset) -> tuple[set[str], list[str]]:
     all_classes = {
         c for classes in dataset.get_classes().values() for c in classes
     }
@@ -66,37 +71,41 @@ def get_dataset_info(dataset: LuxonisDataset) -> Tuple[Set[str], List[str]]:
 
 def print_info(dataset: LuxonisDataset) -> None:
     classes = dataset.get_classes()
+    has_named_classes = any(k for k in classes if k)
     class_table = Table(
         title="Classes", box=rich.box.ROUNDED, row_styles=["yellow", "cyan"]
     )
-    if len(classes) > 1 or (classes and next(iter(classes))):
+    if has_named_classes:
         class_table.add_column(
             "Task Name", header_style="magenta i", max_width=30
         )
     class_table.add_column(
         "Class Names", header_style="magenta i", max_width=50
     )
+
     for task_name, c in classes.items():
-        if not task_name:
-            class_table.add_row(", ".join(c))
-        else:
+        if has_named_classes:
             class_table.add_row(task_name, ", ".join(c))
+        else:
+            class_table.add_row(", ".join(c))
 
     tasks = dataset.get_tasks()
+    has_named_tasks = any(k for k in tasks if k)
+
     task_table = Table(
         title="Tasks", box=rich.box.ROUNDED, row_styles=["yellow", "cyan"]
     )
-    if tasks and (len(tasks) > 1 or next(iter(tasks))):
+    if has_named_tasks:
         task_table.add_column(
             "Task Name", header_style="magenta i", max_width=30
         )
     task_table.add_column("Task Types", header_style="magenta i", max_width=50)
     for task_name, task_types in tasks.items():
         task_types.sort()
-        if not task_name:
-            task_table.add_row(", ".join(task_types))
-        else:
+        if has_named_tasks:
             task_table.add_row(task_name, ", ".join(task_types))
+        else:
+            task_table.add_row(", ".join(task_types))
 
     splits = dataset.get_splits()
 
@@ -141,21 +150,55 @@ def info(
 def delete(
     name: DatasetNameArgument,
     bucket_storage: BucketStorage = bucket_option,
+    local: bool = typer.Option(
+        False,
+        "--local/--no-local",
+        help="Delete the dataset from local storage.",
+    ),
+    remote: bool = typer.Option(
+        False,
+        "--remote/--no-remote",
+        help="Delete the dataset from remote storage.",
+    ),
 ):
-    """Deletes a dataset."""
+    """Deletes a dataset from local storage or remote storage (or both),
+    based on which options are passed."""
     check_exists(name, bucket_storage)
 
-    if bucket_storage is not BucketStorage.LOCAL and not Confirm.ask(
-        f"Are you sure you want to delete the dataset '{name}' "
-        f"from remote storage? This will delete all remote files "
-        "and cannot be undone. If you only want to delete your local "
-        "copy, leave the '--bucket-storage' option as 'local' (default).",
+    if bucket_storage is BucketStorage.LOCAL and remote:
+        print(
+            "[yellow]Warning: You specified remote deletion, but the bucket is local. "
+            "Remote deletion will not be performed.[/yellow]"
+        )
+        remote = False
+
+    where = " and ".join(
+        filter(None, ["local" if local else "", "remote" if remote else ""])
+    )
+
+    if not where:
+        print(
+            "[yellow]No deletion target specified (local or remote). Nothing to delete.[/yellow]"
+        )
+        raise typer.Exit
+
+    if not Confirm.ask(
+        f"Delete dataset '{name}' with specified bucket '{bucket_storage}' from {where} storage?"
     ):
         raise typer.Exit
-    LuxonisDataset(name).delete_dataset(
-        delete_remote=bucket_storage is not BucketStorage.LOCAL
+
+    dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
+    dataset.delete_dataset(
+        delete_local=local,
+        delete_remote=remote,
     )
-    print(f"Dataset '{name}' deleted.")
+
+    print(
+        f"Dataset '{name}' deleted from: "
+        f"{'local ' if local else ''}"
+        f"{'remote ' if remote else ''}"
+        f"storage."
+    )
 
 
 @app.command()
@@ -202,7 +245,7 @@ def ls(
 def inspect(
     name: DatasetNameArgument,
     view: Annotated[
-        Optional[List[str]],
+        list[str] | None,
         typer.Option(
             ...,
             "--view",
@@ -213,7 +256,7 @@ def inspect(
         ),
     ] = None,
     aug_config: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             ...,
             "--aug-config",
@@ -276,6 +319,15 @@ def inspect(
             "Doesn't apply to semantic segmentations.",
         ),
     ] = False,
+    per_instance: Annotated[
+        bool,
+        typer.Option(
+            ...,
+            "--per-instance",
+            "-pi",
+            help="Show each label instance in a separate window.",
+        ),
+    ] = False,
     bucket_storage: BucketStorage = bucket_option,
 ):
     """Inspects images and annotations in a dataset."""
@@ -289,7 +341,7 @@ def inspect(
     loader = LuxonisLoader(
         dataset,
         view=view,
-        update_mode="always" if force_update else "if_empty",
+        update_mode="all" if force_update else "missing",
     )
 
     if aug_config is not None:
@@ -309,17 +361,50 @@ def inspect(
         h, w, _ = image.shape
         new_h, new_w = int(h * size_multiplier), int(w * size_multiplier)
         image = cv2.resize(image, (new_w, new_h))
-        image = visualize(image, labels, classes, blend_all=blend_all)
-        cv2.imshow("image", image)
-        if cv2.waitKey() == ord("q"):
-            break
+        instance_keys = [
+            "/boundingbox",
+            "/keypoints",
+            "/instance_segmentation",
+        ]
+        matched_instance_keys = [
+            k for k in labels if any(k.endswith(ik) for ik in instance_keys)
+        ]
+        if per_instance and matched_instance_keys:
+            extra_keys = [k for k in labels if k not in matched_instance_keys]
+            if extra_keys:
+                print(
+                    f"[yellow]Warning: Ignoring non-instance keys in labels: {extra_keys}[/yellow]"
+                )
+            n_instances = len(labels[matched_instance_keys[0]])
+            for i in range(n_instances):
+                instance_labels = {
+                    k: np.expand_dims(v[i], axis=0)
+                    for k, v in labels.items()
+                    if k in matched_instance_keys and len(v) > i
+                }
+                instance_image = visualize(
+                    image.copy(), instance_labels, classes, blend_all=blend_all
+                )
+                cv2.imshow("image", instance_image)
+                if cv2.waitKey() == ord("q"):
+                    break
+        else:
+            if per_instance:
+                print(
+                    "[yellow]Warning: Per-instance mode is not supported for this dataset. "
+                    "Showing all labels in one window.[/yellow]"
+                )
+            image = visualize(image, labels, classes, blend_all=blend_all)
+            cv2.imshow("image", image)
+            if cv2.waitKey() == ord("q"):
+                break
 
 
 @app.command()
 def export(
     dataset_name: DatasetNameArgument,
     save_dir: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             ...,
             "--save-dir",
@@ -349,13 +434,53 @@ def export(
             help="Delete an existing `save_dir` before exporting.",
         ),
     ] = False,
+    task_name_to_keep: Annotated[
+        str | None,
+        typer.Option(
+            "--task-name",
+            "-tn",
+            help=(
+                "Name of the single task to export. "
+                "Required when the dataset contains multiple tasks; "
+                "ignored if the dataset has exactly one task."
+            ),
+            show_default=False,
+        ),
+    ] = None,
+    max_partition_size_gb: Annotated[
+        float | None,
+        typer.Option(
+            ...,
+            "--max-partition-size-gb",
+            "-m",
+            help=(
+                "Maximum size of each partition in GB. If the dataset"
+                " exceeds this size, it will be split into multiple partitions named {dataset_name}_part{partition_number}."
+                " Default is None, meaning the dataset will be exported as a single partition named {dataset_name}."
+            ),
+            show_default=False,
+        ),
+    ] = None,
+    no_zip: Annotated[
+        bool,
+        typer.Option(
+            "--no-zip",
+            help="Skip zipping the exported dataset. By default, the dataset (or each partition) will be zipped.",
+        ),
+    ] = False,
     bucket_storage: BucketStorage = bucket_option,
 ):
     save_dir = save_dir or dataset_name
     if delete_existing and Path(save_dir).exists():
         shutil.rmtree(save_dir)
     dataset = LuxonisDataset(dataset_name, bucket_storage=bucket_storage)
-    dataset.export(save_dir, dataset_type)
+    dataset.export(
+        save_dir,
+        dataset_type,
+        task_name_to_keep,
+        max_partition_size_gb,
+        not no_zip,
+    )
 
 
 @app.command()
@@ -364,7 +489,7 @@ def parse(
         str, typer.Argument(..., help="Path or URL to the dataset.")
     ],
     name: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             ...,
             "--name",
@@ -375,7 +500,7 @@ def parse(
         ),
     ] = None,
     dataset_type: Annotated[
-        Optional[DatasetType],
+        DatasetType | None,
         typer.Option(
             ...,
             "--type",
@@ -385,18 +510,18 @@ def parse(
             show_default=False,
         ),
     ] = None,
-    delete_existing: Annotated[
+    delete_local: Annotated[
         bool,
         typer.Option(
             ...,
             "--delete",
             "-d",
-            help="If an existing dataset with the same name should "
+            help="If an existing local dataset with the same name should "
             "be deleted before parsing.",
         ),
     ] = False,
     save_dir: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option(
             ...,
             "--save-dir",
@@ -409,7 +534,7 @@ def parse(
         ),
     ] = None,
     task_name: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             ...,
             "--task-name",
@@ -425,7 +550,7 @@ def parse(
         dataset_dir,
         dataset_name=name,
         dataset_type=dataset_type,
-        delete_existing=delete_existing,
+        delete_local=delete_local,
         save_dir=save_dir,
         task_name=task_name,
     )
@@ -440,21 +565,21 @@ def parse(
 @app.command()
 def health(
     name: DatasetNameArgument,
-    view: Optional[str] = typer.Option(
+    view: str | None = typer.Option(
         None,
         "--view",
         "-v",
         help="Which splits of the dataset to inspect. If not provided, all dataset will be used.",
         show_default=False,
     ),
-    sample_size: Optional[int] = typer.Option(
+    sample_size: int | None = typer.Option(
         None,
         "--sample-size",
         "-n",
         help="Number of annotation rows to sample from the dataset. Note that each task type annotation is in a separate row.",
         show_default=False,
     ),
-    save_dir: Optional[str] = typer.Option(
+    save_dir: str | None = typer.Option(
         None,
         "--save-dir",
         "-s",
@@ -464,6 +589,12 @@ def health(
     ),
     bucket_storage: BucketStorage = bucket_option,
 ):
+    """Plots class distributions and heatmaps for every task type and
+    corresponding task name in the dataset.
+
+    Also checks for files with missing annotations, files that share the
+    same UUIDs, and files with duplicate annotations.
+    """
     check_exists(name, bucket_storage)
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
     stats = dataset.get_statistics(sample_size=sample_size, view=view)
@@ -594,6 +725,199 @@ def health(
             plt.show(block=False)
             if plt.waitforbuttonpress():
                 plt.close(fig)
+
+
+@app.command()
+def push(
+    name: DatasetNameArgument,
+    force_update: Annotated[
+        bool,
+        typer.Option(
+            ...,
+            "--force-update",
+            "-f",
+            help="Force pushing all media files, even if they already exist in the cloud. Annotations and metadata will always be pushed.",
+        ),
+    ] = False,
+    target_bucket_storage: BucketStorage = bucket_option,
+):
+    """Push a local dataset to cloud storage."""
+    check_exists(name, BucketStorage.LOCAL)
+    dataset = LuxonisDataset(name, bucket_storage=BucketStorage.LOCAL)
+
+    if target_bucket_storage == BucketStorage.LOCAL:
+        print(
+            "[red]Cannot push to LOCAL storage. Please specify a cloud target."
+        )
+        raise typer.Exit(1)
+
+    if LuxonisDataset.exists(
+        name, bucket_storage=target_bucket_storage
+    ) and not Confirm.ask(
+        f"Dataset '{name}' already exists in {target_bucket_storage} bucket. If you are unsure about the dataset, please delete it from the cloud storage and try again. Do you want to overwrite it?"
+    ):
+        raise typer.Exit
+
+    print(
+        f"Pushing dataset '{name}' to {target_bucket_storage.value} storage..."
+    )
+
+    update_mode = UpdateMode.ALL if force_update else UpdateMode.MISSING
+    dataset.push_to_cloud(
+        bucket_storage=target_bucket_storage, update_mode=update_mode
+    )
+
+    print(
+        f"[green]Dataset '{name}' successfully pushed to {target_bucket_storage.value}."
+    )
+
+
+@app.command()
+def pull(
+    name: DatasetNameArgument,
+    force_update: Annotated[
+        bool,
+        typer.Option(
+            ...,
+            "--force-update",
+            "-f",
+            help="Force pulling all media files, even if they already exist locally.",
+        ),
+    ] = False,
+    bucket_storage: BucketStorage = bucket_option,
+):
+    """Pull a remote dataset to local storage."""
+    if bucket_storage == BucketStorage.LOCAL:
+        print(
+            "[red]Cannot pull from LOCAL storage. Please specify a cloud source."
+        )
+        raise typer.Exit(1)
+
+    if not LuxonisDataset.exists(name, bucket_storage=bucket_storage):
+        print(
+            f"[red]Dataset '{name}' does not exist in {bucket_storage.value} storage."
+        )
+        raise typer.Exit
+
+    print(f"Pulling dataset '{name}' from {bucket_storage.value} storage...")
+
+    update_mode = UpdateMode.ALL if force_update else UpdateMode.MISSING
+    dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
+    dataset.pull_from_cloud(update_mode=update_mode)
+
+    print(
+        f"[green]Dataset '{name}' successfully pulled from {bucket_storage.value}."
+    )
+
+
+@app.command()
+def clone(
+    name: DatasetNameArgument,
+    new_name: Annotated[
+        str,
+        typer.Argument(
+            ..., help="Name of the new dataset.", show_default=False
+        ),
+    ],
+    push_to_cloud: Annotated[
+        bool,
+        typer.Option(
+            "--push/--no-push",
+            help="Whether to upload the newly cloned remote dataset back to cloud storage.",
+            show_default=True,
+        ),
+    ] = True,
+    bucket_storage: BucketStorage = bucket_option,
+):
+    """Clone an existing dataset with a new name.
+
+    Optionally push it to cloud storage if it is a remote dataset.
+    """
+
+    check_exists(name, bucket_storage)
+
+    if LuxonisDataset.exists(
+        new_name, bucket_storage=BucketStorage.LOCAL
+    ) and not Confirm.ask(
+        f"Dataset '{new_name}' already exists locally. Overwrite it?"
+    ):
+        raise typer.Exit
+
+    print(f"Cloning dataset '{name}' to '{new_name}'...")
+    dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
+    dataset.clone(new_dataset_name=new_name, push_to_cloud=push_to_cloud)
+    print(f"[green]Dataset '{name}' successfully cloned to '{new_name}'.")
+
+
+@app.command()
+def merge(
+    source_name: Annotated[
+        str,
+        typer.Argument(
+            ...,
+            help="Name of the source dataset.",
+            autocompletion=complete_dataset_name,
+        ),
+    ],
+    target_name: Annotated[
+        str,
+        typer.Argument(
+            ...,
+            help="Name of the target dataset.",
+            autocompletion=complete_dataset_name,
+        ),
+    ],
+    new_name: Annotated[
+        str | None,
+        typer.Option(
+            ...,
+            "--new-name",
+            "-n",
+            help="Name for the new merged dataset. If not provided, will merge into the target dataset.",
+            show_default=False,
+        ),
+    ] = None,
+    bucket_storage: BucketStorage = bucket_option,
+):
+    """Merge two datasets stored in the same type of bucket."""
+    check_exists(source_name, bucket_storage)
+    check_exists(target_name, bucket_storage)
+
+    inplace = new_name is None
+    if inplace and not Confirm.ask(
+        f"This will merge dataset '{source_name}' into '{target_name}'. Continue?"
+    ):
+        raise typer.Exit
+
+    if (
+        not inplace
+        and LuxonisDataset.exists(new_name, bucket_storage=bucket_storage)
+        and not Confirm.ask(
+            f"Dataset '{new_name}' already exists in {bucket_storage.value} bucket. Overwrite it?"
+        )
+    ):
+        raise typer.Exit
+
+    source_dataset = LuxonisDataset(source_name, bucket_storage=bucket_storage)
+    target_dataset = LuxonisDataset(target_name, bucket_storage=bucket_storage)
+
+    operation = "into" if inplace else "creating new dataset"
+    print(
+        f"Merging dataset '{source_name}' with '{target_name}', {operation}..."
+    )
+
+    _ = target_dataset.merge_with(
+        source_dataset, inplace=inplace, new_dataset_name=new_name
+    )
+
+    if inplace:
+        print(
+            f"[green]Dataset '{source_name}' successfully merged into '{target_name}'."
+        )
+    else:
+        print(
+            f"[green]Datasets merged successfully into new dataset '{new_name}'."
+        )
 
 
 if __name__ == "__main__":

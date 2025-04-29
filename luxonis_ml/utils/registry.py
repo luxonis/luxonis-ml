@@ -1,15 +1,7 @@
 import warnings
 from abc import ABCMeta
-from typing import (
-    Callable,
-    Dict,
-    Generic,
-    Optional,
-    Tuple,
-    TypeVar,
-    Union,
-    overload,
-)
+from collections.abc import Callable
+from typing import Generic, TypeVar, overload
 
 T = TypeVar("T", bound=type)
 
@@ -21,7 +13,7 @@ class Registry(Generic[T]):
         @type name: str
         @ivar name: Name of the registry
         """
-        self._module_dict: Dict[str, T] = {}
+        self._module_dict: dict[str, T] = {}
         self._name = name
 
     def __str__(self) -> str:
@@ -63,20 +55,20 @@ class Registry(Generic[T]):
 
     @overload
     def register_module(
-        self, name: Optional[str] = ..., module: None = ..., force: bool = ...
+        self, name: str | None = ..., module: None = ..., force: bool = ...
     ) -> Callable[[T], T]: ...
 
     @overload
     def register_module(
-        self, name: Optional[str] = ..., module: T = ..., force: bool = ...
+        self, name: str | None = ..., module: T = ..., force: bool = ...
     ) -> T: ...
 
     def register_module(
         self,
-        name: Optional[str] = None,
-        module: Optional[T] = None,
+        name: str | None = None,
+        module: T | None = None,
         force: bool = False,
-    ) -> Union[T, Callable[[T], T]]:
+    ) -> T | Callable[[T], T]:
         warnings.warn(
             "`register_module` is deprecated, use `register` instead.",
             stacklevel=2,
@@ -89,7 +81,7 @@ class Registry(Generic[T]):
         self,
         module: None = ...,
         *,
-        name: Optional[str] = ...,
+        name: str | None = ...,
         force: bool = ...,
     ) -> Callable[[T], T]: ...
 
@@ -98,17 +90,17 @@ class Registry(Generic[T]):
         self,
         module: T = ...,
         *,
-        name: Optional[str] = ...,
+        name: str | None = ...,
         force: bool = ...,
     ) -> None: ...
 
     def register(
         self,
-        module: Optional[T] = None,
+        module: T | None = None,
         *,
-        name: Optional[str] = None,
+        name: str | None = None,
         force: bool = False,
-    ) -> Optional[Callable[[T], T]]:
+    ) -> Callable[[T], T] | None:
         """Registers a module.
 
         Can be used as a decorator or as a normal method:
@@ -152,7 +144,7 @@ class Registry(Generic[T]):
         return wrapper
 
     def _register(
-        self, module: T, module_name: Optional[str] = None, force: bool = False
+        self, module: T, module_name: str | None = None, force: bool = False
     ) -> None:
         if module_name is None:
             module_name = module.__name__
@@ -191,11 +183,11 @@ class AutoRegisterMeta(ABCMeta):
     def __new__(
         cls,
         name: str,
-        bases: Tuple[type, ...],
-        attrs: Dict[str, type],
+        bases: tuple[type, ...],
+        attrs: dict[str, type],
         register: bool = True,
-        register_name: Optional[str] = None,
-        registry: Optional[Registry] = None,
+        register_name: str | None = None,
+        registry: Registry | None = None,
     ):
         """Automatically register the class.
 

@@ -1,6 +1,5 @@
 import tarfile
 from pathlib import Path
-from typing import List
 
 from luxonis_ml.typing import PathType
 
@@ -29,7 +28,7 @@ def is_nn_archive(path: PathType) -> bool:
     return True
 
 
-def infer_layout(shape: List[int]) -> str:
+def infer_layout(shape: list[int]) -> str:
     """Infers a layout for the given shape.
 
     Tries to guess most common layouts for the given shape pattern.

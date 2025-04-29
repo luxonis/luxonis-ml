@@ -2,27 +2,18 @@ import os.path as osp
 import subprocess
 import sys
 import uuid
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Iterable, Iterator
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from enum import Enum
 from importlib.util import find_spec
 from io import BytesIO
 from pathlib import Path, PurePosixPath
 from types import ModuleType
-from typing import (
-    Dict,
-    Iterable,
-    Iterator,
-    List,
-    Literal,
-    Optional,
-    Protocol,
-    Tuple,
-    Union,
-    cast,
-)
+from typing import Literal, Protocol, cast
 
 import fsspec
 from loguru import logger
+from tqdm import tqdm
 from typeguard import typechecked
 
 from luxonis_ml.typing import PathType, PosixPathType
@@ -36,7 +27,7 @@ class PutFile(Protocol):
         self,
         local_path: PathType,
         remote_path: PosixPathType,
-        mlflow_instance: Optional[ModuleType] = None,
+        mlflow_instance: ModuleType | None = None,
     ) -> str: ...
 
 
@@ -53,10 +44,10 @@ class LuxonisFileSystem:
     def __init__(
         self,
         path: str,
-        allow_active_mlflow_run: Optional[bool] = False,
-        allow_local: Optional[bool] = True,
-        cache_storage: Optional[str] = None,
-        put_file_plugin: Optional[str] = None,
+        allow_active_mlflow_run: bool | None = False,
+        allow_local: bool | None = True,
+        cache_storage: str | None = None,
+        put_file_plugin: str | None = None,
     ):
         """Abstraction over remote and local sources.
 
@@ -191,7 +182,7 @@ class LuxonisFileSystem:
         self,
         local_path: PathType,
         remote_path: PosixPathType,
-        mlflow_instance: Optional[ModuleType] = None,
+        mlflow_instance: ModuleType | None = None,
     ) -> str:
         """Copy a single file to remote storage.
 
@@ -230,12 +221,12 @@ class LuxonisFileSystem:
 
     def put_dir(
         self,
-        local_paths: Union[PathType, Iterable[PathType]],
+        local_paths: PathType | Iterable[PathType],
         remote_dir: PosixPathType,
-        uuid_dict: Optional[Dict[str, str]] = None,
-        mlflow_instance: Optional[ModuleType] = None,
+        uuid_dict: dict[str, str] | None = None,
+        mlflow_instance: ModuleType | None = None,
         copy_contents: bool = False,
-    ) -> Optional[Dict[str, str]]:
+    ) -> dict[str, str] | None:
         """Uploads files to remote storage.
 
         @type local_paths: Union[PathType, Sequence[PathType]]
@@ -260,7 +251,7 @@ class LuxonisFileSystem:
         if self.is_mlflow:
             raise NotImplementedError
         if self.is_fsspec:
-            if isinstance(local_paths, (Path, str)):
+            if isinstance(local_paths, PathType):
                 local_paths = Path(local_paths)
                 if not Path(local_paths).is_dir():
                     raise ValueError("Path must be a directory.")
@@ -276,6 +267,7 @@ class LuxonisFileSystem:
                 )
             else:
                 upload_dict = {}
+                futures = []
                 with ThreadPoolExecutor() as executor:
                     for local_path in local_paths:
                         local_path = Path(local_path)
@@ -287,14 +279,24 @@ class LuxonisFileSystem:
                             basename = Path(local_path).name
                         remote_path = str(PurePosixPath(remote_dir) / basename)
                         upload_dict[str(local_path)] = remote_path
-                        executor.submit(self.put_file, local_path, remote_path)
+                        futures.append(
+                            executor.submit(
+                                self.put_file, local_path, remote_path
+                            )
+                        )
+                    for _ in tqdm(
+                        as_completed(futures),
+                        total=len(futures),
+                        desc="Uploading files",
+                    ):
+                        pass
                 return upload_dict
 
     def put_bytes(
         self,
         file_bytes: bytes,
         remote_path: PosixPathType,
-        mlflow_instance: Optional[ModuleType] = None,
+        mlflow_instance: ModuleType | None = None,
     ) -> None:
         """Uploads a file to remote storage directly from file bytes.
 
@@ -317,7 +319,7 @@ class LuxonisFileSystem:
         self,
         remote_path: PosixPathType,
         local_path: PathType,
-        mlflow_instance: Optional[ModuleType] = None,
+        mlflow_instance: ModuleType | None = None,
     ) -> Path:
         """Copy a single file from remote storage.
 
@@ -356,7 +358,7 @@ class LuxonisFileSystem:
         else:
             raise NotImplementedError
 
-    def delete_files(self, remote_paths: List[PosixPathType]) -> None:
+    def delete_files(self, remote_paths: list[PosixPathType]) -> None:
         """Deletes multiple files from remote storage.
 
         @type remote_paths: List[PosixPathType]
@@ -372,9 +374,9 @@ class LuxonisFileSystem:
 
     def get_dir(
         self,
-        remote_paths: Union[PosixPathType, Iterable[PosixPathType]],
+        remote_paths: PosixPathType | Iterable[PosixPathType],
         local_dir: PathType,
-        mlflow_instance: Optional[ModuleType] = None,
+        mlflow_instance: ModuleType | None = None,
     ) -> Path:
         """Copies many files from remote storage to local storage.
 
@@ -395,7 +397,7 @@ class LuxonisFileSystem:
         if self.is_mlflow:
             raise NotImplementedError
         if self.is_fsspec:
-            if isinstance(remote_paths, (PurePosixPath, str)):
+            if isinstance(remote_paths, PurePosixPath | str):
                 existed = local_dir.exists()
                 self.fs.get(
                     str(self.path / remote_paths),
@@ -480,7 +482,7 @@ class LuxonisFileSystem:
                 if recursive and file["type"] == "directory":
                     yield from self.walk_dir(name, recursive, typ)
 
-    def read_text(self, remote_path: PosixPathType) -> Union[str, bytes]:
+    def read_text(self, remote_path: PosixPathType) -> str | bytes:
         """Reads a file into a string.
 
         @type remote_path: PosixPathType
@@ -493,7 +495,7 @@ class LuxonisFileSystem:
         return self.fs.read_text(str(self.path / remote_path))
 
     def read_to_byte_buffer(
-        self, remote_path: Optional[PosixPathType] = None
+        self, remote_path: PosixPathType | None = None
     ) -> BytesIO:
         """Reads a file into a byte buffer.
 
@@ -563,7 +565,7 @@ class LuxonisFileSystem:
 
     def get_file_uuids(
         self, paths: Iterable[PathType], local: bool = False
-    ) -> Dict[str, str]:
+    ) -> dict[str, str]:
         """Computes the UUIDs for all files stored in the filesystem.
 
         @type paths: List[PathType]
@@ -587,15 +589,15 @@ class LuxonisFileSystem:
         return result
 
     @staticmethod
-    def _split_mlflow_path(path: PathType) -> List[Optional[str]]:
+    def _split_mlflow_path(path: PathType) -> list[str | None]:
         """Splits mlflow path into 3 parts."""
         path = Path(path)
-        parts: List[Optional[str]] = list(path.parts)
+        parts: list[str | None] = list(path.parts)
         if len(parts) < 3:
             while len(parts) < 3:
                 parts.append(None)
         elif len(parts) > 3:
-            parts[2] = "/".join(cast(List[str], parts[2:]))
+            parts[2] = "/".join(cast(list[str], parts[2:]))
             parts = parts[:3]
         return parts
 
@@ -625,7 +627,7 @@ class LuxonisFileSystem:
         return self.fs.exists(full_path)
 
     @staticmethod
-    def split_full_path(path: PathType) -> Tuple[str, str]:
+    def split_full_path(path: PathType) -> tuple[str, str]:
         """Splits the full path into protocol and absolute path.
 
         @type path: PathType
@@ -648,7 +650,7 @@ class LuxonisFileSystem:
         return _get_protocol_and_path(path)[0]
 
     @staticmethod
-    def download(url: str, dest: Optional[PathType]) -> Path:
+    def download(url: str, dest: PathType | None) -> Path:
         """Downloads file or directory from remote storage.
 
         Intended for downloading a single remote object, elevating the
@@ -713,7 +715,7 @@ def _check_package_installed(protocol: str) -> None:  # pragma: no cover
         _pip_install(protocol, "mlflow~=2.10.0")
 
 
-def _get_protocol_and_path(path: str) -> Tuple[str, Optional[str]]:
+def _get_protocol_and_path(path: str) -> tuple[str, str | None]:
     """Gets the protocol and absolute path of a full path."""
 
     if "://" in path:

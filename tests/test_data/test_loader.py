@@ -1,7 +1,6 @@
 import random
 from contextlib import contextmanager
 from pathlib import Path
-from typing import List
 
 import numpy as np
 
@@ -236,14 +235,14 @@ def test_edge_cases(tempdir: Path):
 
     dataset = LuxonisDataset(
         "test_edge_cases",
-        delete_existing=True,
+        delete_local=True,
         delete_remote=True,
         bucket_storage=BucketStorage.LOCAL,
     ).add(generator())
 
     dataset.make_splits(ratios=(1, 0, 0))
 
-    augmentation_config: List[Params] = [
+    augmentation_config: list[Params] = [
         {
             "name": "Mosaic4",
             "params": {"p": 1, "out_width": 512, "out_height": 512},
@@ -337,7 +336,7 @@ def test_dataset_reproducibility(storage_url: str, tempdir: Path):
                 dataset_name="_augmentation_reproducibility",
                 save_dir=tempdir,
                 dataset_type=DatasetType.COCO,
-                delete_existing=True,
+                delete_local=True,
             ).parse()
             return LuxonisLoader(
                 dataset,
@@ -360,5 +359,29 @@ def test_dataset_reproducibility(storage_url: str, tempdir: Path):
             else a1[k] == a2[k]
             for k in a1
         )
-        for a1, a2 in zip(run1, run2)
+        for a1, a2 in zip(run1, run2, strict=True)
     )
+
+
+def test_filter_by_task_name(tempdir: Path):
+    def generator() -> DatasetIterator:
+        for i in range(6):
+            yield {
+                "file": create_image(i, tempdir),
+                "task_name": "person_cls" if i % 2 == 0 else "car_cls",
+                "annotation": {"class": "person" if i % 2 == 0 else "car"},
+            }
+
+    dataset = LuxonisDataset(
+        "test_filter_by_task_name",
+        delete_local=True,
+        bucket_storage=BucketStorage.LOCAL,
+    )
+    dataset.add(generator())
+    dataset.make_splits(splits=(1, 0, 0))
+
+    for task_name in ["person_cls", "car_cls"]:
+        loader = LuxonisLoader(
+            dataset, view="train", filter_task_names=[task_name]
+        )
+        assert len(loader) == 3

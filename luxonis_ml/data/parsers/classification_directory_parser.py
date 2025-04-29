@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from luxonis_ml.data import DatasetIterator
 
@@ -27,7 +27,7 @@ class ClassificationDirectoryParser(BaseParser):
     """
 
     @staticmethod
-    def validate_split(split_path: Path) -> Optional[Dict[str, Any]]:
+    def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
         classes = [
@@ -55,7 +55,7 @@ class ClassificationDirectoryParser(BaseParser):
 
     def from_dir(
         self, dataset_dir: Path
-    ) -> Tuple[List[Path], List[Path], List[Path]]:
+    ) -> tuple[list[Path], list[Path], list[Path]]:
         added_train_imgs = self._parse_split(class_dir=dataset_dir / "train")
         added_val_imgs = self._parse_split(class_dir=dataset_dir / "valid")
         added_test_imgs = self._parse_split(class_dir=dataset_dir / "test")

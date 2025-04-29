@@ -1,10 +1,11 @@
 import json
 import os
 import time
+from collections.abc import Callable
 from functools import wraps
 from importlib.util import find_spec
 from pathlib import Path
-from typing import Any, Callable, Dict, Literal, Optional, Union
+from typing import Any, Literal
 
 import cv2
 import numpy as np
@@ -18,17 +19,17 @@ from luxonis_ml.utils.filesystem import LuxonisFileSystem
 class LuxonisTracker:
     def __init__(
         self,
-        project_name: Optional[str] = None,
-        project_id: Optional[str] = None,
-        run_name: Optional[str] = None,
-        run_id: Optional[str] = None,
+        project_name: str | None = None,
+        project_id: str | None = None,
+        run_name: str | None = None,
+        run_id: str | None = None,
         save_directory: PathType = "output",
         is_tensorboard: bool = False,
         is_wandb: bool = False,
         is_mlflow: bool = False,
         is_sweep: bool = False,
-        wandb_entity: Optional[str] = None,
-        mlflow_tracking_uri: Optional[str] = None,
+        wandb_entity: str | None = None,
+        mlflow_tracking_uri: str | None = None,
         rank: int = 0,
     ):
         """Implementation of PytorchLightning Logger that wraps various
@@ -152,7 +153,7 @@ class LuxonisTracker:
         @wraps(fn)
         def wrapped_fn(
             self: "LuxonisTracker", *args: Any, **kwargs: Any
-        ) -> Optional[Any]:
+        ) -> Any | None:
             if self.rank == 0:
                 return fn(self, *args, **kwargs)
             return None
@@ -304,7 +305,7 @@ class LuxonisTracker:
     @rank_zero_only
     def experiment(
         self,
-    ) -> Dict[Literal["tensorboard", "wandb", "mlflow"], Any]:
+    ) -> dict[Literal["tensorboard", "wandb", "mlflow"], Any]:
         """Creates new experiments or returns active ones if already
         created."""
         if self._experiment is None:
@@ -403,7 +404,7 @@ class LuxonisTracker:
 
     @rank_zero_only
     def log_hyperparams(
-        self, params: Dict[str, Union[str, bool, int, float, None]]
+        self, params: dict[str, str | bool | int | float | None]
     ) -> None:
         """Logs hyperparameter dictionary.
 
@@ -448,7 +449,7 @@ class LuxonisTracker:
             )
 
     @rank_zero_only
-    def log_metrics(self, metrics: Dict[str, float], step: int) -> None:
+    def log_metrics(self, metrics: dict[str, float], step: int) -> None:
         """Logs metric dictionary.
 
         @type metrics: Dict[str, float]
@@ -501,7 +502,7 @@ class LuxonisTracker:
     def upload_artifact(
         self,
         path: PathType,
-        name: Optional[str] = None,
+        name: str | None = None,
         typ: str = "artifact",
     ) -> None:
         """Uploads artifact to the logging service.
@@ -529,7 +530,7 @@ class LuxonisTracker:
     def upload_artifact_to_mlflow(
         self,
         path: PathType,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         """Uploads artifact specifically to MLflow.
 
@@ -588,7 +589,7 @@ class LuxonisTracker:
             self.experiment["wandb"].log({f"{name}_table": table}, step=step)
 
     @rank_zero_only
-    def log_images(self, imgs: Dict[str, np.ndarray], step: int) -> None:
+    def log_images(self, imgs: dict[str, np.ndarray], step: int) -> None:
         """Logs multiple images.
 
         @type imgs: Dict[str, np.ndarray]
