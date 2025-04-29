@@ -13,7 +13,7 @@ from typing import Literal, Protocol, cast
 
 import fsspec
 from loguru import logger
-from tqdm import tqdm
+from rich.progress import track
 from typeguard import typechecked
 
 from luxonis_ml.typing import PathType, PosixPathType
@@ -284,10 +284,10 @@ class LuxonisFileSystem:
                                 self.put_file, local_path, remote_path
                             )
                         )
-                    for _ in tqdm(
+                    for _ in track(
                         as_completed(futures),
                         total=len(futures),
-                        desc="Uploading files",
+                        description="Uploading files",
                     ):
                         pass
                 return upload_dict
