@@ -100,7 +100,7 @@ def test_flip_and_swap_keypoints_pair(
     keypoints_pair: np.ndarray,
     img: np.ndarray,
 ) -> None:
-    t = Transform(keypoint_pairs=[(0, 1)], p=1.0)
+    t = Transform(keypoint_pairs=[(0, 1)], p=1.0)  # type: ignore
     params = get_params(t, img.shape)
 
     out = t.apply_to_keypoints(keypoints_pair, **params)
