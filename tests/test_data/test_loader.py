@@ -336,7 +336,7 @@ def test_edge_cases(tempdir: Path):
             "name": "Rotate",
             "params": {
                 "limit": 10,
-                "p": 1,
+                "p": 0.3,
                 "border_mode": 0,
                 "value": [0, 0, 0],
             },
@@ -352,7 +352,7 @@ def test_edge_cases(tempdir: Path):
                 "fit_output": False,
                 "interpolation": 1,
                 "always_apply": False,
-                "p": 1,
+                "p": 0.3,
             },
         },
         {
@@ -371,7 +371,34 @@ def test_edge_cases(tempdir: Path):
                 "keep_ratio": False,
                 "rotate_method": "largest_box",
                 "always_apply": False,
-                "p": 1,
+                "p": 0.3,
+            },
+        },
+        {
+            "name": "Mixup",
+            "params": {
+                "p": 0.3,
+            },
+        },
+        {
+            "name": "HorizontalSymetricKeypointsFlip",
+            "params": {"p": 0.4},
+        },
+        {
+            "name": "VerticalSymmetricKeypointsFlip",
+            "params": {
+                "p": 0.4,
+                "keypoint_pairs": [
+                    (0, 0),
+                    (1, 2),
+                    (3, 4),
+                    (5, 6),
+                    (7, 8),
+                    (9, 10),
+                    (11, 12),
+                    (13, 14),
+                    (15, 16),
+                ],
             },
         },
     ]
@@ -501,5 +528,4 @@ def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
         orig_mask = rle_to_mask(orig_ann["segmentation"], 512, 512)
         new_mask = rle_to_mask(new_ann["segmentation"], 512, 512)
         diff = np.count_nonzero(orig_mask != new_mask)
-        max_diff = 50
-        assert diff <= max_diff
+        assert diff <= 50
