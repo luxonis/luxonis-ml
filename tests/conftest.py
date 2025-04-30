@@ -34,7 +34,9 @@ def setup():
 
 @pytest.fixture
 def randint() -> int:
-    return random.randint(0, 100_000)
+    rng = random.Random()
+    rng.seed(time.time())
+    return rng.randint(0, 100_000)
 
 
 @pytest.fixture(autouse=True, scope="session")

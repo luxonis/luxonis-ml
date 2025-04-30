@@ -71,9 +71,13 @@ AUGMENTATIONS_CONFIG: list[Params] = [
 
 @contextmanager
 def set_seed(seed: int):
+    np_state = np.random.get_state()
+    random_state = random.getstate()
     np.random.seed(seed)
     random.seed(seed)
     yield
+    np.random.set_state(np_state)
+    random.setstate(random_state)
 
 
 def create_loader(
