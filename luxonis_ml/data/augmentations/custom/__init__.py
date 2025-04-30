@@ -9,6 +9,7 @@ from .mixup import MixUp
 from .mosaic import Mosaic4
 from .symetric_keypoints_flip import (
     HorizontalSymetricKeypointsFlip,
+    TransposeSymmetricKeypoints,
     VerticalSymetricKeypointsFlip,
 )
 
@@ -21,6 +22,7 @@ TRANSFORMATIONS.register(module=MixUp)
 TRANSFORMATIONS.register(module=Mosaic4)
 TRANSFORMATIONS.register(module=HorizontalSymetricKeypointsFlip)
 TRANSFORMATIONS.register(module=VerticalSymetricKeypointsFlip)
+TRANSFORMATIONS.register(module=TransposeSymmetricKeypoints)
 
 __all__ = [
     "TRANSFORMATIONS",
@@ -28,5 +30,6 @@ __all__ = [
     "LetterboxResize",
     "MixUp",
     "Mosaic4",
+    "TransposeSymmetricKeypoints",
     "VerticalSymetricKeypointsFlip",
 ]

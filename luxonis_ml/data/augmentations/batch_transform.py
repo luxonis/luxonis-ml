@@ -74,10 +74,6 @@ class BatchTransform(ABC, A.DualTransform):
         return np.concatenate([arr for arr in metadata_batch if arr.size > 0])
 
     @override
-    def update_params(self, params: Dict[str, Any], **_) -> Dict[str, Any]:
-        return params
-
-    @override
     def update_transform_params(
         self, params: Dict[str, Any], data: Dict[str, Any]
     ) -> Dict[str, Any]:

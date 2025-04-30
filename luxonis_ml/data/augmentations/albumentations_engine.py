@@ -264,7 +264,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             ]:
                 extra_msg = " For keypoints, please use 'HorizontalSymetricKeypointsFlip' or 'VerticalSymetricKeypointsFlip'."
             logger.warning(
-                f"Skipping augmentation '{augmentation_name}' due to known issues for {skipped_for} target types.{extra_msg}"
+                f"Skipping augmentation '{augmentation_name}' due to known issues for {skipped_for} target types. {extra_msg}"
             )
             return True
         return False
