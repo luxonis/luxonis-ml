@@ -399,7 +399,7 @@ def test_no_labels(dataset_name: str, tempdir: Path, subtests: SubTests):
                 dataset,
                 width=512,
                 height=512,
-                augmentation_config=[{"name": "Flip", "params": {}}],
+                augmentation_config=[{"name": "Affine", "params": {}}],
             )
             for _, labels in augmented_loader:
                 assert set(labels.keys()) == expected_tasks

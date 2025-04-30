@@ -134,7 +134,7 @@ class MixUp(BatchTransform):
             mask2 = self.resize(mask2, image_shapes, "mask")
             if mask2.ndim == 2:
                 mask2 = mask2[..., None]
-
+            mask_batch[1] = mask2
         if mask1.size == 0:
             return mask2
         if mask2.size == 0:
@@ -147,8 +147,6 @@ class MixUp(BatchTransform):
         self,
         bboxes_batch: list[np.ndarray],
         image_shapes: list[tuple[int, int]],
-        rows: int,
-        cols: int,
         **_,
     ) -> np.ndarray:
         """Applies the transformation to a batch of bboxes.
@@ -165,7 +163,11 @@ class MixUp(BatchTransform):
                 bboxes_batch[i] = np.zeros((0, 6), dtype=bbox.dtype)
 
         bboxes_batch[1] = self.resize(
-            bboxes_batch[1], image_shapes, "bboxes", rows=rows, cols=cols
+            bboxes_batch[1],
+            image_shapes,
+            "bboxes",
+            orig_height=image_shapes[0][0],
+            orig_width=image_shapes[0][1],
         )
 
         return np.concatenate(bboxes_batch, axis=0)
@@ -191,14 +193,13 @@ class MixUp(BatchTransform):
                     (0, 5), dtype=keypoints_batch[i].dtype
                 )
 
-        rows, cols = image_shapes[1]
         keypoints_batch[1] = self.resize(
             keypoints_batch[1],
             image_shapes,
             "keypoints",
             shape=image_shapes[1],
-            cols=cols,
-            rows=rows,
+            orig_height=image_shapes[1][0],
+            orig_width=image_shapes[1][1],
         )
         return np.concatenate(keypoints_batch, axis=0)
 
@@ -213,22 +214,6 @@ class MixUp(BatchTransform):
         """
         alpha = random.uniform(*self.alpha)
         return {"alpha": alpha}
-
-    @override
-    def get_params_dependent_on_data(
-        self, params: dict[str, Any], data: dict[str, Any]
-    ) -> dict[str, Any]:
-        """Get parameters dependent on the targets.
-
-        @param params: Dictionary containing parameters.
-        @type params: Dict[str, Any]
-        @return: Dictionary containing parameters dependent on the
-            targets.
-        @rtype: Dict[str, Any]
-        """
-        params = super().get_params_dependent_on_data(params, data)
-        image_batch = data["image"]
-        return {"image_shapes": [image.shape[:2] for image in image_batch]}
 
     def resize(
         self,

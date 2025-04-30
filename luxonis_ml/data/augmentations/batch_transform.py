@@ -75,14 +75,11 @@ class BatchTransform(ABC, A.DualTransform):
         return np.concatenate([arr for arr in metadata_batch if arr.size > 0])
 
     @override
-    def update_params(self, params: dict[str, Any], **_) -> dict[str, Any]:
-        return params
-
-    @override
-    def update_params_shape(
+    def update_transform_params(
         self, params: dict[str, Any], data: dict[str, Any]
     ) -> dict[str, Any]:
-        shape = data["image"][0].shape
-        params["shape"] = shape
-        params.update({"cols": shape[1], "rows": shape[0]})
+        image_batch = data["image"]
+        params["image_shapes"] = [
+            tuple(image.shape[:2]) for image in image_batch
+        ]
         return params

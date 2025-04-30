@@ -38,10 +38,10 @@ class Mosaic4(BatchTransform):
             cropped by this height around the mosaic center. If the size
             of the mosaic image is smaller than this value the gap is
             filled by the C{value}.
-        @type value: Optional[Union[int, float, List[int], List[float]]]
+        @type value: Optional[Union[int, float, list[int], list[float]]]
         @param value: Padding value. Defaults to C{None}.
-        @type mask_value: Optional[Union[int, float, List[int],
-            List[float]]]
+        @type mask_value: Optional[Union[int, float, list[int],
+            list[float]]]
         @param mask_value: Padding value for masks. Defaults to C{None}.
         @type p: float
         @param p: Probability of applying the transform. Defaults to
@@ -64,6 +64,28 @@ class Mosaic4(BatchTransform):
         self.value = value
         self.mask_value = mask_value
 
+    @override
+    def get_params_dependent_on_data(
+        self, params: dict[str, Any], data: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Get parameters dependent on the targets.
+
+        @param params: Dictionary containing parameters.
+        @type params: dict[str, Any]
+        @param data: Dictionary containing data.
+        @type data: dict[str, Any]
+        @return: Dictionary containing parameters dependent on the
+            targets.
+        @rtype: dict[str, Any]
+        """
+        x_crop, y_crop = self.generate_random_crop_center()
+        return {
+            "x_crop": x_crop,
+            "y_crop": y_crop,
+            "out_width": self.out_width,
+            "out_height": self.out_height,
+        }
+
     def generate_random_crop_center(self) -> tuple[int, int]:
         """Generate a random crop center within the bounds of the mosaic
         image size."""
@@ -77,7 +99,7 @@ class Mosaic4(BatchTransform):
     ) -> np.ndarray:
         """Applies the transformation to a batch of images.
 
-        @type image_batch: List[np.ndarray]
+        @type image_batch: list[np.ndarray]
         @param image_batch: Batch of input images to which the
             transformation is applied.
         @type x_crop: int
@@ -102,13 +124,13 @@ class Mosaic4(BatchTransform):
         mask_batch: list[np.ndarray],
         x_crop: int,
         y_crop: int,
-        cols: int,
-        rows: int,
+        out_height: int,
+        out_width: int,
         **_,
     ) -> np.ndarray:
         """Applies the transformation to a batch of masks.
 
-        @type mask_batch: List[np.ndarray]
+        @type mask_batch: list[np.ndarray]
         @param mask_batch: Batch of input masks to which the
             transformation is applied.
         @type x_crop: int
@@ -122,10 +144,13 @@ class Mosaic4(BatchTransform):
             mask = mask_batch[i]
             if mask.size == 0:
                 if len(mask.shape) == 2:
-                    mask_batch[i] = np.zeros((rows, cols), dtype=mask.dtype)
+                    mask_batch[i] = np.zeros(
+                        (out_width, out_height), dtype=mask.dtype
+                    )
                 else:
                     mask_batch[i] = np.zeros(
-                        (rows, cols, mask.shape[-1]), dtype=mask.dtype
+                        (out_width, out_height, mask.shape[-1]),
+                        dtype=mask.dtype,
                     )
         return apply_mosaic4_to_images(
             mask_batch,
@@ -142,7 +167,7 @@ class Mosaic4(BatchTransform):
     ) -> np.ndarray:
         """Applies the transformation to a batch of instance masks.
 
-        @type mask_batch: List[np.ndarray]
+        @type mask_batch: list[np.ndarray]
         @param mask_batch: Batch of input masks to which the
             transformation is applied.
         @type x_crop: int
@@ -172,12 +197,12 @@ class Mosaic4(BatchTransform):
     ) -> np.ndarray:
         """Applies the transformation to a batch of bboxes.
 
-        @type bboxes_batch: List[np.ndarray]
+        @type bboxes_batch: list[np.ndarray]
         @param bboxes_batch: Batch of input bboxes to which the
             transformation is applied.
-        @type indices: List[Tuple[int, int]]
+        @type indices: list[tuple[int, int]]
         @param indices: Indices of images in the batch.
-        @type image_shapes: List[Tuple[int, int]]
+        @type image_shapes: list[tuple[int, int]]
         @param image_shapes: Shapes of the input images in the batch.
         @type params: Any
         @param params: Additional parameters for the transformation.
@@ -185,11 +210,11 @@ class Mosaic4(BatchTransform):
         @param x_crop: x-coordinate of the croping start point
         @type y_crop: int
         @param y_crop: y-coordinate of the croping start point
-        @rtype: List[np.ndarray]
-        @return: List of transformed bboxes.
+        @rtype: list[np.ndarray]
+        @return: list of transformed bboxes.
         """
         new_bboxes = []
-        for i, (bboxes, (rows, cols)) in enumerate(
+        for i, (bboxes, (orig_height, orig_width)) in enumerate(
             zip(bboxes_batch, image_shapes, strict=True)
         ):
             if bboxes.size == 0:  # pragma: no cover
@@ -197,8 +222,8 @@ class Mosaic4(BatchTransform):
 
             bbox = apply_mosaic4_to_bboxes(
                 bboxes,
-                rows,
-                cols,
+                orig_height,
+                orig_width,
                 i,
                 self.out_height,
                 self.out_width,
@@ -220,12 +245,12 @@ class Mosaic4(BatchTransform):
     ) -> np.ndarray:
         """Applies the transformation to a batch of keypoints.
 
-        @type keypoints_batch: List[KeypointType]
+        @type keypoints_batch: list[KeypointType]
         @param keypoints_batch: Batch of input keypoints to which the
             transformation is applied.
-        @type indices: List[Tuple[int, int]]
+        @type indices: list[tuple[int, int]]
         @param indices: Indices of images in the batch.
-        @type image_shapes: List[Tuple[int, int]]
+        @type image_shapes: list[tuple[int, int]]
         @param image_shapes: Shapes of the input images in the batch.
         @type params: Any
         @param params: Additional parameters for the transformation.
@@ -233,20 +258,20 @@ class Mosaic4(BatchTransform):
         @param x_crop: x-coordinate of the croping start point
         @type y_crop: int
         @param y_crop: y-coordinate of the croping start point
-        @rtype: List[KeypointType]
-        @return: List of transformed keypoints.
+        @rtype: list[KeypointType]
+        @return: list of transformed keypoints.
         """
         new_keypoints = []
-        for i, (keypoints, (rows, cols)) in enumerate(
+        for i, (keypoints, (orig_height, orig_width)) in enumerate(
             zip(keypoints_batch, image_shapes, strict=True)
         ):
             if keypoints.size == 0:
-                keypoints = np.zeros((0, 5), dtype=keypoints.dtype)
+                keypoints = np.zeros((0, 6), dtype=keypoints.dtype)
 
             new_keypoint = apply_mosaic4_to_keypoints(
                 keypoints,
-                rows,
-                cols,
+                orig_height,
+                orig_width,
                 i,
                 self.out_height,
                 self.out_width,
@@ -255,27 +280,6 @@ class Mosaic4(BatchTransform):
             )
             new_keypoints.append(new_keypoint)
         return np.concatenate(new_keypoints, axis=0)
-
-    @override
-    def get_params_dependent_on_data(
-        self, params: dict[str, Any], data: dict[str, Any]
-    ) -> dict[str, Any]:
-        """Get parameters dependent on the targets.
-
-        @type params: Dict[str, Any]
-        @param params: Dictionary containing parameters.
-        @rtype: Dict[str, Any]
-        @return: Dictionary containing parameters dependent on the
-            targets.
-        """
-        additional_params = super().get_params_dependent_on_data(params, data)
-        image_batch = data["image"]
-        image_shapes = [tuple(image.shape[:2]) for image in image_batch]
-        x_crop, y_crop = self.generate_random_crop_center()
-        additional_params.update(
-            {"image_shapes": image_shapes, "x_crop": x_crop, "y_crop": y_crop}
-        )
-        return additional_params
 
 
 def compute_mosaic4_corners(
