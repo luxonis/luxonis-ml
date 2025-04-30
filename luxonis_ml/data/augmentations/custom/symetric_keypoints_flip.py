@@ -39,10 +39,10 @@ class HorizontalSymetricKeypointsFlip(A.DualTransform):
         @param data: Dictionary containing data.
         @type data: dict[str, Any]
         """
-        cols, rows, _ = params["shape"]
+        orig_height, orig_width, _ = params["shape"]
         return {
-            "rows": rows,
-            "cols": cols,
+            "orig_width": orig_width,
+            "orig_height": orig_height,
         }
 
     @override
@@ -83,14 +83,14 @@ class HorizontalSymetricKeypointsFlip(A.DualTransform):
 
     @override
     def apply_to_keypoints(
-        self, keypoints: np.ndarray, rows: int, **params
+        self, keypoints: np.ndarray, orig_width: int, **params
     ) -> np.ndarray:
         """Flips keypoints horizontally and then swaps symmetric ones.
 
         @param keypoints: Keypoints to be flipped.
         @type keypoints: np.ndarray
-        @param rows: Number of rows in the image.
-        @type rows: int
+        @param orig_width: Width of the original image.
+        @type orig_width: int
         @param params: Parameters for the transformation.
         @type params: Dict[str, Any]
         """
@@ -99,7 +99,7 @@ class HorizontalSymetricKeypointsFlip(A.DualTransform):
 
         keypoints = keypoints.copy()
 
-        keypoints[:, 0] = rows - keypoints[:, 0]
+        keypoints[:, 0] = orig_width - keypoints[:, 0]
 
         total_keypoints = keypoints.shape[0]
         if total_keypoints % self.n_keypoints != 0:
@@ -153,10 +153,10 @@ class VerticalSymetricKeypointsFlip(A.DualTransform):
         @param data: Dictionary containing data.
         @type data: dict[str, Any]
         """
-        rows, cols, _ = params["shape"]
+        orig_width, orig_height, _ = params["shape"]
         return {
-            "rows": rows,
-            "cols": cols,
+            "orig_width": orig_width,
+            "orig_height": orig_height,
         }
 
     @override
@@ -198,14 +198,14 @@ class VerticalSymetricKeypointsFlip(A.DualTransform):
 
     @override
     def apply_to_keypoints(
-        self, keypoints: np.ndarray, cols: int, **params
+        self, keypoints: np.ndarray, orig_height: int, **params
     ) -> np.ndarray:
         """Flips keypoints vertically and then swaps symmetric ones.
 
         @param keypoints: Keypoints to be flipped.
         @type keypoints: np.ndarray
-        @param cols: Number of columns in the image.
-        @type cols: int
+        @param orig_height: Original height in the image.
+        @type orig_height: int
         @param params: Parameters for the transformation.
         @type params: Dict[str, Any]
         """
@@ -214,7 +214,7 @@ class VerticalSymetricKeypointsFlip(A.DualTransform):
 
         keypoints = keypoints.copy()
 
-        keypoints[:, 1] = cols - keypoints[:, 1]
+        keypoints[:, 1] = orig_height - keypoints[:, 1]
 
         total_keypoints = keypoints.shape[0]
         if total_keypoints % self.n_keypoints != 0:
@@ -272,8 +272,8 @@ class TransposeSymmetricKeypoints(A.DualTransform):
         @param data: Dictionary containing data.
         @type data: dict[str, Any]
         """
-        rows, cols, _ = params["shape"]
-        return {"rows": rows, "cols": cols}
+        orig_width, orig_height, _ = params["shape"]
+        return {"orig_width": orig_width, "orig_height": orig_height}
 
     @override
     def apply(self, img: np.ndarray, **params) -> np.ndarray:
@@ -320,8 +320,8 @@ class TransposeSymmetricKeypoints(A.DualTransform):
 
         @param keypoints: Keypoints to be flipped.
         @type keypoints: np.ndarray
-        @param rows: Number of rows in the image.
-        @type rows: int
+        @param orig_width: Original width of the image.
+        @type orig_width: int
         @param params: Parameters for the transformation.
         @type params: Dict[str, Any]
         """
