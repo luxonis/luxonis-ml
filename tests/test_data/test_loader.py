@@ -501,5 +501,5 @@ def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
         orig_mask = rle_to_mask(orig_ann["segmentation"], 512, 512)
         new_mask = rle_to_mask(new_ann["segmentation"], 512, 512)
         diff = np.count_nonzero(orig_mask != new_mask)
-        max_diff = 500
+        max_diff = 50
         assert diff <= max_diff
