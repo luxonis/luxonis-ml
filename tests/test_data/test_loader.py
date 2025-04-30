@@ -433,7 +433,7 @@ def test_dataset_reproducibility(storage_url: str, tempdir: Path):
 
 
 def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
-    def rle_encode(mask: np.ndarray) -> list[int]:
+    def mask_to_rle(mask: np.ndarray) -> list[int]:
         """Encodes a binary mask using Run-Length Encoding (RLE)."""
         pixels = mask.flatten()
         rle = []
@@ -450,6 +450,10 @@ def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
         rle.append(count)
 
         return rle
+
+    def rle_to_mask(counts: list[int], height: int, width: int) -> np.ndarray:
+        flat = np.repeat(np.arange(len(counts)) % 2, counts)
+        return flat.reshape((height, width), order="F").astype(bool)
 
     def convert_annotation(ann: dict[str, Any]) -> dict[str, Any]:
         def round_nested_list(
@@ -472,7 +476,7 @@ def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
                 if isinstance(ann["/boundingbox"], np.ndarray)
                 else ann["/boundingbox"]
             ),
-            "segmentation": rle_encode(ann["/segmentation"])
+            "segmentation": mask_to_rle(ann["/segmentation"])
             if isinstance(ann["/segmentation"], np.ndarray)
             else ann["/segmentation"],
             "keypoints": round_nested_list(
@@ -495,11 +499,6 @@ def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
         assert orig_ann["classification"] == new_ann["classification"]
         assert orig_ann["bounding_box"] == new_ann["bounding_box"]
         assert orig_ann["keypoints"] == new_ann["keypoints"]
-
-        total_diff = 0
-        orig_seg = orig_ann["segmentation"]
-        new_seg = new_ann["segmentation"]
-        for o_count, n_count in zip(orig_seg, new_seg, strict=False):
-            total_diff += abs(o_count - n_count)
-
-        assert total_diff <= 200
+        orig_mask = rle_to_mask(orig_ann["segmentation"], 512, 512)
+        new_mask = rle_to_mask(new_ann["segmentation"], 512, 512)
+        assert np.array_equal(orig_mask, new_mask)
