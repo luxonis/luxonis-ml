@@ -82,8 +82,8 @@ class Mosaic4(BatchTransform):
         return {
             "x_crop": x_crop,
             "y_crop": y_crop,
-            "rows": self.out_width,
-            "cols": self.out_height,
+            "out_width": self.out_width,
+            "out_height": self.out_height,
         }
 
     def generate_random_crop_center(self) -> tuple[int, int]:
@@ -124,8 +124,8 @@ class Mosaic4(BatchTransform):
         mask_batch: list[np.ndarray],
         x_crop: int,
         y_crop: int,
-        cols: int,
-        rows: int,
+        out_height: int,
+        out_width: int,
         **_,
     ) -> np.ndarray:
         """Applies the transformation to a batch of masks.
@@ -144,10 +144,13 @@ class Mosaic4(BatchTransform):
             mask = mask_batch[i]
             if mask.size == 0:
                 if len(mask.shape) == 2:
-                    mask_batch[i] = np.zeros((rows, cols), dtype=mask.dtype)
+                    mask_batch[i] = np.zeros(
+                        (out_width, out_height), dtype=mask.dtype
+                    )
                 else:
                     mask_batch[i] = np.zeros(
-                        (rows, cols, mask.shape[-1]), dtype=mask.dtype
+                        (out_width, out_height, mask.shape[-1]),
+                        dtype=mask.dtype,
                     )
         return apply_mosaic4_to_images(
             mask_batch,
@@ -211,7 +214,7 @@ class Mosaic4(BatchTransform):
         @return: list of transformed bboxes.
         """
         new_bboxes = []
-        for i, (bboxes, (cols, rows)) in enumerate(
+        for i, (bboxes, (orig_height, orig_width)) in enumerate(
             zip(bboxes_batch, image_shapes, strict=True)
         ):
             if bboxes.size == 0:  # pragma: no cover
@@ -219,8 +222,8 @@ class Mosaic4(BatchTransform):
 
             bbox = apply_mosaic4_to_bboxes(
                 bboxes,
-                cols,
-                rows,
+                orig_height,
+                orig_width,
                 i,
                 self.out_height,
                 self.out_width,
@@ -259,7 +262,7 @@ class Mosaic4(BatchTransform):
         @return: list of transformed keypoints.
         """
         new_keypoints = []
-        for i, (keypoints, (cols, rows)) in enumerate(
+        for i, (keypoints, (orig_height, orig_width)) in enumerate(
             zip(keypoints_batch, image_shapes, strict=True)
         ):
             if keypoints.size == 0:
@@ -267,8 +270,8 @@ class Mosaic4(BatchTransform):
 
             new_keypoint = apply_mosaic4_to_keypoints(
                 keypoints,
-                cols,
-                rows,
+                orig_height,
+                orig_width,
                 i,
                 self.out_height,
                 self.out_width,
