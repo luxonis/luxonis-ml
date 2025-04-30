@@ -57,8 +57,8 @@ def test_horizontal_flip_keypoints_single(
     t = HorizontalSymetricKeypointsFlip(keypoint_pairs=[(0, 0)], p=1.0)
     params = get_params(t, img.shape)
     out = t.apply_to_keypoints(keypoints_single, **params)
-    rows = params["rows"]
-    expected = np.array([[rows - 1.0, 2.0]])
+    orig_width = params["orig_width"]
+    expected = np.array([[orig_width - 1.0, 2.0]])
     assert np.allclose(out, expected)
 
 
@@ -69,8 +69,8 @@ def test_vertical_flip_keypoints_single(
     t = VerticalSymetricKeypointsFlip(keypoint_pairs=[(0, 0)], p=1.0)
     params = get_params(t, img.shape)
     out = t.apply_to_keypoints(keypoints_single, **params)
-    cols = params["cols"]
-    expected = np.array([[1.0, cols - 2.0]])
+    orig_height = params["orig_height"]
+    expected = np.array([[1.0, orig_height - 2.0]])
     assert np.allclose(out, expected)
 
 
@@ -107,11 +107,11 @@ def test_flip_and_swap_keypoints_pair(
 
     flipped = keypoints_pair.copy()
     if flip_axis == "horizontal":
-        rows = params["rows"]
-        flipped[:, 0] = rows - flipped[:, 0]
+        orig_width = params["orig_width"]
+        flipped[:, 0] = orig_width - flipped[:, 0]
     elif flip_axis == "vertical":
-        cols = params["cols"]
-        flipped[:, 1] = cols - flipped[:, 1]
+        orig_height = params["orig_height"]
+        flipped[:, 1] = orig_height - flipped[:, 1]
     else:
         flipped = flipped[:, [1, 0]]
 
