@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import albumentations as A
 import cv2
@@ -7,7 +7,7 @@ from typing_extensions import override
 
 
 class HorizontalSymetricKeypointsFlip(A.DualTransform):
-    def __init__(self, keypoint_pairs: List[Tuple[int, int]], p: float = 0.5):
+    def __init__(self, keypoint_pairs: list[tuple[int, int]], p: float = 0.5):
         """Augmentation to horizontally flip an image along with bboxes,
         segmentation masks and symmetric keypoints.
 
@@ -21,7 +21,7 @@ class HorizontalSymetricKeypointsFlip(A.DualTransform):
 
     @property
     @override
-    def targets(self) -> Dict[str, Any]:
+    def targets(self) -> dict[str, Any]:
         targets = super().targets
         targets["instance_mask"] = self.apply_to_mask
         targets["segmentation"] = self.apply_to_mask
@@ -29,14 +29,14 @@ class HorizontalSymetricKeypointsFlip(A.DualTransform):
 
     @override
     def get_params_dependent_on_data(
-        self, params: Dict[str, Any], data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, params: dict[str, Any], data: dict[str, Any]
+    ) -> dict[str, Any]:
         """Get parameters dependent on the targets.
 
         @param params: Dictionary containing parameters.
-        @type params: Dict[str, Any]
+        @type params: dict[str, Any]
         @param data: Dictionary containing data.
-        @type data: Dict[str, Any]
+        @type data: dict[str, Any]
         """
         cols, rows, _ = params["shape"]
         return {
@@ -119,13 +119,13 @@ class HorizontalSymetricKeypointsFlip(A.DualTransform):
 
 
 class VerticalSymetricKeypointsFlip(A.DualTransform):
-    def __init__(self, keypoint_pairs: List[Tuple[int, int]], p: float = 0.5):
+    def __init__(self, keypoint_pairs: list[tuple[int, int]], p: float = 0.5):
         """Augmentation to vertically flip an image along with bboxes,
         segmentation masks and symmetric keypoints.
 
         @param keypoint_pairs: List of tuples with indices to swap after
             vertical flip.
-        @type keypoint_pairs: List[Tuple[int, int]]
+        @type keypoint_pairs: list[tuple[int, int]]
         @param p: Probability of applying the augmentation.
         @type p: float
         """
@@ -135,7 +135,7 @@ class VerticalSymetricKeypointsFlip(A.DualTransform):
 
     @property
     @override
-    def targets(self) -> Dict[str, Any]:
+    def targets(self) -> dict[str, Any]:
         targets = super().targets
         targets["instance_mask"] = self.apply_to_mask
         targets["segmentation"] = self.apply_to_mask
@@ -143,14 +143,14 @@ class VerticalSymetricKeypointsFlip(A.DualTransform):
 
     @override
     def get_params_dependent_on_data(
-        self, params: Dict[str, Any], data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, params: dict[str, Any], data: dict[str, Any]
+    ) -> dict[str, Any]:
         """Get parameters dependent on the targets.
 
         @param params: Dictionary containing parameters.
-        @type params: Dict[str, Any]
+        @type params: dict[str, Any]
         @param data: Dictionary containing data.
-        @type data: Dict[str, Any]
+        @type data: dict[str, Any]
         """
         rows, cols, _ = params["shape"]
         return {
@@ -236,7 +236,7 @@ class VerticalSymetricKeypointsFlip(A.DualTransform):
 class TransposeSymmetricKeypoints(A.DualTransform):
     def __init__(
         self,
-        keypoint_pairs: List[Tuple[int, int]],
+        keypoint_pairs: list[tuple[int, int]],
         p: float = 0.5,
     ):
         """Augmentation to transpose an image along with bboxes,
@@ -254,7 +254,7 @@ class TransposeSymmetricKeypoints(A.DualTransform):
 
     @property
     @override
-    def targets(self) -> Dict[str, Any]:
+    def targets(self) -> dict[str, Any]:
         targets = super().targets
         targets["instance_mask"] = self.apply_to_mask
         targets["segmentation"] = self.apply_to_mask
@@ -262,14 +262,14 @@ class TransposeSymmetricKeypoints(A.DualTransform):
 
     @override
     def get_params_dependent_on_data(
-        self, params: Dict[str, Any], data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, params: dict[str, Any], data: dict[str, Any]
+    ) -> dict[str, Any]:
         """Get parameters dependent on the targets.
 
         @param params: Dictionary containing parameters.
-        @type params: Dict[str, Any]
+        @type params: dict[str, Any]
         @param data: Dictionary containing data.
-        @type data: Dict[str, Any]
+        @type data: dict[str, Any]
         """
         rows, cols, _ = params["shape"]
         return {"rows": rows, "cols": cols}
