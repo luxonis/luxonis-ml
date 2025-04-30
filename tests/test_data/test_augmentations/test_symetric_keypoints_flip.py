@@ -1,4 +1,4 @@
-from typing import Any, Dict, Tuple, Type
+from typing import Any
 
 import albumentations as A
 import cv2
@@ -45,8 +45,8 @@ def keypoints_pair() -> np.ndarray:
 
 def get_params(
     transform: A.DualTransform,
-    img_shape: Tuple[int, int, int],
-) -> Dict[str, Any]:
+    img_shape: tuple[int, int, int],
+) -> dict[str, Any]:
     return transform.get_params_dependent_on_data({"shape": img_shape}, {})
 
 
@@ -95,7 +95,7 @@ def test_transpose_keypoints_single(
     ],
 )
 def test_flip_and_swap_keypoints_pair(
-    Transform: Type[A.DualTransform],
+    Transform: type[A.DualTransform],
     flip_axis: str,
     keypoints_pair: np.ndarray,
     img: np.ndarray,
