@@ -1,6 +1,6 @@
 import math
 import random
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 import cv2
 import numpy as np
@@ -15,8 +15,8 @@ class Mosaic4(BatchTransform):
         self,
         out_height: int,
         out_width: int,
-        value: Optional[Union[int, float, List[int], List[float]]] = None,
-        mask_value: Optional[Union[int, float, List[int], List[float]]] = None,
+        value: float | list[int] | list[float] | None = None,
+        mask_value: float | list[int] | list[float] | None = None,
         p: float = 0.5,
     ):
         """Mosaic augmentation arranges selected four images into single
@@ -38,10 +38,10 @@ class Mosaic4(BatchTransform):
             cropped by this height around the mosaic center. If the size
             of the mosaic image is smaller than this value the gap is
             filled by the C{value}.
-        @type value: Optional[Union[int, float, List[int], List[float]]]
+        @type value: Optional[Union[int, float, list[int], list[float]]]
         @param value: Padding value. Defaults to C{None}.
-        @type mask_value: Optional[Union[int, float, List[int],
-            List[float]]]
+        @type mask_value: Optional[Union[int, float, list[int],
+            list[float]]]
         @param mask_value: Padding value for masks. Defaults to C{None}.
         @type p: float
         @param p: Probability of applying the transform. Defaults to
@@ -66,27 +66,27 @@ class Mosaic4(BatchTransform):
 
     @override
     def get_params_dependent_on_data(
-        self, params: Dict[str, Any], data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, params: dict[str, Any], data: dict[str, Any]
+    ) -> dict[str, Any]:
         """Get parameters dependent on the targets.
 
         @param params: Dictionary containing parameters.
-        @type params: Dict[str, Any]
+        @type params: dict[str, Any]
         @param data: Dictionary containing data.
-        @type data: Dict[str, Any]
+        @type data: dict[str, Any]
         @return: Dictionary containing parameters dependent on the
             targets.
-        @rtype: Dict[str, Any]
+        @rtype: dict[str, Any]
         """
         x_crop, y_crop = self.generate_random_crop_center()
         return {
             "x_crop": x_crop,
             "y_crop": y_crop,
-            "rows": self.out_width,
-            "cols": self.out_height,
+            "out_width": self.out_width,
+            "out_height": self.out_height,
         }
 
-    def generate_random_crop_center(self) -> Tuple[int, int]:
+    def generate_random_crop_center(self) -> tuple[int, int]:
         """Generate a random crop center within the bounds of the mosaic
         image size."""
         crop_x = random.randint(0, max(0, self.out_width))
@@ -95,11 +95,11 @@ class Mosaic4(BatchTransform):
 
     @override
     def apply(
-        self, image_batch: List[np.ndarray], x_crop: int, y_crop: int, **_
+        self, image_batch: list[np.ndarray], x_crop: int, y_crop: int, **_
     ) -> np.ndarray:
         """Applies the transformation to a batch of images.
 
-        @type image_batch: List[np.ndarray]
+        @type image_batch: list[np.ndarray]
         @param image_batch: Batch of input images to which the
             transformation is applied.
         @type x_crop: int
@@ -121,16 +121,16 @@ class Mosaic4(BatchTransform):
     @override
     def apply_to_mask(
         self,
-        mask_batch: List[np.ndarray],
+        mask_batch: list[np.ndarray],
         x_crop: int,
         y_crop: int,
-        cols: int,
-        rows: int,
+        out_height: int,
+        out_width: int,
         **_,
     ) -> np.ndarray:
         """Applies the transformation to a batch of masks.
 
-        @type mask_batch: List[np.ndarray]
+        @type mask_batch: list[np.ndarray]
         @param mask_batch: Batch of input masks to which the
             transformation is applied.
         @type x_crop: int
@@ -144,10 +144,13 @@ class Mosaic4(BatchTransform):
             mask = mask_batch[i]
             if mask.size == 0:
                 if len(mask.shape) == 2:
-                    mask_batch[i] = np.zeros((rows, cols), dtype=mask.dtype)
+                    mask_batch[i] = np.zeros(
+                        (out_width, out_height), dtype=mask.dtype
+                    )
                 else:
                     mask_batch[i] = np.zeros(
-                        (rows, cols, mask.shape[-1]), dtype=mask.dtype
+                        (out_width, out_height, mask.shape[-1]),
+                        dtype=mask.dtype,
                     )
         return apply_mosaic4_to_images(
             mask_batch,
@@ -160,11 +163,11 @@ class Mosaic4(BatchTransform):
 
     @override
     def apply_to_instance_mask(
-        self, masks_batch: List[np.ndarray], x_crop: int, y_crop: int, **_
+        self, masks_batch: list[np.ndarray], x_crop: int, y_crop: int, **_
     ) -> np.ndarray:
         """Applies the transformation to a batch of instance masks.
 
-        @type mask_batch: List[np.ndarray]
+        @type mask_batch: list[np.ndarray]
         @param mask_batch: Batch of input masks to which the
             transformation is applied.
         @type x_crop: int
@@ -186,20 +189,20 @@ class Mosaic4(BatchTransform):
     @override
     def apply_to_bboxes(
         self,
-        bboxes_batch: List[np.ndarray],
-        image_shapes: List[Tuple[int, int]],
+        bboxes_batch: list[np.ndarray],
+        image_shapes: list[tuple[int, int]],
         x_crop: int,
         y_crop: int,
         **_,
     ) -> np.ndarray:
         """Applies the transformation to a batch of bboxes.
 
-        @type bboxes_batch: List[np.ndarray]
+        @type bboxes_batch: list[np.ndarray]
         @param bboxes_batch: Batch of input bboxes to which the
             transformation is applied.
-        @type indices: List[Tuple[int, int]]
+        @type indices: list[tuple[int, int]]
         @param indices: Indices of images in the batch.
-        @type image_shapes: List[Tuple[int, int]]
+        @type image_shapes: list[tuple[int, int]]
         @param image_shapes: Shapes of the input images in the batch.
         @type params: Any
         @param params: Additional parameters for the transformation.
@@ -207,20 +210,20 @@ class Mosaic4(BatchTransform):
         @param x_crop: x-coordinate of the croping start point
         @type y_crop: int
         @param y_crop: y-coordinate of the croping start point
-        @rtype: List[np.ndarray]
-        @return: List of transformed bboxes.
+        @rtype: list[np.ndarray]
+        @return: list of transformed bboxes.
         """
         new_bboxes = []
-        for i, (bboxes, (cols, rows)) in enumerate(
-            zip(bboxes_batch, image_shapes)
+        for i, (bboxes, (orig_height, orig_width)) in enumerate(
+            zip(bboxes_batch, image_shapes, strict=True)
         ):
             if bboxes.size == 0:  # pragma: no cover
                 bboxes = np.zeros((0, 6), dtype=bboxes.dtype)
 
             bbox = apply_mosaic4_to_bboxes(
                 bboxes,
-                cols,
-                rows,
+                orig_height,
+                orig_width,
                 i,
                 self.out_height,
                 self.out_width,
@@ -234,20 +237,20 @@ class Mosaic4(BatchTransform):
     @override
     def apply_to_keypoints(
         self,
-        keypoints_batch: List[np.ndarray],
-        image_shapes: List[Tuple[int, int]],
+        keypoints_batch: list[np.ndarray],
+        image_shapes: list[tuple[int, int]],
         x_crop: int,
         y_crop: int,
         **_,
     ) -> np.ndarray:
         """Applies the transformation to a batch of keypoints.
 
-        @type keypoints_batch: List[KeypointType]
+        @type keypoints_batch: list[KeypointType]
         @param keypoints_batch: Batch of input keypoints to which the
             transformation is applied.
-        @type indices: List[Tuple[int, int]]
+        @type indices: list[tuple[int, int]]
         @param indices: Indices of images in the batch.
-        @type image_shapes: List[Tuple[int, int]]
+        @type image_shapes: list[tuple[int, int]]
         @param image_shapes: Shapes of the input images in the batch.
         @type params: Any
         @param params: Additional parameters for the transformation.
@@ -255,20 +258,20 @@ class Mosaic4(BatchTransform):
         @param x_crop: x-coordinate of the croping start point
         @type y_crop: int
         @param y_crop: y-coordinate of the croping start point
-        @rtype: List[KeypointType]
-        @return: List of transformed keypoints.
+        @rtype: list[KeypointType]
+        @return: list of transformed keypoints.
         """
         new_keypoints = []
-        for i, (keypoints, (cols, rows)) in enumerate(
-            zip(keypoints_batch, image_shapes)
+        for i, (keypoints, (orig_height, orig_width)) in enumerate(
+            zip(keypoints_batch, image_shapes, strict=True)
         ):
             if keypoints.size == 0:
                 keypoints = np.zeros((0, 6), dtype=keypoints.dtype)
 
             new_keypoint = apply_mosaic4_to_keypoints(
                 keypoints,
-                cols,
-                rows,
+                orig_height,
+                orig_width,
                 i,
                 self.out_height,
                 self.out_width,
@@ -285,7 +288,7 @@ def compute_mosaic4_corners(
     out_width: int,
     in_height: int,
     in_width: int,
-) -> Tuple[Tuple[int, int, int, int], Tuple[int, int, int, int]]:
+) -> tuple[tuple[int, int, int, int], tuple[int, int, int, int]]:
     if quadrant == 0:
         x1a, y1a, x2a, y2a = (
             max(out_width - in_width, 0),
@@ -343,12 +346,12 @@ def compute_mosaic4_corners(
 
 
 def apply_mosaic4_to_instance_masks(
-    masks_batch: List[np.ndarray],
+    masks_batch: list[np.ndarray],
     out_height: int,
     out_width: int,
     x_crop: int,
     y_crop: int,
-    value: Optional[Union[int, float, List[int], List[float]]] = None,
+    value: float | list[int] | list[float] | None = None,
 ) -> np.ndarray:
     out_masks = []
     out_shape = [out_height * 2, out_width * 2]
@@ -406,12 +409,12 @@ def apply_mosaic4_to_instance_masks(
 
 
 def apply_mosaic4_to_images(
-    image_batch: List[np.ndarray],
+    image_batch: list[np.ndarray],
     out_height: int,
     out_width: int,
     x_crop: int,
     y_crop: int,
-    padding: Optional[Union[int, float, List[int], List[float]]] = None,
+    padding: float | list[int] | list[float] | None = None,
 ) -> np.ndarray:
     """Arrange the images in a 2x2 grid layout.
 

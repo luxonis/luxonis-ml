@@ -1,5 +1,4 @@
 import random
-from typing import Dict, List
 
 import albumentations as A
 import numpy as np
@@ -11,7 +10,7 @@ from .utils import yield_batches
 
 
 class BatchCompose(A.Compose):
-    transforms: List[BatchTransform]
+    transforms: list[BatchTransform]
 
     def __init__(self, transforms: TransformsSeqType, **kwargs):
         """Compose transforms and handle all transformations regarding
@@ -32,8 +31,8 @@ class BatchCompose(A.Compose):
 
     @override
     def __call__(
-        self, data_batch: List[Dict[str, np.ndarray]]
-    ) -> Dict[str, np.ndarray]:
+        self, data_batch: list[dict[str, np.ndarray]]
+    ) -> dict[str, np.ndarray]:
         if len(data_batch) != self.batch_size:
             raise ValueError(
                 f"Batch size must be equal to {self.batch_size}, "
@@ -66,7 +65,7 @@ class BatchCompose(A.Compose):
         return self.postprocess(data)
 
     @staticmethod
-    def make_contiguous(data: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
+    def make_contiguous(data: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
         for key, value in data.items():
             if isinstance(value, np.ndarray):
                 value = np.ascontiguousarray(value)

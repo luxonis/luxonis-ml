@@ -1,7 +1,8 @@
 import inspect
 import warnings
+from collections.abc import Callable
 from functools import wraps
-from typing import Any, Callable, Dict, Literal, Optional, Set, Type
+from typing import Any, Literal
 
 from rich.console import Console
 from rich.logging import RichHandler
@@ -14,10 +15,9 @@ from .environ import environ
 
 def setup_logging(
     *,
-    level: Optional[
-        Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-    ] = None,
-    file: Optional[PathType] = None,
+    level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+    | None = None,
+    file: PathType | None = None,
     **kwargs,
 ) -> None:  # pragma: no cover
     """Sets up global logging using loguru and rich.
@@ -80,11 +80,11 @@ def setup_logging(
 
     def _custom_warning_handler(
         message: str,
-        category: Type[Warning],
+        category: type[Warning],
         filename: str,
         lineno: int,
-        _file: Optional[str] = None,
-        line: Optional[str] = None,
+        _file: str | None = None,
+        line: str | None = None,
     ) -> None:
         text = warnings.formatwarning(
             message, category, filename, lineno, line
@@ -96,8 +96,8 @@ def setup_logging(
 
 def deprecated(
     *args: str,
-    suggest: Optional[Dict[str, str]] = None,
-    additional_message: Optional[str] = None,
+    suggest: dict[str, str] | None = None,
+    additional_message: str | None = None,
     altogether: bool = False,
 ) -> Callable[[Callable], Callable]:
     """Decorator to mark a function or its parameters as deprecated.
@@ -171,7 +171,7 @@ def log_once(logger: Callable[[str], None], message: str) -> None:
     @type message: str
     @param message: The message to log.
     """
-    _cache: Set[str]
+    _cache: set[str]
 
     if not hasattr(log_once, "_cache"):
         log_once._cache = set()
@@ -184,8 +184,8 @@ def log_once(logger: Callable[[str], None], message: str) -> None:
 def _warn_deprecated(
     arg_name: str,
     fname: str,
-    suggest: Optional[Dict[str, str]],
-    additional_message: Optional[str],
+    suggest: dict[str, str] | None,
+    additional_message: str | None,
 ) -> None:
     replacement = suggest.get(arg_name) if suggest else None
     msg = (

@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Dict, List
+from collections.abc import Callable
+from typing import Any
 
 import albumentations as A
 import numpy as np
@@ -20,7 +21,7 @@ class BatchTransform(ABC, A.DualTransform):
 
     @property
     @override
-    def targets(self) -> Dict[str, Callable]:
+    def targets(self) -> dict[str, Callable]:
         targets = super().targets
         targets.update(
             {
@@ -33,33 +34,33 @@ class BatchTransform(ABC, A.DualTransform):
         return targets
 
     @abstractmethod
-    def apply(self, image_batch: List[np.ndarray], **kwargs) -> np.ndarray: ...
+    def apply(self, image_batch: list[np.ndarray], **kwargs) -> np.ndarray: ...
 
     @abstractmethod
     def apply_to_mask(
-        self, mask_batch: List[np.ndarray], **kwargs
+        self, mask_batch: list[np.ndarray], **kwargs
     ) -> np.ndarray: ...
 
     @abstractmethod
     def apply_to_bboxes(
-        self, bboxes_batch: List[np.ndarray], **kwargs
+        self, bboxes_batch: list[np.ndarray], **kwargs
     ) -> np.ndarray: ...
 
     @abstractmethod
     def apply_to_keypoints(
-        self, keypoints_batch: List[np.ndarray], **kwargs
+        self, keypoints_batch: list[np.ndarray], **kwargs
     ) -> np.ndarray: ...
 
     @abstractmethod
     def apply_to_instance_mask(
-        self, masks_batch: List[np.ndarray], **kwargs
+        self, masks_batch: list[np.ndarray], **kwargs
     ) -> np.ndarray: ...
 
-    def apply_to_array(self, array_batch: List[np.ndarray], **_) -> np.ndarray:
+    def apply_to_array(self, array_batch: list[np.ndarray], **_) -> np.ndarray:
         return np.concatenate([arr for arr in array_batch if arr.size > 0])
 
     def apply_to_classification(
-        self, classification_batch: List[np.ndarray], **_
+        self, classification_batch: list[np.ndarray], **_
     ) -> np.ndarray:
         for i in range(len(classification_batch)):
             if classification_batch[i].size == 0:
@@ -67,20 +68,16 @@ class BatchTransform(ABC, A.DualTransform):
         return np.clip(sum(classification_batch), 0, 1)
 
     def apply_to_metadata(
-        self, metadata_batch: List[np.ndarray], **_
+        self, metadata_batch: list[np.ndarray], **_
     ) -> np.ndarray:
         if all(arr.size == 0 for arr in metadata_batch):
             return np.array([])
         return np.concatenate([arr for arr in metadata_batch if arr.size > 0])
 
     @override
-    def update_params(self, params: Dict[str, Any], **_) -> Dict[str, Any]:
-        return params
-
-    @override
     def update_transform_params(
-        self, params: Dict[str, Any], data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, params: dict[str, Any], data: dict[str, Any]
+    ) -> dict[str, Any]:
         image_batch = data["image"]
         params["image_shapes"] = [
             tuple(image.shape[:2]) for image in image_batch

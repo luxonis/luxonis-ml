@@ -2,7 +2,7 @@ import json
 import random
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, List, Union
+from typing import Any
 
 import numpy as np
 
@@ -19,7 +19,7 @@ from luxonis_ml.utils import LuxonisFileSystem
 
 from .utils import create_image
 
-AUGMENTATIONS_CONFIG: List[Params] = [
+AUGMENTATIONS_CONFIG: list[Params] = [
     {
         "name": "Rotate",
         "params": {
@@ -81,7 +81,7 @@ def set_seed(seed: int):
 
 
 def create_loader(
-    storage_url: str, tempdir: Path, augmentation_config: List[Params]
+    storage_url: str, tempdir: Path, augmentation_config: list[Params]
 ) -> LuxonisLoader:
     with set_seed(42):
         dataset = LuxonisParser(
@@ -89,7 +89,7 @@ def create_loader(
             dataset_name="_augmentation_reproducibility",
             save_dir=tempdir,
             dataset_type=DatasetType.COCO,
-            delete_existing=True,
+            delete_local=True,
         ).parse()
     return LuxonisLoader(
         dataset,
@@ -101,7 +101,7 @@ def create_loader(
     )
 
 
-def load_annotations(annotation_name: str) -> Dict[str, Any]:
+def load_annotations(annotation_name: str) -> dict[str, Any]:
     dest_dir = Path("./tests/data/")
     local_path = dest_dir / annotation_name
 
@@ -320,14 +320,14 @@ def test_edge_cases(tempdir: Path):
 
     dataset = LuxonisDataset(
         "test_edge_cases",
-        delete_existing=True,
+        delete_local=True,
         delete_remote=True,
         bucket_storage=BucketStorage.LOCAL,
     ).add(generator())
 
     dataset.make_splits(ratios=(1, 0, 0))
 
-    augmentation_config: List[Params] = [
+    augmentation_config: list[Params] = [
         {
             "name": "Mosaic4",
             "params": {"p": 1, "out_width": 512, "out_height": 512},
@@ -428,12 +428,12 @@ def test_dataset_reproducibility(storage_url: str, tempdir: Path):
             else a1[k] == a2[k]
             for k in a1
         )
-        for a1, a2 in zip(run1, run2)
+        for a1, a2 in zip(run1, run2, strict=True)
     )
 
 
 def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
-    def rle_encode(mask: np.ndarray) -> List[int]:
+    def rle_encode(mask: np.ndarray) -> list[int]:
         """Encodes a binary mask using Run-Length Encoding (RLE)."""
         pixels = mask.flatten()
         rle = []
@@ -451,10 +451,10 @@ def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
 
         return rle
 
-    def convert_annotation(ann: Dict[str, Any]) -> Dict[str, Any]:
+    def convert_annotation(ann: dict[str, Any]) -> dict[str, Any]:
         def round_nested_list(
-            data: Union[List[Any], float], decimals: int = 3
-        ) -> Union[List[Any], float]:
+            data: list[Any] | float, decimals: int = 3
+        ) -> list[Any] | float:
             if isinstance(data, list):
                 return [round_nested_list(elem, decimals) for elem in data]
             if isinstance(data, float):
@@ -490,7 +490,7 @@ def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
     )
 
     for orig_ann, new_ann in zip(
-        original_aug_annotations, new_aug_annotations
+        original_aug_annotations, new_aug_annotations, strict=True
     ):
         assert orig_ann["classification"] == new_ann["classification"]
         assert orig_ann["bounding_box"] == new_ann["bounding_box"]
@@ -499,7 +499,7 @@ def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
         total_diff = 0
         orig_seg = orig_ann["segmentation"]
         new_seg = new_ann["segmentation"]
-        for o_count, n_count in zip(orig_seg, new_seg):
+        for o_count, n_count in zip(orig_seg, new_seg, strict=True):
             total_diff += abs(o_count - n_count)
 
         assert total_diff <= 200

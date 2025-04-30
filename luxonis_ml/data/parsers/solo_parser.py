@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import cv2
 import numpy as np
@@ -33,7 +33,7 @@ class SOLOParser(BaseParser):
     """
 
     @staticmethod
-    def validate_split(split_path: Path) -> Optional[Dict[str, Any]]:
+    def validate_split(split_path: Path) -> dict[str, Any] | None:
         """Validates if a split subdirectory is in an expected format.
 
         @type split_path: Path
@@ -85,7 +85,7 @@ class SOLOParser(BaseParser):
 
     def from_dir(
         self, dataset_dir: Path
-    ) -> Tuple[List[Path], List[Path], List[Path]]:
+    ) -> tuple[list[Path], list[Path], list[Path]]:
         """Parses all present data to L{LuxonisDataset} format.
 
         @type dataset_dir: str
@@ -145,7 +145,7 @@ class SOLOParser(BaseParser):
 
         def generator() -> DatasetIterator:
             for sequence_path in split_path.glob("sequence*"):
-                processed_annotations_per_step: Dict[
+                processed_annotations_per_step: dict[
                     str, set
                 ] = {}  # Seperate json files can have the same annotations in them
                 for frame_path in sequence_path.glob("*.frame_data*.json"):
@@ -377,8 +377,8 @@ class SOLOParser(BaseParser):
         return generator(), skeletons, []
 
     def _get_solo_annotation_types(
-        self, annotation_definitions_dict: Dict[str, Any]
-    ) -> List[str]:
+        self, annotation_definitions_dict: dict[str, Any]
+    ) -> list[str]:
         """List all annotation types present in the dataset.
 
         @type annotation_definitions_dict: dict
@@ -395,8 +395,8 @@ class SOLOParser(BaseParser):
         return annotation_types
 
     def _get_solo_bbox_class_names(
-        self, annotation_definitions_dict: Dict[str, Any]
-    ) -> List[str]:
+        self, annotation_definitions_dict: dict[str, Any]
+    ) -> list[str]:
         """List class names for BoundingBox2DAnnotation type.
 
         @type annotation_definitions_dict: dict
@@ -413,12 +413,14 @@ class SOLOParser(BaseParser):
             if annotation_type == "BoundingBox2DAnnotation":
                 names = [spec["label_name"] for spec in definition["spec"]]
                 ids = [spec["label_id"] for spec in definition["spec"]]
-                class_names = [c for _, c in sorted(zip(ids, names))]
+                class_names = [
+                    c for _, c in sorted(zip(ids, names, strict=True))
+                ]
         return class_names
 
     def _get_solo_keypoint_names(
-        self, annotation_definitions_dict: Dict[str, Any]
-    ) -> List[str]:
+        self, annotation_definitions_dict: dict[str, Any]
+    ) -> list[str]:
         """List keypoint labels for all classes.
 
         @type annotation_definitions_dict: dict
@@ -436,5 +438,7 @@ class SOLOParser(BaseParser):
                 keypoints = definition["template"]["keypoints"]
                 labels = [keypoint["label"] for keypoint in keypoints]
                 ids = [keypoint["index"] for keypoint in keypoints]
-                keypoint_labels = [c for _, c in sorted(zip(ids, labels))]
+                keypoint_labels = [
+                    c for _, c in sorted(zip(ids, labels, strict=True))
+                ]
         return keypoint_labels

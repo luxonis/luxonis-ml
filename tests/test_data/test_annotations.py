@@ -1,5 +1,4 @@
 from pathlib import Path
-from typing import List
 
 import cv2
 import numpy as np
@@ -50,7 +49,7 @@ def test_load_annotation():
 
 def test_dataset_record(tempdir: Path):
     def compare_parquet_rows(
-        record: DatasetRecord, expected_rows: List[ParquetRecord]
+        record: DatasetRecord, expected_rows: list[ParquetRecord]
     ) -> None:
         rows = list(record.to_parquet_rows())
         for row in rows:
@@ -170,7 +169,7 @@ def test_bbox_annotation(subtests: SubTests):
             BBoxAnnotation(x=0.3, y=0.4, w=0.5, h=0.6),
         ]
         assert np.allclose(
-            BBoxAnnotation.combine_to_numpy(bboxes, [1, 2, 3], ...),
+            BBoxAnnotation.combine_to_numpy(bboxes, [1, 2, 3]),
             np.array(
                 [
                     [1, 0.1, 0.2, 0.3, 0.4],
@@ -209,7 +208,7 @@ def test_keypoints_annotation(subtests: SubTests):
             KeypointAnnotation(keypoints=[(0.3, 0.4, 1)]),
         ]
         assert np.allclose(
-            KeypointAnnotation.combine_to_numpy(keypoints_list, ..., ...),
+            KeypointAnnotation.combine_to_numpy(keypoints_list),
             np.array([[0.1, 0.2, 2], [0.2, 0.3, 0], [0.3, 0.4, 1]]),
         )
 
@@ -523,8 +522,9 @@ def test_detection(subtests: SubTests):
         assert detection.keypoints is not None
         assert detection.keypoints.keypoints == [(0.2, 0.4, 2), (0.5, 0.8, 2)]
 
-    with subtests.test("invalid"), pytest.raises(
-        ValueError, match="no bounding box is provided"
+    with (
+        subtests.test("invalid"),
+        pytest.raises(ValueError, match="no bounding box is provided"),
     ):
         Detection(
             **{

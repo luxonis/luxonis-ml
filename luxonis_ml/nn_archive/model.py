@@ -1,5 +1,3 @@
-from typing import List, Optional
-
 from pydantic import Field
 
 from luxonis_ml.utils import BaseModelExtraForbid
@@ -24,12 +22,12 @@ class Model(BaseModelExtraForbid):
     metadata: Metadata = Field(
         description="Metadata object defining the model metadata."
     )
-    inputs: List[Input] = Field(
+    inputs: list[Input] = Field(
         description="List of Input objects defining the model inputs."
     )
-    outputs: List[Output] = Field(
+    outputs: list[Output] = Field(
         description="List of Output objects defining the model outputs."
     )
-    heads: Optional[List[HeadType]] = Field(
+    heads: list[HeadType] | None = Field(
         description="List of Head objects defining the model heads. If not defined, we assume a raw output."
     )

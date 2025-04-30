@@ -2,7 +2,7 @@ import colorsys
 import hashlib
 import math
 from collections import defaultdict
-from typing import Dict, Generator, Hashable, Iterator, Mapping, Tuple
+from collections.abc import Generator, Hashable, Iterator, Mapping
 
 import cv2
 import matplotlib.colors
@@ -12,7 +12,7 @@ from bidict import bidict
 from luxonis_ml.data.utils import get_task_name, task_type_iterator
 from luxonis_ml.typing import HSV, RGB, Color, Labels
 
-font = cv2.FONT_HERSHEY_SIMPLEX
+FONT = cv2.FONT_HERSHEY_SIMPLEX
 
 
 class ColorMap(Mapping[Hashable, RGB]):
@@ -25,7 +25,7 @@ class ColorMap(Mapping[Hashable, RGB]):
 
     def __init__(self):
         self._generator = distinct_color_generator()
-        self._color_dict: Dict[Hashable, RGB] = {}
+        self._color_dict: dict[Hashable, RGB] = {}
 
     def __getitem__(self, label: Hashable) -> RGB:
         if label not in self._color_dict:
@@ -150,15 +150,13 @@ def str_to_rgb(string: str) -> RGB:
 
 def draw_dashed_rectangle(
     image: np.ndarray,
-    pt1: Tuple[int, int],
-    pt2: Tuple[int, int],
+    pt1: tuple[int, int],
+    pt2: tuple[int, int],
     color: Color,
     thickness: int = 1,
     dash_length: int = 10,
 ) -> None:
     """Draws a dashed rectangle on the image.
-
-    Adheres to OpenCV's rectangle drawing convention.
 
     @type image: np.ndarray
     @param image: The image to draw on.
@@ -176,7 +174,7 @@ def draw_dashed_rectangle(
     x1, y1 = pt1
     x2, y2 = pt2
 
-    def draw_dashed_line(p1: Tuple[int, int], p2: Tuple[int, int]) -> None:
+    def draw_dashed_line(p1: tuple[int, int], p2: tuple[int, int]) -> None:
         line_length = int(np.hypot(p2[0] - p1[0], p2[1] - p1[1]))
         dashes = [
             (i, i + dash_length)
@@ -204,7 +202,7 @@ def draw_dashed_rectangle(
 
 def draw_cross(
     img: np.ndarray,
-    center: Tuple[int, int],
+    center: tuple[int, int],
     size: int = 5,
     color: Color = 0,
     thickness: int = 1,
@@ -254,9 +252,7 @@ def create_text_image(
     """
     img = np.full((height, width, 3), resolve_color(bg_color), dtype=np.uint8)
 
-    font = cv2.FONT_HERSHEY_SIMPLEX
-
-    text_size = cv2.getTextSize(text, font, font_size, 1)[0]
+    text_size = cv2.getTextSize(text, FONT, font_size, 1)[0]
 
     text_x = (width - text_size[0]) // 2
     text_y = (height + text_size[1]) // 2
@@ -265,7 +261,7 @@ def create_text_image(
         img,
         text,
         (text_x, text_y),
-        fontFace=font,
+        fontFace=FONT,
         fontScale=font_size,
         color=resolve_color(text_color),
         thickness=1,
@@ -276,7 +272,7 @@ def create_text_image(
 
 
 def concat_images(
-    image_dict: Dict[str, np.ndarray],
+    image_dict: dict[str, np.ndarray],
     padding: int = 10,
     label_height: int = 30,
 ) -> np.ndarray:
@@ -327,10 +323,96 @@ def concat_images(
     return output
 
 
+def draw_bbox_label(
+    image: np.ndarray,
+    class_name: str,
+    box: np.ndarray,
+    color: tuple[int, int, int],
+    font_scale: float,
+) -> None:
+    """Draws the classname label at the top-left corner of the bounding
+    box.
+
+    @type image: np.ndarray
+    @param image: The image to draw on.
+    @type class_name: str
+    @param class_name: The name of the class.
+    @type box: np.ndarray
+    @param box: The bounding box coordinates. The format is [class_id,
+        x1, y1, x2, y2], where (x1, y1) is the top-left corner and (x2,
+        y2) is the bottom-right corner.
+    @type color: Tuple[int, int, int]
+    @param color: The color of the label.
+    @type font_scale: float
+    @param font_scale: The scale of the font.
+    """
+    text = class_name
+
+    text_size = cv2.getTextSize(text, FONT, font_scale, 1)[0]
+    text_x = box[1]
+    text_y = max(box[2] - 5, text_size[1])
+
+    cv2.rectangle(
+        image,
+        (text_x - 2, text_y - text_size[1] - 2),
+        (text_x + text_size[0] + 2, text_y + 2),
+        color,
+        -1,
+    )
+    cv2.putText(
+        image,
+        text,
+        (text_x, text_y),
+        FONT,
+        font_scale,
+        (255, 255, 255),
+        1,
+        cv2.LINE_AA,
+    )
+
+
+def draw_keypoint_label(
+    image: np.ndarray,
+    text: str,
+    point: tuple[int, int],
+    size: int,
+    color: tuple[int, int, int],
+    font_scale: float,
+) -> None:
+    """Draws a text label next to a keypoint on the image.
+
+    @type image: np.ndarray
+    @param image: The image to draw on.
+    @type text: str
+    @param text: The text to draw.
+    @type point: Tuple[int, int]
+    @param point: The coordinates of the keypoint.
+    @type size: int
+    @param size: The size of the keypoint.
+    @type color: Tuple[int, int, int]
+    @param color: The color of the text.
+    @type font_scale: float
+    """
+    text_size = cv2.getTextSize(text, FONT, font_scale, 1)[0]
+    text_x = point[0] + size + 2
+    text_y = point[1] + text_size[1] // 2
+
+    cv2.putText(
+        image,
+        text,
+        (text_x, text_y),
+        FONT,
+        font_scale,
+        color,
+        1,
+        cv2.LINE_AA,
+    )
+
+
 def visualize(
     image: np.ndarray,
     labels: Labels,
-    classes: Dict[str, Dict[str, int]],
+    classes: dict[str, dict[str, int]],
     blend_all: bool = False,
 ) -> np.ndarray:
     """Visualizes the labels on the image.
@@ -352,6 +434,11 @@ def visualize(
     h, w, _ = image.shape
     images = {"image": image}
     mappings = {task: bidict(c) for task, c in classes.items()}
+
+    min_dimension = min(h, w)
+    font_scale = max(0.25, min(1.1, 0.4 * min_dimension / 500))
+    small_kp_size = max(2, round(0.002 * min_dimension))
+    large_kp_size = max(4, round(0.004 * min_dimension))
 
     def create_mask(
         image: np.ndarray, arr: np.ndarray, task_name: str, is_instance: bool
@@ -412,7 +499,8 @@ def visualize(
         for box in arr:
             class_id = int(box[0])
             bbox_classes[task_name].append(class_id)
-            color = str_to_rgb(mappings[task_name].inverse[class_id])
+            class_name = mappings[task_name].inverse[class_id]
+            color = str_to_rgb(class_name)
             draw_function(
                 curr_image,
                 (box[1], box[2]),
@@ -420,6 +508,7 @@ def visualize(
                 color,
                 thickness=2,
             )
+            draw_bbox_label(curr_image, class_name, box, color, font_scale)
         images[image_name] = curr_image
 
     for task, arr in task_type_iterator(labels, "instance_segmentation"):
@@ -437,9 +526,6 @@ def visualize(
 
         task_classes = mappings[task_name]
 
-        min_dimension = min(h, w)
-        font_scale = max(0.25, min(1.1, 0.4 * min_dimension / 500))
-
         for i, kp in enumerate(arr):
             kp = kp.reshape(-1, 3)
             if len(bbox_classes[task_name]) > i:
@@ -456,10 +542,10 @@ def visualize(
 
                 if visibility == 2:
                     draw_function = cv2.circle
-                    size = 2
+                    size = small_kp_size
                 else:
                     draw_function = draw_cross
-                    size = 5
+                    size = large_kp_size
 
                 point = (int(k[0] * w), int(k[1] * h))
                 draw_function(
@@ -471,20 +557,10 @@ def visualize(
                 )
 
                 text = str(j)
-                text_size = cv2.getTextSize(text, font, font_scale, 1)[0]
-                text_x = point[0] + size + 2
-                text_y = point[1] + text_size[1] // 2
-
-                cv2.putText(
-                    curr_image,
-                    text,
-                    (text_x, text_y),
-                    font,
-                    font_scale,
-                    color,
-                    1,
-                    cv2.LINE_AA,
+                draw_keypoint_label(
+                    curr_image, text, point, size, color, font_scale
                 )
+
         images[image_name] = curr_image
 
     return concat_images(images)

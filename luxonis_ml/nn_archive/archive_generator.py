@@ -2,7 +2,7 @@ import json
 import tarfile
 from io import BytesIO
 from pathlib import Path
-from typing import List, Literal, Tuple
+from typing import Literal
 
 from luxonis_ml.typing import PathType
 
@@ -31,7 +31,7 @@ class ArchiveGenerator:
         archive_name: str,
         save_path: PathType,
         cfg_dict: dict,
-        executables_paths: List[PathType],
+        executables_paths: list[PathType],
         compression: Literal["xz", "gz", "bz2"] = "xz",
     ):
         self.save_path = Path(save_path)
@@ -76,7 +76,7 @@ class ArchiveGenerator:
 
         return archive_path
 
-    def _make_json(self) -> Tuple[bytes, BytesIO]:
+    def _make_json(self) -> tuple[bytes, BytesIO]:
         """Create an in-memory config data file-like object."""
 
         # read-in config data as dict

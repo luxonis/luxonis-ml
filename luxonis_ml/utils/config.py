@@ -1,8 +1,9 @@
 import ast
 from pathlib import PurePath
-from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
+from typing import Any, TypeVar
 
 import yaml
+from typing_extensions import Self
 
 from luxonis_ml.typing import Params, PathType
 
@@ -17,10 +18,10 @@ class LuxonisConfig(BaseModelExtraForbid):
 
     @classmethod
     def get_config(
-        cls: Type[T],
-        cfg: Optional[Union[str, Params]] = None,
-        overrides: Optional[Union[Params, List[str], Tuple[str, ...]]] = None,
-    ) -> T:
+        cls,
+        cfg: str | Params | None = None,
+        overrides: Params | list[str] | tuple[str, ...] | None = None,
+    ) -> Self:
         """Loads config from a yaml file or a dictionary.
 
         @type cfg: Optional[Union[str, dict]]
@@ -37,14 +38,14 @@ class LuxonisConfig(BaseModelExtraForbid):
                 "At least one of `cfg` or `overrides` must be set."
             )
 
-        if isinstance(overrides, (list, tuple)):
+        if isinstance(overrides, list | tuple):
             if len(overrides) % 2 != 0:
                 raise ValueError(
                     "Override options should be a list of key-value pairs "
                     "but it's length is not divisible by 2."
                 )
 
-            overrides = dict(zip(overrides[::2], overrides[1::2]))
+            overrides = dict(zip(overrides[::2], overrides[1::2], strict=True))
 
         overrides = overrides or {}
         cfg = cfg or {}
@@ -151,7 +152,7 @@ class LuxonisConfig(BaseModelExtraForbid):
                 return value
 
         def _merge_recursive(
-            data: Union[Dict, List], dot_name: str, value: Any
+            data: dict | list, dot_name: str, value: Any
         ) -> None:
             key, *tail = dot_name.split(".")
             if not tail:
