@@ -1,5 +1,4 @@
 from copy import deepcopy
-from typing import Dict
 
 import numpy as np
 import pytest
@@ -34,7 +33,7 @@ def labels() -> Labels:
 
 
 @pytest.fixture
-def targets() -> Dict[str, str]:
+def targets() -> dict[str, str]:
     return {
         "task/boundingbox": "boundingbox",
         "task/keypoints": "keypoints",
@@ -43,7 +42,7 @@ def targets() -> Dict[str, str]:
 
 
 @pytest.fixture
-def n_classes() -> Dict[str, int]:
+def n_classes() -> dict[str, int]:
     return {
         "task/boundingbox": 1,
         "task/keypoints": 1,
@@ -54,8 +53,8 @@ def n_classes() -> Dict[str, int]:
 def test_mosaic4(
     image: np.ndarray,
     labels: Labels,
-    targets: Dict[str, str],
-    n_classes: Dict[str, int],
+    targets: dict[str, str],
+    n_classes: dict[str, int],
 ):
     config = [
         {
@@ -70,8 +69,8 @@ def test_mosaic4(
 def test_mixup(
     image: np.ndarray,
     labels: Labels,
-    targets: Dict[str, str],
-    n_classes: Dict[str, int],
+    targets: dict[str, str],
+    n_classes: dict[str, int],
 ):
     config = [{"name": "MixUp", "params": {"p": 1.0}}]
     augmentations = AlbumentationsEngine(256, 256, targets, n_classes, config)
@@ -81,8 +80,8 @@ def test_mixup(
 def test_batched_p_0(
     image: np.ndarray,
     labels: Labels,
-    targets: Dict[str, str],
-    n_classes: Dict[str, int],
+    targets: dict[str, str],
+    n_classes: dict[str, int],
 ):
     config = [
         {

@@ -1,14 +1,17 @@
 from abc import ABC, abstractmethod
-from typing import Iterable, List, Mapping, Type
+from collections.abc import Iterable, Mapping
 
 from luxonis_ml.typing import LoaderOutput, Params
 from luxonis_ml.utils import AutoRegisterMeta, Registry
 
-AUGMENTATION_ENGINES: Registry[Type["AugmentationEngine"]] = Registry(
+AUGMENTATION_ENGINES: Registry[type["AugmentationEngine"]] = Registry(
     name="augmentation_engines"
 )
 
 
+# TODO: The engine should probably also handle normalization
+# so it doesn't have to be done by injecting a normalization
+# transformation to the config in LuxonisTrain.
 class AugmentationEngine(
     ABC,
     metaclass=AutoRegisterMeta,
@@ -26,6 +29,7 @@ class AugmentationEngine(
         keep_aspect_ratio: bool,
         is_validation_pipeline: bool,
         min_bbox_visibility: float = 0.0,
+        seed: int | None = None,
     ):
         """Initialize augmentation pipeline from configuration.
 
@@ -63,11 +67,14 @@ class AugmentationEngine(
             pipeline (in which case some augmentations are skipped)
         @type min_bbox_visibility: float
         @param min_bbox_visibility: Minimum fraction of the original bounding box that must remain visible after augmentation.
+        @type seed: Optional[int]
+        @param seed: Random seed for reproducibility. If None, a random seed will be used.
+            If provided, it will be used to initialize the random number generator.
         """
         ...
 
     @abstractmethod
-    def apply(self, data: List[LoaderOutput]) -> LoaderOutput:
+    def apply(self, data: list[LoaderOutput]) -> LoaderOutput:
         """Apply the augmentation pipeline to the data.
 
         @type data: List[LuxonisLoaderOutput]

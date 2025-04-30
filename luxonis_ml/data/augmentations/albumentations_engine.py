@@ -1,12 +1,13 @@
 import warnings
 from collections import defaultdict
+from collections.abc import Callable, Iterable
 from math import prod
-from typing import Any, Callable, Dict, Iterable, List, Literal, Tuple
+from typing import Any, Literal, TypeAlias
 
 import albumentations as A
 import numpy as np
 from loguru import logger
-from typing_extensions import TypeAlias, override
+from typing_extensions import override
 
 from luxonis_ml.data.utils.task_utils import get_task_name, task_is_metadata
 from luxonis_ml.typing import ConfigItem, LoaderOutput, Params
@@ -24,7 +25,7 @@ from .utils import (
     preprocess_mask,
 )
 
-Data: TypeAlias = Dict[str, np.ndarray]
+Data: TypeAlias = dict[str, np.ndarray]
 TargetType: TypeAlias = Literal[
     "array",
     "classification",
@@ -95,7 +96,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         2. spatial transformations: Subclasses of `A.DualTransform`.
 
         3. custom transformations: Subclasses of `A.BasicTransform`,
-            but not subclasses of any of more specific base classes above.
+            but not subclasses of more specific base classes above.
 
         4. pixel transformations: Subclasses of `A.ImageOnlyTransform`.
             These transformations act only on the image.
@@ -239,7 +240,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     """
 
     def _should_skip_augmentation(
-        self, config_item: Dict[str, Any], available_target_types: set
+        self, config_item: dict[str, Any], available_target_types: set
     ) -> bool:
         skip_rules = {
             "keypoints": [
@@ -274,14 +275,15 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         self,
         height: int,
         width: int,
-        targets: Dict[str, str],
-        n_classes: Dict[str, int],
+        targets: dict[str, str],
+        n_classes: dict[str, int],
         config: Iterable[Params],
         keep_aspect_ratio: bool = True,
         is_validation_pipeline: bool = False,
         min_bbox_visibility: float = 0.0,
+        seed: int | None = None,
     ):
-        self.targets: Dict[str, TargetType] = {}
+        self.targets: dict[str, TargetType] = {}
         self.target_names_to_tasks = {}
         self.n_classes = n_classes
         self.image_size = (height, width)
@@ -398,7 +400,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             else:
                 resize_transform = A.Resize(height=height, width=width)
 
-        def get_params(is_custom: bool = False) -> Dict[str, Any]:
+        def get_params(is_custom: bool = False) -> dict[str, Any]:
             return {
                 "bbox_params": A.BboxParams(
                     format="albumentations", min_visibility=min_bbox_visibility
@@ -409,6 +411,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 "additional_targets": self.targets
                 if is_custom
                 else targets_without_instance_mask,
+                "seed": seed,
             }
 
         # Warning issued when "bbox_params" or "keypoint_params"
@@ -437,7 +440,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         return self.batch_transform.batch_size
 
     @override
-    def apply(self, input_batch: List[LoaderOutput]) -> LoaderOutput:
+    def apply(self, input_batch: list[LoaderOutput]) -> LoaderOutput:
         data_batch, n_keypoints = self.preprocess_batch(input_batch)
 
         data = self.batch_transform(data_batch)
@@ -467,8 +470,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         return self.postprocess(data, n_keypoints)
 
     def preprocess_batch(
-        self, labels_batch: List[LoaderOutput]
-    ) -> Tuple[List[Data], Dict[str, int]]:
+        self, labels_batch: list[LoaderOutput]
+    ) -> tuple[list[Data], dict[str, int]]:
         """Preprocess a batch of labels.
 
         @type labels_batch: List[Data]
@@ -533,7 +536,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         return data_batch, n_keypoints
 
     def postprocess(
-        self, data: Data, n_keypoints: Dict[str, int]
+        self, data: Data, n_keypoints: dict[str, int]
     ) -> LoaderOutput:
         """Postprocess the augmented data back to LDF format.
 

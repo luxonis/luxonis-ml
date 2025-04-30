@@ -1,6 +1,6 @@
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 from defusedxml.ElementTree import parse
@@ -28,7 +28,7 @@ class VOCParser(BaseParser):
     """
 
     @staticmethod
-    def validate_split(split_path: Path) -> Optional[Dict[str, Any]]:
+    def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
 
@@ -48,7 +48,7 @@ class VOCParser(BaseParser):
 
     def from_dir(
         self, dataset_dir: Path
-    ) -> Tuple[List[Path], List[Path], List[Path]]:
+    ) -> tuple[list[Path], list[Path], list[Path]]:
         added_train_imgs = self._parse_split(
             image_dir=dataset_dir / "train",
             annotation_dir=dataset_dir / "train",

@@ -1,10 +1,9 @@
 from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import Annotated
 
 import typer
 from rich import print
-from typing_extensions import Annotated
 
 from luxonis_ml.utils import LuxonisFileSystem
 
@@ -23,7 +22,7 @@ class TypeEnum(str, Enum):
 def get(
     url: UrlArgument,
     save_dir: Annotated[
-        Optional[Path], typer.Argument(help="Directory to save the file.")
+        Path | None, typer.Argument(help="Directory to save the file.")
     ] = None,
 ):
     """Downloads file from remote storage."""

@@ -1,9 +1,10 @@
 import json
 from contextlib import suppress
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from luxonis_ml.data import DatasetIterator
+from luxonis_ml.typing import PathType
 
 from .base_parser import BaseParser, ParserOutput
 
@@ -25,7 +26,7 @@ class NativeParser(BaseParser):
     """
 
     @staticmethod
-    def validate_split(split_path: Path) -> Optional[Dict[str, Any]]:
+    def validate_split(split_path: Path) -> dict[str, Any] | None:
         annotation_path = split_path / "annotations.json"
         if not annotation_path.exists():
             return None
@@ -41,7 +42,7 @@ class NativeParser(BaseParser):
 
     def from_dir(
         self, dataset_dir: Path
-    ) -> Tuple[List[Path], List[Path], List[Path]]:
+    ) -> tuple[list[Path], list[Path], list[Path]]:
         added_train_imgs = self._parse_split(
             annotation_path=dataset_dir / "train" / "annotations.json",
         )
@@ -74,7 +75,7 @@ class NativeParser(BaseParser):
                 for mask_type in ["segmentation", "instance_segmentation"]:
                     with suppress(KeyError):
                         mask = record["annotation"][mask_type]["mask"]
-                        if isinstance(mask, (str, Path)):
+                        if isinstance(mask, PathType):
                             record["annotation"][mask_type]["mask"] = (
                                 annotation_path.parent / mask
                             ).absolute()

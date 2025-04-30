@@ -1,7 +1,7 @@
 import json
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 from loguru import logger
@@ -55,7 +55,7 @@ class COCOParser(BaseParser):
     @staticmethod
     def _detect_dataset_dir_format(
         dataset_dir: Path,
-    ) -> Tuple[Optional[Format], List[str]]:
+    ) -> tuple[Format | None, list[str]]:
         """Checks if dataset directory structure is in FiftyOne or
         Roboflow format."""
         fiftyone_splits = ["train", "validation", "test"]
@@ -67,7 +67,7 @@ class COCOParser(BaseParser):
         return None, []
 
     @staticmethod
-    def validate_split(split_path: Path) -> Optional[Dict[str, Any]]:
+    def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
         json_path = next(split_path.glob("*.json"), None)
@@ -100,9 +100,9 @@ class COCOParser(BaseParser):
         self,
         dataset_dir: Path,
         use_keypoint_ann: bool = False,
-        keypoint_ann_paths: Optional[Dict[str, str]] = None,
+        keypoint_ann_paths: dict[str, str] | None = None,
         split_val_to_test: bool = True,
-    ) -> Tuple[List[Path], List[Path], List[Path]]:
+    ) -> tuple[list[Path], list[Path], list[Path]]:
         dir_format, splits = COCOParser._detect_dataset_dir_format(dataset_dir)
         if dir_format is None:
             raise ValueError("Dataset is not in any expected format.")
@@ -230,8 +230,6 @@ class COCOParser(BaseParser):
                 file: Path = image_dir.absolute().resolve() / img["file_name"]
                 if not file.exists():
                     continue
-
-                yield {"file": file}
 
                 img_anns = ann_dict.get(img_id, [])
                 img_h = img["height"]

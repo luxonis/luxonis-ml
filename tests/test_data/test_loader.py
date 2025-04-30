@@ -1,7 +1,8 @@
+import json
 import random
 from contextlib import contextmanager
 from pathlib import Path
-from typing import List
+from typing import Any
 
 import numpy as np
 
@@ -14,8 +15,58 @@ from luxonis_ml.data import (
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.typing import Params
+from luxonis_ml.utils import LuxonisFileSystem
 
 from .utils import create_image
+
+AUGMENTATIONS_CONFIG: list[Params] = [
+    {
+        "name": "Rotate",
+        "params": {
+            "limit": 3,
+            "p": 1,
+            "border_mode": 0,
+            "value": [0, 0, 0],
+        },
+    },
+    {
+        "name": "Perspective",
+        "params": {
+            "scale": [0.04, 0.08],
+            "keep_size": True,
+            "pad_mode": 0,
+            "pad_val": 0,
+            "mask_pad_val": 0,
+            "fit_output": False,
+            "interpolation": 1,
+            "always_apply": False,
+            "p": 1,
+        },
+    },
+    {
+        "name": "Affine",
+        "params": {
+            "scale": 1,
+            "translate_percent": 0,
+            "rotate": 0,
+            "shear": 10,
+            "interpolation": 1,
+            "mask_interpolation": 0,
+            "cval": 0,
+            "cval_mask": 0,
+            "mode": 0,
+            "fit_output": False,
+            "keep_ratio": False,
+            "rotate_method": "largest_box",
+            "always_apply": False,
+            "p": 1,
+        },
+    },
+    {
+        "name": "Mosaic4",
+        "params": {"out_width": 512, "out_height": 512, "p": 1.0},
+    },
+]
 
 
 @contextmanager
@@ -27,6 +78,39 @@ def set_seed(seed: int):
     yield
     np.random.set_state(np_state)
     random.setstate(random_state)
+
+
+def create_loader(
+    storage_url: str, tempdir: Path, augmentation_config: list[Params]
+) -> LuxonisLoader:
+    with set_seed(42):
+        dataset = LuxonisParser(
+            f"{storage_url}/COCO_people_subset.zip",
+            dataset_name="_augmentation_reproducibility",
+            save_dir=tempdir,
+            dataset_type=DatasetType.COCO,
+            delete_local=True,
+        ).parse()
+    return LuxonisLoader(
+        dataset,
+        height=512,
+        width=512,
+        view="train",
+        seed=42,
+        augmentation_config=augmentation_config,
+    )
+
+
+def load_annotations(annotation_name: str) -> list[dict[str, Any]]:
+    dest_dir = Path("./tests/data/")
+    local_path = dest_dir / annotation_name
+
+    if not local_path.exists():
+        remote_path = f"gs://luxonis-test-bucket/luxonis-ml-test-data/test-augmentation-data/{annotation_name}"
+        local_path = LuxonisFileSystem.download(remote_path, dest=dest_dir)
+
+    with open(local_path) as f:
+        return json.load(f)
 
 
 def test_edge_cases(tempdir: Path):
@@ -236,14 +320,14 @@ def test_edge_cases(tempdir: Path):
 
     dataset = LuxonisDataset(
         "test_edge_cases",
-        delete_existing=True,
+        delete_local=True,
         delete_remote=True,
         bucket_storage=BucketStorage.LOCAL,
     ).add(generator())
 
     dataset.make_splits(ratios=(1, 0, 0))
 
-    augmentation_config: List[Params] = [
+    augmentation_config: list[Params] = [
         {
             "name": "Mosaic4",
             "params": {"p": 1, "out_width": 512, "out_height": 512},
@@ -330,26 +414,10 @@ def test_edge_cases(tempdir: Path):
 
 
 def test_dataset_reproducibility(storage_url: str, tempdir: Path):
-    def create_loader(storage_url: str, tempdir: Path) -> LuxonisLoader:
-        with set_seed(42):
-            dataset = LuxonisParser(
-                f"{storage_url}/COCO_people_subset.zip",
-                dataset_name="_augmentation_reproducibility",
-                save_dir=tempdir,
-                dataset_type=DatasetType.COCO,
-                delete_existing=True,
-            ).parse()
-            return LuxonisLoader(
-                dataset,
-                height=512,
-                width=512,
-                view="train",
-            )
-
-    loader1 = create_loader(storage_url, tempdir)
+    loader1 = create_loader(storage_url, tempdir, AUGMENTATIONS_CONFIG)
     run1 = [ann for _, ann in loader1]
 
-    loader2 = create_loader(storage_url, tempdir)
+    loader2 = create_loader(storage_url, tempdir, AUGMENTATIONS_CONFIG)
     run2 = [ann for _, ann in loader2]
 
     assert all(
@@ -360,5 +428,78 @@ def test_dataset_reproducibility(storage_url: str, tempdir: Path):
             else a1[k] == a2[k]
             for k in a1
         )
-        for a1, a2 in zip(run1, run2)
+        for a1, a2 in zip(run1, run2, strict=True)
     )
+
+
+def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
+    def mask_to_rle(mask: np.ndarray) -> list[int]:
+        pixels = mask.flatten()
+        rle = []
+        prev_pixel = pixels[0]
+        count = 0
+
+        for pixel in pixels:
+            if pixel == prev_pixel:
+                count += 1
+            else:
+                rle.append(count)
+                count = 1
+                prev_pixel = pixel
+        rle.append(count)
+
+        return rle
+
+    def rle_to_mask(counts: list[int], height: int, width: int) -> np.ndarray:
+        flat = np.repeat(np.arange(len(counts)) % 2, counts)
+        return flat.reshape((height, width), order="F").astype(bool)
+
+    def convert_annotation(ann: dict[str, Any]) -> dict[str, Any]:
+        def round_nested_list(
+            data: list[Any] | float, decimals: int = 3
+        ) -> list[Any] | float:
+            if isinstance(data, list):
+                return [round_nested_list(elem, decimals) for elem in data]
+            if isinstance(data, float):
+                return round(data, decimals)
+            return data
+
+        return {
+            "classification": round_nested_list(
+                ann["/classification"].tolist()
+                if isinstance(ann["/classification"], np.ndarray)
+                else ann["/classification"]
+            ),
+            "bounding_box": round_nested_list(
+                ann["/boundingbox"].tolist()
+                if isinstance(ann["/boundingbox"], np.ndarray)
+                else ann["/boundingbox"]
+            ),
+            "segmentation": mask_to_rle(ann["/segmentation"])
+            if isinstance(ann["/segmentation"], np.ndarray)
+            else ann["/segmentation"],
+            "keypoints": round_nested_list(
+                ann["/keypoints"].tolist()
+                if isinstance(ann["/keypoints"], np.ndarray)
+                else ann["/keypoints"]
+            ),
+        }
+
+    loader_aug = create_loader(storage_url, tempdir, AUGMENTATIONS_CONFIG)
+    new_aug_annotations = [convert_annotation(ann) for _, ann in loader_aug]
+
+    original_aug_annotations = load_annotations(
+        "test_augmentation_reproducibility_labels.json"
+    )
+
+    for orig_ann, new_ann in zip(
+        original_aug_annotations, new_aug_annotations, strict=True
+    ):
+        assert orig_ann["classification"] == new_ann["classification"]
+        assert orig_ann["bounding_box"] == new_ann["bounding_box"]
+        assert orig_ann["keypoints"] == new_ann["keypoints"]
+        orig_mask = rle_to_mask(orig_ann["segmentation"], 512, 512)
+        new_mask = rle_to_mask(new_ann["segmentation"], 512, 512)
+        diff = np.count_nonzero(orig_mask != new_mask)
+        max_diff = 50
+        assert diff <= max_diff

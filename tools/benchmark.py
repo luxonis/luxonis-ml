@@ -1,11 +1,10 @@
 import time
 from pathlib import Path
-from typing import List
+from typing import Annotated
 
 import cv2
 import numpy as np
 import typer
-from typing_extensions import Annotated
 
 from luxonis_ml.data import BucketStorage, LuxonisDataset, LuxonisLoader
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
@@ -55,12 +54,12 @@ def generator(size: int) -> DatasetIterator:
 
 app = typer.Typer()
 
-normal_config: List[Params] = [
+normal_config: list[Params] = [
     {"name": "Defocus", "params": {"p": 1}},
     {"name": "Sharpen", "params": {"p": 1}},
     {"name": "Affine", "params": {"p": 1}},
 ]
-batched_config: List[Params] = [
+batched_config: list[Params] = [
     {
         "name": "MixUp",
         "params": {"p": 1, "alpha": 0.5},
@@ -80,7 +79,7 @@ def main(
         avg = 0
         for _ in range(repeat):
             dataset = LuxonisDataset(
-                name, delete_existing=True, bucket_storage=BucketStorage.LOCAL
+                name, delete_local=True, bucket_storage=BucketStorage.LOCAL
             )
             t = time.time()
             dataset.add(generator(size))

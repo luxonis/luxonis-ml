@@ -1,5 +1,3 @@
-from typing import Type
-
 import albumentations as A
 
 from luxonis_ml.utils import Registry
@@ -13,7 +11,7 @@ from .symetric_keypoints_flip import (
     VerticalSymetricKeypointsFlip,
 )
 
-TRANSFORMATIONS: Registry[Type[A.BasicTransform]] = Registry(
+TRANSFORMATIONS: Registry[type[A.BasicTransform]] = Registry(
     "albumentations_transformations"
 )
 

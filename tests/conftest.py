@@ -5,7 +5,6 @@ import shutil
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List
 
 import numpy as np
 import pytest
@@ -35,7 +34,10 @@ def setup():
 
 @pytest.fixture
 def randint() -> int:
-    return random.randint(0, 100_000)
+    # Use a fresh, time-seeded RNG so pytest's global seed doesn't influence this value.
+    rng = random.Random()
+    rng.seed(time.time())
+    return rng.randint(0, 100_000)
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -73,7 +75,7 @@ def pytest_sessionfinish(session: Session, exitstatus: int) -> None:
     for ds_name in CREATED_DATASETS:
         LuxonisDataset(
             ds_name, bucket_storage=BucketStorage.GCS
-        ).delete_dataset(delete_remote=True)
+        ).delete_dataset(delete_remote=True, delete_local=True)
 
 
 @pytest.fixture(scope="session")
@@ -89,7 +91,7 @@ def width() -> int:
 @pytest.fixture
 def augmentation_data(
     height: int, width: int, request: pytest.FixtureRequest
-) -> Dict[str, List[np.ndarray]]:
+) -> dict[str, list[np.ndarray]]:
     batch_size: int = request.param
     return {
         "image": [
@@ -111,7 +113,7 @@ def augmentation_data(
 
 
 @pytest.fixture(scope="session")
-def augmentation_config() -> List[Params]:
+def augmentation_config() -> list[Params]:
     return [
         {
             "name": "Mosaic4",
@@ -136,14 +138,17 @@ def base_tempdir(worker_id: str):
 @pytest.fixture
 def tempdir(base_tempdir: Path, randint: int) -> Path:
     t = time.time()
+    unique_id = randint
     while True:
-        path = base_tempdir / str(randint)
+        path = base_tempdir / str(unique_id)
         if not path.exists():
             break
         if time.time() - t > 5:  # pragma: no cover
             raise TimeoutError(
                 "Could not create a unique tempdir. Something is wrong."
             )
+        # regenerate a new random suffix
+        unique_id = random.randint(0, 100_000)
 
     path.mkdir(exist_ok=True)
 

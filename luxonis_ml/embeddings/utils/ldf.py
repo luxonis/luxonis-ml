@@ -48,9 +48,9 @@ def _get_sample_payloads_LDF(dataset: LuxonisDataset) -> List[Dict[str, Any]]:
 
     all_payloads = []
     df = dataset._load_df_offline()
-    file_index = dataset._get_file_index()
+    index = dataset._get_index()
 
-    df = df.merge(file_index, on="instance_id")
+    df = df.merge(index, on="instance_id")
 
     for row in df.iterrows():
         if row[1]["type"] == "classification":
