@@ -101,7 +101,7 @@ def create_loader(
     )
 
 
-def load_annotations(annotation_name: str) -> dict[str, Any]:
+def load_annotations(annotation_name: str) -> list[dict[str, Any]]:
     dest_dir = Path("./tests/data/")
     local_path = dest_dir / annotation_name
 
