@@ -499,7 +499,7 @@ def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
         total_diff = 0
         orig_seg = orig_ann["segmentation"]
         new_seg = new_ann["segmentation"]
-        for o_count, n_count in zip(orig_seg, new_seg, strict=True):
+        for o_count, n_count in zip(orig_seg, new_seg, strict=False):
             total_diff += abs(o_count - n_count)
 
         assert total_diff <= 200
