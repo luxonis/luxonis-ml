@@ -19,7 +19,7 @@ from luxonis_ml.utils import LuxonisFileSystem
 
 from .utils import create_image
 
-AUGMENTATIONS_CONFIG: list[Params] = [
+AUGMENTATIONS_CONFIG: list[Params] = [  # type: ignore[reportAssignmentType]
     {
         "name": "Rotate",
         "params": {
