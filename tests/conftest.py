@@ -34,6 +34,7 @@ def setup():
 
 @pytest.fixture
 def randint() -> int:
+    # Use a fresh, time-seeded RNG so pytest's global seed doesn't influence this value.
     rng = random.Random()
     rng.seed(time.time())
     return rng.randint(0, 100_000)
@@ -137,14 +138,17 @@ def base_tempdir(worker_id: str):
 @pytest.fixture
 def tempdir(base_tempdir: Path, randint: int) -> Path:
     t = time.time()
+    unique_id = randint
     while True:
-        path = base_tempdir / str(randint)
+        path = base_tempdir / str(unique_id)
         if not path.exists():
             break
         if time.time() - t > 5:  # pragma: no cover
             raise TimeoutError(
                 "Could not create a unique tempdir. Something is wrong."
             )
+        # regenerate a new random suffix
+        unique_id = random.randint(0, 100_000)
 
     path.mkdir(exist_ok=True)
 
