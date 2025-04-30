@@ -1,3 +1,4 @@
+from itertools import chain
 from typing import Any
 
 import albumentations as A
@@ -17,7 +18,7 @@ class HorizontalSymetricKeypointsFlip(A.DualTransform):
         """
         super().__init__(p=p)
         self.keypoint_pairs = keypoint_pairs
-        self.n_keypoints = len({i for pair in keypoint_pairs for i in pair})
+        self.n_keypoints = len(set(chain.from_iterable(keypoint_pairs)))
 
     @property
     @override
@@ -131,7 +132,7 @@ class VerticalSymetricKeypointsFlip(A.DualTransform):
         """
         super().__init__(p=p)
         self.keypoint_pairs = keypoint_pairs
-        self.n_keypoints = len({i for pair in keypoint_pairs for i in pair})
+        self.n_keypoints = len(set(chain.from_iterable(keypoint_pairs)))
 
     @property
     @override
@@ -250,7 +251,7 @@ class TransposeSymmetricKeypoints(A.DualTransform):
         """
         super().__init__(p=p)
         self.keypoint_pairs = keypoint_pairs
-        self.n_keypoints = len({i for pair in keypoint_pairs for i in pair})
+        self.n_keypoints = len(set(chain.from_iterable(keypoint_pairs)))
 
     @property
     @override

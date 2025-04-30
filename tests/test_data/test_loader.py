@@ -21,10 +21,14 @@ from .utils import create_image
 
 AUGMENTATIONS_CONFIG: list[Params] = [  # type: ignore[reportAssignmentType]
     {
+        "name": "Mosaic4",
+        "params": {"p": 1, "out_width": 512, "out_height": 512},
+    },
+    {
         "name": "Rotate",
         "params": {
-            "limit": 3,
-            "p": 1,
+            "limit": 10,
+            "p": 0.3,
             "border_mode": 0,
             "value": [0, 0, 0],
         },
@@ -32,7 +36,7 @@ AUGMENTATIONS_CONFIG: list[Params] = [  # type: ignore[reportAssignmentType]
     {
         "name": "Perspective",
         "params": {
-            "scale": [0.04, 0.08],
+            "scale": [0.02, 0.05],
             "keep_size": True,
             "pad_mode": 0,
             "pad_val": 0,
@@ -40,16 +44,16 @@ AUGMENTATIONS_CONFIG: list[Params] = [  # type: ignore[reportAssignmentType]
             "fit_output": False,
             "interpolation": 1,
             "always_apply": False,
-            "p": 1,
+            "p": 0.3,
         },
     },
     {
         "name": "Affine",
         "params": {
-            "scale": 1,
-            "translate_percent": 0,
+            "scale": 1.0,
+            "translate_percent": 0.0,
             "rotate": 0,
-            "shear": 10,
+            "shear": 5,
             "interpolation": 1,
             "mask_interpolation": 0,
             "cval": 0,
@@ -59,12 +63,56 @@ AUGMENTATIONS_CONFIG: list[Params] = [  # type: ignore[reportAssignmentType]
             "keep_ratio": False,
             "rotate_method": "largest_box",
             "always_apply": False,
-            "p": 1,
+            "p": 0.3,
         },
     },
     {
-        "name": "Mosaic4",
-        "params": {"out_width": 512, "out_height": 512, "p": 1.0},
+        "name": "MixUp",
+        "params": {
+            "p": 0.3,
+        },
+    },
+    {
+        "name": "VerticalSymetricKeypointsFlip",
+        "params": {
+            "p": 0.3,
+            "keypoint_pairs": [
+                (0, 0),
+                (1, 1),
+                (2, 2),
+                (3, 3),
+                (4, 4),
+                (5, 5),
+                (6, 6),
+                (7, 7),
+                (8, 8),
+                (9, 9),
+                (10, 10),
+                (11, 11),
+                (12, 12),
+                (13, 13),
+                (14, 14),
+                (15, 15),
+                (16, 16),
+            ],
+        },
+    },
+    {
+        "name": "HorizontalSymetricKeypointsFlip",
+        "params": {
+            "p": 0.4,
+            "keypoint_pairs": [
+                (0, 0),
+                (1, 2),
+                (3, 4),
+                (5, 6),
+                (7, 8),
+                (9, 10),
+                (11, 12),
+                (13, 14),
+                (15, 16),
+            ],
+        },
     },
 ]
 
@@ -336,7 +384,7 @@ def test_edge_cases(tempdir: Path):
             "name": "Rotate",
             "params": {
                 "limit": 10,
-                "p": 0.3,
+                "p": 1,
                 "border_mode": 0,
                 "value": [0, 0, 0],
             },
@@ -352,7 +400,7 @@ def test_edge_cases(tempdir: Path):
                 "fit_output": False,
                 "interpolation": 1,
                 "always_apply": False,
-                "p": 0.3,
+                "p": 1,
             },
         },
         {
@@ -371,34 +419,7 @@ def test_edge_cases(tempdir: Path):
                 "keep_ratio": False,
                 "rotate_method": "largest_box",
                 "always_apply": False,
-                "p": 0.3,
-            },
-        },
-        {
-            "name": "Mixup",
-            "params": {
-                "p": 0.3,
-            },
-        },
-        {
-            "name": "HorizontalSymetricKeypointsFlip",
-            "params": {"p": 0.4},
-        },
-        {
-            "name": "VerticalSymmetricKeypointsFlip",
-            "params": {
-                "p": 0.4,
-                "keypoint_pairs": [
-                    (0, 0),
-                    (1, 2),
-                    (3, 4),
-                    (5, 6),
-                    (7, 8),
-                    (9, 10),
-                    (11, 12),
-                    (13, 14),
-                    (15, 16),
-                ],
+                "p": 1,
             },
         },
     ]
