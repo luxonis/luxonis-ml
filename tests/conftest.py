@@ -139,7 +139,7 @@ def tempdir(base_tempdir: Path, randint: int) -> Path:
         path = base_tempdir / str(randint)
         if not path.exists():
             break
-        if time.time() - t > 5:  # pragma: no cover
+        if time.time() - t > 10:  # pragma: no cover
             raise TimeoutError(
                 "Could not create a unique tempdir. Something is wrong."
             )
