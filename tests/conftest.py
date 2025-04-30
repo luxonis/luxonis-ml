@@ -134,17 +134,14 @@ def base_tempdir(worker_id: str):
 
 @pytest.fixture
 def tempdir(base_tempdir: Path, randint: int) -> Path:
-    tried_paths: list[Path] = []
     t = time.time()
     while True:
         path = base_tempdir / str(randint)
-        tried_paths.append(path)
         if not path.exists():
             break
-        if time.time() - t > 10:  # pragma: no cover
+        if time.time() - t > 5:  # pragma: no cover
             raise TimeoutError(
-                "Could not create a unique tempdir after trying:\n"
-                + "\n".join(str(p) for p in tried_paths)
+                "Could not create a unique tempdir. Something is wrong."
             )
 
     path.mkdir(exist_ok=True)
