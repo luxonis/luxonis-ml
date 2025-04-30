@@ -1,3 +1,5 @@
+import random
+
 import albumentations as A
 import numpy as np
 from albumentations.core.composition import TransformsSeqType
@@ -19,6 +21,9 @@ class BatchCompose(A.Compose):
         @param kwargs: Additional arguments to pass to A.Compose
         """
         super().__init__(transforms, is_check_shapes=False, **kwargs)
+
+        random.seed(self.seed)
+        np.random.seed(self.seed)
 
         self.batch_size = 1
         for transform in self.transforms:
