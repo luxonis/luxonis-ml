@@ -45,7 +45,7 @@ def keypoints_pair() -> np.ndarray:
 
 def get_params(
     transform: A.DualTransform,
-    img_shape: tuple[int, int, int],
+    img_shape: tuple[int, ...],
 ) -> dict[str, Any]:
     return transform.get_params_dependent_on_data({"shape": img_shape}, {})
 
