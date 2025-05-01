@@ -709,6 +709,14 @@ The augmentations are specified as a list of dictionaries, where each dictionary
 
 By default, we support most augmentations from the `albumentations` library. You can find the full list of augmentations and their parameters in the [Albumentations](https://albumentations.ai/docs/api_reference/augmentations/)documentation.
 
+> **Note:** The standard Albumentations flip transforms (`HorizontalFlip`, `VerticalFlip`, `Transpose`)
+> will flip images and keypoints but **do not** swap symmetric keypoints\
+> (e.g., left/right joints in human poses). For tasks with symmetric keypoint structures, use our custom augmentations:
+>
+> - `HorizontalSymetricKeypointsFlip`
+> - `VerticalSymetricKeypointsFlip`
+> - `TransposeSymmetricKeypoints`
+
 On top of that, we provide a handful of custom batch augmentations:
 
 - `Mosaic4` - Mosaic augmentation with 4 images. Combines crops of 4 images into a single image in a mosaic pattern.
