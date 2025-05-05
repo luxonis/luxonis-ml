@@ -7,11 +7,28 @@ on:
         description: 'luxonis-ml version (branch/tag/SHA)'
         required: true
         default: main
+      train_ref:
+        description: 'luxonis-train version (branch/tag/SHA)'
+        required: true
+        default: main
 
 jobs:
+  checkout-train:
+    runs-on: ubuntu-latest
+    outputs:
+      repo-dir: ${{ steps.checkout.outputs.path }}
+    steps:
+      - name: Checkout luxonis-train
+        id: checkout
+        uses: actions/checkout@v3
+        with:
+          repository: Luxonis/luxonis-train
+          ref: ${{ inputs.train_ref }}
+          path: luxonis-train
+
   test-luxonis-train:
-    name: Test luxonis-train
-    uses: Luxonis/luxonis-train/.github/workflows/tests.yaml@fix/tests-yaml
+    needs: checkout-train
+    uses: ./luxonis-train/.github/workflows/tests.yaml
     with:
       ml_ref: ${{ inputs.ml_ref }}
     secrets: inherit
