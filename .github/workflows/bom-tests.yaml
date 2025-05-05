@@ -7,7 +7,6 @@ on:
         description: 'luxonis-ml version (branch/tag/SHA)'
         required: true
         default: main
-  push:
 
 jobs:
   test-luxonis-train:
