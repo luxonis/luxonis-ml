@@ -1,0 +1,33 @@
+name: BOM Compatibility Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      ml_ref:
+        description: 'luxonis-ml version (branch/tag/SHA)'
+        required: true
+        default: main
+      train_ref_mode:
+        description: 'luxonis-train branch/tag (or "main")'
+        required: true
+        default: main
+
+jobs:
+  bom-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        repo: ['luxonis-train']
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+
+      - name: Install GitHub CLI
+        uses: cli/gh-action@v2
+
+      - name: Dispatch downstream tests workflow
+        run: |
+          gh workflow run .github/workflows/tests.yaml \
+            --repo Luxonis/${{ matrix.repo }} \
+            --ref ${{ inputs.train_ref_mode }} \
+            --field ml_ref=${{ inputs.ml_ref }}
