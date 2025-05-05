@@ -7,24 +7,23 @@ on:
         description: 'luxonis-ml version (branch/tag/SHA)'
         required: true
         default: main
-  push:
 
-# jobs:
-#   bom-tests:
-#     runs-on: ubuntu-latest
-#     strategy:
-#       matrix:
-#         repo: ['luxonis-train']
-#     steps:
-#       - name: Checkout downstream repo
-#         uses: actions/checkout@v4
-#         with:
-#           repository: Luxonis/${{ matrix.repo }}
-#           ref: main
-#           path: downstream/${{ matrix.repo }}
+jobs:
+  bom-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        repo: ['luxonis-train']
+    steps:
+      - name: Checkout downstream repo
+        uses: actions/checkout@v4
+        with:
+          repository: Luxonis/${{ matrix.repo }}
+          ref: main
+          path: downstream/${{ matrix.repo }}
 
-#       - name: Run downstream tests
-#         uses: ./downstream/${{ matrix.repo }}/.github/workflows/tests.yaml
-#         with:
-#           ml_ref: ${{ inputs.ml_ref }}
-#         secrets: inherit
+      - name: Run downstream tests
+        uses: ./downstream/${{ matrix.repo }}/.github/workflows/tests.yaml
+        with:
+          ml_ref: ${{ inputs.ml_ref }}
+        secrets: inherit
