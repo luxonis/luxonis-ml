@@ -12,7 +12,7 @@ on:
 jobs:
   test-luxonis-train:
     name: Test luxonis-train
-    uses: Luxonis/luxonis-train/.github/workflows/tests.yaml@main
+    uses: Luxonis/luxonis-train/.github/workflows/tests.yaml@fix/tests-yaml
     with:
       ml_ref: ${{ inputs.ml_ref }}
     secrets: inherit
