@@ -10,20 +10,11 @@ on:
 
 jobs:
   bom-tests:
-    runs-on: ubuntu-latest
     strategy:
       matrix:
         repo: ['luxonis-train']
-    steps:
-      - name: Checkout downstream repo
-        uses: actions/checkout@v4
-        with:
-          repository: Luxonis/${{ matrix.repo }}
-          ref: main
-          path: downstream/${{ matrix.repo }}
 
-      - name: Run downstream tests
-        uses: ./downstream/${{ matrix.repo }}/.github/workflows/tests.yaml
-        with:
-          ml_ref: ${{ inputs.ml_ref }}
-        secrets: inherit
+    uses: ./downstream/${{ matrix.repo }}/.github/workflows/tests.yaml
+    with:
+      ml_ref: ${{ inputs.ml_ref }}
+    secrets: inherit
