@@ -7,14 +7,12 @@ on:
         description: 'luxonis-ml version (branch/tag/SHA)'
         required: true
         default: main
+  push:
 
 jobs:
-  bom-tests:
-    strategy:
-      matrix:
-        repo: ['luxonis-train']
-
-    uses: ./downstream/${{ matrix.repo }}/.github/workflows/tests.yaml
+  test-luxonis-train:
+    name: Test luxonis-train
+    uses: ./downstream/luxonis-train/.github/workflows/tests.yaml
     with:
       ml_ref: ${{ inputs.ml_ref }}
     secrets: inherit
