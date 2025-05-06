@@ -44,7 +44,7 @@ jobs:
   test-modelconverter:
     name: Test Modelconverter
     if: ${{ inputs.run_converter }}
-    uses: Luxonis/modelconverter/.github/workflows/tests.yaml@feat/add-workflow_call-to-unittests  # change to main when ready
+    uses: Luxonis/modelconverter/.github/workflows/unittests.yaml@feat/add-workflow_call-to-unittests  # change to main when ready
     with:
       ml_ref:   ${{ inputs.ml_ref }}
       conv_ref: ${{ inputs.conv_ref }}
