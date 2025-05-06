@@ -11,6 +11,7 @@ on:
         description: 'luxonis-train version (branch/tag/SHA)'
         required: true
         default: main
+  push:
 
 jobs:
   test-luxonis-train:
