@@ -14,8 +14,10 @@ on:
 
 jobs:
   test-luxonis-train:
-    uses: Luxonis/luxonis-train/.github/workflows/tests.yaml@fix/tests-yaml
+    uses: Luxonis/luxonis-train/.github/workflows/tests.yaml@fix/tests-yaml # Change back to main when tested
     with:
       ml_ref:    ${{ inputs.ml_ref }}
       train_ref: ${{ inputs.train_ref }}
-    secrets: inherit
+    secrets:
+      GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
