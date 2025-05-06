@@ -11,6 +11,10 @@ on:
         description: 'luxonis-train version (branch/tag/SHA)'
         required: true
         default: main
+      conv_ref:
+        description: 'modelconverter version (branch/tag/SHA)'
+        required: true
+        default: main
 
 jobs:
   test-luxonis-train:
