@@ -6,19 +6,33 @@ on:
       ml_ref:
         description: 'luxonis-ml version (branch/tag/SHA)'
         required: true
+        type: string
         default: main
       train_ref:
         description: 'luxonis-train version (branch/tag/SHA)'
         required: true
+        type: string
         default: main
       conv_ref:
         description: 'modelconverter version (branch/tag/SHA)'
         required: true
+        type: string
         default: main
+      run_train:
+        description: 'Run Luxonis Train tests'
+        required: false
+        type: boolean
+        default: true
+      run_converter:
+        description: 'Run Modelconverter tests'
+        required: false
+        type: boolean
+        default: true
 
 jobs:
   test-luxonis-train:
     name: Test Luxonis Train
+    if: ${{ inputs.run_train }}
     uses: Luxonis/luxonis-train/.github/workflows/tests.yaml@main
     with:
       ml_ref:    ${{ inputs.ml_ref }}
@@ -29,10 +43,11 @@ jobs:
 
   test-modelconverter:
     name: Test Modelconverter
-    uses: Luxonis/modelconverter/.github/workflows/tests.yaml@feat/add-workflow_call-to-unittests
+    if: ${{ inputs.run_converter }}
+    uses: Luxonis/modelconverter/.github/workflows/tests.yaml@feat/add-workflow_call-to-unittests  # change to main when ready
     with:
       ml_ref:   ${{ inputs.ml_ref }}
-      conv_ref: ${{ inputs.train_ref }}
+      conv_ref: ${{ inputs.conv_ref }}
     secrets:
       AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
