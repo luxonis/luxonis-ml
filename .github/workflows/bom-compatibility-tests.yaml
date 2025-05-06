@@ -13,22 +13,9 @@ on:
         default: main
 
 jobs:
-  checkout-train:
-    runs-on: ubuntu-latest
-    outputs:
-      repo-dir: ${{ steps.checkout.outputs.path }}
-    steps:
-      - name: Checkout luxonis-train
-        id: checkout
-        uses: actions/checkout@v3
-        with:
-          repository: Luxonis/luxonis-train
-          ref: ${{ inputs.train_ref }}
-          path: luxonis-train
-
   test-luxonis-train:
-    needs: checkout-train
-    uses: ./luxonis-train/.github/workflows/tests.yaml
+    uses: Luxonis/luxonis-train/.github/workflows/tests.yaml@main
     with:
-      ml_ref: ${{ inputs.ml_ref }}
+      ml_ref:    ${{ inputs.ml_ref }}
+      train_ref: ${{ inputs.train_ref }}
     secrets: inherit
