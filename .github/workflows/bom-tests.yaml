@@ -16,7 +16,7 @@ jobs:
   checkout-train:
     runs-on: ubuntu-latest
     outputs:
-      repo-dir: ${{ steps.checkout.outputs.path }}
+      repo-dir: ${{steps.checkout.outputs.path}}
     steps:
       - name: Checkout luxonis-train
         id: checkout
