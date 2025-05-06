@@ -19,5 +19,5 @@ jobs:
       ml_ref:    ${{ inputs.ml_ref }}
       train_ref: ${{ inputs.train_ref }}
     secrets:
-      GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
+      GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
