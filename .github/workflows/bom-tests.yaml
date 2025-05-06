@@ -14,10 +14,24 @@ on:
 
 jobs:
   test-luxonis-train:
+    name: Test Luxonis Train
     uses: Luxonis/luxonis-train/.github/workflows/tests.yaml@main
     with:
       ml_ref:    ${{ inputs.ml_ref }}
       train_ref: ${{ inputs.train_ref }}
     secrets:
       GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
-      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      CODECOV_TOKEN:                  ${{ secrets.CODECOV_TOKEN }}
+
+  test-modelconverter:
+    name: Test Modelconverter
+    uses: Luxonis/modelconverter/.github/workflows/tests.yaml@feat/add-workflow_call-to-unittests
+    with:
+      ml_ref:   ${{ inputs.ml_ref }}
+      conv_ref: ${{ inputs.train_ref }}
+    secrets:
+      AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_S3_ENDPOINT_URL:   ${{ secrets.AWS_S3_ENDPOINT_URL }}
+      GCP_CREDENTIALS:       ${{ secrets.GCP_CREDENTIALS }}
+      HUBAI_API_KEY:         ${{ secrets.HUBAI_API_KEY }}
