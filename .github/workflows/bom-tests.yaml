@@ -33,7 +33,7 @@ jobs:
   test-luxonis-train:
     name: Test Luxonis Train
     if: ${{ inputs.run_train }}
-    uses: Luxonis/luxonis-train/.github/workflows/tests.yaml@fix/tests-yaml
+    uses: Luxonis/luxonis-train/.github/workflows/tests.yaml@fix/tests-yaml # change to main when ready
     with:
       ml_ref:    ${{ inputs.ml_ref }}
       train_ref: ${{ inputs.train_ref }}
