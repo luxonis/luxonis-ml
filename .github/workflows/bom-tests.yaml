@@ -13,6 +13,11 @@ on:
         required: true
         type: string
         default: main
+      tools_ref:
+        description: 'luxonis-tools version (branch/tag/SHA)'
+        required: true
+        type: string
+        default: main
       modelconv_ref:
         description: 'modelconverter version (branch/tag/SHA)'
         required: true
@@ -25,6 +30,11 @@ on:
         default: true
       run_modelconv:
         description: 'Run Modelconverter tests'
+        required: false
+        type: boolean
+        default: true
+      run_tools:
+        description: 'Run Luxonis Tools tests'
         required: false
         type: boolean
         default: true
@@ -54,3 +64,12 @@ jobs:
       AWS_S3_ENDPOINT_URL:   ${{ secrets.AWS_S3_ENDPOINT_URL }}
       GCP_CREDENTIALS:       ${{ secrets.GCP_CREDENTIALS }}
       HUBAI_API_KEY:         ${{ secrets.HUBAI_API_KEY }}
+
+
+  test-luxonis-tools:
+    name: Test Luxonis Tools
+    if: ${{ inputs.run_tools }}
+    uses: Luxonis/tools/.github/workflows/unittests.yaml@feat/add-workflow_call-to-unittests  # change to main when ready
+    with:
+      ml_ref:   ${{ inputs.ml_ref }}
+      tools_ref: ${{ inputs.tools_ref }}
