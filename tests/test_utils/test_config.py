@@ -271,7 +271,16 @@ def test_get(config_file: str):
         cfg.get("list_config.index.int_list_param")
 
 
-def test_environ():
+def test_environ(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("POSTGRES_HOST", raising=False)
+    assert environ.POSTGRES_HOST is None
+
+    monkeypatch.setenv("POSTGRES_HOST", "first.example.com")
+    assert environ.POSTGRES_HOST == "first.example.com"
+
+    monkeypatch.setenv("POSTGRES_HOST", "second.example.com")
+    assert environ.POSTGRES_HOST == "second.example.com"
+
     assert environ.model_dump() == {}
 
 
