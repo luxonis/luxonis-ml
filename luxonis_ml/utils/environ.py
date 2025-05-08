@@ -1,6 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import model_serializer
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -68,4 +68,5 @@ class _EnvironProxy:
         return "<EnvironProxy loading from .env>"
 
 
-environ = _EnvironProxy()
+_proxy = _EnvironProxy()
+environ: Environ = cast(Environ, _proxy)
