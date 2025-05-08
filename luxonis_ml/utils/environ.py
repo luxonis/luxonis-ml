@@ -1,5 +1,6 @@
+from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import model_serializer
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -50,4 +51,21 @@ class Environ(BaseSettings):
         return {}
 
 
-environ = Environ()
+@lru_cache(maxsize=1)
+def _load_environ() -> Environ:
+    """Return a cached Environ instance, reading .env and os.environ
+    once."""
+    return Environ()
+
+
+class _EnvironProxy:
+    def __getattr__(self, name: str) -> Any:
+        _load_environ.cache_clear()
+        real = _load_environ()
+        return getattr(real, name)
+
+    def __repr__(self) -> str:
+        return "<EnvironProxy loading from .env>"
+
+
+environ = _EnvironProxy()
