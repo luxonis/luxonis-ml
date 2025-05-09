@@ -23,11 +23,6 @@ on:
         required: true
         type: string
         default: main
-      datadreamer_ref:
-        description: 'datadreamer version (branch/tag/SHA)'
-        required: true
-        type: string
-        default: main
       run_train:
         description: 'Run Luxonis Train tests'
         required: false
@@ -43,17 +38,12 @@ on:
         required: false
         type: boolean
         default: true
-      run_datadreamer:
-        description: 'Run Datadreamer tests'
-        required: false
-        type: boolean
-        default: true
 
 jobs:
   test-luxonis-train:
     name: Test Luxonis Train
     if: ${{ inputs.run_train }}
-    uses: Luxonis/luxonis-train/.github/workflows/tests.yaml@fix/tests-yaml # change to main when ready
+    uses: Luxonis/luxonis-train/.github/workflows/tests.yaml@main
     with:
       ml_ref:    ${{ inputs.ml_ref }}
       train_ref: ${{ inputs.train_ref }}
@@ -64,7 +54,7 @@ jobs:
   test-modelconverter:
     name: Test Modelconverter
     if: ${{ inputs.run_modelconv }}
-    uses: Luxonis/modelconverter/.github/workflows/unittests.yaml@feat/add-workflow_call-to-unittests  # change to main when ready
+    uses: Luxonis/modelconverter/.github/workflows/unittests.yaml@main
     with:
       ml_ref:   ${{ inputs.ml_ref }}
       modelconv_ref: ${{ inputs.modelconv_ref }}
@@ -79,15 +69,7 @@ jobs:
   test-luxonis-tools:
     name: Test Luxonis Tools
     if: ${{ inputs.run_tools }}
-    uses: Luxonis/tools/.github/workflows/unittests.yaml@feat/add-workflow_call-to-unittests  # change to main when ready
+    uses: Luxonis/tools/.github/workflows/unittests.yaml@main
     with:
       ml_ref:   ${{ inputs.ml_ref }}
       tools_ref: ${{ inputs.tools_ref }}
-
-  test-datadreamer:
-    name: Test Datadreamer
-    if: ${{ inputs.run_datadreamer }}
-    uses: Luxonis/datadreamer/.github/workflows/unit-tests.yaml@feat/add-workflow_call-to-unittests  # change to main when ready
-    with:
-      ml_ref:   ${{ inputs.ml_ref }}
-      datadreamer_ref: ${{ inputs.datadreamer_ref }}
