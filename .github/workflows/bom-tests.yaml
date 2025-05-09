@@ -39,25 +39,39 @@ on:
         type: boolean
         default: true
 
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+
 jobs:
   test-luxonis-train:
     name: Test Luxonis Train
-    if: ${{ inputs.run_train }}
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.run_train) ||
+      (github.event_name == 'pull_request' &&
+       startsWith(github.head_ref, 'release/') &&
+       github.event.pull_request.base.ref == 'main')
     uses: Luxonis/luxonis-train/.github/workflows/tests.yaml@main
     with:
-      ml_ref:    ${{ inputs.ml_ref }}
-      train_ref: ${{ inputs.train_ref }}
+      ml_ref:    ${{ github.event_name == 'workflow_dispatch' && inputs.ml_ref   || github.head_ref }}
+      train_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.train_ref || 'main' }}
     secrets:
       GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
       CODECOV_TOKEN:                  ${{ secrets.CODECOV_TOKEN }}
 
   test-modelconverter:
     name: Test Modelconverter
-    if: ${{ inputs.run_modelconv }}
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.run_modelconv) ||
+      (github.event_name == 'pull_request' &&
+       startsWith(github.head_ref, 'release/') &&
+       github.event.pull_request.base.ref == 'main')
     uses: Luxonis/modelconverter/.github/workflows/unittests.yaml@main
     with:
-      ml_ref:   ${{ inputs.ml_ref }}
-      modelconv_ref: ${{ inputs.modelconv_ref }}
+      ml_ref:        ${{ github.event_name == 'workflow_dispatch' && inputs.ml_ref        || github.head_ref }}
+      modelconv_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.modelconv_ref || 'main' }}
     secrets:
       AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -65,11 +79,14 @@ jobs:
       GCP_CREDENTIALS:       ${{ secrets.GCP_CREDENTIALS }}
       HUBAI_API_KEY:         ${{ secrets.HUBAI_API_KEY }}
 
-
   test-luxonis-tools:
     name: Test Luxonis Tools
-    if: ${{ inputs.run_tools }}
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.run_tools) ||
+      (github.event_name == 'pull_request' &&
+       startsWith(github.head_ref, 'release/') &&
+       github.event.pull_request.base.ref == 'main')
     uses: Luxonis/tools/.github/workflows/unittests.yaml@main
     with:
-      ml_ref:   ${{ inputs.ml_ref }}
-      tools_ref: ${{ inputs.tools_ref }}
+      ml_ref:    ${{ github.event_name == 'workflow_dispatch' && inputs.ml_ref   || github.head_ref }}
+      tools_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tools_ref || 'main' }}
