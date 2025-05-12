@@ -253,7 +253,7 @@ class LuxonisLoader(BaseLoader):
         if self.color_space == "BGR":
             img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
         elif self.color_space == "GRAY":
-            img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)[..., np.newaxis]
 
         return img, labels
 

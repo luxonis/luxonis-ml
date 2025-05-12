@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+import cv2
 import numpy as np
 
 from luxonis_ml.data import (
@@ -129,7 +130,9 @@ def set_seed(seed: int):
 
 
 def create_loader(
-    storage_url: str, tempdir: Path, augmentation_config: list[Params]
+    storage_url: str,
+    tempdir: Path,
+    **kwargs,
 ) -> LuxonisLoader:
     with set_seed(42):
         dataset = LuxonisParser(
@@ -145,7 +148,7 @@ def create_loader(
         width=512,
         view="train",
         seed=42,
-        augmentation_config=augmentation_config,
+        **kwargs,
     )
 
 
@@ -462,10 +465,14 @@ def test_edge_cases(tempdir: Path):
 
 
 def test_dataset_reproducibility(storage_url: str, tempdir: Path):
-    loader1 = create_loader(storage_url, tempdir, AUGMENTATIONS_CONFIG)
+    loader1 = create_loader(
+        storage_url, tempdir, augmentation_config=AUGMENTATIONS_CONFIG
+    )
     run1 = [ann for _, ann in loader1]
 
-    loader2 = create_loader(storage_url, tempdir, AUGMENTATIONS_CONFIG)
+    loader2 = create_loader(
+        storage_url, tempdir, augmentation_config=AUGMENTATIONS_CONFIG
+    )
     run2 = [ann for _, ann in loader2]
 
     assert all(
@@ -533,7 +540,9 @@ def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
             ),
         }
 
-    loader_aug = create_loader(storage_url, tempdir, AUGMENTATIONS_CONFIG)
+    loader_aug = create_loader(
+        storage_url, tempdir, augmentation_config=AUGMENTATIONS_CONFIG
+    )
     new_aug_annotations = [convert_annotation(ann) for _, ann in loader_aug]
 
     original_aug_annotations = load_annotations(
@@ -550,3 +559,22 @@ def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
         new_mask = rle_to_mask(new_ann["segmentation"], 512, 512)
         diff = np.count_nonzero(orig_mask != new_mask)
         assert diff <= 50
+
+
+def test_colorspace(storage_url: str, tempdir: Path):
+    loader = create_loader(storage_url, tempdir)
+    rgb_img, _ = next(iter(loader))
+    assert len(rgb_img.shape) == 3
+    assert rgb_img.shape[2] == 3
+    loader = create_loader(storage_url, tempdir, color_space="BGR")
+    bgr_img, _ = next(iter(loader))
+    assert len(bgr_img.shape) == 3
+    assert bgr_img.shape[2] == 3
+    assert np.array_equal(rgb_img, bgr_img[:, :, ::-1])
+    loader = create_loader(storage_url, tempdir, color_space="GRAY")
+    gray_img, _ = next(iter(loader))
+    assert len(gray_img.shape) == 3
+    assert gray_img.shape[2] == 1
+    assert np.array_equal(
+        cv2.cvtColor(rgb_img, cv2.COLOR_RGB2GRAY), gray_img[:, :, 0]
+    )
