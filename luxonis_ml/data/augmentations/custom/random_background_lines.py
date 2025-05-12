@@ -16,6 +16,8 @@ class RandomBackgroundLines(A.DualTransform):
     @param line_thickness: Range of line thickness. Defaults to (10, 50).
     @type line_length: tuple
     @param line_length: Range of line lengths as a fraction of the diagonal of the image. Defaults to (0.1, 0.5).
+    @type gray_range: tuple
+    @param gray_range: Range of grayscale values for the line color (0=black, 255=white). Defaults to (0, 80).
     @type p: float
     @param p: Probability of applying the transform. Defaults to 0.5.
     """
@@ -25,12 +27,14 @@ class RandomBackgroundLines(A.DualTransform):
         num_lines: tuple = (3, 10),
         line_thickness: tuple = (10, 50),
         line_length: tuple = (0.1, 0.5),
+        gray_range: tuple = (0, 127),
         p: float = 0.5,
     ):
         super().__init__(p=p)
         self.num_lines = num_lines
         self.line_thickness = line_thickness
         self.line_length = line_length
+        self.gray_range = gray_range
 
     @override
     def get_params_dependent_on_data(
@@ -138,8 +142,22 @@ class RandomBackgroundLines(A.DualTransform):
                 if np.any(np.logical_and(line_mask > 0, foreground_mask)):
                     continue
 
-                color = (0, 0, 0)
+                gray_value = random.randint(
+                    self.gray_range[0], self.gray_range[1]
+                )
+                color = (gray_value, gray_value, gray_value)
                 cv2.line(result, (x1, y1), (x2, y2), color, thickness)
                 break
 
         return result
+
+    @override
+    def apply_to_mask(self, mask: np.ndarray, **params) -> np.ndarray:
+        """Keep the mask unchanged during augmentation.
+
+        @type mask: np.ndarray
+        @param mask: The input segmentation mask.
+        @return: The unmodified mask.
+        @rtype: np.ndarray
+        """
+        return mask
