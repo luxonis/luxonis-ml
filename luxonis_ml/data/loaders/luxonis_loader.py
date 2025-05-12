@@ -46,7 +46,7 @@ class LuxonisLoader(BaseLoader):
         width: int | None = None,
         keep_aspect_ratio: bool = True,
         exclude_empty_annotations: bool = False,
-        color_space: Literal["RGB", "BGR"] = "RGB",
+        color_space: Literal["RGB", "BGR", "GRAY"] = "RGB",
         seed: int | None = None,
         *,
         keep_categorical_as_strings: bool = False,
@@ -90,7 +90,7 @@ class LuxonisLoader(BaseLoader):
         @type keep_aspect_ratio: bool
         @param keep_aspect_ratio: Whether to keep the aspect ratio of the
             images. Defaults to C{True}.
-        @type color_space: Literal["RGB", "BGR"]
+        @type color_space: Literal["RGB", "BGR", "GRAY"]
         @param color_space: The color space of the output images. Defaults
             to C{"RGB"}.
         @type seed: Optional[int]
@@ -117,7 +117,7 @@ class LuxonisLoader(BaseLoader):
         """
 
         self.exclude_empty_annotations = exclude_empty_annotations
-        self.color_space: Literal["RGB", "BGR"] = color_space
+        self.color_space: Literal["RGB", "BGR", "GRAY"] = color_space
         self.height = height
         self.width = width
 
@@ -247,13 +247,15 @@ class LuxonisLoader(BaseLoader):
         else:
             img, labels = self._load_with_augmentations(idx)
 
+        if not self.exclude_empty_annotations:
+            img, labels = self._add_empty_annotations(img, labels)
+
         if self.color_space == "BGR":
             img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+        elif self.color_space == "GRAY":
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
-        if self.exclude_empty_annotations:
-            return img, labels
-
-        return self._add_empty_annotations(img, labels)
+        return img, labels
 
     def _add_empty_annotations(
         self, img: np.ndarray, labels: Labels
