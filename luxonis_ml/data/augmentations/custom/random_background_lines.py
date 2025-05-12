@@ -26,8 +26,8 @@ class RandomBackgroundLines(A.DualTransform):
         self,
         num_lines: tuple = (3, 10),
         line_thickness: tuple = (10, 50),
-        line_length: tuple = (0.1, 0.5),
-        gray_range: tuple = (0, 127),
+        line_length: tuple = (0.2, 0.6),
+        gray_range: tuple = (0, 96),
         p: float = 0.5,
     ):
         super().__init__(p=p)
@@ -69,85 +69,90 @@ class RandomBackgroundLines(A.DualTransform):
         @return: The augmented image with lines drawn on the background.
         @rtype: np.ndarray
         """
-
-        result = image.copy()
-        h, w = image.shape[:2]
-        diagonal = np.sqrt(h**2 + w**2)
-
         if seg_mask is None:
             raise ValueError("Mask is None. Please provide a valid mask.")
 
-        background_mask = seg_mask >= 0.5
+        h, w = image.shape[:2]
+        diagonal = np.sqrt(h**2 + w**2)
+
+        lines_canvas = np.zeros_like(image)
+
         num_lines = random.randint(self.num_lines[0], self.num_lines[1])
 
-        for _ in range(num_lines):
-            thickness = random.randint(
-                self.line_thickness[0], self.line_thickness[1]
-            )
-            length = (
-                random.uniform(self.line_length[0], self.line_length[1])
-                * diagonal
-            )
+        thicknesses = [
+            random.randint(self.line_thickness[0], self.line_thickness[1])
+            for _ in range(num_lines)
+        ]
 
-            for _ in range(20):
-                background_points = np.where(background_mask)
-                if len(background_points[0]) == 0:
-                    continue
+        lengths = [
+            random.uniform(self.line_length[0], self.line_length[1]) * diagonal
+            for _ in range(num_lines)
+        ]
 
-                idx = random.randint(0, len(background_points[0]) - 1)
-                y1 = background_points[0][idx]
-                x1 = background_points[1][idx]
+        start_points = [
+            (random.randint(0, w - 1), random.randint(0, h - 1))
+            for _ in range(num_lines)
+        ]
 
-                angle = random.choice(
-                    [0, np.pi / 4, np.pi / 2, 3 * np.pi / 4, np.pi]
+        angles = [
+            random.choice([0, np.pi / 4, np.pi / 2, 3 * np.pi / 4, np.pi])
+            for _ in range(num_lines)
+        ]
+
+        gray_values = [
+            random.randint(self.gray_range[0], self.gray_range[1])
+            for _ in range(num_lines)
+        ]
+
+        for i in range(num_lines):
+            x1, y1 = start_points[i]
+            angle = angles[i]
+            length = lengths[i]
+            thickness = thicknesses[i]
+
+            x2 = int(x1 + length * np.cos(angle))
+            y2 = int(y1 + length * np.sin(angle))
+
+            if x2 < 0:
+                y2 = int(
+                    y1 + (0 - x1) * np.tan(angle) if angle != np.pi / 2 else y1
                 )
-
-                x2 = int(x1 + length * np.cos(angle))
-                y2 = int(y1 + length * np.sin(angle))
-
-                if x2 < 0:
-                    y2 = int(
-                        y1 + (0 - x1) * np.tan(angle)
-                        if angle != np.pi / 2
-                        else y1
-                    )
-                    x2 = 0
-                elif x2 >= w:
-                    y2 = int(
-                        y1 + (w - 1 - x1) * np.tan(angle)
-                        if angle != np.pi / 2
-                        else y1
-                    )
-                    x2 = w - 1
-
-                if y2 < 0:
-                    x2 = int(
-                        x1 + (0 - y1) / np.tan(angle)
-                        if np.tan(angle) != 0
-                        else x1
-                    )
-                    y2 = 0
-                elif y2 >= h:
-                    x2 = int(
-                        x1 + (h - 1 - y1) / np.tan(angle)
-                        if np.tan(angle) != 0
-                        else x1
-                    )
-                    y2 = h - 1
-
-                line_mask = np.zeros((h, w), dtype=np.uint8)
-                cv2.line(line_mask, (x1, y1), (x2, y2), 1, thickness)
-
-                foreground_mask = seg_mask < 0.5
-                if np.any(np.logical_and(line_mask > 0, foreground_mask)):
-                    continue
-
-                gray_value = random.randint(
-                    self.gray_range[0], self.gray_range[1]
+                x2 = 0
+            elif x2 >= w:
+                y2 = int(
+                    y1 + (w - 1 - x1) * np.tan(angle)
+                    if angle != np.pi / 2
+                    else y1
                 )
-                color = (gray_value, gray_value, gray_value)
-                cv2.line(result, (x1, y1), (x2, y2), color, thickness)
-                break
+                x2 = w - 1
+
+            if y2 < 0:
+                x2 = int(
+                    x1 + (0 - y1) / np.tan(angle) if np.tan(angle) != 0 else x1
+                )
+                y2 = 0
+            elif y2 >= h:
+                x2 = int(
+                    x1 + (h - 1 - y1) / np.tan(angle)
+                    if np.tan(angle) != 0
+                    else x1
+                )
+                y2 = h - 1
+
+            color = (gray_values[i], gray_values[i], gray_values[i])
+            cv2.line(lines_canvas, (x1, y1), (x2, y2), color, thickness)
+
+        foreground_mask = seg_mask < 0.5
+
+        background_mask = ~foreground_mask
+
+        result = image.copy()
+
+        lines_exist = np.any(lines_canvas > 0, axis=2)
+        update_mask = background_mask & lines_exist
+
+        if np.any(update_mask):
+            result[update_mask] = lines_canvas[update_mask]
 
         return result
 
