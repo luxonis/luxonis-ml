@@ -104,7 +104,7 @@ jobs:
   test-datadreamer:
     name: Test Datadreamer
     if: ${{ inputs.run_datadreamer }}
-    uses: Luxonis/datadreamer/.github/workflows/unit-tests.yaml@feat/add-workflow_call-to-unittests  # change to main when ready
+    uses: Luxonis/datadreamer/.github/workflows/unit-tests.yaml@main
     with:
       ml_ref:   ${{ inputs.ml_ref }}
       datadreamer_ref: ${{ inputs.datadreamer_ref }}
