@@ -23,6 +23,11 @@ on:
         required: true
         type: string
         default: main
+      datadreamer_ref:
+        description: 'datadreamer version (branch/tag/SHA)'
+        required: true
+        type: string
+        default: main
       run_train:
         description: 'Run Luxonis Train tests'
         required: false
@@ -35,6 +40,11 @@ on:
         default: true
       run_tools:
         description: 'Run Luxonis Tools tests'
+        required: false
+        type: boolean
+        default: true
+      run_datadreamer:
+        description: 'Run Datadreamer tests'
         required: false
         type: boolean
         default: true
@@ -90,3 +100,11 @@ jobs:
     with:
       ml_ref:    ${{ github.event_name == 'workflow_dispatch' && inputs.ml_ref   || github.head_ref }}
       tools_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tools_ref || 'main' }}
+
+  test-datadreamer:
+    name: Test Datadreamer
+    if: ${{ inputs.run_datadreamer }}
+    uses: Luxonis/datadreamer/.github/workflows/unit-tests.yaml@feat/add-workflow_call-to-unittests  # change to main when ready
+    with:
+      ml_ref:   ${{ inputs.ml_ref }}
+      datadreamer_ref: ${{ inputs.datadreamer_ref }}
