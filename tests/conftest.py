@@ -4,6 +4,7 @@ import random
 import shutil
 import sys
 import time
+from collections.abc import Generator
 from contextlib import suppress
 from pathlib import Path
 
@@ -68,7 +69,9 @@ def platform_name():  # pragma: no cover
 
 
 @pytest.fixture
-def dataset_name(request: SubRequest, randint: int) -> str:
+def dataset_name(
+    request: SubRequest, randint: int
+) -> Generator[str, None, None]:
     name = f"{get_caller_name(request)}_{randint}"
     yield name
     with suppress(Exception):
