@@ -756,6 +756,13 @@ def test_merge_datasets(
     assert df_cloned_merged is not None
     assert df_merged.equals(df_cloned_merged)
 
+    dataset1.delete_dataset(delete_local=True, delete_remote=True)
+    cloned_dataset1.delete_dataset(delete_local=True, delete_remote=True)
+    dataset2.delete_dataset(delete_local=True, delete_remote=True)
+    dataset1_merged_with_dataset2.delete_dataset(
+        delete_local=True, delete_remote=True
+    )
+
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_classes_per_task(dataset_name: str, tempdir: Path):
