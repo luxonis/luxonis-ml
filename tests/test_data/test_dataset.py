@@ -610,6 +610,7 @@ def test_clone_dataset(
     assert df_cloned is not None
     assert df_original is not None
     assert df_cloned.equals(df_original)
+    cloned_dataset.delete_dataset(delete_local=True, delete_remote=True)
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
