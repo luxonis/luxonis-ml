@@ -464,27 +464,27 @@ class LuxonisDataset(BaseDataset):
             / self.dataset_name
             / "annotations"
         )
-
-        if not path.exists():
+        files = list(path.glob("*.parquet"))
+        if not files:
             if raise_when_empty:
                 raise FileNotFoundError(
                     f"Dataset '{self.dataset_name}' is empty."
                 )
             return None
 
-        if lazy:
-            dfs = [pl.scan_parquet(file) for file in path.glob("*.parquet")]
-            df = pl.concat(dfs) if dfs else None
-        else:
-            dfs = [pl.read_parquet(file) for file in path.glob("*.parquet")]
-            df = pl.concat(dfs) if dfs else None
+        lazy_df = pl.scan_parquet([str(f) for f in files])
 
-        if df is None and raise_when_empty:
+        if lazy:
+            return lazy_df
+
+        df = lazy_df.collect()
+        if df.is_empty() and raise_when_empty:
             raise FileNotFoundError(f"Dataset '{self.dataset_name}' is empty.")
 
-        if not attempt_migration or self.version == LDF_VERSION or df is None:
-            return df
-        return migrate_dataframe(df)  # pragma: no cover
+        if attempt_migration and self.version != LDF_VERSION:
+            df = migrate_dataframe(df)
+
+        return df
 
     @overload
     def _get_index(
@@ -513,30 +513,33 @@ class LuxonisDataset(BaseDataset):
         raise_when_empty: bool = False,
     ) -> pl.DataFrame | pl.LazyFrame | None:
         """Loads unique file entries from annotation data."""
-        df = self._load_df_offline(
-            lazy=lazy, raise_when_empty=raise_when_empty
+        df: pl.LazyFrame | pl.DataFrame = self._load_df_offline(
+            lazy=True, raise_when_empty=raise_when_empty
         )
         if df is None:
             return None
 
-        unique_files = df.select(pl.col("file")).unique()
-        if isinstance(unique_files, pl.LazyFrame):
-            unique_files = unique_files.collect()
-        files = unique_files["file"].to_list()
-        resolved = {f: str(Path(f).resolve()) for f in files}
-        processed = df.select(
-            pl.col("uuid"),
-            pl.col("file").str.extract(r"([^\/\\]+)$").alias("file"),
-            pl.col("file")
-            .map_dict(resolved, default=None)
-            .alias("original_filepath"),
-        )
+        unique_files = df.select(pl.col("file")).unique().collect()
+        files: list[str] = unique_files["file"].to_list()
 
-        processed = processed.unique(
-            subset=["uuid", "original_filepath"], maintain_order=False
-        )
+        def resolve_path(p: str) -> str:
+            return str(Path(p).resolve())
 
-        if not lazy and isinstance(processed, pl.LazyFrame):
+        with ThreadPoolExecutor() as pool:
+            resolved_paths = list(pool.map(resolve_path, files))
+        mapping: dict[str, str] = dict(zip(files, resolved_paths, strict=True))
+
+        processed = df.with_columns(
+            [
+                pl.col("uuid"),
+                pl.col("file").str.extract(r"([^\/\\]+)$").alias("file"),
+                pl.col("file")
+                .map_dict(mapping, default=None)
+                .alias("original_filepath"),
+            ]
+        ).unique(subset=["uuid", "original_filepath"], maintain_order=False)
+
+        if not lazy:
             processed = processed.collect()
 
         return processed
