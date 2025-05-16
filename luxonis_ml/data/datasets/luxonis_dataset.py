@@ -519,7 +519,10 @@ class LuxonisDataset(BaseDataset):
         if df is None:
             return None
 
-        files = df.select(pl.col("file")).unique().to_series().to_list()
+        unique_files = df.select(pl.col("file")).unique()
+        if isinstance(unique_files, pl.LazyFrame):
+            unique_files = unique_files.collect()
+        files = unique_files["file"].to_list()
         resolved = {f: str(Path(f).resolve()) for f in files}
         processed = df.select(
             pl.col("uuid"),
