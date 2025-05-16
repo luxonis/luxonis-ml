@@ -519,11 +519,13 @@ class LuxonisDataset(BaseDataset):
         if df is None:
             return None
 
+        files = df.select(pl.col("file")).unique().to_series().to_list()
+        resolved = {f: str(Path(f).resolve()) for f in files}
         processed = df.select(
             pl.col("uuid"),
             pl.col("file").str.extract(r"([^\/\\]+)$").alias("file"),
             pl.col("file")
-            .apply(lambda x: str(Path(x).resolve()), return_dtype=pl.Utf8)
+            .map_dict(resolved, default=None)
             .alias("original_filepath"),
         )
 
@@ -717,23 +719,18 @@ class LuxonisDataset(BaseDataset):
             index = self._get_index(lazy=False)
             missing_media_paths = []
             if index is not None:
-                missing = index.filter(
-                    pl.col("original_filepath").apply(
-                        lambda path: not Path(path).exists(),
-                        return_dtype=pl.Boolean,
-                    )
-                    & pl.col("uuid").apply(
-                        lambda uid: not (
-                            Path("local_dir")
-                            / "media"
-                            / f"{uid}{Path(str(uid)).suffix}"
-                        ).exists(),
-                        return_dtype=pl.Boolean,
-                    )
-                )
+                df_small = index.select(["uuid", "file", "original_filepath"])
+                uuids = df_small["uuid"].to_list()
+                files = df_small["file"].to_list()
+                origps = df_small["original_filepath"].to_list()
+
+                media_root = Path(local_dir) / self.dataset_name / "media"
+
                 missing_media_paths = [
-                    f"media/{row[0]}{Path(str(row[1])).suffix}"
-                    for row in missing.select(["uuid", "file"]).iter_rows()
+                    f"media/{uid}{Path(f).suffix}"
+                    for uid, f, orig in zip(uuids, files, origps, strict=True)
+                    if not Path(orig).exists()
+                    and not (media_root / f"{uid}{Path(f).suffix}").exists()
                 ]
 
             if update_mode == UpdateMode.ALL:
