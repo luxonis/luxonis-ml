@@ -513,7 +513,7 @@ class LuxonisDataset(BaseDataset):
         raise_when_empty: bool = False,
     ) -> pl.DataFrame | pl.LazyFrame | None:
         """Loads unique file entries from annotation data."""
-        df: pl.LazyFrame | pl.DataFrame = self._load_df_offline(
+        df = self._load_df_offline(
             lazy=True, raise_when_empty=raise_when_empty
         )
         if df is None:
