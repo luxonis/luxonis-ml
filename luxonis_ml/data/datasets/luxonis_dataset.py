@@ -519,6 +519,9 @@ class LuxonisDataset(BaseDataset):
         if df is None:
             return None
 
+        if isinstance(df, pl.DataFrame):
+            df = df.lazy()
+
         unique_files = df.select(pl.col("file")).unique().collect()
         files: list[str] = unique_files["file"].to_list()
 
