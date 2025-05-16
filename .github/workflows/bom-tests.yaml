@@ -78,7 +78,7 @@ jobs:
       (github.event_name == 'pull_request' &&
        startsWith(github.head_ref, 'release/') &&
        github.event.pull_request.base.ref == 'main')
-    uses: Luxonis/modelconverter/.github/workflows/unittests.yaml@main
+    uses: Luxonis/modelconverter/.github/workflows/unittests.yaml@fix/bom-tests
     with:
       ml_ref:        ${{ github.event_name == 'workflow_dispatch' && inputs.ml_ref        || github.head_ref }}
       modelconv_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.modelconv_ref || 'main' }}
@@ -96,7 +96,7 @@ jobs:
       (github.event_name == 'pull_request' &&
        startsWith(github.head_ref, 'release/') &&
        github.event.pull_request.base.ref == 'main')
-    uses: Luxonis/tools/.github/workflows/unittests.yaml@main
+    uses: Luxonis/tools/.github/workflows/unittests.yaml@fix/bom-tests
     with:
       ml_ref:    ${{ github.event_name == 'workflow_dispatch' && inputs.ml_ref   || github.head_ref }}
       tools_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tools_ref || 'main' }}
@@ -108,7 +108,7 @@ jobs:
       (github.event_name == 'pull_request' &&
        startsWith(github.head_ref, 'release/') &&
        github.event.pull_request.base.ref == 'main')
-    uses: Luxonis/datadreamer/.github/workflows/unit-tests.yaml@main
+    uses: Luxonis/datadreamer/.github/workflows/unit-tests.yaml@fix/bom-tests
     with:
       ml_ref:           ${{ github.event_name == 'workflow_dispatch' && inputs.ml_ref           || github.head_ref }}
       datadreamer_ref:  ${{ github.event_name == 'workflow_dispatch' && inputs.datadreamer_ref || 'main' }}
