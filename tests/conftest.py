@@ -4,12 +4,13 @@ import random
 import shutil
 import sys
 import time
+from collections.abc import Generator
+from contextlib import suppress
 from pathlib import Path
 
 import numpy as np
 import pytest
 from _pytest.fixtures import SubRequest
-from _pytest.main import Session
 from rich import print as rich_print
 
 from luxonis_ml.data import BucketStorage, LuxonisDataset
@@ -24,12 +25,15 @@ def setup():
     builtins.print = rich_print
 
     randint = random.randint(0, 100000)
-    environ.LUXONISML_BASE_PATH = (
-        Path.cwd() / f"tests/data/luxonisml_base_path/{randint}"
-    )
-    if environ.LUXONISML_BASE_PATH.exists():  # pragma: no cover
-        shutil.rmtree(environ.LUXONISML_BASE_PATH)
-    environ.LUXONISML_BASE_PATH.mkdir(parents=True, exist_ok=True)
+    base = Path.cwd() / f"tests/data/luxonisml_base_path/{randint}"
+    environ.LUXONISML_BASE_PATH = base
+    if base.exists():  # pragma: no cover
+        shutil.rmtree(base)
+    base.mkdir(parents=True, exist_ok=True)
+
+    yield
+
+    shutil.rmtree(base, ignore_errors=True)
 
 
 @pytest.fixture
@@ -65,17 +69,16 @@ def platform_name():  # pragma: no cover
 
 
 @pytest.fixture
-def dataset_name(request: SubRequest, randint: int) -> str:
+def dataset_name(
+    request: SubRequest, randint: int
+) -> Generator[str, None, None]:
     name = f"{get_caller_name(request)}_{randint}"
-    CREATED_DATASETS.append(name)
-    return name
-
-
-def pytest_sessionfinish(session: Session, exitstatus: int) -> None:
-    for ds_name in CREATED_DATASETS:
-        LuxonisDataset(
-            ds_name, bucket_storage=BucketStorage.GCS
-        ).delete_dataset(delete_remote=True, delete_local=True)
+    yield name
+    with suppress(Exception):
+        LuxonisDataset(name, bucket_storage=BucketStorage.GCS).delete_dataset(
+            delete_remote=True,
+            delete_local=True,
+        )
 
 
 @pytest.fixture(scope="session")

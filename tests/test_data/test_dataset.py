@@ -610,6 +610,7 @@ def test_clone_dataset(
     assert df_cloned is not None
     assert df_original is not None
     assert df_cloned.equals(df_original)
+    cloned_dataset.delete_dataset(delete_local=True, delete_remote=True)
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
@@ -754,6 +755,13 @@ def test_merge_datasets(
     assert df_merged is not None
     assert df_cloned_merged is not None
     assert df_merged.equals(df_cloned_merged)
+
+    dataset1.delete_dataset(delete_local=True, delete_remote=True)
+    cloned_dataset1.delete_dataset(delete_local=True, delete_remote=True)
+    dataset2.delete_dataset(delete_local=True, delete_remote=True)
+    dataset1_merged_with_dataset2.delete_dataset(
+        delete_local=True, delete_remote=True
+    )
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
