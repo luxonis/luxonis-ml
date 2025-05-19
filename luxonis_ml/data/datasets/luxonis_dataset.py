@@ -1118,6 +1118,8 @@ class LuxonisDataset(BaseDataset):
             if isinstance(splits, tuple):
                 ratios = splits
             elif isinstance(splits, dict):
+                if not splits:
+                    raise ValueError("Splits cannot be empty")
                 value = next(iter(splits.values()))
                 if isinstance(value, float):
                     ratios = splits  # type: ignore
