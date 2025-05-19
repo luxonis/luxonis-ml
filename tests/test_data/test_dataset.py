@@ -926,3 +926,51 @@ def test_dataset_push_pull(
         loader = LuxonisLoader(cloud_dataset)
         assert sum(1 for _ in loader) == 3
         assert cloud_dataset.get_statistics() == original_stats
+
+
+@pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
+def test_merge_on_different_machines(dataset_name: str, tempdir: Path):
+    def generator(start: int, end: int) -> DatasetIterator:
+        """Generate sample dataset items with bounding boxes."""
+        for i in range(start, end):
+            img = create_image(i, tempdir)
+            yield {
+                "file": img,
+                "annotation": {
+                    "class": "person",
+                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
+                    "instance_id": i,
+                },
+            }
+
+    dataset1 = create_dataset(
+        dataset_name + "_1",
+        generator(0, 3),
+        bucket_storage=BucketStorage.GCS,
+        delete_local=True,
+        delete_remote=True,
+        splits=(1, 0, 0),
+    )
+    dataset2 = create_dataset(
+        dataset_name + "_2",
+        generator(3, 6),
+        bucket_storage=BucketStorage.GCS,
+        delete_local=True,
+        delete_remote=True,
+        splits=(1, 0, 0),
+    )
+    shutil.rmtree(tempdir)
+    dataset1.pull_from_cloud()
+    dataset2.pull_from_cloud()
+    dataset1.delete_dataset(delete_remote=True)
+    dataset2.delete_dataset(delete_remote=True)
+    del dataset1, dataset2
+    dataset1 = LuxonisDataset(dataset_name + "_1")
+    dataset2 = LuxonisDataset(dataset_name + "_2")
+    assert len(list(dataset1.media_path.glob("*"))) == 3
+    assert len(list(dataset2.media_path.glob("*"))) == 3
+    dataset3 = dataset1.merge_with(
+        dataset2, inplace=False, new_dataset_name=dataset_name
+    )
+    loader = LuxonisLoader(dataset3)
+    assert sum(1 for _ in loader) == 6

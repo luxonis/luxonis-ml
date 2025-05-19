@@ -391,6 +391,18 @@ class LuxonisDataset(BaseDataset):
                 update_mode=UpdateMode.MISSING,
             )
 
+        for entry in (
+            df_other.select(["uuid", "file"])
+            .unique(subset=["uuid"])
+            .to_dicts()
+        ):
+            uid, rel_file = entry["uuid"], entry["file"]
+            src_path = other.media_path / f"{uid}{Path(rel_file).suffix}"
+            dst_path = target_dataset.media_path / src_path.name
+            if src_path.exists() and not dst_path.exists():
+                dst_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(src_path, dst_path)
+
         target_dataset._merge_metadata_with(other)
 
         return target_dataset
