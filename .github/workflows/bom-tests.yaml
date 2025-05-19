@@ -103,8 +103,12 @@ jobs:
 
   test-datadreamer:
     name: Test Datadreamer
-    if: ${{ inputs.run_datadreamer }}
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.run_datadreamer) ||
+      (github.event_name == 'pull_request' &&
+       startsWith(github.head_ref, 'release/') &&
+       github.event.pull_request.base.ref == 'main')
     uses: Luxonis/datadreamer/.github/workflows/unit-tests.yaml@main
     with:
-      ml_ref:   ${{ inputs.ml_ref }}
-      datadreamer_ref: ${{ inputs.datadreamer_ref }}
+      ml_ref:           ${{ github.event_name == 'workflow_dispatch' && inputs.ml_ref           || github.head_ref }}
+      datadreamer_ref:  ${{ github.event_name == 'workflow_dispatch' && inputs.datadreamer_ref || 'main' }}

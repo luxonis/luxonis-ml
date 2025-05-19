@@ -169,16 +169,15 @@ class LuxonisLoader(BaseLoader):
             self.instances.extend(splits[view])
 
         self.idx_to_df_row: list[list[int]] = []
-        self.instances = [
-            uuid
-            for uuid in self.instances
-            if uuid in self.df["uuid"].to_list()
-        ]
+        uuid_list = self.df["uuid"].to_list()
+        uuid_set = set(uuid_list)
+        self.instances = [uid for uid in self.instances if uid in uuid_set]
 
-        for uuid in self.instances:
-            boolean_mask = self.df["uuid"] == uuid
-            row_indexes = boolean_mask.arg_true().to_list()
-            self.idx_to_df_row.append(row_indexes)
+        idx_map: dict[str, list[int]] = defaultdict(list)
+        for i, uid in enumerate(uuid_list):
+            idx_map[uid].append(i)
+
+        self.idx_to_df_row = [idx_map[uid] for uid in self.instances]
 
         self.tasks_without_background = set()
 

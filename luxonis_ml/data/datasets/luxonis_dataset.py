@@ -476,27 +476,27 @@ class LuxonisDataset(BaseDataset):
             / self.dataset_name
             / "annotations"
         )
-
-        if not path.exists():
+        files = list(path.glob("*.parquet"))
+        if not files:
             if raise_when_empty:
                 raise FileNotFoundError(
                     f"Dataset '{self.dataset_name}' is empty."
                 )
             return None
 
-        if lazy:
-            dfs = [pl.scan_parquet(file) for file in path.glob("*.parquet")]
-            df = pl.concat(dfs) if dfs else None
-        else:
-            dfs = [pl.read_parquet(file) for file in path.glob("*.parquet")]
-            df = pl.concat(dfs) if dfs else None
+        lazy_df = pl.scan_parquet([str(f) for f in files])
 
-        if df is None and raise_when_empty:
+        if lazy:
+            return lazy_df
+
+        df = lazy_df.collect()
+        if df.is_empty() and raise_when_empty:
             raise FileNotFoundError(f"Dataset '{self.dataset_name}' is empty.")
 
-        if not attempt_migration or self.version == LDF_VERSION or df is None:
-            return df
-        return migrate_dataframe(df)  # pragma: no cover
+        if attempt_migration and self.version != LDF_VERSION:
+            df = migrate_dataframe(df)
+
+        return df
 
     @overload
     def _get_index(
@@ -526,24 +526,35 @@ class LuxonisDataset(BaseDataset):
     ) -> pl.DataFrame | pl.LazyFrame | None:
         """Loads unique file entries from annotation data."""
         df = self._load_df_offline(
-            lazy=lazy, raise_when_empty=raise_when_empty
+            lazy=True, raise_when_empty=raise_when_empty
         )
         if df is None:
             return None
 
-        processed = df.select(
-            pl.col("uuid"),
-            pl.col("file").str.extract(r"([^\/\\]+)$").alias("file"),
-            pl.col("file")
-            .apply(lambda x: str(Path(x).resolve()), return_dtype=pl.Utf8)
-            .alias("original_filepath"),
-        )
+        if isinstance(df, pl.DataFrame):
+            df = df.lazy()
 
-        processed = processed.unique(
-            subset=["uuid", "original_filepath"], maintain_order=False
-        )
+        unique_files = df.select(pl.col("file")).unique().collect()
+        files: list[str] = unique_files["file"].to_list()
 
-        if not lazy and isinstance(processed, pl.LazyFrame):
+        def resolve_path(p: str) -> str:
+            return str(Path(p).resolve())
+
+        with ThreadPoolExecutor() as pool:
+            resolved_paths = list(pool.map(resolve_path, files))
+        mapping: dict[str, str] = dict(zip(files, resolved_paths, strict=True))
+
+        processed = df.with_columns(
+            [
+                pl.col("uuid"),
+                pl.col("file").str.extract(r"([^\/\\]+)$").alias("file"),
+                pl.col("file")
+                .map_dict(mapping, default=None)
+                .alias("original_filepath"),
+            ]
+        ).unique(subset=["uuid", "original_filepath"], maintain_order=False)
+
+        if not lazy:
             processed = processed.collect()
 
         return processed
@@ -729,23 +740,18 @@ class LuxonisDataset(BaseDataset):
             index = self._get_index(lazy=False)
             missing_media_paths = []
             if index is not None:
-                missing = index.filter(
-                    pl.col("original_filepath").apply(
-                        lambda path: not Path(path).exists(),
-                        return_dtype=pl.Boolean,
-                    )
-                    & pl.col("uuid").apply(
-                        lambda uid: not (
-                            Path("local_dir")
-                            / "media"
-                            / f"{uid}{Path(str(uid)).suffix}"
-                        ).exists(),
-                        return_dtype=pl.Boolean,
-                    )
-                )
+                df_small = index.select(["uuid", "file", "original_filepath"])
+                uuids = df_small["uuid"].to_list()
+                files = df_small["file"].to_list()
+                origps = df_small["original_filepath"].to_list()
+
+                media_root = Path(local_dir) / self.dataset_name / "media"
+
                 missing_media_paths = [
-                    f"media/{row[0]}{Path(str(row[1])).suffix}"
-                    for row in missing.select(["uuid", "file"]).iter_rows()
+                    f"media/{uid}{Path(f).suffix}"
+                    for uid, f, orig in zip(uuids, files, origps, strict=True)
+                    if not Path(orig).exists()
+                    and not (media_root / f"{uid}{Path(f).suffix}").exists()
                 ]
 
             if update_mode == UpdateMode.ALL:
@@ -1124,6 +1130,8 @@ class LuxonisDataset(BaseDataset):
             if isinstance(splits, tuple):
                 ratios = splits
             elif isinstance(splits, dict):
+                if not splits:
+                    raise ValueError("Splits cannot be empty")
                 value = next(iter(splits.values()))
                 if isinstance(value, float):
                     ratios = splits  # type: ignore
