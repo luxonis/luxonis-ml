@@ -967,7 +967,6 @@ def test_merge_on_different_machines(dataset_name: str, tempdir: Path):
     dataset2.pull_from_cloud()
     dataset1.delete_dataset(delete_remote=True)
     dataset2.delete_dataset(delete_remote=True)
-    del dataset1, dataset2
     dataset1 = LuxonisDataset(dataset_name + "_1")
     dataset2 = LuxonisDataset(dataset_name + "_2")
     assert len(list(dataset1.media_path.glob("*"))) == 3
