@@ -269,7 +269,10 @@ class LuxonisDataset(BaseDataset):
         self._write_metadata()
 
     def clone(
-        self, new_dataset_name: str, push_to_cloud: bool = True
+        self,
+        new_dataset_name: str,
+        push_to_cloud: bool = True,
+        team_id: str | None = None,
     ) -> "LuxonisDataset":
         """Create a new LuxonisDataset that is a local copy of the
         current dataset. Cloned dataset will overwrite the existing
@@ -281,10 +284,12 @@ class LuxonisDataset(BaseDataset):
         @param push_to_cloud: Whether to push the new dataset to the
             cloud. Only if the current dataset is remote.
         """
+        if team_id is None:
+            team_id = self.team_id
 
         new_dataset = LuxonisDataset(
             dataset_name=new_dataset_name,
-            team_id=self.team_id,
+            team_id=team_id,
             bucket_type=self.bucket_type,
             bucket_storage=self.bucket_storage,
             delete_local=True,
