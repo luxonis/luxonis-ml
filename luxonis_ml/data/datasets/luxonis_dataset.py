@@ -1439,12 +1439,11 @@ class LuxonisDataset(BaseDataset):
             description="Exporting ...",
         ):
             uuid = row[7]
-            if self.is_remote:
+            file = Path(row[-1])
+            if self.is_remote or not file.exists():
                 file_extension = row[0].rsplit(".", 1)[-1]
                 file = self.media_path / f"{uuid}.{file_extension}"
                 assert file.exists()
-            else:
-                file = Path(row[-1])
 
             split = None
             for s, uuids in splits.items():

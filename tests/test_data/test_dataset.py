@@ -976,3 +976,14 @@ def test_merge_on_different_machines(dataset_name: str, tempdir: Path):
     )
     loader = LuxonisLoader(dataset3)
     assert sum(1 for _ in loader) == 6
+    dataset3.export(tempdir)
+    assert (
+        len(
+            list(
+                Path.cwd().glob(
+                    f"{tempdir}/{dataset3.dataset_name}/train/images/*"
+                )
+            )
+        )
+        == 6
+    )
