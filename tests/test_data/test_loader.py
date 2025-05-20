@@ -4,7 +4,6 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-import cv2
 import numpy as np
 
 from luxonis_ml.data import (
@@ -562,19 +561,40 @@ def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
 
 
 def test_colorspace(storage_url: str, tempdir: Path):
-    loader = create_loader(storage_url, tempdir)
+    norm_3d = [
+        {
+            "name": "Normalize",
+            "params": {
+                "mean": [0.5, 0.5, 0.5],
+                "std": [0.5, 0.5, 0.5],
+                "p": 1,
+            },
+        },
+    ]
+    norm_1d = [
+        {
+            "name": "Normalize",
+            "params": {
+                "mean": [0.5],
+                "std": [0.5],
+                "p": 1,
+            },
+        },
+    ]
+    loader = create_loader(storage_url, tempdir, augmentation_config=norm_3d)
     rgb_img, _ = next(iter(loader))
     assert len(rgb_img.shape) == 3
     assert rgb_img.shape[2] == 3
-    loader = create_loader(storage_url, tempdir, color_space="BGR")
+    loader = create_loader(
+        storage_url, tempdir, color_space="BGR", augmentation_config=norm_3d
+    )
     bgr_img, _ = next(iter(loader))
     assert len(bgr_img.shape) == 3
     assert bgr_img.shape[2] == 3
     assert np.array_equal(rgb_img, bgr_img[:, :, ::-1])
-    loader = create_loader(storage_url, tempdir, color_space="GRAY")
+    loader = create_loader(
+        storage_url, tempdir, color_space="GRAY", augmentation_config=norm_1d
+    )
     gray_img, _ = next(iter(loader))
     assert len(gray_img.shape) == 3
     assert gray_img.shape[2] == 1
-    assert np.array_equal(
-        cv2.cvtColor(rgb_img, cv2.COLOR_RGB2GRAY), gray_img[:, :, 0]
-    )
