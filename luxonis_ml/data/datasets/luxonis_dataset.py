@@ -269,7 +269,10 @@ class LuxonisDataset(BaseDataset):
         self._write_metadata()
 
     def clone(
-        self, new_dataset_name: str, push_to_cloud: bool = True
+        self,
+        new_dataset_name: str,
+        push_to_cloud: bool = True,
+        team_id: str | None = None,
     ) -> "LuxonisDataset":
         """Create a new LuxonisDataset that is a local copy of the
         current dataset. Cloned dataset will overwrite the existing
@@ -281,10 +284,12 @@ class LuxonisDataset(BaseDataset):
         @param push_to_cloud: Whether to push the new dataset to the
             cloud. Only if the current dataset is remote.
         """
+        if team_id is None:
+            team_id = self.team_id
 
         new_dataset = LuxonisDataset(
             dataset_name=new_dataset_name,
-            team_id=self.team_id,
+            team_id=team_id,
             bucket_type=self.bucket_type,
             bucket_storage=self.bucket_storage,
             delete_local=True,
@@ -390,6 +395,18 @@ class LuxonisDataset(BaseDataset):
                 bucket_storage=target_dataset.bucket_storage,
                 update_mode=UpdateMode.MISSING,
             )
+
+        for entry in (
+            df_other.select(["uuid", "file"])
+            .unique(subset=["uuid"])
+            .to_dicts()
+        ):
+            uid, rel_file = entry["uuid"], entry["file"]
+            src_path = other.media_path / f"{uid}{Path(rel_file).suffix}"
+            dst_path = target_dataset.media_path / src_path.name
+            if src_path.exists() and not dst_path.exists():
+                dst_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(src_path, dst_path)
 
         target_dataset._merge_metadata_with(other)
 
@@ -1422,12 +1439,11 @@ class LuxonisDataset(BaseDataset):
             description="Exporting ...",
         ):
             uuid = row[7]
-            if self.is_remote:
+            file = Path(row[-1])
+            if self.is_remote or not file.exists():
                 file_extension = row[0].rsplit(".", 1)[-1]
                 file = self.media_path / f"{uuid}.{file_extension}"
                 assert file.exists()
-            else:
-                file = Path(row[-1])
 
             split = None
             for s, uuids in splits.items():

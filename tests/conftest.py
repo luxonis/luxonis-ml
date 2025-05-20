@@ -155,7 +155,9 @@ def tempdir(base_tempdir: Path, randint: int) -> Path:
 
     path.mkdir(exist_ok=True)
 
-    return path
+    yield path
+
+    shutil.rmtree(path, ignore_errors=True)
 
 
 @pytest.fixture(scope="session")
