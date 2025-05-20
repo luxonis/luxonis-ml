@@ -554,6 +554,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         """
         out_labels = {}
         out_image = data.pop("image")
+        if out_image.ndim == 2:
+            out_image = np.expand_dims(out_image, axis=-1)
         image_height, image_width, _ = out_image.shape
 
         bboxes_indices = {}
