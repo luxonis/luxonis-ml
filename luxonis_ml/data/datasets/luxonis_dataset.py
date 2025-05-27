@@ -1,6 +1,7 @@
 import json
 import math
 import shutil
+import sys
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -1461,9 +1462,13 @@ class LuxonisDataset(BaseDataset):
 
             if file not in image_indices:
                 file_size = file.stat().st_size
+                annotations_size = sum(
+                    sys.getsizeof(lst) for lst in annotations.values()
+                )
                 if (
                     max_partition_size
-                    and current_size + file_size > max_partition_size
+                    and current_size + file_size + annotations_size
+                    > max_partition_size
                 ):
                     _dump_annotations(
                         annotations, output_path, self.identifier, part

@@ -139,7 +139,7 @@ def base_tempdir(worker_id: str):
 
 
 @pytest.fixture
-def tempdir(base_tempdir: Path, randint: int) -> Path:
+def tempdir(base_tempdir: Path, randint: int) -> Generator[Path, None, None]:
     t = time.time()
     unique_id = randint
     while True:
