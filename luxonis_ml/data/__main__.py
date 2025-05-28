@@ -108,6 +108,7 @@ def print_info(dataset: LuxonisDataset) -> None:
             task_table.add_row(", ".join(task_types))
 
     splits = dataset.get_splits()
+    print(dataset.team_id)
 
     @group()
     def get_sizes_panel() -> Iterator[RenderableType]:
@@ -128,6 +129,8 @@ def print_info(dataset: LuxonisDataset) -> None:
     def get_panels() -> Iterator[RenderableType]:
         yield f"[magenta b]Name: [not b cyan]{dataset.identifier}"
         yield f"[magenta b]Version: [not b cyan]{dataset.version}"
+        yield f"[magenta b]Bucket Storage: [not b cyan]{dataset.bucket_storage.value}"
+        yield f"[magenta b]Team ID: [not b cyan]{dataset.team_id}"
         yield ""
         yield Panel.fit(get_sizes_panel(), title="Split Sizes")
         yield class_table
