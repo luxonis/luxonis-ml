@@ -1532,6 +1532,10 @@ class LuxonisDataset(BaseDataset):
                 record["annotation"][task_type] = data
                 annotations[split].append(record)
 
+            elif task_type == "metadata/text":
+                record["annotation"]["metadata"] = {"text": data}
+                annotations[split].append(record)
+
         _dump_annotations(annotations, output_path, self.identifier, part)
 
         if zip_output:
