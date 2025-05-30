@@ -108,7 +108,6 @@ def print_info(dataset: LuxonisDataset) -> None:
             task_table.add_row(", ".join(task_types))
 
     splits = dataset.get_splits()
-    print(dataset.team_id)
 
     @group()
     def get_sizes_panel() -> Iterator[RenderableType]:
