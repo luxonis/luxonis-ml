@@ -830,6 +830,15 @@ def clone(
         ),
     ] = True,
     bucket_storage: BucketStorage = bucket_option,
+    team_id: Annotated[
+        str | None,
+        typer.Option(
+            "--team-id",
+            "-t",
+            help="Team ID to use for the new dataset. If not provided, the dataset's current team ID will be used.",
+            show_default=False,
+        ),
+    ] = None,
 ):
     """Clone an existing dataset with a new name.
 
@@ -847,7 +856,9 @@ def clone(
 
     print(f"Cloning dataset '{name}' to '{new_name}'...")
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
-    dataset.clone(new_dataset_name=new_name, push_to_cloud=push_to_cloud)
+    dataset.clone(
+        new_dataset_name=new_name, push_to_cloud=push_to_cloud, team_id=team_id
+    )
     print(f"[green]Dataset '{name}' successfully cloned to '{new_name}'.")
 
 
