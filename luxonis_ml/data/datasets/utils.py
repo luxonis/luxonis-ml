@@ -83,6 +83,43 @@ def find_filepath_uuid(
 
 
 @overload
+def find_filepath_group_id(
+    filepath: PathType,
+    index: pl.DataFrame | None,
+    *,
+    raise_on_missing: Literal[False] = ...,
+) -> str | None: ...
+
+
+@overload
+def find_filepath_group_id(
+    filepath: PathType,
+    index: pl.DataFrame | None,
+    *,
+    raise_on_missing: Literal[True] = ...,
+) -> str: ...
+
+
+def find_filepath_group_id(
+    filepath: PathType,
+    index: pl.DataFrame | None,
+    *,
+    raise_on_missing: bool = False,
+) -> str | None:
+    if index is None:
+        return None
+
+    abs_path = str(Path(filepath).absolute().resolve())
+    matched = index.filter(pl.col("original_filepath") == abs_path)
+
+    if len(matched):
+        return next(iter(matched.select("group_id")))[0]
+    if raise_on_missing:
+        raise ValueError(f"File {abs_path} not found in index")
+    return None
+
+
+@overload
 def get_dir(
     fs: LuxonisFileSystem,
     remote_path: PosixPathType,

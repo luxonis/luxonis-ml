@@ -46,7 +46,12 @@ from .base_dataset import BaseDataset, DatasetIterator
 from .metadata import Metadata
 from .migration import migrate_dataframe, migrate_metadata
 from .source import LuxonisSource
-from .utils import find_filepath_uuid, get_dir, get_file
+from .utils import (
+    find_filepath_group_id,
+    find_filepath_uuid,
+    get_dir,
+    get_file,
+)
 
 
 class LuxonisDataset(BaseDataset):
@@ -365,14 +370,16 @@ class LuxonisDataset(BaseDataset):
 
         df_self = self._load_df_offline(raise_when_empty=True)
         df_other = other._load_df_offline(raise_when_empty=True)
-        duplicate_uuids = set(df_self["uuid"]).intersection(df_other["uuid"])
-        if duplicate_uuids:
+        duplicate_group_ids = set(df_self["group_id"]).intersection(
+            df_other["group_id"]
+        )
+        if duplicate_group_ids:
             logger.warning(
-                f"Found {len(duplicate_uuids)} duplicate UUIDs in the datasets. "
+                f"Found {len(duplicate_group_ids)} duplicate group ID's in the datasets. "
                 "Merging will remove these duplicates from the incoming dataset."
             )
             df_other = df_other.filter(
-                ~df_other["uuid"].is_in(duplicate_uuids)
+                ~df_other["group_id"].is_in(duplicate_group_ids)
             )
 
         df_merged = pl.concat([df_self, df_other])
@@ -383,8 +390,12 @@ class LuxonisDataset(BaseDataset):
             other.metadata_path
         )  # dict of split names to list of uuids
         splits_other = {
-            split_name: [uuid for uuid in uuids if uuid not in duplicate_uuids]
-            for split_name, uuids in splits_other.items()
+            split_name: [
+                group_id
+                for group_id in group_ids
+                if group_id not in duplicate_group_ids
+            ]
+            for split_name, group_ids in splits_other.items()
         }
         self._merge_splits(splits_self, splits_other)
         target_dataset._save_splits(splits_self)
@@ -424,11 +435,13 @@ class LuxonisDataset(BaseDataset):
         splits_self: dict[str, list[str]],
         splits_other: dict[str, list[str]],
     ) -> None:
-        for split_name, uuids_other in splits_other.items():
+        for split_name, group_ids_other in splits_other.items():
             if split_name not in splits_self:
                 splits_self[split_name] = []
-            combined_uuids = set(splits_self[split_name]).union(uuids_other)
-            splits_self[split_name] = list(combined_uuids)
+            combined_group_ids = set(splits_self[split_name]).union(
+                group_ids_other
+            )
+            splits_self[split_name] = list(combined_group_ids)
 
     def _save_splits(self, splits: dict[str, list[str]]) -> None:
         splits_path_self = self.metadata_path / "splits.json"
@@ -560,8 +573,11 @@ class LuxonisDataset(BaseDataset):
                     .alias("original_filepath"),
                 ]
             )
-            .select(["uuid", "original_filepath"])
-            .unique(subset=["uuid", "original_filepath"], maintain_order=False)
+            .unique(
+                subset=["uuid", "original_filepath", "group_id"],
+                maintain_order=False,
+            )
+            .select(["uuid", "original_filepath", "group_id"])
         )
 
         if not lazy:
@@ -1184,19 +1200,21 @@ class LuxonisDataset(BaseDataset):
             with open(splits_path) as file:
                 old_splits = defaultdict(list, json.load(file))
 
-        defined_uuids = {
-            uuid for uuids in old_splits.values() for uuid in uuids
+        defined_group_ids = {
+            group_id
+            for group_ids in old_splits.values()
+            for group_id in group_ids
         }
 
         if definitions is None:
             ratios = ratios or {"train": 0.8, "val": 0.1, "test": 0.1}
             df = self._load_df_offline(raise_when_empty=True)
             ids = (
-                df.filter(~pl.col("uuid").is_in(defined_uuids))
-                .select("uuid")
+                df.filter(~pl.col("group_id").is_in(defined_group_ids))
+                .select("group_id")
                 .unique()
-                .sort("uuid")
-                .get_column("uuid")
+                .sort("group_id")
+                .get_column("group_id")
                 .to_list()
             )
             if not ids:
@@ -1205,7 +1223,12 @@ class LuxonisDataset(BaseDataset):
                         "No new files to add to splits. "
                         "If you want to generate new splits, set `replace_old_splits=True`"
                     )
-                ids = df.select("uuid").unique().get_column("uuid").to_list()
+                ids = (
+                    df.select("group_id")
+                    .unique()
+                    .get_column("group_id")
+                    .to_list()
+                )
                 old_splits = defaultdict(list)
 
             np.random.shuffle(ids)
@@ -1228,13 +1251,15 @@ class LuxonisDataset(BaseDataset):
                         "Must provide splits as a list of filepaths"
                     )
                 ids = [
-                    find_filepath_uuid(filepath, index, raise_on_missing=True)
+                    find_filepath_group_id(
+                        filepath, index, raise_on_missing=True
+                    )
                     for filepath in filepaths
                 ]
                 new_splits[split] = ids
 
-        for split, uuids in new_splits.items():
-            old_splits[split].extend(uuids)
+        for split, group_ids in new_splits.items():
+            old_splits[split].extend(group_ids)
 
         splits_path.write_text(json.dumps(old_splits, indent=4))
 
@@ -1437,15 +1462,16 @@ class LuxonisDataset(BaseDataset):
             description="Exporting ...",
         ):
             uuid = row[7]
-            file = Path(row[-1])
+            group_id = row[8]
+            file = Path(row[0])
             if self.is_remote or not file.exists():
                 file_extension = row[0].rsplit(".", 1)[-1]
                 file = self.media_path / f"{uuid}.{file_extension}"
                 assert file.exists()
 
             split = None
-            for s, uuids in splits.items():
-                if uuid in uuids:
+            for s, group_ids in splits.items():
+                if group_id in group_ids:
                     split = s
                     break
 

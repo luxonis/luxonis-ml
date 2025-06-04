@@ -46,7 +46,7 @@ class LuxonisLoader(BaseLoader):
         width: int | None = None,
         keep_aspect_ratio: bool = True,
         exclude_empty_annotations: bool = False,
-        color_space: Literal["RGB", "BGR", "GRAY"] = "RGB",
+        color_spaces: dict[str, Literal["RGB", "BGR", "GRAY"]] | None = None,
         seed: int | None = None,
         *,
         keep_categorical_as_strings: bool = False,
@@ -117,7 +117,7 @@ class LuxonisLoader(BaseLoader):
         """
 
         self.exclude_empty_annotations = exclude_empty_annotations
-        self.color_space: Literal["RGB", "BGR", "GRAY"] = color_space
+        self.color_spaces = color_spaces or {"image": "RGB"}
         self.height = height
         self.width = width
 
@@ -160,13 +160,15 @@ class LuxonisLoader(BaseLoader):
             self.instances.extend(splits[view])
 
         self.idx_to_df_row: list[list[int]] = []
-        uuid_list = self.df["uuid"].to_list()
-        uuid_set = set(uuid_list)
-        self.instances = [uid for uid in self.instances if uid in uuid_set]
+        group_id_list = self.df["group_id"].to_list()
+        group_id_set = set(group_id_list)
+        self.instances = [
+            group_id for group_id in self.instances if group_id in group_id_set
+        ]
 
         idx_map: dict[str, list[int]] = defaultdict(list)
-        for i, uid in enumerate(uuid_list):
-            idx_map[uid].append(i)
+        for i, group_id in enumerate(group_id_list):
+            idx_map[group_id].append(i)
 
         self.idx_to_df_row = [idx_map[uid] for uid in self.instances]
 
@@ -302,12 +304,15 @@ class LuxonisLoader(BaseLoader):
             )
 
         ann_indices = self.idx_to_df_row[idx]
-
         ann_rows = [self.df.row(row) for row in ann_indices]
 
-        img_path = self.idx_to_img_path[idx]
+        img_dict: dict[str, np.ndarray] = {}
+        source_to_path = self.idx_to_img_paths[idx]
 
-        img = cv2.cvtColor(cv2.imread(str(img_path)), cv2.COLOR_BGR2RGB)
+        for source_name, path in source_to_path.items():
+            img_dict[source_name] = cv2.cvtColor(
+                cv2.imread(str(path)), cv2.COLOR_BGR2RGB
+            )
 
         labels_by_task: dict[str, list[Annotation]] = defaultdict(list)
         class_ids_by_task: dict[str, list[int]] = defaultdict(list)
@@ -337,8 +342,9 @@ class LuxonisLoader(BaseLoader):
             else:  # pragma: no cover
                 # Conversion from LDF v1.0
                 if "points" in data and "width" not in data:
-                    data["width"] = img.shape[1]
-                    data["height"] = img.shape[0]
+                    shape_img = next(iter(img_dict.values()))
+                    data["width"] = shape_img.shape[1]
+                    data["height"] = shape_img.shape[0]
                     data["points"] = [tuple(p) for p in data["points"]]
 
                 annotation = load_annotation(task_type, data)
@@ -382,7 +388,7 @@ class LuxonisLoader(BaseLoader):
 
             labels[task] = array
 
-        return img, labels
+        return img_dict, labels
 
     def _load_with_augmentations(self, idx: int) -> LoaderOutput:
         indices = [idx]
@@ -465,20 +471,30 @@ class LuxonisLoader(BaseLoader):
         )
 
     def _precompute_image_paths(self) -> None:
-        self.idx_to_img_path = {}
+        self.idx_to_img_paths = {}
 
         for idx, ann_indices in enumerate(self.idx_to_df_row):
-            ann_indices = self.idx_to_df_row[idx]
-
             ann_rows = [self.df.row(row) for row in ann_indices]
-            img_path = ann_rows[0][0]
-            if not Path(img_path).exists():
-                uuid = ann_rows[0][7]
-                file_extension = ann_rows[0][0].rsplit(".", 1)[-1]
-                img_path = self.dataset.media_path / f"{uuid}.{file_extension}"
-                if not img_path.exists():
-                    raise FileNotFoundError(
-                        f"Cannot find image for uuid {uuid}"
-                    )
 
-            self.idx_to_img_path[idx] = img_path
+            source_to_path = {}
+
+            for row in ann_rows:
+                img_path = row[0]
+                source_name = row[1]
+                uuid = row[7]
+
+                if source_name in source_to_path:
+                    continue
+
+                path = Path(img_path)
+                if not path.exists():
+                    file_extension = img_path.rsplit(".", 1)[-1]
+                    path = self.dataset.media_path / f"{uuid}.{file_extension}"
+                    if not path.exists():
+                        raise FileNotFoundError(
+                            f"Cannot find image for uuid {uuid} and source '{source_name}'"
+                        )
+
+                source_to_path[source_name] = path
+
+            self.idx_to_img_paths[idx] = source_to_path
