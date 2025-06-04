@@ -242,10 +242,9 @@ class LuxonisLoader(BaseLoader):
         if not self.exclude_empty_annotations:
             img, labels = self._add_empty_annotations(img, labels)
 
+        # Albumentations needs RGB
         if self.color_space == "BGR":
             img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-        elif self.color_space == "GRAY":
-            img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)[..., np.newaxis]
 
         return img, labels
 
@@ -310,9 +309,15 @@ class LuxonisLoader(BaseLoader):
         source_to_path = self.idx_to_img_paths[idx]
 
         for source_name, path in source_to_path.items():
-            img_dict[source_name] = cv2.cvtColor(
-                cv2.imread(str(path)), cv2.COLOR_BGR2RGB
-            )
+            color_space = self.color_spaces.get(source_name, "RGB")
+            if color_space == "GRAY":
+                img_dict[source_name] = cv2.cvtColor(
+                    cv2.imread(str(path)), cv2.COLOR_RGB2GRAY
+                )[..., np.newaxis]
+            elif color_space == "BGR":
+                img_dict[source_name] = cv2.cvtColor(
+                    cv2.imread(str(path)), cv2.COLOR_BGR2RGB
+                )
 
         labels_by_task: dict[str, list[Annotation]] = defaultdict(list)
         class_ids_by_task: dict[str, list[int]] = defaultdict(list)
