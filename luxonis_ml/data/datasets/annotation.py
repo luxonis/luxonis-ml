@@ -535,6 +535,10 @@ class DatasetRecord(BaseModelExtraForbid):
             raise ValueError("DatasetRecord must have exactly one file")
         return next(iter(self.files.values()))
 
+    @property
+    def all_file_paths(self) -> list[FilePath]:
+        return list(self.files.values())
+
     @model_validator(mode="after")
     def validate_task_name_valid_identifier(self) -> Self:
         check_valid_identifier(self.task_name, label="Task name")
@@ -577,8 +581,11 @@ class DatasetRecord(BaseModelExtraForbid):
         @rtype: L{ParquetDict}
         @return: A dictionary of annotation data.
         """
-        for source, file_path in self.files.items():
-            if annotation is None:
+        file_items = sorted(self.files.items(), key=lambda x: str(x[1]))
+        for i, (source, file_path) in enumerate(file_items):
+            is_main = i == 0
+
+            if annotation is None or not is_main:
                 yield {
                     "file": str(file_path),
                     "source_name": source,

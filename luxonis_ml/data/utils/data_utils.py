@@ -1,6 +1,8 @@
+import hashlib
 import json
+import uuid
 from collections import defaultdict
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from typing import Any
 
 import numpy as np
@@ -209,7 +211,7 @@ def find_duplicates(df: pl.LazyFrame) -> dict[str, list[dict[str, Any]]]:
     )
     duplicate_annotation = (
         filtered_df.group_by(
-            "original_filepath",
+            "file",
             "task_type",
             "task_name",
             "annotation",
@@ -467,3 +469,16 @@ def get_heatmaps(
             result[t_name][t_type] = grid.T.tolist()
 
     return result
+
+
+def merge_uuids(uuids: Iterable[str]) -> uuid.UUID:
+    """Merge multiple UUIDs into a single deterministic UUID,
+    independent of order.
+
+    @param uuids: Iterable of UUID strings
+    @return: Merged UUID
+    """
+    sorted_uuids = sorted(str(u) for u in uuids)
+    combined = "".join(sorted_uuids).encode("utf-8")
+    hash_bytes = hashlib.sha256(combined).digest()
+    return uuid.UUID(bytes=hash_bytes[:16])

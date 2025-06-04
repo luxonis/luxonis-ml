@@ -27,6 +27,7 @@ from luxonis_ml.data.utils import (
     get_heatmaps,
     get_missing_annotations,
     infer_task,
+    merge_uuids,
     warn_on_duplicates,
 )
 from luxonis_ml.data.utils.constants import LDF_VERSION
@@ -532,15 +533,18 @@ class LuxonisDataset(BaseDataset):
             resolved_paths = list(pool.map(resolve_path, files))
         mapping: dict[str, str] = dict(zip(files, resolved_paths, strict=True))
 
-        processed = df.with_columns(
-            [
-                pl.col("uuid"),
-                pl.col("file").str.extract(r"([^\/\\]+)$").alias("file"),
-                pl.col("file")
-                .map_dict(mapping, default=None)
-                .alias("original_filepath"),
-            ]
-        ).unique(subset=["uuid", "original_filepath"], maintain_order=False)
+        processed = (
+            df.with_columns(
+                [
+                    pl.col("uuid"),
+                    pl.col("file")
+                    .map_dict(mapping, default=None)
+                    .alias("original_filepath"),
+                ]
+            )
+            .select(["uuid", "original_filepath"])
+            .unique(subset=["uuid", "original_filepath"], maintain_order=False)
+        )
 
         if not lazy:
             processed = processed.collect()
@@ -728,18 +732,16 @@ class LuxonisDataset(BaseDataset):
             index = self._get_index(lazy=False)
             missing_media_paths = []
             if index is not None:
-                df_small = index.select(["uuid", "file", "original_filepath"])
-                uuids = df_small["uuid"].to_list()
-                files = df_small["file"].to_list()
-                origps = df_small["original_filepath"].to_list()
+                uuids = index["uuid"].to_list()
+                origps = index["original_filepath"].to_list()
 
                 media_root = Path(local_dir) / self.dataset_name / "media"
 
                 missing_media_paths = [
-                    f"media/{uid}{Path(f).suffix}"
-                    for uid, f, orig in zip(uuids, files, origps, strict=True)
+                    f"media/{uid}{Path(orig).suffix}"
+                    for uid, orig in zip(uuids, origps, strict=True)
                     if not Path(orig).exists()
-                    and not (media_root / f"{uid}{Path(f).suffix}").exists()
+                    and not (media_root / f"{uid}{Path(orig).suffix}").exists()
                 ]
 
             if update_mode == UpdateMode.ALL:
@@ -912,7 +914,7 @@ class LuxonisDataset(BaseDataset):
         pfm: ParquetFileManager,
         index: pl.DataFrame | None,
     ) -> None:
-        paths = {data.file for data in data_batch}
+        paths = {path for data in data_batch for path in data.all_file_paths}
         logger.info("Generating UUIDs...")
         uuid_dict = self.fs.get_file_uuids(paths, local=True)
 
@@ -949,10 +951,13 @@ class LuxonisDataset(BaseDataset):
         logger.info("Saving annotations...")
         with self.progress:
             for record in data_batch:
-                filepath = record.file
-                uuid = uuid_dict[str(filepath)]
+                file_paths = record.all_file_paths
+                uuid_list = [
+                    uuid_dict[str(file_path)] for file_path in file_paths
+                ]
+                group_id = str(merge_uuids(uuid_list))
                 for row in record.to_parquet_rows():
-                    pfm.write(uuid, row)
+                    pfm.write(uuid_dict[row["file"]], row, group_id)
                 self.progress.update(task, advance=1)
         self.progress.remove_task(task)
 
@@ -1071,10 +1076,8 @@ class LuxonisDataset(BaseDataset):
 
     def _warn_on_duplicates(self) -> None:
         df = self._load_df_offline(lazy=True)
-        index = self._get_index(lazy=True)
-        if df is None or index is None:
+        if df is None:
             return
-        df = df.join(index, on="uuid").drop("file_right")
         warn_on_duplicates(df)
 
     def get_splits(self) -> dict[str, list[str]] | None:
@@ -1389,12 +1392,6 @@ class LuxonisDataset(BaseDataset):
         df = self._load_df_offline(raise_when_empty=True)
         if task_name_to_keep is not None:
             df = df.filter(pl.col("task_name").is_in([task_name_to_keep]))
-        if not self.is_remote:
-            index = self._get_index()
-            if index is None:  # pragma: no cover
-                raise FileNotFoundError("Cannot find dataset index")
-            index = index.filter(pl.col("uuid").is_in(df["uuid"]))
-            df = df.join(index, on="uuid").drop("file_right")
 
         # If instances are not sorted by file, sort them by the first occurrence of the file in the dataset.
         # Within each group, original row ordering is preserved.
@@ -1427,7 +1424,7 @@ class LuxonisDataset(BaseDataset):
                 file = self.media_path / f"{uuid}.{file_extension}"
                 assert file.exists()
             else:
-                file = Path(row[-1])
+                file = Path(row[0])
 
             split = None
             for s, uuids in splits.items():
@@ -1481,7 +1478,7 @@ class LuxonisDataset(BaseDataset):
                             Path(
                                 data_path.name,
                                 str(image_indices[file]) + file.suffix,
-                            )
+                            ).as_posix()
                         ),
                         "task_name": task_name,
                     }
@@ -1492,9 +1489,8 @@ class LuxonisDataset(BaseDataset):
             record = {
                 "file": str(
                     Path(
-                        data_path.name,
-                        str(image_indices[file]) + file.suffix,
-                    )
+                        data_path.name, str(image_indices[file]) + file.suffix
+                    ).as_posix()
                 ),
                 "task_name": task_name,
                 "annotation": {
@@ -1562,7 +1558,6 @@ class LuxonisDataset(BaseDataset):
         @return: Dataset statistics dictionary as described above
         """
         df = self._load_df_offline(lazy=True)
-        index = self._get_index(lazy=True)
 
         stats = {
             "duplicates": {},
@@ -1570,10 +1565,8 @@ class LuxonisDataset(BaseDataset):
             "heatmaps": {},
         }
 
-        if df is None or index is None:
+        if df is None:
             return stats
-
-        df = df.join(index, on="uuid").drop("file_right")
 
         splits = self.get_splits()
         if splits is not None and view and view in splits:

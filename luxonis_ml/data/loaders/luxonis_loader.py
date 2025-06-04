@@ -146,15 +146,6 @@ class LuxonisLoader(BaseLoader):
                 if task_name in self.classes
             }
 
-        if not self.dataset.is_remote:
-            file_index = self.dataset._get_index()
-            if file_index is None:  # pragma: no cover
-                raise FileNotFoundError("Cannot find file index")
-            file_index = file_index.filter(
-                pl.col("uuid").is_in(self.df["uuid"])
-            )
-            self.df = self.df.join(file_index, on="uuid").drop("file_right")
-
         self.classes = self.dataset.get_classes()
         self.instances: list[str] = []
         splits_path = self.dataset.metadata_path / "splits.json"
