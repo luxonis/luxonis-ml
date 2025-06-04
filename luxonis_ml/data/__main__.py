@@ -472,6 +472,8 @@ def export(
     ] = False,
     bucket_storage: BucketStorage = bucket_option,
 ):
+    """Export a Luxonis dataset to disk in native format, with optional
+    partitioning and zip compression for flexible storage."""
     save_dir = save_dir or dataset_name
     if delete_existing and Path(save_dir).exists():
         shutil.rmtree(save_dir)
