@@ -106,13 +106,46 @@ After creating a dataset, the next step is to populate it with images and their 
 
 #### Data Format
 
-Each data entry should be a dictionary with the following structure:
+Each data entry should be a dictionary with one of the following structures, depending on whether you're using a single input or multiple inputs:
+
+##### Single-Input Format
 
 ```python
 {
     "file": str,  # path to the image file
-    "task_name": Optional[str], # task type for this annotation
+    "task_name": Optional[str],  # task for this annotation
     "annotation": Optional[dict]  # annotation of the instance in the file
+}
+```
+
+##### Multi-Input Format
+
+```python
+{
+    "files": dict[str, str],  # mapping from input source name to file path
+    "task_name": Optional[str],  # task for this annotation
+    "annotation": Optional[dict]  # annotation of the instance in the files
+}
+```
+
+In the multi-input format, the keys in the `files` dictionary are arbitrary strings that describe the role or modality of the input (e.g., `img_rgb`, `img_ir`, `depth`, etc.). These keys are later used to retrieve the corresponding images during data loading.
+
+```python
+{
+    "files": {
+        "img_rgb": "path/to/rgb_image.png",
+        "img_ir": "path/to/infrared_image.png"
+    },
+    "task_name": "detection",
+    "annotation": {
+        "class": "person",
+        "boundingbox": {
+            "x": 0.1,
+            "y": 0.1,
+            "w": 0.3,
+            "h": 0.4
+        }
+    }
 }
 ```
 
