@@ -2,7 +2,6 @@ import json
 import random
 import warnings
 from collections import defaultdict
-from collections.abc import Mapping
 from pathlib import Path
 from typing import Literal, cast
 
@@ -47,7 +46,7 @@ class LuxonisLoader(BaseLoader):
         width: int | None = None,
         keep_aspect_ratio: bool = True,
         exclude_empty_annotations: bool = False,
-        color_space: Mapping[str, Literal["RGB", "BGR", "GRAY"]]
+        color_space: dict[str, Literal["RGB", "BGR", "GRAY"]]
         | Literal["RGB", "BGR", "GRAY"]
         | None = None,
         seed: int | None = None,
@@ -143,7 +142,7 @@ class LuxonisLoader(BaseLoader):
             color_space = {source: "RGB" for source in self.source}
         elif isinstance(color_space, str):
             color_space = {source: color_space for source in self.source}
-        elif not isinstance(color_space, Mapping):
+        elif not isinstance(color_space, dict):
             raise ValueError(
                 "color_space must be either a string or a dictionary"
             )

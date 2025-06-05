@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal, cast
 
 import pytest
 
@@ -49,7 +50,10 @@ def test_multi_input(dataset_name: str, tempdir: Path):
             },
         },
     ]
-    color_space = {"image1": "RGB", "image2": "BGR", "image3": "GRAY"}
+    color_space = cast(
+        dict[str, Literal["RGB", "BGR", "GRAY"]],
+        {"image1": "RGB", "image2": "BGR", "image3": "GRAY"},
+    )
     dataset = create_dataset(dataset_name, generator())
     loader = LuxonisLoader(
         dataset,
