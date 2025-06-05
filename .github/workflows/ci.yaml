@@ -213,33 +213,13 @@ jobs:
           path: coverage.xml
           overwrite: true
 
-  update-base-report:
-    if: ${{ github.event_name == 'push' }}
+  check-requirements-data:
+    # if: ${{ startsWith(github.head_ref, 'release/') }}
     runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
-
-      - name: Download artifacts
-        uses: dawidd6/action-download-artifact@v7
-        with:
-          name: coverage
-          path: coverage.xml
-          workflow: ci.yaml
-
-      - name: Upload coverage results to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: false
-
-
-  check-release-requirements:
-    if: ${{ startsWith(github.head_ref, 'release/') }}
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        submodule: [ 'data', 'nn_archive', 'utils' ]
 
     steps:
       - name: Checkout
@@ -254,12 +234,7 @@ jobs:
           cache: pip
 
       - name: Install the package
-        run: pip install -e .[all]
+        run: pip install -e .[${{ matrix.submodule }}]
 
       - name: Check requirements
-        run: |
-          python3 <<EOF
-          from luxonis_ml.data import *
-          from luxonis_ml.utils import *
-          from luxonis_ml.nn_archive import *
-          EOF
+        run: python3 -c 'from luxonis_ml.${{ matrix.submodule }} import *'
