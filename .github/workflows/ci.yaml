@@ -213,6 +213,30 @@ jobs:
           path: coverage.xml
           overwrite: true
 
+  update-base-report:
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Download artifacts
+        uses: dawidd6/action-download-artifact@v7
+        with:
+          name: coverage
+          path: coverage.xml
+          workflow: ci.yaml
+
+      - name: Upload coverage results to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+
   check-requirements:
     # if: ${{ startsWith(github.head_ref, 'release/') }}
     runs-on: ubuntu-latest
