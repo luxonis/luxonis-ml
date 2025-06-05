@@ -213,7 +213,7 @@ jobs:
           path: coverage.xml
           overwrite: true
 
-  check-requirements-data:
+  check-requirements:
     # if: ${{ startsWith(github.head_ref, 'release/') }}
     runs-on: ubuntu-latest
 
