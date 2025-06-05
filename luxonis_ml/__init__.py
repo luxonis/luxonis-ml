@@ -1,4 +1,4 @@
-__version__ = "0.7.0"
+__version__ = "0.7.1"
 
 from .utils.environ import environ
 from .utils.logging import setup_logging
