@@ -88,14 +88,7 @@ class Metadata(BaseModelExtraForbid):
                 )
 
         merged_metadata_types = {**self.metadata_types, **other.metadata_types}
-        if self.source is None and other.source is not None:
-            merged_source = other.source
-        elif self.source is not None and other.source is None:
-            merged_source = self.source
-        elif self.source is not None and other.source is not None:
-            merged_source = self.source + other.source
-        else:
-            merged_source = None
+        merged_source = (self.source or []) + (other.source or [])
 
         return Metadata(
             ldf_version=self.ldf_version,

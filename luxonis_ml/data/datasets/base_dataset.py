@@ -78,6 +78,17 @@ class BaseDataset(
         ...
 
     @abstractmethod
+    def get_source(self) -> list[str]:
+        """Get the source of the input data for the dataset.
+
+        @rtype: List[str]
+        @return: A list of source names, such as "image_left",
+            "image_right", "image_middle", etc. This is used to identify
+            the input data
+        """
+        ...
+
+    @abstractmethod
     def get_classes(self) -> dict[str, list[str]]:
         """Get classes according to computer vision tasks.
 

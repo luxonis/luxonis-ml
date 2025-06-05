@@ -27,6 +27,7 @@ from .utils import (
 
 Data: TypeAlias = dict[str, np.ndarray]
 TargetType: TypeAlias = Literal[
+    "image",
     "array",
     "classification",
     "mask",
@@ -675,6 +676,10 @@ def wrap_transform(
             return data
 
         if is_pixel:
+            if source_names is None:
+                raise ValueError(
+                    "source_names must be provided for pixel transformations."
+                )
             replay_transform = A.ReplayCompose(transform.transforms)
 
             result = replay_transform(image=data["image"])
