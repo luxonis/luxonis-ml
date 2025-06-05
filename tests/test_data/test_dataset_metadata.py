@@ -1,13 +1,12 @@
 import pytest
 
 from luxonis_ml.data import Metadata
-from luxonis_ml.data.datasets.source import LuxonisSource
 
 
 @pytest.fixture
 def basic_metadata() -> Metadata:
     return Metadata(
-        source=None,
+        source=["image"],
         ldf_version="2.0.0",
         classes={"task1": {"class1": 0, "class2": 1}},
         tasks={"task1": ["subtask1", "subtask2"]},
@@ -22,7 +21,7 @@ def test_merge_with_different_versions():
     ValueError."""
     metadata1 = Metadata(
         ldf_version="2.0.0",
-        source=None,
+        source=["image"],
         classes={},
         tasks={},
         skeletons={},
@@ -31,7 +30,7 @@ def test_merge_with_different_versions():
     )
     metadata2 = Metadata(
         ldf_version="2.0",
-        source=None,
+        source=["image"],
         classes={},
         tasks={},
         skeletons={},
@@ -48,7 +47,7 @@ def test_merge_with_different_versions():
 def test_merge_classes(basic_metadata: Metadata):
     """Test merging of classes dictionaries."""
     other_metadata = Metadata(
-        source=None,
+        source=["image"],
         ldf_version="2.0.0",
         classes={"task1": {"class2": 1, "class3": 2}, "task2": {"classA": 0}},
         tasks={},
@@ -71,7 +70,7 @@ def test_merge_classes(basic_metadata: Metadata):
 def test_merge_tasks(basic_metadata: Metadata):
     """Test merging of tasks dictionaries."""
     other_metadata = Metadata(
-        source=None,
+        source=["image"],
         ldf_version="2.0.0",
         classes={},
         tasks={"task1": ["subtask2", "subtask3"], "task2": ["other_subtask"]},
@@ -89,7 +88,7 @@ def test_merge_tasks(basic_metadata: Metadata):
 def test_merge_categorical_encodings(basic_metadata: Metadata):
     """Test merging of categorical encodings."""
     other_metadata = Metadata(
-        source=None,
+        source=["image"],
         ldf_version="2.0.0",
         classes={},
         tasks={},
@@ -108,8 +107,8 @@ def test_merge_categorical_encodings(basic_metadata: Metadata):
 
 def test_merge_sources():
     """Test merging of sources."""
-    source1 = LuxonisSource()
-    source2 = LuxonisSource()
+    source1 = ["rgb_image"]
+    source2 = ["gray_image"]
 
     metadata1 = Metadata(
         source=source1,
@@ -132,15 +131,15 @@ def test_merge_sources():
     )
 
     merged = metadata1.merge_with(metadata2)
-    assert merged.source is not None
+    assert set(merged.source) == set(source1 + source2)
 
 
 def test_merge_with_none_sources():
     """Test merging when one or both sources are None."""
-    source = LuxonisSource()
+    source = ["rgb_image", "depth_image"]
 
     metadata1 = Metadata(
-        source=None,
+        source=[],
         ldf_version="2.0.0",
         classes={},
         tasks={},
@@ -169,7 +168,7 @@ def test_merge_with_none_sources():
 def test_merge_metadata_types(basic_metadata: Metadata):
     """Test merging of metadata types."""
     other_metadata = Metadata(
-        source=None,
+        source=[],
         ldf_version="2.0.0",
         classes={},
         tasks={},

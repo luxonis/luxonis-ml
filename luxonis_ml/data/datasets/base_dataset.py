@@ -5,7 +5,6 @@ from typing import TypeAlias
 from semver.version import Version
 
 from luxonis_ml.data.datasets.annotation import DatasetRecord
-from luxonis_ml.data.datasets.source import LuxonisSource
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import AutoRegisterMeta, Registry
 
@@ -54,16 +53,6 @@ class BaseDataset(
 
         @rtype: Dict[str, str]
         @return: A dictionary mapping task names to task types.
-        """
-        ...
-
-    @abstractmethod
-    def update_source(self, source: LuxonisSource) -> None:
-        """Updates underlying source of the dataset with a new
-        LuxonisSource.
-
-        @type source: L{LuxonisSource}
-        @param source: The new C{LuxonisSource} to replace the old one.
         """
         ...
 

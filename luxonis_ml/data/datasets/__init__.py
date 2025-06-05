@@ -11,7 +11,6 @@ from .annotation import (
 from .base_dataset import DATASETS_REGISTRY, BaseDataset, DatasetIterator
 from .luxonis_dataset import LuxonisDataset, UpdateMode
 from .metadata import Metadata
-from .source import LuxonisComponent, LuxonisSource
 
 __all__ = [
     "DATASETS_REGISTRY",
@@ -24,9 +23,7 @@ __all__ = [
     "DatasetRecord",
     "Detection",
     "KeypointAnnotation",
-    "LuxonisComponent",
     "LuxonisDataset",
-    "LuxonisSource",
     "Metadata",
     "UpdateMode",
     "load_annotation",

@@ -46,7 +46,9 @@ class LuxonisLoader(BaseLoader):
         width: int | None = None,
         keep_aspect_ratio: bool = True,
         exclude_empty_annotations: bool = False,
-        color_spaces: dict[str, Literal["RGB", "BGR", "GRAY"]] | None = None,
+        color_space: dict[str, Literal["RGB", "BGR", "GRAY"]]
+        | Literal["RGB", "BGR", "GRAY"]
+        | None = None,
         seed: int | None = None,
         *,
         keep_categorical_as_strings: bool = False,
@@ -90,9 +92,9 @@ class LuxonisLoader(BaseLoader):
         @type keep_aspect_ratio: bool
         @param keep_aspect_ratio: Whether to keep the aspect ratio of the
             images. Defaults to C{True}.
-        @type color_space: Literal["RGB", "BGR", "GRAY"]
-        @param color_space: The color space of the output images. Defaults
-            to C{"RGB"}.
+        @type color_space: Optional[Union[dict[str, Literal["RGB", "BGR", "GRAY"]], Literal["RGB", "BGR", "GRAY"]]]
+        @param color_space: The color space to use for the images.
+            If a string is provided, it will be used for all sources. If not provided, the default is C{"RGB"} for all sources.
         @type seed: Optional[int]
         @param seed: The random seed to use for the augmentations.
         @type exclude_empty_annotations: bool
@@ -117,7 +119,6 @@ class LuxonisLoader(BaseLoader):
         """
 
         self.exclude_empty_annotations = exclude_empty_annotations
-        self.color_spaces = color_spaces or {"image": "RGB"}
         self.height = height
         self.width = width
 
@@ -135,6 +136,17 @@ class LuxonisLoader(BaseLoader):
 
         self.df = self.dataset._load_df_offline(raise_when_empty=True)
         self.classes = self.dataset.get_classes()
+        self.source = self.dataset.get_source()
+
+        if color_space is None:
+            color_space = {source: "RGB" for source in self.source}
+        elif isinstance(color_space, str):
+            color_space = {source: color_space for source in self.source}
+        elif not isinstance(color_space, dict):
+            raise ValueError(
+                "color_space must be either a string or a dictionary"
+            )
+        self.color_space = color_space
 
         if self.filter_task_names is not None:
             self.df = self.df.filter(
@@ -235,22 +247,26 @@ class LuxonisLoader(BaseLoader):
         """
 
         if self.augmentations is None:
-            img, labels = self._load_data(idx)
+            img_dict, labels = self._load_data(idx)
         else:
-            img, labels = self._load_with_augmentations(idx)
+            img_dict, labels = self._load_with_augmentations(idx)
 
         if not self.exclude_empty_annotations:
-            img, labels = self._add_empty_annotations(img, labels)
+            img_dict, labels = self._add_empty_annotations(img_dict, labels)
 
         # Albumentations needs RGB
-        if self.color_space == "BGR":
-            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+        bgr_sources = [k for k, v in self.color_space.items() if v == "BGR"]
+        for source_name in bgr_sources:
+            img_dict[source_name] = cv2.cvtColor(
+                img_dict[source_name], cv2.COLOR_RGB2BGR
+            )
 
-        return img, labels
+        return img_dict, labels
 
     def _add_empty_annotations(
         self, img: np.ndarray, labels: Labels
     ) -> LoaderOutput:
+        image_height, image_width = next(iter(img.values())).shape[:2]
         for task_name, task_types in self.dataset.get_tasks().items():
             if (
                 self.filter_task_names is not None
@@ -266,15 +282,13 @@ class LuxonisLoader(BaseLoader):
                         n_keypoints = self.dataset.get_n_keypoints()[task_name]
                         labels[task] = np.zeros((0, n_keypoints * 3))
                     elif task_type == "instance_segmentation":
-                        labels[task] = np.zeros(
-                            (0, img.shape[0], img.shape[1])
-                        )
+                        labels[task] = np.zeros((0, image_height, image_width))
                     elif task_type == "segmentation":
                         labels[task] = np.zeros(
                             (
                                 len(self.classes[task_name]),
-                                img.shape[0],
-                                img.shape[1],
+                                image_height,
+                                image_width,
                             )
                         )
                     elif task_type == "classification" or task_is_metadata(
@@ -309,12 +323,22 @@ class LuxonisLoader(BaseLoader):
         source_to_path = self.idx_to_img_paths[idx]
 
         for source_name, path in source_to_path.items():
-            color_space = self.color_spaces.get(source_name, "RGB")
+            color_space = self.color_space.get(source_name, "RGB")
             if color_space == "GRAY":
-                img_dict[source_name] = cv2.cvtColor(
-                    cv2.imread(str(path)), cv2.COLOR_RGB2GRAY
-                )[..., np.newaxis]
-            elif color_space == "BGR":
+                img = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+                if img.ndim == 2:
+                    img_gray = img[..., np.newaxis]
+                elif img.ndim == 3 and img.shape[2] == 3:
+                    img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)[
+                        ..., np.newaxis
+                    ]
+                else:
+                    raise ValueError(
+                        f"Unsupported image format: shape {img.shape}"
+                    )
+
+                img_dict[source_name] = img_gray
+            else:
                 img_dict[source_name] = cv2.cvtColor(
                     cv2.imread(str(path)), cv2.COLOR_BGR2RGB
                 )
@@ -456,6 +480,8 @@ class LuxonisLoader(BaseLoader):
             for task_type in task_types
         }
 
+        source_names = list(self.dataset.get_source())
+
         n_classes = {
             f"{task_name}/{task_type}": self.dataset.get_n_classes()[task_name]
             for task_name, task_types in dataset_tasks.items()
@@ -470,6 +496,7 @@ class LuxonisLoader(BaseLoader):
             config=augmentation_config,
             targets=targets,
             n_classes=n_classes,
+            source_names=source_names,
             keep_aspect_ratio=keep_aspect_ratio,
             is_validation_pipeline="train" not in self.view,
             seed=seed,

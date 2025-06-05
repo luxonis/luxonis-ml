@@ -13,7 +13,6 @@ from luxonis_ml.data import (
     LuxonisDataset,
     LuxonisLoader,
     LuxonisParser,
-    LuxonisSource,
     UpdateMode,
 )
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
@@ -103,9 +102,7 @@ def test_dataset(
         pytest.exit("Dataset creation failed")
 
     with subtests.test("test_source"):
-        assert dataset.source == LuxonisSource()
-        dataset.update_source(LuxonisSource(name="test"))
-        assert dataset.source == LuxonisSource(name="test")
+        assert dataset.get_source() == ["image"]
 
     with subtests.test("test_load"):
         loader = LuxonisLoader(dataset)

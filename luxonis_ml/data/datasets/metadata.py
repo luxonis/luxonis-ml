@@ -6,8 +6,6 @@ from typing_extensions import TypedDict
 from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.utils.pydantic_utils import BaseModelExtraForbid
 
-from .source import LuxonisSource
-
 
 class Skeletons(TypedDict):
     labels: list[str]
@@ -15,7 +13,7 @@ class Skeletons(TypedDict):
 
 
 class Metadata(BaseModelExtraForbid):
-    source: LuxonisSource | None
+    source: list[str]
     ldf_version: str = str(LDF_VERSION)
     classes: dict[str, dict[str, int]] = {}
     tasks: dict[str, list[str]] = {}
@@ -95,7 +93,7 @@ class Metadata(BaseModelExtraForbid):
         elif self.source is not None and other.source is None:
             merged_source = self.source
         elif self.source is not None and other.source is not None:
-            merged_source = self.source.merge_with(other.source)
+            merged_source = self.source + other.source
         else:
             merged_source = None
 

@@ -557,33 +557,29 @@ The mask is a binary 2D numpy array.
 
 #### Run-Length Encoding
 
-The mask is described using the [Run-Length Encoding](https://en.wikipedia.org/wiki/Run-length_encoding) compression.
+The mask is represented using [Run-Length Encoding (RLE)](https://en.wikipedia.org/wiki/Run-length_encoding), a lossless compression method that stores alternating counts of background and foreground pixels in **row-major order**, beginning from the top-left pixel. The first count always represents background pixels, even if that count is 0.
 
-Run-length encoding compresses data by reducing the physical size
-of a repeating string of characters.
-This process involves converting the input data into a compressed format
-by identifying and counting consecutive occurrences of each character.
-
-The RLE is composed of the height and width of the mask image and the counts of the pixels belonging to the positive class.
+The `counts` field contains either a **compressed byte string** or an **uncompressed list of integers**. We use the **COCO RLE format** via the `pycocotools` library to encode and decode masks.
 
 ```python
 {
     # name of the class this mask belongs to
     "class": str,
 
-    "segmentation":
-    {
+    "segmentation": {
         # height of the mask
         "height": int,
 
         # width of the mask
         "width": int,
 
-        # counts of the pixels belonging to the positive class
+        # run-length encoded pixel counts in row-major order,
+        # starting with background. Can be a list[int] (uncompressed)
+        # or a compressed byte string
         "counts": list[int] | bytes,
     },
-
 }
+
 ```
 
 > \[!NOTE\]

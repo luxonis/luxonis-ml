@@ -277,6 +277,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         width: int,
         targets: dict[str, str],
         n_classes: dict[str, int],
+        source_names: list[str],
         config: Iterable[Params],
         keep_aspect_ratio: bool = True,
         is_validation_pipeline: bool = False,
@@ -287,6 +288,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         self.target_names_to_tasks = {}
         self.n_classes = n_classes
         self.image_size = (height, width)
+        self.source_names = source_names
 
         for task, task_type in targets.items():
             target_name = self.task_to_target_name(task)
@@ -342,6 +344,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
             self.targets[target_name] = target_type
             self.target_names_to_tasks[target_name] = task
+
+        for source_name in source_names:
+            self.targets[source_name] = "image"
 
         # Necessary for official Albumentations transforms.
         targets_without_instance_mask = {
@@ -425,7 +430,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 A.Compose(spatial_transforms, **get_params())
             )
             self.pixel_transform = wrap_transform(
-                A.Compose(pixel_transforms), is_pixel=True
+                A.Compose(pixel_transforms),
+                is_pixel=True,
+                source_names=source_names,
             )
             self.resize_transform = wrap_transform(
                 A.Compose([resize_transform], **get_params())
@@ -485,10 +492,23 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         bbox_counters = defaultdict(int)
         n_keypoints = {}
 
-        for image, labels in labels_batch:
-            data = {"image": image}
-            height, width, _ = image.shape
+        for image_dict, labels in labels_batch:
+            data = {}
+            for source_name, img in image_dict.items():
+                key = (
+                    "image"
+                    if source_name == self.source_names[0]
+                    else source_name
+                )
+                data[key] = img
+
+            sample_img = next(iter(image_dict.values()))
+            height, width = sample_img.shape[:2]
+
             for target_name, target_type in self.targets.items():
+                if target_name not in self.target_names_to_tasks:
+                    continue
+
                 task = self.target_names_to_tasks[target_name]
 
                 if task not in labels:
@@ -553,10 +573,19 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         @return: Tuple containing the augmented image and the labels.
         """
         out_labels = {}
-        out_image = data.pop("image")
-        if out_image.ndim == 2:
-            out_image = np.expand_dims(out_image, axis=-1)
-        image_height, image_width, _ = out_image.shape
+        out_image_dict = {}
+
+        image_keys = [k for k in data if k in ["image", *self.source_names]]
+
+        for key in image_keys:
+            img = data.pop(key)
+            if img.ndim == 2:
+                img = np.expand_dims(img, axis=-1)
+            key = self.source_names[0] if key == "image" else key
+            out_image_dict[key] = img
+
+        sample_img = next(iter(out_image_dict.values()))
+        image_height, image_width = sample_img.shape[:2]
 
         bboxes_indices = {}
 
@@ -619,7 +648,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             elif target_type == "classification":
                 out_labels[task] = array
 
-        return out_image, out_labels
+        return out_image_dict, out_labels
 
     @staticmethod
     def create_transformation(
@@ -637,14 +666,28 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
 
 def wrap_transform(
-    transform: A.BaseCompose, is_pixel: bool = False
+    transform: A.BaseCompose,
+    is_pixel: bool = False,
+    source_names: list[str] | None = None,
 ) -> Callable[..., Data]:
     def apply_transform(**data: np.ndarray) -> Data:
         if not transform.transforms:
             return data
 
         if is_pixel:
-            data["image"] = transform(image=data["image"])["image"]
+            replay_transform = A.ReplayCompose(transform.transforms)
+
+            result = replay_transform(image=data["image"])
+            data["image"] = result["image"]
+
+            replay = result["replay"]
+            for source_name in source_names[1:]:
+                img = data[source_name]
+                if img.ndim == 3:
+                    data[source_name] = A.ReplayCompose.replay(
+                        replay, image=img
+                    )["image"]
+
             return data
 
         return transform(**data)

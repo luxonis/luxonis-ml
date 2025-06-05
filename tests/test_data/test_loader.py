@@ -545,7 +545,7 @@ def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
     new_aug_annotations = [convert_annotation(ann) for _, ann in loader_aug]
 
     original_aug_annotations = load_annotations(
-        "test_augmentation_reproducibility_labels.json"
+        "test_augmentation_reproducibility_annotations.json"
     )
 
     for orig_ann, new_ann in zip(
@@ -582,19 +582,22 @@ def test_colorspace(storage_url: str, tempdir: Path):
         },
     ]
     loader = create_loader(storage_url, tempdir, augmentation_config=norm_3d)
-    rgb_img, _ = next(iter(loader))
+    img_dict, _ = next(iter(loader))
+    rgb_img = img_dict["image"]
     assert len(rgb_img.shape) == 3
     assert rgb_img.shape[2] == 3
     loader = create_loader(
         storage_url, tempdir, color_space="BGR", augmentation_config=norm_3d
     )
-    bgr_img, _ = next(iter(loader))
+    img_dict, _ = next(iter(loader))
+    bgr_img = img_dict["image"]
     assert len(bgr_img.shape) == 3
     assert bgr_img.shape[2] == 3
     assert np.array_equal(rgb_img, bgr_img[:, :, ::-1])
     loader = create_loader(
         storage_url, tempdir, color_space="GRAY", augmentation_config=norm_1d
     )
-    gray_img, _ = next(iter(loader))
+    img_dict, _ = next(iter(loader))
+    gray_img = img_dict["image"]
     assert len(gray_img.shape) == 3
     assert gray_img.shape[2] == 1

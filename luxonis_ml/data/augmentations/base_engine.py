@@ -25,6 +25,7 @@ class AugmentationEngine(
         width: int,
         targets: Mapping[str, str],
         n_classes: Mapping[str, int],
+        source_names: set[str],
         config: Iterable[Params],
         keep_aspect_ratio: bool,
         is_validation_pipeline: bool,

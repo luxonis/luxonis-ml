@@ -45,7 +45,6 @@ from .annotation import Category, DatasetRecord, Detection
 from .base_dataset import BaseDataset, DatasetIterator
 from .metadata import Metadata
 from .migration import migrate_dataframe, migrate_metadata
-from .source import LuxonisSource
 from .utils import (
     find_filepath_group_id,
     find_filepath_uuid,
@@ -150,7 +149,7 @@ class LuxonisDataset(BaseDataset):
         """Returns a copy of the dataset metadata.
 
         The metadata is a pydantic model with the following fields:
-            - source: L{LuxonisSource}
+            - source: list[str]
             - ldf_version: str
             - classes: Dict[task_name, Dict[class_name, class_id]]
             - tasks: Dict[task_name, List[task_type]]
@@ -178,12 +177,6 @@ class LuxonisDataset(BaseDataset):
         return Version.parse(
             self._metadata.ldf_version, optional_minor_and_patch=True
         )
-
-    @property
-    def source(self) -> LuxonisSource:
-        if self._metadata.source is None:
-            raise ValueError("Source not found in metadata")
-        return self._metadata.source
 
     @property
     @override
@@ -258,13 +251,15 @@ class LuxonisDataset(BaseDataset):
         with ParquetFileManager(annotations_path) as pfm:
             for row in rows:
                 uuid_val = row.get("uuid")
+                group_id_val = row.get("group_id")
                 if uuid_val is None:
                     raise ValueError("Missing 'uuid' in row!")
 
                 data_dict = dict(row)
                 data_dict.pop("uuid", None)
+                data_dict.pop("group_id", None)
 
-                pfm.write(uuid_val, data_dict)  # type: ignore
+                pfm.write(uuid_val, data_dict, group_id_val)  # type: ignore
 
         logger.info(
             f"Saved merged DataFrame to Parquet files in '{annotations_path}'."
@@ -630,7 +625,7 @@ class LuxonisDataset(BaseDataset):
                 )
             return Metadata(**metadata_json)
         return Metadata(
-            source=LuxonisSource(),
+            source=[],
             ldf_version=str(LDF_VERSION),
             classes={},
             tasks={},
@@ -644,9 +639,8 @@ class LuxonisDataset(BaseDataset):
         return self.bucket_storage != BucketStorage.LOCAL
 
     @override
-    def update_source(self, source: LuxonisSource) -> None:
-        self._metadata.source = source
-        self._write_metadata()
+    def get_source(self) -> list[str]:
+        return self._metadata.source
 
     @override
     def set_classes(
@@ -968,7 +962,6 @@ class LuxonisDataset(BaseDataset):
         if self.is_remote:
             logger.info("Uploading media...")
 
-            # TODO: support from bucket (likely with a self.fs.copy_dir)
             self.fs.put_dir(
                 local_paths=paths,
                 remote_dir="media",
@@ -1023,6 +1016,15 @@ class LuxonisDataset(BaseDataset):
             for i, record in enumerate(generator, start=1):
                 if not isinstance(record, DatasetRecord):
                     record = DatasetRecord(**record)
+                if i == 1:
+                    sources = list(record.files.keys())
+                    if not self._metadata.source:
+                        self._metadata.source += sources
+                    elif set(self._metadata.source) != set(sources):
+                        raise ValueError(
+                            "Source files do not match the existing dataset source files."
+                        )
+
                 ann = record.annotation
                 if ann is not None:
                     if not record.task_name:
