@@ -264,7 +264,7 @@ class LuxonisLoader(BaseLoader):
         return img_dict, labels
 
     def _add_empty_annotations(
-        self, img: np.ndarray, labels: Labels
+        self, img: dict[str, np.ndarray], labels: Labels
     ) -> LoaderOutput:
         image_height, image_width = next(iter(img.values())).shape[:2]
         for task_name, task_types in self.dataset.get_tasks().items():
@@ -300,7 +300,7 @@ class LuxonisLoader(BaseLoader):
 
         return img, labels
 
-    def _load_data(self, idx: int) -> tuple[np.ndarray, Labels]:
+    def _load_data(self, idx: int) -> LoaderOutput:
         """Loads image and its annotations based on index.
 
         @type idx: int
