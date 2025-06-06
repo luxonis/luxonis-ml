@@ -63,7 +63,7 @@ jobs:
       (github.event_name == 'pull_request' &&
        startsWith(github.head_ref, 'release/') &&
        github.event.pull_request.base.ref == 'main')
-    uses: Luxonis/luxonis-train/.github/workflows/tests.yaml@main
+    uses: Luxonis/luxonis-train/.github/workflows/tests.yaml@fix/free-disk-space
     with:
       ml_ref:    ${{ github.event_name == 'workflow_dispatch' && inputs.ml_ref   || github.head_ref }}
       train_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.train_ref || 'main' }}
