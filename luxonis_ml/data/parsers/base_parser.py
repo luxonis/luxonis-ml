@@ -177,8 +177,15 @@ class BaseParser(ABC):
         """
         return list(
             {
-                Path(item["file"] if isinstance(item, dict) else item.file)
+                Path(v)
                 for item in generator
+                for v in (
+                    [item["file"]]
+                    if isinstance(item, dict) and "file" in item
+                    else item["files"].values()
+                    if isinstance(item, dict) and "files" in item
+                    else [item.file]
+                )
             }
         )
 

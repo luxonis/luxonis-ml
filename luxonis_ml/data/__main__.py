@@ -108,15 +108,18 @@ def print_info(dataset: LuxonisDataset) -> None:
             task_table.add_row(", ".join(task_types))
 
     splits = dataset.get_splits()
+    source_names = dataset.get_source_names()
 
     @group()
     def get_sizes_panel() -> Iterator[RenderableType]:
         if splits is not None:
-            total_files = len(dataset)
-            for split, files in splits.items():
-                split_size = len(files)
+            total_groups = len(dataset)
+            for split, group in splits.items():
+                split_size = len(group) * len(source_names)
                 percentage = (
-                    (split_size / total_files * 100) if total_files > 0 else 0
+                    (split_size / total_groups * 100)
+                    if total_groups > 0
+                    else 0
                 )
                 yield f"[magenta b]{split}: [not b cyan]{split_size:,} [dim]({percentage:.1f}%)[/dim]"
         else:
@@ -349,7 +352,14 @@ def inspect(
     )
 
     if aug_config is not None:
-        h, w, _ = next(iter(dict(loader[0][0]).values())).shape
+        sample_img = loader[0][0]
+        img = (
+            next(iter(sample_img.values()))
+            if isinstance(sample_img, dict)
+            else sample_img
+        )
+        h, w = img.shape[:2]
+
         loader.augmentations = loader._init_augmentations(
             "albumentations", aug_config, h, w, not ignore_aspect_ratio
         )
@@ -359,7 +369,11 @@ def inspect(
 
     classes = dataset.get_classes()
 
-    for images_dict, labels in loader:
+    for img, labels in loader:
+        if isinstance(img, dict):
+            images_dict = img
+        else:
+            images_dict = {"image": img}
         instance_keys = [
             "/boundingbox",
             "/keypoints",

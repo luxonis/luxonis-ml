@@ -162,3 +162,24 @@ def test_export_regular_splits(
         original_split = sorted(original_splits[split])
         new_split = sorted(new_splits[split])
         assert original_split == new_split
+
+
+if __name__ == "__main__":
+    # We run just the test_export_regualr_splits for debuging
+    import os
+
+    os.environ["LUXONISML_BUCKET"] = "luxonis-test-bucket"
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = (
+        "C:\\Users\\jerne\\AppData\\Roaming\\gcloud\\application_default_credentials.json"
+    )
+    storage_url = "gcs://luxonis-test-bucket/luxonis-ml-test-data/"
+    url = "COCO_people_subset.zip"
+    tempdir = r"C:\Users\jerne\Desktop\luxonis-train-ml\luxonis-ml\tests\data\tempdir"
+    dataset_name = "coco_people_subset"
+
+    test_export_regular_splits(
+        dataset_name=dataset_name,
+        storage_url=storage_url,
+        tempdir=Path(tempdir),
+        url=url,
+    )

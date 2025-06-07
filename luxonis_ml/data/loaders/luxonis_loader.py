@@ -136,7 +136,7 @@ class LuxonisLoader(BaseLoader):
 
         self.df = self.dataset._load_df_offline(raise_when_empty=True)
         self.classes = self.dataset.get_classes()
-        self.source = self.dataset.get_source()
+        self.source = self.dataset.get_source_names()
 
         if color_space is None:
             color_space = {source: "RGB" for source in self.source}
@@ -247,21 +247,21 @@ class LuxonisLoader(BaseLoader):
         """
 
         if self.augmentations is None:
-            img_dict, labels = self._load_data(idx)
+            img, labels = self._load_data(idx)
         else:
-            img_dict, labels = self._load_with_augmentations(idx)
+            img, labels = self._load_with_augmentations(idx)
 
         if not self.exclude_empty_annotations:
-            img_dict, labels = self._add_empty_annotations(img_dict, labels)
+            img, labels = self._add_empty_annotations(img, labels)
 
         # Albumentations needs RGB
         bgr_sources = [k for k, v in self.color_space.items() if v == "BGR"]
         for source_name in bgr_sources:
-            img_dict[source_name] = cv2.cvtColor(
-                img_dict[source_name], cv2.COLOR_RGB2BGR
+            img[source_name] = cv2.cvtColor(
+                img[source_name], cv2.COLOR_RGB2BGR
             )
-
-        return img_dict, labels
+        img = next(iter(img.values())) if len(img) == 1 else img
+        return img, labels
 
     def _add_empty_annotations(
         self, img: dict[str, np.ndarray], labels: Labels
@@ -480,7 +480,7 @@ class LuxonisLoader(BaseLoader):
             for task_type in task_types
         }
 
-        source_names = list(self.dataset.get_source())
+        source_names = self.dataset.get_source_names()
 
         n_classes = {
             f"{task_name}/{task_type}": self.dataset.get_n_classes()[task_name]

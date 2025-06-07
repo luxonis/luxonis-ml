@@ -5,6 +5,7 @@ from typing import TypeAlias
 from semver.version import Version
 
 from luxonis_ml.data.datasets.annotation import DatasetRecord
+from luxonis_ml.data.datasets.source import LuxonisSource
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import AutoRegisterMeta, Registry
 
@@ -78,13 +79,23 @@ class BaseDataset(
         ...
 
     @abstractmethod
-    def get_source(self) -> list[str]:
+    def get_source_names(self) -> list[str]:
         """Get the source of the input data for the dataset.
 
         @rtype: List[str]
         @return: A list of source names, such as "image_left",
             "image_right", "image_middle", etc. This is used to identify
             the input data
+        """
+        ...
+
+    @abstractmethod
+    def update_source(self, source: LuxonisSource) -> None:
+        """Updates underlying source of the dataset with a new
+        LuxonisSource.
+
+        @type source: L{LuxonisSource}
+        @param source: The new C{LuxonisSource} to replace the old one.
         """
         ...
 
