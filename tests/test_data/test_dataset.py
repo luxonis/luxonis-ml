@@ -10,6 +10,7 @@ from pytest_subtests.plugin import SubTests
 from luxonis_ml.data import (
     BucketStorage,
     Category,
+    LuxonisComponent,
     LuxonisDataset,
     LuxonisLoader,
     LuxonisParser,
@@ -103,9 +104,24 @@ def test_dataset(
         pytest.exit("Dataset creation failed")
 
     with subtests.test("test_source"):
-        assert dataset.source == LuxonisSource()
-        dataset.update_source(LuxonisSource(name="test"))
-        assert dataset.source == LuxonisSource(name="test")
+        assert dataset.source == LuxonisSource(
+            name="default",
+            components={"image": LuxonisComponent(name="image")},
+            main_component="image",
+        )
+        dataset.update_source(
+            LuxonisSource(
+                name="test",
+                components={"image": LuxonisComponent(name="image")},
+                main_component="image",
+            )
+        )
+        assert dataset.source == LuxonisSource(
+            name="test",
+            components={"image": LuxonisComponent(name="image")},
+            main_component="image",
+        )
+        assert dataset.get_source_names() == ["image"]
 
     with subtests.test("test_load"):
         loader = LuxonisLoader(dataset)

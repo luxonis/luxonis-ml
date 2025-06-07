@@ -7,9 +7,22 @@ from luxonis_ml.data import AlbumentationsEngine
 from luxonis_ml.typing import Labels
 
 
-@pytest.fixture
-def image() -> np.ndarray:
-    return np.zeros((320, 320, 3), dtype=np.uint8)
+@pytest.fixture(
+    params=[
+        {"image": np.zeros((320, 320, 3), dtype=np.uint8)},
+        {
+            "rgb_image": np.zeros((320, 320, 3), dtype=np.uint8),
+            "ir_image": np.zeros((320, 320, 1), dtype=np.uint8),
+        },
+        {
+            "left_img": np.zeros((320, 320, 1), dtype=np.uint8),
+            "right_img": np.zeros((320, 320, 1), dtype=np.uint8),
+            "middle_img": np.zeros((320, 320, 3), dtype=np.uint8),
+        },
+    ]
+)
+def images_dict(request: pytest.FixtureRequest) -> dict[str, np.ndarray]:
+    return request.param
 
 
 @pytest.fixture
@@ -51,38 +64,44 @@ def n_classes() -> dict[str, int]:
 
 
 def test_mosaic4(
-    image: np.ndarray,
+    images_dict: dict[str, np.ndarray],
     labels: Labels,
     targets: dict[str, str],
     n_classes: dict[str, int],
-):
+) -> None:
     config = [
         {
             "name": "Mosaic4",
             "params": {"p": 1.0, "out_width": 640, "out_height": 640},
         }
     ]
-    augmentations = AlbumentationsEngine(256, 256, targets, n_classes, config)
-    augmentations.apply([(image.copy(), deepcopy(labels)) for _ in range(4)])
+    source_names = list(images_dict.keys())
+    augmentations = AlbumentationsEngine(
+        256, 256, targets, n_classes, source_names, config
+    )
+    augmentations.apply([(images_dict, deepcopy(labels)) for _ in range(4)])
 
 
 def test_mixup(
-    image: np.ndarray,
+    images_dict: dict[str, np.ndarray],
     labels: Labels,
     targets: dict[str, str],
     n_classes: dict[str, int],
-):
+) -> None:
     config = [{"name": "MixUp", "params": {"p": 1.0}}]
-    augmentations = AlbumentationsEngine(256, 256, targets, n_classes, config)
-    augmentations.apply([(image.copy(), deepcopy(labels)) for _ in range(2)])
+    source_names = list(images_dict.keys())
+    augmentations = AlbumentationsEngine(
+        256, 256, targets, n_classes, source_names, config
+    )
+    augmentations.apply([(images_dict, deepcopy(labels)) for _ in range(2)])
 
 
 def test_batched_p_0(
-    image: np.ndarray,
+    images_dict: dict[str, np.ndarray],
     labels: Labels,
     targets: dict[str, str],
     n_classes: dict[str, int],
-):
+) -> None:
     config = [
         {
             "name": "Mosaic4",
@@ -90,5 +109,8 @@ def test_batched_p_0(
         },
         {"name": "MixUp", "params": {"p": 0}},
     ]
-    augmentations = AlbumentationsEngine(256, 256, targets, n_classes, config)
-    augmentations.apply([(image.copy(), deepcopy(labels)) for _ in range(8)])
+    source_names = list(images_dict.keys())
+    augmentations = AlbumentationsEngine(
+        256, 256, targets, n_classes, source_names, config
+    )
+    augmentations.apply([(images_dict, deepcopy(labels)) for _ in range(8)])
