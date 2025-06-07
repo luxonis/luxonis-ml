@@ -31,7 +31,13 @@ from luxonis_ml.data.utils import (
     task_type_iterator,
 )
 from luxonis_ml.data.utils.task_utils import task_is_metadata
-from luxonis_ml.typing import Labels, LoaderOutput, Params, PathType
+from luxonis_ml.typing import (
+    Labels,
+    LoaderMultiOutput,
+    LoaderOutput,
+    Params,
+    PathType,
+)
 
 
 class LuxonisLoader(BaseLoader):
@@ -247,26 +253,26 @@ class LuxonisLoader(BaseLoader):
         """
 
         if self.augmentations is None:
-            img, labels = self._load_data(idx)
+            img_dict, labels = self._load_data(idx)
         else:
-            img, labels = self._load_with_augmentations(idx)
+            img_dict, labels = self._load_with_augmentations(idx)
 
         if not self.exclude_empty_annotations:
-            img, labels = self._add_empty_annotations(img, labels)
+            img_dict, labels = self._add_empty_annotations(img_dict, labels)
 
         # Albumentations needs RGB
         bgr_sources = [k for k, v in self.color_space.items() if v == "BGR"]
         for source_name in bgr_sources:
-            img[source_name] = cv2.cvtColor(
-                img[source_name], cv2.COLOR_RGB2BGR
+            img_dict[source_name] = cv2.cvtColor(
+                img_dict[source_name], cv2.COLOR_RGB2BGR
             )
-        img = next(iter(img.values())) if len(img) == 1 else img
+        img = next(iter(img_dict.values())) if len(img_dict) == 1 else img_dict
         return img, labels
 
     def _add_empty_annotations(
-        self, img: dict[str, np.ndarray], labels: Labels
-    ) -> LoaderOutput:
-        image_height, image_width = next(iter(img.values())).shape[:2]
+        self, img_dict: dict[str, np.ndarray], labels: Labels
+    ) -> LoaderMultiOutput:
+        image_height, image_width = next(iter(img_dict.values())).shape[:2]
         for task_name, task_types in self.dataset.get_tasks().items():
             if (
                 self.filter_task_names is not None
@@ -298,9 +304,9 @@ class LuxonisLoader(BaseLoader):
                             (len(self.classes[task_name]),)
                         )
 
-        return img, labels
+        return img_dict, labels
 
-    def _load_data(self, idx: int) -> LoaderOutput:
+    def _load_data(self, idx: int) -> LoaderMultiOutput:
         """Loads image and its annotations based on index.
 
         @type idx: int
@@ -419,7 +425,7 @@ class LuxonisLoader(BaseLoader):
 
         return img_dict, labels
 
-    def _load_with_augmentations(self, idx: int) -> LoaderOutput:
+    def _load_with_augmentations(self, idx: int) -> LoaderMultiOutput:
         indices = [idx]
         assert self.augmentations is not None
         if self.augmentations.batch_size > 1:

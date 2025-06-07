@@ -10,7 +10,7 @@ from loguru import logger
 from typing_extensions import override
 
 from luxonis_ml.data.utils.task_utils import get_task_name, task_is_metadata
-from luxonis_ml.typing import ConfigItem, LoaderOutput, Params
+from luxonis_ml.typing import ConfigItem, LoaderMultiOutput, Params
 
 from .base_engine import AugmentationEngine
 from .batch_compose import BatchCompose
@@ -448,7 +448,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         return self.batch_transform.batch_size
 
     @override
-    def apply(self, input_batch: list[LoaderOutput]) -> LoaderOutput:
+    def apply(self, input_batch: list[LoaderMultiOutput]) -> LoaderMultiOutput:
         data_batch, n_keypoints = self.preprocess_batch(input_batch)
 
         data = self.batch_transform(data_batch)
@@ -478,7 +478,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         return self.postprocess(data, n_keypoints)
 
     def preprocess_batch(
-        self, labels_batch: list[LoaderOutput]
+        self, labels_batch: list[LoaderMultiOutput]
     ) -> tuple[list[Data], dict[str, int]]:
         """Preprocess a batch of labels.
 
@@ -558,7 +558,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
     def postprocess(
         self, data: Data, n_keypoints: dict[str, int]
-    ) -> LoaderOutput:
+    ) -> LoaderMultiOutput:
         """Postprocess the augmented data back to LDF format.
 
         Discards labels associated with bboxes that are outside the
@@ -570,8 +570,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         @type n_keypoints: Dict[str, int]
         @param n_keypoints: Dictionary mapping task names to the number
             of keypoints for that task.
-        @rtype: LoaderOutput
-        @return: Tuple containing the augmented image and the labels.
+        @rtype: LoaderMultiOutput
+        @return: Tuple containing the augmented image dict and the
+            labels.
         """
         out_labels = {}
         out_image_dict = {}
