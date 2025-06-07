@@ -1296,7 +1296,7 @@ class LuxonisDataset(BaseDataset):
                     )
                     for filepath in filepaths
                 ]
-                new_splits[split] = set(ids)
+                new_splits[split] = list(set(ids))
 
         for split, group_ids in new_splits.items():
             old_splits[split].extend(group_ids)
@@ -1437,7 +1437,9 @@ class LuxonisDataset(BaseDataset):
                 with open(split_path / "annotations.json", "w") as f:
                     json.dump(annotation_data, f, indent=4)
 
-        def resolve_path(img_path: str, uuid: str, media_path: str) -> str:
+        def resolve_path(
+            img_path: str | Path, uuid: str, media_path: str
+        ) -> str:
             img_path = Path(img_path)
             if img_path.exists():
                 return str(img_path)
@@ -1546,7 +1548,7 @@ class LuxonisDataset(BaseDataset):
         assert splits is not None
 
         current_size = 0
-        part = 0 if max_partition_size_gb else None
+        part = 0
         max_partition_size = (
             max_partition_size_gb * 1024**3 if max_partition_size_gb else None
         )
