@@ -35,6 +35,7 @@ from luxonis_ml.typing import (
     Labels,
     LoaderMultiOutput,
     LoaderOutput,
+    LoaderSingleOutput,
     Params,
     PathType,
 )
@@ -266,8 +267,11 @@ class LuxonisLoader(BaseLoader):
             img_dict[source_name] = cv2.cvtColor(
                 img_dict[source_name], cv2.COLOR_RGB2BGR
             )
-        img = next(iter(img_dict.values())) if len(img_dict) == 1 else img_dict
-        return img, labels
+
+        if len(img_dict) == 1:
+            img = next(iter(img_dict.values()))
+            return cast(LoaderSingleOutput, (img, labels))
+        return cast(LoaderMultiOutput, (img_dict, labels))
 
     def _add_empty_annotations(
         self, img_dict: dict[str, np.ndarray], labels: Labels
