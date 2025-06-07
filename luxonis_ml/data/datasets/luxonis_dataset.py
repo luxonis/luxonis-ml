@@ -1548,7 +1548,7 @@ class LuxonisDataset(BaseDataset):
         assert splits is not None
 
         current_size = 0
-        part = 0
+        part = 0 if max_partition_size_gb else None
         max_partition_size = (
             max_partition_size_gb * 1024**3 if max_partition_size_gb else None
         )
@@ -1630,6 +1630,7 @@ class LuxonisDataset(BaseDataset):
 
             if (
                 max_partition_size
+                and part is not None
                 and current_size + group_total_size + annotations_size
                 > max_partition_size
             ):
