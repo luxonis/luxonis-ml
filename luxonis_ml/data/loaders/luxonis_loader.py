@@ -381,9 +381,9 @@ class LuxonisLoader(BaseLoader):
             else:  # pragma: no cover
                 # Conversion from LDF v1.0
                 if "points" in data and "width" not in data:
-                    shape_img = next(iter(img_dict.values()))
-                    data["width"] = shape_img.shape[1]
-                    data["height"] = shape_img.shape[0]
+                    sample_img = next(iter(img_dict.values()))
+                    data["width"] = sample_img.shape[1]
+                    data["height"] = sample_img.shape[0]
                     data["points"] = [tuple(p) for p in data["points"]]
 
                 annotation = load_annotation(task_type, data)
