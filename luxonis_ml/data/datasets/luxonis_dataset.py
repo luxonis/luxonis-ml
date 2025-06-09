@@ -1034,6 +1034,7 @@ class LuxonisDataset(BaseDataset):
         categorical_encodings = defaultdict(dict)
         metadata_types = {}
         num_kpts_per_task: dict[str, int] = {}
+        sources: set[str] = set()
 
         annotations_path = get_dir(
             self.fs,
@@ -1050,19 +1051,7 @@ class LuxonisDataset(BaseDataset):
             for i, record in enumerate(generator, start=1):
                 if not isinstance(record, DatasetRecord):
                     record = DatasetRecord(**record)
-                if i == 1:
-                    sources = list(record.files.keys())
-                    components = {
-                        source_name: LuxonisComponent(
-                            name=source_name,
-                        )
-                        for source_name in sources
-                    }
-                    source = LuxonisSource(
-                        components=components, main_component=sources[0]
-                    )
-                    self.update_source(source)
-
+                sources.update(record.files.keys())
                 ann = record.annotation
                 if ann is not None:
                     if not record.task_name:
@@ -1145,6 +1134,18 @@ class LuxonisDataset(BaseDataset):
         self._metadata.categorical_encodings = dict(categorical_encodings)
         self._metadata.metadata_types = metadata_types
         self.set_tasks(tasks)
+        if sources:
+            components = {
+                source_name: LuxonisComponent(
+                    name=source_name,
+                )
+                for source_name in sources
+            }
+            source = LuxonisSource(
+                components=components,
+                main_component=next(iter(components.keys())),
+            )
+            self.update_source(source)
         self._warn_on_duplicates()
         return self
 

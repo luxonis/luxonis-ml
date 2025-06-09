@@ -113,9 +113,9 @@ def print_info(dataset: LuxonisDataset) -> None:
     @group()
     def get_sizes_panel() -> Iterator[RenderableType]:
         if splits is not None:
-            total_groups = len(dataset)
+            total_groups = len(dataset) / len(source_names)
             for split, group in splits.items():
-                split_size = len(group) * len(source_names)
+                split_size = len(group)
                 percentage = (
                     (split_size / total_groups * 100)
                     if total_groups > 0
@@ -125,7 +125,7 @@ def print_info(dataset: LuxonisDataset) -> None:
         else:
             yield "[red]No splits found"
         yield Rule()
-        yield f"[magenta b]Total: [not b cyan]{len(dataset)}"
+        yield f"[magenta b]Total: [not b cyan]{int(total_groups)}"
 
     @group()
     def get_panels() -> Iterator[RenderableType]:
@@ -368,12 +368,18 @@ def inspect(
         raise ValueError(f"Dataset '{name}' is empty.")
 
     classes = dataset.get_classes()
+    prev_windows = set()
 
     for img, labels in loader:
         if isinstance(img, dict):
             images_dict = img
         else:
             images_dict = {"image": img}
+
+        current_windows = set(images_dict.keys())
+        for stale_window in prev_windows - current_windows:
+            cv2.destroyWindow(stale_window)
+
         instance_keys = [
             "/boundingbox",
             "/keypoints",
@@ -425,6 +431,8 @@ def inspect(
                     image, source_name, labels, classes, blend_all=blend_all
                 )
                 cv2.imshow(source_name, labeled_image)
+
+        prev_windows = current_windows
 
         if cv2.waitKey() == ord("q"):
             break

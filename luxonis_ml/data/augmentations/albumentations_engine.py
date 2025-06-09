@@ -454,7 +454,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         data = self.batch_transform(data_batch)
 
         for target_name in list(data.keys()):
-            if data[target_name].size == 0:
+            value = data[target_name]
+            if isinstance(value, np.ndarray) and value.size == 0:
                 del data[target_name]
 
         data = self.spatial_transform(**data)
@@ -495,13 +496,14 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
         for image_dict, labels in labels_batch:
             data = {}
+
+            key = next(iter(image_dict))
+            data["_original_image_key"] = key
             for source_name, img in image_dict.items():
-                key = (
-                    "image"
-                    if source_name == self.source_names[0]
-                    else source_name
-                )
-                data[key] = img
+                if source_name == key:
+                    data["image"] = img
+                else:
+                    data[source_name] = img
 
             sample_img = next(iter(image_dict.values()))
             height, width = sample_img.shape[:2]
@@ -583,8 +585,10 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             img = data.pop(key)
             if img.ndim == 2:
                 img = np.expand_dims(img, axis=-1)
-            key = self.source_names[0] if key == "image" else key
-            out_image_dict[key] = img
+            restored_key = (
+                data["_original_image_key"] if key == "image" else key
+            )
+            out_image_dict[restored_key] = img
 
         sample_img = next(iter(out_image_dict.values()))
         image_height, image_width = sample_img.shape[:2]
@@ -687,7 +691,9 @@ def wrap_transform(
             data["image"] = result["image"]
 
             replay = result["replay"]
-            for source_name in source_names[1:]:
+            for source_name in source_names:
+                if source_name == "image" or source_name not in data:
+                    continue
                 img = data[source_name]
                 if img.ndim == 3:
                     data[source_name] = A.ReplayCompose.replay(
@@ -696,6 +702,11 @@ def wrap_transform(
 
             return data
 
-        return transform(**data)
+        original_key = data.pop("_original_image_key", None)
+        transformed = transform(**data)
+        if original_key is not None:
+            transformed["_original_image_key"] = original_key
+
+        return transformed
 
     return apply_transform

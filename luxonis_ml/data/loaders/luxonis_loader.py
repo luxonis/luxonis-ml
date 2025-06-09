@@ -143,12 +143,12 @@ class LuxonisLoader(BaseLoader):
 
         self.df = self.dataset._load_df_offline(raise_when_empty=True)
         self.classes = self.dataset.get_classes()
-        self.source = self.dataset.get_source_names()
+        self.source_names = self.dataset.get_source_names()
 
         if color_space is None:
-            color_space = {source: "RGB" for source in self.source}
+            color_space = {source: "RGB" for source in self.source_names}
         elif isinstance(color_space, str):
-            color_space = {source: color_space for source in self.source}
+            color_space = {source: color_space for source in self.source_names}
         elif not isinstance(color_space, dict):
             raise ValueError(
                 "color_space must be either a string or a dictionary"
@@ -268,7 +268,7 @@ class LuxonisLoader(BaseLoader):
                 img_dict[source_name], cv2.COLOR_RGB2BGR
             )
 
-        if len(img_dict) == 1:
+        if len(self.source_names) == 1:
             img = next(iter(img_dict.values()))
             return cast(LoaderSingleOutput, (img, labels))
         return cast(LoaderMultiOutput, (img_dict, labels))
@@ -490,8 +490,6 @@ class LuxonisLoader(BaseLoader):
             for task_type in task_types
         }
 
-        source_names = self.dataset.get_source_names()
-
         n_classes = {
             f"{task_name}/{task_type}": self.dataset.get_n_classes()[task_name]
             for task_name, task_types in dataset_tasks.items()
@@ -506,7 +504,7 @@ class LuxonisLoader(BaseLoader):
             config=augmentation_config,
             targets=targets,
             n_classes=n_classes,
-            source_names=source_names,
+            source_names=self.source_names,
             keep_aspect_ratio=keep_aspect_ratio,
             is_validation_pipeline="train" not in self.view,
             seed=seed,
@@ -539,4 +537,4 @@ class LuxonisLoader(BaseLoader):
 
                 source_to_path[source_name] = path
 
-            self.idx_to_img_paths[idx] = source_to_path
+            self.idx_to_img_paths[idx] = dict(sorted(source_to_path.items()))

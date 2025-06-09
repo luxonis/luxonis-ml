@@ -43,6 +43,7 @@ class BatchCompose(A.Compose):
             return data_batch[0]
 
         for data in data_batch:
+            original_image_key = data.pop("_original_image_key", None)
             self.preprocess(data)
 
         for transform in self.transforms:
@@ -62,7 +63,11 @@ class BatchCompose(A.Compose):
 
         data = self.make_contiguous(data)
 
-        return self.postprocess(data)
+        data = self.postprocess(data)
+
+        data["_original_image_key"] = original_image_key
+
+        return data
 
     @staticmethod
     def make_contiguous(data: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
