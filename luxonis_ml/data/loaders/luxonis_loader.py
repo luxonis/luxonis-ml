@@ -339,9 +339,7 @@ class LuxonisLoader(BaseLoader):
                 if img.ndim == 2:
                     img_gray = img[..., np.newaxis]
                 elif img.ndim == 3 and img.shape[2] == 3:
-                    img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)[
-                        ..., np.newaxis
-                    ]
+                    img_gray = img[..., 0:1]
                 else:
                     raise ValueError(
                         f"Unsupported image format: shape {img.shape}"
@@ -350,7 +348,7 @@ class LuxonisLoader(BaseLoader):
                 img_dict[source_name] = img_gray
             else:
                 img_dict[source_name] = cv2.cvtColor(
-                    cv2.imread(str(path)), cv2.COLOR_BGR2RGB
+                    cv2.imread(str(path), cv2.IMREAD_COLOR), cv2.COLOR_BGR2RGB
                 )
 
         labels_by_task: dict[str, list[Annotation]] = defaultdict(list)
