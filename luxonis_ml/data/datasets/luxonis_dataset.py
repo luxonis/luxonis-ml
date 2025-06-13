@@ -629,7 +629,7 @@ class LuxonisDataset(BaseDataset):
                 source_data = metadata_json["source"]
                 if isinstance(source_data, dict):
                     components = source_data.get("components", {})
-                    if isinstance(components, dict):
+                    if isinstance(components, dict) and len(components) == 1:
                         new_components = {
                             "image": LuxonisComponent(
                                 **next(iter(components.values()))
