@@ -561,6 +561,11 @@ class DatasetRecord(BaseModelExtraForbid):
         values = deepcopy(values)
         if "file" in values:
             values["files"] = {"image": values.pop("file")}
+        if "files" in values:
+            files_dict = values["files"]
+            values["files"] = {
+                k: Path(v).resolve() for k, v in files_dict.items()
+            }
         return values
 
     def to_parquet_rows(self) -> Iterable[ParquetRecord]:
