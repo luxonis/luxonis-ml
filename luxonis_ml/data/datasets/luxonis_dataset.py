@@ -1685,7 +1685,15 @@ class LuxonisDataset(BaseDataset):
                         str(folder), "zip", root_dir=folder
                     )
                     archives.append(Path(archive_file))
-            return archives if len(archives) > 1 else archives[0]
+            if len(archives) > 1:
+                logger.info(
+                    f"Dataset successfully exported to: {[str(p) for p in archives]}"
+                )
+                return archives
+            logger.info(f"Dataset successfully exported to: {archives[0]}")
+            return archives[0]
+
+        logger.info(f"Dataset successfully exported to: {output_path}")
         return output_path
 
     def get_statistics(
