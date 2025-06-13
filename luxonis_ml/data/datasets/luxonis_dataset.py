@@ -268,7 +268,7 @@ class LuxonisDataset(BaseDataset):
                 pfm.write(uuid_val, data_dict, group_id_val)  # type: ignore
 
         logger.info(
-            f"Saved merged DataFrame to Parquet files in '{annotations_path}'."
+            f"Saved DataFrame to Parquet files in '{annotations_path}'."
         )
 
     def _merge_metadata_with(self, other: "LuxonisDataset") -> None:
@@ -629,7 +629,7 @@ class LuxonisDataset(BaseDataset):
                 source_data = metadata_json["source"]
                 if isinstance(source_data, dict):
                     components = source_data.get("components", {})
-                    if len(components) == 1:
+                    if isinstance(components, dict):
                         new_components = {
                             "image": LuxonisComponent(
                                 **next(iter(components.values()))
