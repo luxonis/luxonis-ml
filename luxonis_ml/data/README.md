@@ -112,7 +112,7 @@ Each data entry should be a dictionary with one of the following structures, dep
 
 ```python
 {
-    "file": str,  # path to the image file
+    "file": str,  # absolute path to the image file
     "task_name": Optional[str],  # task for this annotation
     "annotation": Optional[dict]  # annotation of the instance in the file
 }
@@ -122,7 +122,7 @@ Each data entry should be a dictionary with one of the following structures, dep
 
 ```python
 {
-    "files": dict[str, str],  # mapping from input source name to file path
+    "files": dict[str, str],  # mapping from input source name to absolute file path
     "task_name": Optional[str],  # task for this annotation
     "annotation": Optional[dict]  # annotation of the instance in the files
 }
@@ -133,8 +133,8 @@ In the multi-input format, the keys in the `files` dictionary are arbitrary stri
 ```python
 {
     "files": {
-        "img_rgb": "path/to/rgb_image.png",
-        "img_ir": "path/to/infrared_image.png"
+        "img_rgb": "absolute/path/to/rgb_image.png",
+        "img_ir": "absolute/path/to/infrared_image.png"
     },
     "task_name": "detection",
     "annotation": {
