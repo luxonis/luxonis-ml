@@ -399,6 +399,9 @@ class LuxonisFileSystem:
         if self.is_fsspec:
             if isinstance(remote_paths, PurePosixPath | str):
                 existed = local_dir.exists()
+                logger.info(
+                    f"trying to download {self.path / remote_paths!s} to {local_dir}"
+                )
                 self.fs.get(
                     str(self.path / remote_paths),
                     str(local_dir),
@@ -406,6 +409,14 @@ class LuxonisFileSystem:
                 )
                 if not existed:
                     return local_dir
+
+                # Lets recursively check the local dir and print all files inside
+                for file in local_dir.rglob("*"):
+                    if file.is_file():
+                        logger.info(f"Downloaded file: {file}")
+                    elif file.is_dir():
+                        logger.info(f"Downloaded directory: {file}")
+
                 return local_dir / PurePosixPath(remote_paths).name
 
             if isinstance(remote_paths, list):
@@ -416,6 +427,9 @@ class LuxonisFileSystem:
                     for remote_path in remote_paths:
                         local_path = (
                             local_dir / PurePosixPath(remote_path).name
+                        )
+                        logger.info(
+                            f"Downloading {remote_path} to {local_path}"
                         )
                         future = executor.submit(
                             self.get_file, remote_path, local_path

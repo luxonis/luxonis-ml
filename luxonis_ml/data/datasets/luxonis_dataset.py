@@ -788,6 +788,11 @@ class LuxonisDataset(BaseDataset):
                     logger.info(
                         f"Media files in {media_dir}: {[str(f) for f in media_files]}"
                     )
+            else:
+                logger.warning(
+                    f"Media directory {media_dir} does not exist. "
+                    "Please check the remote bucket."
+                )
 
     def push_to_cloud(
         self,
