@@ -775,12 +775,18 @@ class LuxonisDataset(BaseDataset):
                 logger.info("Media already synced")
 
             # Lets check if missing_media_paths paths exists
-            for path in missing_media_paths:
-                full_path = self.local_path / path
-                if not full_path.exists():
+            # lets check the local_dir / f"{self.dataset_name}" / "media" and print the files that are inside
+            media_dir = local_dir / f"{self.dataset_name}" / "media"
+            if media_dir.exists():
+                media_files = list(media_dir.glob("*"))
+                if not media_files:
                     logger.warning(
-                        f"Missing media file: {full_path}. "
-                        "Please check the dataset integrity."
+                        f"No media files found in {media_dir}. "
+                        "Please check the remote bucket."
+                    )
+                else:
+                    logger.info(
+                        f"Media files in {media_dir}: {[str(f) for f in media_files]}"
                     )
 
     def push_to_cloud(
