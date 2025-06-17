@@ -490,16 +490,7 @@ class LuxonisLoader(BaseLoader):
                 file_extension = ann_rows[0][0].rsplit(".", 1)[-1]
                 img_path = self.dataset.media_path / f"{uuid}.{file_extension}"
                 if not img_path.exists():
-                    logger.info(
-                        f"Image path {img_path} does not exist for index {idx}. "
-                        f"media_path is {self.dataset.media_path}"
+                    raise FileNotFoundError(
+                        f"Cannot find image for uuid {uuid}"
                     )
-                    # print the content of self.dataset.media_path
-                    import os
-
-                    logger.info(
-                        "Content of media_path:",
-                        os.listdir(self.dataset.media_path),
-                    )
-
             self.idx_to_img_path[idx] = img_path
