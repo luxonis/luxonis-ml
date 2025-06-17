@@ -411,11 +411,16 @@ class LuxonisFileSystem:
                     return local_dir
 
                 # Lets recursively check the local dir and print all files inside
+                downloaded_files = []
                 for file in local_dir.rglob("*"):
                     if file.is_file():
                         logger.info(f"Downloaded file: {file}")
+                        downloaded_files.append(file)
                     elif file.is_dir():
                         logger.info(f"Downloaded directory: {file}")
+                logger.info(
+                    f"Number of downloaded files: {len(downloaded_files)}"
+                )
 
                 return local_dir / PurePosixPath(remote_paths).name
 

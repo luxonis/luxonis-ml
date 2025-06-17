@@ -491,7 +491,7 @@ class LuxonisLoader(BaseLoader):
                 img_path = self.dataset.media_path / f"{uuid}.{file_extension}"
                 if not img_path.exists():
                     raise FileNotFoundError(
-                        f"Cannot find image for uuid {uuid}"
+                        f"Cannot find image path {img_path} for uuid {uuid}"
                     )
 
             self.idx_to_img_path[idx] = img_path
