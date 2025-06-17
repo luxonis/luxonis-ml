@@ -493,4 +493,5 @@ class LuxonisLoader(BaseLoader):
                     raise FileNotFoundError(
                         f"Cannot find image for uuid {uuid}"
                     )
+
             self.idx_to_img_path[idx] = img_path

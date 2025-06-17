@@ -410,12 +410,25 @@ class LuxonisFileSystem:
 
             if isinstance(remote_paths, list):
                 local_dir.mkdir(parents=True, exist_ok=True)
+                futures = []
+
                 with ThreadPoolExecutor() as executor:
                     for remote_path in remote_paths:
                         local_path = (
                             local_dir / PurePosixPath(remote_path).name
                         )
-                        executor.submit(self.get_file, remote_path, local_path)
+                        future = executor.submit(
+                            self.get_file, remote_path, local_path
+                        )
+                        futures.append(future)
+
+                    for future in as_completed(futures):
+                        try:
+                            future.result()
+                        except Exception as e:
+                            raise RuntimeError(
+                                f"Failed to download file: {e}"
+                            ) from e
 
         return Path(local_dir)
 
