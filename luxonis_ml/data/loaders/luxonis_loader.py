@@ -480,15 +480,6 @@ class LuxonisLoader(BaseLoader):
     def _precompute_image_paths(self) -> None:
         self.idx_to_img_path = {}
 
-        # create a while loop for 5 mins to wait here
-        import time
-
-        logger.info(
-            "Waiting 5 mins for debugging purposes... SSH into the pod!"
-        )
-        for _ in range(300):
-            time.sleep(1)
-
         for idx, ann_indices in enumerate(self.idx_to_df_row):
             ann_indices = self.idx_to_df_row[idx]
 
