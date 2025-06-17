@@ -480,6 +480,15 @@ class LuxonisLoader(BaseLoader):
     def _precompute_image_paths(self) -> None:
         self.idx_to_img_path = {}
 
+        # create a while loop for 5 mins to wait here
+        import time
+
+        logger.info(
+            "Waiting 5 mins for debugging purposes... SSH into the pod!"
+        )
+        for _ in range(300):
+            time.sleep(1)
+
         for idx, ann_indices in enumerate(self.idx_to_df_row):
             ann_indices = self.idx_to_df_row[idx]
 
@@ -490,8 +499,16 @@ class LuxonisLoader(BaseLoader):
                 file_extension = ann_rows[0][0].rsplit(".", 1)[-1]
                 img_path = self.dataset.media_path / f"{uuid}.{file_extension}"
                 if not img_path.exists():
-                    raise FileNotFoundError(
-                        f"Cannot find image for uuid {uuid}"
+                    logger.info(
+                        f"Image path {img_path} does not exist for index {idx}. "
+                        f"media_path is {self.dataset.media_path}"
+                    )
+                    # print the content of self.dataset.media_path
+                    import os
+
+                    logger.info(
+                        "Content of media_path:",
+                        os.listdir(self.dataset.media_path),
                     )
 
             self.idx_to_img_path[idx] = img_path
