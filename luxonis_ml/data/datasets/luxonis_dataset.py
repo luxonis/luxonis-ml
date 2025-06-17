@@ -774,6 +774,15 @@ class LuxonisDataset(BaseDataset):
             else:
                 logger.info("Media already synced")
 
+            # Lets check if missing_media_paths paths exists
+            for path in missing_media_paths:
+                full_path = self.local_path / path
+                if not full_path.exists():
+                    logger.warning(
+                        f"Missing media file: {full_path}. "
+                        "Please check the dataset integrity."
+                    )
+
     def push_to_cloud(
         self,
         bucket_storage: BucketStorage,
