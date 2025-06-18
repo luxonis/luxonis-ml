@@ -68,6 +68,7 @@ def setup_logging(
         # https://github.com/Delgan/loguru/issues/1172
         format=lambda _: "{message}",
         backtrace=False,
+        filter=lambda record: "file_only" not in record["extra"],
     )
 
     if file is not None:
