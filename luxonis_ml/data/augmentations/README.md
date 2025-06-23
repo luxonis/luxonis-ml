@@ -2,7 +2,72 @@
 
 ## `AlbumentationsEngine`
 
-The default engine used with `LuxonisLoader`. It is powered by the [Albumentations](https://albumentations.ai/) library and should be satisfactory for most use cases. Apart from the albumentations transformations, it also supports custom transformations registered in the `TRANSFORMATIONS` registry.
+The default engine used with `LuxonisLoader`. It is powered by the [Albumentations](https://albumentations.ai/) library and should be satisfactory for most use cases. In addition to the built-in Albumentations transformations, it also supports custom transformations registered in the `TRANSFORMATIONS` registry.
+
+### Creating and Registering a Custom Augmentation
+
+The process of creating custom augmentations follows the same principles as described in the [Albumentations custom transform guide](https://albumentations.ai/docs/4-advanced-guides/creating-custom-transforms/#creating-custom-albumentations-transforms). You can subclass from their base classes such as `DualTransform`, `ImageOnlyTransform`, or others depending on the target types you want to support.
+
+The example below shows how to define, register, and use a custom transform:
+
+```python
+import numpy as np
+from typing import Any, Sequence
+from albumentations import DualTransform
+
+from luxonis_ml.data import LuxonisDataset, LuxonisLoader
+from luxonis_ml.data.augmentations.custom import TRANSFORMATIONS
+
+class CustomTransform(DualTransform):
+    def __init__(self, p: float = 1.0):
+        super().__init__(p)
+
+    def apply(self, image: np.ndarray, **_: Any) -> np.ndarray:
+        return image
+
+    def apply_to_mask(self, mask: np.ndarray, **_: Any) -> np.ndarray:
+        return mask
+
+    def apply_to_bboxes(self, bboxes: Sequence[Any], **_: Any) -> Sequence[Any]:
+        return bboxes
+
+    def apply_to_keypoints(self, keypoints: Sequence[Any], **_: Any) -> Sequence[Any]:
+        return keypoints
+
+# Register the transform
+TRANSFORMATIONS.register(module=CustomTransform)
+
+# Use it in the config
+augmentation_config = [{
+    "name": "CustomTransform",
+    "params": {"p": 1},
+}]
+
+loader = LuxonisLoader(
+    LuxonisDataset("coco_test"),
+    augmentation_config=augmentation_config,
+    view="train",
+    height=640,
+    width=640,
+)
+
+for data in loader:
+  pass
+```
+
+### Examples of Custom Augmentations
+
+- [`letterbox_resize.py`](./custom/letterbox_resize.py)
+- [`symetric_keypoints_flip.py`](./custom/symetric_keypoints_flip.py)
+
+### Batch-Level Augmentations
+
+We also support **batch-level transformations**, built on top of the `BatchTransform` base class. These follow the same creation and registration pattern as standard custom transforms but operate on batches of data. This allows you to construct augmentations that combine multiple images and labels.
+
+Examples:
+
+- [`mosaic.py`](./custom/mosaic.py)
+- [`mixup.py`](./custom/mixup.py)
 
 ### Configuration Format
 

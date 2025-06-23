@@ -58,16 +58,6 @@ class BaseDataset(
         ...
 
     @abstractmethod
-    def update_source(self, source: LuxonisSource) -> None:
-        """Updates underlying source of the dataset with a new
-        LuxonisSource.
-
-        @type source: L{LuxonisSource}
-        @param source: The new C{LuxonisSource} to replace the old one.
-        """
-        ...
-
-    @abstractmethod
     def set_classes(
         self,
         classes: list[str] | dict[str, int],
@@ -85,6 +75,27 @@ class BaseDataset(
         @type task: Optional[str]
         @param task: Optionally specify the task where these classes
             apply.
+        """
+        ...
+
+    @abstractmethod
+    def get_source_names(self) -> list[str]:
+        """Get the source of the input data for the dataset.
+
+        @rtype: List[str]
+        @return: A list of source names, such as "image_left",
+            "image_right", "image_middle", etc. This is used to identify
+            the input data
+        """
+        ...
+
+    @abstractmethod
+    def update_source(self, source: LuxonisSource) -> None:
+        """Updates underlying source of the dataset with a new
+        LuxonisSource.
+
+        @type source: L{LuxonisSource}
+        @param source: The new C{LuxonisSource} to replace the old one.
         """
         ...
 
