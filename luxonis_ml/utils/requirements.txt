@@ -1,9 +1,9 @@
-pydantic>=2.4.0
-pydantic-settings>=2.1.0
-PyYAML>=6.0
+pydantic~=2.7
+pydantic-settings~=2.1
+PyYAML~=6.0
 fsspec>=2023.3.0
-rich>=13.6.0
-typer>=0.12.0
-typeguard>=4.1.0
+rich~=13.6
+typer~=0.12
+typeguard~=4.1
 aiobotocore<2.18
-loguru>=0.7.0
+loguru~=0.7

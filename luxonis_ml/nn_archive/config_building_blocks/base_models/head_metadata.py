@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -13,7 +13,7 @@ class HeadMetadata(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    postprocessor_path: Optional[str] = Field(
+    postprocessor_path: str | None = Field(
         None, description="Path to the postprocessor."
     )
 
@@ -40,7 +40,7 @@ class HeadObjectDetectionMetadata(HeadMetadata):
         lists go from smallest to largest output.
     """
 
-    classes: List[str] = Field(
+    classes: list[str] = Field(
         description="Names of object classes recognized by the model."
     )
     n_classes: int = Field(
@@ -53,7 +53,7 @@ class HeadObjectDetectionMetadata(HeadMetadata):
         description="Confidence score threshold above which a detected object is considered valid."
     )
     max_det: int = Field(description="Maximum detections per image.")
-    anchors: Optional[List[List[List[float]]]] = Field(
+    anchors: list[list[list[float]]] | None = Field(
         None,
         description="Predefined bounding boxes of different sizes and aspect ratios. The innermost lists are length 2 tuples of box sizes. The middle lists are anchors for each output. The outmost lists go from smallest to largest output.",
     )
@@ -89,7 +89,7 @@ class HeadClassificationMetadata(HeadMetadata):
     @ivar is_softmax: True, if output is already softmaxed
     """
 
-    classes: List[str] = Field(
+    classes: list[str] = Field(
         description="Names of object classes recognized by the model."
     )
     n_classes: int = Field(
@@ -111,7 +111,7 @@ class HeadSegmentationMetadata(HeadMetadata):
     @ivar is_softmax: True, if output is already softmaxed
     """
 
-    classes: List[str] = Field(
+    classes: list[str] = Field(
         description="Names of object classes recognized by the model."
     )
     n_classes: int = Field(
@@ -150,46 +150,49 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
         instance segmentation
     """
 
-    yolo_outputs: List[str] = Field(
+    yolo_outputs: list[str] = Field(
         description="A list of output names for each of the different YOLO grid sizes."
     )
 
     # Instance segmentation
-    mask_outputs: Optional[List[str]] = Field(
+    mask_outputs: list[str] | None = Field(
         None, description="A list of output names for each mask output."
     )
-    protos_outputs: Optional[str] = Field(
+    protos_outputs: str | None = Field(
         None, description="Output name for the protos."
     )
 
     # Keypoint detection
-    keypoints_outputs: Optional[List[str]] = Field(
+    keypoints_outputs: list[str] | None = Field(
         None, description="A list of output names for the keypoints."
     )
 
     # OBB detection
-    angles_outputs: Optional[List[str]] = Field(
+    angles_outputs: list[str] | None = Field(
         None, description="A list of output names for the angles."
     )
 
     subtype: str = Field(
         description="YOLO family decoding subtype (e.g. yolov5, yolov6, yolov7 etc.)."
     )
-    n_prototypes: Optional[int] = Field(
+    n_prototypes: int | None = Field(
         None,
         description="Number of prototypes per bbox in YOLO instance segmnetation.",
     )
-    n_keypoints: Optional[int] = Field(
+    n_keypoints: int | None = Field(
         None,
         description="Number of keypoints per bbox in YOLO keypoint detection.",
     )
-    is_softmax: Optional[bool] = Field(
+    is_softmax: bool | None = Field(
         None,
         description="True, if output is already softmaxed in YOLO instance segmentation.",
     )
 
     @model_validator(mode="before")
-    def validate_task_specific_fields(cls, values):
+    @classmethod
+    def validate_task_specific_fields(
+        cls, values: dict[str, Any]
+    ) -> dict[str, Any]:
         defined_params = {k for k, v in dict(values).items() if v is not None}
 
         common_fields = [
@@ -234,24 +237,18 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
         tasks = []
         # Extract the task type
         if all(
-            [
-                field in defined_params
-                for field in required_fields.get("instance_segmentation", [])
-            ]
+            field in defined_params
+            for field in required_fields.get("instance_segmentation", [])
         ):
             tasks.append("instance_segmentation")
         if all(
-            [
-                field in defined_params
-                for field in required_fields.get("keypoint_detection", [])
-            ]
+            field in defined_params
+            for field in required_fields.get("keypoint_detection", [])
         ):
             tasks.append("keypoint_detection")
         if all(
-            [
-                field not in defined_params
-                for field in unsupported_fields.get("object_detection", [])
-            ]
+            field not in defined_params
+            for field in unsupported_fields.get("object_detection", [])
         ):
             tasks.append("object_detection")
 
@@ -295,11 +292,9 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
 
         # Check if all required output fields are present
         if not all(
-            [
-                field in defined_params
-                for task in tasks
-                for field in supported_output_params[task]
-            ]
+            field in defined_params
+            for task in tasks
+            for field in supported_output_params[task]
         ):
             raise ValueError(f"Invalid output fields for tasks {tasks}")
 

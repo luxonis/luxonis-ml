@@ -1,18 +1,18 @@
 import json
 import uuid
 from pathlib import Path
-from typing import List
 
 import cv2
 import numpy as np
-from utils import gather_tasks
 
 from luxonis_ml.data import BucketStorage, LuxonisDataset, LuxonisLoader
 from luxonis_ml.typing import Params
 from luxonis_ml.utils import LuxonisFileSystem
 
+from .utils import gather_tasks
 
-def get_annotations(sequence_path):
+
+def get_annotations(sequence_path: Path):
     frame_data = sequence_path / "step0.frame_data.json"
     with open(frame_data) as f:
         data = json.load(f)["captures"][0]
@@ -25,7 +25,7 @@ def test_parking_lot_generate(
     tempdir: Path,
     bucket_storage: BucketStorage,
     dataset_name: str,
-    augmentation_config: List[Params],
+    augmentation_config: list[Params],
     height: int,
     width: int,
     storage_url: str,
@@ -35,7 +35,7 @@ def test_parking_lot_generate(
     )
     dataset = LuxonisDataset(
         dataset_name,
-        delete_existing=True,
+        delete_local=True,
         bucket_storage=bucket_storage,
         delete_remote=True,
     )
@@ -224,13 +224,13 @@ def generator(base_path: Path, tempdir: Path):
             for annotation in annotations_list:
                 yield {
                     "file": combined_filepath,
-                    "task": annotation["class"],
+                    "task_name": annotation["class"],
                     "annotation": annotation,
                 }
             for i, color in enumerate(["red", "green", "blue"]):
                 yield {
                     "file": combined_filepath,
-                    "task": "color",
+                    "task_name": "color",
                     "annotation": {
                         "class": color,
                         "segmentation": {"mask": color_mask[i]},

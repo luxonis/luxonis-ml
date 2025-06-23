@@ -5,7 +5,19 @@ from typing import Literal
 
 import onnx
 import pytest
-from heads import (
+from onnx import checker, helper
+from onnx.onnx_pb import TensorProto
+from pydantic import ValidationError
+
+from luxonis_ml.nn_archive import ArchiveGenerator, is_nn_archive
+from luxonis_ml.nn_archive.config_building_blocks import HeadMetadata
+from luxonis_ml.nn_archive.config_building_blocks.enums.data_type import (
+    DataType,
+)
+from luxonis_ml.nn_archive.model import HeadType, Input, Output
+from luxonis_ml.typing import Params
+
+from .heads import (
     classification_head,
     custom_segmentation_head,
     ssd_object_detection_head,
@@ -15,14 +27,6 @@ from heads import (
     yolo_obb_detection_head,
     yolo_object_detection_head,
 )
-from onnx import checker, helper
-from onnx.onnx_pb import TensorProto
-from pydantic import ValidationError
-
-from luxonis_ml.nn_archive import ArchiveGenerator, is_nn_archive
-from luxonis_ml.nn_archive.config_building_blocks import HeadMetadata
-from luxonis_ml.nn_archive.model import HeadType, Input, Output
-from luxonis_ml.typing import Params
 
 
 @lru_cache
@@ -57,7 +61,7 @@ def onnx_path(tempdir: Path):
 
 @pytest.mark.parametrize("compression", ["xz", "gz", "bz2"])
 @pytest.mark.parametrize(
-    "head, archive_name",
+    ("head", "archive_name"),
     [
         (classification_head, "classification"),
         (ssd_object_detection_head, "ssd_detection"),
@@ -221,12 +225,10 @@ def test_layout():
     )
     assert inp.layout == "CHWD"
     out = Output(
-        **{
-            "name": "output",
-            "dtype": "float32",
-            "shape": [1, 10],
-            "layout": "nc",
-        }
+        name="output",
+        dtype=DataType.FLOAT32,
+        shape=[1, 10],
+        layout="nc",
     )
     assert out.layout == "NC"
 
@@ -259,19 +261,12 @@ def test_layout():
 
     with pytest.raises(ValidationError):
         Output(
-            **{
-                "name": "output",
-                "dtype": "float32",
-                "shape": [1, 10],
-                "layout": "ncn",
-            }
+            name="output", dtype=DataType.FLOAT32, shape=[1, 10], layout="ncn"
         )
 
     with pytest.raises(ValidationError):
         Output(
-            **{
-                "name": "output",
-                "dtype": "float32",
-                "layout": list("nc"),
-            }
-        )
+            name="output",
+            dtype=DataType.FLOAT32,
+            layout=list("nc"),
+        )  # type: ignore

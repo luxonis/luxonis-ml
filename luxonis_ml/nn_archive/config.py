@@ -31,7 +31,8 @@ class Config(BaseModelExtraForbid):
     )
 
     @field_validator("config_version")
-    def validate_config_version_format(cls, v):
+    @classmethod
+    def validate_config_version_format(cls, v: str) -> str:
         # Regular expression to match 'x.y' where x and y are integers
         if not re.match(r"^\d+\.\d+$", v):
             raise ValueError(

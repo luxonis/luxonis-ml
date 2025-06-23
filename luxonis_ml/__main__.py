@@ -34,10 +34,10 @@ except ImportError:
     pass
 
 
-def version_callback(value: bool):
+def version_callback(value: bool) -> None:
     if value:
         typer.echo(f"LuxonisML: {version('luxonis_ml')}")
-        raise typer.Exit()
+        raise typer.Exit
 
 
 @app.callback()

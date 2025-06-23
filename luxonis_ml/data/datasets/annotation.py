@@ -1,8 +1,10 @@
 import json
+import warnings
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple, Union
+from typing import Annotated, Any, Literal, Optional, TypeAlias
 
 import cv2
 import numpy as np
@@ -18,16 +20,14 @@ from pydantic import (
 )
 from pydantic.types import FilePath, PositiveInt
 from pydantic_core import core_schema
-from typeguard import check_type
-from typing_extensions import Annotated, Self, TypeAlias, override
+from typing_extensions import Self, override
 
 from luxonis_ml.data.utils.parquet import ParquetRecord
+from luxonis_ml.typing import PathType, check_type
 from luxonis_ml.utils import BaseModelExtraForbid
 
 KeypointVisibility: TypeAlias = Literal[0, 1, 2]
 NormalizedFloat: TypeAlias = Annotated[float, Field(ge=0, le=1)]
-"""C{NormalizedFloat} is a float that is restricted to the range [0,
-1]."""
 
 
 class Category(str):
@@ -39,10 +39,10 @@ class Category(str):
 
 
 class Detection(BaseModelExtraForbid):
-    class_name: Optional[str] = Field(None, alias="class")
+    class_name: str | None = Field(None, alias="class")
     instance_id: int = -1
 
-    metadata: Dict[str, Union[int, float, str, Category]] = {}
+    metadata: dict[str, int | float | str | Category] = {}
 
     boundingbox: Optional["BBoxAnnotation"] = None
     keypoints: Optional["KeypointAnnotation"] = None
@@ -52,7 +52,7 @@ class Detection(BaseModelExtraForbid):
 
     scale_to_boxes: bool = False
 
-    sub_detections: Dict[str, "Detection"] = {}
+    sub_detections: dict[str, "Detection"] = {}
 
     @model_validator(mode="after")
     def validate_names(self) -> Self:
@@ -66,7 +66,7 @@ class Detection(BaseModelExtraForbid):
     def rescale_values(self) -> Self:
         if not self.scale_to_boxes:
             return self
-        elif self.boundingbox is None:
+        if self.boundingbox is None:
             raise ValueError(
                 "`scaled_to_boxes` is set to True, "
                 "but no bounding box is provided."
@@ -87,6 +87,25 @@ class Detection(BaseModelExtraForbid):
             )
         return self
 
+    def get_task_types(self) -> set[str]:
+        task_types = {
+            task_type
+            for task_type in [
+                "boundingbox",
+                "keypoints",
+                "segmentation",
+                "instance_segmentation",
+                "array",
+            ]
+            if getattr(self, task_type) is not None
+        }
+        if self.class_name is not None:
+            task_types.add("classification")
+        for metadata_key in self.metadata:
+            task_types.add(f"metadata/{metadata_key}")
+
+        return task_types
+
 
 class Annotation(ABC, BaseModelExtraForbid):
     """Base class for an annotation."""
@@ -94,7 +113,7 @@ class Annotation(ABC, BaseModelExtraForbid):
     @staticmethod
     @abstractmethod
     def combine_to_numpy(
-        annotations: List["Annotation"], classes: List[int], n_classes: int
+        annotations: list["Annotation"], classes: list[int], n_classes: int
     ) -> np.ndarray: ...
 
 
@@ -102,8 +121,8 @@ class ClassificationAnnotation(Annotation):
     @staticmethod
     @override
     def combine_to_numpy(
-        annotations: List["ClassificationAnnotation"],
-        classes: List[int],
+        annotations: list["ClassificationAnnotation"],
+        classes: list[int],
         n_classes: int,
     ) -> np.ndarray:
         classify_vector = np.zeros(n_classes)
@@ -140,9 +159,9 @@ class BBoxAnnotation(Annotation):
     @staticmethod
     @override
     def combine_to_numpy(
-        annotations: List["BBoxAnnotation"],
-        classes: List[int],
-        n_classes: int = ...,
+        annotations: list["BBoxAnnotation"],
+        classes: list[int],
+        n_classes: int | None = None,
     ) -> np.ndarray:
         boxes = np.empty((len(annotations), 5))
         for i, ann in enumerate(annotations):
@@ -151,7 +170,7 @@ class BBoxAnnotation(Annotation):
 
     @model_validator(mode="before")
     @classmethod
-    def validate_values(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_values(cls, values: dict[str, Any]) -> dict[str, Any]:
         warn = False
         for key in ["x", "y", "w", "h"]:
             if values[key] < -2 or values[key] > 2:
@@ -167,11 +186,10 @@ class BBoxAnnotation(Annotation):
                 "BBox annotation has values outside of [0, 1] range. Clipping them to [0, 1]."
             )
 
-        values = cls._clip_sum(values)
-        return values
+        return cls._clip_sum(values)
 
     @staticmethod
-    def _clip_sum(values: Dict[str, Any]) -> Dict[str, Any]:
+    def _clip_sum(values: dict[str, Any]) -> dict[str, Any]:
         if values["x"] + values["w"] > 1:
             values["w"] = 1 - values["x"]
             logger.warning(
@@ -198,8 +216,8 @@ class KeypointAnnotation(Annotation):
             - 2: Visible
     """
 
-    keypoints: List[
-        Tuple[NormalizedFloat, NormalizedFloat, KeypointVisibility]
+    keypoints: list[
+        tuple[NormalizedFloat, NormalizedFloat, KeypointVisibility]
     ]
 
     def to_numpy(self) -> np.ndarray:
@@ -208,9 +226,9 @@ class KeypointAnnotation(Annotation):
     @staticmethod
     @override
     def combine_to_numpy(
-        annotations: List["KeypointAnnotation"],
-        classes: List[int] = ...,
-        n_classes: int = ...,
+        annotations: list["KeypointAnnotation"],
+        classes: list[int] | None = None,
+        n_classes: int | None = None,
     ) -> np.ndarray:
         keypoints = np.empty(
             (len(annotations), len(annotations[0].keypoints) * 3)
@@ -221,7 +239,10 @@ class KeypointAnnotation(Annotation):
 
     @model_validator(mode="before")
     @classmethod
-    def validate_values(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_values(cls, values: dict[str, Any]) -> dict[str, Any]:
+        if "keypoints" not in values:
+            return values
+
         warn = False
         for i, keypoint in enumerate(values["keypoints"]):
             if (keypoint[0] < -2 or keypoint[0] > 2) or (
@@ -268,15 +289,16 @@ class SegmentationAnnotation(Annotation):
     counts: bytes
 
     def to_numpy(self) -> np.ndarray:
-        return pycocotools.mask.decode(
-            {"counts": self.counts, "size": [self.height, self.width]}
-        ).astype(np.uint8)
+        with warnings.catch_warnings(record=True):
+            return pycocotools.mask.decode(
+                {"counts": self.counts, "size": [self.height, self.width]}
+            ).astype(np.uint8)
 
     @staticmethod
     @override
     def combine_to_numpy(
-        annotations: List["SegmentationAnnotation"],
-        classes: List[int],
+        annotations: list["SegmentationAnnotation"],
+        classes: list[int],
         n_classes: int,
     ) -> np.ndarray:
         ref = annotations[0]
@@ -301,16 +323,20 @@ class SegmentationAnnotation(Annotation):
 
     @model_validator(mode="before")
     @classmethod
-    def validate_rle(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_rle(cls, values: dict[str, Any]) -> dict[str, Any]:
         if {"counts", "width", "height"} - set(values.keys()):
             return values
 
-        counts = values["counts"]
-        height = check_type(values["height"], int)
-        width = check_type(values["width"], int)
+        height = values["height"]
+        width = values["width"]
 
+        if not check_type(height, int) or not check_type(width, int):
+            raise ValueError("Height and width must be integers")
+
+        counts = values["counts"]
         if isinstance(counts, str):
             values["counts"] = counts.encode("utf-8")
+
         elif isinstance(counts, list):
             for c in counts:
                 if not isinstance(c, int) or c < 0:
@@ -318,45 +344,64 @@ class SegmentationAnnotation(Annotation):
                         "RLE counts must be a list of positive integers"
                     )
 
-            rle: Any = pycocotools.mask.frPyObjects(
-                {"counts": counts, "size": [height, width]}, height, width
-            )
+            with warnings.catch_warnings(record=True):
+                rle: Any = pycocotools.mask.frPyObjects(
+                    {"counts": counts, "size": [height, width]},  # type: ignore
+                    height,
+                    width,
+                )
             values["counts"] = rle["counts"]
             values["height"] = rle["size"][0]
             values["width"] = rle["size"][1]
 
         return values
 
+    @staticmethod
+    def _numpy_to_rle(mask: np.ndarray) -> dict[str, Any]:
+        mask = np.asfortranarray(mask.astype(np.uint8))
+        with warnings.catch_warnings(record=True):
+            rle = pycocotools.mask.encode(mask)
+        return {
+            "height": rle["size"][0],
+            "width": rle["size"][1],
+            "counts": rle["counts"].decode("utf-8"),  # type: ignore
+        }
+
     @model_validator(mode="before")
     @classmethod
-    def validate_mask(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_mask(cls, values: dict[str, Any]) -> dict[str, Any]:
         if "mask" not in values:
             return values
         values = deepcopy(values)
 
         mask = values.pop("mask")
-        if isinstance(mask, (str, Path)):
+        if isinstance(mask, PathType):
             mask_path = Path(mask)
-            try:
-                if mask_path.suffix == ".npy":
+            if mask_path.suffix == ".npy":
+                try:
                     mask = np.load(mask_path)
-                elif mask_path.suffix == ".png":
+                except Exception as e:
+                    raise ValueError(
+                        f"Failed to load mask from array at '{mask_path}'"
+                    ) from e
+            elif mask_path.suffix == ".png":
+                try:
                     mask = (
                         cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
                         .astype(bool)
                         .astype(np.uint8)
                     )
-                else:
+                except Exception as e:
                     raise ValueError(
-                        f"Unsupported mask format: {mask_path.suffix}. "
-                        "Supported formats are .npy and .png"
-                    )
-            except Exception as e:
+                        f"Failed to load mask from image at '{mask_path}'"
+                    ) from e
+            else:
                 raise ValueError(
-                    f"Failed to load mask from {mask_path}"
-                ) from e
+                    f"Unsupported mask format: {mask_path.suffix}. "
+                    "Supported formats are .npy and .png"
+                )
         if not isinstance(mask, np.ndarray):
-            raise ValueError(
+            raise TypeError(
                 "Mask must be either a numpy array, "
                 "or a path to a saved numpy array"
             )
@@ -364,32 +409,29 @@ class SegmentationAnnotation(Annotation):
         if mask.ndim != 2:
             raise ValueError("Mask must be a 2D binary array")
 
-        mask = np.asfortranarray(mask.astype(np.uint8))
-        rle = pycocotools.mask.encode(mask)
-
-        return {
-            "height": rle["size"][0],
-            "width": rle["size"][1],
-            "counts": rle["counts"].decode("utf-8"),  # type: ignore
-            **values,
-        }
+        return {**cls._numpy_to_rle(mask), **values}
 
     @model_validator(mode="before")
     @classmethod
-    def validate_polyline(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_polyline(cls, values: dict[str, Any]) -> dict[str, Any]:
         if {"points", "width", "height"} - set(values.keys()):
             return values
 
         values = deepcopy(values)
 
-        points = check_type(values.pop("points"), List[Tuple[float, float]])
-        width = check_type(values.pop("width"), int)
-        height = check_type(values.pop("height"), int)
+        width = values.pop("width")
+        height = values.pop("height")
+        if not check_type(height, int) or not check_type(width, int):
+            raise ValueError("Height and width must be integers")
+
+        points = values.pop("points")
+        if not check_type(points, list[tuple[float, float]]):
+            raise ValueError("Polyline must be a list of float 2D points")
 
         if len(points) < 3:
-            raise ValueError("Polyline must have at least 3 points")
+            raise ValueError("Polyline must contain at least 3 points")
 
-        SegmentationAnnotation._clip_points(points)
+        cls._clip_points(points)
 
         polyline = [(round(x * width), round(y * height)) for x, y in points]
         mask = Image.new("L", (width, height), 0)
@@ -398,7 +440,7 @@ class SegmentationAnnotation(Annotation):
         return {"mask": np.array(mask).astype(np.uint8), **values}
 
     @staticmethod
-    def _clip_points(points: List[Tuple[float, float]]) -> None:
+    def _clip_points(points: list[tuple[float, float]]) -> None:
         warn = False
         for i in range(len(points)):
             x, y = points[i]
@@ -427,9 +469,9 @@ class InstanceSegmentationAnnotation(SegmentationAnnotation):
     @staticmethod
     @override
     def combine_to_numpy(
-        annotations: List["InstanceSegmentationAnnotation"],
-        classes: List[int] = ...,
-        n_classes: int = ...,
+        annotations: list["InstanceSegmentationAnnotation"],
+        classes: list[int] | None = None,
+        n_classes: int | None = None,
     ) -> np.ndarray:
         return np.stack([ann.to_numpy() for ann in annotations])
 
@@ -451,8 +493,8 @@ class ArrayAnnotation(Annotation):
     @staticmethod
     @override
     def combine_to_numpy(
-        annotations: List["ArrayAnnotation"],
-        classes: List[int],
+        annotations: list["ArrayAnnotation"],
+        classes: list[int],
         n_classes: int,
     ) -> np.ndarray:
         out_arr = np.zeros(
@@ -483,9 +525,9 @@ class ArrayAnnotation(Annotation):
 
 
 class DatasetRecord(BaseModelExtraForbid):
-    files: Dict[str, FilePath]
-    annotation: Optional[Detection] = None
-    task: str = ""
+    files: dict[str, FilePath]
+    annotation: Detection | None = None
+    task_name: str = ""
 
     @property
     def file(self) -> FilePath:
@@ -494,13 +536,24 @@ class DatasetRecord(BaseModelExtraForbid):
         return next(iter(self.files.values()))
 
     @model_validator(mode="after")
-    def validate_task_name(self) -> Self:
-        check_valid_identifier(self.task, label="Task name")
+    def validate_task_name_valid_identifier(self) -> Self:
+        check_valid_identifier(self.task_name, label="Task name")
         return self
 
     @model_validator(mode="before")
     @classmethod
-    def validate_files(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_task_name(cls, values: dict[str, Any]) -> dict[str, Any]:
+        if "task" in values:
+            warnings.warn(
+                "The 'task' field is deprecated. Use 'task_name' instead.",
+                stacklevel=2,
+            )
+            values["task_name"] = values.pop("task")
+        return values
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_files(cls, values: dict[str, Any]) -> dict[str, Any]:
         values = deepcopy(values)
         if "file" in values:
             values["files"] = {"image": values.pop("file")}
@@ -513,10 +566,10 @@ class DatasetRecord(BaseModelExtraForbid):
         @rtype: L{ParquetDict}
         @return: A dictionary of annotation data.
         """
-        yield from self._to_parquet_rows(self.annotation, self.task)
+        yield from self._to_parquet_rows(self.annotation, self.task_name)
 
     def _to_parquet_rows(
-        self, annotation: Optional[Detection], task_name: str
+        self, annotation: Detection | None, task_name: str
     ) -> Iterable[ParquetRecord]:
         """Converts an annotation to a dictionary for writing to a
         parquet file.
@@ -543,9 +596,7 @@ class DatasetRecord(BaseModelExtraForbid):
                     "instance_segmentation",
                     "array",
                 ]:
-                    label: Optional[Annotation] = getattr(
-                        annotation, task_type
-                    )
+                    label: Annotation | None = getattr(annotation, task_type)
 
                     if label is not None:
                         yield {
@@ -599,7 +650,7 @@ def check_valid_identifier(name: str, *, label: str) -> None:
         )
 
 
-def load_annotation(task_type: str, data: Dict[str, Any]) -> "Annotation":
+def load_annotation(task_type: str, data: dict[str, Any]) -> "Annotation":
     classes = {
         "classification": ClassificationAnnotation,
         "boundingbox": BBoxAnnotation,

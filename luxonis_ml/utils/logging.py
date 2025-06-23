@@ -1,21 +1,23 @@
 import inspect
 import warnings
+from collections.abc import Callable
 from functools import wraps
-from typing import Dict, Literal, Optional, Type
+from typing import Any, Literal
 
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.theme import Theme
+
+from luxonis_ml.typing import PathType
 
 from .environ import environ
 
 
 def setup_logging(
     *,
-    level: Optional[
-        Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-    ] = None,
-    file: Optional[str] = None,
+    level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+    | None = None,
+    file: PathType | None = None,
     **kwargs,
 ) -> None:  # pragma: no cover
     """Sets up global logging using loguru and rich.
@@ -61,7 +63,12 @@ def setup_logging(
             **kwargs,
         ),
         level=level,
-        format="{message}",
+        # NOTE: Needs to be a constant function to avoid
+        # duplicate logging of exceptions, see
+        # https://github.com/Delgan/loguru/issues/1172
+        format=lambda _: "{message}",
+        backtrace=False,
+        filter=lambda record: "file_only" not in record["extra"],
     )
 
     if file is not None:
@@ -74,12 +81,12 @@ def setup_logging(
 
     def _custom_warning_handler(
         message: str,
-        category: Type[Warning],
+        category: type[Warning],
         filename: str,
         lineno: int,
-        _file: Optional[str] = None,
-        line: Optional[str] = None,
-    ):
+        _file: str | None = None,
+        line: str | None = None,
+    ) -> None:
         text = warnings.formatwarning(
             message, category, filename, lineno, line
         )
@@ -90,10 +97,10 @@ def setup_logging(
 
 def deprecated(
     *args: str,
-    suggest: Optional[Dict[str, str]] = None,
-    additional_message: Optional[str] = None,
+    suggest: dict[str, str] | None = None,
+    additional_message: str | None = None,
     altogether: bool = False,
-):
+) -> Callable[[Callable], Callable]:
     """Decorator to mark a function or its parameters as deprecated.
 
     Example:
@@ -123,11 +130,11 @@ def deprecated(
         marked as deprecated. Defaults to False.
     """
 
-    def decorator(func):
+    def decorator(func: Callable) -> Callable:
         sig = inspect.signature(func)
 
         @wraps(func)
-        def wrapper(*f_args, **f_kwargs):
+        def wrapper(*f_args, **f_kwargs) -> Any:
             fname = func.__name__
             if altogether:
                 msg = f"'{fname}' is deprecated and will be removed in future versions."
@@ -157,7 +164,30 @@ def deprecated(
     return decorator
 
 
-def _warn_deprecated(arg_name, fname, suggest, additional_message):
+def log_once(logger: Callable[[str], None], message: str) -> None:
+    """Logs a message only once.
+
+    @type logger: Logger
+    @param logger: The logger to use.
+    @type message: str
+    @param message: The message to log.
+    """
+    _cache: set[str]
+
+    if not hasattr(log_once, "_cache"):
+        log_once._cache = set()
+
+    if message not in log_once._cache:
+        logger(message)
+        log_once._cache.add(message)
+
+
+def _warn_deprecated(
+    arg_name: str,
+    fname: str,
+    suggest: dict[str, str] | None,
+    additional_message: str | None,
+) -> None:
     replacement = suggest.get(arg_name) if suggest else None
     msg = (
         f"Argument '{arg_name}' in function '{fname}' "

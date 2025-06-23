@@ -1,5 +1,4 @@
 from abc import ABC
-from typing import List, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -31,19 +30,19 @@ class Head(BaseModel, ABC):
     @ivar metadata: Metadata of the parser.
     """
 
-    name: Optional[str] = Field(None, description="Optional name of the head.")
+    name: str | None = Field(None, description="Optional name of the head.")
     parser: str = Field(
         description="Name of the parser responsible for processing the models output."
     )
-    metadata: Union[
-        HeadObjectDetectionMetadata,
-        HeadClassificationMetadata,
-        HeadObjectDetectionSSDMetadata,
-        HeadSegmentationMetadata,
-        HeadYOLOMetadata,
-        HeadMetadata,
-    ] = Field(description="Metadata of the parser.")
-    outputs: Optional[List[str]] = Field(
+    metadata: (
+        HeadObjectDetectionMetadata
+        | HeadClassificationMetadata
+        | HeadObjectDetectionSSDMetadata
+        | HeadSegmentationMetadata
+        | HeadYOLOMetadata
+        | HeadMetadata
+    ) = Field(description="Metadata of the parser.")
+    outputs: list[str] | None = Field(
         None,
         description="Specify which outputs are fed into the parser. If None, all outputs are fed.",
     )

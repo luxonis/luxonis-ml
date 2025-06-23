@@ -1,12 +1,13 @@
 import warnings
 from collections import defaultdict
+from collections.abc import Callable, Iterable
 from math import prod
-from typing import Any, Dict, Iterable, List, Literal, Tuple
+from typing import Any, Literal, TypeAlias
 
 import albumentations as A
 import numpy as np
 from loguru import logger
-from typing_extensions import TypeAlias, override
+from typing_extensions import override
 
 from luxonis_ml.data.utils.task_utils import get_task_name, task_is_metadata
 from luxonis_ml.typing import ConfigItem, LoaderOutput, Params
@@ -24,7 +25,7 @@ from .utils import (
     preprocess_mask,
 )
 
-Data: TypeAlias = Dict[str, np.ndarray]
+Data: TypeAlias = dict[str, np.ndarray]
 TargetType: TypeAlias = Literal[
     "array",
     "classification",
@@ -95,7 +96,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         2. spatial transformations: Subclasses of `A.DualTransform`.
 
         3. custom transformations: Subclasses of `A.BasicTransform`,
-            but not subclasses of any of more specific base classes above.
+            but not subclasses of more specific base classes above.
 
         4. pixel transformations: Subclasses of `A.ImageOnlyTransform`.
             These transformations act only on the image.
@@ -238,19 +239,53 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 ...
     """
 
+    def _should_skip_augmentation(
+        self, config_item: dict[str, Any], available_target_types: set
+    ) -> bool:
+        skip_rules = {
+            "keypoints": [
+                "HorizontalFlip",
+                "VerticalFlip",
+                "Flip",
+            ],
+        }
+        augmentation_name = config_item["name"]
+        skipped_for = [
+            target_type
+            for target_type, skip_list in skip_rules.items()
+            if target_type in available_target_types
+            and augmentation_name in skip_list
+        ]
+        if skipped_for:
+            extra_msg = ""
+            if "keypoints" in skipped_for and augmentation_name in [
+                "HorizontalFlip",
+                "VerticalFlip",
+                "Flip",
+            ]:
+                extra_msg = " For keypoints, please use 'HorizontalSymetricKeypointsFlip' or 'VerticalSymetricKeypointsFlip'."
+            logger.warning(
+                f"Skipping augmentation '{augmentation_name}' due to known issues for {skipped_for} target types. {extra_msg}"
+            )
+            return True
+        return False
+
     @override
     def __init__(
         self,
         height: int,
         width: int,
-        targets: Dict[str, str],
+        targets: dict[str, str],
+        n_classes: dict[str, int],
         config: Iterable[Params],
         keep_aspect_ratio: bool = True,
         is_validation_pipeline: bool = False,
         min_bbox_visibility: float = 0.0,
+        seed: int | None = None,
     ):
-        self.targets: Dict[str, TargetType] = {}
+        self.targets: dict[str, TargetType] = {}
         self.target_names_to_tasks = {}
+        self.n_classes = n_classes
         self.image_size = (height, width)
 
         for task, task_type in targets.items():
@@ -325,7 +360,14 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         if is_validation_pipeline:
             config = (a for a in config if a["name"] == "Normalize")
 
+        available_target_types = set(self.targets.values())
+
         for config_item in config:
+            if self._should_skip_augmentation(
+                config_item, available_target_types
+            ):
+                continue
+
             cfg = AlbumentationConfigItem(**config_item)  # type: ignore
 
             transform = self.create_transformation(cfg)
@@ -358,7 +400,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             else:
                 resize_transform = A.Resize(height=height, width=width)
 
-        def get_params(is_custom: bool = False) -> Dict[str, Any]:
+        def get_params(is_custom: bool = False) -> dict[str, Any]:
             return {
                 "bbox_params": A.BboxParams(
                     format="albumentations", min_visibility=min_bbox_visibility
@@ -369,6 +411,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 "additional_targets": self.targets
                 if is_custom
                 else targets_without_instance_mask,
+                "seed": seed,
             }
 
         # Warning issued when "bbox_params" or "keypoint_params"
@@ -397,7 +440,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         return self.batch_transform.batch_size
 
     @override
-    def apply(self, input_batch: List[LoaderOutput]) -> LoaderOutput:
+    def apply(self, input_batch: list[LoaderOutput]) -> LoaderOutput:
         data_batch, n_keypoints = self.preprocess_batch(input_batch)
 
         data = self.batch_transform(data_batch)
@@ -427,8 +470,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         return self.postprocess(data, n_keypoints)
 
     def preprocess_batch(
-        self, labels_batch: List[LoaderOutput]
-    ) -> Tuple[List[Data], Dict[str, int]]:
+        self, labels_batch: list[LoaderOutput]
+    ) -> tuple[list[Data], dict[str, int]]:
         """Preprocess a batch of labels.
 
         @type labels_batch: List[Data]
@@ -449,7 +492,24 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 task = self.target_names_to_tasks[target_name]
 
                 if task not in labels:
-                    data[target_name] = np.array([])
+                    if target_type == "mask":
+                        data[target_name] = np.empty(
+                            (
+                                0,
+                                0,
+                                self.n_classes[
+                                    self.target_names_to_tasks[target_name]
+                                ],
+                            )
+                        )
+                    elif target_type == "classification":
+                        data[target_name] = np.zeros(
+                            self.n_classes[
+                                self.target_names_to_tasks[target_name]
+                            ]
+                        )
+                    else:
+                        data[target_name] = np.array([])
                     continue
 
                 array = labels[task]
@@ -476,7 +536,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         return data_batch, n_keypoints
 
     def postprocess(
-        self, data: Data, n_keypoints: Dict[str, int]
+        self, data: Data, n_keypoints: dict[str, int]
     ) -> LoaderOutput:
         """Postprocess the augmented data back to LDF format.
 
@@ -494,6 +554,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         """
         out_labels = {}
         out_image = data.pop("image")
+        if out_image.ndim == 2:
+            out_image = np.expand_dims(out_image, axis=-1)
         image_height, image_width, _ = out_image.shape
 
         bboxes_indices = {}
@@ -527,6 +589,10 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             if task_name not in bboxes_indices:
                 if "bboxes" in self.targets.values():
                     bbox_ordering = np.array([], dtype=int)
+                elif target_type == "keypoints":
+                    bbox_ordering = np.arange(
+                        array.shape[0] // n_keypoints[target_name]
+                    )
                 else:
                     bbox_ordering = np.arange(array.shape[0])
             else:
@@ -536,8 +602,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 out_labels[task] = postprocess_mask(array)
 
             elif target_type == "instance_mask":
-                mask = postprocess_mask(array)
-                out_labels[task] = mask[bbox_ordering]
+                masks = postprocess_mask(array)
+                out_labels[task] = masks[bbox_ordering]
 
             elif target_type == "keypoints":
                 out_labels[task] = postprocess_keypoints(
@@ -547,10 +613,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                     image_width,
                     n_keypoints[target_name],
                 )
-            elif target_type == "array":
-                out_labels[task] = array[bbox_ordering]
-
-            elif target_type == "metadata":
+            elif target_type in {"array", "metadata"}:
                 out_labels[task] = array[bbox_ordering]
 
             elif target_type == "classification":
@@ -573,7 +636,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         return target
 
 
-def wrap_transform(transform: A.BaseCompose, is_pixel: bool = False):
+def wrap_transform(
+    transform: A.BaseCompose, is_pixel: bool = False
+) -> Callable[..., Data]:
     def apply_transform(**data: np.ndarray) -> Data:
         if not transform.transforms:
             return data

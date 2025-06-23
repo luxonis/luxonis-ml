@@ -1,27 +1,18 @@
 from abc import ABC, abstractmethod
-from typing import (
-    Dict,
-    Iterator,
-    List,
-    Optional,
-    Sequence,
-    Tuple,
-    Type,
-    Union,
-)
+from collections.abc import Iterator, Sequence
+from typing import TypeAlias
 
 from semver.version import Version
-from typing_extensions import TypeAlias
 
 from luxonis_ml.data.datasets.annotation import DatasetRecord
 from luxonis_ml.data.datasets.source import LuxonisSource
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import AutoRegisterMeta, Registry
 
-DATASETS_REGISTRY: Registry[Type["BaseDataset"]] = Registry(name="datasets")
+DATASETS_REGISTRY: Registry[type["BaseDataset"]] = Registry(name="datasets")
 
 
-DatasetIterator: TypeAlias = Iterator[Union[dict, DatasetRecord]]
+DatasetIterator: TypeAlias = Iterator[dict | DatasetRecord]
 
 
 class BaseDataset(
@@ -49,7 +40,16 @@ class BaseDataset(
         ...
 
     @abstractmethod
-    def get_tasks(self) -> Dict[str, str]:
+    def set_tasks(self, tasks: dict[str, list[str]]) -> None:
+        """Sets the tasks for the dataset.
+
+        @type tasks: Dict[str, List[str]]
+        @param tasks: A dictionary mapping task names to task types.
+        """
+        ...
+
+    @abstractmethod
+    def get_tasks(self) -> dict[str, str]:
         """Returns a dictionary mapping task names to task types.
 
         @rtype: Dict[str, str]
@@ -70,8 +70,8 @@ class BaseDataset(
     @abstractmethod
     def set_classes(
         self,
-        classes: Union[List[str], Dict[str, int]],
-        task: Optional[str] = None,
+        classes: list[str] | dict[str, int],
+        task: str | None = None,
     ) -> None:
         """Sets the classes for the dataset. This can be across all CV
         tasks or certain tasks.
@@ -89,7 +89,7 @@ class BaseDataset(
         ...
 
     @abstractmethod
-    def get_classes(self) -> Dict[str, List[str]]:
+    def get_classes(self) -> dict[str, list[str]]:
         """Get classes according to computer vision tasks.
 
         @rtype: Dict[str, List[str]]
@@ -101,9 +101,9 @@ class BaseDataset(
     @abstractmethod
     def set_skeletons(
         self,
-        labels: Optional[List[str]] = None,
-        edges: Optional[List[Tuple[int, int]]] = None,
-        task: Optional[str] = None,
+        labels: list[str] | None = None,
+        edges: list[tuple[int, int]] | None = None,
+        task: str | None = None,
     ) -> None:
         """Sets the semantic structure of keypoint skeletons for the
         classes that use keypoints.
@@ -128,7 +128,7 @@ class BaseDataset(
     @abstractmethod
     def get_skeletons(
         self,
-    ) -> Dict[str, Tuple[List[str], List[Tuple[int, int]]]]:
+    ) -> dict[str, tuple[list[str], list[tuple[int, int]]]]:
         """Returns the dictionary defining the semantic skeleton for
         each class using keypoints.
 
@@ -158,18 +158,13 @@ class BaseDataset(
     @abstractmethod
     def make_splits(
         self,
-        splits: Optional[
-            Union[
-                Dict[str, Sequence[PathType]],
-                Dict[str, float],
-                Tuple[float, float, float],
-            ]
-        ] = None,
+        splits: dict[str, Sequence[PathType]]
+        | dict[str, float]
+        | tuple[float, float, float]
+        | None = None,
         *,
-        ratios: Optional[
-            Union[Dict[str, float], Tuple[float, float, float]]
-        ] = None,
-        definitions: Optional[Dict[str, List[PathType]]] = None,
+        ratios: dict[str, float] | tuple[float, float, float] | None = None,
+        definitions: dict[str, list[PathType]] | None = None,
         replace_old_splits: bool = False,
     ) -> None:
         """Generates splits for the dataset.
@@ -206,7 +201,7 @@ class BaseDataset(
         """
         ...
 
-    def get_task_names(self) -> List[str]:
+    def get_task_names(self) -> list[str]:
         """Get the task names for the dataset.
 
         Like `get_tasks`, but returns only the task names
@@ -217,6 +212,6 @@ class BaseDataset(
         """
         return list(self.get_tasks().keys())
 
-    def get_n_keypoints(self) -> Dict[str, int]:
+    def get_n_keypoints(self) -> dict[str, int]:
         skeletons = self.get_skeletons()
         return {task: len(skeletons[task][0]) for task in skeletons}

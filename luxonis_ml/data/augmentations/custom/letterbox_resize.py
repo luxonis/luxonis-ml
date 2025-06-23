@@ -1,4 +1,4 @@
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import albumentations as A
 import cv2
@@ -53,46 +53,42 @@ class LetterboxResize(A.DualTransform):
 
     @property
     @override
-    def targets(self) -> Dict[str, Any]:
+    def targets(self) -> dict[str, Any]:
         targets = super().targets
         targets["instance_mask"] = self.apply_to_mask
         return targets
 
     @override
-    def update_params(
-        self, params: Dict[str, Any], **kwargs
-    ) -> Dict[str, Any]:
+    def get_params_dependent_on_data(
+        self, params: dict[str, Any], data: dict[str, Any]
+    ) -> dict[str, Any]:
         """Updates augmentation parameters with the necessary metadata.
 
         @param params: The existing augmentation parameters dictionary.
         @type params: Dict[str, Any]
-        @param kwargs: Additional keyword arguments to add the
-            parameters.
-        @type kwargs: Any
-        @return: Updated dictionary containing the merged parameters.
+        @param data: The data dictionary.
+        @type data: Dict[str, Any]
+        @return: Additional parameters for the augmentation.
         @rtype: Dict[str, Any]
         """
+        orig_height, orig_width, _ = params["shape"]
 
-        params = super().update_params(params, **kwargs)
         pad_top, pad_bottom, pad_left, pad_right = self.compute_padding(
-            params["rows"], params["cols"], self.height, self.width
+            orig_height, orig_width, self.height, self.width
         )
-
-        params.update(
-            {
-                "pad_top": pad_top,
-                "pad_bottom": pad_bottom,
-                "pad_left": pad_left,
-                "pad_right": pad_right,
-            }
-        )
-
-        return params
+        return {
+            "pad_top": pad_top,
+            "pad_bottom": pad_bottom,
+            "pad_left": pad_left,
+            "pad_right": pad_right,
+            "orig_width": orig_width,
+            "orig_height": orig_height,
+        }
 
     @staticmethod
     def compute_padding(
         orig_height: int, orig_width: int, out_height: int, out_width: int
-    ) -> Tuple[int, int, int, int]:
+    ) -> tuple[int, int, int, int]:
         """Computes the padding required to resize an image to a
         letterbox format.
 
@@ -157,7 +153,7 @@ class LetterboxResize(A.DualTransform):
     @override
     def apply_to_mask(
         self,
-        img: np.ndarray,
+        mask: np.ndarray,
         pad_top: int,
         pad_bottom: int,
         pad_left: int,
@@ -166,7 +162,7 @@ class LetterboxResize(A.DualTransform):
     ) -> np.ndarray:
         """Applies letterbox augmentation to the input mask."""
         return self._apply_to_image_data(
-            img,
+            mask,
             pad_top,
             pad_bottom,
             pad_left,
@@ -224,8 +220,8 @@ class LetterboxResize(A.DualTransform):
         pad_bottom: int,
         pad_left: int,
         pad_right: int,
-        cols: int,
-        rows: int,
+        orig_height: int,
+        orig_width: int,
         **_,
     ) -> np.ndarray:
         """Applies letterbox augmentation to the keypoint."""
@@ -233,8 +229,8 @@ class LetterboxResize(A.DualTransform):
         if keypoint.size == 0:
             return keypoint
 
-        scale_x = (self.width - pad_left - pad_right) / cols
-        scale_y = (self.height - pad_top - pad_bottom) / rows
+        scale_x = (self.width - pad_left - pad_right) / orig_width
+        scale_y = (self.height - pad_top - pad_bottom) / orig_height
         keypoint[:, 0] *= scale_x
         keypoint[:, 0] += pad_left
 

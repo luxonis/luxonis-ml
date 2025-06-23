@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import yaml
 
@@ -38,7 +38,7 @@ class YoloV6Parser(BaseParser):
     """
 
     @staticmethod
-    def validate_split(split_path: Path) -> Optional[Dict[str, Any]]:
+    def validate_split(split_path: Path) -> dict[str, Any] | None:
         label_split = split_path.parent.parent / "labels" / split_path.name
         if not split_path.exists():
             return None
@@ -68,7 +68,7 @@ class YoloV6Parser(BaseParser):
 
     def from_dir(
         self, dataset_dir: Path
-    ) -> Tuple[List[Path], List[Path], List[Path]]:
+    ) -> tuple[list[Path], list[Path], list[Path]]:
         classes_path = dataset_dir / "data.yaml"
         added_train_imgs = self._parse_split(
             image_dir=dataset_dir / "images" / "train",
@@ -106,9 +106,7 @@ class YoloV6Parser(BaseParser):
         """
         with open(classes_path) as f:
             classes_data = yaml.safe_load(f)
-        class_names = {
-            i: class_name for i, class_name in enumerate(classes_data["names"])
-        }
+        class_names = dict(enumerate(classes_data["names"]))
 
         def generator() -> DatasetIterator:
             for img_path in self._list_images(image_dir):
@@ -118,9 +116,9 @@ class YoloV6Parser(BaseParser):
                     annotation_data = f.readlines()
 
                 for ann_line in annotation_data:
-                    class_id, x_center, y_center, width, height = [
-                        x for x in ann_line.split()
-                    ]
+                    class_id, x_center, y_center, width, height = list(
+                        ann_line.split()
+                    )
                     class_name = class_names[int(class_id)]
 
                     yield {

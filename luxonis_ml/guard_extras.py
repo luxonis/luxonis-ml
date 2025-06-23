@@ -1,8 +1,9 @@
+from collections.abc import Generator
 from contextlib import contextmanager
 
 
 @contextmanager
-def guard_missing_extra(name: str):
+def guard_missing_extra(name: str) -> Generator[None, None, None]:
     try:
         yield
     except ImportError as e:

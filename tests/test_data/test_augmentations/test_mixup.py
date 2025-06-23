@@ -1,5 +1,3 @@
-from typing import Dict, List
-
 import numpy as np
 import pytest
 from pytest_subtests.plugin import SubTests
@@ -12,7 +10,7 @@ from luxonis_ml.data.augmentations.custom.mixup import MixUp
 def test_mixup(
     height: int,
     width: int,
-    augmentation_data: Dict[str, List[np.ndarray]],
+    augmentation_data: dict[str, list[np.ndarray]],
     subtests: SubTests,
     alpha: float,
 ):
@@ -55,9 +53,9 @@ def test_mixup(
 
 
 def test_invalid():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="must be in range"):
         MixUp(alpha=(-1, 1))
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="must be in range"):
         MixUp(alpha=(1, -1))
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="ascending order"):
         MixUp(alpha=(0.8, 0.2))

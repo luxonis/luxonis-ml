@@ -1,11 +1,12 @@
 import tempfile
 from copy import deepcopy
-from typing import Dict, List, Optional
+from pathlib import Path
 
 import pytest
 import yaml
 from pydantic import BaseModel
 
+from luxonis_ml.typing import Params
 from luxonis_ml.utils import environ
 from luxonis_ml.utils.config import LuxonisConfig
 
@@ -23,11 +24,11 @@ CONFIG_DATA = {
 }
 
 
-@pytest.fixture(scope="function")
-def config_file():
+@pytest.fixture
+def config_file() -> str:
     with tempfile.NamedTemporaryFile(delete=False) as f:
         f.write(yaml.dump(CONFIG_DATA).encode())
-    yield f.name
+    return f.name
 
 
 class SubConfigDefault(BaseModel):
@@ -35,8 +36,8 @@ class SubConfigDefault(BaseModel):
     int_sub_param: int = 42
     float_sub_param: float = 1.0
 
-    list_sub_param: List[int] = []
-    dict_sub_param: Dict[str, int] = {}
+    list_sub_param: list[int] = []
+    dict_sub_param: dict[str, int] = {}
 
 
 class SubConfig(BaseModel):
@@ -44,31 +45,39 @@ class SubConfig(BaseModel):
     int_sub_param: int
     float_sub_param: float
 
-    list_sub_param: List[int]
-    dict_sub_param: Dict[str, int]
+    list_sub_param: list[int]
+    dict_sub_param: dict[str, int]
 
 
 class ListConfig(BaseModel):
     int_list_param: int
     float_list_param: float = 1.0
-    str_list_param: Optional[str] = None
+    str_list_param: str | None = None
+
+
+class UnsafeConfig(BaseModel):
+    tuple_param: tuple[int, int] = (1, 2)
+    path_param: Path = Path.cwd()
 
 
 class Config(LuxonisConfig):
     sub_config: SubConfig
     sub_config_default: SubConfigDefault = SubConfigDefault()
 
-    optional_int: Optional[int] = None
-    list_config: List[ListConfig] = []
-    nested_list_param: List[List[int]] = []
-    nested_dict_param: Dict[str, Dict[str, int]] = {}
+    optional_int: int | None = None
+    list_config: list[ListConfig] = []
+    nested_list_param: list[list[int]] = []
+    nested_dict_param: dict[str, dict[str, int]] = {}
+    unsafe_config: UnsafeConfig = UnsafeConfig()
 
 
 def test_invalid_config_path():
     with pytest.raises(FileNotFoundError):
         Config.get_config("invalid_path")
 
-    with pytest.raises(ValueError):
+    with pytest.raises(
+        ValueError, match="At least one of `cfg` or `overrides`"
+    ):
         Config.get_config(None)
 
 
@@ -89,7 +98,7 @@ def test_config_simple(config_file: str):
 
 
 def test_config_simple_override(config_file: str):
-    overrides = {
+    overrides: Params = {
         "sub_config.str_sub_param": "sub_param_override",
     }
     cfg = Config.get_config(config_file, overrides)
@@ -118,7 +127,7 @@ def test_config_list_override(config_file: str):
         cfg.sub_config.float_sub_param
         == CONFIG_DATA["sub_config"]["float_sub_param"]
     )
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="length is not divisible by 2"):
         Config.get_config(config_file, ["sub_config.str_sub_param"])
 
 
@@ -197,11 +206,8 @@ def test_invalid_config(config_file: str):
         "extra_param": "test",
     }
     for key, value in overrides.items():
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError):  # noqa: PT011
             Config.get_config(config_file, {key: value})
-
-    with pytest.raises(ValueError):
-        Config.get_config()
 
 
 def test_from_dict():
@@ -261,9 +267,27 @@ def test_get(config_file: str):
 
     assert cfg.get("sub_config.str_sub_param.non", "default") == "default"
 
-    with pytest.raises(ValueError):
-        cfg.get("list_config.-1.int_list_param")
+    with pytest.raises(ValueError, match="Can't access list with non-int key"):
+        cfg.get("list_config.index.int_list_param")
 
 
-def test_environ():
+def test_environ(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("POSTGRES_HOST", raising=False)
+    assert environ.POSTGRES_HOST is None
+
+    monkeypatch.setenv("POSTGRES_HOST", "first.example.com")
+    assert environ.POSTGRES_HOST == "first.example.com"
+
+    monkeypatch.setenv("POSTGRES_HOST", "second.example.com")
+    assert environ.POSTGRES_HOST == "second.example.com"
+
     assert environ.model_dump() == {}
+
+
+def test_safe_load(config_file: str):
+    cfg = Config.get_config(config_file)
+    with tempfile.NamedTemporaryFile(delete=False) as f:
+        cfg.save_data(f.name)
+
+    cfg2 = Config.get_config(f.name)
+    assert cfg == cfg2

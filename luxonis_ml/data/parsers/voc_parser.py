@@ -1,8 +1,9 @@
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
+from defusedxml.ElementTree import parse
 
 from luxonis_ml.data import DatasetIterator
 
@@ -27,7 +28,7 @@ class VOCParser(BaseParser):
     """
 
     @staticmethod
-    def validate_split(split_path: Path) -> Optional[Dict[str, Any]]:
+    def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
 
@@ -47,7 +48,7 @@ class VOCParser(BaseParser):
 
     def from_dir(
         self, dataset_dir: Path
-    ) -> Tuple[List[Path], List[Path], List[Path]]:
+    ) -> tuple[list[Path], list[Path], list[Path]]:
         added_train_imgs = self._parse_split(
             image_dir=dataset_dir / "train",
             annotation_dir=dataset_dir / "train",
@@ -79,8 +80,10 @@ class VOCParser(BaseParser):
 
         images_annotations = []
         for anno_xml in annotation_dir.glob("*.xml"):
-            annotation_data = ET.parse(anno_xml)  # nosemgrep
+            annotation_data = parse(anno_xml)
             root = annotation_data.getroot()
+            if root is None:
+                raise ValueError(f"Could not parse {anno_xml}")
 
             path = image_dir.absolute().resolve() / self._xml_find(
                 root, "filename"

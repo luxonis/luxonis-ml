@@ -1,9 +1,166 @@
+import json
+import random
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 import numpy as np
-from utils import create_image
 
-from luxonis_ml.data import BucketStorage, LuxonisDataset, LuxonisLoader
+from luxonis_ml.data import (
+    BucketStorage,
+    LuxonisDataset,
+    LuxonisLoader,
+    LuxonisParser,
+)
+from luxonis_ml.data.datasets.base_dataset import DatasetIterator
+from luxonis_ml.enums import DatasetType
+from luxonis_ml.typing import Params
+from luxonis_ml.utils import LuxonisFileSystem
+
+from .utils import create_image
+
+AUGMENTATIONS_CONFIG: list[Params] = [  # type: ignore[reportAssignmentType]
+    {
+        "name": "Mosaic4",
+        "params": {"p": 1, "out_width": 512, "out_height": 512},
+    },
+    {
+        "name": "Rotate",
+        "params": {
+            "limit": 10,
+            "p": 0.3,
+            "border_mode": 0,
+            "value": [0, 0, 0],
+        },
+    },
+    {
+        "name": "Perspective",
+        "params": {
+            "scale": [0.02, 0.05],
+            "keep_size": True,
+            "pad_mode": 0,
+            "pad_val": 0,
+            "mask_pad_val": 0,
+            "fit_output": False,
+            "interpolation": 1,
+            "always_apply": False,
+            "p": 0.3,
+        },
+    },
+    {
+        "name": "Affine",
+        "params": {
+            "scale": 1.0,
+            "translate_percent": 0.0,
+            "rotate": 0,
+            "shear": 5,
+            "interpolation": 1,
+            "mask_interpolation": 0,
+            "cval": 0,
+            "cval_mask": 0,
+            "mode": 0,
+            "fit_output": False,
+            "keep_ratio": False,
+            "rotate_method": "largest_box",
+            "always_apply": False,
+            "p": 0.3,
+        },
+    },
+    {
+        "name": "MixUp",
+        "params": {
+            "p": 0.3,
+        },
+    },
+    {
+        "name": "VerticalSymetricKeypointsFlip",
+        "params": {
+            "p": 0.3,
+            "keypoint_pairs": [
+                (0, 0),
+                (1, 1),
+                (2, 2),
+                (3, 3),
+                (4, 4),
+                (5, 5),
+                (6, 6),
+                (7, 7),
+                (8, 8),
+                (9, 9),
+                (10, 10),
+                (11, 11),
+                (12, 12),
+                (13, 13),
+                (14, 14),
+                (15, 15),
+                (16, 16),
+            ],
+        },
+    },
+    {
+        "name": "HorizontalSymetricKeypointsFlip",
+        "params": {
+            "p": 0.4,
+            "keypoint_pairs": [
+                (0, 0),
+                (1, 2),
+                (3, 4),
+                (5, 6),
+                (7, 8),
+                (9, 10),
+                (11, 12),
+                (13, 14),
+                (15, 16),
+            ],
+        },
+    },
+]
+
+
+@contextmanager
+def set_seed(seed: int):
+    np_state = np.random.get_state()
+    random_state = random.getstate()
+    np.random.seed(seed)
+    random.seed(seed)
+    yield
+    np.random.set_state(np_state)
+    random.setstate(random_state)
+
+
+def create_loader(
+    storage_url: str,
+    tempdir: Path,
+    **kwargs,
+) -> LuxonisLoader:
+    with set_seed(42):
+        dataset = LuxonisParser(
+            f"{storage_url}/COCO_people_subset.zip",
+            dataset_name="_augmentation_reproducibility",
+            save_dir=tempdir,
+            dataset_type=DatasetType.COCO,
+            delete_local=True,
+        ).parse()
+    return LuxonisLoader(
+        dataset,
+        height=512,
+        width=512,
+        view="train",
+        seed=42,
+        **kwargs,
+    )
+
+
+def load_annotations(annotation_name: str) -> list[dict[str, Any]]:
+    dest_dir = Path("./tests/data/")
+    local_path = dest_dir / annotation_name
+
+    if not local_path.exists():
+        remote_path = f"gs://luxonis-test-bucket/luxonis-ml-test-data/test-augmentation-data/{annotation_name}"
+        local_path = LuxonisFileSystem.download(remote_path, dest=dest_dir)
+
+    with open(local_path) as f:
+        return json.load(f)
 
 
 def test_edge_cases(tempdir: Path):
@@ -182,7 +339,7 @@ def test_edge_cases(tempdir: Path):
         ]
     )
 
-    def generator():
+    def generator() -> DatasetIterator:
         num_samples = len(keypoints_before)
         for i in range(num_samples):
             img = create_image(i, tempdir)
@@ -213,14 +370,14 @@ def test_edge_cases(tempdir: Path):
 
     dataset = LuxonisDataset(
         "test_edge_cases",
-        delete_existing=True,
+        delete_local=True,
         delete_remote=True,
         bucket_storage=BucketStorage.LOCAL,
     ).add(generator())
 
     dataset.make_splits(ratios=(1, 0, 0))
 
-    augmentation_config = [
+    augmentation_config: list[Params] = [
         {
             "name": "Mosaic4",
             "params": {"p": 1, "out_width": 512, "out_height": 512},
@@ -283,9 +440,9 @@ def test_edge_cases(tempdir: Path):
             keypoints = keypoints.reshape(-1, 3)
             for kp in keypoints:
                 x, y, v = kp
-                assert not (
-                    x == 0 and y == 0 and v in {1, 2}
-                ), f"Invalid keypoint detected: {kp}"
+                assert not (x == 0 and y == 0 and v in {1, 2}), (
+                    f"Invalid keypoint detected: {kp}"
+                )
                 assert 0 <= x <= 1, f"Keypoint x out of bounds: {kp}"
                 assert 0 <= y <= 1, f"Keypoint y out of bounds: {kp}"
 
@@ -301,6 +458,143 @@ def test_edge_cases(tempdir: Path):
                 assert 0 <= y_max <= 1, f"BBox y_max out of bounds: {bbox}"
 
                 bbox_area = width * height
-                assert (
-                    bbox_area >= 0.0004
-                ), f"BBox area too small: {bbox}, area={bbox_area}"
+                assert bbox_area >= 0.0004, (
+                    f"BBox area too small: {bbox}, area={bbox_area}"
+                )
+
+
+def test_dataset_reproducibility(storage_url: str, tempdir: Path):
+    loader1 = create_loader(
+        storage_url, tempdir, augmentation_config=AUGMENTATIONS_CONFIG
+    )
+    run1 = [ann for _, ann in loader1]
+
+    loader2 = create_loader(
+        storage_url, tempdir, augmentation_config=AUGMENTATIONS_CONFIG
+    )
+    run2 = [ann for _, ann in loader2]
+
+    assert all(
+        a1.keys() == a2.keys()
+        and all(
+            np.array_equal(a1[k], a2[k])
+            if isinstance(a1[k], np.ndarray)
+            else a1[k] == a2[k]
+            for k in a1
+        )
+        for a1, a2 in zip(run1, run2, strict=True)
+    )
+
+
+def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
+    def mask_to_rle(mask: np.ndarray) -> list[int]:
+        pixels = mask.flatten()
+        rle = []
+        prev_pixel = pixels[0]
+        count = 0
+
+        for pixel in pixels:
+            if pixel == prev_pixel:
+                count += 1
+            else:
+                rle.append(count)
+                count = 1
+                prev_pixel = pixel
+        rle.append(count)
+
+        return rle
+
+    def rle_to_mask(counts: list[int], height: int, width: int) -> np.ndarray:
+        flat = np.repeat(np.arange(len(counts)) % 2, counts)
+        return flat.reshape((height, width), order="F").astype(bool)
+
+    def convert_annotation(ann: dict[str, Any]) -> dict[str, Any]:
+        def round_nested_list(
+            data: list[Any] | float, decimals: int = 3
+        ) -> list[Any] | float:
+            if isinstance(data, list):
+                return [round_nested_list(elem, decimals) for elem in data]
+            if isinstance(data, float):
+                return round(data, decimals)
+            return data
+
+        return {
+            "classification": round_nested_list(
+                ann["/classification"].tolist()
+                if isinstance(ann["/classification"], np.ndarray)
+                else ann["/classification"]
+            ),
+            "bounding_box": round_nested_list(
+                ann["/boundingbox"].tolist()
+                if isinstance(ann["/boundingbox"], np.ndarray)
+                else ann["/boundingbox"]
+            ),
+            "segmentation": mask_to_rle(ann["/segmentation"])
+            if isinstance(ann["/segmentation"], np.ndarray)
+            else ann["/segmentation"],
+            "keypoints": round_nested_list(
+                ann["/keypoints"].tolist()
+                if isinstance(ann["/keypoints"], np.ndarray)
+                else ann["/keypoints"]
+            ),
+        }
+
+    loader_aug = create_loader(
+        storage_url, tempdir, augmentation_config=AUGMENTATIONS_CONFIG
+    )
+    new_aug_annotations = [convert_annotation(ann) for _, ann in loader_aug]
+
+    original_aug_annotations = load_annotations(
+        "test_augmentation_reproducibility_labels.json"
+    )
+
+    for orig_ann, new_ann in zip(
+        original_aug_annotations, new_aug_annotations, strict=True
+    ):
+        assert orig_ann["classification"] == new_ann["classification"]
+        assert orig_ann["bounding_box"] == new_ann["bounding_box"]
+        assert orig_ann["keypoints"] == new_ann["keypoints"]
+        orig_mask = rle_to_mask(orig_ann["segmentation"], 512, 512)
+        new_mask = rle_to_mask(new_ann["segmentation"], 512, 512)
+        diff = np.count_nonzero(orig_mask != new_mask)
+        assert diff <= 50
+
+
+def test_colorspace(storage_url: str, tempdir: Path):
+    norm_3d = [
+        {
+            "name": "Normalize",
+            "params": {
+                "mean": [0.5, 0.5, 0.5],
+                "std": [0.5, 0.5, 0.5],
+                "p": 1,
+            },
+        },
+    ]
+    norm_1d = [
+        {
+            "name": "Normalize",
+            "params": {
+                "mean": [0.5],
+                "std": [0.5],
+                "p": 1,
+            },
+        },
+    ]
+    loader = create_loader(storage_url, tempdir, augmentation_config=norm_3d)
+    rgb_img, _ = next(iter(loader))
+    assert len(rgb_img.shape) == 3
+    assert rgb_img.shape[2] == 3
+    loader = create_loader(
+        storage_url, tempdir, color_space="BGR", augmentation_config=norm_3d
+    )
+    bgr_img, _ = next(iter(loader))
+    assert len(bgr_img.shape) == 3
+    assert bgr_img.shape[2] == 3
+    assert np.array_equal(rgb_img, bgr_img[:, :, ::-1])
+    loader = create_loader(
+        storage_url, tempdir, color_space="GRAY", augmentation_config=norm_1d
+    )
+    gray_img, _ = next(iter(loader))
+    assert len(gray_img.shape) == 3
+    assert gray_img.shape[2] == 1

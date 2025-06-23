@@ -1,9 +1,12 @@
+import json
 from collections import defaultdict
-from typing import Dict, Iterator, Optional, Tuple
+from collections.abc import Iterator
+from typing import Any
 
 import numpy as np
 import polars as pl
 from loguru import logger
+from pycocotools import mask as mask_utils
 
 from luxonis_ml.data.utils.task_utils import task_is_metadata
 from luxonis_ml.typing import RGB
@@ -11,9 +14,9 @@ from luxonis_ml.typing import RGB
 
 def rgb_to_bool_masks(
     segmentation_mask: np.ndarray,
-    class_colors: Dict[str, RGB],
+    class_colors: dict[str, RGB],
     add_background_class: bool = False,
-) -> Iterator[Tuple[str, np.ndarray]]:
+) -> Iterator[tuple[str, np.ndarray]]:
     """Helper function to convert an RGB segmentation mask to boolean
     masks for each class.
 
@@ -81,15 +84,15 @@ def rgb_to_bool_masks(
 
 def infer_task(
     old_task: str,
-    class_name: Optional[str],
-    current_classes: Dict[str, Dict[str, int]],
+    class_name: str | None,
+    current_classes: dict[str, dict[str, int]],
 ) -> str:
     if not hasattr(infer_task, "_logged_infered_classes"):
         infer_task._logged_infered_classes = defaultdict(bool)
 
     def _log_once(
-        cls_: Optional[str], task: str, message: str, level: str = "info"
-    ):
+        cls_: str | None, task: str, message: str, level: str = "info"
+    ) -> None:
         if not infer_task._logged_infered_classes[(cls_, task)]:
             infer_task._logged_infered_classes[(cls_, task)] = True
             getattr(logger, level)(message)
@@ -129,9 +132,33 @@ def infer_task(
     return old_task
 
 
-def warn_on_duplicates(df: pl.LazyFrame) -> None:
-    # Warn on duplicate UUIDs
-    uuid_file_pairs = df.select("uuid", "file").unique().collect()
+def find_duplicates(df: pl.LazyFrame) -> dict[str, list[dict[str, Any]]]:
+    """Collects information about duplicate UUIDs and duplicate
+    annotations in the dataset.
+
+    @type df: pl.LazyFrame
+    @param df: Polars lazy frame containing dataset information.
+    @rtype: Dict[str, List[Dict[str, Any]]]
+    @return: A dictionary with two keys:
+        - "duplicate_uuids": list of dicts with "uuid" as key and "files" as value
+        - "duplicate_annotations": list of dicts with "file_name", "task_type",
+          "task_name", "annotation", and "count"
+    """
+
+    result = {
+        "duplicate_uuids": [],
+        "duplicate_annotations": [],
+    }
+
+    # Find duplicate UUIDs
+    uuid_file_pairs = (
+        df.select(
+            pl.col("uuid").map_elements(lambda x: x, return_dtype=pl.Utf8),
+            pl.col("file").map_elements(lambda x: x, return_dtype=pl.Utf8),
+        )
+        .unique()
+        .collect()
+    )
 
     duplicates = (
         uuid_file_pairs.group_by("uuid")
@@ -146,13 +173,45 @@ def warn_on_duplicates(df: pl.LazyFrame) -> None:
             files = uuid_file_pairs.filter(pl.col("uuid") == uuid)[
                 "file"
             ].to_list()
-            logger.warning(f"UUID {uuid} is used in multiple files: {files}")
+            result["duplicate_uuids"].append(
+                {
+                    "uuid": uuid,
+                    "files": files,
+                }
+            )
 
-    # Warn on duplicate annotations
+    # Find duplicate annotations
+    def is_all_zero_keypoints(annotation_str: str) -> bool:
+        """Check if a keypoints annotation has all zeros (x, y,
+        visibility)."""
+        try:
+            annotation = json.loads(annotation_str)
+            if "keypoints" in annotation:
+                for kp in annotation["keypoints"]:
+                    if len(kp) >= 3:
+                        x, y, v = kp[0], kp[1], kp[2]
+                        if x != 0 or y != 0 or v != 0:
+                            return False
+                return True
+        except (TypeError, ValueError):
+            return False
+        return False
+
+    filtered_df = df.filter(
+        ~(
+            (pl.col("task_type") == "keypoints")
+            & (
+                pl.col("annotation").map_elements(
+                    is_all_zero_keypoints, return_dtype=pl.Boolean
+                )
+            )
+        )
+    )
     duplicate_annotation = (
-        df.group_by(
+        filtered_df.group_by(
             "original_filepath",
             "task_type",
+            "task_name",
             "annotation",
         )
         .agg(pl.len().alias("count"))
@@ -163,13 +222,248 @@ def warn_on_duplicates(df: pl.LazyFrame) -> None:
     for (
         file_name,
         task_type,
+        task_name,
         annotation,
         count,
     ) in duplicate_annotation.iter_rows():
         if task_type == "segmentation":
             annotation = "<binary mask>"
         if not task_is_metadata(task_type):
-            logger.warning(
-                f"File '{file_name}' has the same '{task_type}' annotation "
-                f"'{annotation}' repeated {count} times."
+            result["duplicate_annotations"].append(
+                {
+                    "file_name": file_name,
+                    "task_type": task_type,
+                    "task_name": task_name,
+                    "annotation": annotation,
+                    "count": count,
+                }
             )
+
+    return result
+
+
+def warn_on_duplicates(df: pl.LazyFrame) -> None:
+    """Logs warnings for duplicate UUIDs and annotations in the dataset.
+
+    @type df: pl.LazyFrame
+    @param df: Polars lazy frame containing dataset information.
+    """
+    duplicates_info = find_duplicates(df)
+    if duplicates_info["duplicate_uuids"]:
+        for item in duplicates_info["duplicate_uuids"]:
+            logger.warning(
+                f"UUID {item['uuid']} is the same for multiple files: {item['files']}"
+            )
+
+    for item in duplicates_info["duplicate_annotations"]:
+        logger.warning(
+            f"File '{item['file_name']}' of task '{item['task_name']}' has the "
+            f"same '{item['task_type']}' annotation '{item['annotation']}' repeated {item['count']} times."
+        )
+
+
+def get_class_distributions(
+    df: pl.LazyFrame,
+) -> dict[str, dict[str, list[dict[str, Any]]]]:
+    """Gets class distribution info for non-classification tasks.
+
+    @type df: pl.LazyFrame
+    @param df: Polars lazy frame containing dataset information.
+    @rtype: Dict[str, Dict[str, List[Dict[str, Any]]]]
+    @return: A dictionary with task names as keys, and dictionaries with
+        task types as keys and lists of dictionaries with class names
+        and counts as values.
+    """
+    class_distribution_raw = (
+        df.filter(pl.col("task_type") != "classification")
+        .group_by(["task_name", "task_type", "class_name"])
+        .agg(pl.count().alias("count"))
+        .sort(["task_name", "task_type", "count"], descending=True)
+        .collect()
+        .to_dicts()
+    )
+    class_distributions: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    for record in class_distribution_raw:
+        task_name = record["task_name"]
+        task_type = record["task_type"]
+        class_distributions.setdefault(task_name, {}).setdefault(
+            task_type, []
+        ).append(
+            {
+                "class_name": record["class_name"],
+                "count": record["count"],
+            }
+        )
+    return class_distributions
+
+
+def get_missing_annotations(df: pl.LazyFrame) -> list[str]:
+    """Returns file paths that exist but have no annotations.
+
+    @type df: pl.LazyFrame
+    @param df: Polars lazy frame containing dataset information.
+    @rtype: List[str]
+    @return: A list of file paths that exist but have no annotations.
+    """
+    all_files = df.select(pl.col("file").unique())
+    annotated_files = df.filter(
+        pl.col("annotation").is_not_null() & (pl.col("annotation") != "")
+    ).select(pl.col("file").unique())
+    missing_files_df = all_files.join(
+        annotated_files, on="file", how="anti"
+    ).collect()
+    return missing_files_df["file"].to_list()
+
+
+def get_duplicates_info(df: pl.LazyFrame) -> dict[str, Any]:
+    """Collects and returns information about duplicate UUIDs and
+    annotations.
+
+    @type df: pl.DataFrame
+    @param df: Polars DataFrame containing dataset information.
+    @rtype: Dict[str, Any]
+    @return: A dictionary with two keys:
+        - "duplicate_uuids": list of dicts with "uuid" as key and "files" as value
+        - "duplicate_annotations": list of dicts with "file_name", "task_name",
+          "task_type", "annotation", and "count"
+    """
+    duplicates_info = find_duplicates(df)
+    return {
+        "duplicate_uuids": [
+            {"uuid": item["uuid"], "files": item["files"]}
+            for item in duplicates_info["duplicate_uuids"]
+        ],
+        "duplicate_annotations": [
+            {
+                "file_name": item["file_name"],
+                "task_name": item["task_name"],
+                "task_type": item["task_type"],
+                "annotation": item["annotation"],
+                "count": item["count"],
+            }
+            for item in duplicates_info["duplicate_annotations"]
+        ],
+    }
+
+
+def get_heatmaps(
+    df: pl.LazyFrame,
+    sample_size: int | None = None,
+    downsample_factor: int = 5,
+) -> dict[str, dict[str, list[list[int]]]]:
+    """Generates heatmaps for bounding boxes, keypoints, and
+    segmentations.
+
+    @type df: pl.LazyFrame
+    @param df: Polars lazy frame containing dataset information.
+    @type sample_size: Optional[int]
+    @param sample_size: Number of samples to take from the dataset.
+        Default is None.
+    @type downsample_factor: int
+    @param downsample_factor: Factor to downsample the segmentation
+        masks.
+    @rtype: Dict[str, Dict[str, List[List[int]]]]
+    @return: A dictionary with task names as keys, and dictionaries with
+        task types as keys and lists of lists of integers representing
+        the heatmaps as values
+    """
+    task_types = [
+        "boundingbox",
+        "keypoints",
+        "segmentation",
+        "instance_segmentation",
+    ]
+    grid_size = 15
+    x_edges = np.linspace(0, 1, grid_size + 1)
+    y_edges = np.linspace(0, 1, grid_size + 1)
+    heatmaps: dict[str, dict[str, np.ndarray]] = {}
+
+    annotations_df = df.filter(
+        pl.col("task_type").is_not_null() & pl.col("task_name").is_not_null()
+    )
+
+    annotations_df = annotations_df.select(
+        "task_name", "task_type", "annotation"
+    ).collect()
+
+    if sample_size is not None and sample_size > 0:
+        if sample_size > len(annotations_df):
+            sample_size = None
+        else:
+            annotations_df = annotations_df.sample(n=sample_size, shuffle=True)
+
+    rows = annotations_df.iter_rows(named=True)
+    for row in rows:
+        task_name = row["task_name"]
+        task_type = row["task_type"]
+        annotation_str = row["annotation"]
+
+        if task_type not in task_types or not annotation_str:
+            continue
+
+        try:
+            annotation = json.loads(annotation_str)
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+        try:
+            if task_type == "boundingbox":
+                w, h = annotation["w"], annotation["h"]
+                x = np.array([annotation["x"] + w / 2])
+                y = np.array([annotation["y"] + h / 2])
+            elif task_type == "keypoints":
+                kps = [
+                    kp
+                    for kp in annotation.get("keypoints", [])
+                    if len(kp) >= 3 and kp[2] > 0
+                ]
+                if not kps:
+                    continue
+                coords = np.array([(kp[0], kp[1]) for kp in kps])
+                x = coords[:, 0]
+                y = coords[:, 1]
+            elif task_type in ["segmentation", "instance_segmentation"]:
+                rle = {
+                    "counts": annotation["counts"],
+                    "size": [annotation["height"], annotation["width"]],
+                }
+                mask = mask_utils.decode(rle)  # type: ignore
+                if downsample_factor > 1:
+                    mask = mask[::downsample_factor, ::downsample_factor]
+                rows_idx, cols_idx = np.where(mask)
+                if rows_idx.size == 0:
+                    continue
+                h_, w_ = mask.shape
+                x = cols_idx / w_
+                y = rows_idx / h_
+            else:
+                continue
+
+            xi = np.digitize(x, x_edges) - 1
+            xi = np.clip(xi, 0, grid_size - 1)
+            yi = np.digitize(y, y_edges) - 1
+            yi = np.clip(yi, 0, grid_size - 1)
+            indices = xi * grid_size + yi
+            counts = np.bincount(
+                indices, minlength=grid_size * grid_size
+            ).reshape(grid_size, grid_size)
+
+            if task_name not in heatmaps:
+                heatmaps[task_name] = {}
+            if task_type not in heatmaps[task_name]:
+                heatmaps[task_name][task_type] = np.zeros(
+                    (grid_size, grid_size), dtype=np.int64
+                )
+            heatmaps[task_name][task_type] += counts
+
+        except KeyError as e:
+            logger.warning(f"Missing key in annotation: {e}")
+            continue
+
+    result: dict[str, dict[str, list[list[int]]]] = {}
+    for t_name, tasks in heatmaps.items():
+        result[t_name] = {}
+        for t_type, grid in tasks.items():
+            result[t_name][t_type] = grid.T.tolist()
+
+    return result

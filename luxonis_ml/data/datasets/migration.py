@@ -1,22 +1,12 @@
 from collections import defaultdict
-from typing import (
-    Any,
-    Dict,
-    Final,
-    List,
-    Literal,
-    Optional,
-    Set,
-    Union,
-    overload,
-)
+from typing import Any, Final, Literal, overload
 
 import polars as pl
 from typing_extensions import TypedDict
 
 from .metadata import Metadata, Skeletons
 
-LDF_1_0_0_TASKS: Final[Set[str]] = {
+LDF_1_0_0_TASKS: Final[set[str]] = {
     "classification",
     "segmentation",
     "boundingbox",
@@ -24,7 +14,7 @@ LDF_1_0_0_TASKS: Final[Set[str]] = {
     "array",
 }
 
-LDF_1_0_0_TASK_TYPES: Final[Dict[str, str]] = {
+LDF_1_0_0_TASK_TYPES: Final[dict[str, str]] = {
     "BBoxAnnotation": "boundingbox",
     "ClassificationAnnotation": "classification",
     "PolylineSegmentationAnnotation": "segmentation",
@@ -36,13 +26,13 @@ LDF_1_0_0_TASK_TYPES: Final[Dict[str, str]] = {
 
 
 class LDF_1_0_0_MetadataDict(TypedDict):
-    source: Dict[str, Any]
+    source: dict[str, Any]
     ldf_version: str
-    classes: Dict[str, List[str]]
-    tasks: Dict[str, List[str]]
-    skeletons: Dict[str, Skeletons]
-    categorical_encodings: Dict[str, Dict[str, int]]
-    metadata_types: Dict[str, Literal["float", "int", "str", "Category"]]
+    classes: dict[str, list[str]]
+    tasks: dict[str, list[str]]
+    skeletons: dict[str, Skeletons]
+    categorical_encodings: dict[str, dict[str, int]]
+    metadata_types: dict[str, Literal["float", "int", "str", "Category"]]
 
 
 @overload
@@ -54,8 +44,8 @@ def migrate_dataframe(df: pl.DataFrame) -> pl.DataFrame: ...
 
 
 def migrate_dataframe(
-    df: Union[pl.LazyFrame, pl.DataFrame],
-) -> Union[pl.LazyFrame, pl.DataFrame]:  # pragma: no cover
+    df: pl.LazyFrame | pl.DataFrame,
+) -> pl.LazyFrame | pl.DataFrame:  # pragma: no cover
     return (
         df.rename({"class": "class_name"})
         .with_columns(
@@ -103,7 +93,7 @@ def migrate_dataframe(
 
 
 def migrate_metadata(
-    metadata: LDF_1_0_0_MetadataDict, df: Optional[pl.LazyFrame]
+    metadata: LDF_1_0_0_MetadataDict, df: pl.LazyFrame | None
 ) -> Metadata:  # pragma: no cover
     new_metadata = {}
     old_classes = metadata["classes"]
@@ -132,4 +122,6 @@ def migrate_metadata(
             )
         new_metadata["classes"] = dict(new_classes)
         new_metadata["tasks"] = dict(tasks)
-    return Metadata(**new_metadata)
+
+    metadata.update(new_metadata)
+    return Metadata(**metadata)  # type: ignore

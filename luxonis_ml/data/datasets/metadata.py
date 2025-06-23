@@ -1,29 +1,31 @@
-from typing import Dict, Iterable, List, Literal, Optional, Tuple, Union
+from collections.abc import Iterable
+from typing import Literal
 
 from typing_extensions import TypedDict
 
+from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.utils.pydantic_utils import BaseModelExtraForbid
 
 from .source import LuxonisSource
 
 
 class Skeletons(TypedDict):
-    labels: List[str]
-    edges: List[Tuple[int, int]]
+    labels: list[str]
+    edges: list[tuple[int, int]]
 
 
 class Metadata(BaseModelExtraForbid):
-    source: Optional[LuxonisSource]
-    ldf_version: str
-    classes: Dict[str, Dict[str, int]]
-    tasks: Dict[str, List[str]]
-    skeletons: Dict[str, Skeletons]
-    categorical_encodings: Dict[str, Dict[str, int]]
-    metadata_types: Dict[str, Literal["float", "int", "str", "Category"]]
-    parent_dataset: Optional[str] = None
+    source: LuxonisSource | None
+    ldf_version: str = str(LDF_VERSION)
+    classes: dict[str, dict[str, int]] = {}
+    tasks: dict[str, list[str]] = {}
+    skeletons: dict[str, Skeletons] = {}
+    categorical_encodings: dict[str, dict[str, int]] = {}
+    metadata_types: dict[str, Literal["float", "int", "str", "Category"]] = {}
+    parent_dataset: str | None = None
 
     def set_classes(
-        self, classes: Union[List[str], Dict[str, int]], task: str
+        self, classes: list[str] | dict[str, int], task: str
     ) -> None:
         if isinstance(classes, list):
             self.classes[task] = {
@@ -107,7 +109,7 @@ class Metadata(BaseModelExtraForbid):
             metadata_types=merged_metadata_types,  # type: ignore
         )
 
-    def _sort_classes(self, classes: Iterable[str]) -> List[str]:
+    def _sort_classes(self, classes: Iterable[str]) -> list[str]:
         return sorted(
             classes,
             key=lambda x: (0, "") if x == "background" else (1, x.lower()),

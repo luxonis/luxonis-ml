@@ -82,8 +82,8 @@ def test_mosaic4():
 
 
 def test_invalid():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="`out_height` must be larger"):
         Mosaic4(out_height=0, out_width=WIDTH)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="`out_width` must be larger"):
         Mosaic4(out_height=HEIGHT, out_width=0)

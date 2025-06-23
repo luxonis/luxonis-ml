@@ -1,4 +1,5 @@
-from typing import Dict, Iterator, List, Tuple, TypeVar
+from collections.abc import Iterator
+from typing import TypeVar
 
 import numpy as np
 
@@ -38,7 +39,7 @@ def postprocess_mask(mask: np.ndarray) -> np.ndarray:
     return mask.transpose(2, 0, 1)
 
 
-def postprocess_bboxes(bboxes: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+def postprocess_bboxes(bboxes: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     area_threshold = 0.0004  # 0.02 * 0.02 Small area threshold to remove invalid bboxes and respective keypoints.
     if bboxes.size == 0:
         return np.zeros((0, 5)), np.zeros((0,), dtype=np.uint8)
@@ -56,7 +57,7 @@ def postprocess_bboxes(bboxes: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
 
     out_bboxes = raw_bboxes[:, [4, 0, 1, 2, 3]]
 
-    return out_bboxes, refined_ordering.astype(np.uint8)
+    return out_bboxes, refined_ordering.astype(int)
 
 
 def postprocess_keypoints(
@@ -89,17 +90,15 @@ def postprocess_keypoints(
     keypoints[..., 1] = y
     keypoints[..., 2] = v
 
-    keypoints = keypoints.reshape(-1, n_keypoints * 3)
-
-    return keypoints
+    return keypoints.reshape(-1, n_keypoints * 3)
 
 
 T = TypeVar("T")
 
 
 def yield_batches(
-    data_batch: List[Dict[str, T]], batch_size: int
-) -> Iterator[Dict[str, List[T]]]:
+    data_batch: list[dict[str, T]], batch_size: int
+) -> Iterator[dict[str, list[T]]]:
     """Yield batches of data.
 
     @type data_batch: List[Dict[str, Any]]

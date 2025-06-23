@@ -1,5 +1,4 @@
 from pathlib import Path
-from typing import Dict, Set, Union
 
 import cv2
 import numpy as np
@@ -10,7 +9,7 @@ from luxonis_ml.data.datasets.luxonis_dataset import LuxonisDataset
 from luxonis_ml.data.utils.enums import BucketStorage
 
 
-def gather_tasks(dataset: LuxonisDataset) -> Set[str]:
+def gather_tasks(dataset: LuxonisDataset) -> set[str]:
     return {
         f"{task_name}/{task_type}"
         for task_name, task_types in dataset.get_tasks().items()
@@ -29,11 +28,11 @@ def create_image(i: int, dir: Path) -> Path:
     return path
 
 
-def compare_loader_output(loader: LuxonisLoader, tasks: Set[str]) -> None:
+def get_loader_output(loader: LuxonisLoader) -> set[str]:
     all_labels = set()
     for _, labels in loader:
         all_labels.update(labels.keys())
-    assert all_labels == tasks
+    return all_labels
 
 
 def create_dataset(
@@ -41,13 +40,15 @@ def create_dataset(
     generator: DatasetIterator,
     bucket_storage: BucketStorage = BucketStorage.LOCAL,
     *,
-    splits: Union[bool, Dict[str, float]] = True,
+    splits: bool | dict[str, float] | tuple = True,
+    delete_local: bool = True,
+    delete_remote: bool = True,
     **kwargs,
 ) -> LuxonisDataset:
     dataset = LuxonisDataset(
         dataset_name,
-        delete_existing=True,
-        delete_remote=True,
+        delete_local=delete_local,
+        delete_remote=delete_remote,
         bucket_storage=bucket_storage,
         **kwargs,
     ).add(generator)

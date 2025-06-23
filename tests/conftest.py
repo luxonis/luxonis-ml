@@ -4,18 +4,20 @@ import random
 import shutil
 import sys
 import time
+from collections.abc import Generator
+from contextlib import suppress
 from pathlib import Path
-from typing import Dict, List
 
 import numpy as np
 import pytest
 from _pytest.fixtures import SubRequest
-from pytest import FixtureRequest, Function, Metafunc, Parser
 from rich import print as rich_print
 
-from luxonis_ml.data import BucketStorage
+from luxonis_ml.data import BucketStorage, LuxonisDataset
 from luxonis_ml.typing import Params
 from luxonis_ml.utils.environ import environ
+
+CREATED_DATASETS = []
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -23,17 +25,23 @@ def setup():
     builtins.print = rich_print
 
     randint = random.randint(0, 100000)
-    environ.LUXONISML_BASE_PATH = (
-        Path.cwd() / f"tests/data/luxonisml_base_path/{randint}"
-    )
-    if environ.LUXONISML_BASE_PATH.exists():  # pragma: no cover
-        shutil.rmtree(environ.LUXONISML_BASE_PATH)
-    environ.LUXONISML_BASE_PATH.mkdir(parents=True, exist_ok=True)
+    base = Path.cwd() / f"tests/data/luxonisml_base_path/{randint}"
+    environ.LUXONISML_BASE_PATH = base
+    if base.exists():  # pragma: no cover
+        shutil.rmtree(base)
+    base.mkdir(parents=True, exist_ok=True)
+
+    yield
+
+    shutil.rmtree(base, ignore_errors=True)
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def randint() -> int:
-    return random.randint(0, 100_000)
+    # Use a fresh, time-seeded RNG so pytest's global seed doesn't influence this value.
+    rng = random.Random()
+    rng.seed(time.time())
+    return rng.randint(0, 100_000)
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -45,8 +53,7 @@ def fix_seed(worker_id: str):
 @pytest.fixture(scope="session")
 def python_version():
     version = sys.version_info
-    formatted_version = f"{version.major}{version.minor}"
-    return formatted_version
+    return f"{version.major}{version.minor}"
 
 
 @pytest.fixture(scope="session")
@@ -54,17 +61,24 @@ def platform_name():  # pragma: no cover
     os_name = platform.system().lower()
     if "darwin" in os_name:
         return "mac"
-    elif "linux" in os_name:
+    if "linux" in os_name:
         return "lin"
-    elif "windows" in os_name:
+    if "windows" in os_name:
         return "win"
-    else:
-        raise ValueError(f"Unsupported operating system: {os_name}")
+    raise ValueError(f"Unsupported operating system: {os_name}")
 
 
-@pytest.fixture(scope="function")
-def dataset_name(request: SubRequest, randint: int) -> str:
-    return f"{get_caller_name(request)}_{randint}"
+@pytest.fixture
+def dataset_name(
+    request: SubRequest, randint: int
+) -> Generator[str, None, None]:
+    name = f"{get_caller_name(request)}_{randint}"
+    yield name
+    with suppress(Exception):
+        LuxonisDataset(name, bucket_storage=BucketStorage.GCS).delete_dataset(
+            delete_remote=True,
+            delete_local=True,
+        )
 
 
 @pytest.fixture(scope="session")
@@ -79,8 +93,8 @@ def width() -> int:
 
 @pytest.fixture
 def augmentation_data(
-    height: int, width: int, request: FixtureRequest
-) -> Dict[str, List[np.ndarray]]:
+    height: int, width: int, request: pytest.FixtureRequest
+) -> dict[str, list[np.ndarray]]:
     batch_size: int = request.param
     return {
         "image": [
@@ -102,7 +116,7 @@ def augmentation_data(
 
 
 @pytest.fixture(scope="session")
-def augmentation_config() -> List[Params]:
+def augmentation_config() -> list[Params]:
     return [
         {
             "name": "Mosaic4",
@@ -121,24 +135,29 @@ def base_tempdir(worker_id: str):
     path = Path("tests", "data", "tempdir", worker_id)
     shutil.rmtree(path, ignore_errors=True)
     path.mkdir(parents=True, exist_ok=True)
-    yield path
+    return path
 
 
-@pytest.fixture(scope="function")
-def tempdir(base_tempdir: Path, randint: int) -> Path:
+@pytest.fixture
+def tempdir(base_tempdir: Path, randint: int) -> Generator[Path, None, None]:
     t = time.time()
+    unique_id = randint
     while True:
-        path = base_tempdir / str(randint)
+        path = base_tempdir / str(unique_id)
         if not path.exists():
             break
         if time.time() - t > 5:  # pragma: no cover
             raise TimeoutError(
                 "Could not create a unique tempdir. Something is wrong."
             )
+        # regenerate a new random suffix
+        unique_id = random.randint(0, 100_000)
 
     path.mkdir(exist_ok=True)
 
-    return path
+    yield path
+
+    shutil.rmtree(path, ignore_errors=True)
 
 
 @pytest.fixture(scope="session")
@@ -146,7 +165,7 @@ def storage_url() -> str:
     return "gs://luxonis-test-bucket/luxonis-ml-test-data/"
 
 
-def pytest_addoption(parser: Parser):
+def pytest_addoption(parser: pytest.Parser):
     parser.addoption(
         "--only-local",
         action="store_true",
@@ -155,7 +174,7 @@ def pytest_addoption(parser: Parser):
     )
 
 
-def pytest_generate_tests(metafunc: Metafunc):
+def pytest_generate_tests(metafunc: pytest.Metafunc):
     if "bucket_storage" in metafunc.fixturenames:
         only_local = metafunc.config.getoption("--only-local")
         storage_options = (
@@ -168,6 +187,6 @@ def pytest_generate_tests(metafunc: Metafunc):
 
 def get_caller_name(request: SubRequest) -> str:  # pragma: no cover
     node = request.node
-    if isinstance(node, Function):
+    if isinstance(node, pytest.Function):
         return node.function.__name__
     return node.name

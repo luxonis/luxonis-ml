@@ -1,6 +1,5 @@
 import tarfile
 from pathlib import Path
-from typing import List
 
 from luxonis_ml.typing import PathType
 
@@ -29,7 +28,7 @@ def is_nn_archive(path: PathType) -> bool:
     return True
 
 
-def infer_layout(shape: List[int]) -> str:
+def infer_layout(shape: list[int]) -> str:
     """Infers a layout for the given shape.
 
     Tries to guess most common layouts for the given shape pattern.
@@ -48,9 +47,9 @@ def infer_layout(shape: List[int]) -> str:
         i += 1
     if len(shape) - i == 3:
         if shape[i] < shape[i + 1] and shape[i] < shape[i + 2]:
-            return "".join(layout + ["C", "H", "W"])
-        elif shape[-1] < shape[-2] and shape[-1] < shape[-3]:
-            return "".join(layout + ["H", "W", "C"])
+            return "".join([*layout, "C", "H", "W"])
+        if shape[-1] < shape[-2] and shape[-1] < shape[-3]:
+            return "".join([*layout, "H", "W", "C"])
     i = 0
     while len(layout) < len(shape):
         # Starting with "C" for more sensible defaults

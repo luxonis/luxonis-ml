@@ -1,9 +1,11 @@
 import ast
-from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
+from pathlib import PurePath
+from typing import Any, TypeVar
 
 import yaml
+from typing_extensions import Self
 
-from luxonis_ml.typing import Params
+from luxonis_ml.typing import Params, PathType
 
 from .filesystem import LuxonisFileSystem
 from .pydantic_utils import BaseModelExtraForbid
@@ -16,10 +18,10 @@ class LuxonisConfig(BaseModelExtraForbid):
 
     @classmethod
     def get_config(
-        cls: Type[T],
-        cfg: Optional[Union[str, Params]] = None,
-        overrides: Optional[Union[Params, List[str], Tuple[str, ...]]] = None,
-    ) -> T:
+        cls,
+        cfg: str | Params | None = None,
+        overrides: Params | list[str] | tuple[str, ...] | None = None,
+    ) -> Self:
         """Loads config from a yaml file or a dictionary.
 
         @type cfg: Optional[Union[str, dict]]
@@ -36,14 +38,14 @@ class LuxonisConfig(BaseModelExtraForbid):
                 "At least one of `cfg` or `overrides` must be set."
             )
 
-        if isinstance(overrides, (list, tuple)):
+        if isinstance(overrides, list | tuple):
             if len(overrides) % 2 != 0:
                 raise ValueError(
                     "Override options should be a list of key-value pairs "
                     "but it's length is not divisible by 2."
                 )
 
-            overrides = dict(zip(overrides[::2], overrides[1::2]))
+            overrides = dict(zip(overrides[::2], overrides[1::2], strict=True))
 
         overrides = overrides or {}
         cfg = cfg or {}
@@ -51,7 +53,7 @@ class LuxonisConfig(BaseModelExtraForbid):
         if isinstance(cfg, str):
             fs = LuxonisFileSystem(cfg)
             buffer = fs.read_to_byte_buffer()
-            data = yaml.load(buffer, Loader=yaml.SafeLoader)
+            data = yaml.safe_load(buffer)
         else:
             data = cfg
 
@@ -72,14 +74,22 @@ class LuxonisConfig(BaseModelExtraForbid):
         """
         return self.model_json_schema(mode="validation")
 
-    def save_data(self, path: str) -> None:
+    def save_data(self, path: PathType) -> None:
         """Saves config to a yaml file.
 
         @type path: str
         @param path: Path to output yaml file.
         """
+
+        def path_representer(
+            dumper: yaml.SafeDumper, data: PurePath
+        ) -> yaml.ScalarNode:
+            return dumper.represent_scalar("tag:yaml.org,2002:str", str(data))
+
+        yaml.SafeDumper.add_multi_representer(PurePath, path_representer)
+
         with open(path, "w+") as f:
-            yaml.dump(self.model_dump(), f, default_flow_style=False)
+            yaml.safe_dump(self.model_dump(), f, default_flow_style=False)
 
     def get(self, key_merged: str, default: Any = None) -> Any:
         """Returns a value from L{Config} based on the given key.
@@ -98,11 +108,12 @@ class LuxonisConfig(BaseModelExtraForbid):
         value = self
         for key in key_merged.split("."):
             if isinstance(value, list):
-                if not key.isdecimal():
+                try:
+                    index = int(key)
+                except ValueError:
                     raise ValueError(
                         f"Can't access list with non-int key `{key}`."
-                    )
-                index = int(key)
+                    ) from None
                 if index >= len(value):
                     return default
                 value = value[index]
@@ -141,8 +152,8 @@ class LuxonisConfig(BaseModelExtraForbid):
                 return value
 
         def _merge_recursive(
-            data: Union[Dict, List], dot_name: str, value: Any
-        ):
+            data: dict | list, dot_name: str, value: Any
+        ) -> None:
             key, *tail = dot_name.split(".")
             if not tail:
                 parsed_value = _parse_value(value)
@@ -206,6 +217,6 @@ class LuxonisConfig(BaseModelExtraForbid):
 
         for dot_name, value in overrides.items():
             try:
-                _merge_recursive(data, dot_name, value)
+                _merge_recursive(data, dot_name, value)  # type: ignore
             except Exception as e:
                 raise ValueError(f"Invalid option `{dot_name}`: {e}") from e

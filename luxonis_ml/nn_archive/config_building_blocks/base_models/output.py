@@ -1,13 +1,11 @@
 from contextlib import suppress
-from typing import List, Optional
 
 from pydantic import Field, model_validator
 from typing_extensions import Self
 
+from luxonis_ml.nn_archive.config_building_blocks.enums import DataType
+from luxonis_ml.nn_archive.utils import infer_layout
 from luxonis_ml.utils import BaseModelExtraForbid
-
-from ...utils import infer_layout
-from ..enums import DataType
 
 
 class Output(BaseModelExtraForbid):
@@ -23,11 +21,11 @@ class Output(BaseModelExtraForbid):
     dtype: DataType = Field(
         description="Data type of the output data (e.g., 'float32')."
     )
-    shape: Optional[List[int]] = Field(
+    shape: list[int] | None = Field(
         None,
         description="Shape of the output as a list of integers (e.g. [1, 1000]).",
     )
-    layout: Optional[str] = Field(
+    layout: str | None = Field(
         None,
         description="List of letters describing the output layout (e.g. 'NC').",
     )

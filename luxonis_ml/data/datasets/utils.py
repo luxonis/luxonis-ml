@@ -1,7 +1,7 @@
 import shutil
 from pathlib import Path
 from types import ModuleType
-from typing import Literal, Optional
+from typing import Literal
 
 import polars as pl
 from typing_extensions import overload
@@ -15,9 +15,9 @@ def get_file(
     fs: LuxonisFileSystem,
     remote_path: PosixPathType,
     local_path: PathType,
-    mlflow_instance: Optional[ModuleType] = ...,
+    mlflow_instance: ModuleType | None = ...,
     default: Literal[None] = ...,
-) -> Optional[Path]: ...
+) -> Path | None: ...
 
 
 @overload
@@ -25,7 +25,7 @@ def get_file(
     fs: LuxonisFileSystem,
     remote_path: PosixPathType,
     local_path: PathType,
-    mlflow_instance: Optional[ModuleType] = ...,
+    mlflow_instance: ModuleType | None = ...,
     default: PathType = ...,
 ) -> Path: ...
 
@@ -34,9 +34,9 @@ def get_file(
     fs: LuxonisFileSystem,
     remote_path: PosixPathType,
     local_path: PathType,
-    mlflow_instance: Optional[ModuleType] = None,
-    default: Optional[PathType] = None,
-) -> Optional[Path]:
+    mlflow_instance: ModuleType | None = None,
+    default: PathType | None = None,
+) -> Path | None:
     try:
         return fs.get_file(remote_path, local_path, mlflow_instance)
     except shutil.SameFileError:
@@ -48,16 +48,16 @@ def get_file(
 @overload
 def find_filepath_uuid(
     filepath: PathType,
-    index: Optional[pl.DataFrame],
+    index: pl.DataFrame | None,
     *,
     raise_on_missing: Literal[False] = ...,
-) -> Optional[str]: ...
+) -> str | None: ...
 
 
 @overload
 def find_filepath_uuid(
     filepath: PathType,
-    index: Optional[pl.DataFrame],
+    index: pl.DataFrame | None,
     *,
     raise_on_missing: Literal[True] = ...,
 ) -> str: ...
@@ -65,10 +65,10 @@ def find_filepath_uuid(
 
 def find_filepath_uuid(
     filepath: PathType,
-    index: Optional[pl.DataFrame],
+    index: pl.DataFrame | None,
     *,
     raise_on_missing: bool = False,
-) -> Optional[str]:
+) -> str | None:
     if index is None:
         return None
 
@@ -76,8 +76,8 @@ def find_filepath_uuid(
     matched = index.filter(pl.col("original_filepath") == abs_path)
 
     if len(matched):
-        return list(matched.select("uuid"))[0][0]
-    elif raise_on_missing:
+        return next(iter(matched.select("uuid")))[0]
+    if raise_on_missing:
         raise ValueError(f"File {abs_path} not found in index")
     return None
 
@@ -87,10 +87,10 @@ def get_dir(
     fs: LuxonisFileSystem,
     remote_path: PosixPathType,
     local_dir: PathType,
-    mlflow_instance: Optional[ModuleType] = ...,
+    mlflow_instance: ModuleType | None = ...,
     *,
     default: Literal[None] = None,
-) -> Optional[Path]: ...
+) -> Path | None: ...
 
 
 @overload
@@ -98,7 +98,7 @@ def get_dir(
     fs: LuxonisFileSystem,
     remote_path: PosixPathType,
     local_dir: PathType,
-    mlflow_instance: Optional[ModuleType] = ...,
+    mlflow_instance: ModuleType | None = ...,
     *,
     default: Path = ...,
 ) -> Path: ...
@@ -108,10 +108,10 @@ def get_dir(
     fs: LuxonisFileSystem,
     remote_path: PosixPathType,
     local_dir: PathType,
-    mlflow_instance: Optional[ModuleType] = None,
+    mlflow_instance: ModuleType | None = None,
     *,
-    default: Optional[PathType] = None,
-) -> Optional[Path]:
+    default: PathType | None = None,
+) -> Path | None:
     try:
         return fs.get_dir(remote_path, local_dir, mlflow_instance)
     except shutil.SameFileError:

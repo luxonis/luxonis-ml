@@ -1,6 +1,6 @@
-from typing import Dict
+from typing import Any
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from luxonis_ml.data.utils import ImageType, MediaType
 from luxonis_ml.utils import BaseModelExtraForbid
@@ -45,7 +45,7 @@ class LuxonisSource(BaseModelExtraForbid):
     """
 
     name: str = "default"
-    components: Dict[str, LuxonisComponent] = Field(
+    components: dict[str, LuxonisComponent] = Field(
         default_factory=lambda: {"default": LuxonisComponent(name="default")}
     )
     main_component: str = "default"
@@ -65,3 +65,14 @@ class LuxonisSource(BaseModelExtraForbid):
             components=components,
             main_component=self.main_component,
         )
+
+    @field_validator("components", mode="before")
+    @classmethod
+    def validate_components(cls, components: Any) -> Any:
+        if isinstance(components, list):
+            migrated_components = {}
+            for component in components:
+                component = LuxonisComponent(**component)
+                migrated_components[component.name] = component
+            return migrated_components
+        return components

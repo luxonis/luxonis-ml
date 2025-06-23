@@ -1,13 +1,15 @@
 from contextlib import suppress
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import Field, model_validator
 from typing_extensions import Self
 
+from luxonis_ml.nn_archive.config_building_blocks.enums import (
+    DataType,
+    InputType,
+)
+from luxonis_ml.nn_archive.utils import infer_layout
 from luxonis_ml.utils import BaseModelExtraForbid
-
-from ...utils import infer_layout
-from ..enums import DataType, InputType
 
 
 class PreprocessingBlock(BaseModelExtraForbid):
@@ -29,25 +31,25 @@ class PreprocessingBlock(BaseModelExtraForbid):
         automatically setup the pipeline.
     """
 
-    mean: Optional[List[float]] = Field(
+    mean: list[float] | None = Field(
         None,
         description="Mean values in channel order. Order depends on the order in which the model was trained on.",
     )
-    scale: Optional[List[float]] = Field(
+    scale: list[float] | None = Field(
         None,
         description="Standardization values in channel order. Order depends on the order in which the model was trained on.",
     )
-    reverse_channels: Optional[bool] = Field(
+    reverse_channels: bool | None = Field(
         None,
         deprecated="Deprecated, use `dai_type` instead.",
         description="If True input to the model is RGB else BGR.",
     )
-    interleaved_to_planar: Optional[bool] = Field(
+    interleaved_to_planar: bool | None = Field(
         None,
         deprecated="Deprecated, use `dai_type` instead.",
         description="If True input to the model is interleaved (NHWC) else planar (NCHW).",
     )
-    dai_type: Optional[str] = Field(
+    dai_type: str | None = Field(
         None,
         description="DepthAI input type which is read by DepthAI to automatically setup the pipeline.",
     )
@@ -82,7 +84,7 @@ class Input(BaseModelExtraForbid):
     input_type: InputType = Field(
         description="Type of input data (e.g., 'image')."
     )
-    shape: List[int] = Field(
+    shape: list[int] = Field(
         min_length=1,
         description="Shape of the input data as a list of integers (e.g. [H,W], [H,W,C], [N,H,W,C], ...).",
     )
@@ -110,17 +112,16 @@ class Input(BaseModelExtraForbid):
                 "If N (batch size) is included in the layout, it must be first"
             )
 
-        if self.input_type == InputType.IMAGE:
-            if "C" not in self.layout:
-                raise ValueError(
-                    "C letter must be present in layout for image input type."
-                )
+        if self.input_type is InputType.IMAGE and "C" not in self.layout:
+            raise ValueError(
+                "C letter must be present in layout for image input type."
+            )
 
         return self
 
     @model_validator(mode="before")
     @staticmethod
-    def infer_layout(data: Dict[str, Any]) -> Dict[str, Any]:
+    def infer_layout(data: dict[str, Any]) -> dict[str, Any]:
         if "shape" in data and "layout" not in data:
             with suppress(Exception):
                 data["layout"] = infer_layout(data["shape"])
