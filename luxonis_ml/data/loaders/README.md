@@ -50,12 +50,12 @@ f"{task_name}/{task_type}"
 If the dataset was created without specifying a `task_name`, the default keys will be:
 
 ```
-/boundingbox, /classification, /segmentation, /instance_segmentation, /keypoints, /metadata/keyi
+/boundingbox, /classification, /segmentation, /instance_segmentation, /keypoints, /metadata/<key>
 ```
 
-You can also organize your dataset into multiple named tasks, which is especially helpful for more structured or complex datasets.
+In the case of metadata, the `/metadata/<key>` format uses a field name that was provided when creating the dataset in place of `<key>` (e.g., `/metadata/id`, `/metadata/camera_angle`, etc.).
 
-For example, you might define one task for **segmentation** and another for **keypoint detection**, resulting in keys such as:
+If a dataset was created using multiple `task_name`s—which is especially helpful for more structured or complex datasets—you might define one task for **segmentation** and another for **keypoint detection**. In that case, you would access the labels using keys like:
 
 ```
 segmentation_task/segmentation, pose_task/keypoints
