@@ -19,7 +19,7 @@ def setup_logging(
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
     | None = None,
     file: PathType | None = None,
-    use_rich: bool = False,
+    use_rich: bool = True,
     **kwargs,
 ) -> None:  # pragma: no cover
     """Sets up global logging using loguru and rich.
