@@ -19,7 +19,7 @@ def setup_logging(
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
     | None = None,
     file: PathType | None = None,
-    use_rich: bool = True,
+    use_rich: bool = False,
     **kwargs,
 ) -> None:  # pragma: no cover
     """Sets up global logging using loguru and rich.
@@ -78,14 +78,14 @@ def setup_logging(
         logger.add(
             sys.stderr,
             level=level,
-            format="{level} | {message} | {function}:{line}",
+            format="[{level}] {message} | {function}:{line}",
         )
 
     if file is not None:
         logger.add(
             file,
             level=level,
-            format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> [<level>{level}</level>] {message}",
+            format="{time:YYYY-MM-DD HH:mm:ss} [{level}] {message} | {function}:{line}",
             rotation=None,
         )
 
