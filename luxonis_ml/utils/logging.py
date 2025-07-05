@@ -1,4 +1,5 @@
 import inspect
+import sys
 import warnings
 from collections.abc import Callable
 from functools import wraps
@@ -18,6 +19,7 @@ def setup_logging(
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
     | None = None,
     file: PathType | None = None,
+    use_rich: bool = True,
     **kwargs,
 ) -> None:  # pragma: no cover
     """Sets up global logging using loguru and rich.
@@ -28,6 +30,8 @@ def setup_logging(
     @type file: Optional[str]
     @param file: Path to the log file. If provided, logs will be saved
         to this file.
+    @type use_rich: bool
+    @param use_rich: If True, uses rich for logging. Defaults to True.
     @type kwargs: Any
     @param kwargs: Additional keyword arguments to pass to
         C{RichHandler}.
@@ -42,34 +46,40 @@ def setup_logging(
         )
 
     logger.remove()
-
-    theme = Theme(
-        {
-            "logging.level.debug": "magenta",
-            "logging.level.info": "green",
-            "logging.level.warning": "yellow",
-            "logging.level.error": "bold red",
-            "logging.level.critical": "bold white on red",
-        },
-        inherit=True,
-    )
-    console = Console(theme=theme)
-    logger.add(
-        RichHandler(
-            console=console,
-            rich_tracebacks=True,
-            tracebacks_show_locals=False,
-            show_time=False,
-            **kwargs,
-        ),
-        level=level,
-        # NOTE: Needs to be a constant function to avoid
-        # duplicate logging of exceptions, see
-        # https://github.com/Delgan/loguru/issues/1172
-        format=lambda _: "{message}",
-        backtrace=False,
-        filter=lambda record: "file_only" not in record["extra"],
-    )
+    if use_rich:
+        theme = Theme(
+            {
+                "logging.level.debug": "magenta",
+                "logging.level.info": "green",
+                "logging.level.warning": "yellow",
+                "logging.level.error": "bold red",
+                "logging.level.critical": "bold white on red",
+            },
+            inherit=True,
+        )
+        console = Console(theme=theme)
+        logger.add(
+            RichHandler(
+                console=console,
+                rich_tracebacks=True,
+                tracebacks_show_locals=False,
+                show_time=False,
+                **kwargs,
+            ),
+            level=level,
+            # NOTE: Needs to be a constant function to avoid
+            # duplicate logging of exceptions, see
+            # https://github.com/Delgan/loguru/issues/1172
+            format=lambda _: "{message}",
+            backtrace=False,
+            filter=lambda record: "file_only" not in record["extra"],
+        )
+    else:
+        logger.add(
+            sys.stderr,
+            level=level,
+            format="{level} | {message} | {function}:{line}",
+        )
 
     if file is not None:
         logger.add(
