@@ -25,6 +25,7 @@ from luxonis_ml.data.datasets import (
 )
 from luxonis_ml.data.loaders.base_loader import BaseLoader
 from luxonis_ml.data.utils import (
+    ParquetRecord,
     get_task_name,
     get_task_type,
     split_task,
@@ -133,7 +134,13 @@ class LuxonisLoader(BaseLoader):
             view = [view]
         self.view = view
 
-        self.df = self.dataset._load_df_offline(raise_when_empty=True)
+        df = self.dataset._load_df_offline()
+        if df is None:
+            self.df = pl.DataFrame(
+                schema=ParquetRecord.__annotations__ | {"uuid": str},
+            )
+        else:
+            self.df = df
         self.classes = self.dataset.get_classes()
 
         if self.filter_task_names is not None:
@@ -149,7 +156,9 @@ class LuxonisLoader(BaseLoader):
         if not self.dataset.is_remote:
             file_index = self.dataset._get_index()
             if file_index is None:  # pragma: no cover
-                raise FileNotFoundError("Cannot find file index")
+                file_index = pl.DataFrame(
+                    schema={"uuid": str, "file": str, "original_filepath": str}
+                )
             file_index = file_index.filter(
                 pl.col("uuid").is_in(self.df["uuid"])
             )
@@ -159,11 +168,15 @@ class LuxonisLoader(BaseLoader):
         self.instances: list[str] = []
         splits_path = self.dataset.metadata_path / "splits.json"
         if not splits_path.exists():
-            raise RuntimeError(
-                "Cannot find splits! Ensure you call dataset.make_splits()"
-            )
-        with open(splits_path) as file:
-            splits = json.load(file)
+            if self.df.is_empty():
+                splits = {view: [] for view in self.view}
+            else:
+                raise RuntimeError(
+                    "Cannot find splits! Ensure you call dataset.make_splits()"
+                )
+        else:
+            with open(splits_path) as file:
+                splits = json.load(file)
 
         for view in self.view:
             self.instances.extend(splits[view])
@@ -183,7 +196,10 @@ class LuxonisLoader(BaseLoader):
 
         self._precompute_image_paths()
 
-        _, test_labels = self._load_data(0)
+        try:
+            _, test_labels = self._load_data(0)
+        except ValueError:
+            return
         for task, seg_masks in task_type_iterator(test_labels, "segmentation"):
             task_name = get_task_name(task)
             if seg_masks.shape[0] > 1 and (
