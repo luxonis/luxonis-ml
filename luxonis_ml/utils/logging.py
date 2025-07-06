@@ -79,6 +79,7 @@ def setup_logging(
             sys.stderr,
             level=level,
             format="[{level}] {message} | {function}:{line}",
+            filter=lambda record: "file_only" not in record["extra"]
         )
 
     if file is not None:
