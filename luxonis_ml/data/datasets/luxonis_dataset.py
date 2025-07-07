@@ -862,7 +862,7 @@ class LuxonisDataset(BaseDataset):
 
     @override
     def delete_dataset(
-        self, *, delete_remote: bool = False, delete_local: bool = False
+        self, *, delete_remote: bool = False, delete_local: bool = True
     ) -> None:
         """Deletes the dataset from local storage and optionally from
         the cloud.

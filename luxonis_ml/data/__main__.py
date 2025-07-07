@@ -333,7 +333,7 @@ def inspect(
     bucket_storage: BucketStorage = bucket_option,
 ):
     """Inspects images and annotations in a dataset."""
-
+    check_exists(name, bucket_storage)
     if deterministic:
         np.random.seed(42)
         random.seed(42)
