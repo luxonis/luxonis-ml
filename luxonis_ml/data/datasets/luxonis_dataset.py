@@ -862,7 +862,7 @@ class LuxonisDataset(BaseDataset):
 
     @override
     def delete_dataset(
-        self, *, delete_remote: bool = False, delete_local: bool = True
+        self, *, delete_remote: bool = False, delete_local: bool = False
     ) -> None:
         """Deletes the dataset from local storage and optionally from
         the cloud.
@@ -874,6 +874,11 @@ class LuxonisDataset(BaseDataset):
         @param delete_local: Whether to delete the dataset from local
             storage.
         """
+        if not (delete_remote or delete_local):
+            raise ValueError(
+                "Must set delete_remote=True and/or delete_local=True when calling delete_dataset()"
+            )
+
         if not self.is_remote and delete_local:
             logger.info(
                 f"Deleting local dataset '{self.dataset_name}' from local storage"
