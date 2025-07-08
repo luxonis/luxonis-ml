@@ -1507,7 +1507,7 @@ class LuxonisDataset(BaseDataset):
                             Path(
                                 data_path.name,
                                 str(image_indices[file]) + file.suffix,
-                            )
+                            ).as_posix()
                         ),
                         "task_name": task_name,
                     }
@@ -1520,7 +1520,7 @@ class LuxonisDataset(BaseDataset):
                     Path(
                         data_path.name,
                         str(image_indices[file]) + file.suffix,
-                    )
+                    ).as_posix()
                 ),
                 "task_name": task_name,
                 "annotation": {
