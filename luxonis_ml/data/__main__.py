@@ -915,7 +915,29 @@ def merge(
             show_default=False,
         ),
     ] = None,
+    splits_to_merge: Annotated[
+        str | None,
+        typer.Option(
+            "--split",
+            "-s",
+            help=(
+                "Comma separated list of split names to merge, "
+                "e.g. `-s val,test` or just `-s train`. "
+                "If omitted, merges all splits."
+            ),
+            show_default=False,
+        ),
+    ] = None,
     bucket_storage: BucketStorage = bucket_option,
+    team_id: Annotated[
+        str | None,
+        typer.Option(
+            "--team-id",
+            "-t",
+            help="Team ID to use for the new dataset. If not provided, the dataset's current team ID will be used.",
+            show_default=False,
+        ),
+    ] = None,
 ):
     """Merge two datasets stored in the same type of bucket."""
     check_exists(source_name, bucket_storage)
@@ -936,6 +958,13 @@ def merge(
     ):
         raise typer.Exit
 
+    if splits_to_merge:
+        split_list = [
+            s.strip() for s in splits_to_merge.split(",") if s.strip()
+        ]
+    else:
+        split_list = None
+
     source_dataset = LuxonisDataset(source_name, bucket_storage=bucket_storage)
     target_dataset = LuxonisDataset(target_name, bucket_storage=bucket_storage)
 
@@ -945,7 +974,11 @@ def merge(
     )
 
     _ = target_dataset.merge_with(
-        source_dataset, inplace=inplace, new_dataset_name=new_name
+        source_dataset,
+        inplace=inplace,
+        new_dataset_name=new_name,
+        splits_to_merge=split_list,
+        team_id=team_id,
     )
 
     if inplace:

@@ -311,37 +311,29 @@ class LuxonisDataset(BaseDataset):
 
         if splits_to_clone is not None:
             df_self = self._load_df_offline(raise_when_empty=True)
-            splits = self._load_splits(self.metadata_path)
-            selected_splits = [
+            splits_self = self._load_splits(self.metadata_path)
+            uuids_to_clone = {
                 uid
                 for split in splits_to_clone
-                for uid in splits.get(split, [])
-            ]
-            df_self = df_self.filter(df_self["uuid"].is_in(selected_splits))
-            splits_to_save = {
-                split: selected_splits for split in splits_to_clone
+                for uid in splits_self.get(split, [])
             }
-
-        def _ignore(dir_path: str, names: list[str]) -> set[str]:
-            if splits_to_clone is None:
-                return set()
-            ignored = set()
-            for name in names:
-                full = Path(dir_path) / name
-                if full.is_file() and full.stem not in selected_splits:
-                    ignored.add(name)
-            return ignored
+            df_self = df_self.filter(df_self["uuid"].is_in(uuids_to_clone))
+            splits_self = {
+                k: v for k, v in splits_self.items() if k in splits_to_clone
+            }
 
         shutil.copytree(
             self.local_path,
             new_dataset.local_path,
             dirs_exist_ok=True,
-            ignore=_ignore,
+            ignore=lambda d, n: self._ignore_files_not_in_uuid_set(
+                d, n, uuids_to_clone if splits_to_clone else {}
+            ),
         )
 
         if splits_to_clone is not None:
             new_dataset._save_df_offline(df_self)
-            new_dataset._save_splits(splits_to_save)
+            new_dataset._save_splits(splits_self)
 
         new_dataset._init_paths()
         new_dataset._metadata = self._get_metadata()
@@ -368,6 +360,8 @@ class LuxonisDataset(BaseDataset):
         other: "LuxonisDataset",
         inplace: bool = True,
         new_dataset_name: str | None = None,
+        splits_to_merge: list[str] | None = None,
+        team_id: str | None = None,
     ) -> "LuxonisDataset":
         """Merge all data from `other` LuxonisDataset into the current
         dataset (in-place or in a new dataset).
@@ -380,6 +374,10 @@ class LuxonisDataset(BaseDataset):
         @type new_dataset_name: str
         @param new_dataset_name: The name of the new dataset to create
             if inplace is False.
+        @type splits_to_merge: list[str] | None
+        @param splits_to_merge: Optional list of split names to merge.
+        @type team_id: str | None
+        @param team_id: Optional team identifier.
         """
         if inplace:
             target_dataset = self
@@ -388,7 +386,9 @@ class LuxonisDataset(BaseDataset):
                 raise ValueError(
                     "Cannot merge datasets with different bucket storage types."
                 )
-            target_dataset = self.clone(new_dataset_name, push_to_cloud=False)
+            target_dataset = self.clone(
+                new_dataset_name, push_to_cloud=False, team_id=team_id
+            )
         else:
             raise ValueError(
                 "You must specify a name for the new dataset "
@@ -411,13 +411,22 @@ class LuxonisDataset(BaseDataset):
                 ~df_other["uuid"].is_in(duplicate_uuids)
             )
 
+        splits_self = self._load_splits(self.metadata_path)
+        splits_other = self._load_splits(other.metadata_path)
+        if splits_to_merge is not None:
+            uuids_to_merge = {
+                uuid
+                for split_name in splits_to_merge
+                for uuid in splits_other.get(split_name, [])
+            }
+            df_other = df_other.filter(df_other["uuid"].is_in(uuids_to_merge))
+            splits_other = {
+                k: v for k, v in splits_other.items() if k in splits_to_merge
+            }
+
         df_merged = pl.concat([df_self, df_other])
         target_dataset._save_df_offline(df_merged)
 
-        splits_self = self._load_splits(self.metadata_path)
-        splits_other = self._load_splits(
-            other.metadata_path
-        )  # dict of split names to list of uuids
         splits_other = {
             split_name: [uuid for uuid in uuids if uuid not in duplicate_uuids]
             for split_name, uuids in splits_other.items()
@@ -427,7 +436,12 @@ class LuxonisDataset(BaseDataset):
 
         if self.is_remote:
             shutil.copytree(
-                other.media_path, target_dataset.media_path, dirs_exist_ok=True
+                other.media_path,
+                target_dataset.media_path,
+                dirs_exist_ok=True,
+                ignore=lambda d, n: self._ignore_files_not_in_uuid_set(
+                    d, n, uuids_to_merge if splits_to_merge else {}
+                ),
             )
             target_dataset.push_to_cloud(
                 bucket_storage=target_dataset.bucket_storage,
@@ -454,6 +468,18 @@ class LuxonisDataset(BaseDataset):
         splits_path = path / "splits.json"
         with open(splits_path) as f:
             return json.load(f)
+
+    def _ignore_files_not_in_uuid_set(
+        self, dir_path: str, names: list[str], uuids_to_keep: set[str]
+    ) -> set[str]:
+        if not uuids_to_keep:
+            return set()
+        ignored: set[str] = set()
+        for name in names:
+            full = Path(dir_path) / name
+            if full.is_file() and full.stem not in uuids_to_keep:
+                ignored.add(name)
+        return ignored
 
     def _merge_splits(
         self,
