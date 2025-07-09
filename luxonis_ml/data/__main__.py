@@ -832,6 +832,19 @@ def clone(
         ),
     ] = True,
     bucket_storage: BucketStorage = bucket_option,
+    splits_to_clone: Annotated[
+        str | None,
+        typer.Option(
+            "--split",
+            "-s",
+            help=(
+                "Comma separated list of split names to clone, "
+                "e.g. `-s val,test` or just `-s train`. "
+                "If omitted, clones all splits."
+            ),
+            show_default=False,
+        ),
+    ] = None,
     team_id: Annotated[
         str | None,
         typer.Option(
@@ -856,10 +869,20 @@ def clone(
     ):
         raise typer.Exit
 
+    if splits_to_clone:
+        split_list = [
+            s.strip() for s in splits_to_clone.split(",") if s.strip()
+        ]
+    else:
+        split_list = None
+
     print(f"Cloning dataset '{name}' to '{new_name}'...")
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
     dataset.clone(
-        new_dataset_name=new_name, push_to_cloud=push_to_cloud, team_id=team_id
+        new_dataset_name=new_name,
+        push_to_cloud=push_to_cloud,
+        splits_to_clone=split_list,
+        team_id=team_id,
     )
     print(f"[green]Dataset '{name}' successfully cloned to '{new_name}'.")
 

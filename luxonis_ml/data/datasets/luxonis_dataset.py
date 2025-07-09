@@ -273,6 +273,7 @@ class LuxonisDataset(BaseDataset):
         self,
         new_dataset_name: str,
         push_to_cloud: bool = True,
+        splits_to_clone: list[str] | None = None,
         team_id: str | None = None,
     ) -> "LuxonisDataset":
         """Create a new LuxonisDataset that is a local copy of the
@@ -284,6 +285,11 @@ class LuxonisDataset(BaseDataset):
         @type push_to_cloud: bool
         @param push_to_cloud: Whether to push the new dataset to the
             cloud. Only if the current dataset is remote.
+        @param splits_to_clone: list[str] | None
+        @type splits_to_clone: Optional list of split names to clone. If
+            None, all data will be cloned.
+        @type team_id: str | None
+        @param team_id: Optional team identifier.
         """
         if team_id is None:
             team_id = self.team_id
@@ -302,9 +308,40 @@ class LuxonisDataset(BaseDataset):
 
         new_dataset_path = Path(new_dataset.local_path)
         new_dataset_path.mkdir(parents=True, exist_ok=True)
+
+        if splits_to_clone is not None:
+            df_self = self._load_df_offline(raise_when_empty=True)
+            splits = self._load_splits(self.metadata_path)
+            selected_splits = [
+                uid
+                for split in splits_to_clone
+                for uid in splits.get(split, [])
+            ]
+            df_self = df_self.filter(df_self["uuid"].is_in(selected_splits))
+            splits_to_save = {
+                split: selected_splits for split in splits_to_clone
+            }
+
+        def _ignore(dir_path: str, names: list[str]) -> set[str]:
+            if splits_to_clone is None:
+                return set()
+            ignored = set()
+            for name in names:
+                full = Path(dir_path) / name
+                if full.is_file() and full.stem not in selected_splits:
+                    ignored.add(name)
+            return ignored
+
         shutil.copytree(
-            self.local_path, new_dataset.local_path, dirs_exist_ok=True
+            self.local_path,
+            new_dataset.local_path,
+            dirs_exist_ok=True,
+            ignore=_ignore,
         )
+
+        if splits_to_clone is not None:
+            new_dataset._save_df_offline(df_self)
+            new_dataset._save_splits(splits_to_save)
 
         new_dataset._init_paths()
         new_dataset._metadata = self._get_metadata()
