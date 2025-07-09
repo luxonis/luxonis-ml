@@ -678,6 +678,12 @@ def health(
 
     console.print(summary_table)
 
+    if missing_annotations or duplicate_uuids or duplicate_annotations:
+        console.print(
+            "[bold red]Dataset is unhealthy![/bold red] "
+            "Run [green]luxonis_ml data sanitize[/green] to automatically remove duplicates and missing entries."
+        )
+
     all_task_names = sorted(
         set(stats["class_distributions"].keys())
         | set(stats["heatmaps"].keys())
@@ -933,6 +939,19 @@ def merge(
         print(
             f"[green]Datasets merged successfully into new dataset '{new_name}'."
         )
+
+
+@app.command()
+def sanitize(
+    name: DatasetNameArgument,
+    bucket_storage: BucketStorage = bucket_option,
+):
+    """Remove duplicate annotations and duplicate files from the
+    dataset."""
+    check_exists(name, bucket_storage)
+    dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
+    dataset.remove_duplicates()
+    print(f"[green]Duplicates removed from dataset '{name}'.")
 
 
 if __name__ == "__main__":
