@@ -327,7 +327,7 @@ class LuxonisDataset(BaseDataset):
             new_dataset.local_path,
             dirs_exist_ok=True,
             ignore=lambda d, n: self._ignore_files_not_in_uuid_set(
-                d, n, uuids_to_clone if splits_to_clone else {}
+                d, n, uuids_to_clone if splits_to_clone else set()
             ),
         )
 
@@ -440,7 +440,7 @@ class LuxonisDataset(BaseDataset):
                 target_dataset.media_path,
                 dirs_exist_ok=True,
                 ignore=lambda d, n: self._ignore_files_not_in_uuid_set(
-                    d, n, uuids_to_merge if splits_to_merge else {}
+                    d, n, uuids_to_merge if splits_to_merge else set()
                 ),
             )
             target_dataset.push_to_cloud(
