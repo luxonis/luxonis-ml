@@ -7,6 +7,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from functools import cached_property
+from os import PathLike
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal, overload
 
@@ -470,7 +471,10 @@ class LuxonisDataset(BaseDataset):
             return json.load(f)
 
     def _ignore_files_not_in_uuid_set(
-        self, dir_path: str, names: list[str], uuids_to_keep: set[str]
+        self,
+        dir_path: PathLike[str] | str,
+        names: list[str],
+        uuids_to_keep: set[str],
     ) -> set[str]:
         if not uuids_to_keep:
             return set()
