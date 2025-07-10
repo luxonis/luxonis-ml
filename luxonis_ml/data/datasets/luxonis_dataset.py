@@ -874,6 +874,11 @@ class LuxonisDataset(BaseDataset):
         @param delete_local: Whether to delete the dataset from local
             storage.
         """
+        if not (delete_remote or delete_local):
+            raise ValueError(
+                "Must set delete_remote=True and/or delete_local=True when calling delete_dataset()"
+            )
+
         if not self.is_remote and delete_local:
             logger.info(
                 f"Deleting local dataset '{self.dataset_name}' from local storage"
@@ -1502,7 +1507,7 @@ class LuxonisDataset(BaseDataset):
                             Path(
                                 data_path.name,
                                 str(image_indices[file]) + file.suffix,
-                            )
+                            ).as_posix()
                         ),
                         "task_name": task_name,
                     }
@@ -1515,7 +1520,7 @@ class LuxonisDataset(BaseDataset):
                     Path(
                         data_path.name,
                         str(image_indices[file]) + file.suffix,
-                    )
+                    ).as_posix()
                 ),
                 "task_name": task_name,
                 "annotation": {

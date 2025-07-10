@@ -102,7 +102,7 @@ def test_dir_parser(
     _, ann = next(iter(loader))
     task_types = {get_task_type(task) for task in ann}
     assert task_types == expected_task_types
-    dataset.delete_dataset()
+    dataset.delete_dataset(delete_local=True)
 
 
 @pytest.mark.parametrize(
@@ -215,4 +215,4 @@ def test_dir_parser_explicit_type(
     _, ann = next(iter(loader))
     task_types = {get_task_type(task) for task in ann}
     assert task_types == expected_task_types
-    dataset.delete_dataset()
+    dataset.delete_dataset(delete_local=True)
