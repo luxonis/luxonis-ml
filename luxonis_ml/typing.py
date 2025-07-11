@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeGuard, TypeVar
 
@@ -54,7 +54,9 @@ PrimitiveType: TypeAlias = str | int | float | bool | None
 # To avoid infinite recursion
 if TYPE_CHECKING:  # pragma: no cover
     ParamValue: TypeAlias = (
-        dict[PrimitiveType, "ParamValue"] | list["ParamValue"] | PrimitiveType
+        Mapping[PrimitiveType, "ParamValue"]
+        | Sequence["ParamValue"]
+        | PrimitiveType
     )
 else:
     ParamValue: TypeAlias = Any
