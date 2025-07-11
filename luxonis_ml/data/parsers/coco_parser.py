@@ -60,10 +60,19 @@ class COCOParser(BaseParser):
         Roboflow format."""
         fiftyone_splits = ["train", "validation", "test"]
         roboflow_splits = ["train", "valid", "test"]
-        if all((dataset_dir / split).exists() for split in fiftyone_splits):
-            return Format.FIFTYONE, fiftyone_splits
-        if all((dataset_dir / split).exists() for split in roboflow_splits):
-            return Format.ROBOFLOW, roboflow_splits
+
+        existing = [d.name for d in dataset_dir.iterdir() if d.is_dir()]
+
+        fo = [s for s in fiftyone_splits if s in existing]
+        rf = [s for s in roboflow_splits if s in existing]
+
+        def ok(splits: list[str]) -> bool:
+            return "train" in splits and len(splits) >= 2
+
+        if ok(fo) and len(fo) >= len(rf):
+            return Format.FIFTYONE, fo
+        if ok(rf):
+            return Format.ROBOFLOW, rf
         return None, []
 
     @staticmethod
