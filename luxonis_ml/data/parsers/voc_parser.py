@@ -40,11 +40,14 @@ class VOCParser(BaseParser):
 
     @staticmethod
     def validate(dataset_dir: Path) -> bool:
-        for split in ["train", "valid", "test"]:
-            split_path = dataset_dir / split
-            if VOCParser.validate_split(split_path) is None:
-                return False
-        return True
+        splits = [
+            d.name
+            for d in dataset_dir.iterdir()
+            if d.is_dir() and d.name in ("train", "valid", "test")
+        ]
+        if "train" not in splits or len(splits) < 2:
+            return False
+        return all(VOCParser.validate_split(dataset_dir / s) for s in splits)
 
     def from_dir(
         self, dataset_dir: Path
