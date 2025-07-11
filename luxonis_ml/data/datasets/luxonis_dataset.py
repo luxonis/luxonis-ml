@@ -1322,7 +1322,6 @@ class LuxonisDataset(BaseDataset):
         self,
         output_path: PathType,
         dataset_type: DatasetType = DatasetType.NATIVE,
-        task_name_to_keep: str | None = None,
         max_partition_size_gb: float | None = None,
         zip_output: bool = False,
     ) -> Path | list[Path]:
@@ -1334,9 +1333,6 @@ class LuxonisDataset(BaseDataset):
         @type dataset_type: DatasetType
         @param dataset_type: To what format to export the dataset.
             Currently only DatasetType.NATIVE is supported.
-        @type task_name_to_keep: Optional[str]
-        @param task_name_to_keep: Task name to keep. If dataset has
-            multiple tasks, this parameter is required.
         @type max_partition_size_gb: Optional[float]
         @param max_partition_size_gb: Maximum size of each partition in
             GB. If the dataset exceeds this size, it will be split into
@@ -1380,21 +1376,6 @@ class LuxonisDataset(BaseDataset):
         splits = self.get_splits()
         if splits is None:
             raise ValueError("Cannot export dataset without splits")
-        if len(self.get_tasks()) > 1 and task_name_to_keep is None:
-            raise NotImplementedError(
-                "This dataset contains multiple tasks. "
-                "Multi-task export is not yet supported; please specify the "
-                "'task_name' parameter to export one task at a time."
-            )
-
-        if (
-            task_name_to_keep is not None
-            and task_name_to_keep not in self.get_task_names()
-        ):
-            raise ValueError(
-                f"Task name '{task_name_to_keep}' not found in the dataset. "
-                "Please provide a valid task name."
-            )
 
         output_path = Path(output_path)
         if output_path.exists():
@@ -1405,8 +1386,6 @@ class LuxonisDataset(BaseDataset):
         image_indices = {}
         annotations = {"train": [], "val": [], "test": []}
         df = self._load_df_offline(raise_when_empty=True)
-        if task_name_to_keep is not None:
-            df = df.filter(pl.col("task_name").is_in([task_name_to_keep]))
         if not self.is_remote:
             index = self._get_index()
             if index is None:  # pragma: no cover
@@ -1435,9 +1414,7 @@ class LuxonisDataset(BaseDataset):
         )
 
         for row in track(
-            df.iter_rows(),
-            total=len(df),
-            description="Exporting ...",
+            df.iter_rows(), total=len(df), description="Exporting ..."
         ):
             uuid = row[7]
             file = Path(row[-1])
@@ -1532,8 +1509,8 @@ class LuxonisDataset(BaseDataset):
                 record["annotation"][task_type] = data
                 annotations[split].append(record)
 
-            elif task_type == "metadata/text":
-                record["annotation"]["metadata"] = {"text": data}
+            elif task_type.startswith("metadata/"):
+                record["annotation"]["metadata"] = {task_type[9:]: data}
                 annotations[split].append(record)
 
         _dump_annotations(annotations, output_path, self.identifier, part)
