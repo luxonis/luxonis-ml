@@ -768,6 +768,123 @@ def test_merge_datasets(
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
+def test_merge_datasets_specific_split(
+    bucket_storage: BucketStorage,
+    dataset_name: str,
+    tempdir: Path,
+):
+    dataset_name = f"{dataset_name}_{bucket_storage.value}"
+    dataset1_name = f"{dataset_name}_1"
+    dataset2_name = f"{dataset_name}_2"
+
+    def generator1() -> DatasetIterator:
+        for i in range(3):
+            img = create_image(i, tempdir)
+            yield {
+                "file": img,
+                "annotation": {
+                    "class": "person",
+                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
+                },
+            }
+
+    def generator2() -> DatasetIterator:
+        for i in range(3, 6):
+            img = create_image(i, tempdir)
+            yield {
+                "file": img,
+                "annotation": {
+                    "class": "dog",
+                    "boundingbox": {"x": 0.2, "y": 0.2, "w": 0.2, "h": 0.2},
+                },
+            }
+
+    dataset1 = create_dataset(
+        dataset1_name,
+        generator1(),
+        bucket_storage,
+        splits={"train": 0.6, "val": 0.4},
+    )
+
+    dataset2 = create_dataset(
+        dataset2_name,
+        generator2(),
+        bucket_storage,
+        splits={"train": 0.6, "val": 0.4},
+    )
+
+    merged_dataset = dataset1.merge_with(
+        dataset2,
+        inplace=False,
+        new_dataset_name=f"{dataset1_name}_{dataset2_name}_merged",
+        splits_to_merge=["train"],
+    )
+
+    merged_stats = merged_dataset.get_statistics()
+    assert {
+        (item["count"], item["class_name"])
+        for item in merged_stats["class_distributions"][""]["boundingbox"]
+    } == {(3, "person"), (2, "dog")}
+    merged_splits = merged_dataset.get_splits()
+    dataset1_splits = dataset1.get_splits()
+    dataset2_splits = dataset2.get_splits()
+    assert merged_splits is not None
+    assert dataset1_splits is not None
+    assert dataset2_splits is not None
+    assert set(merged_splits["train"]) == set(dataset1_splits["train"]) | set(
+        dataset2_splits["train"]
+    )
+    assert set(merged_splits["val"]) == set(dataset1_splits["val"])
+
+    dataset1.delete_dataset(delete_local=True, delete_remote=True)
+    dataset2.delete_dataset(delete_local=True, delete_remote=True)
+    merged_dataset.delete_dataset(delete_local=True, delete_remote=True)
+
+
+@pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
+def test_clone_dataset_specific_split(
+    bucket_storage: BucketStorage,
+    dataset_name: str,
+    tempdir: Path,
+):
+    def generator() -> DatasetIterator:
+        for i in range(3):
+            img = create_image(i, tempdir)
+            yield {
+                "file": img,
+                "annotation": {
+                    "class": "person",
+                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
+                },
+            }
+
+    dataset = create_dataset(
+        dataset_name,
+        generator(),
+        bucket_storage,
+        splits={"train": 0.6, "val": 0.4},
+    )
+    cloned_dataset = dataset.clone(
+        new_dataset_name=f"{dataset_name}_cloned",
+        splits_to_clone=["train"],
+    )
+    dataset_splits = dataset.get_splits()
+    cloned_splits = cloned_dataset.get_splits()
+    assert cloned_splits is not None
+    assert dataset_splits is not None
+    assert set(cloned_splits["train"]) == set(dataset_splits["train"])
+    assert "val" not in cloned_splits
+
+    cloned_stats = cloned_dataset.get_statistics()
+    assert {
+        (item["count"], item["class_name"])
+        for item in cloned_stats["class_distributions"][""]["boundingbox"]
+    } == {(2, "person")}
+
+    cloned_dataset.delete_dataset(delete_local=True, delete_remote=True)
+
+
+@pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_classes_per_task(dataset_name: str, tempdir: Path):
     def generator() -> DatasetIterator:
         img = create_image(0, tempdir)
