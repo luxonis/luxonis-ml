@@ -63,6 +63,10 @@ class COCOParser(BaseParser):
 
         existing = [d.name for d in dataset_dir.iterdir() if d.is_dir()]
 
+        # Clash with NATIVE format
+        if "val" in existing:
+            return None, []
+
         fo = [s for s in fiftyone_splits if s in existing]
         rf = [s for s in roboflow_splits if s in existing]
 
