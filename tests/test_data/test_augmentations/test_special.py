@@ -77,5 +77,10 @@ def test_skip_augmentations():
         t.__class__.__name__ for t in augmentations.batch_transform.transforms
     ]
 
-    assert spatial_transform_names == ["Perspective", "Rotate"]
+    assert spatial_transform_names == [
+        "Perspective",
+        "Lambda",
+        "Rotate",
+        "Lambda",
+    ]
     assert batched_transform_names == ["Mosaic4"]
