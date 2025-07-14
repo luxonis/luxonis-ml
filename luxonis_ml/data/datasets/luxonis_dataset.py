@@ -1618,3 +1618,34 @@ class LuxonisDataset(BaseDataset):
         stats["heatmaps"] = get_heatmaps(df, sample_size)
 
         return stats
+
+    def remove_duplicates(self) -> None:
+        """Removes duplicate files and annotations from the dataset."""
+        df = self._load_df_offline(lazy=True)
+        index = self._get_index(lazy=True)
+
+        if df is None or index is None:
+            raise ValueError(
+                "Dataset index or dataframe with annotations is not available."
+            )
+
+        df_extended = df.join(index, on="uuid").drop("file_right")
+        duplicate_info = get_duplicates_info(df_extended)
+
+        duplicate_files_to_remove = [
+            file
+            for duplicates in duplicate_info["duplicate_uuids"]
+            for file in duplicates["files"][1:]
+        ]
+        df = df.filter(~pl.col("file").is_in(duplicate_files_to_remove))
+
+        df = df.unique(subset=["file", "annotation"], maintain_order=True)
+
+        self._save_df_offline(df.collect())
+
+        if self.is_remote:
+            self.fs.put_dir(
+                local_paths=self.local_path / "annotations",
+                remote_dir="annotations",
+                copy_contents=True,
+            )
