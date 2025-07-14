@@ -644,10 +644,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         keypoints: np.ndarray of shape (N,6) columns = [x, y, z, a, s, v]
         Zeroes out the visibility (last) column if (x,y) is out of image bounds.
         """
-        img = kwargs.get("image")
-        if img is None or keypoints.size == 0:
-            return keypoints
-        h, w = img.shape[:2]
+        shape = kwargs.get("shape")
+        h, w = shape[:2]
         kps = keypoints.copy()
         xs, ys = kps[:, 0], kps[:, 1]
         oob = (xs < 0) | (ys < 0) | (xs >= w) | (ys >= h)
