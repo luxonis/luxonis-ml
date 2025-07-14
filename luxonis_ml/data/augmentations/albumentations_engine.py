@@ -645,6 +645,10 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         Zeroes out the visibility (last) column if (x,y) is out of image bounds.
         """
         shape = kwargs.get("shape")
+        if shape is None:
+            raise ValueError(
+                "Shape must be provided in kwargs to mark invisible keypoints."
+            )
         h, w = shape[:2]
         kps = keypoints.copy()
         xs, ys = kps[:, 0], kps[:, 1]
