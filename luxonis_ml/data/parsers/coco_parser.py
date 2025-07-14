@@ -70,12 +70,9 @@ class COCOParser(BaseParser):
         fo = [s for s in fiftyone_splits if s in existing]
         rf = [s for s in roboflow_splits if s in existing]
 
-        def ok(splits: list[str]) -> bool:
-            return "train" in splits and len(splits) >= 2
-
-        if ok(fo) and len(fo) >= len(rf):
+        if len(fo) != 0 and len(fo) >= len(rf):
             return Format.FIFTYONE, fo
-        if ok(rf):
+        if len(rf) != 0:
             return Format.ROBOFLOW, rf
         return None, []
 
@@ -97,17 +94,13 @@ class COCOParser(BaseParser):
         image_dir = dirs[0]
         return {"image_dir": image_dir, "annotation_path": json_path}
 
-    @staticmethod
-    def validate(dataset_dir: Path) -> bool:
-        dir_format, splits = COCOParser._detect_dataset_dir_format(dataset_dir)
+    @classmethod
+    def validate(cls, dataset_dir: Path) -> bool:
+        dir_format, splits = cls._detect_dataset_dir_format(dataset_dir)
         if dir_format is None:
             return False
 
-        for split in splits:
-            split_path = dataset_dir / split
-            if COCOParser.validate_split(split_path) is None:
-                return False
-        return True
+        return all(cls.validate_split(dataset_dir / split) for split in splits)
 
     def from_dir(
         self,

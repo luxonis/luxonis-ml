@@ -40,19 +40,6 @@ class CreateMLParser(BaseParser):
             "annotation_path": split_path / "_annotations.createml.json",
         }
 
-    @staticmethod
-    def validate(dataset_dir: Path) -> bool:
-        splits = [
-            d.name
-            for d in dataset_dir.iterdir()
-            if d.is_dir() and d.name in ("train", "valid", "test")
-        ]
-        if "train" not in splits or len(splits) < 2:
-            return False
-        return all(
-            CreateMLParser.validate_split(dataset_dir / s) for s in splits
-        )
-
     def from_dir(
         self, dataset_dir: Path
     ) -> tuple[list[Path], list[Path], list[Path]]:

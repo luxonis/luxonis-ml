@@ -58,8 +58,8 @@ class YoloV6Parser(BaseParser):
             "classes_path": data_yaml,
         }
 
-    @staticmethod
-    def validate(dataset_dir: Path) -> bool:
+    @classmethod
+    def validate(cls, dataset_dir: Path) -> bool:
         img_root = dataset_dir / "images"
         if not img_root.exists():
             return False
@@ -70,7 +70,7 @@ class YoloV6Parser(BaseParser):
         ]
         if "train" not in splits or len(splits) < 2:
             return False
-        return all(YoloV6Parser.validate_split(img_root / s) for s in splits)
+        return all(cls.validate_split(img_root / s) for s in splits)
 
     def from_dir(
         self, dataset_dir: Path
