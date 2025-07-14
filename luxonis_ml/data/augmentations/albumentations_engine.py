@@ -405,9 +405,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 "bbox_params": A.BboxParams(
                     format="albumentations", min_visibility=min_bbox_visibility
                 ),
-                "keypoint_params": A.KeypointParams(
-                    format="xy", remove_invisible=False
-                ),
+                "keypoint_params": A.KeypointParams(format="xy"),
                 "additional_targets": self.targets
                 if is_custom
                 else targets_without_instance_mask,
