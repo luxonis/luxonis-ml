@@ -151,6 +151,9 @@ def test_dataset_fail(dataset_name: str, tempdir: Path):
     with pytest.raises(ValueError, match="Must provide either"):
         dataset.set_skeletons()
 
+    with pytest.raises(ValueError, match="Must set delete_remote"):
+        dataset.delete_dataset()
+
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_loader_iterator(storage_url: str, tempdir: Path):
