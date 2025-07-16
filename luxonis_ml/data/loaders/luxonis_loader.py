@@ -48,6 +48,7 @@ class LuxonisLoader(BaseLoader):
         exclude_empty_annotations: bool = False,
         color_space: Literal["RGB", "BGR", "GRAY"] = "RGB",
         seed: int | None = None,
+        bbox_area_threshold: float = 0.0004,
         *,
         keep_categorical_as_strings: bool = False,
         update_mode: UpdateMode | Literal["all", "missing"] = UpdateMode.ALL,
@@ -95,6 +96,9 @@ class LuxonisLoader(BaseLoader):
             to C{"RGB"}.
         @type seed: Optional[int]
         @param seed: The random seed to use for the augmentations.
+        @type bbox_area_threshold: float
+        @param bbox_area_threshold: Minimum area threshold for bounding boxes to be considered valid. In the range [0, 1].
+            Default is 0.0004, which corresponds to a small area threshold to remove invalid bboxes and respective keypoints.
         @type exclude_empty_annotations: bool
         @param exclude_empty_annotations: Whether to exclude
             empty annotations from the final label dictionary.
@@ -218,6 +222,7 @@ class LuxonisLoader(BaseLoader):
             width,
             keep_aspect_ratio,
             seed,
+            bbox_area_threshold,
         )
 
     @override
@@ -434,6 +439,7 @@ class LuxonisLoader(BaseLoader):
         width: int | None,
         keep_aspect_ratio: bool,
         seed: int | None = None,
+        bbox_area_threshold: float = 0.0004,
     ) -> AugmentationEngine | None:
         if isinstance(augmentation_config, PathType):
             with open(augmentation_config) as file:
@@ -475,6 +481,7 @@ class LuxonisLoader(BaseLoader):
             keep_aspect_ratio=keep_aspect_ratio,
             is_validation_pipeline="train" not in self.view,
             seed=seed,
+            bbox_area_threshold=bbox_area_threshold,
         )
 
     def _precompute_image_paths(self) -> None:
