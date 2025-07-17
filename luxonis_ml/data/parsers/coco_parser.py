@@ -163,6 +163,11 @@ class COCOParser(BaseParser):
         )
 
         if split_val_to_test or len(splits) < 3:
+            if not split_val_to_test:
+                logger.warning(
+                    "Splitting validation set into validation and test sets, "
+                    "as no test split is present in the dataset."
+                )
             split_point = round(len(_added_val_imgs) * 0.5)
             added_val_imgs = _added_val_imgs[:split_point]
             added_test_imgs = _added_val_imgs[split_point:]
