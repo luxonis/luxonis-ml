@@ -338,7 +338,7 @@ def inspect(
     bucket_storage: BucketStorage = bucket_option,
 ):
     """Inspects images and annotations in a dataset."""
-
+    check_exists(name, bucket_storage)
     if deterministic:
         np.random.seed(42)
         random.seed(42)
@@ -472,19 +472,6 @@ def export(
             help="Delete an existing `save_dir` before exporting.",
         ),
     ] = False,
-    task_name_to_keep: Annotated[
-        str | None,
-        typer.Option(
-            "--task-name",
-            "-tn",
-            help=(
-                "Name of the single task to export. "
-                "Required when the dataset contains multiple tasks; "
-                "ignored if the dataset has exactly one task."
-            ),
-            show_default=False,
-        ),
-    ] = None,
     max_partition_size_gb: Annotated[
         float | None,
         typer.Option(
@@ -514,13 +501,7 @@ def export(
     if delete_existing and Path(save_dir).exists():
         shutil.rmtree(save_dir)
     dataset = LuxonisDataset(dataset_name, bucket_storage=bucket_storage)
-    dataset.export(
-        save_dir,
-        dataset_type,
-        task_name_to_keep,
-        max_partition_size_gb,
-        not no_zip,
-    )
+    dataset.export(save_dir, dataset_type, max_partition_size_gb, not no_zip)
 
 
 @app.command()
@@ -714,6 +695,12 @@ def health(
 
     console.print(summary_table)
 
+    if missing_annotations or duplicate_uuids or duplicate_annotations:
+        console.print(
+            "[bold red]Dataset is unhealthy![/bold red] "
+            "Run [green]luxonis_ml data sanitize[/green] to automatically remove duplicates and missing entries."
+        )
+
     all_task_names = sorted(
         set(stats["class_distributions"].keys())
         | set(stats["heatmaps"].keys())
@@ -868,6 +855,19 @@ def clone(
         ),
     ] = True,
     bucket_storage: BucketStorage = bucket_option,
+    splits_to_clone: Annotated[
+        str | None,
+        typer.Option(
+            "--split",
+            "-s",
+            help=(
+                "Comma separated list of split names to clone, "
+                "e.g. `-s val,test` or just `-s train`. "
+                "If omitted, clones all splits."
+            ),
+            show_default=False,
+        ),
+    ] = None,
     team_id: Annotated[
         str | None,
         typer.Option(
@@ -892,10 +892,20 @@ def clone(
     ):
         raise typer.Exit
 
+    if splits_to_clone:
+        split_list = [
+            s.strip() for s in splits_to_clone.split(",") if s.strip()
+        ]
+    else:
+        split_list = None
+
     print(f"Cloning dataset '{name}' to '{new_name}'...")
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
     dataset.clone(
-        new_dataset_name=new_name, push_to_cloud=push_to_cloud, team_id=team_id
+        new_dataset_name=new_name,
+        push_to_cloud=push_to_cloud,
+        splits_to_clone=split_list,
+        team_id=team_id,
     )
     print(f"[green]Dataset '{name}' successfully cloned to '{new_name}'.")
 
@@ -928,7 +938,29 @@ def merge(
             show_default=False,
         ),
     ] = None,
+    splits_to_merge: Annotated[
+        str | None,
+        typer.Option(
+            "--split",
+            "-s",
+            help=(
+                "Comma separated list of split names to merge, "
+                "e.g. `-s val,test` or just `-s train`. "
+                "If omitted, merges all splits."
+            ),
+            show_default=False,
+        ),
+    ] = None,
     bucket_storage: BucketStorage = bucket_option,
+    team_id: Annotated[
+        str | None,
+        typer.Option(
+            "--team-id",
+            "-t",
+            help="Team ID to use for the new dataset. If not provided, the dataset's current team ID will be used.",
+            show_default=False,
+        ),
+    ] = None,
 ):
     """Merge two datasets stored in the same type of bucket."""
     check_exists(source_name, bucket_storage)
@@ -949,6 +981,13 @@ def merge(
     ):
         raise typer.Exit
 
+    if splits_to_merge:
+        split_list = [
+            s.strip() for s in splits_to_merge.split(",") if s.strip()
+        ]
+    else:
+        split_list = None
+
     source_dataset = LuxonisDataset(source_name, bucket_storage=bucket_storage)
     target_dataset = LuxonisDataset(target_name, bucket_storage=bucket_storage)
 
@@ -958,7 +997,11 @@ def merge(
     )
 
     _ = target_dataset.merge_with(
-        source_dataset, inplace=inplace, new_dataset_name=new_name
+        source_dataset,
+        inplace=inplace,
+        new_dataset_name=new_name,
+        splits_to_merge=split_list,
+        team_id=team_id,
     )
 
     if inplace:
@@ -969,6 +1012,19 @@ def merge(
         print(
             f"[green]Datasets merged successfully into new dataset '{new_name}'."
         )
+
+
+@app.command()
+def sanitize(
+    name: DatasetNameArgument,
+    bucket_storage: BucketStorage = bucket_option,
+):
+    """Remove duplicate annotations and duplicate files from the
+    dataset."""
+    check_exists(name, bucket_storage)
+    dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
+    dataset.remove_duplicates()
+    print(f"[green]Duplicates removed from dataset '{name}'.")
 
 
 if __name__ == "__main__":

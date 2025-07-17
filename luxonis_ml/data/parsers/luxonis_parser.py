@@ -127,6 +127,9 @@ class LuxonisParser(Generic[T]):
             self.parser_type = (
                 ParserType.DIR
                 if Path(self.dataset_dir / "train").exists()
+                or Path(
+                    self.dataset_dir / "images" / "train"
+                ).exists()  # temporary fix for yolov6
                 else ParserType.SPLIT
             )
         else:

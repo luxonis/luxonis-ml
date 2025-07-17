@@ -68,21 +68,6 @@ class SOLOParser(BaseParser):
             )
         return {"split_path": split_path}
 
-    @staticmethod
-    def validate(dataset_dir: Path) -> bool:
-        """Validates if the dataset is in an expected format.
-
-        @type dataset_dir: Path
-        @param dataset_dir: Path to source dataset directory.
-        @rtype: bool
-        @return: True if the dataset is in the expected format.
-        """
-        for split in ["train", "valid", "test"]:
-            split_path = dataset_dir / split
-            if SOLOParser.validate_split(split_path) is None:
-                return False
-        return True
-
     def from_dir(
         self, dataset_dir: Path
     ) -> tuple[list[Path], list[Path], list[Path]]:

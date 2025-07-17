@@ -237,9 +237,13 @@ jobs:
           fail_ci_if_error: false
 
 
-  check-release-requirements:
+  check-requirements:
     if: ${{ startsWith(github.head_ref, 'release/') }}
     runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        submodule: [ 'data', 'nn_archive', 'utils' ]
 
     steps:
       - name: Checkout
@@ -254,12 +258,7 @@ jobs:
           cache: pip
 
       - name: Install the package
-        run: pip install -e .[all]
+        run: pip install -e .[${{ matrix.submodule }}]
 
       - name: Check requirements
-        run: |
-          python3 <<EOF
-          from luxonis_ml.data import *
-          from luxonis_ml.utils import *
-          from luxonis_ml.nn_archive import *
-          EOF
+        run: python3 -c 'from luxonis_ml.${{ matrix.submodule }} import *'

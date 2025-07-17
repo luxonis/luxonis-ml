@@ -7,6 +7,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from functools import cached_property
+from os import PathLike
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal, overload
 
@@ -280,6 +281,7 @@ class LuxonisDataset(BaseDataset):
         self,
         new_dataset_name: str,
         push_to_cloud: bool = True,
+        splits_to_clone: list[str] | None = None,
         team_id: str | None = None,
     ) -> "LuxonisDataset":
         """Create a new LuxonisDataset that is a local copy of the
@@ -291,6 +293,11 @@ class LuxonisDataset(BaseDataset):
         @type push_to_cloud: bool
         @param push_to_cloud: Whether to push the new dataset to the
             cloud. Only if the current dataset is remote.
+        @param splits_to_clone: list[str] | None
+        @type splits_to_clone: Optional list of split names to clone. If
+            None, all data will be cloned.
+        @type team_id: str | None
+        @param team_id: Optional team identifier.
         """
         if team_id is None:
             team_id = self.team_id
@@ -309,9 +316,32 @@ class LuxonisDataset(BaseDataset):
 
         new_dataset_path = Path(new_dataset.local_path)
         new_dataset_path.mkdir(parents=True, exist_ok=True)
+
+        if splits_to_clone is not None:
+            df_self = self._load_df_offline(raise_when_empty=True)
+            splits_self = self._load_splits(self.metadata_path)
+            uuids_to_clone = {
+                uid
+                for split in splits_to_clone
+                for uid in splits_self.get(split, [])
+            }
+            df_self = df_self.filter(df_self["uuid"].is_in(uuids_to_clone))
+            splits_self = {
+                k: v for k, v in splits_self.items() if k in splits_to_clone
+            }
+
         shutil.copytree(
-            self.local_path, new_dataset.local_path, dirs_exist_ok=True
+            self.local_path,
+            new_dataset.local_path,
+            dirs_exist_ok=True,
+            ignore=lambda d, n: self._ignore_files_not_in_uuid_set(
+                d, n, uuids_to_clone if splits_to_clone else set()
+            ),
         )
+
+        if splits_to_clone is not None:
+            new_dataset._save_df_offline(df_self)
+            new_dataset._save_splits(splits_self)
 
         new_dataset._init_paths()
         new_dataset._metadata = self._get_metadata()
@@ -338,6 +368,8 @@ class LuxonisDataset(BaseDataset):
         other: "LuxonisDataset",
         inplace: bool = True,
         new_dataset_name: str | None = None,
+        splits_to_merge: list[str] | None = None,
+        team_id: str | None = None,
     ) -> "LuxonisDataset":
         """Merge all data from `other` LuxonisDataset into the current
         dataset (in-place or in a new dataset).
@@ -350,6 +382,10 @@ class LuxonisDataset(BaseDataset):
         @type new_dataset_name: str
         @param new_dataset_name: The name of the new dataset to create
             if inplace is False.
+        @type splits_to_merge: list[str] | None
+        @param splits_to_merge: Optional list of split names to merge.
+        @type team_id: str | None
+        @param team_id: Optional team identifier.
         """
         if inplace:
             target_dataset = self
@@ -358,7 +394,9 @@ class LuxonisDataset(BaseDataset):
                 raise ValueError(
                     "Cannot merge datasets with different bucket storage types."
                 )
-            target_dataset = self.clone(new_dataset_name, push_to_cloud=False)
+            target_dataset = self.clone(
+                new_dataset_name, push_to_cloud=False, team_id=team_id
+            )
         else:
             raise ValueError(
                 "You must specify a name for the new dataset "
@@ -383,13 +421,22 @@ class LuxonisDataset(BaseDataset):
                 ~df_other["group_id"].is_in(duplicate_group_ids)
             )
 
+        splits_self = self._load_splits(self.metadata_path)
+        splits_other = self._load_splits(other.metadata_path)
+        if splits_to_merge is not None:
+            uuids_to_merge = {
+                uuid
+                for split_name in splits_to_merge
+                for uuid in splits_other.get(split_name, [])
+            }
+            df_other = df_other.filter(df_other["uuid"].is_in(uuids_to_merge))
+            splits_other = {
+                k: v for k, v in splits_other.items() if k in splits_to_merge
+            }
+
         df_merged = pl.concat([df_self, df_other])
         target_dataset._save_df_offline(df_merged)
 
-        splits_self = self._load_splits(self.metadata_path)
-        splits_other = self._load_splits(
-            other.metadata_path
-        )  # dict of split names to list of uuids
         splits_other = {
             split_name: [
                 group_id
@@ -403,7 +450,12 @@ class LuxonisDataset(BaseDataset):
 
         if self.is_remote:
             shutil.copytree(
-                other.media_path, target_dataset.media_path, dirs_exist_ok=True
+                other.media_path,
+                target_dataset.media_path,
+                dirs_exist_ok=True,
+                ignore=lambda d, n: self._ignore_files_not_in_uuid_set(
+                    d, n, uuids_to_merge if splits_to_merge else set()
+                ),
             )
             target_dataset.push_to_cloud(
                 bucket_storage=target_dataset.bucket_storage,
@@ -430,6 +482,21 @@ class LuxonisDataset(BaseDataset):
         splits_path = path / "splits.json"
         with open(splits_path) as f:
             return json.load(f)
+
+    def _ignore_files_not_in_uuid_set(
+        self,
+        dir_path: PathLike[str] | str,
+        names: list[str],
+        uuids_to_keep: set[str],
+    ) -> set[str]:
+        if not uuids_to_keep:
+            return set()
+        ignored: set[str] = set()
+        for name in names:
+            full = Path(dir_path) / name
+            if full.is_file() and full.stem not in uuids_to_keep:
+                ignored.add(name)
+        return ignored
 
     def _merge_splits(
         self,
@@ -916,6 +983,11 @@ class LuxonisDataset(BaseDataset):
         @param delete_local: Whether to delete the dataset from local
             storage.
         """
+        if not (delete_remote or delete_local):
+            raise ValueError(
+                "Must set delete_remote=True and/or delete_local=True when calling delete_dataset()"
+            )
+
         if not self.is_remote and delete_local:
             logger.info(
                 f"Deleting local dataset '{self.dataset_name}' from local storage"
@@ -1391,7 +1463,6 @@ class LuxonisDataset(BaseDataset):
         self,
         output_path: PathType,
         dataset_type: DatasetType = DatasetType.NATIVE,
-        task_name_to_keep: str | None = None,
         max_partition_size_gb: float | None = None,
         zip_output: bool = False,
     ) -> Path | list[Path]:
@@ -1403,9 +1474,6 @@ class LuxonisDataset(BaseDataset):
         @type dataset_type: DatasetType
         @param dataset_type: To what format to export the dataset.
             Currently only DatasetType.NATIVE is supported.
-        @type task_name_to_keep: Optional[str]
-        @param task_name_to_keep: Task name to keep. If dataset has
-            multiple tasks, this parameter is required.
         @type max_partition_size_gb: Optional[float]
         @param max_partition_size_gb: Maximum size of each partition in
             GB. If the dataset exceeds this size, it will be split into
@@ -1462,21 +1530,6 @@ class LuxonisDataset(BaseDataset):
         splits = self.get_splits()
         if splits is None:
             raise ValueError("Cannot export dataset without splits")
-        if len(self.get_tasks()) > 1 and task_name_to_keep is None:
-            raise NotImplementedError(
-                "This dataset contains multiple tasks. "
-                "Multi-task export is not yet supported; please specify the "
-                "'task_name' parameter to export one task at a time."
-            )
-
-        if (
-            task_name_to_keep is not None
-            and task_name_to_keep not in self.get_task_names()
-        ):
-            raise ValueError(
-                f"Task name '{task_name_to_keep}' not found in the dataset. "
-                "Please provide a valid task name."
-            )
 
         output_path = Path(output_path)
         if output_path.exists():
@@ -1487,8 +1540,6 @@ class LuxonisDataset(BaseDataset):
         image_indices = {}
         annotations = {"train": [], "val": [], "test": []}
         df = self._load_df_offline(raise_when_empty=True)
-        if task_name_to_keep is not None:
-            df = df.filter(pl.col("task_name").is_in([task_name_to_keep]))
 
         # Capture the original order. Assume annotations are ordered if instance_id's were not specified.
         df = df.with_row_count("row_idx").with_columns(
@@ -1619,8 +1670,8 @@ class LuxonisDataset(BaseDataset):
                         "keypoints",
                     }:
                         annotation_base[task_type] = data
-                    elif task_type == "metadata/text":
-                        annotation_base["metadata"] = {"text": data}
+                    elif task_type.startswith("metadata/"):
+                        annotation_base["metadata"] = {task_type[9:]: data}
                     record["annotation"] = annotation_base
 
                 annotation_records.append(record)
@@ -1747,3 +1798,34 @@ class LuxonisDataset(BaseDataset):
         stats["heatmaps"] = get_heatmaps(df, sample_size)
 
         return stats
+
+    def remove_duplicates(self) -> None:
+        """Removes duplicate files and annotations from the dataset."""
+        df = self._load_df_offline(lazy=True)
+        index = self._get_index(lazy=True)
+
+        if df is None or index is None:
+            raise ValueError(
+                "Dataset index or dataframe with annotations is not available."
+            )
+
+        df_extended = df.join(index, on="uuid").drop("file_right")
+        duplicate_info = get_duplicates_info(df_extended)
+
+        duplicate_files_to_remove = [
+            file
+            for duplicates in duplicate_info["duplicate_uuids"]
+            for file in duplicates["files"][1:]
+        ]
+        df = df.filter(~pl.col("file").is_in(duplicate_files_to_remove))
+
+        df = df.unique(subset=["file", "annotation"], maintain_order=True)
+
+        self._save_df_offline(df.collect())
+
+        if self.is_remote:
+            self.fs.put_dir(
+                local_paths=self.local_path / "annotations",
+                remote_dir="annotations",
+                copy_contents=True,
+            )
