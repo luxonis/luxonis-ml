@@ -162,7 +162,7 @@ class COCOParser(BaseParser):
             image_dir=val_paths["image_dir"], annotation_path=val_ann_path
         )
 
-        if split_val_to_test and dir_format == Format.FIFTYONE:
+        if split_val_to_test or len(splits) < 3:
             split_point = round(len(_added_val_imgs) * 0.5)
             added_val_imgs = _added_val_imgs[:split_point]
             added_test_imgs = _added_val_imgs[split_point:]
