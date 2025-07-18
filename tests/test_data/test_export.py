@@ -71,6 +71,7 @@ def test_dir_parser(
     )
     imported_anns = {k: sorted(v) for k, v in imported_anns.items()}
     imported_splits = exported_dataset.get_splits()
+    assert imported_splits is not None
     imported_splits = {
         split: sorted(files) for split, files in imported_splits.items()
     }
