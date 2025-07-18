@@ -41,6 +41,9 @@ def test_dir_parser(
         .to_dict(as_series=False)
     )
     anns = {k: sorted(v) for k, v in anns.items()}
+    splits = dataset.get_splits()
+    assert splits is not None
+    splits = {split: sorted(files) for split, files in splits.items()}
 
     zip_result = dataset.export(tempdir / "exported")
     zip_path = zip_result[0] if isinstance(zip_result, list) else zip_result
@@ -67,6 +70,12 @@ def test_dir_parser(
         .to_dict(as_series=False)
     )
     imported_anns = {k: sorted(v) for k, v in imported_anns.items()}
+    imported_splits = exported_dataset.get_splits()
+    assert imported_splits is not None
+    imported_splits = {
+        split: sorted(files) for split, files in imported_splits.items()
+    }
+    assert imported_splits == splits
     del imported_metadata["tasks"]
     del imported_metadata["skeletons"]
     assert imported_metadata == metadata

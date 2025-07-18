@@ -545,7 +545,7 @@ def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
     new_aug_annotations = [convert_annotation(ann) for _, ann in loader_aug]
 
     original_aug_annotations = load_annotations(
-        "test_augmentation_reproducibility_labels.json"
+        "test_augmentation_reproducibility_annotations.json"
     )
 
     for orig_ann, new_ann in zip(
