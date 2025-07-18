@@ -60,10 +60,20 @@ class COCOParser(BaseParser):
         Roboflow format."""
         fiftyone_splits = ["train", "validation", "test"]
         roboflow_splits = ["train", "valid", "test"]
-        if all((dataset_dir / split).exists() for split in fiftyone_splits):
-            return Format.FIFTYONE, fiftyone_splits
-        if all((dataset_dir / split).exists() for split in roboflow_splits):
-            return Format.ROBOFLOW, roboflow_splits
+
+        existing = [d.name for d in dataset_dir.iterdir() if d.is_dir()]
+
+        # Clash with NATIVE format
+        if "val" in existing:
+            return None, []
+
+        fo = [s for s in fiftyone_splits if s in existing]
+        rf = [s for s in roboflow_splits if s in existing]
+
+        if len(fo) != 0 and len(fo) >= len(rf):
+            return Format.FIFTYONE, fo
+        if len(rf) != 0:
+            return Format.ROBOFLOW, rf
         return None, []
 
     @staticmethod
@@ -84,17 +94,13 @@ class COCOParser(BaseParser):
         image_dir = dirs[0]
         return {"image_dir": image_dir, "annotation_path": json_path}
 
-    @staticmethod
-    def validate(dataset_dir: Path) -> bool:
-        dir_format, splits = COCOParser._detect_dataset_dir_format(dataset_dir)
+    @classmethod
+    def validate(cls, dataset_dir: Path) -> bool:
+        dir_format, splits = cls._detect_dataset_dir_format(dataset_dir)
         if dir_format is None:
             return False
 
-        for split in splits:
-            split_path = dataset_dir / split
-            if COCOParser.validate_split(split_path) is None:
-                return False
-        return True
+        return all(cls.validate_split(dataset_dir / split) for split in splits)
 
     def from_dir(
         self,

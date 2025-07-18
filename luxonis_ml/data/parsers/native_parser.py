@@ -10,6 +10,7 @@ from .base_parser import BaseParser, ParserOutput
 
 
 class NativeParser(BaseParser):
+    SPLIT_NAMES: tuple[str, ...] = ("train", "val", "test")
     """Parses directory with native LDF annotations.
 
     Expected format::
@@ -31,14 +32,6 @@ class NativeParser(BaseParser):
         if not annotation_path.exists():
             return None
         return {"annotation_path": annotation_path}
-
-    @staticmethod
-    def validate(dataset_dir: Path) -> bool:
-        for split in ["train", "val", "test"]:
-            split_path = dataset_dir / split
-            if NativeParser.validate_split(split_path) is None:
-                return False
-        return True
 
     def from_dir(
         self, dataset_dir: Path

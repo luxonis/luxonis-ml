@@ -42,17 +42,6 @@ class ClassificationDirectoryParser(BaseParser):
             return None
         return {"class_dir": split_path}
 
-    @staticmethod
-    def validate(dataset_dir: Path) -> bool:
-        for split in ["train", "valid", "test"]:
-            split_path = dataset_dir / split
-            if (
-                ClassificationDirectoryParser.validate_split(split_path)
-                is None
-            ):
-                return False
-        return True
-
     def from_dir(
         self, dataset_dir: Path
     ) -> tuple[list[Path], list[Path], list[Path]]:
