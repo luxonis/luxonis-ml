@@ -284,12 +284,14 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         is_validation_pipeline: bool = False,
         min_bbox_visibility: float = 0.0,
         seed: int | None = None,
+        bbox_area_threshold: float = 0.0004,
     ):
         self.targets: dict[str, TargetType] = {}
         self.target_names_to_tasks = {}
         self.n_classes = n_classes
         self.image_size = (height, width)
         self.source_names = source_names
+        self.bbox_area_threshold = bbox_area_threshold
 
         for task, task_type in targets.items():
             target_name = self.task_to_target_name(task)
@@ -607,7 +609,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             task_name = get_task_name(task)
 
             if target_type == "bboxes":
-                out_labels[task], index = postprocess_bboxes(array)
+                out_labels[task], index = postprocess_bboxes(
+                    array, self.bbox_area_threshold
+                )
                 bboxes_indices[task_name] = index
 
         for target_name, target_type in self.targets.items():

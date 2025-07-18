@@ -31,6 +31,7 @@ class AugmentationEngine(
         is_validation_pipeline: bool,
         min_bbox_visibility: float = 0.0,
         seed: int | None = None,
+        bbox_area_threshold: float = 0.0004,
     ):
         """Initialize augmentation pipeline from configuration.
 
@@ -68,6 +69,9 @@ class AugmentationEngine(
             pipeline (in which case some augmentations are skipped)
         @type min_bbox_visibility: float
         @param min_bbox_visibility: Minimum fraction of the original bounding box that must remain visible after augmentation.
+        @type bbox_area_threshold: float
+        @param bbox_area_threshold: Minimum area threshold for bounding boxes to be considered valid. In the range [0, 1].
+            Default is 0.0004, which corresponds to a small area threshold to remove invalid bboxes and respective keypoints.
         @type seed: Optional[int]
         @param seed: Random seed for reproducibility. If None, a random seed will be used.
             If provided, it will be used to initialize the random number generator.
