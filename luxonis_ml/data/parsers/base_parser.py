@@ -12,6 +12,8 @@ ParserOutput = tuple[DatasetIterator, dict[str, dict], list[Path]]
 
 
 class BaseParser(ABC):
+    SPLIT_NAMES: tuple[str, ...] = ("train", "valid", "test")
+
     def __init__(
         self,
         dataset: BaseDataset,
@@ -52,9 +54,8 @@ class BaseParser(ABC):
         """
         ...
 
-    @staticmethod
-    @abstractmethod
-    def validate(dataset_dir: Path) -> bool:
+    @classmethod
+    def validate(cls, dataset_dir: Path) -> bool:
         """Validates if the dataset is in an expected format.
 
         @type dataset_dir: Path
@@ -62,7 +63,15 @@ class BaseParser(ABC):
         @rtype: bool
         @return: If the dataset is in the expected format.
         """
-        ...
+        splits = [
+            d.name
+            for d in dataset_dir.iterdir()
+            if d.is_dir() and d.name in cls.SPLIT_NAMES
+        ]
+        if len(splits) == 0:
+            return False
+
+        return all(cls.validate_split(dataset_dir / split) for split in splits)
 
     @abstractmethod
     def from_dir(

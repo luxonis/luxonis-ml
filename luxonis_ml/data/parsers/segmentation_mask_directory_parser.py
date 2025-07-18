@@ -47,17 +47,6 @@ class SegmentationMaskDirectoryParser(BaseParser):
             "classes_path": split_path / "_classes.csv",
         }
 
-    @staticmethod
-    def validate(dataset_dir: Path) -> bool:
-        for split in ["train", "valid", "test"]:
-            split_path = dataset_dir / split
-            if (
-                SegmentationMaskDirectoryParser.validate_split(split_path)
-                is None
-            ):
-                return False
-        return True
-
     def from_dir(
         self, dataset_dir: Path
     ) -> tuple[list[Path], list[Path], list[Path]]:

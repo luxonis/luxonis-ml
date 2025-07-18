@@ -6,6 +6,7 @@ from typing import Any, Literal, TypeAlias
 
 import albumentations as A
 import numpy as np
+from albumentations.core.composition import TransformsSeqType
 from loguru import logger
 from typing_extensions import override
 
@@ -282,11 +283,13 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         is_validation_pipeline: bool = False,
         min_bbox_visibility: float = 0.0,
         seed: int | None = None,
+        bbox_area_threshold: float = 0.0004,
     ):
         self.targets: dict[str, TargetType] = {}
         self.target_names_to_tasks = {}
         self.n_classes = n_classes
         self.image_size = (height, width)
+        self.bbox_area_threshold = bbox_area_threshold
 
         for task, task_type in targets.items():
             target_name = self.task_to_target_name(task)
@@ -394,6 +397,20 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                     f"Only subclasses of `A.BasicTransform` are allowed. "
                 )
 
+        wrapped_spatial_ops: TransformsSeqType = []
+        if "keypoints" in targets.values():
+            for op in spatial_transforms:
+                wrapped_spatial_ops.append(op)
+                wrapped_spatial_ops.append(
+                    A.Lambda(
+                        image=lambda img, **kw: img,
+                        keypoints=self._mark_invisible_keypoints,
+                        p=1.0,
+                    )
+                )
+        else:
+            wrapped_spatial_ops = spatial_transforms
+
         if resize_transform is None:
             if keep_aspect_ratio:
                 resize_transform = LetterboxResize(height=height, width=width)
@@ -422,7 +439,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 batch_transforms, **get_params(is_custom=True)
             )
             self.spatial_transform = wrap_transform(
-                A.Compose(spatial_transforms, **get_params())
+                A.Compose(wrapped_spatial_ops, **get_params())
             )
             self.pixel_transform = wrap_transform(
                 A.Compose(pixel_transforms), is_pixel=True
@@ -572,7 +589,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             task_name = get_task_name(task)
 
             if target_type == "bboxes":
-                out_labels[task], index = postprocess_bboxes(array)
+                out_labels[task], index = postprocess_bboxes(
+                    array, self.bbox_area_threshold
+                )
                 bboxes_indices[task_name] = index
 
         for target_name, target_type in self.targets.items():
@@ -620,6 +639,26 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 out_labels[task] = array
 
         return out_image, out_labels
+
+    @staticmethod
+    def _mark_invisible_keypoints(
+        keypoints: np.ndarray, **kwargs
+    ) -> np.ndarray:
+        """
+        keypoints: np.ndarray of shape (N,6) columns = [x, y, z, a, s, v]
+        Zeroes out the visibility (last) column if (x,y) is out of image bounds.
+        """
+        shape = kwargs.get("shape")
+        if shape is None:
+            raise ValueError(
+                "Shape must be provided in kwargs to mark invisible keypoints."
+            )
+        h, w = shape[:2]
+        kps = keypoints.copy()
+        xs, ys = kps[:, 0], kps[:, 1]
+        oob = (xs < 0) | (ys < 0) | (xs >= w) | (ys >= h)
+        kps[oob, -1] = 0.0
+        return kps
 
     @staticmethod
     def create_transformation(
