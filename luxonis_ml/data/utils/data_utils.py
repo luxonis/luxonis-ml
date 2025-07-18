@@ -169,7 +169,6 @@ def find_duplicates(df: pl.LazyFrame) -> dict[str, list[dict[str, Any]]]:
     )
 
     if not duplicates.is_empty():
-        logger.warning("Found duplicate UUIDs in the dataset:")
         for row in duplicates.iter_rows():
             uuid = row[0]
             files = uuid_file_pairs.filter(pl.col("uuid") == uuid)[

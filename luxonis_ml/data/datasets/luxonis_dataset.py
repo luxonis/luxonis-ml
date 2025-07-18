@@ -1802,15 +1802,11 @@ class LuxonisDataset(BaseDataset):
     def remove_duplicates(self) -> None:
         """Removes duplicate files and annotations from the dataset."""
         df = self._load_df_offline(lazy=True)
-        index = self._get_index(lazy=True)
-
-        if df is None or index is None:
+        if df is None:
             raise ValueError(
                 "Dataset index or dataframe with annotations is not available."
             )
-
-        df_extended = df.join(index, on="uuid").drop("file_right")
-        duplicate_info = get_duplicates_info(df_extended)
+        duplicate_info = get_duplicates_info(df)
 
         duplicate_files_to_remove = [
             file
