@@ -345,11 +345,11 @@ def inspect(
     if aug_config is not None:
         h, w, _ = loader[0][0].shape
         loader.augmentations = loader._init_augmentations(
-            "albumentations",
-            aug_config,
-            h,
-            w,
-            not ignore_aspect_ratio,
+            augmentation_engine="albumentations",
+            augmentation_config=aug_config,
+            height=h,
+            width=w,
+            keep_aspect_ratio=not ignore_aspect_ratio,
             seed=42 if deterministic else None,
         )
 
