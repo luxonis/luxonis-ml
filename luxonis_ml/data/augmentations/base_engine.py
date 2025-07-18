@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Mapping
 
-from luxonis_ml.typing import LoaderOutput, Params
+from luxonis_ml.typing import LoaderMultiOutput, Params
 from luxonis_ml.utils import AutoRegisterMeta, Registry
 
 AUGMENTATION_ENGINES: Registry[type["AugmentationEngine"]] = Registry(
@@ -25,6 +25,7 @@ class AugmentationEngine(
         width: int,
         targets: Mapping[str, str],
         n_classes: Mapping[str, int],
+        source_names: list[str],
         config: Iterable[Params],
         keep_aspect_ratio: bool,
         is_validation_pipeline: bool,
@@ -78,13 +79,13 @@ class AugmentationEngine(
         ...
 
     @abstractmethod
-    def apply(self, data: list[LoaderOutput]) -> LoaderOutput:
+    def apply(self, data: list[LoaderMultiOutput]) -> LoaderMultiOutput:
         """Apply the augmentation pipeline to the data.
 
-        @type data: List[LuxonisLoaderOutput]
+        @type data: List[LoaderMultiOutput]
         @param data: List of data to augment. The length of the list
             must be equal to the batch size.
-        @rtype: LuxonisLoaderOutput
+        @rtype: LoaderMultiOutput
         @return: Augmented data
         """
         ...

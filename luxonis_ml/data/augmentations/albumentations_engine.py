@@ -11,7 +11,7 @@ from loguru import logger
 from typing_extensions import override
 
 from luxonis_ml.data.utils.task_utils import get_task_name, task_is_metadata
-from luxonis_ml.typing import ConfigItem, LoaderOutput, Params
+from luxonis_ml.typing import ConfigItem, LoaderMultiOutput, Params
 
 from .base_engine import AugmentationEngine
 from .batch_compose import BatchCompose
@@ -28,6 +28,7 @@ from .utils import (
 
 Data: TypeAlias = dict[str, np.ndarray]
 TargetType: TypeAlias = Literal[
+    "image",
     "array",
     "classification",
     "mask",
@@ -278,6 +279,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         width: int,
         targets: dict[str, str],
         n_classes: dict[str, int],
+        source_names: list[str],
         config: Iterable[Params],
         keep_aspect_ratio: bool = True,
         is_validation_pipeline: bool = False,
@@ -289,6 +291,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         self.target_names_to_tasks = {}
         self.n_classes = n_classes
         self.image_size = (height, width)
+        self.source_names = source_names
         self.bbox_area_threshold = bbox_area_threshold
 
         for task, task_type in targets.items():
@@ -345,6 +348,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
             self.targets[target_name] = target_type
             self.target_names_to_tasks[target_name] = task
+
+        for source_name in source_names:
+            self.targets[source_name] = "image"
 
         # Necessary for official Albumentations transforms.
         targets_without_instance_mask = {
@@ -442,7 +448,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 A.Compose(wrapped_spatial_ops, **get_params())
             )
             self.pixel_transform = wrap_transform(
-                A.Compose(pixel_transforms), is_pixel=True
+                A.Compose(pixel_transforms),
+                is_pixel=True,
+                source_names=source_names,
             )
             self.resize_transform = wrap_transform(
                 A.Compose([resize_transform], **get_params())
@@ -457,13 +465,14 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         return self.batch_transform.batch_size
 
     @override
-    def apply(self, input_batch: list[LoaderOutput]) -> LoaderOutput:
+    def apply(self, input_batch: list[LoaderMultiOutput]) -> LoaderMultiOutput:
         data_batch, n_keypoints = self.preprocess_batch(input_batch)
 
         data = self.batch_transform(data_batch)
 
         for target_name in list(data.keys()):
-            if data[target_name].size == 0:
+            value = data[target_name]
+            if isinstance(value, np.ndarray) and value.size == 0:
                 del data[target_name]
 
         data = self.spatial_transform(**data)
@@ -487,7 +496,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         return self.postprocess(data, n_keypoints)
 
     def preprocess_batch(
-        self, labels_batch: list[LoaderOutput]
+        self, labels_batch: list[LoaderMultiOutput]
     ) -> tuple[list[Data], dict[str, int]]:
         """Preprocess a batch of labels.
 
@@ -502,10 +511,24 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         bbox_counters = defaultdict(int)
         n_keypoints = {}
 
-        for image, labels in labels_batch:
-            data = {"image": image}
-            height, width, _ = image.shape
+        for image_dict, labels in labels_batch:
+            data = {}
+
+            key = next(iter(image_dict))
+            data["_original_image_key"] = key
+            for source_name, img in image_dict.items():
+                if source_name == key:
+                    data["image"] = img
+                else:
+                    data[source_name] = img
+
+            sample_img = next(iter(image_dict.values()))
+            height, width = sample_img.shape[:2]
+
             for target_name, target_type in self.targets.items():
+                if target_name not in self.target_names_to_tasks:
+                    continue
+
                 task = self.target_names_to_tasks[target_name]
 
                 if task not in labels:
@@ -554,7 +577,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
     def postprocess(
         self, data: Data, n_keypoints: dict[str, int]
-    ) -> LoaderOutput:
+    ) -> LoaderMultiOutput:
         """Postprocess the augmented data back to LDF format.
 
         Discards labels associated with bboxes that are outside the
@@ -566,14 +589,26 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         @type n_keypoints: Dict[str, int]
         @param n_keypoints: Dictionary mapping task names to the number
             of keypoints for that task.
-        @rtype: LoaderOutput
-        @return: Tuple containing the augmented image and the labels.
+        @rtype: LoaderMultiOutput
+        @return: Tuple containing the augmented image dict and the
+            labels.
         """
         out_labels = {}
-        out_image = data.pop("image")
-        if out_image.ndim == 2:
-            out_image = np.expand_dims(out_image, axis=-1)
-        image_height, image_width, _ = out_image.shape
+        out_image_dict = {}
+
+        image_keys = [k for k in data if k in ["image", *self.source_names]]
+
+        for key in image_keys:
+            img = data.pop(key)
+            if img.ndim == 2:
+                img = np.expand_dims(img, axis=-1)
+            restored_key = (
+                data["_original_image_key"] if key == "image" else key
+            )
+            out_image_dict[restored_key] = img
+
+        sample_img = next(iter(out_image_dict.values()))
+        image_height, image_width = sample_img.shape[:2]
 
         bboxes_indices = {}
 
@@ -638,7 +673,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             elif target_type == "classification":
                 out_labels[task] = array
 
-        return out_image, out_labels
+        return out_image_dict, out_labels
 
     @staticmethod
     def _mark_invisible_keypoints(
@@ -676,16 +711,41 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
 
 def wrap_transform(
-    transform: A.BaseCompose, is_pixel: bool = False
+    transform: A.BaseCompose,
+    is_pixel: bool = False,
+    source_names: list[str] | None = None,
 ) -> Callable[..., Data]:
     def apply_transform(**data: np.ndarray) -> Data:
         if not transform.transforms:
             return data
 
         if is_pixel:
-            data["image"] = transform(image=data["image"])["image"]
+            if source_names is None:
+                raise ValueError(
+                    "source_names must be provided for pixel transformations."
+                )
+            replay_transform = A.ReplayCompose(transform.transforms)
+
+            result = replay_transform(image=data["image"])
+            data["image"] = result["image"]
+
+            replay = result["replay"]
+            for source_name in source_names:
+                if source_name == "image" or source_name not in data:
+                    continue
+                img = data[source_name]
+                if img.ndim == 3:
+                    data[source_name] = A.ReplayCompose.replay(
+                        replay, image=img
+                    )["image"]
+
             return data
 
-        return transform(**data)
+        original_key = data.pop("_original_image_key", None)
+        transformed = transform(**data)
+        if original_key is not None:
+            transformed["_original_image_key"] = original_key
+
+        return transformed
 
     return apply_transform

@@ -411,6 +411,7 @@ def draw_keypoint_label(
 
 def visualize(
     image: np.ndarray,
+    source_name: str,
     labels: Labels,
     classes: dict[str, dict[str, int]],
     blend_all: bool = False,
@@ -419,6 +420,8 @@ def visualize(
 
     @type image: np.ndarray
     @param image: The image to visualize.
+    @type source_name: str
+    @param source_name: The name of the source of the image.
     @type labels: Labels
     @param labels: The labels to visualize.
     @type class_names: Dict[str, List[str]]
@@ -432,7 +435,7 @@ def visualize(
     @return: The visualized image.
     """
     h, w, _ = image.shape
-    images = {"image": image}
+    images = {source_name: image}
     mappings = {task: bidict(c) for task, c in classes.items()}
 
     min_dimension = min(h, w)

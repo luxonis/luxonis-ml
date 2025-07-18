@@ -244,7 +244,7 @@ def test_visualize():
         "semantic": {"background": 0, "red": 1, "green": 2, "blue": 3},
         "task2": {"class_name2": 0},
     }
-    image = visualize(image, labels, classes, blend_all=True)
+    image = visualize(image, "image", labels, classes, blend_all=True)
     image = (
         cv2.cvtColor(image, cv2.COLOR_RGB2GRAY).astype(bool).astype(np.uint8)
     )

@@ -62,9 +62,16 @@ class NativeParser(BaseParser):
         def generator() -> DatasetIterator:
             for record in data:
                 with suppress(KeyError):
-                    record["file"] = (
-                        annotation_path.parent / record["file"]
-                    ).absolute()
+                    if "file" in record:
+                        record["file"] = (
+                            annotation_path.parent / record["file"]
+                        ).absolute()
+                    elif "files" in record:
+                        for key, value in record["files"].items():
+                            if isinstance(value, PathType):
+                                record["files"][key] = (
+                                    annotation_path.parent / value
+                                ).absolute()
                 for mask_type in ["segmentation", "instance_segmentation"]:
                     with suppress(KeyError):
                         mask = record["annotation"][mask_type]["mask"]

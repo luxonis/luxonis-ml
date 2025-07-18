@@ -107,21 +107,24 @@ def print_info(dataset: LuxonisDataset) -> None:
             task_table.add_row(", ".join(task_types))
 
     splits = dataset.get_splits()
+    source_names = dataset.get_source_names()
 
     @group()
     def get_sizes_panel() -> Iterator[RenderableType]:
         if splits is not None:
-            total_files = len(dataset)
-            for split, files in splits.items():
-                split_size = len(files)
+            total_groups = len(dataset) / len(source_names)
+            for split, group in splits.items():
+                split_size = len(group)
                 percentage = (
-                    (split_size / total_files * 100) if total_files > 0 else 0
+                    (split_size / total_groups * 100)
+                    if total_groups > 0
+                    else 0
                 )
                 yield f"[magenta b]{split}: [not b cyan]{split_size:,} [dim]({percentage:.1f}%)[/dim]"
         else:
             yield "[red]No splits found"
         yield Rule()
-        yield f"[magenta b]Total: [not b cyan]{len(dataset)}"
+        yield f"[magenta b]Total: [not b cyan]{int(total_groups)}"
 
     @group()
     def get_panels() -> Iterator[RenderableType]:
@@ -188,11 +191,13 @@ def delete(
     ):
         raise typer.Exit
 
-    dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
-    dataset.delete_dataset(
+    dataset = LuxonisDataset(
+        name,
+        bucket_storage=bucket_storage,
         delete_local=local,
         delete_remote=remote,
     )
+    dataset.delete_dataset(delete_local=local)
 
     print(
         f"Dataset '{name}' deleted from: "
@@ -343,7 +348,14 @@ def inspect(
     )
 
     if aug_config is not None:
-        h, w, _ = loader[0][0].shape
+        sample_img = loader[0][0]
+        img = (
+            next(iter(sample_img.values()))
+            if isinstance(sample_img, dict)
+            else sample_img
+        )
+        h, w = img.shape[:2]
+
         loader.augmentations = loader._init_augmentations(
             augmentation_engine="albumentations",
             augmentation_config=aug_config,
@@ -357,13 +369,18 @@ def inspect(
         raise ValueError(f"Dataset '{name}' is empty.")
 
     classes = dataset.get_classes()
-    for image, labels in loader:
-        image = image.astype(np.uint8)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    prev_windows = set()
 
-        h, w, _ = image.shape
-        new_h, new_w = int(h * size_multiplier), int(w * size_multiplier)
-        image = cv2.resize(image, (new_w, new_h))
+    for img, labels in loader:
+        if isinstance(img, dict):
+            images_dict = img
+        else:
+            images_dict = {"image": img}
+
+        current_windows = set(images_dict.keys())
+        for stale_window in prev_windows - current_windows:
+            cv2.destroyWindow(stale_window)
+
         instance_keys = [
             "/boundingbox",
             "/keypoints",
@@ -372,35 +389,54 @@ def inspect(
         matched_instance_keys = [
             k for k in labels if any(k.endswith(ik) for ik in instance_keys)
         ]
-        if per_instance and matched_instance_keys:
-            extra_keys = [k for k in labels if k not in matched_instance_keys]
-            if extra_keys:
-                print(
-                    f"[yellow]Warning: Ignoring non-instance keys in labels: {extra_keys}[/yellow]"
+
+        for source_name, image in images_dict.items():
+            image = image.astype(np.uint8)
+            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+            h, w = image.shape[:2]
+            new_h, new_w = int(h * size_multiplier), int(w * size_multiplier)
+            image = cv2.resize(image, (new_w, new_h))
+
+            if per_instance and matched_instance_keys:
+                extra_keys = [
+                    k for k in labels if k not in matched_instance_keys
+                ]
+                if extra_keys:
+                    print(
+                        f"[yellow]Warning: Ignoring non-instance keys in labels: {extra_keys}[/yellow]"
+                    )
+                n_instances = len(labels[matched_instance_keys[0]])
+                for i in range(n_instances):
+                    instance_labels = {
+                        k: np.expand_dims(v[i], axis=0)
+                        for k, v in labels.items()
+                        if k in matched_instance_keys and len(v) > i
+                    }
+                    instance_image = visualize(
+                        image.copy(),
+                        source_name,
+                        instance_labels,
+                        classes,
+                        blend_all=blend_all,
+                    )
+                    cv2.imshow(source_name, instance_image)
+                    if cv2.waitKey() == ord("q"):
+                        break
+            else:
+                if per_instance:
+                    print(
+                        "[yellow]Warning: Per-instance mode is not supported for this dataset. "
+                        f"Showing all labels in one window for '{source_name}'.[/yellow]"
+                    )
+                labeled_image = visualize(
+                    image, source_name, labels, classes, blend_all=blend_all
                 )
-            n_instances = len(labels[matched_instance_keys[0]])
-            for i in range(n_instances):
-                instance_labels = {
-                    k: np.expand_dims(v[i], axis=0)
-                    for k, v in labels.items()
-                    if k in matched_instance_keys and len(v) > i
-                }
-                instance_image = visualize(
-                    image.copy(), instance_labels, classes, blend_all=blend_all
-                )
-                cv2.imshow("image", instance_image)
-                if cv2.waitKey() == ord("q"):
-                    break
-        else:
-            if per_instance:
-                print(
-                    "[yellow]Warning: Per-instance mode is not supported for this dataset. "
-                    "Showing all labels in one window.[/yellow]"
-                )
-            image = visualize(image, labels, classes, blend_all=blend_all)
-            cv2.imshow("image", image)
-            if cv2.waitKey() == ord("q"):
-                break
+                cv2.imshow(source_name, labeled_image)
+
+        prev_windows = current_windows
+
+        if cv2.waitKey() == ord("q"):
+            break
 
 
 @app.command()

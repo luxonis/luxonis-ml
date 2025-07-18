@@ -138,7 +138,7 @@ def test_dataset_sanitize(
 
     stats_before = dataset.get_statistics()
     assert len(stats_before["duplicates"]["duplicate_uuids"]) == 5
-    assert len(stats_before["duplicates"]["duplicate_annotations"]) == 10
+    assert len(stats_before["duplicates"]["duplicate_annotations"]) == 5
 
     dataset.remove_duplicates()
 

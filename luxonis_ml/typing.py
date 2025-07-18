@@ -31,10 +31,22 @@ Labels: TypeAlias = dict[str, "np.ndarray"]
 """Dictionary mappping task names to the annotations as C{np.ndarray}"""
 
 
-LoaderOutput: TypeAlias = tuple["np.ndarray", Labels]
-"""C{LoaderOutput} is a tuple of an image as a C{np.ndarray} and a
-dictionary of task group names and their annotations as
+LoaderSingleOutput: TypeAlias = tuple["np.ndarray", Labels]
+"""C{LoaderSingleOutput} is a tuple containing a single image as a
+C{np.ndarray} and a dictionary of task group names and their annotations
+as L{Labels}."""
+
+LoaderMultiOutput: TypeAlias = tuple[dict[str, "np.ndarray"], Labels]
+"""C{LoaderMultiOutput} is a tuple containing a dictionary mapping image
+names to C{np.ndarray} and a dictionary of task group names and their
+annotations as L{Labels}."""
+
+LoaderOutput: TypeAlias = LoaderSingleOutput | LoaderMultiOutput
+"""C{LoaderOutput} is a tuple containing either a single image as a
+C{np.ndarray} or a dictionary mapping image names to C{np.ndarray},
+along with a dictionary of task group names and their annotations as
 L{Annotations}."""
+
 
 RGB: TypeAlias = tuple[int, int, int]
 
