@@ -1,4 +1,3 @@
-import random
 import shutil
 from collections.abc import Iterator
 from pathlib import Path
@@ -334,9 +333,6 @@ def inspect(
 ):
     """Inspects images and annotations in a dataset."""
     check_exists(name, bucket_storage)
-    if deterministic:
-        np.random.seed(42)
-        random.seed(42)
 
     view = view or ["train"]
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
@@ -349,7 +345,12 @@ def inspect(
     if aug_config is not None:
         h, w, _ = loader[0][0].shape
         loader.augmentations = loader._init_augmentations(
-            "albumentations", aug_config, h, w, not ignore_aspect_ratio
+            augmentation_engine="albumentations",
+            augmentation_config=aug_config,
+            height=h,
+            width=w,
+            keep_aspect_ratio=not ignore_aspect_ratio,
+            seed=42 if deterministic else None,
         )
 
     if len(dataset) == 0:
