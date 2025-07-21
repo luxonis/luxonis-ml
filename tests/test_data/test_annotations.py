@@ -57,16 +57,19 @@ def test_dataset_record(tempdir: Path):
             row["file"] = Path(row["file"])  # type: ignore
         assert rows == expected_rows
 
-    cv2.imwrite(str(tempdir / "left.jpg"), np.zeros((100, 100, 3)))
-    cv2.imwrite(str(tempdir / "right.jpg"), np.zeros((100, 100, 3)))
-    record = DatasetRecord(file=tempdir / "left.jpg")  # type: ignore
-    assert record.file == tempdir / "left.jpg"
+    left = (tempdir / "left.jpg").resolve()
+    right = (tempdir / "right.jpg").resolve()
+
+    cv2.imwrite(str(left), np.zeros((100, 100, 3)))
+    cv2.imwrite(str(right), np.zeros((100, 100, 3)))
+    record = DatasetRecord(file=left)  # type: ignore
+    assert record.file == left
 
     compare_parquet_rows(
         record,
         [
             {
-                "file": tempdir / "left.jpg",  # type: ignore
+                "file": left,  # type: ignore
                 "source_name": "image",
                 "task_name": "",
                 "class_name": None,
@@ -78,7 +81,7 @@ def test_dataset_record(tempdir: Path):
     )
 
     record = DatasetRecord(
-        file=tempdir / "left.jpg",  # type: ignore
+        file=left,  # type: ignore
         annotation={
             "class": "person",
             "boundingbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
@@ -88,7 +91,7 @@ def test_dataset_record(tempdir: Path):
         record,
         [
             {
-                "file": tempdir / "left.jpg",  # type: ignore
+                "file": left,  # type: ignore
                 "source_name": "image",
                 "task_name": "",
                 "class_name": "person",
@@ -97,7 +100,7 @@ def test_dataset_record(tempdir: Path):
                 "annotation": '{"x":0.1,"y":0.2,"w":0.3,"h":0.4}',
             },
             {
-                "file": tempdir / "left.jpg",  # type: ignore
+                "file": left,  # type: ignore
                 "source_name": "image",
                 "task_name": "",
                 "class_name": "person",
@@ -110,8 +113,8 @@ def test_dataset_record(tempdir: Path):
 
     record = DatasetRecord(
         files={
-            "left": tempdir / "left.jpg",
-            "right": tempdir / "right.jpg",
+            "left": left,
+            "right": right,
         }
     )
     with pytest.raises(ValueError, match="must have exactly one file"):
@@ -578,7 +581,7 @@ def test_record(tempdir: Path):
             },
         }
     )
-    filename = str(tempdir / "image.jpg")
+    filename = str((tempdir / "image.jpg").resolve())
     cv2.imwrite(filename, np.zeros((256, 256, 3), dtype=np.uint8))
     record = DatasetRecord(
         file=filename,  # type: ignore

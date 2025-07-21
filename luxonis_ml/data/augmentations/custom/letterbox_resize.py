@@ -265,7 +265,7 @@ class LetterboxResize(A.DualTransform):
             ),
             interpolation=interpolation,
         )
-        return cv2.copyMakeBorder(
+        padded_img = cv2.copyMakeBorder(
             resized_img,
             pad_top,
             pad_bottom,
@@ -274,3 +274,8 @@ class LetterboxResize(A.DualTransform):
             cv2.BORDER_CONSTANT,
             value=fill_value,
         ).astype(img.dtype)
+
+        if padded_img.ndim == 2:
+            padded_img = padded_img[..., None]
+
+        return padded_img

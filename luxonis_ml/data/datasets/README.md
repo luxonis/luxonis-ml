@@ -156,15 +156,15 @@ The parquet file content will look like:
 ```plaintext
                        file source_name task_name class_name  instance_id              task_type                                         annotation                                  uuid
 0  absolute/path/to/COCO...       image    "coco"     person            0            boundingbox  {"x":0.438734375,"y":0.1052470588235294,"w":0....  20a54075-838a-5a83-bb70-39cb97501a3b
-1  Absolute/path/to/COCO...       image    "coco"     person            0              keypoints  {"keypoints":[[0.5734375,0.19058823529411764,2...  20a54075-838a-5a83-bb70-39cb97501a3b
-2  Absolute/path/to/COCO...       image    "coco"     person            0           segmentation  {"height":425,"width":640,"counts":"`id3>k<4K3...  20a54075-838a-5a83-bb70-39cb97501a3b
-3  Absolute/path/to/COCO...       image    "coco"     person            0  instance_segmentation  {"height":425,"width":640,"counts":"`id3>k<4K3...  20a54075-838a-5a83-bb70-39cb97501a3b
-4  Absolute/path/to/COCO...       image    "coco"     person            0         classification                                                 {}  20a54075-838a-5a83-bb70-39cb97501a3b
-5  Absolute/path/to/COCO...       image    "coco"     person            0            boundingbox  {"x":0.701359375,"y":0.3757460317460317,"w":0....  83c3579c-d27c-5701-8436-31a72090343f
-6  Absolute/path/to/COCO...       image    "coco"     person            0              keypoints  {"keypoints":[[0.74375,0.4158730158730159,2],[...  83c3579c-d27c-5701-8436-31a72090343f
-7  Absolute/path/to/COCO...       image    "coco"     person            0           segmentation  {"height":315,"width":640,"counts":"[YZ46d91O1...  83c3579c-d27c-5701-8436-31a72090343f
-8  Absolute/path/to/COCO...       image    "coco"     person            0  instance_segmentation  {"height":315,"width":640,"counts":"[YZ46d91O1...  83c3579c-d27c-5701-8436-31a72090343f
-9  Absolute/path/to/COCO...       image    "coco"     person            0         classification                                                 {}  83c3579c-d27c-5701-8436-31a72090343f
+1  absolute/path/to/COCO...       image    "coco"     person            0              keypoints  {"keypoints":[[0.5734375,0.19058823529411764,2...  20a54075-838a-5a83-bb70-39cb97501a3b
+2  absolute/path/to/COCO...       image    "coco"     person            0           segmentation  {"height":425,"width":640,"counts":"`id3>k<4K3...  20a54075-838a-5a83-bb70-39cb97501a3b
+3  absolute/path/to/COCO...       image    "coco"     person            0  instance_segmentation  {"height":425,"width":640,"counts":"`id3>k<4K3...  20a54075-838a-5a83-bb70-39cb97501a3b
+4  absolute/path/to/COCO...       image    "coco"     person            0         classification                                                 {}  20a54075-838a-5a83-bb70-39cb97501a3b
+5  absolute/path/to/COCO...       image    "coco"     person            0            boundingbox  {"x":0.701359375,"y":0.3757460317460317,"w":0....  83c3579c-d27c-5701-8436-31a72090343f
+6  absolute/path/to/COCO...       image    "coco"     person            0              keypoints  {"keypoints":[[0.74375,0.4158730158730159,2],[...  83c3579c-d27c-5701-8436-31a72090343f
+7  absolute/path/to/COCO...       image    "coco"     person            0           segmentation  {"height":315,"width":640,"counts":"[YZ46d91O1...  83c3579c-d27c-5701-8436-31a72090343f
+8  absolute/path/to/COCO...       image    "coco"     person            0  instance_segmentation  {"height":315,"width":640,"counts":"[YZ46d91O1...  83c3579c-d27c-5701-8436-31a72090343f
+9  absolute/path/to/COCO...       image    "coco"     person            0         classification                                                 {}  83c3579c-d27c-5701-8436-31a72090343f
 ```
 
 Parquet content is determined by the `generator()` function provided by the user. For tasks such as `instance_segmentation` or `keypoints`, you must either supply an `instance_id` for annotations that are yielded separately but represent the same object (instance) or yield all annotations for each instance together (e.g., yield keypoints and bounding boxes together, or yield bounding boxes and instance segmentation masks together).
