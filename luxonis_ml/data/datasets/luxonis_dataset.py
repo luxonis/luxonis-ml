@@ -700,6 +700,7 @@ class LuxonisDataset(BaseDataset):
         self,
         classes: list[str] | dict[str, int],
         task: str | None = None,
+        rewrite_metadata: bool = True,
     ) -> None:
         if task is None:
             tasks = self.get_task_names()
@@ -709,7 +710,8 @@ class LuxonisDataset(BaseDataset):
         for t in tasks:
             self._metadata.set_classes(classes, t)
 
-        self._write_metadata()
+        if rewrite_metadata:
+            self._write_metadata()
 
     @override
     def get_classes(self) -> dict[str, dict[str, int]]:

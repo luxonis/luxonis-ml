@@ -124,7 +124,7 @@ class LuxonisLoader(BaseLoader):
             This is useful for filtering out tasks that are not needed for a specific use case.
         @type class_order_per_task: Optional[Dict[str, List[str]]]
         @param class_order_per_task: Dictionary mapping task names to a list of class names.
-            If provided, the classes for the specified tasks will be reordered permanently.
+            If provided, the classes for the specified tasks will be reordered.
         """
 
         self.exclude_empty_annotations = exclude_empty_annotations
@@ -554,8 +554,7 @@ class LuxonisLoader(BaseLoader):
                 logger.warning(
                     f"Reordering classes for task {task_name}. "
                     f"Original order: {current_classes}, "
-                    f"New order: {task_classes}. "
-                    "This will permanently change the class order in the dataset."
+                    f"New order: {task_classes}."
                 )
 
                 self.dataset.set_classes(
@@ -564,4 +563,5 @@ class LuxonisLoader(BaseLoader):
                         for i, class_name in enumerate(task_classes)
                     },
                     task=task_name,
+                    rewrite_metadata=False,
                 )
