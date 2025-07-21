@@ -15,7 +15,6 @@ import numpy as np
 import polars as pl
 from filelock import FileLock
 from loguru import logger
-from rich.progress import track
 from semver.version import Version
 from typing_extensions import Self, override
 
@@ -29,6 +28,7 @@ from luxonis_ml.data.utils import (
     get_heatmaps,
     get_missing_annotations,
     infer_task,
+    merge_uuids,
     warn_on_duplicates,
 )
 from luxonis_ml.data.utils.constants import LDF_VERSION
@@ -45,8 +45,13 @@ from .annotation import Category, DatasetRecord, Detection
 from .base_dataset import BaseDataset, DatasetIterator
 from .metadata import Metadata
 from .migration import migrate_dataframe, migrate_metadata
-from .source import LuxonisSource
-from .utils import find_filepath_uuid, get_dir, get_file
+from .source import LuxonisComponent, LuxonisSource
+from .utils import (
+    find_filepath_group_id,
+    find_filepath_uuid,
+    get_dir,
+    get_file,
+)
 
 
 class LuxonisDataset(BaseDataset):
@@ -253,16 +258,18 @@ class LuxonisDataset(BaseDataset):
         with ParquetFileManager(annotations_path) as pfm:
             for row in rows:
                 uuid_val = row.get("uuid")
+                group_id_val = row.get("group_id")
                 if uuid_val is None:
                     raise ValueError("Missing 'uuid' in row!")
 
                 data_dict = dict(row)
                 data_dict.pop("uuid", None)
+                data_dict.pop("group_id", None)
 
-                pfm.write(uuid_val, data_dict)  # type: ignore
+                pfm.write(uuid_val, data_dict, group_id_val)  # type: ignore
 
         logger.info(
-            f"Saved merged DataFrame to Parquet files in '{annotations_path}'."
+            f"Saved DataFrame to Parquet files in '{annotations_path}'."
         )
 
     def _merge_metadata_with(self, other: "LuxonisDataset") -> None:
@@ -402,14 +409,16 @@ class LuxonisDataset(BaseDataset):
 
         df_self = self._load_df_offline(raise_when_empty=True)
         df_other = other._load_df_offline(raise_when_empty=True)
-        duplicate_uuids = set(df_self["uuid"]).intersection(df_other["uuid"])
-        if duplicate_uuids:
+        duplicate_group_ids = set(df_self["group_id"]).intersection(
+            df_other["group_id"]
+        )
+        if duplicate_group_ids:
             logger.warning(
-                f"Found {len(duplicate_uuids)} duplicate UUIDs in the datasets. "
+                f"Found {len(duplicate_group_ids)} duplicate group ID's in the datasets. "
                 "Merging will remove these duplicates from the incoming dataset."
             )
             df_other = df_other.filter(
-                ~df_other["uuid"].is_in(duplicate_uuids)
+                ~df_other["group_id"].is_in(duplicate_group_ids)
             )
 
         splits_self = self._load_splits(self.metadata_path)
@@ -429,8 +438,12 @@ class LuxonisDataset(BaseDataset):
         target_dataset._save_df_offline(df_merged)
 
         splits_other = {
-            split_name: [uuid for uuid in uuids if uuid not in duplicate_uuids]
-            for split_name, uuids in splits_other.items()
+            split_name: [
+                group_id
+                for group_id in group_ids
+                if group_id not in duplicate_group_ids
+            ]
+            for split_name, group_ids in splits_other.items()
         }
         self._merge_splits(splits_self, splits_other)
         target_dataset._save_splits(splits_self)
@@ -490,11 +503,13 @@ class LuxonisDataset(BaseDataset):
         splits_self: dict[str, list[str]],
         splits_other: dict[str, list[str]],
     ) -> None:
-        for split_name, uuids_other in splits_other.items():
+        for split_name, group_ids_other in splits_other.items():
             if split_name not in splits_self:
                 splits_self[split_name] = []
-            combined_uuids = set(splits_self[split_name]).union(uuids_other)
-            splits_self[split_name] = list(combined_uuids)
+            combined_group_ids = set(splits_self[split_name]).union(
+                group_ids_other
+            )
+            splits_self[split_name] = list(combined_group_ids)
 
     def _save_splits(self, splits: dict[str, list[str]]) -> None:
         splits_path_self = self.metadata_path / "splits.json"
@@ -617,15 +632,21 @@ class LuxonisDataset(BaseDataset):
             resolved_paths = list(pool.map(resolve_path, files))
         mapping: dict[str, str] = dict(zip(files, resolved_paths, strict=True))
 
-        processed = df.with_columns(
-            [
-                pl.col("uuid"),
-                pl.col("file").str.extract(r"([^\/\\]+)$").alias("file"),
-                pl.col("file")
-                .map_dict(mapping, default=None)
-                .alias("original_filepath"),
-            ]
-        ).unique(subset=["uuid", "original_filepath"], maintain_order=False)
+        processed = (
+            df.with_columns(
+                [
+                    pl.col("uuid"),
+                    pl.col("file")
+                    .map_dict(mapping, default=None)
+                    .alias("original_filepath"),
+                ]
+            )
+            .unique(
+                subset=["uuid", "original_filepath", "group_id"],
+                maintain_order=False,
+            )
+            .select(["uuid", "original_filepath", "group_id"])
+        )
 
         if not lazy:
             processed = processed.collect()
@@ -669,6 +690,25 @@ class LuxonisDataset(BaseDataset):
                 default=self.metadata_path / "metadata.json",
             )
             metadata_json = json.loads(path.read_text())
+
+            # TODO: Remove this LuxonisSource and df migration in the future
+            if "source" in metadata_json:
+                source_data = metadata_json["source"]
+                if isinstance(source_data, dict):
+                    components = source_data.get("components", {})
+                    if isinstance(components, dict) and len(components) == 1:
+                        new_components = {
+                            "image": LuxonisComponent(
+                                **next(iter(components.values()))
+                            )
+                        }
+                        metadata_json["source"]["components"] = new_components
+                        metadata_json["source"]["main_component"] = "image"
+            df = self._load_df_offline(lazy=False, attempt_migration=False)
+            if df is not None and "group_id" not in df.columns:
+                df = df.with_columns(pl.col("uuid").alias("group_id"))
+                self._save_df_offline(df)
+
             version = Version.parse(metadata_json.get("ldf_version", "1.0.0"))
             if version != LDF_VERSION:  # pragma: no cover
                 return migrate_metadata(
@@ -694,6 +734,10 @@ class LuxonisDataset(BaseDataset):
     def update_source(self, source: LuxonisSource) -> None:
         self._metadata.source = source
         self._write_metadata()
+
+    @override
+    def get_source_names(self) -> list[str]:
+        return list(self.source.components.keys())
 
     @override
     def set_classes(
@@ -815,18 +859,16 @@ class LuxonisDataset(BaseDataset):
             index = self._get_index(lazy=False)
             missing_media_paths = []
             if index is not None:
-                df_small = index.select(["uuid", "file", "original_filepath"])
-                uuids = df_small["uuid"].to_list()
-                files = df_small["file"].to_list()
-                origps = df_small["original_filepath"].to_list()
+                uuids = index["uuid"].to_list()
+                origps = index["original_filepath"].to_list()
 
                 media_root = Path(local_dir) / self.dataset_name / "media"
 
                 missing_media_paths = [
-                    f"media/{uid}{Path(f).suffix}"
-                    for uid, f, orig in zip(uuids, files, origps, strict=True)
+                    f"media/{uid}{Path(orig).suffix}"
+                    for uid, orig in zip(uuids, origps, strict=True)
                     if not Path(orig).exists()
-                    and not (media_root / f"{uid}{Path(f).suffix}").exists()
+                    and not (media_root / f"{uid}{Path(orig).suffix}").exists()
                 ]
 
             if update_mode == UpdateMode.ALL:
@@ -1004,7 +1046,7 @@ class LuxonisDataset(BaseDataset):
         pfm: ParquetFileManager,
         index: pl.DataFrame | None,
     ) -> None:
-        paths = {data.file for data in data_batch}
+        paths = {path for data in data_batch for path in data.all_file_paths}
         logger.info("Generating UUIDs...")
         uuid_dict = self.fs.get_file_uuids(paths, local=True)
 
@@ -1024,7 +1066,6 @@ class LuxonisDataset(BaseDataset):
         if self.is_remote:
             logger.info("Uploading media...")
 
-            # TODO: support from bucket (likely with a self.fs.copy_dir)
             self.fs.put_dir(
                 local_paths=paths,
                 remote_dir="media",
@@ -1041,10 +1082,17 @@ class LuxonisDataset(BaseDataset):
         logger.info("Saving annotations...")
         with self.progress:
             for record in data_batch:
-                filepath = record.file
-                uuid = uuid_dict[str(filepath)]
+                file_paths = record.all_file_paths
+                uuid_list = [
+                    uuid_dict[str(file_path)] for file_path in file_paths
+                ]
+                group_id = (
+                    str(merge_uuids(uuid_list))
+                    if len(uuid_list) > 1
+                    else str(uuid_list[0])
+                )
                 for row in record.to_parquet_rows():
-                    pfm.write(uuid, row)
+                    pfm.write(uuid_dict[row["file"]], row, group_id)
                 self.progress.update(task, advance=1)
         self.progress.remove_task(task)
 
@@ -1060,6 +1108,7 @@ class LuxonisDataset(BaseDataset):
         categorical_encodings = defaultdict(dict)
         metadata_types = {}
         num_kpts_per_task: dict[str, int] = {}
+        sources: set[str] = set()
 
         annotations_path = get_dir(
             self.fs,
@@ -1076,6 +1125,7 @@ class LuxonisDataset(BaseDataset):
             for i, record in enumerate(generator, start=1):
                 if not isinstance(record, DatasetRecord):
                     record = DatasetRecord(**record)
+                sources.update(record.files.keys())
                 ann = record.annotation
                 if ann is not None:
                     if not record.task_name:
@@ -1158,15 +1208,25 @@ class LuxonisDataset(BaseDataset):
         self._metadata.categorical_encodings = dict(categorical_encodings)
         self._metadata.metadata_types = metadata_types
         self.set_tasks(tasks)
+        if sources:
+            components = {
+                source_name: LuxonisComponent(
+                    name=source_name,
+                )
+                for source_name in sources
+            }
+            source = LuxonisSource(
+                components=components,
+                main_component=next(iter(components.keys())),
+            )
+            self.update_source(source)
         self._warn_on_duplicates()
         return self
 
     def _warn_on_duplicates(self) -> None:
         df = self._load_df_offline(lazy=True)
-        index = self._get_index(lazy=True)
-        if df is None or index is None:
+        if df is None:
             return
-        df = df.join(index, on="uuid").drop("file_right")
         warn_on_duplicates(df)
 
     def get_splits(self) -> dict[str, list[str]] | None:
@@ -1255,19 +1315,21 @@ class LuxonisDataset(BaseDataset):
             with open(splits_path) as file:
                 old_splits = defaultdict(list, json.load(file))
 
-        defined_uuids = {
-            uuid for uuids in old_splits.values() for uuid in uuids
+        defined_group_ids = {
+            group_id
+            for group_ids in old_splits.values()
+            for group_id in group_ids
         }
 
         if definitions is None:
             ratios = ratios or {"train": 0.8, "val": 0.1, "test": 0.1}
             df = self._load_df_offline(raise_when_empty=True)
             ids = (
-                df.filter(~pl.col("uuid").is_in(defined_uuids))
-                .select("uuid")
+                df.filter(~pl.col("group_id").is_in(defined_group_ids))
+                .select("group_id")
                 .unique()
-                .sort("uuid")
-                .get_column("uuid")
+                .sort("group_id")
+                .get_column("group_id")
                 .to_list()
             )
             if not ids:
@@ -1276,7 +1338,12 @@ class LuxonisDataset(BaseDataset):
                         "No new files to add to splits. "
                         "If you want to generate new splits, set `replace_old_splits=True`"
                     )
-                ids = df.select("uuid").unique().get_column("uuid").to_list()
+                ids = (
+                    df.select("group_id")
+                    .unique()
+                    .get_column("group_id")
+                    .to_list()
+                )
                 old_splits = defaultdict(list)
 
             np.random.shuffle(ids)
@@ -1299,13 +1366,15 @@ class LuxonisDataset(BaseDataset):
                         "Must provide splits as a list of filepaths"
                     )
                 ids = [
-                    find_filepath_uuid(filepath, index, raise_on_missing=True)
+                    find_filepath_group_id(
+                        filepath, index, raise_on_missing=True
+                    )
                     for filepath in filepaths
                 ]
-                new_splits[split] = ids
+                new_splits[split] = list(set(ids))
 
-        for split, uuids in new_splits.items():
-            old_splits[split].extend(uuids)
+        for split, group_ids in new_splits.items():
+            old_splits[split].extend(group_ids)
 
         splits_path.write_text(json.dumps(old_splits, indent=4))
 
@@ -1439,6 +1508,19 @@ class LuxonisDataset(BaseDataset):
                 with open(split_path / "annotations.json", "w") as f:
                     json.dump(annotation_data, f, indent=4)
 
+        def resolve_path(
+            img_path: str | Path, uuid: str, media_path: str
+        ) -> str:
+            img_path = Path(img_path)
+            if img_path.exists():
+                return str(img_path)
+
+            ext = img_path.suffix.lstrip(".")
+            fallback = Path(media_path) / f"{uuid}.{ext}"
+            if not fallback.exists():
+                raise FileNotFoundError(f"Missing image: {fallback}")
+            return str(fallback)
+
         if dataset_type is not DatasetType.NATIVE:
             raise NotImplementedError(
                 "Only 'NATIVE' dataset export is supported at the moment"
@@ -1460,22 +1542,60 @@ class LuxonisDataset(BaseDataset):
         image_indices = {}
         annotations = {"train": [], "val": [], "test": []}
         df = self._load_df_offline(raise_when_empty=True)
-        if not self.is_remote:
-            index = self._get_index()
-            if index is None:  # pragma: no cover
-                raise FileNotFoundError("Cannot find dataset index")
-            index = index.filter(pl.col("uuid").is_in(df["uuid"]))
-            df = df.join(index, on="uuid").drop("file_right")
 
-        # If instances are not sorted by file, sort them by the first occurrence of the file in the dataset.
-        # Within each group, original row ordering is preserved.
-        df = (
-            df.with_row_count("row_idx")
-            .with_columns(
-                pl.col("row_idx").min().over("file").alias("first_occur")
+        # Capture the original order. Assume annotations are ordered if instance_id's were not specified.
+        df = df.with_row_count("row_idx").with_columns(
+            pl.col("row_idx").min().over("file").alias("first_occur")
+        )
+
+        # Resolve file paths to ensure they are absolute and exist
+        df = df.with_columns(
+            pl.struct(["file", "uuid"])
+            .map_elements(
+                lambda row: resolve_path(
+                    row["file"], row["uuid"], str(self.media_path)
+                ),
+                return_dtype=pl.Utf8,
             )
-            .sort(["first_occur", "row_idx"])
-            .drop(["first_occur", "row_idx"])
+            .alias("file")
+        )
+
+        grouped_image_sources = df.select(
+            "group_id", "source_name", "file"
+        ).unique()
+
+        # Filter out rows without annotations and ensure we have at least one row per group_id (images without annotations)
+        df = (
+            df.with_columns(
+                [
+                    pl.col("annotation").is_not_null().alias("has_annotation"),
+                    pl.col("group_id")
+                    .cumcount()
+                    .over("group_id")
+                    .alias("first_occur"),
+                ]
+            )
+            .pipe(
+                lambda df: (
+                    df.filter(pl.col("has_annotation")).vstack(
+                        df.filter(
+                            ~pl.col("group_id").is_in(
+                                df.filter(pl.col("has_annotation"))
+                                .select("group_id")
+                                .unique()["group_id"]
+                            )
+                        ).unique(subset=["group_id"], keep="first")
+                    )
+                )
+            )
+            .sort(["row_idx"])
+            .select(
+                [
+                    col
+                    for col in df.columns
+                    if col not in ["has_annotation", "row_idx", "first_occur"]
+                ]
+            )
         )
 
         splits = self.get_splits()
@@ -1487,105 +1607,116 @@ class LuxonisDataset(BaseDataset):
             max_partition_size_gb * 1024**3 if max_partition_size_gb else None
         )
 
-        for row in track(
-            df.iter_rows(), total=len(df), description="Exporting ..."
-        ):
-            uuid = row[7]
-            file = Path(row[-1])
-            if self.is_remote or not file.exists():
-                file_extension = row[0].rsplit(".", 1)[-1]
-                file = self.media_path / f"{uuid}.{file_extension}"
-                assert file.exists()
+        # Group the full dataframe by group_id
+        df = df.group_by("group_id", maintain_order=True)
+        copied_files = set()
 
-            split = None
-            for s, uuids in splits.items():
-                if uuid in uuids:
-                    split = s
-                    break
+        for group_id, group_df in df:
+            matched_df = grouped_image_sources.filter(
+                pl.col("group_id") == group_id
+            )
+            group_files = matched_df.get_column("file").to_list()
+            group_source_names = matched_df.get_column("source_name").to_list()
 
+            split = next(
+                (
+                    s
+                    for s, group_ids in splits.items()
+                    if group_id in group_ids
+                ),
+                None,
+            )
             assert split is not None
 
-            task_name: str = row[2]
-            class_name: str | None = row[3]
-            instance_id: int = row[4]
-            task_type: str = row[5]
-            ann_str: str | None = row[6]
+            group_total_size = sum(Path(f).stat().st_size for f in group_files)
+            annotation_records = []
 
-            if file not in image_indices:
-                file_size = file.stat().st_size
-                annotations_size = sum(
-                    sys.getsizeof(lst) for lst in annotations.values()
-                )
-                if (
-                    max_partition_size
-                    and current_size + file_size + annotations_size
-                    > max_partition_size
-                ):
-                    _dump_annotations(
-                        annotations, output_path, self.identifier, part
-                    )
-                    current_size = 0
-                    assert part is not None
-                    part += 1
-                    annotations = {"train": [], "val": [], "test": []}
+            for row in group_df.iter_rows(named=True):
+                task_name = row["task_name"]
+                class_name = row["class_name"]
+                instance_id = row["instance_id"]
+                task_type = row["task_type"]
+                ann_str = row["annotation"]
 
-                image_indices[file] = len(image_indices)
-                if max_partition_size:
-                    data_path = (
-                        output_path
-                        / f"{self.identifier}_part{part}"
-                        / split
-                        / "images"
+                source_to_file = {
+                    name: str(
+                        (
+                            Path("images")
+                            / f"{image_indices.setdefault(Path(f), len(image_indices))}{Path(f).suffix}"
+                        ).as_posix()
                     )
-                else:
-                    data_path = (
-                        output_path / self.identifier / split / "images"
+                    for name, f in zip(
+                        group_source_names, group_files, strict=True
                     )
-                data_path.mkdir(parents=True, exist_ok=True)
-                dest_file = data_path / f"{image_indices[file]}{file.suffix}"
-                shutil.copy(file, dest_file)
-                current_size += file_size
+                }
 
-            if ann_str is None:
-                annotations[split].append(
-                    {
-                        "file": str(
-                            Path(
-                                data_path.name,
-                                str(image_indices[file]) + file.suffix,
-                            ).as_posix()
-                        ),
-                        "task_name": task_name,
+                record = {
+                    "files" if len(group_source_names) > 1 else "file": (
+                        source_to_file
+                        if len(group_source_names) > 1
+                        else source_to_file[group_source_names[0]]
+                    ),
+                    "task_name": task_name,
+                }
+
+                if ann_str is not None:
+                    data = json.loads(ann_str)
+                    annotation_base = {
+                        "instance_id": instance_id,
+                        "class": class_name,
                     }
+                    if task_type in {
+                        "instance_segmentation",
+                        "segmentation",
+                        "boundingbox",
+                        "keypoints",
+                    }:
+                        annotation_base[task_type] = data
+                    elif task_type.startswith("metadata/"):
+                        annotation_base["metadata"] = {task_type[9:]: data}
+                    record["annotation"] = annotation_base
+
+                annotation_records.append(record)
+
+            annotations_size = sum(
+                sys.getsizeof(r) for r in annotation_records
+            )
+
+            if (
+                max_partition_size
+                and part is not None
+                and current_size + group_total_size + annotations_size
+                > max_partition_size
+            ):
+                _dump_annotations(
+                    annotations, output_path, self.identifier, part
                 )
-                continue
+                current_size = 0
+                part += 1
+                annotations = {"train": [], "val": [], "test": []}
 
-            data = json.loads(ann_str)
-            record = {
-                "file": str(
-                    Path(
-                        data_path.name,
-                        str(image_indices[file]) + file.suffix,
-                    ).as_posix()
-                ),
-                "task_name": task_name,
-                "annotation": {
-                    "instance_id": instance_id,
-                    "class": class_name,
-                },
-            }
-            if task_type in {
-                "instance_segmentation",
-                "segmentation",
-                "boundingbox",
-                "keypoints",
-            }:
-                record["annotation"][task_type] = data
-                annotations[split].append(record)
+            if max_partition_size:
+                data_path = (
+                    output_path
+                    / f"{self.identifier}_part{part}"
+                    / split
+                    / "images"
+                )
+            else:
+                data_path = output_path / self.identifier / split / "images"
+            data_path.mkdir(parents=True, exist_ok=True)
 
-            elif task_type.startswith("metadata/"):
-                record["annotation"]["metadata"] = {task_type[9:]: data}
-                annotations[split].append(record)
+            for file in group_files:
+                file_path = Path(file)
+                if file_path not in copied_files:
+                    copied_files.add(file_path)
+                    image_index = image_indices[file_path]
+                    dest_file = data_path / f"{image_index}{file_path.suffix}"
+                    shutil.copy(file_path, dest_file)
+                    current_size += file_path.stat().st_size
+
+            annotations[split].extend(annotation_records)
+            current_size += annotations_size
 
         _dump_annotations(annotations, output_path, self.identifier, part)
 
@@ -1607,7 +1738,15 @@ class LuxonisDataset(BaseDataset):
                         str(folder), "zip", root_dir=folder
                     )
                     archives.append(Path(archive_file))
-            return archives if len(archives) > 1 else archives[0]
+            if len(archives) > 1:
+                logger.info(
+                    f"Dataset successfully exported to: {[str(p) for p in archives]}"
+                )
+                return archives
+            logger.info(f"Dataset successfully exported to: {archives[0]}")
+            return archives[0]
+
+        logger.info(f"Dataset successfully exported to: {output_path}")
         return output_path
 
     def get_statistics(
@@ -1638,7 +1777,6 @@ class LuxonisDataset(BaseDataset):
         @return: Dataset statistics dictionary as described above
         """
         df = self._load_df_offline(lazy=True)
-        index = self._get_index(lazy=True)
 
         stats = {
             "duplicates": {},
@@ -1646,10 +1784,8 @@ class LuxonisDataset(BaseDataset):
             "heatmaps": {},
         }
 
-        if df is None or index is None:
+        if df is None:
             return stats
-
-        df = df.join(index, on="uuid").drop("file_right")
 
         splits = self.get_splits()
         if splits is not None and view and view in splits:
@@ -1668,15 +1804,11 @@ class LuxonisDataset(BaseDataset):
     def remove_duplicates(self) -> None:
         """Removes duplicate files and annotations from the dataset."""
         df = self._load_df_offline(lazy=True)
-        index = self._get_index(lazy=True)
-
-        if df is None or index is None:
+        if df is None:
             raise ValueError(
                 "Dataset index or dataframe with annotations is not available."
             )
-
-        df_extended = df.join(index, on="uuid").drop("file_right")
-        duplicate_info = get_duplicates_info(df_extended)
+        duplicate_info = get_duplicates_info(df)
 
         duplicate_files_to_remove = [
             file

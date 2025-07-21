@@ -15,11 +15,19 @@ def test_metadata_no_boxes():
         },
     ]
     augmentations = AlbumentationsEngine(
-        256, 256, {"/metadata/id": "metadata/id"}, {"/metadata/id": 0}, config
+        256,
+        256,
+        {"/metadata/id": "metadata/id"},
+        {"/metadata/id": 0},
+        ["image"],
+        config,
     )
     _, labels = augmentations.apply(
         [
-            (np.zeros((3, 256, 256)), {"/metadata/id": np.array([i])})
+            (
+                {"image": np.zeros((3, 256, 256))},
+                {"/metadata/id": np.array([i])},
+            )
             for i in range(4)
         ]
     )
@@ -62,7 +70,10 @@ def test_skip_augmentations():
         "/instance_segmentation": 1,
         "/segmentation": 1,
     }
-    augmentations = AlbumentationsEngine(256, 256, targets, n_classes, config)
+    source_names = ["image"]
+    augmentations = AlbumentationsEngine(
+        256, 256, targets, n_classes, source_names, config
+    )
 
     spatial_transform_names = next(
         (

@@ -2,7 +2,7 @@ import json
 import random
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -14,7 +14,7 @@ from luxonis_ml.data import (
 )
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.enums import DatasetType
-from luxonis_ml.typing import Params
+from luxonis_ml.typing import LoaderSingleOutput, Params
 from luxonis_ml.utils import LuxonisFileSystem
 
 from .utils import create_image
@@ -582,19 +582,19 @@ def test_colorspace(storage_url: str, tempdir: Path):
         },
     ]
     loader = create_loader(storage_url, tempdir, augmentation_config=norm_3d)
-    rgb_img, _ = next(iter(loader))
+    rgb_img, _ = cast(LoaderSingleOutput, next(iter(loader)))
     assert len(rgb_img.shape) == 3
     assert rgb_img.shape[2] == 3
     loader = create_loader(
         storage_url, tempdir, color_space="BGR", augmentation_config=norm_3d
     )
-    bgr_img, _ = next(iter(loader))
+    bgr_img, _ = cast(LoaderSingleOutput, next(iter(loader)))
     assert len(bgr_img.shape) == 3
     assert bgr_img.shape[2] == 3
     assert np.array_equal(rgb_img, bgr_img[:, :, ::-1])
     loader = create_loader(
         storage_url, tempdir, color_space="GRAY", augmentation_config=norm_1d
     )
-    gray_img, _ = next(iter(loader))
+    gray_img, _ = cast(LoaderSingleOutput, next(iter(loader)))
     assert len(gray_img.shape) == 3
     assert gray_img.shape[2] == 1
