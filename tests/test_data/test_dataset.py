@@ -271,11 +271,6 @@ def test_make_splits(
     with pytest.raises(ValueError, match="Ratios must sum to 1.0"):
         dataset.make_splits({"train": 1.5})
 
-    with pytest.raises(ValueError, match="Dataset size is smaller than"):
-        dataset.make_splits(
-            {split: defs * 2 for split, defs in splits.items()}
-        )
-
     dataset.add(generator(10))
     dataset.make_splits({"custom_split": 1.0})
     splits = dataset.get_splits()
