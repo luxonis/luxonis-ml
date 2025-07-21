@@ -56,13 +56,19 @@ class ParquetFileManager:
         for key in data:
             self.buffer[key] = []
         self.buffer["uuid"] = []
+        self.buffer["group_id"] = []
 
-    def write(self, uuid: str, data: ParquetRecord) -> None:
+    def write(self, uuid: str, data: ParquetRecord, group_id: str) -> None:
         """Writes a row to the current working parquet file.
 
+        @type uuid: str
+        @param uuid: A unique identifier for the row, typically a UUID.
         @type data: Dict
         @param data: A dictionary representing annotations, mapping
             annotation types to values.
+        @type group_id: str
+        @param group_id: An unique identifier for the group to which the
+            row belongs.
         """
 
         if not self.buffer:
@@ -72,6 +78,7 @@ class ParquetFileManager:
             self.buffer[key].append(data[key])
 
         self.buffer["uuid"].append(uuid)
+        self.buffer["group_id"].append(group_id)
 
         self.row_count += 1
         if self.row_count % self.num_rows == 0:

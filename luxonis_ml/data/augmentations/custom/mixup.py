@@ -69,7 +69,10 @@ class MixUp(BatchTransform):
         image1 = image_batch[0]
         image2 = self.resize(image_batch[1], image_shapes, "image", alpha)
 
-        return cv2.addWeighted(image1, alpha, image2, 1 - alpha, 0.0)
+        mixup_img = cv2.addWeighted(image1, alpha, image2, 1 - alpha, 0.0)
+        if mixup_img.ndim == 2:
+            mixup_img = mixup_img[..., None]
+        return mixup_img
 
     @override
     def apply_to_mask(

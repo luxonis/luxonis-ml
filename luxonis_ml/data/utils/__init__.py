@@ -5,6 +5,7 @@ from .data_utils import (
     get_heatmaps,
     get_missing_annotations,
     infer_task,
+    merge_uuids,
     rgb_to_bool_masks,
     warn_on_duplicates,
 )
@@ -46,6 +47,7 @@ __all__ = [
     "get_task_name",
     "get_task_type",
     "infer_task",
+    "merge_uuids",
     "plot_class_distribution",
     "plot_heatmap",
     "rgb_to_bool_masks",
