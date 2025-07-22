@@ -182,9 +182,9 @@ def delete(
 
     if not where:
         print(
-            "[yellow]No deletion target specified (local or remote). Nothing to delete.[/yellow]"
+            "[red]No deletion target specified (local or remote). Nothing to delete.[/red]"
         )
-        raise typer.Exit
+        raise typer.Exit(1)
 
     if not Confirm.ask(
         f"Delete dataset '{name}' with specified bucket '{bucket_storage}' from {where} storage?"
