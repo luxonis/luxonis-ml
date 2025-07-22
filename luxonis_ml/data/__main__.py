@@ -182,7 +182,7 @@ def delete(
 
     if not where:
         print(
-            "[yellow]No deletion target specified (local or remote). Nothing to delete.[/yellow]"
+            "[red]No deletion target specified (local or remote). Nothing to delete.[/red]"
         )
         raise typer.Exit
 
