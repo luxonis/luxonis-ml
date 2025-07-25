@@ -27,7 +27,6 @@ The `LuxonisLoader` class provides efficient access to dataset samples with conf
 | `keep_categorical_as_strings` | `bool`                                                                              | `False`            | Whether to keep categorical metadata as strings                                                                                                                                                         |
 | `update_mode`                 | `UpdateMode`                                                                        | `UpdateMode.ALL`   | Applicable to remote datasets. The loader internally calls the [`pull_from_cloud`](../datasets/README.md#pulling-from-remote-storage) method to download the dataset from the cloud.                    |
 | `filter_task_names`           | `Optional[List[str]]`                                                               | `None`             | If provided, only include annotations for these specified tasks, ignoring any others in the data.                                                                                                       |
-| `class_order_per_task`        | `Optional[Dict[str, List[str]]]`                                                    | `None`             | If provided, the classes for the specified tasks will be reordered in the dataset.                                                                                                                      |
 
 ## Output Structure
 

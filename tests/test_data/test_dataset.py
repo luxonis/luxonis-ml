@@ -1123,3 +1123,157 @@ def test_merge_on_different_machines(dataset_name: str, tempdir: Path):
         )
         == 6
     )
+
+
+def create_test_dataset_with_classes(
+    tempdir: Path, task_classes: dict[str, dict[str, int]]
+) -> LuxonisDataset:
+    """Helper function to create a test dataset with specific class
+    mappings."""
+
+    def generator() -> DatasetIterator:
+        for i in range(5):
+            img = create_image(i, tempdir)
+            yield {
+                "file": img,
+                "annotation": {
+                    "class": list(task_classes["classification"].keys())[
+                        i % len(task_classes["classification"])
+                    ],
+                    "boundingbox": {
+                        "x": 0.1 + i * 0.1,
+                        "y": 0.1 + i * 0.1,
+                        "w": 0.2,
+                        "h": 0.2,
+                    },
+                },
+                "task_name": "classification",
+            }
+
+    dataset = LuxonisDataset(
+        "test_class_order",
+        delete_local=True,
+        delete_remote=True,
+        bucket_storage=BucketStorage.LOCAL,
+    ).add(generator())
+
+    # Set the classes for the dataset
+    for task_name, classes in task_classes.items():
+        dataset.set_classes(classes, task=task_name)
+
+    dataset.make_splits(ratios=(1, 0, 0))
+    return dataset
+
+
+def test_class_order_per_task_valid_reordering(tempdir: Path):
+    """Test valid class reordering for a task."""
+    original_classes = {"classification": {"cat": 0, "dog": 1, "bird": 2}}
+
+    dataset = create_test_dataset_with_classes(tempdir, original_classes)
+
+    # Define new class order
+    class_order_per_task = {"classification": ["dog", "bird", "cat"]}
+    dataset.set_class_order_per_task(class_order_per_task)
+
+    # Verify that classes were reordered
+    expected_classes = {"dog": 0, "bird": 1, "cat": 2}
+    assert dataset.get_classes()["classification"] == expected_classes
+
+
+def test_class_order_per_task_multiple_tasks(tempdir: Path):
+    """Test class reordering for multiple tasks."""
+    original_classes = {
+        "classification": {"cat": 0, "dog": 1, "bird": 2},
+        "detection": {"person": 0, "car": 1, "bike": 2},
+    }
+
+    # Create a more complex dataset with multiple tasks
+    def generator() -> DatasetIterator:
+        for i in range(5):
+            img = create_image(i, tempdir)
+            yield {
+                "file": img,
+                "annotation": {
+                    "class": list(original_classes["classification"].keys())[
+                        i % 3
+                    ],
+                },
+                "task_name": "classification",
+            }
+
+        for i in range(5, 10):
+            img = create_image(i, tempdir)
+            yield {
+                "file": img,
+                "annotation": {
+                    "class": list(original_classes["detection"].keys())[
+                        (i - 5) % 3
+                    ],
+                },
+                "task_name": "classification_1",
+            }
+
+    dataset = LuxonisDataset(
+        "test_multi_task_class_order",
+        delete_local=True,
+        delete_remote=True,
+        bucket_storage=BucketStorage.LOCAL,
+    ).add(generator())
+
+    for task_name, classes in original_classes.items():
+        dataset.set_classes(classes, task=task_name)
+
+    dataset.make_splits(ratios=(1, 0, 0))
+
+    # Define new class orders for both tasks
+    class_order_per_task = {
+        "classification": ["bird", "cat", "dog"],
+        "classification_1": ["bike", "person", "car"],
+    }
+
+    dataset.set_class_order_per_task(class_order_per_task)
+
+    # Verify both tasks were reordered correctly
+    expected_classification = {"bird": 0, "cat": 1, "dog": 2}
+    expected_detection = {"bike": 0, "person": 1, "car": 2}
+
+    assert dataset.get_classes()["classification"] == expected_classification
+    assert dataset.get_classes()["classification_1"] == expected_detection
+
+
+def test_class_order_per_task_invalid_task_name(tempdir: Path):
+    """Test error when providing an invalid task name."""
+    original_classes = {"classification": {"cat": 0, "dog": 1, "bird": 2}}
+
+    dataset = create_test_dataset_with_classes(tempdir, original_classes)
+
+    # Define class order for non-existent task
+    class_order_per_task = {"invalid_task": ["cat", "dog", "bird"]}
+
+    with pytest.raises(
+        ValueError,
+        match=r"Task invalid_task not found in dataset tasks\. Available tasks: \['classification'\]",
+    ):
+        dataset.set_class_order_per_task(class_order_per_task)
+
+
+def test_class_order_per_task_mismatched_classes(tempdir: Path):
+    """Test error when provided classes don't match dataset classes."""
+    original_classes = {"classification": {"cat": 0, "dog": 1, "bird": 2}}
+
+    dataset = create_test_dataset_with_classes(tempdir, original_classes)
+
+    # Define class order with wrong class names
+    class_order_per_task = {
+        "classification": [
+            "cat",
+            "dog",
+            "fish",
+        ]  # "fish" is not in original classes
+    }
+
+    with pytest.raises(
+        ValueError,
+        match=r"Classes for task classification do not match the classes in the dataset.",
+    ):
+        dataset.set_class_order_per_task(class_order_per_task)

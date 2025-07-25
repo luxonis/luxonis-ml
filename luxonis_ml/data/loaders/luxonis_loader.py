@@ -63,7 +63,6 @@ class LuxonisLoader(BaseLoader):
         keep_categorical_as_strings: bool = False,
         update_mode: UpdateMode | Literal["all", "missing"] = UpdateMode.ALL,
         filter_task_names: list[str] | None = None,
-        class_order_per_task: dict[str, list[str]] | None = None,
     ) -> None:
         """A loader class used for loading data from L{LuxonisDataset}.
 
@@ -131,9 +130,6 @@ class LuxonisLoader(BaseLoader):
         @param filter_task_names: List of task names to filter the dataset by.
             If C{None}, all task names are included. Defaults to C{None}.
             This is useful for filtering out tasks that are not needed for a specific use case.
-        @type class_order_per_task: Optional[Dict[str, List[str]]]
-        @param class_order_per_task: Dictionary mapping task names to a list of class names.
-            If provided, the classes for the specified tasks will be reordered.
         """
 
         self.exclude_empty_annotations = exclude_empty_annotations
@@ -141,8 +137,6 @@ class LuxonisLoader(BaseLoader):
         self.width = width
 
         self.dataset = dataset
-        if class_order_per_task is not None:
-            self._set_class_order_per_task(class_order_per_task)
 
         self.sync_mode = self.dataset.is_remote
         self.keep_categorical_as_strings = keep_categorical_as_strings
@@ -556,53 +550,3 @@ class LuxonisLoader(BaseLoader):
                 source_to_path[source_name] = path
 
             self.idx_to_img_paths[idx] = dict(sorted(source_to_path.items()))
-
-    def _set_class_order_per_task(
-        self, class_order_per_task: dict[str, list[str]]
-    ) -> None:
-        """Sets the class order for provided tasks. This method checks
-        if the provided class order matches the dataset's classes and
-        updates the dataset accordingly.
-
-        @type class_order_per_task: dict[str, list[str]]
-        @param class_order_per_task: A dictionary mapping task names to
-            a list of class names. The class names must match the
-            dataset's classes for the respective tasks.
-        @raises ValueError: If the task name is not found in the dataset
-            tasks or if the provided class names do not match the
-            dataset's classes.
-        """
-        for task_name, task_classes in class_order_per_task.items():
-            if task_name not in self.dataset.get_tasks():
-                raise ValueError(
-                    f"Task {task_name} not found in dataset tasks. "
-                    f"Available tasks: {list(self.dataset.get_tasks().keys())}"
-                )
-            if set(task_classes) != set(
-                self.dataset.get_classes()[task_name].keys()
-            ):
-                raise ValueError(
-                    f"Classes for task {task_name} do not match "
-                    f"the classes in the dataset. "
-                    f"Expected: {set(self.dataset.get_classes()[task_name].keys())}, "
-                    f"Got: {set(task_classes)}."
-                )
-
-            current_classes = list(
-                self.dataset.get_classes()[task_name].keys()
-            )
-            if task_classes != current_classes:
-                logger.warning(
-                    f"Reordering classes for task {task_name}. "
-                    f"Original order: {current_classes}, "
-                    f"New order: {task_classes}."
-                )
-
-                self.dataset.set_classes(
-                    classes={
-                        class_name: i
-                        for i, class_name in enumerate(task_classes)
-                    },
-                    task=task_name,
-                    rewrite_metadata=False,
-                )
