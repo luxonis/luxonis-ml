@@ -744,6 +744,7 @@ class LuxonisDataset(BaseDataset):
         self,
         classes: list[str] | dict[str, int],
         task: str | None = None,
+        rewrite_metadata: bool = True,
     ) -> None:
         if task is None:
             tasks = self.get_task_names()
@@ -753,7 +754,8 @@ class LuxonisDataset(BaseDataset):
         for t in tasks:
             self._metadata.set_classes(classes, t)
 
-        self._write_metadata()
+        if rewrite_metadata:
+            self._write_metadata()
 
     @override
     def get_classes(self) -> dict[str, dict[str, int]]:
@@ -1837,3 +1839,49 @@ class LuxonisDataset(BaseDataset):
         logger.info(
             "Successfully removed duplicate files and annotations from the dataset."
         )
+
+    def set_class_order_per_task(
+        self, class_order_per_task: dict[str, list[str]]
+    ) -> None:
+        """Sets the class order for provided tasks. This method checks
+        if the provided class order matches the dataset's classes and
+        updates the dataset accordingly.
+
+        @type class_order_per_task: dict[str, list[str]]
+        @param class_order_per_task: A dictionary mapping task names to
+            a list of class names. The class names must match the
+            dataset's classes for the respective tasks.
+        @raises ValueError: If the task name is not found in the dataset
+            tasks or if the provided class names do not match the
+            dataset's classes.
+        """
+        for task_name, task_classes in class_order_per_task.items():
+            if task_name not in self.get_tasks():
+                raise ValueError(
+                    f"Task {task_name} not found in dataset tasks. "
+                    f"Available tasks: {list(self.get_tasks().keys())}"
+                )
+            if set(task_classes) != set(self.get_classes()[task_name].keys()):
+                raise ValueError(
+                    f"Classes for task {task_name} do not match "
+                    f"the classes in the dataset. "
+                    f"Expected: {set(self.get_classes()[task_name].keys())}, "
+                    f"Got: {set(task_classes)}."
+                )
+
+            current_classes = list(self.get_classes()[task_name].keys())
+            if task_classes != current_classes:
+                logger.warning(
+                    f"Reordering classes for task {task_name}. "
+                    f"Original order: {current_classes}, "
+                    f"New order: {task_classes}."
+                )
+
+                self.set_classes(
+                    classes={
+                        class_name: i
+                        for i, class_name in enumerate(task_classes)
+                    },
+                    task=task_name,
+                    rewrite_metadata=False,
+                )
