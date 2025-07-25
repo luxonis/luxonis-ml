@@ -25,6 +25,7 @@ from typing_extensions import Self, override
 from luxonis_ml.data.utils.parquet import ParquetRecord
 from luxonis_ml.typing import PathType, check_type
 from luxonis_ml.utils import BaseModelExtraForbid
+from luxonis_ml.utils.logging import log_once
 
 KeypointVisibility: TypeAlias = Literal[0, 1, 2]
 NormalizedFloat: TypeAlias = Annotated[float, Field(ge=0, le=1)]
@@ -548,9 +549,9 @@ class DatasetRecord(BaseModelExtraForbid):
     @classmethod
     def validate_task_name(cls, values: dict[str, Any]) -> dict[str, Any]:
         if "task" in values:
-            warnings.warn(
+            log_once(
+                logger.warning,
                 "The 'task' field is deprecated. Use 'task_name' instead.",
-                stacklevel=2,
             )
             values["task_name"] = values.pop("task")
         return values

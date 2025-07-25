@@ -255,11 +255,22 @@ def warn_on_duplicates(df: pl.LazyFrame) -> None:
             logger.warning(
                 f"UUID {item['uuid']} is the same for multiple files: {item['files']}"
             )
-
-    for item in duplicates_info["duplicate_annotations"]:
         logger.warning(
-            f"File '{item['file_name']}' of task '{item['task_name']}' has the "
-            f"same '{item['task_type']}' annotation '{item['annotation']}' repeated {item['count']} times."
+            "Duplicate files detected. "
+            "To clean them up, call `dataset.remove_duplicates()` "
+            "or run the CLI command `luxonis_ml data sanitize`."
+        )
+
+    if duplicates_info["duplicate_annotations"]:
+        for item in duplicates_info["duplicate_annotations"]:
+            logger.warning(
+                f"File '{item['file_name']}' of task '{item['task_name']}' has the "
+                f"same '{item['task_type']}' annotation '{item['annotation']}' repeated {item['count']} times."
+            )
+        logger.warning(
+            "Duplicate annotations detected. "
+            "To clean them up, call `dataset.remove_duplicates()` "
+            "or run the CLI command `luxonis_ml data sanitize`."
         )
 
 
