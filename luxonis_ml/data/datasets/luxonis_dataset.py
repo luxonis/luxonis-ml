@@ -1294,10 +1294,12 @@ class LuxonisDataset(BaseDataset):
         if definitions is not None:
             n_files = sum(map(len, definitions.values()))
             if n_files > len(self):
-                raise ValueError(
+                logger.warning(
                     "Dataset size is smaller than the total number of files in the definitions. "
-                    f"Dataset size: {len(self)}, Definitions: {n_files}."
+                    f"Dataset size: {len(self)}, Definitions: {n_files}. "
+                    "Duplicate files will be filtered out and extra files in definitions will be ignored."
                 )
+                self.remove_duplicates()
 
         splits_to_update: list[str] = []
         new_splits: dict[str, list[str]] = {}
@@ -1363,12 +1365,19 @@ class LuxonisDataset(BaseDataset):
                     raise TypeError(
                         "Must provide splits as a list of filepaths"
                     )
-                ids = [
-                    find_filepath_group_id(
-                        filepath, index, raise_on_missing=True
+                ids: list[str] = []
+                for filepath in filepaths:
+                    group_id = find_filepath_group_id(
+                        filepath, index, raise_on_missing=False
                     )
-                    for filepath in filepaths
-                ]
+
+                    if group_id is None:
+                        logger.warning(
+                            f"No group ID found for '{filepath}' in definitions; skipping."
+                        )
+                        continue
+                    ids.append(group_id)
+
                 new_splits[split] = list(set(ids))
 
         for split, group_ids in new_splits.items():
@@ -1825,3 +1834,6 @@ class LuxonisDataset(BaseDataset):
                 remote_dir="annotations",
                 copy_contents=True,
             )
+        logger.info(
+            "Successfully removed duplicate files and annotations from the dataset."
+        )
