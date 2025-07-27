@@ -152,8 +152,12 @@ class LuxonisFileSystem:
             # NOTE: In theory boto3 should look in environment variables automatically but it doesn't seem to work
             fs = fsspec.filesystem(
                 self.protocol,
-                key=environ.AWS_ACCESS_KEY_ID,
-                secret=environ.AWS_SECRET_ACCESS_KEY,
+                key=environ.AWS_ACCESS_KEY_ID.get_secret_value()
+                if environ.AWS_ACCESS_KEY_ID is not None
+                else None,
+                secret=environ.AWS_SECRET_ACCESS_KEY.get_secret_value()
+                if environ.AWS_SECRET_ACCESS_KEY is not None
+                else None,
                 endpoint_url=environ.AWS_S3_ENDPOINT_URL,
             )
         elif self.protocol == "gcs":

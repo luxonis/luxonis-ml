@@ -285,7 +285,7 @@ class LuxonisParser(Generic[T]):
                 "Please set it to your Roboflow API key."
             )
 
-        rf = Roboflow(api_key=environ.ROBOFLOW_API_KEY)
+        rf = Roboflow(api_key=environ.ROBOFLOW_API_KEY.get_secret_value())
         parts = dataset_dir.split("roboflow://")[1].split("/")
         if len(parts) != 4:
             raise ValueError(
