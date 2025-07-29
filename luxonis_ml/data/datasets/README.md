@@ -111,9 +111,9 @@ The `set_class_order_per_task()` method allows you to define a specific ordering
 
 #### Persistence & Usage Notes
 
-* **View-only ordering**: This method does *not* rewrite the dataset’s stored metadata (since `rewrite_metadata=False`). Instead, it applies the new class order as a view on the dataset object.
-* **New classes**: If new classes are added to the dataset, you must call `set_class_order_per_task()` again to include and order them.
-* **Loader initialization**: For `LuxonisLoader`, apply class ordering *before* passing the dataset into the loader to avoid unintended reordering during loader setup.
+- **View-only ordering**: This method does *not* rewrite the dataset’s stored metadata (since `rewrite_metadata=False`). Instead, it applies the new class order as a view on the dataset object.
+- **New classes**: If new classes are added to the dataset, you must call `set_class_order_per_task()` again to include and order them.
+- **Loader initialization**: For `LuxonisLoader`, apply class ordering *before* passing the dataset into the loader to avoid unintended reordering during loader setup.
 
 ## In-Depth Explanation of luxonis-ml Dataset Storage
 
