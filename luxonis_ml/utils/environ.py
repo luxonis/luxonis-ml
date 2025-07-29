@@ -30,7 +30,7 @@ class Environ(BaseSettings):
     POSTGRES_USER: str | None = None
     POSTGRES_PASSWORD: str | None = None
     POSTGRES_HOST: str | None = None
-    POSTGRES_PORT: str | None = None
+    POSTGRES_PORT: int | None = None
     POSTGRES_DB: str | None = None
 
     LUXONISML_BUCKET: str | None = None
