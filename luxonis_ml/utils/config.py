@@ -1,5 +1,5 @@
 import ast
-from pathlib import PurePath
+from pathlib import Path, PurePath
 from typing import Any, TypeVar
 
 import yaml
@@ -19,7 +19,7 @@ class LuxonisConfig(BaseModelExtraForbid):
     @classmethod
     def get_config(
         cls,
-        cfg: str | Params | None = None,
+        cfg: PathType | Params | None = None,
         overrides: Params | list[str] | tuple[str, ...] | None = None,
     ) -> Self:
         """Loads config from a yaml file or a dictionary.
@@ -50,7 +50,9 @@ class LuxonisConfig(BaseModelExtraForbid):
         overrides = overrides or {}
         cfg = cfg or {}
 
-        if isinstance(cfg, str):
+        if isinstance(cfg, Path):
+            data = yaml.safe_load(cfg.read_text(encoding="utf-8"))
+        elif isinstance(cfg, str):
             fs = LuxonisFileSystem(cfg)
             buffer = fs.read_to_byte_buffer()
             data = yaml.safe_load(buffer)

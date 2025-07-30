@@ -81,7 +81,7 @@ def test_invalid_config_path():
 
 
 def test_config_simple(config_file: str):
-    cfg = Config.get_config(config_file)
+    cfg = Config.get_config(Path(config_file))
     assert (
         cfg.sub_config.str_sub_param
         == CONFIG_DATA["sub_config"]["str_sub_param"]
