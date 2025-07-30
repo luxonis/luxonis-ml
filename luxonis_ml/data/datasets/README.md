@@ -99,6 +99,22 @@ The `push_to_cloud()` method is used to upload a local dataset to the specified 
 | `update_mode`    | `UpdateMode`    | `UpdateMode.MISSING` | Whether to always push (overwrite) the dataset’s media folder to the cloud or only upload missing files. |
 | `bucket_storage` | `BucketStorage` | Required             | The cloud storage destination to which local media files should be uploaded (e.g., GCS, S3, Azure).      |
 
+### Setting Class Order per Task
+
+The `set_class_order_per_task()` method allows you to define a specific ordering of classes for one or more tasks, without rewriting the dataset’s metadata.
+
+#### Parameters
+
+| Parameter              | Type                   | Default  | Description                                                                                                  |
+| ---------------------- | ---------------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
+| `class_order_per_task` | `dict[str, list[str]]` | Required | Mapping of task names to ordered lists of class names. Class names must exactly match the dataset’s classes. |
+
+#### Persistence & Usage Notes
+
+- **View-only ordering**: This method does *not* rewrite the dataset’s stored metadata (since `rewrite_metadata=False`). Instead, it applies the new class order as a view on the dataset object.
+- **New classes**: If new classes are added to the dataset, you must call `set_class_order_per_task()` again to include and order them.
+- **Loader initialization**: For `LuxonisLoader`, apply class ordering *before* passing the dataset into the loader to avoid unintended reordering during loader setup.
+
 ## In-Depth Explanation of luxonis-ml Dataset Storage
 
 ### File Structure

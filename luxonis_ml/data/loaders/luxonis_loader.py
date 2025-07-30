@@ -137,6 +137,7 @@ class LuxonisLoader(BaseLoader):
         self.width = width
 
         self.dataset = dataset
+
         self.sync_mode = self.dataset.is_remote
         self.keep_categorical_as_strings = keep_categorical_as_strings
         self.filter_task_names = filter_task_names
