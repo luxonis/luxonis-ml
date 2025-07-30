@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from pydantic import model_serializer
+from pydantic import NonNegativeInt, model_serializer
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from luxonis_ml.typing import Params
@@ -30,7 +30,7 @@ class Environ(BaseSettings):
     POSTGRES_USER: str | None = None
     POSTGRES_PASSWORD: str | None = None
     POSTGRES_HOST: str | None = None
-    POSTGRES_PORT: int | None = None
+    POSTGRES_PORT: NonNegativeInt | None = None
     POSTGRES_DB: str | None = None
 
     LUXONISML_BUCKET: str | None = None
