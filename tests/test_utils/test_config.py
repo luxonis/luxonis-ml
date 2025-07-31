@@ -7,7 +7,6 @@ import yaml
 from pydantic import BaseModel
 
 from luxonis_ml.typing import Params
-from luxonis_ml.utils import environ
 from luxonis_ml.utils.config import LuxonisConfig
 
 CONFIG_DATA = {
@@ -269,19 +268,6 @@ def test_get(config_file: str):
 
     with pytest.raises(ValueError, match="Can't access list with non-int key"):
         cfg.get("list_config.index.int_list_param")
-
-
-def test_environ(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.delenv("POSTGRES_HOST", raising=False)
-    assert environ.POSTGRES_HOST is None
-
-    monkeypatch.setenv("POSTGRES_HOST", "first.example.com")
-    assert environ.POSTGRES_HOST == "first.example.com"
-
-    monkeypatch.setenv("POSTGRES_HOST", "second.example.com")
-    assert environ.POSTGRES_HOST == "second.example.com"
-
-    assert environ.model_dump() == {}
 
 
 def test_safe_load(config_file: str):

@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from pydantic import NonNegativeInt, model_serializer
+from pydantic import NonNegativeInt, SecretStr, model_serializer
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from luxonis_ml.typing import Params
@@ -17,18 +17,18 @@ class Environ(BaseSettings):
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
 
-    AWS_ACCESS_KEY_ID: str | None = None
-    AWS_SECRET_ACCESS_KEY: str | None = None
+    AWS_ACCESS_KEY_ID: SecretStr | None = None
+    AWS_SECRET_ACCESS_KEY: SecretStr | None = None
     AWS_S3_ENDPOINT_URL: str | None = None
 
     MLFLOW_CLOUDFLARE_ID: str | None = None
-    MLFLOW_CLOUDFLARE_SECRET: str | None = None
+    MLFLOW_CLOUDFLARE_SECRET: SecretStr | None = None
     MLFLOW_S3_BUCKET: str | None = None
     MLFLOW_S3_ENDPOINT_URL: str | None = None
     MLFLOW_TRACKING_URI: str | None = None
 
     POSTGRES_USER: str | None = None
-    POSTGRES_PASSWORD: str | None = None
+    POSTGRES_PASSWORD: SecretStr | None = None
     POSTGRES_HOST: str | None = None
     POSTGRES_PORT: NonNegativeInt | None = None
     POSTGRES_DB: str | None = None
@@ -38,9 +38,9 @@ class Environ(BaseSettings):
     LUXONISML_TEAM_ID: str = "offline"
     LUXONISML_DISABLE_SETUP_LOGGING: bool = False
 
-    ROBOFLOW_API_KEY: str | None = None
+    ROBOFLOW_API_KEY: SecretStr | None = None
 
-    GOOGLE_APPLICATION_CREDENTIALS: str | None = None
+    GOOGLE_APPLICATION_CREDENTIALS: SecretStr | None = None
 
     LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = (
         "INFO"
