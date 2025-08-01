@@ -170,9 +170,12 @@ class LuxonisConfig(BaseModelExtraForbid):
                     else:
                         data[index] = parsed_value
                 elif isinstance(data, list):
-                    raise ValueError(
-                        "Only int keys are allowed for list values"
-                    )
+                    if key == "+":
+                        data.append(parsed_value)
+                    else:
+                        raise ValueError(
+                            "Only int keys are allowed for list values"
+                        )
                 else:
                     data[key] = parsed_value
 
@@ -180,27 +183,31 @@ class LuxonisConfig(BaseModelExtraForbid):
 
             key_tail = ".".join(tail)
 
-            if key.isdecimal():
-                index = int(key)
+            if key.isdecimal() or key == "+":
                 if not isinstance(data, list):
                     raise ValueError(
                         "int keys are not allowed for non-list values"
                     )
-                if index >= len(data):
-                    index = len(data)
-                    if data:
-                        data.append(type(data[0])())
-                        _merge_recursive(data[index], key_tail, value)
-                    else:
-                        # Try to guess type, backtrack if fails
-                        data.append([])
-                        try:
-                            _merge_recursive(data[index], key_tail, value)
-                        except Exception:
-                            data[index] = {}
-                            _merge_recursive(data[index], key_tail, value)
+                if key == "+":
+                    data.append(type(data[0])())
+                    _merge_recursive(data[-1], key_tail, value)
                 else:
-                    _merge_recursive(data[index], key_tail, value)
+                    index = int(key)
+                    if index >= len(data):
+                        index = len(data)
+                        if data:
+                            data.append(type(data[0])())
+                            _merge_recursive(data[index], key_tail, value)
+                        else:
+                            # Try to guess type, backtrack if fails
+                            data.append([])
+                            try:
+                                _merge_recursive(data[index], key_tail, value)
+                            except Exception:
+                                data[index] = {}
+                                _merge_recursive(data[index], key_tail, value)
+                    else:
+                        _merge_recursive(data[index], key_tail, value)
             else:
                 if not isinstance(data, dict):
                     raise ValueError(

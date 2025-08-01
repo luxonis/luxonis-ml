@@ -114,7 +114,7 @@ def test_config_simple_override(config_file: str):
     )
 
 
-def test_config_list_override(config_file: str):
+def test_config_override_as_list(config_file: str):
     overrides = ["sub_config.str_sub_param", "sub_param_override"]
     cfg = Config.get_config(config_file, overrides)
     assert cfg.sub_config.str_sub_param == overrides[1]
@@ -153,20 +153,24 @@ def test_config_override_list(config_file: str):
         "list_config.0.float_list_param": 2.5,
         "list_config.0.str_list_param": "test",
         "list_config.1.int_list_param": 20,
+        "list_config.+.int_list_param": 30,
         "nested_list_param.0": [30],
         "nested_list_param.0.1": 40,
+        "nested_list_param.0.+": 50,
     }
     cfg = Config.get_config(config_file, overrides)
     # Testing list configurations
-    assert len(cfg.list_config) == 2
+    assert len(cfg.list_config) == 3
     assert cfg.list_config[0].int_list_param == 10
     assert cfg.list_config[0].float_list_param == 2.5
     assert cfg.list_config[0].str_list_param == "test"
     assert cfg.list_config[1].int_list_param == 20
     assert cfg.list_config[1].float_list_param == 1.0
     assert cfg.list_config[1].str_list_param is None
+    assert cfg.list_config[2].int_list_param == 30
     assert cfg.nested_list_param[0][0] == 30
     assert cfg.nested_list_param[0][1] == 40
+    assert cfg.nested_list_param[0][2] == 50
 
 
 def test_config_list_override_json(config_file: str):
