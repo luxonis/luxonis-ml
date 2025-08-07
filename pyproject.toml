@@ -39,7 +39,6 @@ version = { attr = "luxonis_ml.__version__" }
 data = { file = ["luxonis_ml/data/requirements.txt"] }
 utils = { file = ["luxonis_ml/utils/requirements.txt"] }
 tracker = { file = ["luxonis_ml/tracker/requirements.txt"] }
-embedd = { file = ["luxonis_ml/embeddings/requirements.txt"] }
 nn_archive = { file = ["luxonis_ml/nn_archive/requirements.txt"] }
 
 roboflow = { file = ["extra_requirements/roboflow.txt"] }
@@ -52,7 +51,6 @@ file = [
   "luxonis_ml/data/requirements.txt",
   "luxonis_ml/utils/requirements.txt",
   "luxonis_ml/tracker/requirements.txt",
-  "luxonis_ml/embeddings/requirements.txt",
   "luxonis_ml/nn_archive/requirements.txt",
   "extra_requirements/roboflow.txt",
   "extra_requirements/gcs.txt",
@@ -66,7 +64,6 @@ file = [
   "luxonis_ml/utils/requirements.txt",
   "luxonis_ml/utils/requirements-fsspec.txt",
   "luxonis_ml/tracker/requirements.txt",
-  "luxonis_ml/embeddings/requirements.txt",
   "luxonis_ml/nn_archive/requirements.txt",
   "extra_requirements/roboflow.txt",
   "extra_requirements/gcs.txt",
@@ -148,7 +145,6 @@ ignore = [
   "W191",
 ]
 unfixable = ["B905", "PLC0208"]
-exclude = ["luxonis_ml/embeddings/*", "examples/*"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["ANN201"]
@@ -162,12 +158,7 @@ wrap-summaries = 72
 wrap-descriptions = 72
 
 [tool.pyright]
-exclude = [
-  "luxonis_ml/embeddings",
-  "luxonis_ml/tracker",
-  "examples",
-  "__main__.py",
-]
+exclude = ["luxonis_ml/tracker", "examples", "__main__.py"]
 typeCheckingMode = "basic"
 reportMissingTypeStubs = "none"
 reportPrivateImportUsage = "none"
@@ -178,12 +169,7 @@ reportUnnecessaryIsInstance = "none"
 
 [tool.pyleft]
 paths = ["luxonis_train"]
-exclude = [
-  "luxonis_ml/embeddings",
-  "luxonis_ml/tracker",
-  "examples",
-  "__main__.py",
-]
+exclude = ["luxonis_ml/tracker", "examples", "__main__.py"]
 
 [tool.pytest]
 doctest_optionflags = "NORMALIZE_WHITESPACE IGNORE_EXCEPTION_DETAIL NUMBER"
@@ -193,12 +179,7 @@ testpaths = ["tests"]
 addopts = "--disable-warnings"
 
 [tool.coverage.run]
-omit = [
-  "luxonis_ml/embeddings/*",
-  "luxonis_ml/utils/logging.py",
-  "luxonis_ml/tracker/*",
-  "**/__main__.py",
-]
+omit = ["luxonis_ml/utils/logging.py", "luxonis_ml/tracker/*", "**/__main__.py"]
 source = ["luxonis_ml", "tests"]
 
 [tool.coverage.report]
