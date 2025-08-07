@@ -3,8 +3,6 @@ name: CI
 on:
   pull_request:
   workflow_dispatch:
-  push:
-    branches: [ main ]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -12,7 +10,6 @@ concurrency:
 
 jobs:
   auto-assigner:
-    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -20,7 +17,6 @@ jobs:
         uses: toshimaru/auto-author-assign@v2.1.1
 
   labeler:
-    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -35,7 +31,6 @@ jobs:
           configuration-path: .github/labeler.yaml
 
   pre-commit:
-    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -51,7 +46,6 @@ jobs:
         uses: pre-commit/action@v3.0.1
 
   docs:
-    if: ${{ github.event_name == 'pull_request' }}
     needs: pre-commit
     runs-on: ubuntu-latest
 
@@ -68,7 +62,6 @@ jobs:
         run: pydoctor --docformat=epytext luxonis_ml
 
   type-check:
-    if: ${{ github.event_name == 'pull_request' }}
     needs: pre-commit
     runs-on: ubuntu-latest
 
@@ -96,7 +89,7 @@ jobs:
           project: pyproject.toml
 
   semgrep:
-    if: ${{ github.actor != 'dependabot[bot]' && github.event_name == 'pull_request' }})
+    if: ${{ github.actor != 'dependabot[bot]' }})
     needs: pre-commit
     runs-on: ubuntu-latest
     container:
@@ -149,7 +142,6 @@ jobs:
       matrix:
         os: [ ubuntu-latest, windows-latest ]
 
-    if: ${{ github.event_name == 'pull_request' }}
     needs: [type-check, semgrep]
     runs-on: ${{ matrix.os }}
 
@@ -212,29 +204,6 @@ jobs:
           name: coverage
           path: coverage.xml
           overwrite: true
-
-  update-base-report:
-    if: ${{ github.event_name == 'push' }}
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
-
-      - name: Download artifacts
-        uses: dawidd6/action-download-artifact@v7
-        with:
-          name: coverage
-          path: coverage.xml
-          workflow: ci.yaml
-
-      - name: Upload coverage results to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: false
 
 
   check-requirements:
