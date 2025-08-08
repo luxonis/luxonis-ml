@@ -153,6 +153,17 @@ Luxonis Data Format supports **annotations optionally structured into different 
 
 The content of the `"annotation"` field depends on the task type and follows the [Annotation Format](#annotation-format) described later in this document.
 
+#### Task Names
+
+The `task_name` field is used to group specific annotations together. This can be used to effectively store different datasets within a single Luxonis dataset, allowing for better organization and management of annotations.
+
+Typical usage of `task_name` includes:
+
+- Dataset containing `keypoint` task with multiple classes, where each class contain different number of keypoints. In this case, each class must belong to its own task group, e.g. `instance_keypoints_car`, `instance_keypoints_motorbike`. This is necessary in order for `LuxonisLoader` to be able to stack the keypoints from different classes together to transform them into a single numpy array.
+- Dataset containing `segmentation` task together with other tasks, such as `instance_keypoints` or `boundingbox`. In this case, the `segmentation` task should have its own task group, e.g. `segmentation`. This is necessary because the `LuxonisLoader` automatically adds a special `background` class to the semantic segmentation task, which is not applicable to other tasks.
+
+If not `task_name` is specified, a default task name of `""` (empty string) will be used, which means that all annotations will be grouped together.
+
 #### Adding Data with a Generator Function
 
 The recommended approach for adding data is to create a generator function that yields data entries one by one.
@@ -451,9 +462,12 @@ parser = LuxonisParser(
   dataset_name="my_dataset",
   dataset_type=DatasetType.COCO,
   task_name={
-      "semantic_segmentation": "TorsoLimbs",
-      "semantic_segmentation": "HeadNeck",
-      "instance_keypoints": "FullPersonBody"
+      "hand": "TorsoLimbs",
+      "leg": "TorsoLimbs",
+      "torso": "TorsoLimbs",
+      "head": "HeadNeck",
+      "neck": "HeadNeck",
+      "joint": "FullPersonBody"
   },
 ```
 
@@ -488,6 +502,9 @@ A single class label for the entire image.
     "class": str,
 }
 ```
+
+> \[!NOTE\]
+> The `classification` task is always added to the dataset.
 
 ### Bounding Box
 
