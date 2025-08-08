@@ -7,9 +7,6 @@ on:
 jobs:
   update-base-report:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        suite: [unit, predefined, combinations, misc]
 
     steps:
       - name: Checkout
@@ -20,7 +17,7 @@ jobs:
       - name: Download artifacts
         uses: dawidd6/action-download-artifact@v7
         with:
-          name: coverage-${{ matrix.suite }}
+          name: coverage
           path: coverage.xml
           workflow: ci.yaml
 
