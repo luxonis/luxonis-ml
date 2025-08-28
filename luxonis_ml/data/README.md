@@ -389,7 +389,7 @@ The supported formats are:
 - **COCO** - We support COCO JSON format in two variants:
 
   - [FiftyOne layout](https://docs.voxel51.com/user_guide/export_datasets.html#cocodetectiondataset-export)
-    ````plaintext
+    ```plaintext
         dataset_dir/
         ├── train/
         │   ├── data/
@@ -403,10 +403,9 @@ The supported formats are:
         └── test/
             ├── data/
             └── labels.json
-        ```
-    ````
+    ```
   - [RoboFlow](https://roboflow.com/formats/coco-json)
-    ````plaintext
+    ```plaintext
         dataset_dir/
             ├── train/
             │   ├── img1.jpg
@@ -415,8 +414,7 @@ The supported formats are:
             │   └── _annotations.coco.json
             ├── valid/
             └── test/
-        ```
-    ````
+    ```
 
 - [**Pascal VOC XML**](https://roboflow.com/formats/pascal-voc-xml)
 
@@ -507,18 +505,18 @@ The supported formats are:
 - [**SOLO**](https://docs.unity3d.com/Packages/com.unity.perception@1.0/manual/Schema/SoloSchema.html)
 
   ```plaintext
-      dataset_dir/
-      ├── train/
-      │   ├── metadata.json
-      │   ├── sensor_definitions.json
-      │   ├── annotation_definitions.json
-      │   ├── metric_definitions.json
-      │   └── sequence.<SequenceNUM>/
-      │       ├── step<StepNUM>.camera.jpg
-      │       ├── step<StepNUM>.frame_data.json
-      │       └── (OPTIONAL: step<StepNUM>.camera.semantic segmentation.jpg)
-      ├── valid/
-      └── test/
+    dataset_dir/
+    ├── train/
+    │   ├── metadata.json
+    │   ├── sensor_definitions.json
+    │   ├── annotation_definitions.json
+    │   ├── metric_definitions.json
+    │   └── sequence.<SequenceNUM>/
+    │       ├── step<StepNUM>.camera.jpg
+    │       ├── step<StepNUM>.frame_data.json
+    │       └── (OPTIONAL: step<StepNUM>.camera.semantic segmentation.jpg)
+    ├── valid/
+    └── test/
   ```
 
 - **Classification Directory** - A directory with subdirectories for each class
