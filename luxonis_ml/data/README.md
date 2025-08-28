@@ -387,53 +387,176 @@ for img, labels in loader:
 The supported formats are:
 
 - **COCO** - We support COCO JSON format in two variants:
+
+  - [FiftyOne layout](https://docs.voxel51.com/user_guide/export_datasets.html#cocodetectiondataset-export)
+    ```plaintext
+        dataset_dir/
+        ├── train/
+        │   ├── data/
+        │   │   ├── img1.jpg
+        │   │   ├── img2.jpg
+        │   │   └── ...
+        │   └── labels.json
+        ├── validation/
+        │   ├── data/
+        │   └── labels.json
+        └── test/
+            ├── data/
+            └── labels.json
+    ```
   - [RoboFlow](https://roboflow.com/formats/coco-json)
-  - [FiftyOne](https://docs.voxel51.com/user_guide/export_datasets.html#cocodetectiondataset-export)
+    ```plaintext
+        dataset_dir/
+            ├── train/
+            │   ├── img1.jpg
+            │   ├── img2.jpg
+            │   └── ...
+            │   └── _annotations.coco.json
+            ├── valid/
+            └── test/
+    ```
+
 - [**Pascal VOC XML**](https://roboflow.com/formats/pascal-voc-xml)
+
+  ```plaintext
+      dataset_dir/
+      ├── train/
+      │   ├── img1.jpg
+      │   ├── img1.xml
+      │   └── ...
+      ├── valid/
+      └── test/
+  ```
+
 - [**YOLO Darknet TXT**](https://roboflow.com/formats/yolo-darknet-txt)
+
+  ```plaintext
+      dataset_dir/
+      ├── train/
+      │   ├── img1.jpg
+      │   ├── img1.txt
+      │   ├── ...
+      │   └── _darknet.labels
+      ├── valid/
+      └── test/
+  ```
+
 - [**YOLOv4 PyTorch TXT**](https://roboflow.com/formats/yolov4-pytorch-txt)
+
+  ```plaintext
+      dataset_dir/
+      ├── train/
+      │   ├── img1.jpg
+      │   ├── img2.jpg
+      │   ├── ...
+      │   ├── _annotations.txt
+      │   └── _classes.txt
+      ├── valid/
+      └── test/
+  ```
+
 - [**MT YOLOv6**](https://roboflow.com/formats/mt-yolov6)
+
+  ```plaintext
+      dataset_dir/
+      ├── images/
+      │   ├── train/
+      │   │   ├── img1.jpg
+      │   │   ├── img2.jpg
+      │   │   └── ...
+      │   ├── valid/
+      │   └── test/
+      ├── labels/
+      │   ├── train/
+      │   │   ├── img1.txt
+      │   │   ├── img2.txt
+      │   │   └── ...
+      │   ├── valid/
+      │   └── test/
+      └── data.yaml
+  ```
+
 - [**CreateML JSON**](https://roboflow.com/formats/createml-json)
+
+  ```plaintext
+      dataset_dir/
+      ├── train/
+      │   ├── img1.jpg
+      │   ├── img2.jpg
+      │   └── ...
+      │   └── _annotations.createml.json
+      ├── valid/
+      └── test/
+  ```
+
 - [**TensorFlow Object Detection CSV**](https://roboflow.com/formats/tensorflow-object-detection-csv)
+
+  ```plaintext
+      dataset_dir/
+      ├── train/
+      │   ├── img1.jpg
+      │   ├── img2.jpg
+      │   ├── ...
+      │   └── _annotations.csv
+      ├── valid/
+      └── test/
+  ```
+
 - [**SOLO**](https://docs.unity3d.com/Packages/com.unity.perception@1.0/manual/Schema/SoloSchema.html)
+
+  ```plaintext
+    dataset_dir/
+    ├── train/
+    │   ├── metadata.json
+    │   ├── sensor_definitions.json
+    │   ├── annotation_definitions.json
+    │   ├── metric_definitions.json
+    │   └── sequence.<SequenceNUM>/
+    │       ├── step<StepNUM>.camera.jpg
+    │       ├── step<StepNUM>.frame_data.json
+    │       └── (OPTIONAL: step<StepNUM>.camera.semantic segmentation.jpg)
+    ├── valid/
+    └── test/
+  ```
+
 - **Classification Directory** - A directory with subdirectories for each class
 
-```plaintext
-dataset_dir/
-├── train/
-│   ├── class1/
-│   │   ├── img1.jpg
-│   │   ├── img2.jpg
-│   │   └── ...
-│   ├── class2/
-│   └── ...
-├── valid/
-└── test/
-```
+  ```plaintext
+  dataset_dir/
+  ├── train/
+  │   ├── class1/
+  │   │   ├── img1.jpg
+  │   │   ├── img2.jpg
+  │   │   └── ...
+  │   ├── class2/
+  │   └── ...
+  ├── valid/
+  └── test/
+  ```
 
 - **Segmentation Mask Directory** - A directory with images and corresponding masks.
 
-```plaintext
-dataset_dir/
-├── train/
-│   ├── img1.jpg
-│   ├── img1_mask.png
-│   ├── ...
-│   └── _classes.csv
-├── valid/
-└── test/
-```
+  ```plaintext
+  dataset_dir/
+  ├── train/
+  │   ├── img1.jpg
+  │   ├── img1_mask.png
+  │   ├── ...
+  │   └── _classes.csv
+  ├── valid/
+  └── test/
+  ```
 
-The masks are stored as grayscale PNG images where each pixel value corresponds to a class.
-The mapping from pixel values to class is defined in the `_classes.csv` file.
+  The masks are stored as grayscale PNG images where each pixel value corresponds to a class.
+  The mapping from pixel values to class is defined in the `_classes.csv` file.
 
-```csv
-Pixel Value, Class
-0, background
-1, class1
-2, class2
-3, class3
-```
+  ```csv
+  Pixel Value, Class
+  0, background
+  1, class1
+  2, class2
+  3, class3
+  ```
 
 ### Dataset Creation
 
