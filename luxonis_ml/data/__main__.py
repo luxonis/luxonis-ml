@@ -397,6 +397,7 @@ def inspect(
             new_h, new_w = int(h * size_multiplier), int(w * size_multiplier)
             image = cv2.resize(image, (new_w, new_h))
 
+            cv2.namedWindow(source_name, cv2.WINDOW_NORMAL)
             if per_instance and matched_instance_keys:
                 extra_keys = [
                     k for k in labels if k not in matched_instance_keys
@@ -419,6 +420,11 @@ def inspect(
                         classes,
                         blend_all=blend_all,
                     )
+                    cv2.resizeWindow(
+                        source_name,
+                        instance_image.shape[1],
+                        instance_image.shape[0],
+                    )
                     cv2.imshow(source_name, instance_image)
                     if cv2.waitKey() == ord("q"):
                         break
@@ -430,6 +436,9 @@ def inspect(
                     )
                 labeled_image = visualize(
                     image, source_name, labels, classes, blend_all=blend_all
+                )
+                cv2.resizeWindow(
+                    source_name, labeled_image.shape[1], labeled_image.shape[0]
                 )
                 cv2.imshow(source_name, labeled_image)
 
