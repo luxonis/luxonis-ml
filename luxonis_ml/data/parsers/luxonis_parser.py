@@ -22,10 +22,10 @@ from .native_parser import NativeParser
 from .segmentation_mask_directory_parser import SegmentationMaskDirectoryParser
 from .solo_parser import SOLOParser
 from .tensorflow_csv_parser import TensorflowCSVParser
+from .ultralytics_parser import UltralyticsParser
 from .voc_parser import VOCParser
 from .yolov4_parser import YoloV4Parser
 from .yolov6_parser import YoloV6Parser
-from .ultralytics_parser import UltralyticsParser
 
 
 class ParserType(Enum):

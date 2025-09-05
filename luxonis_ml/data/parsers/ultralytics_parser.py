@@ -1,22 +1,25 @@
-from pathlib import Path
-from typing import Any, Dict
 from enum import Enum
-import yaml
-import numpy as np
-import cv2
+from pathlib import Path
+from typing import Any
 
+import cv2
+import numpy as np
+import yaml
 from loguru import logger
 
 from luxonis_ml.data import DatasetIterator
 
 from .base_parser import BaseParser, ParserOutput
 
+
 class Format(str, Enum):
     SPLIT_FIRST = "split_first"
     SPLIT_SECOND = "split_second"
 
+
 class UltralyticsParser(BaseParser):
-    """Parses annotations from Ultralytics and YOLOv8 annotations to LDF.
+    """Parses annotations from Ultralytics and YOLOv8 annotations to
+    LDF.
 
     Expected format::
 
@@ -38,7 +41,7 @@ class UltralyticsParser(BaseParser):
         └── *.yaml
 
         OR::
-                
+
         dataset_dir/
         ├── train/
         │   ├── images/
@@ -75,7 +78,7 @@ class UltralyticsParser(BaseParser):
     U{Roboflow <https://roboflow.com/>}.
     """
 
-    def fit_boundingbox(self, points: np.ndarray) -> Dict[str, float]:
+    def fit_boundingbox(self, points: np.ndarray) -> dict[str, float]:
         """Fits a bounding box of the polygon (mask)."""
         x_min = np.min(points[:, 0])
         y_min = np.min(points[:, 1])
@@ -87,25 +90,28 @@ class UltralyticsParser(BaseParser):
             "w": x_max - x_min,
             "h": y_max - y_min,
         }
-    
+
     @staticmethod
-    def _detect_dataset_dir_format(dataset_dir: Path) -> tuple[Format | None, list[str]]:
+    def _detect_dataset_dir_format(
+        dataset_dir: Path,
+    ) -> tuple[Format | None, list[str]]:
         """Checks if dataset directory structure is in FiftyOne or
         Roboflow format."""
         split_folders = ["train", "val"]  # test folder is optional
         non_split_folders = ["images", "labels"]
-        
+
         existing = [d.name for d in dataset_dir.iterdir() if d.is_dir()]
-        
+
         if all(folder in existing for folder in split_folders):
             return Format.SPLIT_FIRST, existing
         if all(folder in existing for folder in non_split_folders):
             return Format.SPLIT_SECOND, existing
         return None, []
-        
 
     @staticmethod
-    def validate_split(split_path: Path, dir_format: Format) -> dict[str, Any] | None:
+    def validate_split(
+        split_path: Path, dir_format: Format
+    ) -> dict[str, Any] | None:
         if dir_format is Format.SPLIT_FIRST:
             images_path = split_path / "images"
             label_path = split_path / "labels"
@@ -114,12 +120,12 @@ class UltralyticsParser(BaseParser):
             label_path = split_path.parent.parent / "labels" / split_path.name
         else:
             return None
-        
+
         if not images_path.exists():
             return None
         if not label_path.exists():
             return None
-        
+
         labels = label_path.glob("*.txt")
         images = BaseParser._list_images(images_path)
         if not BaseParser._compare_stem_files(images, labels):
@@ -131,7 +137,11 @@ class UltralyticsParser(BaseParser):
             yaml_file_location = split_path.parent.parent
 
         yaml_file = next(
-            (f for ext in ("*.yaml", "*.yml") for f in yaml_file_location.glob(ext)),
+            (
+                f
+                for ext in ("*.yaml", "*.yml")
+                for f in yaml_file_location.glob(ext)
+            ),
             None,
         )
         if not yaml_file:
@@ -156,18 +166,27 @@ class UltralyticsParser(BaseParser):
         )
         if not yaml_file:
             return False
-        
+
         if dir_format is Format.SPLIT_FIRST:
-            splits = [d.name for d in dataset_dir.iterdir() if d.is_dir() and d.name in ("train", "val", "test")]
+            splits = [
+                d.name
+                for d in dataset_dir.iterdir()
+                if d.is_dir() and d.name in ("train", "val", "test")
+            ]
             if "train" not in splits or len(splits) < 2:
                 return False
-            return all(cls.validate_split(dataset_dir / s, dir_format) for s in splits)
-        elif dir_format is Format.SPLIT_SECOND:
+            return all(
+                cls.validate_split(dataset_dir / s, dir_format) for s in splits
+            )
+        if dir_format is Format.SPLIT_SECOND:
             non_split_folders = ["images", "labels"]
             folders = [d.name for d in dataset_dir.iterdir() if d.is_dir()]
             if not all(f in non_split_folders for f in folders):
                 return False
-            return all(cls.validate_split(dataset_dir / s, dir_format) for s in folders)
+            return all(
+                cls.validate_split(dataset_dir / s, dir_format)
+                for s in folders
+            )
 
         return False
 
@@ -183,18 +202,30 @@ class UltralyticsParser(BaseParser):
         classes_path = dataset_dir / yaml_file
         dir_format, splits = self._detect_dataset_dir_format(dataset_dir)
         added_train_imgs = self._parse_split(
-            image_dir=dataset_dir / "images" / "train" if dir_format is Format.SPLIT_SECOND else dataset_dir / "train" / "images",
-            annotation_dir=dataset_dir / "labels" / "train" if dir_format is Format.SPLIT_SECOND else dataset_dir / "train" / "labels",
+            image_dir=dataset_dir / "images" / "train"
+            if dir_format is Format.SPLIT_SECOND
+            else dataset_dir / "train" / "images",
+            annotation_dir=dataset_dir / "labels" / "train"
+            if dir_format is Format.SPLIT_SECOND
+            else dataset_dir / "train" / "labels",
             classes_path=classes_path,
         )
         added_val_imgs = self._parse_split(
-            image_dir=dataset_dir / "images" / "val" if dir_format is Format.SPLIT_SECOND else dataset_dir / "val" / "images",
-            annotation_dir=dataset_dir / "labels" / "val" if dir_format is Format.SPLIT_SECOND else dataset_dir / "val" / "labels",
+            image_dir=dataset_dir / "images" / "val"
+            if dir_format is Format.SPLIT_SECOND
+            else dataset_dir / "val" / "images",
+            annotation_dir=dataset_dir / "labels" / "val"
+            if dir_format is Format.SPLIT_SECOND
+            else dataset_dir / "val" / "labels",
             classes_path=classes_path,
         )
         added_test_imgs = self._parse_split(
-            image_dir=dataset_dir / "images" / "test" if dir_format is Format.SPLIT_SECOND else dataset_dir / "test" / "images",
-            annotation_dir=dataset_dir / "labels" / "test" if dir_format is Format.SPLIT_SECOND else dataset_dir / "test" / "labels",
+            image_dir=dataset_dir / "images" / "test"
+            if dir_format is Format.SPLIT_SECOND
+            else dataset_dir / "test" / "images",
+            annotation_dir=dataset_dir / "labels" / "test"
+            if dir_format is Format.SPLIT_SECOND
+            else dataset_dir / "test" / "labels",
             classes_path=classes_path,
         )
 
@@ -203,8 +234,9 @@ class UltralyticsParser(BaseParser):
     def from_split(
         self, image_dir: Path, annotation_dir: Path, classes_path: Path
     ) -> ParserOutput:
-        """Parses annotations from YoloV8 or Ultralytics format to LDF. Annotations
-        include object detection, instance segmentation and keypoints.
+        """Parses annotations from YoloV8 or Ultralytics format to LDF.
+        Annotations include object detection, instance segmentation and
+        keypoints.
 
         @type image_dir: Path
         @param image_dir: Path to directory with images
@@ -220,7 +252,9 @@ class UltralyticsParser(BaseParser):
             classes_data = yaml.safe_load(f)
 
         if isinstance(classes_data["names"], list):
-            # names: ["class1", "class2", "class3"]
+            """
+            names: ["class1", "class2", "class3"]
+            """
             class_names = dict(enumerate(classes_data["names"]))
         else:
             """
@@ -246,7 +280,7 @@ class UltralyticsParser(BaseParser):
                     # object detection format: class_id x_center y_center width height
                     # segmentation format: class_id x1 y1 x2 y2 x3 y3 ... xn yn (min 3 points)
                     # keypoints format: class_id x_center y_center width height kp1_x kp1_y kp2_x kp2_y ... kpn_x kpn_y (it can also have 3rd dimension for visibility)
-                    
+
                     if len(annotation_elements) == 5:
                         task_type = "detection"
                     elif len(annotation_elements) > 5:
@@ -254,11 +288,13 @@ class UltralyticsParser(BaseParser):
                             task_type = "keypoints"
                         else:
                             task_type = "segmentation"
-                    
+
                     if task_type == "detection":
-                        class_id, x_center, y_center, width, height = annotation_elements
+                        class_id, x_center, y_center, width, height = (
+                            annotation_elements
+                        )
                         class_name = class_names[int(class_id)]
-                        
+
                         yield {
                             "file": str(img_path),
                             "annotation": {
@@ -271,18 +307,18 @@ class UltralyticsParser(BaseParser):
                                 },
                             },
                         }
-                    
+
                     elif task_type == "segmentation":
                         img = cv2.imread(str(img_path))
                         height, width = img.shape[:2]
-                        
+
                         class_id, *points = annotation_elements
                         points = [float(p) for p in points]
                         points = np.array(points).reshape(-1, 2)
                         boundingbox = self.fit_boundingbox(points)
                         points = [(p[0], p[1]) for p in points.tolist()]
                         class_name = class_names[int(class_id)]
-                        
+
                         yield {
                             "file": str(img_path),
                             "annotation": {
@@ -292,7 +328,7 @@ class UltralyticsParser(BaseParser):
                                     "height": height,
                                     "width": width,
                                     "points": points,
-                                }
+                                },
                             },
                         }
 
@@ -302,14 +338,20 @@ class UltralyticsParser(BaseParser):
                         class_id, *points = annotation_elements
                         x_center, y_center, width, height, *keypoints = points
                         keypoints = [float(p) for p in keypoints]
-                        keypoints = np.array(keypoints).reshape(n_kpts, kpt_dim)
+                        keypoints = np.array(keypoints).reshape(
+                            n_kpts, kpt_dim
+                        )
                         class_name = class_names[int(class_id)]
 
                         if kpt_dim == 2:
                             # add full visibility as last dimension
-                            keypoints = np.concatenate([keypoints, np.ones((n_kpts, 1)) * 2], axis=1)
+                            keypoints = np.concatenate(
+                                [keypoints, np.ones((n_kpts, 1)) * 2], axis=1
+                            )
 
-                        keypoints = [(p[0], p[1], int(p[2])) for p in keypoints.tolist()]
+                        keypoints = [
+                            (p[0], p[1], int(p[2])) for p in keypoints.tolist()
+                        ]
 
                         yield {
                             "file": str(img_path),
@@ -323,10 +365,9 @@ class UltralyticsParser(BaseParser):
                                 },
                                 "keypoints": {
                                     "keypoints": keypoints,
-                                }
+                                },
                             },
                         }
-
 
         added_images = self._get_added_images(generator())
 
