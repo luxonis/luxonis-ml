@@ -25,6 +25,7 @@ from .tensorflow_csv_parser import TensorflowCSVParser
 from .voc_parser import VOCParser
 from .yolov4_parser import YoloV4Parser
 from .yolov6_parser import YoloV6Parser
+from .ultralytics_parser import UltralyticsParser
 
 
 class ParserType(Enum):
@@ -48,6 +49,7 @@ class LuxonisParser(Generic[T]):
         DatasetType.SEGMASK: SegmentationMaskDirectoryParser,
         DatasetType.SOLO: SOLOParser,
         DatasetType.NATIVE: NativeParser,
+        DatasetType.ULTRALYTICS: UltralyticsParser,
     }
 
     def __init__(
