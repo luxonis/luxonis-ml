@@ -418,7 +418,7 @@ The supported formats are:
 
 - [**YOLOv8-v12**](https://roboflow.com/formats/yolov8-pytorch-txt) and [**Ultralytics**](https://docs.ultralytics.com/datasets/)
 
-  - YOLOv8-v12 format
+  - Roboflow format (supports YOLOv8-v12)
     ```plaintext
         dataset_dir/
         ├── train/

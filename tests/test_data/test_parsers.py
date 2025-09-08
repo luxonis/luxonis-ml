@@ -205,17 +205,17 @@ def test_dir_parser(
         ),
         (
             "horse_pose.v8i.yolov8.zip",
-            "ultralytics",
+            "yolov8",
             {"boundingbox", "classification", "keypoints"},
         ),
         (
             "coco8-ultralytics.zip",
-            "ultralytics",
+            "yolov8",
             {"boundingbox", "classification"},
         ),
         (
             "coco8-seg-ultralytics.zip",
-            "ultralytics",
+            "yolov8",
             {
                 "boundingbox",
                 "classification",

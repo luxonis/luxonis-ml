@@ -17,9 +17,9 @@ class Format(str, Enum):
     SPLIT_SECOND = "split_second"
 
 
-class UltralyticsParser(BaseParser):
-    """Parses annotations from Ultralytics and YOLOv8 annotations to
-    LDF.
+class YOLOv8Parser(BaseParser):
+    """Parses annotations from YOLOv8 format (supports v8-v12 models)
+    and Ultralytics format to LDF.
 
     Expected format::
 

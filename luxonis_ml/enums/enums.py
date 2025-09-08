@@ -14,4 +14,4 @@ class DatasetType(str, Enum):
     SEGMASK = "segmask"
     SOLO = "solo"
     NATIVE = "native"
-    ULTRALYTICS = "ultralytics"
+    YOLOV8 = "yolov8"

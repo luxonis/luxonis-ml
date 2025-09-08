@@ -7,10 +7,10 @@ from .luxonis_parser import LuxonisParser
 from .segmentation_mask_directory_parser import SegmentationMaskDirectoryParser
 from .solo_parser import SOLOParser
 from .tensorflow_csv_parser import TensorflowCSVParser
-from .ultralytics_parser import UltralyticsParser
 from .voc_parser import VOCParser
 from .yolov4_parser import YoloV4Parser
 from .yolov6_parser import YoloV6Parser
+from .yolov8_parser import YOLOv8Parser
 
 __all__ = [
     "BaseParser",
@@ -22,8 +22,8 @@ __all__ = [
     "SOLOParser",
     "SegmentationMaskDirectoryParser",
     "TensorflowCSVParser",
-    "UltralyticsParser",
     "VOCParser",
+    "YOLOv8Parser",
     "YoloV4Parser",
     "YoloV6Parser",
 ]
