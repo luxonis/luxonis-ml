@@ -80,15 +80,14 @@ from luxonis_ml.utils import environ
             {"boundingbox", "classification", "keypoints"},
         ),
         (
-            "coco8-ultralytics.zip",
+            "medical-pills.zip",
             {"boundingbox", "classification"},
         ),
         (
-            "coco8-seg-ultralytics.zip",
+            "crack-seg.zip",
             {
                 "boundingbox",
                 "classification",
-                "segmentation",
                 "instance_segmentation",
             },
         ),
@@ -209,17 +208,16 @@ def test_dir_parser(
             {"boundingbox", "classification", "keypoints"},
         ),
         (
-            "coco8-ultralytics.zip",
+            "medical-pills.zip",
             "yolov8",
             {"boundingbox", "classification"},
         ),
         (
-            "coco8-seg-ultralytics.zip",
+            "crack-seg.zip",
             "yolov8",
             {
                 "boundingbox",
                 "classification",
-                "segmentation",
                 "instance_segmentation",
             },
         ),
