@@ -5,7 +5,6 @@ from typing import Any
 import cv2
 import numpy as np
 import yaml
-from loguru import logger
 
 from luxonis_ml.data import DatasetIterator
 
@@ -156,7 +155,6 @@ class YOLOv8Parser(BaseParser):
     @classmethod
     def validate(cls, dataset_dir: Path) -> bool:
         dir_format, splits = cls._detect_dataset_dir_format(dataset_dir)
-        logger.info(dir_format)
         if dir_format is None:
             return False
 
@@ -183,9 +181,15 @@ class YOLOv8Parser(BaseParser):
             folders = [d.name for d in dataset_dir.iterdir() if d.is_dir()]
             if not all(f in non_split_folders for f in folders):
                 return False
+
+            subfolders = [
+                d.name
+                for d in (dataset_dir / "images").iterdir()
+                if d.is_dir()
+            ]
             return all(
-                cls.validate_split(dataset_dir / s, dir_format)
-                for s in folders
+                cls.validate_split(dataset_dir / "images" / split, dir_format)
+                for split in subfolders
             )
 
         return False
