@@ -430,7 +430,7 @@ The supported formats are:
         │   │   ├── img1.txt
         │   │   ├── img2.txt
         │   │   └── ...
-        ├── val/
+        ├── valid/
         ├── test/
         └── *.yaml
     ```
