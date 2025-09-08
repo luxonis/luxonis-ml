@@ -75,6 +75,23 @@ from luxonis_ml.utils import environ
                 "metadata/brand",
             },
         ),
+        (
+            "horse_pose.v8i.yolov8.zip",
+            {"boundingbox", "classification", "keypoints"},
+        ),
+        (
+            "coco8-ultralytics.zip",
+            {"boundingbox", "classification"},
+        ),
+        (
+            "coco8-seg-ultralytics.zip",
+            {
+                "boundingbox",
+                "classification",
+                "segmentation",
+                "instance_segmentation",
+            },
+        ),
     ],
 )
 def test_dir_parser(
@@ -184,6 +201,26 @@ def test_dir_parser(
                 "keypoints",
                 "metadata/color",
                 "metadata/brand",
+            },
+        ),
+        (
+            "horse_pose.v8i.yolov8.zip",
+            "ultralytics",
+            {"boundingbox", "keypoints"},
+        ),
+        (
+            "coco8-ultralytics.zip",
+            "ultralytics",
+            {"boundingbox", "classification"},
+        ),
+        (
+            "coco8-seg-ultralytics.zip",
+            "ultralytics",
+            {
+                "boundingbox",
+                "classification",
+                "segmentation",
+                "instance_segmentation",
             },
         ),
     ],
