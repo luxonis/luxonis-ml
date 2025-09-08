@@ -272,7 +272,7 @@ class UltralyticsParser(BaseParser):
                 with open(ann_path) as f:
                     annotation_data = f.readlines()
 
-                for ann_line in annotation_data:
+                for instance_id, ann_line in enumerate(annotation_data):
                     if not ann_line.strip():
                         continue
 
@@ -299,6 +299,7 @@ class UltralyticsParser(BaseParser):
                             "file": str(img_path),
                             "annotation": {
                                 "class": class_name,
+                                "instance_id": instance_id,
                                 "boundingbox": {
                                     "x": float(x_center) - float(width) / 2,
                                     "y": float(y_center) - float(height) / 2,
@@ -323,6 +324,7 @@ class UltralyticsParser(BaseParser):
                             "file": str(img_path),
                             "annotation": {
                                 "class": class_name,
+                                "instance_id": instance_id,
                                 "boundingbox": boundingbox,
                                 "instance_segmentation": {
                                     "height": height,
@@ -357,6 +359,7 @@ class UltralyticsParser(BaseParser):
                             "file": str(img_path),
                             "annotation": {
                                 "class": class_name,
+                                "instance_id": instance_id,
                                 "boundingbox": {
                                     "x": float(x_center) - float(width) / 2,
                                     "y": float(y_center) - float(height) / 2,
@@ -368,6 +371,8 @@ class UltralyticsParser(BaseParser):
                                 },
                             },
                         }
+
+                    instance_id += 1
 
         added_images = self._get_added_images(generator())
 
