@@ -10,6 +10,7 @@ from .tensorflow_csv_parser import TensorflowCSVParser
 from .voc_parser import VOCParser
 from .yolov4_parser import YoloV4Parser
 from .yolov6_parser import YoloV6Parser
+from .yolov8_parser import YOLOv8Parser
 
 __all__ = [
     "BaseParser",
@@ -22,6 +23,7 @@ __all__ = [
     "SegmentationMaskDirectoryParser",
     "TensorflowCSVParser",
     "VOCParser",
+    "YOLOv8Parser",
     "YoloV4Parser",
     "YoloV6Parser",
 ]

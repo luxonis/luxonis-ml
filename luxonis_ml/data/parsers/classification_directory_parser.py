@@ -33,7 +33,8 @@ class ClassificationDirectoryParser(BaseParser):
         classes = [
             d
             for d in split_path.iterdir()
-            if d.is_dir() and d.name not in {"train", "valid", "test"}
+            if d.is_dir()
+            and d.name not in {"train", "valid", "test", "images", "labels"}
         ]
         if not classes:
             return None

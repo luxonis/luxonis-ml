@@ -75,6 +75,22 @@ from luxonis_ml.utils import environ
                 "metadata/brand",
             },
         ),
+        (
+            "horse_pose.v8i.yolov8.zip",
+            {"boundingbox", "classification", "keypoints"},
+        ),
+        (
+            "medical-pills.zip",
+            {"boundingbox", "classification"},
+        ),
+        (
+            "crack-seg.zip",
+            {
+                "boundingbox",
+                "classification",
+                "instance_segmentation",
+            },
+        ),
     ],
 )
 def test_dir_parser(
@@ -184,6 +200,25 @@ def test_dir_parser(
                 "keypoints",
                 "metadata/color",
                 "metadata/brand",
+            },
+        ),
+        (
+            "horse_pose.v8i.yolov8.zip",
+            "yolov8",
+            {"boundingbox", "classification", "keypoints"},
+        ),
+        (
+            "medical-pills.zip",
+            "yolov8",
+            {"boundingbox", "classification"},
+        ),
+        (
+            "crack-seg.zip",
+            "yolov8",
+            {
+                "boundingbox",
+                "classification",
+                "instance_segmentation",
             },
         ),
     ],

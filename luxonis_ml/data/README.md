@@ -416,6 +416,44 @@ The supported formats are:
             └── test/
     ```
 
+- [**YOLOv8-v12**](https://roboflow.com/formats/yolov8-pytorch-txt) and [**Ultralytics**](https://docs.ultralytics.com/datasets/)
+
+  - Roboflow format (supports YOLOv8-v12)
+    ```plaintext
+        dataset_dir/
+        ├── train/
+        │   ├── images/
+        │   │   ├── img1.jpg
+        │   │   ├── img2.jpg
+        │   │   └── ...
+        │   ├── labels/
+        │   │   ├── img1.txt
+        │   │   ├── img2.txt
+        │   │   └── ...
+        ├── valid/
+        ├── test/
+        └── *.yaml
+    ```
+  - Ultralytics format
+    ```plaintext
+        dataset_dir/
+        ├── images/
+        │   ├── train/
+        │   │   ├── img1.jpg
+        │   │   ├── img2.jpg
+        │   │   └── ...
+        │   ├── val/
+        │   └── test/
+        ├── labels/
+        │   ├── train/
+        │   │   ├── img1.txt
+        │   │   ├── img2.txt
+        │   │   └── ...
+        │   ├── val/
+        │   └── test/
+        └── *.yaml
+    ```
+
 - [**Pascal VOC XML**](https://roboflow.com/formats/pascal-voc-xml)
 
   ```plaintext
