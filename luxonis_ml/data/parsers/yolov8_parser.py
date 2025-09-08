@@ -94,61 +94,61 @@ class YOLOv8Parser(BaseParser):
     def _detect_dataset_dir_format(
         dataset_dir: Path,
     ) -> tuple[Format | None, list[str]]:
-        """Checks if dataset directory structure is in FiftyOne or
+        """Checks if dataset directory structure is in Ultralytics or
         Roboflow format."""
-        split_folders = ["train", "valid"]  # test folder is optional
-        non_split_folders = ["images", "labels"]
+        roboflow_folders = ["train", "valid"]  # test folder is optional
+        ultralytics_folders = ["images", "labels"]
 
         existing = [d.name for d in dataset_dir.iterdir() if d.is_dir()]
 
-        if all(folder in existing for folder in split_folders):
+        if all(folder in existing for folder in roboflow_folders):
             return Format.ROBOFLOW, existing
-        if all(folder in existing for folder in non_split_folders):
+        if all(folder in existing for folder in ultralytics_folders):
             return Format.ULTRALYTICS, existing
         return None, []
 
     @staticmethod
-    def validate_split(
-        split_path: Path, dir_format: Format
-    ) -> dict[str, Any] | None:
-        if dir_format is Format.ROBOFLOW:
-            images_path = split_path / "images"
-            label_path = split_path / "labels"
-        elif dir_format is Format.ULTRALYTICS:
-            images_path = split_path.parent.parent / "images" / split_path.name
-            label_path = split_path.parent.parent / "labels" / split_path.name
-        else:
+    def validate_split(split_path: Path) -> dict[str, Any] | None:
+        if not split_path.exists():
             return None
 
-        if not images_path.exists():
-            return None
-        if not label_path.exists():
+        candidates = [
+            (
+                split_path / "images",
+                split_path / "labels",
+                split_path.parent,
+            ),  # ROBOFLOW
+            (
+                split_path.parent.parent / "images" / split_path.name,
+                split_path.parent.parent / "labels" / split_path.name,
+                split_path.parent.parent,
+            ),  # ULTRALYTICS
+        ]
+
+        images_path = labels_path = yaml_root = None
+        for img_dir, lbl_dir, yroot in candidates:
+            if img_dir.exists() and lbl_dir.exists():
+                images_path, labels_path, yaml_root = img_dir, lbl_dir, yroot
+                break
+
+        if images_path is None or labels_path is None or yaml_root is None:
             return None
 
-        labels = label_path.glob("*.txt")
+        label_files = list(labels_path.glob("*.txt"))
         images = BaseParser._list_images(images_path)
-        if not BaseParser._compare_stem_files(images, labels):
+        if not BaseParser._compare_stem_files(images, label_files):
             return None
-
-        if dir_format is Format.ROBOFLOW:
-            yaml_file_location = split_path.parent
-        elif dir_format is Format.ULTRALYTICS:
-            yaml_file_location = split_path.parent.parent
 
         yaml_file = next(
-            (
-                f
-                for ext in ("*.yaml", "*.yml")
-                for f in yaml_file_location.glob(ext)
-            ),
+            (f for ext in ("*.yaml", "*.yml") for f in yaml_root.glob(ext)),
             None,
         )
-        if not yaml_file:
+        if yaml_file is None:
             return None
 
         return {
             "image_dir": images_path,
-            "annotation_dir": label_path,
+            "annotation_dir": labels_path,
             "classes_path": yaml_file,
         }
 
@@ -173,22 +173,20 @@ class YOLOv8Parser(BaseParser):
             ]
             if "train" not in splits or len(splits) < 2:
                 return False
-            return all(
-                cls.validate_split(dataset_dir / s, dir_format) for s in splits
-            )
+            return all(cls.validate_split(dataset_dir / s) for s in splits)
+
         if dir_format is Format.ULTRALYTICS:
             non_split_folders = ["images", "labels"]
             folders = [d.name for d in dataset_dir.iterdir() if d.is_dir()]
-            if not all(f in non_split_folders for f in folders):
+            if not all(f in folders for f in non_split_folders):
                 return False
-
             subfolders = [
                 d.name
                 for d in (dataset_dir / "images").iterdir()
                 if d.is_dir()
             ]
             return all(
-                cls.validate_split(dataset_dir / "images" / split, dir_format)
+                cls.validate_split(dataset_dir / "images" / split)
                 for split in subfolders
             )
 
@@ -206,30 +204,42 @@ class YOLOv8Parser(BaseParser):
         classes_path = dataset_dir / yaml_file.name
         dir_format, splits = self._detect_dataset_dir_format(dataset_dir)
         added_train_imgs = self._parse_split(
-            image_dir=dataset_dir / "images" / "train"
-            if dir_format is Format.ULTRALYTICS
-            else dataset_dir / "train" / "images",
-            annotation_dir=dataset_dir / "labels" / "train"
-            if dir_format is Format.ULTRALYTICS
-            else dataset_dir / "train" / "labels",
+            image_dir=(
+                dataset_dir / "images" / "train"
+                if dir_format is Format.ULTRALYTICS
+                else dataset_dir / "train" / "images"
+            ),
+            annotation_dir=(
+                dataset_dir / "labels" / "train"
+                if dir_format is Format.ULTRALYTICS
+                else dataset_dir / "train" / "labels"
+            ),
             classes_path=classes_path,
         )
         added_val_imgs = self._parse_split(
-            image_dir=dataset_dir / "images" / "val"
-            if dir_format is Format.ULTRALYTICS
-            else dataset_dir / "valid" / "images",
-            annotation_dir=dataset_dir / "labels" / "val"
-            if dir_format is Format.ULTRALYTICS
-            else dataset_dir / "valid" / "labels",
+            image_dir=(
+                dataset_dir / "images" / "val"
+                if dir_format is Format.ULTRALYTICS
+                else dataset_dir / "valid" / "images"
+            ),
+            annotation_dir=(
+                dataset_dir / "labels" / "val"
+                if dir_format is Format.ULTRALYTICS
+                else dataset_dir / "valid" / "labels"
+            ),
             classes_path=classes_path,
         )
         added_test_imgs = self._parse_split(
-            image_dir=dataset_dir / "images" / "test"
-            if dir_format is Format.ULTRALYTICS
-            else dataset_dir / "test" / "images",
-            annotation_dir=dataset_dir / "labels" / "test"
-            if dir_format is Format.ULTRALYTICS
-            else dataset_dir / "test" / "labels",
+            image_dir=(
+                dataset_dir / "images" / "test"
+                if dir_format is Format.ULTRALYTICS
+                else dataset_dir / "test" / "images"
+            ),
+            annotation_dir=(
+                dataset_dir / "labels" / "test"
+                if dir_format is Format.ULTRALYTICS
+                else dataset_dir / "test" / "labels"
+            ),
             classes_path=classes_path,
         )
 
