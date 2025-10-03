@@ -164,7 +164,10 @@ class LuxonisLoader(BaseLoader):
         self.color_space = color_space
 
         if self.filter_task_names is not None:
-            df_task_names = set(self.df["task_name"].to_list())
+            if self.dataset.metadata.tasks:
+                df_task_names = set(self.dataset.metadata.tasks)
+            else:
+                df_task_names = set(self.df["task_name"].to_list())
             if extras := set(self.filter_task_names) - df_task_names:
                 raise ValueError(
                     f"filter_task_names contains task names that "
