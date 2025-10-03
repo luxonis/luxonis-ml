@@ -154,9 +154,9 @@ class LuxonisLoader(BaseLoader):
         self.source_names = self.dataset.get_source_names()
 
         if color_space is None:
-            color_space = {source: "RGB" for source in self.source_names}
+            color_space = dict.fromkeys(self.source_names, "RGB")
         elif isinstance(color_space, str):
-            color_space = {source: color_space for source in self.source_names}
+            color_space = dict.fromkeys(self.source_names, color_space)
         elif not isinstance(color_space, dict):
             raise ValueError(
                 "color_space must be either a string or a dictionary"
@@ -164,6 +164,12 @@ class LuxonisLoader(BaseLoader):
         self.color_space = color_space
 
         if self.filter_task_names is not None:
+            df_task_names = set(self.df["task_name"].to_list())
+            if extras := set(self.filter_task_names) - df_task_names:
+                raise ValueError(
+                    f"filter_task_names contains task names that "
+                    f"are not in the dataset: {extras}"
+                )
             self.df = self.df.filter(
                 pl.col("task_name").is_in(self.filter_task_names)
             )
