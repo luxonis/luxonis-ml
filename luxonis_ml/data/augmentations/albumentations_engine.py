@@ -369,14 +369,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         if is_validation_pipeline:
             config = (a for a in config if a["name"] == "Normalize")
 
-        available_target_types = set(self.targets.values())
-
         for config_item in config:
-            if self._should_skip_augmentation(
-                config_item, available_target_types
-            ):
-                continue
-
             cfg = AlbumentationConfigItem(**config_item)  # type: ignore
 
             transform = self.create_transformation(cfg)
@@ -431,9 +424,11 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 "keypoint_params": A.KeypointParams(
                     format="xy", remove_invisible=False
                 ),
-                "additional_targets": self.targets
-                if is_custom
-                else targets_without_instance_mask,
+                "additional_targets": (
+                    self.targets
+                    if is_custom
+                    else targets_without_instance_mask
+                ),
                 "seed": seed,
             }
 
