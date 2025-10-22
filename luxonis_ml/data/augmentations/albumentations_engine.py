@@ -241,32 +241,23 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 ...
     """
 
-    def _should_skip_augmentation(
+    def _check_augmentation_warnings(
         self, config_item: dict[str, Any], available_target_types: set
     ) -> bool:
-        skip_rules = {
-            "keypoints": ["Flip"],
-        }
         augmentation_name = config_item["name"]
-        skipped_for = [
-            target_type
-            for target_type, skip_list in skip_rules.items()
-            if target_type in available_target_types
-            and augmentation_name in skip_list
-        ]
-        if skipped_for:
-            extra_msg = ""
-            if "keypoints" in skipped_for and augmentation_name in [
-                "HorizontalFlip",
-                "VerticalFlip",
-                "Flip",
-            ]:
-                extra_msg = " For keypoints, please use 'HorizontalSymetricKeypointsFlip' or 'VerticalSymetricKeypointsFlip'."
+
+        if "keypoints" in available_target_types and augmentation_name in [
+            "HorizontalFlip",
+            "VerticalFlip",
+            "Flip",
+        ]:
             logger.warning(
-                f"Skipping augmentation '{augmentation_name}' due to known issues for {skipped_for} target types. {extra_msg}"
+                f"Using '{augmentation_name}' with keypoints."
+                "If your dataset contains symmetric keypoints (e.g. left/right arms),"
+                "you should use our custom HorizontalSymetricKeypointsFlip,"
+                "VerticalSymetricKeypointsFlip, or TransposeSymmetricKeypoints"
+                "to ensure keypoints are correctly reordered."
             )
-            return True
-        return False
 
     @override
     def __init__(
@@ -368,15 +359,10 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         available_target_types = set(self.targets.values())
 
         for config_item in config:
-            if self._should_skip_augmentation(
+            self._check_augmentation_warnings(
                 config_item, available_target_types
-            ):
-                continue
-
-            cfg = AlbumentationConfigItem(**config_item)  # type: ignore
-
-        for config_item in config:
-            cfg = AlbumentationConfigItem(**config_item)  # type: ignore
+            )
+            cfg = AlbumentationConfigItem(**config_item)
 
             transform = self.create_transformation(cfg)
 
