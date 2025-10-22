@@ -243,13 +243,12 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
     def _check_augmentation_warnings(
         self, config_item: dict[str, Any], available_target_types: set
-    ) -> bool:
+    ) -> None:
         augmentation_name = config_item["name"]
 
         if "keypoints" in available_target_types and augmentation_name in [
             "HorizontalFlip",
             "VerticalFlip",
-            "Flip",
         ]:
             logger.warning(
                 f"Using '{augmentation_name}' with keypoints."
@@ -359,10 +358,11 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         available_target_types = set(self.targets.values())
 
         for config_item in config:
+            cfg = AlbumentationConfigItem(**config_item)
+
             self._check_augmentation_warnings(
                 config_item, available_target_types
             )
-            cfg = AlbumentationConfigItem(**config_item)
 
             transform = self.create_transformation(cfg)
 

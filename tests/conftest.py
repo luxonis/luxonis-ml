@@ -125,7 +125,6 @@ def augmentation_config() -> list[Params]:
         {"name": "MixUp", "params": {"p": 1.0}},
         {"name": "Defocus", "params": {"p": 1.0}},
         {"name": "Sharpen", "params": {"p": 1.0}},
-        {"name": "Flip", "params": {"p": 1.0}},
         {"name": "RandomRotate90", "params": {"p": 1.0}},
     ]
 
