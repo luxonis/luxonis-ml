@@ -249,7 +249,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         if "keypoints" in available_target_types and augmentation_name in [
             "HorizontalFlip",
             "VerticalFlip",
-            "Transpose"
+            "Transpose",
         ]:
             logger.warning(
                 f"Using '{augmentation_name}' with keypoints."
