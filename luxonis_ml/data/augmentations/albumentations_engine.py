@@ -249,6 +249,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         if "keypoints" in available_target_types and augmentation_name in [
             "HorizontalFlip",
             "VerticalFlip",
+            "Transpose"
         ]:
             logger.warning(
                 f"Using '{augmentation_name}' with keypoints."
@@ -361,7 +362,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             self._check_augmentation_warnings(
                 config_item, available_target_types
             )
-            cfg = AlbumentationConfigItem(**config_item)
+            cfg = AlbumentationConfigItem(**config_item)  # type: ignore
             transform = self.create_transformation(cfg)
 
             if cfg.use_for_resizing:
