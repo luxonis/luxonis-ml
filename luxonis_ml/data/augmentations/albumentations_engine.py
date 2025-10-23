@@ -358,12 +358,10 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         available_target_types = set(self.targets.values())
 
         for config_item in config:
-            cfg = AlbumentationConfigItem(**config_item)
-
             self._check_augmentation_warnings(
                 config_item, available_target_types
             )
-
+            cfg = AlbumentationConfigItem(**config_item)
             transform = self.create_transformation(cfg)
 
             if cfg.use_for_resizing:
