@@ -1,7 +1,6 @@
 import json
 import math
 import shutil
-import sys
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -18,6 +17,7 @@ from loguru import logger
 from semver.version import Version
 from typing_extensions import Self, override
 
+from luxonis_ml.data.exporters import CocoExporter, NativeExporter
 from luxonis_ml.data.utils import (
     BucketStorage,
     BucketType,
@@ -32,6 +32,7 @@ from luxonis_ml.data.utils import (
     warn_on_duplicates,
 )
 from luxonis_ml.data.utils.constants import LDF_VERSION
+from luxonis_ml.data.utils.prepare_ldf_export import prepare_ldf_export
 from luxonis_ml.enums.enums import DatasetType
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import (
@@ -1472,291 +1473,33 @@ class LuxonisDataset(BaseDataset):
 
     def export(
         self,
-        output_path: PathType,
+        output_path: Path,
         dataset_type: DatasetType = DatasetType.NATIVE,
         max_partition_size_gb: float | None = None,
         zip_output: bool = False,
     ) -> Path | list[Path]:
-        """Exports the dataset into one of the supported formats.
-
-        @type output_path: PathType
-        @param output_path: Path to the directory where the dataset will
-            be exported.
-        @type dataset_type: DatasetType
-        @param dataset_type: To what format to export the dataset.
-            Currently only DatasetType.NATIVE is supported.
-        @type max_partition_size_gb: Optional[float]
-        @param max_partition_size_gb: Maximum size of each partition in
-            GB. If the dataset exceeds this size, it will be split into
-            multiple partitions named
-            {dataset_name}_part{partition_number}. Default is None,
-            meaning the dataset will be exported as a single partition
-            named {dataset_name}.
-        @type zip_output: bool
-        @param zip_output: Whether to zip the exported dataset (or each
-            partition) after export. Default is False.
-        @rtype: Union[Path, List[Path]]
-        @return: Path(s) to the ZIP file(s) containing the exported
-            dataset.
-        """
-
-        def _dump_annotations(
-            annotations: dict[str, list[Any]],
-            output_path: Path,
-            identifier: str,
-            part: int | None = None,
-        ) -> None:
-            for split_name, annotation_data in annotations.items():
-                if part is not None:
-                    split_path = (
-                        output_path / f"{identifier}_part{part}" / split_name
-                    )
-                else:
-                    split_path = output_path / identifier / split_name
-                split_path.mkdir(parents=True, exist_ok=True)
-                with open(split_path / "annotations.json", "w") as f:
-                    json.dump(annotation_data, f, indent=4)
-
-        def resolve_path(
-            img_path: str | Path, uuid: str, media_path: str
-        ) -> str:
-            img_path = Path(img_path)
-            if img_path.exists():
-                return str(img_path)
-
-            ext = img_path.suffix.lstrip(".")
-            fallback = Path(media_path) / f"{uuid}.{ext}"
-            if not fallback.exists():
-                raise FileNotFoundError(f"Missing image: {fallback}")
-            return str(fallback)
-
-        if dataset_type is not DatasetType.NATIVE:
+        EXPORTER_MAP = {
+            DatasetType.NATIVE: NativeExporter,
+            DatasetType.COCO: CocoExporter,
+        }
+        exporter_cls = EXPORTER_MAP.get(dataset_type)
+        if exporter_cls is None:
             raise NotImplementedError(
-                "Only 'NATIVE' dataset export is supported at the moment"
+                f"Unsupported export format: {dataset_type}"
             )
-        logger.info(
-            f"Exporting '{self.identifier}' to '{dataset_type.name}' format"
+
+        prepared_ldf = prepare_ldf_export(self)
+        exporter = exporter_cls(self.identifier)
+
+        transformed = exporter.transform(prepared_ldf)
+
+        return exporter.save(
+            transformed,
+            prepared_ldf,
+            output_path,
+            max_partition_size_gb=max_partition_size_gb,
+            zip_output=zip_output,
         )
-
-        splits = self.get_splits()
-        if splits is None:
-            raise ValueError("Cannot export dataset without splits")
-
-        output_path = Path(output_path)
-        if output_path.exists():
-            raise ValueError(
-                f"Export path '{output_path}' already exists. Please remove it first."
-            )
-        output_path.mkdir(parents=True)
-        image_indices = {}
-        annotations = {"train": [], "val": [], "test": []}
-        df = self._load_df_offline(raise_when_empty=True)
-
-        # Capture the original order. Assume annotations are ordered if instance_id's were not specified.
-        df = df.with_row_count("row_idx").with_columns(
-            pl.col("row_idx").min().over("file").alias("first_occur")
-        )
-
-        # Resolve file paths to ensure they are absolute and exist
-        df = df.with_columns(
-            pl.struct(["file", "uuid"])
-            .map_elements(
-                lambda row: resolve_path(
-                    row["file"], row["uuid"], str(self.media_path)
-                ),
-                return_dtype=pl.Utf8,
-            )
-            .alias("file")
-        )
-
-        grouped_image_sources = df.select(
-            "group_id", "source_name", "file"
-        ).unique()
-
-        # Filter out rows without annotations and ensure we have at least one row per group_id (images without annotations)
-        df = (
-            df.with_columns(
-                [
-                    pl.col("annotation").is_not_null().alias("has_annotation"),
-                    pl.col("group_id")
-                    .cumcount()
-                    .over("group_id")
-                    .alias("first_occur"),
-                ]
-            )
-            .pipe(
-                lambda df: (
-                    df.filter(pl.col("has_annotation")).vstack(
-                        df.filter(
-                            ~pl.col("group_id").is_in(
-                                df.filter(pl.col("has_annotation"))
-                                .select("group_id")
-                                .unique()["group_id"]
-                            )
-                        ).unique(subset=["group_id"], keep="first")
-                    )
-                )
-            )
-            .sort(["row_idx"])
-            .select(
-                [
-                    col
-                    for col in df.columns
-                    if col not in ["has_annotation", "row_idx", "first_occur"]
-                ]
-            )
-        )
-
-        splits = self.get_splits()
-        assert splits is not None
-
-        current_size = 0
-        part = 0 if max_partition_size_gb else None
-        max_partition_size = (
-            max_partition_size_gb * 1024**3 if max_partition_size_gb else None
-        )
-
-        # Group the full dataframe by group_id
-        df = df.group_by("group_id", maintain_order=True)
-        copied_files = set()
-
-        for group_id, group_df in df:
-            matched_df = grouped_image_sources.filter(
-                pl.col("group_id") == group_id
-            )
-            group_files = matched_df.get_column("file").to_list()
-            group_source_names = matched_df.get_column("source_name").to_list()
-
-            split = next(
-                (
-                    s
-                    for s, group_ids in splits.items()
-                    if group_id in group_ids
-                ),
-                None,
-            )
-            assert split is not None
-
-            group_total_size = sum(Path(f).stat().st_size for f in group_files)
-            annotation_records = []
-
-            for row in group_df.iter_rows(named=True):
-                task_name = row["task_name"]
-                class_name = row["class_name"]
-                instance_id = row["instance_id"]
-                task_type = row["task_type"]
-                ann_str = row["annotation"]
-
-                source_to_file = {
-                    name: str(
-                        (
-                            Path("images")
-                            / f"{image_indices.setdefault(Path(f), len(image_indices))}{Path(f).suffix}"
-                        ).as_posix()
-                    )
-                    for name, f in zip(
-                        group_source_names, group_files, strict=True
-                    )
-                }
-
-                record = {
-                    "files" if len(group_source_names) > 1 else "file": (
-                        source_to_file
-                        if len(group_source_names) > 1
-                        else source_to_file[group_source_names[0]]
-                    ),
-                    "task_name": task_name,
-                }
-
-                if ann_str is not None:
-                    data = json.loads(ann_str)
-                    annotation_base = {
-                        "instance_id": instance_id,
-                        "class": class_name,
-                    }
-                    if task_type in {
-                        "instance_segmentation",
-                        "segmentation",
-                        "boundingbox",
-                        "keypoints",
-                    }:
-                        annotation_base[task_type] = data
-                    elif task_type.startswith("metadata/"):
-                        annotation_base["metadata"] = {task_type[9:]: data}
-                    record["annotation"] = annotation_base
-
-                annotation_records.append(record)
-
-            annotations_size = sum(
-                sys.getsizeof(r) for r in annotation_records
-            )
-
-            if (
-                max_partition_size
-                and part is not None
-                and current_size + group_total_size + annotations_size
-                > max_partition_size
-            ):
-                _dump_annotations(
-                    annotations, output_path, self.identifier, part
-                )
-                current_size = 0
-                part += 1
-                annotations = {"train": [], "val": [], "test": []}
-
-            if max_partition_size:
-                data_path = (
-                    output_path
-                    / f"{self.identifier}_part{part}"
-                    / split
-                    / "images"
-                )
-            else:
-                data_path = output_path / self.identifier / split / "images"
-            data_path.mkdir(parents=True, exist_ok=True)
-
-            for file in group_files:
-                file_path = Path(file)
-                if file_path not in copied_files:
-                    copied_files.add(file_path)
-                    image_index = image_indices[file_path]
-                    dest_file = data_path / f"{image_index}{file_path.suffix}"
-                    shutil.copy(file_path, dest_file)
-                    current_size += file_path.stat().st_size
-
-            annotations[split].extend(annotation_records)
-            current_size += annotations_size
-
-        _dump_annotations(annotations, output_path, self.identifier, part)
-
-        if zip_output:
-            archives = []
-            if max_partition_size:
-                assert part is not None
-                for i in range(part + 1):
-                    folder = output_path / f"{self.identifier}_part{i}"
-                    if folder.exists():
-                        archive_file = shutil.make_archive(
-                            str(folder), "zip", root_dir=folder
-                        )
-                        archives.append(Path(archive_file))
-            else:
-                folder = output_path / self.identifier
-                if folder.exists():
-                    archive_file = shutil.make_archive(
-                        str(folder), "zip", root_dir=folder
-                    )
-                    archives.append(Path(archive_file))
-            if len(archives) > 1:
-                logger.info(
-                    f"Dataset successfully exported to: {[str(p) for p in archives]}"
-                )
-                return archives
-            logger.info(f"Dataset successfully exported to: {archives[0]}")
-            return archives[0]
-
-        logger.info(f"Dataset successfully exported to: {output_path}")
-        return output_path
 
     def get_statistics(
         self, sample_size: int | None = None, view: str | None = None
