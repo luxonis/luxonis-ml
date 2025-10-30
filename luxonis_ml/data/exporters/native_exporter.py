@@ -3,7 +3,7 @@ import json
 import shutil
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List
 import polars as pl
 from .base_exporter import BaseExporter
 
