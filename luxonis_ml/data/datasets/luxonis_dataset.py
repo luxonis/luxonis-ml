@@ -1473,7 +1473,7 @@ class LuxonisDataset(BaseDataset):
 
     def export(
         self,
-        output_path: Path,
+        output_path: PathType,
         dataset_type: DatasetType = DatasetType.NATIVE,
         max_partition_size_gb: float | None = None,
         zip_output: bool = False,

@@ -6,7 +6,12 @@ from pathlib import Path
 from typing import Any, Dict, List
 import polars as pl
 from .base_exporter import BaseExporter
-from ..parsers.coco_parser import Format
+from enum import Enum
+
+
+class Format(str, Enum):
+    FIFTYONE = "fiftyone"
+    ROBOFLOW = "roboflow"
 
 
 class CocoExporter(BaseExporter):
@@ -27,7 +32,7 @@ class CocoExporter(BaseExporter):
     def get_split_names(self) -> Dict[str, str]:
         if self.format == Format.ROBOFLOW:
             return {"train": "train", "val": "valid", "test": "test"}
-        return {"train": "train", "val": "validation", "test": "test"} # (FiftyOne format)
+        return {"train": "train", "val": "validation", "test": "test"}  # (FiftyOne format)
 
     def transform(self, prepared_ldf) -> Dict[str, Dict[str, Any]]:
         """Convert native LDF annotations to COCO format per split."""
