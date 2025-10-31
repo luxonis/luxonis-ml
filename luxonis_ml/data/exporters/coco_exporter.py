@@ -6,10 +6,15 @@ from pathlib import Path
 from typing import Any, Dict, List
 import polars as pl
 from .base_exporter import BaseExporter
+from ..parsers.coco_parser import Format
 
 
 class CocoExporter(BaseExporter):
     """Exporter for COCO Roboflow dataset format"""
+
+    def __init__(self, dataset_identifier: str, format=Format.ROBOFLOW):
+        super().__init__(dataset_identifier)
+        self.format = format
 
     @staticmethod
     def dataset_type() -> str:
@@ -19,9 +24,10 @@ class CocoExporter(BaseExporter):
     def supported_annotation_types() -> List[str]:
         return ["boundingbox", "segmentation", "keypoints"]
 
-    @staticmethod
-    def get_split_names() -> Dict[str, str]:
-        return {"train": "train", "val": "valid", "test": "test"}
+    def get_split_names(self) -> Dict[str, str]:
+        if self.format == Format.ROBOFLOW:
+            return {"train": "train", "val": "valid", "test": "test"}
+        return {"train": "train", "val": "validation", "test": "test"} # (FiftyOne format)
 
     def transform(self, prepared_ldf) -> Dict[str, Dict[str, Any]]:
         """Convert native LDF annotations to COCO format per split."""
@@ -88,16 +94,13 @@ class CocoExporter(BaseExporter):
                     keypoints = []
                     num_keypoints = 0
 
-                    # ---- Bounding box ----
                     if task_type == "boundingbox" and data:
                         # Assume normalized [x, y, w, h]
                         bbox = [data["x"], data["y"], data["w"], data["h"]]
 
-                    # ---- Segmentation ----
                     elif task_type in {"segmentation", "instance_segmentation"}:
                         segmentation = data if isinstance(data, list) else [data]
 
-                    # ---- Keypoints ----
                     elif task_type == "keypoints":
                         # Flatten list of (x,y,visible)
                         keypoints = [v for kp in data for v in kp]
@@ -125,6 +128,15 @@ class CocoExporter(BaseExporter):
             ]
 
         return annotation_splits
+
+    def native_keypoints_to_coco(self, ann_json):
+        return
+
+    def native_boundingbox_to_coco(self, ann_json):
+        return
+
+    def native_segmentation_to_coco(self, ann_json):
+        return
 
     def save(
             self,
@@ -157,7 +169,8 @@ class CocoExporter(BaseExporter):
                 else:
                     split_path = output_path / identifier / save_name
                 split_path.mkdir(parents=True, exist_ok=True)
-                with open(split_path / "_annotations.coco.json", "w") as f:
+                annotation_file_name = "_annotations.coco.json" if self.format == Format.ROBOFLOW else "labels.json"
+                with open(split_path / annotation_file_name, "w") as f:
                     json.dump(annotation_data, f, indent=4)
 
         # Copy images, handle partitions
@@ -184,9 +197,11 @@ class CocoExporter(BaseExporter):
 
             save_name = split_name_map.get(split, split)
             if max_partition_size:
-                data_path = output_path / f"{self.dataset_identifier}_part{part}" / save_name / "images"
+                data_path = output_path / f"{self.dataset_identifier}_part{part}" / save_name
             else:
-                data_path = output_path / self.dataset_identifier / save_name / "images"
+                data_path = output_path / self.dataset_identifier / save_name
+            if self.format == Format.FIFTYONE:
+                data_path = data_path / "data"
             data_path.mkdir(parents=True, exist_ok=True)
 
             for file in group_files:

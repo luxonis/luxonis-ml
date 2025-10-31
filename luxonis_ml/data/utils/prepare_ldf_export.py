@@ -4,7 +4,6 @@ import polars as pl
 
 class PreparedLDF:
     """Lightweight container for normalized LDF data."""
-
     def __init__(self, splits, grouped_df, grouped_image_sources, image_indices):
         self.splits = splits
         self.grouped_df = grouped_df
@@ -14,19 +13,16 @@ class PreparedLDF:
 
 def prepare_ldf_export(ldf) -> PreparedLDF:
     """Shared LDF preprocessing logic for all exporters."""
-
     splits = ldf.get_splits()
     if splits is None:
         raise ValueError("Cannot export dataset without splits")
 
     df = ldf._load_df_offline(raise_when_empty=True)
 
-    # Capture row order
     df = df.with_row_count("row_idx").with_columns(
         pl.col("row_idx").min().over("file").alias("first_occur")
     )
 
-    # Resolve file paths
     def resolve_path(img_path: str, uuid: str, media_path: str) -> str:
         img_path = Path(img_path)
         if img_path.exists():
@@ -48,7 +44,6 @@ def prepare_ldf_export(ldf) -> PreparedLDF:
 
     grouped_image_sources = df.select("group_id", "source_name", "file").unique()
 
-    # Clean up and group
     df = (
         df.with_columns(
             [

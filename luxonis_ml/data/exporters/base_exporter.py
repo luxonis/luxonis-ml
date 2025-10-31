@@ -16,9 +16,8 @@ class BaseExporter(ABC):
         """Return the dataset type identifier (e.g. 'NATIVE', 'COCO')."""
         raise NotImplementedError
 
-    @staticmethod
     @abstractmethod
-    def get_split_names() -> Dict[str, str]:
+    def get_split_names(self) -> Dict[str, str]:
         """Return mapping from native split names to dataset-appropriate split names
         e.g.: For COCO Roboflow: {"train", "train", "val": "valid", "test": "test"}"""
         raise NotImplementedError
