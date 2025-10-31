@@ -1,9 +1,9 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List
 
-from luxonis_ml.data.utils.prepare_ldf_export import PreparedLDF
+from luxonis_ml.data.exporters.export_utils import PreparedLDF
 
 
 class BaseExporter(ABC):

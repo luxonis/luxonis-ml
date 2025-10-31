@@ -19,8 +19,7 @@ class NativeExporter(BaseExporter):
     def supported_annotation_types() -> List[str]:
         return ["boundingbox", "segmentation", "keypoints", "metadata"]
 
-    @staticmethod
-    def get_split_names() -> Dict[str, str]:
+    def get_split_names(self) -> Dict[str, str]:
         return {
             "train": "train",
             "val": "val",

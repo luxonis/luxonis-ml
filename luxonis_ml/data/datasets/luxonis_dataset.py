@@ -32,7 +32,7 @@ from luxonis_ml.data.utils import (
     warn_on_duplicates,
 )
 from luxonis_ml.data.utils.constants import LDF_VERSION
-from luxonis_ml.data.utils.prepare_ldf_export import prepare_ldf_export
+from luxonis_ml.data.exporters.export_utils import prepare_ldf_export
 from luxonis_ml.enums.enums import DatasetType
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import (

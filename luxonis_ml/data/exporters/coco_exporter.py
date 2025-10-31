@@ -7,6 +7,7 @@ from typing import Any, Dict, List
 import polars as pl
 from .base_exporter import BaseExporter
 from enum import Enum
+from PIL import Image
 
 
 class Format(str, Enum):
@@ -20,6 +21,9 @@ class CocoExporter(BaseExporter):
     def __init__(self, dataset_identifier: str, format=Format.ROBOFLOW):
         super().__init__(dataset_identifier)
         self.format = format
+        self.class_to_id: Dict[str, int] = {}
+        self.image_id_map: Dict[str, int] = {}
+        self.ann_id = 1
 
     @staticmethod
     def dataset_type() -> str:
@@ -41,19 +45,7 @@ class CocoExporter(BaseExporter):
             for split in self.get_split_names().keys()
         }
 
-        grouped_image_sources = prepared_ldf.grouped_image_sources
-        image_indices = prepared_ldf.image_indices
-
-        # Track IDs
-        class_to_id: Dict[str, int] = {}
-        image_id_map: Dict[str, int] = {}
-        ann_id = 1
-
         for group_id, group_df in prepared_ldf.grouped_df:
-            matched_df = grouped_image_sources.filter(pl.col("group_id") == group_id)
-            group_files = matched_df.get_column("file").to_list()
-            group_source_names = matched_df.get_column("source_name").to_list()
-
             split = next(
                 (s for s, group_ids in prepared_ldf.splits.items() if group_id in group_ids),
                 None,
@@ -61,87 +53,98 @@ class CocoExporter(BaseExporter):
             assert split is not None
             coco_split = annotation_splits[split]
 
+            matched_df = prepared_ldf.grouped_image_sources.filter(pl.col("group_id") == group_id)
+            group_files = matched_df.get_column("file").to_list()
+
             for row in group_df.iter_rows(named=True):
                 task_type = row["task_type"]
                 class_name = row["class_name"]
-                ann_str = row["annotation"]
                 instance_id = row["instance_id"]
+                ann_str = row["annotation"]
 
-                # Assign category IDs
-                if class_name not in class_to_id:
-                    class_to_id[class_name] = len(class_to_id) + 1
+                # Register class ID
+                cat_id = self._get_class_id(class_name)
 
                 # For each file in this group
-                for name, f in zip(group_source_names, group_files, strict=True):
-                    file_name = f"{image_indices.setdefault(Path(f), len(image_indices))}{Path(f).suffix}"
-                    file_path = Path("images") / file_name
-
-                    # Register image once
-                    if str(file_path) not in image_id_map:
-                        image_id = len(image_id_map) + 1
-                        image_id_map[str(file_path)] = image_id
-                        coco_split["images"].append({
-                            "id": image_id,
-                            "file_name": file_name,
-                            "width": None,
-                            "height": None
-                        })
-                    else:
-                        image_id = image_id_map[str(file_path)]
+                for f in group_files:
+                    file_path = Path(f)
+                    image_id = self._register_image(file_path, coco_split)
 
                     if not ann_str:
                         continue
 
                     data = json.loads(ann_str)
+                    coco_ann = self._convert_annotation(task_type, data, cat_id, image_id, instance_id)
+                    coco_split["annotations"].append(coco_ann)
 
-                    bbox = []
-                    segmentation = []
-                    keypoints = []
-                    num_keypoints = 0
-
-                    if task_type == "boundingbox" and data:
-                        # Assume normalized [x, y, w, h]
-                        bbox = [data["x"], data["y"], data["w"], data["h"]]
-
-                    elif task_type in {"segmentation", "instance_segmentation"}:
-                        segmentation = data if isinstance(data, list) else [data]
-
-                    elif task_type == "keypoints":
-                        # Flatten list of (x,y,visible)
-                        keypoints = [v for kp in data for v in kp]
-                        num_keypoints = len(data)
-
-                    coco_split["annotations"].append({
-                        "id": ann_id,
-                        "image_id": image_id,
-                        "category_id": class_to_id[class_name],
-                        "bbox": bbox,
-                        "segmentation": segmentation,
-                        "area": bbox[2] * bbox[3] if bbox else 0,
-                        "iscrowd": 0,
-                        "keypoints": keypoints,
-                        "num_keypoints": num_keypoints,
-                        "instance_id": instance_id
-                    })
-                    ann_id += 1
-
-        # Add category definitions to each split
+        # Finalize category list
         for split, coco_split in annotation_splits.items():
             coco_split["categories"] = [
                 {"id": cid, "name": cname}
-                for cname, cid in class_to_id.items()
+                for cname, cid in self.class_to_id.items()
             ]
 
         return annotation_splits
 
-    def native_keypoints_to_coco(self, ann_json):
-        return
+    def _get_class_id(self, class_name: str) -> int:
+        if class_name not in self.class_to_id:
+            self.class_to_id[class_name] = len(self.class_to_id) + 1
+        return self.class_to_id[class_name]
 
-    def native_boundingbox_to_coco(self, ann_json):
-        return
+    def _register_image(self, file_path: Path, coco_split: Dict[str, Any]) -> int:
+        """Ensure each image is registered with width/height."""
+        str_path = str(file_path)
+        if str_path in self.image_id_map:
+            return self.image_id_map[str_path]
 
-    def native_segmentation_to_coco(self, ann_json):
-        return
+        image_id = len(self.image_id_map) + 1
+        width, height = self._get_image_size(file_path)
+        coco_split["images"].append({
+            "id": image_id,
+            "file_name": str(file_path),
+            "width": width,
+            "height": height
+        })
+        self.image_id_map[str_path] = image_id
+        return image_id
+
+    def _get_image_size(self, file_path: Path) -> tuple[int, int]:
+        """Try reading image size from file; fallback to None."""
+        try:
+            with Image.open(file_path) as img:
+                return img.width, img.height
+        except Exception:
+            return None, None
+
+    def _convert_annotation(
+            self, task_type: str, data: dict, category_id: int, image_id: int, instance_id: int
+    ) -> dict:
+        bbox, segmentation, keypoints, num_keypoints = [], [], [], 0
+
+        if task_type == "boundingbox":
+            bbox = [data["x"], data["y"], data["w"], data["h"]]
+
+        elif task_type in {"segmentation", "instance_segmentation"}:
+            segmentation = [data["segmentation"]] if "segmentation" in data else []
+
+        elif task_type == "keypoints":
+            keypoints = [v for kp in data for v in kp]
+            num_keypoints = len(data)
+
+        ann = {
+            "id": self.ann_id,
+            "image_id": image_id,
+            "category_id": category_id,
+            "bbox": bbox,
+            "segmentation": segmentation,
+            "area": bbox[2] * bbox[3] if bbox else 0,
+            "iscrowd": 0,
+            "keypoints": keypoints,
+            "num_keypoints": num_keypoints,
+            "instance_id": instance_id,
+        }
+        self.ann_id += 1
+        return ann
 
     def save(
             self,
@@ -151,7 +154,6 @@ class CocoExporter(BaseExporter):
             max_partition_size_gb: float | None,
             zip_output: bool,
     ) -> Path | list[Path]:
-
         output_path = Path(output_path)
         if output_path.exists():
             raise ValueError(f"Export path '{output_path}' already exists.")
