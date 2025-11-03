@@ -95,6 +95,10 @@ class BaseExporter(ABC):
             max_partition_size_gb * 1024**3 if max_partition_size_gb else None
         )
 
+        prepared_ldf.grouped_df = prepared_ldf.grouped_df.groupby(
+            "group_id", maintain_order=True
+        )
+
         for group_id, _group_df in prepared_ldf.grouped_df:
             matched_df = prepared_ldf.grouped_image_sources.filter(
                 pl.col("group_id") == group_id

@@ -2,7 +2,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import polars as pl
-from polars.dataframe.group_by import GroupBy
 
 if TYPE_CHECKING:
     from luxonis_ml.data.datasets.luxonis_dataset import LuxonisDataset
@@ -14,7 +13,7 @@ class PreparedLDF:
     def __init__(
         self,
         splits: dict[str, Any],
-        grouped_df: "GroupBy",
+        grouped_df,
         grouped_image_sources: pl.DataFrame,
     ):
         self.splits = splits
@@ -93,10 +92,11 @@ def prepare_ldf_export(ldf: "LuxonisDataset") -> PreparedLDF:
         )
     )
 
-    grouped = df.group_by("group_id", maintain_order=True)
+    # group-by operation is no longer performed here because each export type
+    # will resort to its own grouping mechanism depending on what is needed
 
     return PreparedLDF(
         splits=splits,
-        grouped_df=grouped,
+        grouped_df=df,
         grouped_image_sources=grouped_image_sources,
     )
