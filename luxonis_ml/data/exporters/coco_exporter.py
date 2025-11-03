@@ -41,7 +41,7 @@ class CocoExporter(BaseExporter):
         return {"train": "train", "val": "validation", "test": "test"}
 
     def annotation_filename(self, split: str | None = None) -> str:
-        return "_annotations_coco.json"
+        return "_annotations.coco.json"
 
     def transform(
         self, prepared_ldf: PreparedLDF

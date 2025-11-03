@@ -44,6 +44,37 @@ class BaseExporter(ABC):
         """Convert the prepared dataset into the exporter's format."""
         raise NotImplementedError
 
+    @abstractmethod
+    def _compute_annotations_size(
+        self, transformed_data: dict[str, Any], split: str
+    ) -> int:
+        """Return size of annotations for this split in bytes.
+
+        Used to decide when to start a new partition
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def _get_data_path(
+        self, output_path: Path, split: str, part: int | None
+    ) -> Path:
+        """Return the folder path to store data files for this split."""
+        raise NotImplementedError
+
+    def annotations_per_image(self) -> bool:
+        """Whether each image has its own annotation file (e.g. VOC) or
+        one file per split (e.g. COCO Roboflow)"""
+        return False
+
+    def annotation_filename(self, split: str | None = None) -> str:
+        """Return the filename for the annotation file for a given
+        split.
+
+        Default is 'annotations.json', but can be overridden per
+        exporter.
+        """
+        return "annotations.json"
+
     def save(
         self,
         transformed_data: dict[str, list[dict[str, Any]]],
@@ -113,36 +144,6 @@ class BaseExporter(ABC):
 
         logger.info(f"Dataset successfully exported to: {output_path}")
         return output_path
-
-    @abstractmethod
-    def _compute_annotations_size(
-        self, transformed_data: dict[str, Any], split: str
-    ) -> int:
-        """Return size of annotations for this split in bytes.
-
-        Used to decide when to start a new partition
-        """
-        ...
-
-    @abstractmethod
-    def _get_data_path(
-        self, output_path: Path, split: str, part: int | None
-    ) -> Path:
-        """Return the folder path to store data files for this split."""
-        ...
-
-    def annotations_per_image(self) -> bool:
-        """Whether each image has its own annotation file (e.g. VOC)."""
-        return False
-
-    def annotation_filename(self, split: str | None = None) -> str:
-        """Return the filename for the annotation file for a given
-        split.
-
-        Default is 'annotations.json', but can be overridden per
-        exporter.
-        """
-        return "annotations.json"
 
     def _dump_annotations(
         self, annotations: dict, output_path: Path, part: int | None = None

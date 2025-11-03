@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 
 
 class PreparedLDF:
-    """Lightweight container for normalized LDF data."""
+    """Lightweight container for LDF data."""
 
     def __init__(
         self,
@@ -24,7 +24,7 @@ class PreparedLDF:
 
 
 def prepare_ldf_export(ldf: "LuxonisDataset") -> PreparedLDF:
-    """Shared LDF preprocessing logic for all exporters."""
+    """Shared LDF preprocessing logic for all export formats."""
     splits = ldf.get_splits()
     if splits is None:
         raise ValueError("Cannot export dataset without splits")
