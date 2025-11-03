@@ -65,7 +65,7 @@ class ClassificationDirectoryParser(BaseParser):
 
         def generator() -> DatasetIterator:
             for class_name in class_names:
-                for img_path in (class_dir / class_name).iterdir():
+                for img_path in self._list_images(class_dir / class_name):
                     yield {
                         "file": str(img_path.absolute().resolve()),
                         "annotation": {"class": class_name},
