@@ -39,7 +39,6 @@ class NativeExporter(BaseExporter):
         image_indices = prepared_ldf.image_indices
 
         for group_id, group_df in prepared_ldf.grouped_df:
-            # in case there are multiple files for a group (ex: RGB and depth)
             matched_df = grouped_image_sources.filter(
                 pl.col("group_id") == group_id
             )
@@ -58,50 +57,63 @@ class NativeExporter(BaseExporter):
 
             annotation_records = []
             for row in group_df.iter_rows(named=True):
-                task_name = row["task_name"]
-                class_name = row["class_name"]
-                instance_id = row["instance_id"]
-                task_type = row["task_type"]
-                ann_str = row["annotation"]
-
-                source_to_file = {}
-                for name, f in zip(
-                    group_source_names, group_files, strict=True
-                ):
-                    path = Path(f)
-                    index = image_indices.setdefault(path, len(image_indices))
-
-                    new_filename = f"{index}{path.suffix}"
-                    new_path = Path("images") / new_filename
-
-                    source_to_file[name] = str(new_path.as_posix())
-
-                record = {
-                    "files" if len(group_source_names) > 1 else "file": (
-                        source_to_file
-                        if len(group_source_names) > 1
-                        else source_to_file[group_source_names[0]]
-                    ),
-                    "task_name": task_name,
-                }
-
-                if ann_str is not None:
-                    data = json.loads(ann_str)
-                    annotation_base = {
-                        "instance_id": instance_id,
-                        "class": class_name,
-                    }
-                    if task_type in self.supported_annotation_types():
-                        annotation_base[task_type] = data
-                    elif task_type.startswith("metadata/"):
-                        annotation_base["metadata"] = {task_type[9:]: data}
-                    record["annotation"] = annotation_base
-
+                record = self._row_to_record(
+                    row=row,
+                    group_source_names=group_source_names,
+                    group_files=group_files,
+                    image_indices=image_indices,
+                )
                 annotation_records.append(record)
 
             annotation_splits[split].extend(annotation_records)
 
         return annotation_splits
+
+    def _row_to_record(
+        self,
+        row: dict[str, Any],
+        group_source_names: list[str],
+        group_files: list[str],
+        image_indices: dict[Path, int],
+    ) -> dict[str, Any]:
+        task_name = row["task_name"]
+        class_name = row["class_name"]
+        instance_id = row["instance_id"]
+        task_type = row["task_type"]
+        ann_str = row["annotation"]
+
+        source_to_file = {}
+        for name, f in zip(group_source_names, group_files, strict=True):
+            path = Path(f)
+            index = image_indices.setdefault(path, len(image_indices))
+
+            new_filename = f"{index}{path.suffix}"
+            new_path = Path("images") / new_filename
+
+            source_to_file[name] = str(new_path.as_posix())
+
+        record = {
+            "files" if len(group_source_names) > 1 else "file": (
+                source_to_file
+                if len(group_source_names) > 1
+                else source_to_file[group_source_names[0]]
+            ),
+            "task_name": task_name,
+        }
+
+        if ann_str is not None:
+            data = json.loads(ann_str)
+            annotation_base = {
+                "instance_id": instance_id,
+                "class": class_name,
+            }
+            if task_type in self.supported_annotation_types():
+                annotation_base[task_type] = data
+            elif task_type.startswith("metadata/"):
+                annotation_base["metadata"] = {task_type[9:]: data}
+            record["annotation"] = annotation_base
+
+        return record
 
     def save(
         self,

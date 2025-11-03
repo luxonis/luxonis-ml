@@ -78,7 +78,6 @@ class CocoExporter(BaseExporter):
                 # Register class ID
                 cat_id = self._get_class_id(class_name)
 
-                # For each file in this group
                 for f in group_files:
                     file_path = Path(f)
                     image_id = self._register_image(file_path, coco_split)
@@ -138,7 +137,7 @@ class CocoExporter(BaseExporter):
     def _convert_annotation(
         self,
         task_type: str,
-        data: dict,
+        ann_str: str,
         category_id: int,
         image_id: int,
         instance_id: int,
