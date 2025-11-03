@@ -6,8 +6,8 @@ import numpy as np
 from loguru import logger
 
 from luxonis_ml.data import DatasetIterator
-
 from luxonis_ml.data.utils import COCOFormat
+
 from .base_parser import BaseParser, ParserOutput
 
 

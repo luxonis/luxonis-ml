@@ -1,21 +1,29 @@
-import json
-import shutil
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import polars as pl
+from polars.dataframe.group_by import GroupBy
+
+if TYPE_CHECKING:
+    from luxonis_ml.data.datasets.luxonis_dataset import LuxonisDataset
 
 
 class PreparedLDF:
     """Lightweight container for normalized LDF data."""
 
-    def __init__(self, splits, grouped_df, grouped_image_sources):
+    def __init__(
+        self,
+        splits: dict[str, Any],
+        grouped_df: "GroupBy",
+        grouped_image_sources: pl.DataFrame,
+    ):
         self.splits = splits
         self.grouped_df = grouped_df
         self.grouped_image_sources = grouped_image_sources
         self.image_indices = {}
 
 
-def prepare_ldf_export(ldf) -> PreparedLDF:
+def prepare_ldf_export(ldf: "LuxonisDataset") -> PreparedLDF:
     """Shared LDF preprocessing logic for all exporters."""
     splits = ldf.get_splits()
     if splits is None:
@@ -27,11 +35,11 @@ def prepare_ldf_export(ldf) -> PreparedLDF:
         pl.col("row_idx").min().over("file").alias("first_occur")
     )
 
-    def resolve_path(img_path: str, uuid: str, media_path: str) -> str:
-        img_path = Path(img_path)
-        if img_path.exists():
-            return str(img_path)
-        ext = img_path.suffix.lstrip(".")
+    def resolve_path(img_path: str | Path, uuid: str, media_path: str) -> str:
+        path_obj = Path(img_path)
+        if path_obj.exists():
+            return str(path_obj)
+        ext = path_obj.suffix.lstrip(".")
         fallback = Path(media_path) / f"{uuid}.{ext}"
         if not fallback.exists():
             raise FileNotFoundError(f"Missing image: {fallback}")
@@ -92,4 +100,3 @@ def prepare_ldf_export(ldf) -> PreparedLDF:
         grouped_df=grouped,
         grouped_image_sources=grouped_image_sources,
     )
-

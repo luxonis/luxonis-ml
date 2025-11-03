@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -25,14 +24,14 @@ class NativeExporter(BaseExporter):
             "boundingbox",
             "segmentation",
             "keypoints",
-            "instance_segmentation"
+            "instance_segmentation",
         ]
 
     def get_split_names(self) -> dict[str, str]:
         return {"train": "train", "val": "val", "test": "test"}
 
     def transform(
-            self, prepared_ldf: PreparedLDF
+        self, prepared_ldf: PreparedLDF
     ) -> dict[str, list[dict[str, Any]]]:
         annotation_splits = {split: [] for split in self.get_split_names()}
         grouped_image_sources = prepared_ldf.grouped_image_sources
@@ -56,10 +55,10 @@ class NativeExporter(BaseExporter):
 
             annotation_records = []
             for row in group_df.iter_rows(named=True):
-                record = self._row_to_record(
+                record = self._process_row(
                     row=row,
                     group_source_names=group_source_names,
-                    group_files=group_files
+                    group_files=group_files,
                 )
                 annotation_records.append(record)
 
@@ -67,11 +66,11 @@ class NativeExporter(BaseExporter):
 
         return annotation_splits
 
-    def _row_to_record(
-            self,
-            row: dict[str, Any],
-            group_source_names: list[str],
-            group_files: list[str],
+    def _process_row(
+        self,
+        row: dict[str, Any],
+        group_source_names: list[str],
+        group_files: list[str],
     ) -> dict[str, Any]:
         task_name = row["task_name"]
         class_name = row["class_name"]
@@ -82,7 +81,9 @@ class NativeExporter(BaseExporter):
         source_to_file = {}
         for name, f in zip(group_source_names, group_files, strict=True):
             path = Path(f)
-            index = self.image_indices.setdefault(path, len(self.image_indices))
+            index = self.image_indices.setdefault(
+                path, len(self.image_indices)
+            )
 
             new_filename = f"{index}{path.suffix}"
             new_path = Path("images") / new_filename
@@ -112,10 +113,19 @@ class NativeExporter(BaseExporter):
 
         return record
 
-    def _compute_annotations_size(self, transformed_data, split):
+    def _compute_annotations_size(
+        self, transformed_data: dict, split: str
+    ) -> int:
         return sum(sys.getsizeof(r) for r in transformed_data[split])
 
-    def _get_data_path(self, output_path, split, part):
+    def _get_data_path(
+        self, output_path: Path, split: str, part: int | None = None
+    ) -> Path:
         if part is not None:
-            return output_path / f"{self.dataset_identifier}_part{part}" / split / "images"
+            return (
+                output_path
+                / f"{self.dataset_identifier}_part{part}"
+                / split
+                / "images"
+            )
         return output_path / self.dataset_identifier / split / "images"

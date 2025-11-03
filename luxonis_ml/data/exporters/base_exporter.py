@@ -5,7 +5,9 @@ import shutil
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
+
 import polars as pl
+from loguru import logger
 
 from luxonis_ml.data.exporters.export_utils import PreparedLDF
 
@@ -37,18 +39,18 @@ class BaseExporter(ABC):
 
     @abstractmethod
     def transform(
-            self, prepared_ldf: PreparedLDF
+        self, prepared_ldf: PreparedLDF
     ) -> dict[str, list[dict[str, Any]]]:
         """Convert the prepared dataset into the exporter's format."""
         raise NotImplementedError
 
     def save(
-            self,
-            transformed_data: dict[str, list[dict[str, Any]]],
-            prepared_ldf: PreparedLDF,
-            output_path: Path,
-            max_partition_size_gb: float | None,
-            zip_output: bool,
+        self,
+        transformed_data: dict[str, list[dict[str, Any]]],
+        prepared_ldf: PreparedLDF,
+        output_path: Path,
+        max_partition_size_gb: float | None,
+        zip_output: bool,
     ) -> Path | list[Path]:
         output_path = Path(output_path)
         if output_path.exists():
@@ -59,7 +61,7 @@ class BaseExporter(ABC):
         copied_files = set()
         part = 0 if max_partition_size_gb else None
         max_partition_size = (
-            max_partition_size_gb * 1024 ** 3 if max_partition_size_gb else None
+            max_partition_size_gb * 1024**3 if max_partition_size_gb else None
         )
 
         for group_id, _group_df in prepared_ldf.grouped_df:
@@ -68,18 +70,25 @@ class BaseExporter(ABC):
             )
             group_files = matched_df.get_column("file").to_list()
             split = next(
-                (s for s, group_ids in prepared_ldf.splits.items() if group_id in group_ids),
+                (
+                    s
+                    for s, group_ids in prepared_ldf.splits.items()
+                    if group_id in group_ids
+                ),
                 None,
             )
             assert split is not None
 
             group_total_size = sum(Path(f).stat().st_size for f in group_files)
-            annotations_size = self._compute_annotations_size(transformed_data, split)
+            annotations_size = self._compute_annotations_size(
+                transformed_data, split
+            )
 
             if (
-                    max_partition_size
-                    and part is not None
-                    and current_size + group_total_size + annotations_size > max_partition_size
+                max_partition_size
+                and part is not None
+                and current_size + group_total_size + annotations_size
+                > max_partition_size
             ):
                 self._dump_annotations(transformed_data, output_path, part)
                 current_size = 0
@@ -102,17 +111,23 @@ class BaseExporter(ABC):
         if zip_output:
             self._create_zip_output(max_partition_size, output_path, part)
 
+        logger.info(f"Dataset successfully exported to: {output_path}")
         return output_path
 
     @abstractmethod
     def _compute_annotations_size(
-            self, transformed_data: dict[str, Any], split: str
+        self, transformed_data: dict[str, Any], split: str
     ) -> int:
-        """Return size of annotations for this split in bytes. Used to decide when to start a new partition"""
+        """Return size of annotations for this split in bytes.
+
+        Used to decide when to start a new partition
+        """
         ...
 
     @abstractmethod
-    def _get_data_path(self, output_path: Path, split: str, part: int | None) -> Path:
+    def _get_data_path(
+        self, output_path: Path, split: str, part: int | None
+    ) -> Path:
         """Return the folder path to store data files for this split."""
         ...
 
@@ -121,15 +136,25 @@ class BaseExporter(ABC):
         return False
 
     def annotation_filename(self, split: str | None = None) -> str:
-        """Return the filename for the annotation file for a given split.
-        Default is 'annotations.json', but can be overridden per exporter."""
+        """Return the filename for the annotation file for a given
+        split.
+
+        Default is 'annotations.json', but can be overridden per
+        exporter.
+        """
         return "annotations.json"
 
-    def _dump_annotations(self, annotations, output_path, part=None):
+    def _dump_annotations(
+        self, annotations: dict, output_path: Path, part: int | None = None
+    ) -> None:
         for split_name, annotation_data in annotations.items():
-            save_name = self.get_split_names().get(split_name, split_name)
+            save_name = str(self.get_split_names().get(split_name, split_name))
             if part is not None:
-                split_path = output_path / f"{self.dataset_identifier}_part{part}" / save_name
+                split_path = (
+                    output_path
+                    / f"{self.dataset_identifier}_part{part}"
+                    / save_name
+                )
             else:
                 split_path = output_path / self.dataset_identifier / save_name
             split_path.mkdir(parents=True, exist_ok=True)
@@ -139,8 +164,12 @@ class BaseExporter(ABC):
                 for item in annotation_data:
                     image_id = item.get("image_id") or item.get("file_name")
                     if not image_id:
-                        raise ValueError("Per-image annotation missing 'image_id' or 'file_name'")
-                    ann_path = split_path / f"{Path(image_id).stem}.xml"  # or .json, depending on subclass
+                        raise ValueError(
+                            "Per-image annotation missing 'image_id' or 'file_name'"
+                        )
+                    ann_path = (
+                        split_path / f"{Path(image_id).stem}.xml"
+                    )  # or .json, depending on subclass
                     with open(ann_path, "w") as f:
                         f.write(item["annotation_content"])
             else:
@@ -150,10 +179,14 @@ class BaseExporter(ABC):
                     json.dump(annotation_data, f, indent=4)
 
     def _create_zip_output(
-            self, max_partition_size, output_path, part
-    ):
-        archives = []
-        if max_partition_size:
+        self,
+        max_partition_size: float | None,
+        output_path: Path,
+        part: int | None,
+    ) -> Path | list[Path]:
+        archives: list[Path] = []
+
+        if max_partition_size is not None and part is not None:
             for i in range(part + 1):
                 folder = output_path / f"{self.dataset_identifier}_part{i}"
                 if folder.exists():
@@ -168,4 +201,5 @@ class BaseExporter(ABC):
                     str(folder), "zip", root_dir=folder
                 )
                 archives.append(Path(archive_file))
+
         return archives if len(archives) > 1 else archives[0]

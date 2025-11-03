@@ -1478,6 +1478,28 @@ class LuxonisDataset(BaseDataset):
         max_partition_size_gb: float | None = None,
         zip_output: bool = False,
     ) -> Path | list[Path]:
+        """Exports the dataset into one of the supported formats.
+
+        @type output_path: PathType
+        @param output_path: Path to the directory where the dataset will
+            be exported.
+        @type dataset_type: DatasetType
+        @param dataset_type: To what format to export the dataset.
+            Currently only DatasetType.NATIVE is supported.
+        @type max_partition_size_gb: Optional[float]
+        @param max_partition_size_gb: Maximum size of each partition in
+            GB. If the dataset exceeds this size, it will be split into
+            multiple partitions named
+            {dataset_name}_part{partition_number}. Default is None,
+            meaning the dataset will be exported as a single partition
+            named {dataset_name}.
+        @type zip_output: bool
+        @param zip_output: Whether to zip the exported dataset (or each
+            partition) after export. Default is False.
+        @rtype: Union[Path, List[Path]]
+        @return: Path(s) to the ZIP file(s) containing the exported
+            dataset.
+        """
         EXPORTER_MAP = {
             DatasetType.NATIVE: NativeExporter,
             DatasetType.COCO: CocoExporter,
@@ -1487,6 +1509,9 @@ class LuxonisDataset(BaseDataset):
             raise NotImplementedError(
                 f"Unsupported export format: {dataset_type}"
             )
+        logger.info(
+            f"Exporting '{self.identifier}' to '{dataset_type.name}' format"
+        )
 
         prepared_ldf = prepare_ldf_export(self)
         exporter = exporter_cls(self.identifier)
