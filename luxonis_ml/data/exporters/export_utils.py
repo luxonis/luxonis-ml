@@ -93,35 +93,3 @@ def prepare_ldf_export(ldf) -> PreparedLDF:
         grouped_image_sources=grouped_image_sources,
     )
 
-
-def dump_annotations(annotations, output_path, identifier, part=None):
-    for split_name, annotation_data in annotations.items():
-        if part is not None:
-            split_path = output_path / f"{identifier}_part{part}" / split_name
-        else:
-            split_path = output_path / identifier / split_name
-        split_path.mkdir(parents=True, exist_ok=True)
-        with open(split_path / "annotations.json", "w") as f:
-            json.dump(annotation_data, f, indent=4)
-
-
-def create_zip_output(
-    dataset_identifier, max_partition_size, part, output_path
-):
-    archives = []
-    if max_partition_size:
-        for i in range(part + 1):
-            folder = output_path / f"{dataset_identifier}_part{i}"
-            if folder.exists():
-                archive_file = shutil.make_archive(
-                    str(folder), "zip", root_dir=folder
-                )
-                archives.append(Path(archive_file))
-    else:
-        folder = output_path / dataset_identifier
-        if folder.exists():
-            archive_file = shutil.make_archive(
-                str(folder), "zip", root_dir=folder
-            )
-            archives.append(Path(archive_file))
-    return archives if len(archives) > 1 else archives[0]

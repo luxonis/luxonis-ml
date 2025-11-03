@@ -7,7 +7,7 @@ from loguru import logger
 
 from luxonis_ml.data import DatasetIterator
 
-from ..utils import COCOFormat
+from luxonis_ml.data.utils import COCOFormat
 from .base_parser import BaseParser, ParserOutput
 
 
