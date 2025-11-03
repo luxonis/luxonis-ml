@@ -9,7 +9,14 @@ from .data_utils import (
     rgb_to_bool_masks,
     warn_on_duplicates,
 )
-from .enums import BucketStorage, BucketType, ImageType, MediaType, UpdateMode
+from .enums import (
+    BucketStorage,
+    BucketType,
+    COCOFormat,
+    ImageType,
+    MediaType,
+    UpdateMode,
+)
 from .parquet import ParquetFileManager, ParquetRecord
 from .plot_utils import plot_class_distribution, plot_heatmap
 from .task_utils import (
@@ -30,6 +37,7 @@ from .visualizations import (
 __all__ = [
     "BucketStorage",
     "BucketType",
+    "COCOFormat",
     "ColorMap",
     "ImageType",
     "MediaType",

@@ -9,7 +9,7 @@ from typing import Any
 import polars as pl
 
 from .base_exporter import BaseExporter
-from .export_utils import create_zip_output, dump_annotations, PreparedLDF
+from .export_utils import PreparedLDF, create_zip_output, dump_annotations
 
 
 class NativeExporter(BaseExporter):
@@ -21,17 +21,25 @@ class NativeExporter(BaseExporter):
 
     @staticmethod
     def supported_annotation_types() -> list[str]:
-        return ["boundingbox", "segmentation", "keypoints", "metadata"]
+        return [
+            "boundingbox",
+            "segmentation",
+            "keypoints",
+            "instance_segmentation",
+        ]
 
     def get_split_names(self) -> dict[str, str]:
         return {"train": "train", "val": "val", "test": "test"}
 
-    def transform(self, prepared_ldf: PreparedLDF) -> dict[str, list[dict[str, Any]]]:
+    def transform(
+        self, prepared_ldf: PreparedLDF
+    ) -> dict[str, list[dict[str, Any]]]:
         annotation_splits = {split: [] for split in self.get_split_names()}
         grouped_image_sources = prepared_ldf.grouped_image_sources
         image_indices = prepared_ldf.image_indices
 
         for group_id, group_df in prepared_ldf.grouped_df:
+            # in case there are multiple files for a group (ex: RGB and depth)
             matched_df = grouped_image_sources.filter(
                 pl.col("group_id") == group_id
             )
@@ -56,17 +64,17 @@ class NativeExporter(BaseExporter):
                 task_type = row["task_type"]
                 ann_str = row["annotation"]
 
-                source_to_file = {
-                    name: str(
-                        (
-                            Path("images")
-                            / f"{image_indices.setdefault(Path(f), len(image_indices))}{Path(f).suffix}"
-                        ).as_posix()
-                    )
-                    for name, f in zip(
-                        group_source_names, group_files, strict=True
-                    )
-                }
+                source_to_file = {}
+                for name, f in zip(
+                    group_source_names, group_files, strict=True
+                ):
+                    path = Path(f)
+                    index = image_indices.setdefault(path, len(image_indices))
+
+                    new_filename = f"{index}{path.suffix}"
+                    new_path = Path("images") / new_filename
+
+                    source_to_file[name] = str(new_path.as_posix())
 
                 record = {
                     "files" if len(group_source_names) > 1 else "file": (
@@ -83,12 +91,7 @@ class NativeExporter(BaseExporter):
                         "instance_id": instance_id,
                         "class": class_name,
                     }
-                    if task_type in {
-                        "instance_segmentation",
-                        "segmentation",
-                        "boundingbox",
-                        "keypoints",
-                    }:
+                    if task_type in self.supported_annotation_types():
                         annotation_base[task_type] = data
                     elif task_type.startswith("metadata/"):
                         annotation_base["metadata"] = {task_type[9:]: data}

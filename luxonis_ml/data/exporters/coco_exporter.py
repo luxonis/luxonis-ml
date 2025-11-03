@@ -3,27 +3,22 @@ from __future__ import annotations
 import json
 import shutil
 import sys
-from enum import Enum
 from pathlib import Path
 from typing import Any
 
 import polars as pl
 from PIL import Image
 
+from ..utils import COCOFormat
 from .base_exporter import BaseExporter
 from .export_utils import PreparedLDF, create_zip_output, dump_annotations
-
-
-class Format(str, Enum):
-    FIFTYONE = "fiftyone"
-    ROBOFLOW = "roboflow"
 
 
 class CocoExporter(BaseExporter):
     """Exporter for COCO Roboflow dataset format."""
 
     def __init__(
-        self, dataset_identifier: str, format: Format = Format.ROBOFLOW
+        self, dataset_identifier: str, format: COCOFormat = COCOFormat.ROBOFLOW
     ):
         super().__init__(dataset_identifier)
         self.format = format
@@ -40,7 +35,7 @@ class CocoExporter(BaseExporter):
         return ["boundingbox", "segmentation", "keypoints"]
 
     def get_split_names(self) -> dict[str, str]:
-        if self.format == Format.ROBOFLOW:
+        if self.format == COCOFormat.ROBOFLOW:
             return {"train": "train", "val": "valid", "test": "test"}
         return {
             "train": "train",
@@ -197,8 +192,6 @@ class CocoExporter(BaseExporter):
             max_partition_size_gb * 1024**3 if max_partition_size_gb else None
         )
 
-        split_name_map = self.get_split_names()
-
         for group_id, group_df in prepared_ldf.grouped_df:
             matched_df = prepared_ldf.grouped_image_sources.filter(
                 pl.col("group_id") == group_id
@@ -232,16 +225,19 @@ class CocoExporter(BaseExporter):
                 current_size = 0
                 part += 1
 
-            save_name = split_name_map.get(split, split)
             if max_partition_size:
                 data_path = (
                     output_path
                     / f"{self.dataset_identifier}_part{part}"
-                    / save_name
+                    / self.get_split_names().get(split, split)
                 )
             else:
-                data_path = output_path / self.dataset_identifier / save_name
-            if self.format == Format.FIFTYONE:
+                data_path = (
+                    output_path
+                    / self.dataset_identifier
+                    / self.get_split_names().get(split, split)
+                )
+            if self.format == COCOFormat.FIFTYONE:
                 data_path = data_path / "data"
             data_path.mkdir(parents=True, exist_ok=True)
 

@@ -38,3 +38,8 @@ class UpdateMode(Enum):
 
     ALL = "all"
     MISSING = "missing"
+
+
+class COCOFormat(str, Enum):
+    FIFTYONE = "fiftyone"
+    ROBOFLOW = "roboflow"

@@ -8,9 +8,7 @@ import polars as pl
 class PreparedLDF:
     """Lightweight container for normalized LDF data."""
 
-    def __init__(
-        self, splits, grouped_df, grouped_image_sources
-    ):
+    def __init__(self, splits, grouped_df, grouped_image_sources):
         self.splits = splits
         self.grouped_df = grouped_df
         self.grouped_image_sources = grouped_image_sources
@@ -87,17 +85,12 @@ def prepare_ldf_export(ldf) -> PreparedLDF:
         )
     )
 
-    print(splits)
-    print(df.head())
-    print(df["file"].head)
-    print(grouped_image_sources.head())
-
     grouped = df.group_by("group_id", maintain_order=True)
 
     return PreparedLDF(
         splits=splits,
         grouped_df=grouped,
-        grouped_image_sources=grouped_image_sources
+        grouped_image_sources=grouped_image_sources,
     )
 
 
