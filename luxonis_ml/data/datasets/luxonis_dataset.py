@@ -1500,9 +1500,7 @@ class LuxonisDataset(BaseDataset):
         @return: Path(s) to the ZIP file(s) containing the exported
             dataset.
         """
-        EXPORTER_MAP = {
-            DatasetType.NATIVE: NativeExporter
-        }
+        EXPORTER_MAP = {DatasetType.NATIVE: NativeExporter}
         exporter_cls = EXPORTER_MAP.get(dataset_type)
         if exporter_cls is None:
             raise NotImplementedError(
