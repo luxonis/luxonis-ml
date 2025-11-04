@@ -18,7 +18,7 @@ from semver.version import Version
 from typing_extensions import Self, override
 
 from luxonis_ml.data.exporters import BaseExporter, NativeExporter
-from luxonis_ml.data.exporters.export_utils import prepare_ldf_export
+from luxonis_ml.data.exporters.prepared_ldf import PreparedLDF
 from luxonis_ml.data.utils import (
     BucketStorage,
     BucketType,
@@ -1501,7 +1501,9 @@ class LuxonisDataset(BaseDataset):
             dataset (if zip_output=True). Otherwise, the output
             directory.
         """
-        EXPORTER_MAP = {DatasetType.NATIVE: NativeExporter}
+        EXPORTER_MAP = {
+            DatasetType.NATIVE: NativeExporter
+        }  # More exporters to be defined here
         exporter_cls = EXPORTER_MAP.get(dataset_type)
         if exporter_cls is None:
             raise NotImplementedError(
@@ -1519,11 +1521,9 @@ class LuxonisDataset(BaseDataset):
             )
         out_path.mkdir(parents=True)
 
-        # Prepare dataset once, then delegate to exporter
-        prepared_ldf = prepare_ldf_export(self)
+        prepared_ldf = PreparedLDF.from_dataset(self)
         exporter: BaseExporter = exporter_cls(self.identifier)
 
-        # Perform the transform/emit step (copies media, writes annotations)
         exporter.transform(
             prepared_ldf=prepared_ldf,
             output_path=out_path,
@@ -1536,7 +1536,6 @@ class LuxonisDataset(BaseDataset):
             prefix = f"{ds_id}_part"
             for p in base.iterdir():
                 if p.is_dir() and p.name.startswith(prefix):
-                    # extract the integer suffix safely
                     try:
                         idx = int(p.name[len(prefix) :])
                     except ValueError:

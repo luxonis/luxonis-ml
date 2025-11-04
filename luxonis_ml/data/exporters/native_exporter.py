@@ -9,7 +9,7 @@ from typing import Any
 import polars as pl
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
-from luxonis_ml.data.exporters.export_utils import PreparedLDF
+from luxonis_ml.data.exporters.prepared_ldf import PreparedLDF
 
 
 class NativeExporter(BaseExporter):

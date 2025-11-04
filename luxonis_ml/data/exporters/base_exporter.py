@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
-from luxonis_ml.data.exporters.export_utils import PreparedLDF
+from luxonis_ml.data.exporters.prepared_ldf import PreparedLDF
 
 
 class BaseExporter(ABC):
@@ -90,11 +90,11 @@ class BaseExporter(ABC):
                         )
                     ann_path = (
                         split_path / f"{Path(image_id).stem}.xml"
-                    )  # or .json, depending on subclass
+                    )  # or .json depending on subclass
                     with open(ann_path, "w") as f:
                         f.write(item["annotation_content"])
             else:
-                # Single annotation file for split
+                # Single annotation file for split (e.g., )annotations.coco.json for train split)
                 ann_filename = self.annotation_filename(split_name)
                 with open(split_path / ann_filename, "w") as f:
                     json.dump(annotation_data, f, indent=4)
