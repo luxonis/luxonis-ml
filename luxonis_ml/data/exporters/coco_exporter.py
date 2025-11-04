@@ -62,108 +62,149 @@ class CocoExporter(BaseExporter):
     def transform(
         self, prepared_ldf: PreparedLDF
     ) -> dict[str, dict[str, Any]]:
-        annotation_splits: dict[str, dict[str, Any]] = {
-            split: {"images": [], "categories": [], "annotations": []}
-            for split in self.get_split_names()
+        splits = self.get_split_names()
+        annotation_splits = {
+            s: {"images": [], "categories": [], "annotations": []}
+            for s in splits
         }
-        seen_class_names = {split: [] for split in self.get_split_names()}
-        annotation_counter = {split: 0 for split in self.get_split_names()}
+        seen_classes = {s: [] for s in splits}
+        ann_counter = {s: 0 for s in splits}
         grouped = prepared_ldf.processed_df.groupby(
             ["file", "instance_id", "group_id"], maintain_order=True
         )
         self.check_group_file_correspondence(prepared_ldf)
+
         for key, entry in grouped:
             key = cast(tuple[str, str, str], key)
             file_name, instance_id, group_id = key
-            path = Path(str(file_name))
-            index = self.image_indices.setdefault(
-                path, len(self.image_indices)
+            split = next(
+                (
+                    s
+                    for s, gids in prepared_ldf.splits.items()
+                    if group_id in gids
+                ),
+                None,
             )
-            new_filename = f"{index}{path.suffix}"
-            split_name = None
-            for split, group_ids in prepared_ldf.splits.items():
-                if group_id in group_ids:
-                    split_name = split
-                    break
-            if split_name is None:
+            if not split:
                 continue
-            final_entry = self.construct_empty_entry()
-            im_id, im_width, im_height = self.register_image(
-                file_name, split_name, annotation_splits, new_filename
+
+            path = Path(str(file_name))
+            img_id, w, h = self._get_or_register_image(
+                path, split, annotation_splits
             )
-            final_entry["id"], final_entry["image_id"] = (
-                annotation_counter[split_name],
-                im_id,
-            )
-            annotation_counter[split_name] += 1
+            ann = self._make_base_annotation(ann_counter, split, img_id)
             if instance_id == -1:
-                continue  # skip semantic segmentation
+                continue
+
             for row in entry.iter_rows(named=True):
-                task_type = row["task_type"]
-                annotation_str = row["annotation"]
-                class_name = row["class_name"]
-                if (
-                    class_name is not None
-                    and class_name not in seen_class_names[split_name]
-                ):
-                    cat_id = self.last_category_id[split_name]
-                    annotation_splits[split_name]["categories"].append(
-                        {"id": cat_id, "name": class_name}
-                    )
-                    seen_class_names[split_name].append(class_name)
-                    self.class_name_to_category_id[split_name][class_name] = (
-                        cat_id
-                    )
-                    self.last_category_id[split_name] += 1
-                if task_type == "classification":
-                    final_entry["category_id"] = (
-                        self.class_name_to_category_id[split_name][class_name]
-                    )
-                if task_type == "boundingbox":
-                    ann_data = json.loads(annotation_str)
-                    final_entry["bbox"] = [
-                        ann_data["x"] * im_width,
-                        ann_data["y"] * im_height,
-                        ann_data["w"] * im_width,
-                        ann_data["h"] * im_height,
-                    ]
-                    final_entry["area"] = (ann_data["w"] * im_width) * (
-                        ann_data["h"] * im_height
-                    )
-                    final_entry["category_id"] = (
-                        self.class_name_to_category_id[split_name][class_name]
-                    )
-                elif task_type == "keypoints":
-                    ann_data = json.loads(annotation_str)["keypoints"]
-                    final_entry["num_keypoints"] = len(ann_data)
-                    if (
-                        class_name is None
-                        or final_entry["category_id"]
-                        not in self.class_to_keypoints
-                    ):
-                        class_name = final_entry["category_id"]
-                        self.class_to_keypoints[class_name] = [
-                            row["task_name"] + "_" + str(i)
-                            for i in range(len(ann_data))
-                        ]
-                        final_entry["keypoints"] = [
-                            round(c, 2) if isinstance(c, float) else c
-                            for x, y, v in ann_data
-                            for c in (x * im_width, y * im_height, v)
-                        ]
-            annotation_splits[split_name]["annotations"].append(final_entry)
+                self._process_row(
+                    row, split, seen_classes, annotation_splits, ann, w, h
+                )
+            annotation_splits[split]["annotations"].append(ann)
 
-        for split_data in annotation_splits.values():
-            for category in split_data["categories"]:
-                cat_id = category["id"]
-                if cat_id in self.class_to_keypoints:
-                    category["keypoints"] = self.class_to_keypoints[cat_id]
-                    category["skeleton"] = [
-                        [i, i + 1]
-                        for i in range(1, len(category["keypoints"]))
-                    ]
-
+        self._attach_keypoints_to_categories(annotation_splits)
         return annotation_splits
+
+    def _get_or_register_image(
+        self, path: Path, split: str, annotation_splits: dict
+    ) -> tuple[int, int, int]:
+        idx = self.image_indices.setdefault(path, len(self.image_indices))
+        new_name = f"{idx}{path.suffix}"
+        return self.register_image(
+            str(path), split, annotation_splits, new_name
+        )
+
+    def _make_base_annotation(
+        self, counters: dict, split: str, img_id: int
+    ) -> dict:
+        ann = self.construct_empty_entry()
+        ann["id"] = counters[split]
+        ann["image_id"] = img_id
+        counters[split] += 1
+        return ann
+
+    def _process_row(
+        self,
+        row: dict,
+        split: str,
+        seen: dict,
+        ann_splits: dict,
+        ann: dict,
+        w: int,
+        h: int,
+    ) -> None:
+        ttype, ann_str, cname = (
+            row["task_type"],
+            row["annotation"],
+            row["class_name"],
+        )
+
+        if cname and cname not in seen[split]:
+            cat_id = self.last_category_id[split]
+            ann_splits[split]["categories"].append(
+                {"id": cat_id, "name": cname}
+            )
+            seen[split].append(cname)
+            self.class_name_to_category_id[split][cname] = cat_id
+            self.last_category_id[split] += 1
+
+        if ttype == "classification":
+            ann["category_id"] = self.class_name_to_category_id[split][cname]
+        elif ttype == "boundingbox":
+            self._fill_bbox(ann, json.loads(ann_str), w, h, split, cname)
+        elif ttype == "keypoints":
+            self._fill_keypoints(
+                ann, json.loads(ann_str)["keypoints"], split, cname, row, w, h
+            )
+
+    def _fill_bbox(
+        self, ann: dict, data: dict, w: int, h: int, split: str, cname: str
+    ) -> None:
+        ann["bbox"] = [
+            data["x"] * w,
+            data["y"] * h,
+            data["w"] * w,
+            data["h"] * h,
+        ]
+        ann["area"] = (data["w"] * w) * (data["h"] * h)
+        ann["category_id"] = self.class_name_to_category_id[split][cname]
+
+    def _fill_keypoints(
+        self,
+        ann: dict,
+        keypoints: list,
+        split: str,
+        cname: str,
+        row: dict,
+        w: int,
+        h: int,
+    ) -> None:
+        ann["num_keypoints"] = len(keypoints)
+        cat_id = ann.get("category_id") or self.class_name_to_category_id[
+            split
+        ].get(cname)
+        if cat_id is None:
+            return
+        if cat_id not in self.class_to_keypoints:
+            self.class_to_keypoints[cat_id] = [
+                f"{row['task_name']}_{i}" for i in range(len(keypoints))
+            ]
+        ann["keypoints"] = [
+            round(c, 2) if isinstance(c, float) else c
+            for x, y, v in keypoints
+            for c in (x * w, y * h, v)
+        ]
+
+    def _attach_keypoints_to_categories(self, annotation_splits: dict) -> None:
+        for split_data in annotation_splits.values():
+            for cat in split_data["categories"]:
+                cid = cat["id"]
+                if cid in self.class_to_keypoints:
+                    kps = self.class_to_keypoints[cid]
+                    cat["keypoints"], cat["skeleton"] = (
+                        kps,
+                        [[i, i + 1] for i in range(1, len(kps))],
+                    )
 
     def register_image(
         self,
