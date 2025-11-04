@@ -17,7 +17,7 @@ from loguru import logger
 from semver.version import Version
 from typing_extensions import Self, override
 
-from luxonis_ml.data.exporters import NativeExporter
+from luxonis_ml.data.exporters import BaseExporter, NativeExporter
 from luxonis_ml.data.exporters.export_utils import prepare_ldf_export
 from luxonis_ml.data.utils import (
     BucketStorage,
@@ -1498,7 +1498,8 @@ class LuxonisDataset(BaseDataset):
             partition) after export. Default is False.
         @rtype: Union[Path, List[Path]]
         @return: Path(s) to the ZIP file(s) containing the exported
-            dataset.
+            dataset (if zip_output=True). Otherwise, the output
+            directory.
         """
         EXPORTER_MAP = {DatasetType.NATIVE: NativeExporter}
         exporter_cls = EXPORTER_MAP.get(dataset_type)
@@ -1506,30 +1507,63 @@ class LuxonisDataset(BaseDataset):
             raise NotImplementedError(
                 f"Unsupported export format: {dataset_type}"
             )
+
         logger.info(
             f"Exporting '{self.identifier}' to '{dataset_type.name}' format"
         )
 
-        output_path = Path(output_path)
-        if output_path.exists():
+        out_path = Path(output_path)
+        if out_path.exists():
             raise ValueError(
-                f"Export path '{output_path}' already exists. Please remove it first."
+                f"Export path '{out_path}' already exists. Please remove it first."
             )
-        output_path.mkdir(parents=True)
+        out_path.mkdir(parents=True)
 
+        # Prepare dataset once, then delegate to exporter
         prepared_ldf = prepare_ldf_export(self)
-        exporter = exporter_cls(self.identifier)
+        exporter: BaseExporter = exporter_cls(self.identifier)
+
+        # Perform the transform/emit step (copies media, writes annotations)
+        exporter.transform(
+            prepared_ldf=prepared_ldf,
+            output_path=out_path,
+            max_partition_size_gb=max_partition_size_gb,
+        )
+
+        # Detect whether partitioned export was produced and the max part index
+        def _detect_last_part(base: Path, ds_id: str) -> int | None:
+            max_idx: int | None = None
+            prefix = f"{ds_id}_part"
+            for p in base.iterdir():
+                if p.is_dir() and p.name.startswith(prefix):
+                    # extract the integer suffix safely
+                    try:
+                        idx = int(p.name[len(prefix) :])
+                    except ValueError:
+                        continue
+                    max_idx = (
+                        idx if (max_idx is None or idx > max_idx) else max_idx
+                    )
+            return max_idx
+
+        last_part = _detect_last_part(out_path, self.identifier)
 
         if zip_output:
-            transformed = exporter.transform(
-                prepared_ldf, output_path, max_partition_size_gb
+            archives = exporter.create_zip_output(
+                max_partition_size=max_partition_size_gb,
+                output_path=out_path,
+                part=last_part,
             )
-            return exporter._create_zip_output(
-                max_partition_size_gb, output_path, part
-            )
-        return exporter.transform(
-            prepared_ldf, output_path, max_partition_size_gb
-        )
+            if isinstance(archives, list):
+                logger.info(
+                    f"Dataset successfully exported to: {[str(p) for p in archives]}"
+                )
+                return archives
+            logger.info(f"Dataset successfully exported to: {archives}")
+            return archives
+
+        logger.info(f"Dataset successfully exported to: {out_path}")
+        return out_path
 
     def get_statistics(
         self, sample_size: int | None = None, view: str | None = None

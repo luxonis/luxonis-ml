@@ -36,7 +36,10 @@ class BaseExporter(ABC):
 
     @abstractmethod
     def transform(
-        self, prepared_ldf: PreparedLDF
+        self,
+        prepared_ldf: PreparedLDF,
+        output_path: Path,
+        max_partition_size_gb: float | None = None,
     ) -> dict[str, list[dict[str, Any]]]:
         """Convert the prepared dataset into the exporter's format."""
         raise NotImplementedError
@@ -96,7 +99,7 @@ class BaseExporter(ABC):
                 with open(split_path / ann_filename, "w") as f:
                     json.dump(annotation_data, f, indent=4)
 
-    def _create_zip_output(
+    def create_zip_output(
         self,
         max_partition_size: float | None,
         output_path: Path,

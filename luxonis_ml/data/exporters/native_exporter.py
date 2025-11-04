@@ -10,7 +10,6 @@ import polars as pl
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
 from luxonis_ml.data.exporters.export_utils import PreparedLDF
-from luxonis_ml.typing import PathType
 
 
 class NativeExporter(BaseExporter):
@@ -35,9 +34,9 @@ class NativeExporter(BaseExporter):
     def transform(
         self,
         prepared_ldf: PreparedLDF,
-        output_path: PathType,
+        output_path: Path,
         max_partition_size_gb: float | None = None,
-    ) -> dict[str, list[dict[str, Any]]]:
+    ) -> None:
         annotation_splits = {split: [] for split in self.get_split_names()}
         grouped_image_sources = prepared_ldf.grouped_image_sources
 
@@ -78,15 +77,16 @@ class NativeExporter(BaseExporter):
                 )
                 annotation_records.append(record)
 
-            # !!! Start intermediate save
             annotations_size = sum(
                 sys.getsizeof(r) for r in annotation_records
             )
+            group_total_size = sum(Path(f).stat().st_size for f in group_files)
 
             if (
                 max_partition_size
                 and part is not None
-                and annotations_size > max_partition_size
+                and (current_size + group_total_size + annotations_size)
+                > max_partition_size
             ):
                 self._dump_annotations(annotation_splits, output_path, part)
                 current_size = 0
@@ -110,8 +110,6 @@ class NativeExporter(BaseExporter):
             annotation_splits[split].extend(annotation_records)
 
         self._dump_annotations(annotation_splits, output_path, part)
-
-        return output_path
 
     def _process_row(
         self,
