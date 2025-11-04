@@ -36,7 +36,7 @@ class NativeExporter(BaseExporter):
         annotation_splits = {split: [] for split in self.get_split_names()}
         grouped_image_sources = prepared_ldf.grouped_image_sources
 
-        grouped_df = prepared_ldf.grouped_df.groupby(
+        grouped_df = prepared_ldf.processed_df.groupby(
             "group_id", maintain_order=True
         )
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import polars as pl
 from PIL import Image
@@ -21,14 +21,12 @@ class CocoExporter(BaseExporter):
     ):
         super().__init__(dataset_identifier)
         self.format = format
-
         self.class_name_to_category_id = {
-            split: {} for split in self.get_split_names()
+            s: {} for s in self.get_split_names()
         }
-        self.last_category_id = {split: 1 for split in self.get_split_names()}
-
-        self.class_to_keypoints = {}
-        self.image_registry = {split: {} for split in self.get_split_names()}
+        self.last_category_id = {s: 1 for s in self.get_split_names()}
+        self.class_to_keypoints: dict[str, list[str]] = {}
+        self.image_registry = {s: {} for s in self.get_split_names()}
 
     @staticmethod
     def dataset_type() -> str:
@@ -37,6 +35,17 @@ class CocoExporter(BaseExporter):
     @staticmethod
     def supported_annotation_types() -> list[str]:
         return ["boundingbox", "segmentation", "keypoints"]
+
+    @staticmethod
+    def construct_empty_entry() -> dict[str, Any]:
+        return {
+            "id": 0,
+            "image_id": 0,
+            "category_id": None,
+            "bbox": [],
+            "area": 0,
+            "iscrowd": 0,
+        }
 
     def get_split_names(self) -> dict[str, str]:
         if self.format == COCOFormat.ROBOFLOW:
@@ -53,21 +62,20 @@ class CocoExporter(BaseExporter):
     def transform(
         self, prepared_ldf: PreparedLDF
     ) -> dict[str, dict[str, Any]]:
-        annotation_splits = {
+        annotation_splits: dict[str, dict[str, Any]] = {
             split: {"images": [], "categories": [], "annotations": []}
             for split in self.get_split_names()
         }
         seen_class_names = {split: [] for split in self.get_split_names()}
         annotation_counter = {split: 0 for split in self.get_split_names()}
-        grouped = prepared_ldf.grouped_df.groupby(
+        grouped = prepared_ldf.processed_df.groupby(
             ["file", "instance_id", "group_id"], maintain_order=True
         )
         self.check_group_file_correspondence(prepared_ldf)
-        for (
-            (file_name, instance_id, group_id),
-            entry,
-        ) in grouped:
-            path = Path(file_name)
+        for key, entry in grouped:
+            key = cast(tuple[str, str, str], key)
+            file_name, instance_id, group_id = key
+            path = Path(str(file_name))
             index = self.image_indices.setdefault(
                 path, len(self.image_indices)
             )
@@ -77,6 +85,8 @@ class CocoExporter(BaseExporter):
                 if group_id in group_ids:
                     split_name = split
                     break
+            if split_name is None:
+                continue
             final_entry = self.construct_empty_entry()
             im_id, im_width, im_height = self.register_image(
                 file_name, split_name, annotation_splits, new_filename
@@ -137,13 +147,13 @@ class CocoExporter(BaseExporter):
                             for i in range(len(ann_data))
                         ]
                         final_entry["keypoints"] = [
-                            coord
+                            round(c, 2) if isinstance(c, float) else c
                             for x, y, v in ann_data
-                            for coord in (x * im_width, y * im_height, v)
+                            for c in (x * im_width, y * im_height, v)
                         ]
             annotation_splits[split_name]["annotations"].append(final_entry)
 
-        for split_name, split_data in annotation_splits.items():
+        for split_data in annotation_splits.values():
             for category in split_data["categories"]:
                 cat_id = category["id"]
                 if cat_id in self.class_to_keypoints:
@@ -156,7 +166,11 @@ class CocoExporter(BaseExporter):
         return annotation_splits
 
     def register_image(
-        self, file_name, split, annotation_splits, new_file_name
+        self,
+        file_name: str,
+        split: str,
+        annotation_splits: dict[str, dict[str, Any]],
+        new_file_name: str,
     ) -> tuple[int, int, int]:
         images_list = annotation_splits[split]["images"]
 
@@ -181,19 +195,8 @@ class CocoExporter(BaseExporter):
         return image_id, width, height
 
     @staticmethod
-    def construct_empty_entry():
-        return {
-            "id": 0,
-            "image_id": 0,
-            "category_id": None,
-            "bbox": [],
-            "area": 0,
-            "iscrowd": 0,
-        }
-
-    @staticmethod
     def check_group_file_correspondence(prepared_ldf: PreparedLDF) -> None:
-        df = prepared_ldf.grouped_df
+        df = prepared_ldf.processed_df
 
         group_to_files = df.groupby("group_id").agg(
             pl.col("file").n_unique().alias("file_count")

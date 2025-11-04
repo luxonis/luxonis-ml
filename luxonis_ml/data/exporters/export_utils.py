@@ -13,11 +13,11 @@ class PreparedLDF:
     def __init__(
         self,
         splits: dict[str, Any],
-        grouped_df,
+        processed_df: pl.DataFrame,
         grouped_image_sources: pl.DataFrame,
     ):
         self.splits = splits
-        self.grouped_df = grouped_df
+        self.processed_df = processed_df
         self.grouped_image_sources = grouped_image_sources
         self.image_indices = {}
 
@@ -92,11 +92,11 @@ def prepare_ldf_export(ldf: "LuxonisDataset") -> PreparedLDF:
         )
     )
 
-    # group-by operation is no longer performed here because each export type
+    # group-by operation is not performed here because each export type
     # will resort to its own grouping mechanism depending on what is needed
 
     return PreparedLDF(
         splits=splits,
-        grouped_df=df,
+        processed_df=df,
         grouped_image_sources=grouped_image_sources,
     )
