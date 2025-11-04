@@ -1,9 +1,10 @@
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import polars as pl
 
-from luxonis_ml.data import LuxonisDataset
+if TYPE_CHECKING:
+    from luxonis_ml.data.datasets.luxonis_dataset import LuxonisDataset
 
 
 class PreparedLDF:
@@ -20,7 +21,7 @@ class PreparedLDF:
         self.grouped_image_sources = grouped_image_sources
 
     @classmethod
-    def from_dataset(cls, ldf: LuxonisDataset) -> "PreparedLDF":
+    def from_dataset(cls, ldf: "LuxonisDataset") -> "PreparedLDF":
         """Prepare a dataset for export into the LDF representation."""
         splits = ldf.get_splits()
         if splits is None:
