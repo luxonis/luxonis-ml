@@ -24,8 +24,7 @@ class BaseExporter(ABC):
     @abstractmethod
     def get_split_names(self) -> dict[str, str]:
         """Return mapping from native split names to dataset-appropriate
-        split names e.g.: For COCO Roboflow: {"train", "train", "val":
-        "valid", "test": "test"}"""
+        split names."""
         raise NotImplementedError
 
     @staticmethod
