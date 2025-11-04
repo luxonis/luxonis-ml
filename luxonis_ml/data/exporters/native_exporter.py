@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,7 @@ import polars as pl
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
 from luxonis_ml.data.exporters.export_utils import PreparedLDF
+from luxonis_ml.typing import PathType
 
 
 class NativeExporter(BaseExporter):
@@ -31,14 +33,24 @@ class NativeExporter(BaseExporter):
         return {"train": "train", "val": "val", "test": "test"}
 
     def transform(
-        self, prepared_ldf: PreparedLDF
+        self,
+        prepared_ldf: PreparedLDF,
+        output_path: PathType,
+        max_partition_size_gb: float | None = None,
     ) -> dict[str, list[dict[str, Any]]]:
         annotation_splits = {split: [] for split in self.get_split_names()}
         grouped_image_sources = prepared_ldf.grouped_image_sources
 
-        grouped_df = prepared_ldf.processed_df.groupby(
+        current_size = 0
+        part = 0 if max_partition_size_gb else None
+        max_partition_size = (
+            max_partition_size_gb * 1024**3 if max_partition_size_gb else None
+        )
+
+        grouped_df = prepared_ldf.processed_df.group_by(
             "group_id", maintain_order=True
         )
+        copied_files = set()
 
         for group_id, group_df in grouped_df:
             matched_df = grouped_image_sources.filter(
@@ -66,9 +78,40 @@ class NativeExporter(BaseExporter):
                 )
                 annotation_records.append(record)
 
+            # !!! Start intermediate save
+            annotations_size = sum(
+                sys.getsizeof(r) for r in annotation_records
+            )
+
+            if (
+                max_partition_size
+                and part is not None
+                and annotations_size > max_partition_size
+            ):
+                self._dump_annotations(annotation_splits, output_path, part)
+                current_size = 0
+                part += 1
+                annotation_splits = {
+                    split: [] for split in self.get_split_names()
+                }
+
+            data_path = self._get_data_path(output_path, split, part)
+            data_path.mkdir(parents=True, exist_ok=True)
+
+            for file in group_files:
+                file_path = Path(file)
+                if file_path not in copied_files:
+                    copied_files.add(file_path)
+                    image_index = self.image_indices[file_path]
+                    dest_file = data_path / f"{image_index}{file_path.suffix}"
+                    shutil.copy(file_path, dest_file)
+                    current_size += file_path.stat().st_size
+
             annotation_splits[split].extend(annotation_records)
 
-        return annotation_splits
+        self._dump_annotations(annotation_splits, output_path, part)
+
+        return output_path
 
     def _process_row(
         self,
@@ -116,11 +159,6 @@ class NativeExporter(BaseExporter):
             record["annotation"] = annotation_base
 
         return record
-
-    def _compute_annotations_size(
-        self, transformed_data: dict, split: str
-    ) -> int:
-        return sum(sys.getsizeof(r) for r in transformed_data[split])
 
     def _get_data_path(
         self, output_path: Path, split: str, part: int | None = None

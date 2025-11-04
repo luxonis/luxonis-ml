@@ -1510,17 +1510,25 @@ class LuxonisDataset(BaseDataset):
             f"Exporting '{self.identifier}' to '{dataset_type.name}' format"
         )
 
+        output_path = Path(output_path)
+        if output_path.exists():
+            raise ValueError(
+                f"Export path '{output_path}' already exists. Please remove it first."
+            )
+        output_path.mkdir(parents=True)
+
         prepared_ldf = prepare_ldf_export(self)
         exporter = exporter_cls(self.identifier)
 
-        transformed = exporter.transform(prepared_ldf)
-
-        return exporter.save(
-            transformed,
-            prepared_ldf,
-            output_path,
-            max_partition_size_gb=max_partition_size_gb,
-            zip_output=zip_output,
+        if zip_output:
+            transformed = exporter.transform(
+                prepared_ldf, output_path, max_partition_size_gb
+            )
+            return exporter._create_zip_output(
+                max_partition_size_gb, output_path, part
+            )
+        return exporter.transform(
+            prepared_ldf, output_path, max_partition_size_gb
         )
 
     def get_statistics(

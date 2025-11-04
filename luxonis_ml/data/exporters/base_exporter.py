@@ -6,9 +6,6 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
-import polars as pl
-from loguru import logger
-
 from luxonis_ml.data.exporters.export_utils import PreparedLDF
 
 
@@ -45,16 +42,6 @@ class BaseExporter(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def _compute_annotations_size(
-        self, transformed_data: dict[str, Any], split: str
-    ) -> int:
-        """Return size of annotations for this split in bytes.
-
-        Used to decide when to start a new partition
-        """
-        raise NotImplementedError
-
-    @abstractmethod
     def _get_data_path(
         self, output_path: Path, split: str, part: int | None
     ) -> Path:
@@ -74,80 +61,6 @@ class BaseExporter(ABC):
         exporter.
         """
         return "annotations.json"
-
-    def save(
-        self,
-        transformed_data: dict[str, list[dict[str, Any]]],
-        prepared_ldf: PreparedLDF,
-        output_path: Path,
-        max_partition_size_gb: float | None,
-        zip_output: bool,
-    ) -> Path | list[Path]:
-        output_path = Path(output_path)
-        if output_path.exists():
-            raise ValueError(f"Export path '{output_path}' already exists.")
-        output_path.mkdir(parents=True)
-
-        current_size = 0
-        copied_files = set()
-        part = 0 if max_partition_size_gb else None
-        max_partition_size = (
-            max_partition_size_gb * 1024**3 if max_partition_size_gb else None
-        )
-
-        grouped_df = prepared_ldf.processed_df.groupby(
-            "group_id", maintain_order=True
-        )
-
-        for group_id, _group_df in grouped_df:
-            matched_df = prepared_ldf.grouped_image_sources.filter(
-                pl.col("group_id") == group_id
-            )
-            group_files = matched_df.get_column("file").to_list()
-            split = next(
-                (
-                    s
-                    for s, group_ids in prepared_ldf.splits.items()
-                    if group_id in group_ids
-                ),
-                None,
-            )
-            assert split is not None
-
-            group_total_size = sum(Path(f).stat().st_size for f in group_files)
-            annotations_size = self._compute_annotations_size(
-                transformed_data, split
-            )
-
-            if (
-                max_partition_size
-                and part is not None
-                and current_size + group_total_size + annotations_size
-                > max_partition_size
-            ):
-                self._dump_annotations(transformed_data, output_path, part)
-                current_size = 0
-                part += 1
-
-            data_path = self._get_data_path(output_path, split, part)
-            data_path.mkdir(parents=True, exist_ok=True)
-
-            for file in group_files:
-                file_path = Path(file)
-                if file_path not in copied_files:
-                    copied_files.add(file_path)
-                    image_index = self.image_indices[file_path]
-                    dest_file = data_path / f"{image_index}{file_path.suffix}"
-                    shutil.copy(file_path, dest_file)
-                    current_size += file_path.stat().st_size
-
-        self._dump_annotations(transformed_data, output_path, part)
-
-        if zip_output:
-            self._create_zip_output(max_partition_size, output_path, part)
-
-        logger.info(f"Dataset successfully exported to: {output_path}")
-        return output_path
 
     def _dump_annotations(
         self, annotations: dict, output_path: Path, part: int | None = None

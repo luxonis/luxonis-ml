@@ -19,7 +19,6 @@ class PreparedLDF:
         self.splits = splits
         self.processed_df = processed_df
         self.grouped_image_sources = grouped_image_sources
-        self.image_indices = {}
 
 
 def prepare_ldf_export(ldf: "LuxonisDataset") -> PreparedLDF:
