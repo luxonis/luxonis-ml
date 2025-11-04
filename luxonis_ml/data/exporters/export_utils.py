@@ -8,7 +8,7 @@ if TYPE_CHECKING:
 
 
 class PreparedLDF:
-    """Lightweight container for LDF data."""
+    """Lightweight container for LDF data, ready for export."""
 
     def __init__(
         self,
