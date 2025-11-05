@@ -92,8 +92,9 @@ class ExporterUtils:
         )
         invalid_groups = group_to_files.filter(pl.col("file_count") > 1)
         assert invalid_groups.is_empty(), (
-            "Each group_id must correspond to exactly one file. "
+            "Each annotation instance must correspond to exactly one file. "
             f"Found groups with multiple files: {invalid_groups['group_id'].to_list()}"
+            f"To export multiple files (e.g. RGB, depth) per instance, export to Native format"
         )
 
     @staticmethod

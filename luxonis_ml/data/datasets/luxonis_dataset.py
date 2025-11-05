@@ -19,10 +19,12 @@ from typing_extensions import Self, override
 
 from luxonis_ml.data.exporters import (
     BaseExporter,
+    ClassificationDirectoryExporter,
     CocoExporter,
     DarknetExporter,
     NativeExporter,
     PreparedLDF,
+    SegmentationMaskDirectoryExporter,
     YoloExporter,
     YOLOFormat,
 )
@@ -1532,6 +1534,12 @@ class LuxonisDataset(BaseDataset):
                 YoloExporter, {"version": YOLOFormat.V4}
             ),
             DatasetType.DARKNET: ExporterSpec(DarknetExporter, {}),
+            DatasetType.CLSDIR: ExporterSpec(
+                ClassificationDirectoryExporter, {}
+            ),
+            DatasetType.SEGMASK: ExporterSpec(
+                SegmentationMaskDirectoryExporter, {}
+            ),
         }
         spec = EXPORTER_MAP.get(dataset_type)
         if spec is None:
