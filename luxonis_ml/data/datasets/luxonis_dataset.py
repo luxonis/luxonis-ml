@@ -20,6 +20,7 @@ from typing_extensions import Self, override
 from luxonis_ml.data.exporters import (
     BaseExporter,
     CocoExporter,
+    DarknetExporter,
     NativeExporter,
     PreparedLDF,
     YoloV8Exporter,
@@ -1510,6 +1511,7 @@ class LuxonisDataset(BaseDataset):
             DatasetType.NATIVE: NativeExporter,
             DatasetType.COCO: CocoExporter,
             DatasetType.YOLOV8: YoloV8Exporter,
+            DatasetType.DARKNET: DarknetExporter,
         }  # More exporters to be defined here
         exporter_cls = EXPORTER_MAP.get(dataset_type)
         if exporter_cls is None:
