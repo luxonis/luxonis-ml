@@ -137,7 +137,7 @@ class ExporterUtils:
     def get_single_skeleton(
         allow_keypoints: bool, skeletons: dict
     ) -> tuple[list[str], list[list[int]]]:
-        """Returns (labels, skeleton_edges_1_based) for the **single**
+        """Returns (labels, skeleton_edges_1_based) for the single
         skeleton.
 
         Edges are converted to 1-based indices per COCO spec.

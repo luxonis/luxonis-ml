@@ -15,25 +15,14 @@ from luxonis_ml.data.exporters.exporter_utils import ExporterUtils, PreparedLDF
 
 
 def _decode_rle_with_pycoco(ann: dict[str, Any]) -> np.ndarray:
-    """Decode a COCO-style RLE annotation into a boolean mask (H, W)
-    using pycocotools.
-
-    Expects ann = {"height": H, "width": W, "counts": <list or
-    compressed str>}.
-    """
     h = int(ann["height"])
     w = int(ann["width"])
     counts = ann["counts"]
 
     # pycocotools expects an RLE object with 'size' and 'counts'
-    if isinstance(counts, str):
-        rle = {"size": [h, w], "counts": counts.encode("utf-8")}
-    else:
-        # list (uncompressed) is fine as-is
-        rle = {"size": [h, w], "counts": counts}
+    rle = {"size": [h, w], "counts": counts.encode("utf-8")}
 
-    m = maskUtils.decode(rle)  # returns (H, W) Fortran-ordered uint8 {0,1}
-    # Ensure a plain C-contiguous array (Pillow doesn't care, but it's nice to be consistent)
+    m = maskUtils.decode(rle)
     return np.array(m, dtype=np.uint8, order="C")
 
 
@@ -86,7 +75,7 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
             file_path = Path(str(file_name))
             split = ExporterUtils.split_of_group(prepared_ldf, group_id)
 
-            # Only segmentation rows (instance_id == -1 means semantic)
+            # Only segmentation rows (instance_id == -1)
             seg_rows = [
                 row
                 for row in entry.iter_rows(named=True)
@@ -97,7 +86,6 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
             if not seg_rows:
                 continue
 
-            # Stable numeric naming to avoid collisions
             idx = self.image_indices.setdefault(
                 file_path, len(self.image_indices)
             )
@@ -123,18 +111,15 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
                     continue
 
                 ann = row.get("annotation")
-                if isinstance(ann, str):
-                    ann = json.loads(ann)
+                ann = json.loads(ann)
 
                 m = _decode_rle_with_pycoco(ann)  # uint8 {0,1}
                 h, w = m.shape
 
                 if combined is None:
-                    # Use uint16 to be safe; we can downcast later if <=255 classes
                     combined = np.zeros((h, w), dtype=np.uint16)
 
                 cid = self._class_id_for(split, cname)
-                # Overwrite on overlap (semantic)
                 combined[m != 0] = cid
 
             if combined is not None:
@@ -149,7 +134,6 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
                 dest_mask = split_dir / mask_name
                 Image.fromarray(out_arr, mode=pil_mode).save(dest_mask)
 
-        # One _classes.csv per split
         for split in ("train", "val", "test"):
             split_dir = self._get_data_path(self.output_path, split, self.part)
             if split_dir.exists():

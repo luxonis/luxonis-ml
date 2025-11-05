@@ -23,7 +23,7 @@ class YoloExporter(BaseExporter):
         output_path: Path,
         max_partition_size_gb: float | None,
         *,
-        version: YOLOFormat = YOLOFormat.V8,  # default keeps current behavior
+        version: YOLOFormat = YOLOFormat.V8,
     ):
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
@@ -143,17 +143,6 @@ class YoloExporter(BaseExporter):
         output_path: Path,
         part: int | None = None,
     ) -> None:
-        """V8/V6: dataset_dir/ images/{train|val|valid|test}/...
-
-        labels/{train|val|valid|test}/<stem>.txt
-            {dataset.yaml|data.yaml}
-        V4:
-          dataset_dir/
-            {train|valid|test}/
-              _classes.txt
-              _annotations.txt   (one file per split, see format below)
-              *.jpg
-        """
         if self.version is YOLOFormat.V4:
             self._dump_annotations_v4(annotation_splits, output_path, part)
             return
@@ -248,9 +237,5 @@ class YoloExporter(BaseExporter):
     def _to_yaml(d: dict[str, Any]) -> str:
         lines: list[str] = []
         for k, v in d.items():
-            if isinstance(v, list):
-                inner = ", ".join([repr(x) for x in v])
-                lines.append(f"{k}: [{inner}]")
-            else:
-                lines.append(f"{k}: {v}")
+            lines.append(f"{k}: {v}")
         return "\n".join(lines) + "\n"

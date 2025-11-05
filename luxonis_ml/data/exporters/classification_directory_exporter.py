@@ -43,7 +43,6 @@ class ClassificationDirectoryExporter(BaseExporter):
             if not class_names:
                 continue
 
-            # Give this input file a stable numeric name (avoids collisions)
             idx = self.image_indices.setdefault(
                 file_path, len(self.image_indices)
             )

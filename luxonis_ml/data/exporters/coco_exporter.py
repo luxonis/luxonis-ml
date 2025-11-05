@@ -199,7 +199,6 @@ class CocoExporter(BaseExporter):
             ann["category_id"] = self.class_name_to_category_id[split][cname]
             return ann
 
-        # nothing to do
         if ann_str is None:
             return ann
 
@@ -285,34 +284,24 @@ class CocoExporter(BaseExporter):
         split: str,
         cname: str,
     ) -> None:
-        """Expects data like {"keypoints": [[x_norm, y_norm, v], ...]}
-        where x_norm, y_norm are normalized in [0,1], v in {0,1,2}.
-
-        Writes COCO-style flattened keypoints, num_keypoints, bbox,
-        area.
-        """
-        # Ensure category_id is set
         ann["category_id"] = (
             ann.get("category_id")
             or self.class_name_to_category_id[split][cname]
         )
 
         raw_kps = data.get("keypoints", [])
-        # Scale to pixel coordinates; keep v as-is
         kps_px: list[float] = []
         xs: list[float] = []
         ys: list[float] = []
         visible_count = 0
 
         for triplet in raw_kps:
-            if not isinstance(triplet | (list, tuple)) or len(triplet) != 3:
-                # pad invalid triplets with zeros
-                x_px, y_px, v = 0.0, 0.0, 0
-            else:
-                x_norm, y_norm, v = triplet
-                x_px = float(x_norm) * float(w)
-                y_px = float(y_norm) * float(h)
+            x_norm, y_norm, v = triplet
+            x_px = float(x_norm) * float(w)
+            y_px = float(y_norm) * float(h)
+
             kps_px.extend([x_px, y_px, int(v)])
+
             if int(v) > 0:
                 xs.append(x_px)
                 ys.append(y_px)
@@ -321,7 +310,6 @@ class CocoExporter(BaseExporter):
         ann["keypoints"] = kps_px
         ann["num_keypoints"] = visible_count
 
-        # Derive bbox from visible points; fallback to zero box
         if visible_count > 0:
             x_min = float(min(xs))
             y_min = float(min(ys))
@@ -332,7 +320,6 @@ class CocoExporter(BaseExporter):
             ann["bbox"] = [x_min, y_min, bw, bh]
             ann["area"] = bw * bh
         else:
-            # keep any existing bbox/area if present; otherwise default
             ann.setdefault("bbox", [0.0, 0.0, 0.0, 0.0])
             ann.setdefault("area", 0.0)
 
