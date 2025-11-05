@@ -12,7 +12,6 @@ from .data_utils import (
 from .enums import (
     BucketStorage,
     BucketType,
-    COCOFormat,
     ImageType,
     MediaType,
     UpdateMode,
@@ -37,7 +36,6 @@ from .visualizations import (
 __all__ = [
     "BucketStorage",
     "BucketType",
-    "COCOFormat",
     "ColorMap",
     "ImageType",
     "MediaType",

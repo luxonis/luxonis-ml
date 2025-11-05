@@ -40,6 +40,6 @@ class UpdateMode(Enum):
     MISSING = "missing"
 
 
-class COCOFormat(str, Enum):
+class Format(str, Enum):
     FIFTYONE = "fiftyone"
     ROBOFLOW = "roboflow"

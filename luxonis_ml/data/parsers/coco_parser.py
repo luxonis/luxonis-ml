@@ -1,4 +1,5 @@
 import json
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -6,9 +7,13 @@ import numpy as np
 from loguru import logger
 
 from luxonis_ml.data import DatasetIterator
-from luxonis_ml.data.utils import COCOFormat
 
 from .base_parser import BaseParser, ParserOutput
+
+
+class Format(str, Enum):
+    FIFTYONE = "fiftyone"
+    ROBOFLOW = "roboflow"
 
 
 class COCOParser(BaseParser):
@@ -50,7 +55,7 @@ class COCOParser(BaseParser):
     @staticmethod
     def _detect_dataset_dir_format(
         dataset_dir: Path,
-    ) -> tuple[COCOFormat | None, list[str]]:
+    ) -> tuple[Format | None, list[str]]:
         """Checks if dataset directory structure is in FiftyOne or
         Roboflow format."""
         fiftyone_splits = ["train", "validation", "test"]
@@ -66,9 +71,9 @@ class COCOParser(BaseParser):
         rf = [s for s in roboflow_splits if s in existing]
 
         if len(fo) != 0 and len(fo) >= len(rf):
-            return COCOFormat.FIFTYONE, fo
+            return Format.FIFTYONE, fo
         if len(rf) != 0:
-            return COCOFormat.ROBOFLOW, rf
+            return Format.ROBOFLOW, rf
         return None, []
 
     @staticmethod
@@ -108,13 +113,13 @@ class COCOParser(BaseParser):
         if dir_format is None:
             raise ValueError("Dataset is not in any expected format.")
 
-        if dir_format is COCOFormat.ROBOFLOW:
+        if dir_format is Format.ROBOFLOW:
             logger.warning(
                 "Roboflow dataset format detected, following arguments won't be taken "
                 "into account: ['use_keypoint_ann', 'keypoint_ann_paths', 'split_val_to_test']."
             )
         elif (
-            dir_format is COCOFormat.FIFTYONE
+            dir_format is Format.FIFTYONE
             and use_keypoint_ann
             and not keypoint_ann_paths
         ):
@@ -133,7 +138,7 @@ class COCOParser(BaseParser):
             dataset_dir / keypoint_ann_paths["train"]
             if keypoint_ann_paths
             and use_keypoint_ann
-            and dir_format is COCOFormat.FIFTYONE
+            and dir_format is Format.FIFTYONE
             else train_paths["annotation_path"]
         )
         cleaned_annotation_path = clean_annotations(train_ann_path)
@@ -150,7 +155,7 @@ class COCOParser(BaseParser):
             dataset_dir / keypoint_ann_paths["val"]
             if keypoint_ann_paths
             and use_keypoint_ann
-            and dir_format is COCOFormat.FIFTYONE
+            and dir_format is Format.FIFTYONE
             else val_paths["annotation_path"]
         )
         _added_val_imgs = self._parse_split(
@@ -178,7 +183,7 @@ class COCOParser(BaseParser):
                 dataset_dir / keypoint_ann_paths["test"]
                 if keypoint_ann_paths
                 and use_keypoint_ann
-                and dir_format == COCOFormat.FIFTYONE
+                and dir_format == Format.FIFTYONE
                 else test_paths["annotation_path"]
             )
 
