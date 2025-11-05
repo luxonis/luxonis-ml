@@ -37,7 +37,7 @@ class NativeExporter(BaseExporter):
         copied_files: set[Path] = set()
 
         for group_id, group_df in grouped_df:
-            split = ExporterUtils._split_of_group(prepared_ldf, group_id)
+            split = ExporterUtils.split_of_group(prepared_ldf, group_id)
 
             matched_df = grouped_image_sources.filter(
                 pl.col("group_id") == group_id

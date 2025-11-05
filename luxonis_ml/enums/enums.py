@@ -2,7 +2,6 @@ from enum import Enum
 
 
 class DatasetType(str, Enum):
-    LDF = "ldf"
     COCO = "coco"
     VOC = "voc"
     DARKNET = "darknet"

@@ -42,7 +42,7 @@ class DarknetExporter(BaseExporter):
 
         for key, group_df in grouped:
             file_name, group_id = cast(tuple[str, Any], key)
-            split = ExporterUtils._split_of_group(prepared_ldf, group_id)
+            split = ExporterUtils.split_of_group(prepared_ldf, group_id)
 
             file_path = Path(str(file_name))
             idx = self.image_indices.setdefault(

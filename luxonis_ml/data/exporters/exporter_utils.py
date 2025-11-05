@@ -1,4 +1,5 @@
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -6,6 +7,7 @@ import polars as pl
 
 if TYPE_CHECKING:
     from luxonis_ml.data.datasets.luxonis_dataset import LuxonisDataset
+    from luxonis_ml.data.exporters.base_exporter import BaseExporter
 
 
 class PreparedLDF:
@@ -75,6 +77,12 @@ class PreparedLDF:
         )
 
 
+@dataclass(frozen=True)
+class ExporterSpec:
+    cls: type["BaseExporter"]
+    kwargs: dict
+
+
 class ExporterUtils:
     @staticmethod
     def check_group_file_correspondence(prepared_ldf: PreparedLDF) -> None:
@@ -89,7 +97,7 @@ class ExporterUtils:
         )
 
     @staticmethod
-    def _split_of_group(prepared_ldf: PreparedLDF, group_id: Any) -> str:
+    def split_of_group(prepared_ldf: PreparedLDF, group_id: Any) -> str:
         split = next(
             (s for s, ids in prepared_ldf.splits.items() if group_id in ids),
             None,

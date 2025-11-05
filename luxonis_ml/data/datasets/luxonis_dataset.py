@@ -23,9 +23,13 @@ from luxonis_ml.data.exporters import (
     DarknetExporter,
     NativeExporter,
     PreparedLDF,
-    YoloV8Exporter,
+    YoloExporter,
+    YOLOFormat,
 )
-from luxonis_ml.data.exporters.exporter_utils import ExporterUtils
+from luxonis_ml.data.exporters.exporter_utils import (
+    ExporterSpec,
+    ExporterUtils,
+)
 from luxonis_ml.data.utils import (
     BucketStorage,
     BucketType,
@@ -1508,14 +1512,22 @@ class LuxonisDataset(BaseDataset):
             dataset (if zip_output=True). Otherwise, the output
             directory.
         """
-        EXPORTER_MAP = {
-            DatasetType.NATIVE: NativeExporter,
-            DatasetType.COCO: CocoExporter,
-            DatasetType.YOLOV8: YoloV8Exporter,
-            DatasetType.DARKNET: DarknetExporter,
-        }  # More exporters to be defined here
-        exporter_cls = EXPORTER_MAP.get(dataset_type)
-        if exporter_cls is None:
+        EXPORTER_MAP: dict[DatasetType, ExporterSpec] = {
+            DatasetType.NATIVE: ExporterSpec(NativeExporter, {}),
+            DatasetType.COCO: ExporterSpec(CocoExporter, {}),
+            DatasetType.YOLOV8: ExporterSpec(
+                YoloExporter, {"version": YOLOFormat.V8}
+            ),
+            DatasetType.YOLOV6: ExporterSpec(
+                YoloExporter, {"version": YOLOFormat.V6}
+            ),
+            DatasetType.YOLOV4: ExporterSpec(
+                YoloExporter, {"version": YOLOFormat.V4}
+            ),
+            DatasetType.DARKNET: ExporterSpec(DarknetExporter, {}),
+        }
+        spec = EXPORTER_MAP.get(dataset_type)
+        if spec is None:
             raise NotImplementedError(
                 f"Unsupported export format: {dataset_type}"
             )
@@ -1532,8 +1544,9 @@ class LuxonisDataset(BaseDataset):
         out_path.mkdir(parents=True)
 
         prepared_ldf = PreparedLDF.from_dataset(self)
-        exporter: BaseExporter = exporter_cls(
-            self.identifier, out_path, max_partition_size_gb
+
+        exporter: BaseExporter = spec.cls(
+            self.identifier, out_path, max_partition_size_gb, **spec.kwargs
         )
 
         exporter.transform(prepared_ldf=prepared_ldf)

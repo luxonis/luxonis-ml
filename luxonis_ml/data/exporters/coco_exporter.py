@@ -57,7 +57,7 @@ class CocoExporter(BaseExporter):
         for key, entry in grouped:
             file_name, instance_id, group_id = cast(tuple[str, int, Any], key)
 
-            split = ExporterUtils._split_of_group(prepared_ldf, group_id)
+            split = ExporterUtils.split_of_group(prepared_ldf, group_id)
             file_path = Path(str(file_name))
 
             image_id, width, height, new_name = self._get_or_register_image(

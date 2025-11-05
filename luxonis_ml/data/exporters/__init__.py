@@ -3,8 +3,7 @@ from .coco_exporter import CocoExporter
 from .darknet_exporter import DarknetExporter
 from .exporter_utils import PreparedLDF
 from .native_exporter import NativeExporter
-from .voc_exporter import VocExporter
-from .yolov8_exporter import YoloV8Exporter
+from .yolov8_exporter import YoloExporter, YOLOFormat
 
 __all__ = [
     "BaseExporter",
@@ -13,6 +12,6 @@ __all__ = [
     "DarknetExporter",
     "NativeExporter",
     "PreparedLDF",
-    "VocExporter",
-    "YoloV8Exporter",
+    "YOLOFormat",
+    "YoloExporter",
 ]
