@@ -16,100 +16,86 @@ class NativeExporter(BaseExporter):
     """Exporter for LDF format."""
 
     @staticmethod
-    def dataset_type() -> str:
-        return "NATIVE"
-
-    @staticmethod
-    def supported_annotation_types() -> list[str]:
-        return [
-            "boundingbox",
-            "segmentation",
-            "keypoints",
-            "instance_segmentation",
-        ]
-
-    def get_split_names(self) -> dict[str, str]:
+    def get_split_names() -> dict[str, str]:
         return {"train": "train", "val": "val", "test": "test"}
 
-    def transform(
-        self,
-        prepared_ldf: PreparedLDF,
-        output_path: Path,
-        max_partition_size_gb: float | None = None,
-    ) -> None:
-        annotation_splits = {split: [] for split in self.get_split_names()}
+    SUPPORTED_ANN_TYPES: set[str] = {
+        "boundingbox",
+        "segmentation",
+        "keypoints",
+        "instance_segmentation",
+    }
+
+    def transform(self, prepared_ldf: PreparedLDF) -> None:
+        annotation_splits: dict[str, list[dict[str, Any]]] = {
+            k: [] for k in self.get_split_names()
+        }
         grouped_image_sources = prepared_ldf.grouped_image_sources
-
-        current_size = 0
-        part = 0 if max_partition_size_gb else None
-        max_partition_size = (
-            max_partition_size_gb * 1024**3 if max_partition_size_gb else None
-        )
-
         grouped_df = prepared_ldf.processed_df.group_by(
             "group_id", maintain_order=True
         )
-        copied_files = set()
+        copied_files: set[Path] = set()
 
         for group_id, group_df in grouped_df:
+            split = self._split_of_group(prepared_ldf, group_id)
+
             matched_df = grouped_image_sources.filter(
                 pl.col("group_id") == group_id
             )
             group_files = matched_df.get_column("file").to_list()
             group_source_names = matched_df.get_column("source_name").to_list()
 
-            split = next(
-                (
-                    s
-                    for s, group_ids in prepared_ldf.splits.items()
-                    if group_id in group_ids
-                ),
-                None,
+            records = [
+                self._process_row(row, group_source_names, group_files)
+                for row in group_df.iter_rows(named=True)
+            ]
+
+            ann_size = sum(sys.getsizeof(r) for r in records)
+            img_size = sum(Path(f).stat().st_size for f in group_files)
+            annotation_splits = self._maybe_roll_partition(
+                annotation_splits, ann_size + img_size
             )
-            assert split is not None
 
-            annotation_records = []
-            for row in group_df.iter_rows(named=True):
-                record = self._process_row(
-                    row=row,
-                    group_source_names=group_source_names,
-                    group_files=group_files,
-                )
-                annotation_records.append(record)
-
-            annotations_size = sum(
-                sys.getsizeof(r) for r in annotation_records
-            )
-            group_total_size = sum(Path(f).stat().st_size for f in group_files)
-
-            if (
-                max_partition_size
-                and part is not None
-                and (current_size + group_total_size + annotations_size)
-                > max_partition_size
-            ):
-                self._dump_annotations(annotation_splits, output_path, part)
-                current_size = 0
-                part += 1
-                annotation_splits = {
-                    split: [] for split in self.get_split_names()
-                }
-
-            data_path = self._get_data_path(output_path, split, part)
+            data_path = self._get_data_path(self.output_path, split, self.part)
             data_path.mkdir(parents=True, exist_ok=True)
 
-            for file in group_files:
-                file_path = Path(file)
-                if file_path not in copied_files:
-                    copied_files.add(file_path)
-                    image_index = self.image_indices[file_path]
-                    dest_file = data_path / f"{image_index}{file_path.suffix}"
-                    shutil.copy(file_path, dest_file)
-                    current_size += file_path.stat().st_size
+            for f in group_files:
+                p = Path(f)
+                if p not in copied_files:
+                    copied_files.add(p)
+                    idx = self.image_indices[p]
+                    shutil.copy(p, data_path / f"{idx}{p.suffix}")
+                    self.current_size += p.stat().st_size
 
-            annotation_splits[split].extend(annotation_records)
+            annotation_splits[split].extend(records)
 
-        self._dump_annotations(annotation_splits, output_path, part)
+        self._dump_annotations(annotation_splits, self.output_path, self.part)
+
+    def _split_of_group(self, prepared_ldf: PreparedLDF, group_id: Any) -> str:
+        split = next(
+            (s for s, ids in prepared_ldf.splits.items() if group_id in ids),
+            None,
+        )
+        assert split is not None, "group must belong to a split"
+        return split
+
+    def _maybe_roll_partition(
+        self,
+        annotation_splits: dict[str, list[dict[str, Any]]],
+        additional_size: int,
+    ) -> dict[str, list[dict[str, Any]]]:
+        if (
+            self.max_partition_size
+            and self.part is not None
+            and (self.current_size + additional_size) > self.max_partition_size
+        ):
+            self._dump_annotations(
+                annotation_splits, self.output_path, self.part
+            )
+            self.current_size = 0
+            self.part += 1
+            return {k: [] for k in self.get_split_names()}
+        return annotation_splits
 
     def _process_row(
         self,
@@ -123,22 +109,19 @@ class NativeExporter(BaseExporter):
         task_type = row["task_type"]
         ann_str = row["annotation"]
 
-        source_to_file = {}
-        for name, f in zip(group_source_names, group_files, strict=True):
-            path = Path(f)
-            index = self.image_indices.setdefault(
-                path, len(self.image_indices)
+        source_to_file = {
+            name: str(
+                Path("images")
+                / f"{self.image_indices.setdefault(Path(f), len(self.image_indices))}{Path(f).suffix}"
             )
+            for name, f in zip(group_source_names, group_files, strict=True)
+        }
 
-            new_filename = f"{index}{path.suffix}"
-            new_path = Path("images") / new_filename
-
-            source_to_file[name] = str(new_path.as_posix())
-
-        record = {
-            "files" if len(group_source_names) > 1 else "file": (
+        multi_source = len(source_to_file) > 1
+        record: dict[str, Any] = {
+            ("files" if multi_source else "file"): (
                 source_to_file
-                if len(group_source_names) > 1
+                if multi_source
                 else source_to_file[group_source_names[0]]
             ),
             "task_name": task_name,
@@ -146,26 +129,43 @@ class NativeExporter(BaseExporter):
 
         if ann_str is not None:
             data = json.loads(ann_str)
-            annotation_base = {
+            ann: dict[str, Any] = {
                 "instance_id": instance_id,
                 "class": class_name,
             }
-            if task_type in self.supported_annotation_types():
-                annotation_base[task_type] = data
+            if task_type in self.SUPPORTED_ANN_TYPES:
+                ann[task_type] = data
             elif task_type.startswith("metadata/"):
-                annotation_base["metadata"] = {task_type[9:]: data}
-            record["annotation"] = annotation_base
+                ann["metadata"] = {task_type[9:]: data}
+            record["annotation"] = ann
 
         return record
+
+    def _dump_annotations(
+        self,
+        annotation_splits: dict[str, list[dict[str, Any]]],
+        output_path: Path,
+        part: int | None = None,
+    ) -> None:
+        for split_name, items in annotation_splits.items():
+            save_name = self.get_split_names().get(split_name, split_name)
+            base = (
+                output_path / f"{self.dataset_identifier}_part{part}"
+                if part is not None
+                else output_path / self.dataset_identifier
+            )
+            split_path = base / save_name
+            split_path.mkdir(parents=True, exist_ok=True)
+            (split_path / "annotations.json").write_text(
+                json.dumps(items, indent=4), encoding="utf-8"
+            )
 
     def _get_data_path(
         self, output_path: Path, split: str, part: int | None = None
     ) -> Path:
-        if part is not None:
-            return (
-                output_path
-                / f"{self.dataset_identifier}_part{part}"
-                / split
-                / "images"
-            )
-        return output_path / self.dataset_identifier / split / "images"
+        base = (
+            output_path / f"{self.dataset_identifier}_part{part}"
+            if part is not None
+            else output_path / self.dataset_identifier
+        )
+        return base / split / "images"

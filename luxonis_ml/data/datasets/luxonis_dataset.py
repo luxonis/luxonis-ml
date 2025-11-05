@@ -18,6 +18,7 @@ from semver.version import Version
 from typing_extensions import Self, override
 
 from luxonis_ml.data.exporters import BaseExporter, NativeExporter, PreparedLDF
+from luxonis_ml.data.exporters.coco_exporter import CocoExporter
 from luxonis_ml.data.utils import (
     BucketStorage,
     BucketType,
@@ -1501,7 +1502,8 @@ class LuxonisDataset(BaseDataset):
             directory.
         """
         EXPORTER_MAP = {
-            DatasetType.NATIVE: NativeExporter
+            DatasetType.NATIVE: NativeExporter,
+            DatasetType.COCO: CocoExporter,
         }  # More exporters to be defined here
         exporter_cls = EXPORTER_MAP.get(dataset_type)
         if exporter_cls is None:
@@ -1521,13 +1523,11 @@ class LuxonisDataset(BaseDataset):
         out_path.mkdir(parents=True)
 
         prepared_ldf = PreparedLDF.from_dataset(self)
-        exporter: BaseExporter = exporter_cls(self.identifier)
-
-        exporter.transform(
-            prepared_ldf=prepared_ldf,
-            output_path=out_path,
-            max_partition_size_gb=max_partition_size_gb,
+        exporter: BaseExporter = exporter_cls(
+            self.identifier, out_path, max_partition_size_gb
         )
+
+        exporter.transform(prepared_ldf=prepared_ldf)
 
         # Detect whether partitioned export was produced and the max part index
         def _detect_last_part(base: Path, ds_id: str) -> int | None:
