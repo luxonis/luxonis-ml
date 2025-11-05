@@ -25,6 +25,7 @@ from luxonis_ml.data.exporters import (
     PreparedLDF,
     YoloV8Exporter,
 )
+from luxonis_ml.data.exporters.exporter_utils import ExporterUtils
 from luxonis_ml.data.utils import (
     BucketStorage,
     BucketType,
@@ -1555,10 +1556,11 @@ class LuxonisDataset(BaseDataset):
         last_part = _detect_last_part(out_path, self.identifier)
 
         if zip_output:
-            archives = exporter.create_zip_output(
+            archives = ExporterUtils.create_zip_output(
                 max_partition_size=max_partition_size_gb,
                 output_path=out_path,
                 part=last_part,
+                dataset_identifier=self.identifier,
             )
             if isinstance(archives, list):
                 logger.info(

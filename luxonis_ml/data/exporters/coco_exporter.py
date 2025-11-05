@@ -8,7 +8,7 @@ from typing import Any, cast
 from PIL import Image
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
-from luxonis_ml.data.exporters.prepared_ldf import PreparedLDF
+from luxonis_ml.data.exporters.exporter_utils import ExporterUtils, PreparedLDF
 from luxonis_ml.data.utils import COCOFormat
 
 
@@ -47,7 +47,7 @@ class CocoExporter(BaseExporter):
             for s in splits
         }
         ann_id_counter: dict[str, int] = {s: 1 for s in splits}
-        self.check_group_file_correspondence(prepared_ldf)
+        ExporterUtils.check_group_file_correspondence(prepared_ldf)
 
         grouped = prepared_ldf.processed_df.group_by(
             ["file", "instance_id", "group_id"], maintain_order=True
@@ -57,7 +57,7 @@ class CocoExporter(BaseExporter):
         for key, entry in grouped:
             file_name, instance_id, group_id = cast(tuple[str, int, Any], key)
 
-            split = self._split_of_group(prepared_ldf, group_id)
+            split = ExporterUtils._split_of_group(prepared_ldf, group_id)
             file_path = Path(str(file_name))
 
             image_id, width, height, new_name = self._get_or_register_image(

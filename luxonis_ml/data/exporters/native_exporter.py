@@ -9,7 +9,7 @@ from typing import Any
 import polars as pl
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
-from luxonis_ml.data.exporters.prepared_ldf import PreparedLDF
+from luxonis_ml.data.exporters.exporter_utils import ExporterUtils, PreparedLDF
 
 
 class NativeExporter(BaseExporter):
@@ -37,7 +37,7 @@ class NativeExporter(BaseExporter):
         copied_files: set[Path] = set()
 
         for group_id, group_df in grouped_df:
-            split = self._split_of_group(prepared_ldf, group_id)
+            split = ExporterUtils._split_of_group(prepared_ldf, group_id)
 
             matched_df = grouped_image_sources.filter(
                 pl.col("group_id") == group_id

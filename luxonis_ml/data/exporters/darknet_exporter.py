@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
-from luxonis_ml.data.exporters.prepared_ldf import PreparedLDF
+from luxonis_ml.data.exporters.exporter_utils import ExporterUtils, PreparedLDF
 
 
 class DarknetExporter(BaseExporter):
@@ -26,7 +26,7 @@ class DarknetExporter(BaseExporter):
         return {"train": "train", "val": "val", "test": "test"}
 
     def transform(self, prepared_ldf: PreparedLDF) -> None:
-        self.check_group_file_correspondence(prepared_ldf)
+        ExporterUtils.check_group_file_correspondence(prepared_ldf)
 
         annotation_splits: dict[str, dict[str, list[str]]] = {
             k: {} for k in self.get_split_names()
@@ -42,7 +42,7 @@ class DarknetExporter(BaseExporter):
 
         for key, group_df in grouped:
             file_name, group_id = cast(tuple[str, Any], key)
-            split = self._split_of_group(prepared_ldf, group_id)
+            split = ExporterUtils._split_of_group(prepared_ldf, group_id)
 
             file_path = Path(str(file_name))
             idx = self.image_indices.setdefault(
