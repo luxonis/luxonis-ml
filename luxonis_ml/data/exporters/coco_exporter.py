@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 from typing import Any, cast
 
+import pycocotools.mask as maskUtils
 from PIL import Image
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
@@ -73,12 +74,11 @@ class CocoExporter(BaseExporter):
                 "iscrowd": 0,
             }
 
-            ann = [
-                self._process_row(
+            for row in entry.iter_rows(named=True):
+                ann = self._process_row(
                     row, split, annotation_splits, ann, width, height
                 )
-                for row in entry.iter_rows(named=True)
-            ]
+            annotation_splits[split]["annotations"].append(ann)
 
             annotation_splits[split]["annotations"].append(ann)
             ann_id_counter[split] += 1
@@ -175,13 +175,19 @@ class CocoExporter(BaseExporter):
             ann["category_id"] = self.class_name_to_category_id[split][cname]
             return ann
 
-        if ann_str is None or ttype not in {"boundingbox"}:
+        # nothing to do
+        if ann_str is None:
             return ann
 
-        data = json.loads(ann_str)
-
         if ttype == "boundingbox":
+            data = json.loads(ann_str)
             self._fill_bbox(ann, data, w, h, split, cname)
+            return ann
+
+        if ttype == "instance_segmentation":
+            data = json.loads(ann_str)
+            self._fill_instance_segmentation(ann, data, split, cname)
+            return ann
 
         return ann
 
@@ -207,6 +213,39 @@ class CocoExporter(BaseExporter):
         px, py, pw, ph = x * w, y * h, bw * w, bh * h
         ann["bbox"] = [px, py, pw, ph]
         ann["area"] = pw * ph
+
+    def _fill_instance_segmentation(
+        self,
+        ann: dict[str, Any],
+        data: dict[str, Any],
+        split: str,
+        cname: str,
+    ) -> None:
+        # ensure category
+        ann["category_id"] = (
+            ann.get("category_id")
+            or self.class_name_to_category_id[split][cname]
+        )
+        # store segmentation as COCO RLE
+        H = int(data.get("height"))
+        W = int(data.get("width"))
+        counts = data.get("counts")
+        ann["segmentation"] = {"size": [H, W], "counts": counts}
+        ann["iscrowd"] = 0 if ann.get("iscrowd") is None else ann["iscrowd"]
+
+        if counts is not None:
+            rle_runtime = {
+                "size": [H, W],
+                "counts": counts.encode("utf-8"),
+            }
+            area = float(maskUtils.area(rle_runtime))
+            bbox = maskUtils.toBbox(rle_runtime).tolist()  # [x,y,w,h]
+            ann["area"] = area
+            ann["bbox"] = bbox
+            return
+
+        ann["area"] = H * W
+        ann["bbox"] = [0.0, 0.0, float(W), float(H)]
 
     def _dump_annotations(
         self,
