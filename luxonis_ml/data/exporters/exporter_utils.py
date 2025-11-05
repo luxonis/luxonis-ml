@@ -131,3 +131,24 @@ class ExporterUtils:
                 archives.append(Path(archive_file))
 
         return archives if len(archives) > 1 else archives[0]
+
+    @staticmethod
+    def get_single_skeleton(
+        allow_keypoints: bool, skeletons: dict
+    ) -> tuple[list[str], list[list[int]]]:
+        """Returns (labels, skeleton_edges_1_based) for the **single**
+        skeleton.
+
+        Edges are converted to 1-based indices per COCO spec.
+        """
+        if not allow_keypoints or skeletons is None:
+            return [], []
+        if isinstance(skeletons, dict):
+            sk = next(iter(skeletons.values()))
+        else:  # list
+            sk = skeletons[0]
+        labels = list(sk.get("labels", []))
+        edges = sk.get("edges", [])
+        # COCO expects 1-based indices in skeleton
+        skeleton_1_based = [[a + 1, b + 1] for a, b in edges]
+        return labels, skeleton_1_based

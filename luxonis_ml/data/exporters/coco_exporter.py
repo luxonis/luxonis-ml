@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pycocotools.mask as maskUtils
+from loguru import logger
 from PIL import Image
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
@@ -20,13 +21,26 @@ class CocoExporter(BaseExporter):
         self,
         dataset_identifier: str,
         output_path: Path,
-        max_partition_size_gb: float,
+        max_partition_size_gb: float | None,
         format: COCOFormat = COCOFormat.ROBOFLOW,
+        *,
+        skeletons: dict[str, Any] | list[dict[str, Any]] | None = None,
     ):
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )
         self.format = format
+        self.skeletons = skeletons
+        if self.skeletons is None:
+            self.allow_keypoints = False
+        elif len(self.skeletons) == 1:
+            self.allow_keypoints = True
+        else:
+            self.allow_keypoints = False
+            logger.warning(
+                "Skipping keypoint annotations because COCO only supports a single keypoint export class"
+            )
+
         splits = self.get_split_names()
         self.class_name_to_category_id: dict[str, dict[str, int]] = {
             s: {} for s in splits
@@ -165,9 +179,19 @@ class CocoExporter(BaseExporter):
 
         if cname and cname not in self.class_name_to_category_id[split]:
             cid = self.last_category_id[split]
-            annotation_splits[split]["categories"].append(
-                {"id": cid, "name": cname}
-            )
+
+            cat_entry = {"id": cid, "name": cname}
+
+            # If keypoints are allowed, attach keypoint meta to the category
+            if self.allow_keypoints:
+                kp_labels, kp_skeleton = ExporterUtils.get_single_skeleton(
+                    self.allow_keypoints, self.skeletons
+                )
+                if kp_labels:
+                    cat_entry["keypoints"] = kp_labels
+                    cat_entry["skeleton"] = kp_skeleton
+
+            annotation_splits[split]["categories"].append(cat_entry)
             self.class_name_to_category_id[split][cname] = cid
             self.last_category_id[split] += 1
 
@@ -187,6 +211,11 @@ class CocoExporter(BaseExporter):
         if ttype == "instance_segmentation":
             data = json.loads(ann_str)
             self._fill_instance_segmentation(ann, data, split, cname)
+            return ann
+
+        if ttype == "keypoints" and self.allow_keypoints:
+            data = json.loads(ann_str)
+            self._fill_keypoints(ann, data, w, h, split, cname)
             return ann
 
         return ann
@@ -246,6 +275,66 @@ class CocoExporter(BaseExporter):
 
         ann["area"] = H * W
         ann["bbox"] = [0.0, 0.0, float(W), float(H)]
+
+    def _fill_keypoints(
+        self,
+        ann: dict[str, Any],
+        data: dict[str, Any],
+        w: int,
+        h: int,
+        split: str,
+        cname: str,
+    ) -> None:
+        """Expects data like {"keypoints": [[x_norm, y_norm, v], ...]}
+        where x_norm, y_norm are normalized in [0,1], v in {0,1,2}.
+
+        Writes COCO-style flattened keypoints, num_keypoints, bbox,
+        area.
+        """
+        # Ensure category_id is set
+        ann["category_id"] = (
+            ann.get("category_id")
+            or self.class_name_to_category_id[split][cname]
+        )
+
+        raw_kps = data.get("keypoints", [])
+        # Scale to pixel coordinates; keep v as-is
+        kps_px: list[float] = []
+        xs: list[float] = []
+        ys: list[float] = []
+        visible_count = 0
+
+        for triplet in raw_kps:
+            if not isinstance(triplet | (list, tuple)) or len(triplet) != 3:
+                # pad invalid triplets with zeros
+                x_px, y_px, v = 0.0, 0.0, 0
+            else:
+                x_norm, y_norm, v = triplet
+                x_px = float(x_norm) * float(w)
+                y_px = float(y_norm) * float(h)
+            kps_px.extend([x_px, y_px, int(v)])
+            if int(v) > 0:
+                xs.append(x_px)
+                ys.append(y_px)
+                visible_count += 1
+
+        ann["keypoints"] = kps_px
+        ann["num_keypoints"] = visible_count
+
+        # Derive bbox from visible points; fallback to zero box
+        if visible_count > 0:
+            x_min = float(min(xs))
+            y_min = float(min(ys))
+            x_max = float(max(xs))
+            y_max = float(max(ys))
+            bw = max(0.0, x_max - x_min)
+            bh = max(0.0, y_max - y_min)
+            ann["bbox"] = [x_min, y_min, bw, bh]
+            ann["area"] = bw * bh
+        else:
+            # keep any existing bbox/area if present; otherwise default
+            ann.setdefault("bbox", [0.0, 0.0, 0.0, 0.0])
+            ann.setdefault("area", 0.0)
 
     def _dump_annotations(
         self,

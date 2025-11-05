@@ -33,6 +33,7 @@ from luxonis_ml.data.exporters.exporter_utils import (
 from luxonis_ml.data.utils import (
     BucketStorage,
     BucketType,
+    COCOFormat,
     ParquetFileManager,
     UpdateMode,
     get_class_distributions,
@@ -1514,7 +1515,13 @@ class LuxonisDataset(BaseDataset):
         """
         EXPORTER_MAP: dict[DatasetType, ExporterSpec] = {
             DatasetType.NATIVE: ExporterSpec(NativeExporter, {}),
-            DatasetType.COCO: ExporterSpec(CocoExporter, {}),
+            DatasetType.COCO: ExporterSpec(
+                CocoExporter,
+                {
+                    "format": COCOFormat.ROBOFLOW,
+                    "skeletons": getattr(self.metadata, "skeletons", None),
+                },
+            ),
             DatasetType.YOLOV8: ExporterSpec(
                 YoloExporter, {"version": YOLOFormat.V8}
             ),
