@@ -5,7 +5,6 @@ import sys
 from pathlib import Path
 from typing import Any, cast
 
-import polars as pl
 from PIL import Image
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
@@ -101,14 +100,6 @@ class CocoExporter(BaseExporter):
 
         self._dump_annotations(annotation_splits, self.output_path, self.part)
 
-    def _split_of_group(self, prepared_ldf: PreparedLDF, group_id: Any) -> str:
-        split = next(
-            (s for s, ids in prepared_ldf.splits.items() if group_id in ids),
-            None,
-        )
-        assert split is not None, "group must belong to a split"
-        return split
-
     def _maybe_roll_partition(
         self,
         annotation_splits: dict[str, dict[str, Any]],
@@ -184,7 +175,7 @@ class CocoExporter(BaseExporter):
             ann["category_id"] = self.class_name_to_category_id[split][cname]
             return ann
 
-        if ann_str is None or ttype not in {"boundingbox", "segmentation"}:
+        if ann_str is None or ttype not in {"boundingbox"}:
             return ann
 
         data = json.loads(ann_str)
@@ -251,15 +242,3 @@ class CocoExporter(BaseExporter):
         if self.format == COCOFormat.FIFTYONE:
             data_path = data_path / "data"
         return data_path
-
-    @staticmethod
-    def check_group_file_correspondence(prepared_ldf: PreparedLDF) -> None:
-        df = prepared_ldf.processed_df
-        group_to_files = df.group_by("group_id").agg(
-            pl.col("file").n_unique().alias("file_count")
-        )
-        invalid_groups = group_to_files.filter(pl.col("file_count") > 1)
-        assert invalid_groups.is_empty(), (
-            "Each group_id must correspond to exactly one file. "
-            f"Found groups with multiple files: {invalid_groups['group_id'].to_list()}"
-        )

@@ -71,14 +71,6 @@ class NativeExporter(BaseExporter):
 
         self._dump_annotations(annotation_splits, self.output_path, self.part)
 
-    def _split_of_group(self, prepared_ldf: PreparedLDF, group_id: Any) -> str:
-        split = next(
-            (s for s, ids in prepared_ldf.splits.items() if group_id in ids),
-            None,
-        )
-        assert split is not None, "group must belong to a split"
-        return split
-
     def _maybe_roll_partition(
         self,
         annotation_splits: dict[str, list[dict[str, Any]]],

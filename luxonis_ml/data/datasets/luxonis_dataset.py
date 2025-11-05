@@ -17,8 +17,13 @@ from loguru import logger
 from semver.version import Version
 from typing_extensions import Self, override
 
-from luxonis_ml.data.exporters import BaseExporter, NativeExporter, PreparedLDF
-from luxonis_ml.data.exporters.coco_exporter import CocoExporter
+from luxonis_ml.data.exporters import (
+    BaseExporter,
+    CocoExporter,
+    NativeExporter,
+    PreparedLDF,
+    YoloV8Exporter,
+)
 from luxonis_ml.data.utils import (
     BucketStorage,
     BucketType,
@@ -1504,6 +1509,7 @@ class LuxonisDataset(BaseDataset):
         EXPORTER_MAP = {
             DatasetType.NATIVE: NativeExporter,
             DatasetType.COCO: CocoExporter,
+            DatasetType.YOLOV8: YoloV8Exporter,
         }  # More exporters to be defined here
         exporter_cls = EXPORTER_MAP.get(dataset_type)
         if exporter_cls is None:

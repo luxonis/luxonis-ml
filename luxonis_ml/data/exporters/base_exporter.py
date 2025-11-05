@@ -5,6 +5,8 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
+import polars as pl
+
 from luxonis_ml.data.exporters.prepared_ldf import PreparedLDF
 
 
@@ -46,6 +48,29 @@ class BaseExporter(ABC):
         self, annotations: dict, output_path: Path, part: int | None = None
     ) -> None:
         raise NotImplementedError
+
+    ### --- Util methods for all exporters --- ###
+
+    @staticmethod
+    def check_group_file_correspondence(prepared_ldf: PreparedLDF) -> None:
+        df = prepared_ldf.processed_df
+        group_to_files = df.group_by("group_id").agg(
+            pl.col("file").n_unique().alias("file_count")
+        )
+        invalid_groups = group_to_files.filter(pl.col("file_count") > 1)
+        assert invalid_groups.is_empty(), (
+            "Each group_id must correspond to exactly one file. "
+            f"Found groups with multiple files: {invalid_groups['group_id'].to_list()}"
+        )
+
+    @staticmethod
+    def _split_of_group(prepared_ldf: PreparedLDF, group_id: Any) -> str:
+        split = next(
+            (s for s, ids in prepared_ldf.splits.items() if group_id in ids),
+            None,
+        )
+        assert split is not None, "group must belong to a split"
+        return split
 
     def create_zip_output(
         self,
