@@ -171,3 +171,65 @@ def test_export_regular_splits(
         original_split = sorted(original_splits[split])
         new_split = sorted(new_splits[split])
         assert original_split == new_split
+
+
+@pytest.mark.parametrize("url", ["COCO_people_subset.zip"])
+@pytest.mark.parametrize(
+    "dataset_type",
+    [
+        DatasetType.COCO,
+        DatasetType.YOLOV4,
+        DatasetType.YOLOV6,
+        DatasetType.YOLOV8,
+        DatasetType.DARKNET,
+    ],
+)
+def test_export_no_partition(
+    dataset_name: str,
+    storage_url: str,
+    tempdir: Path,
+    url: str,
+    dataset_type: DatasetType,
+):
+    url = f"{storage_url}/{url}"
+    dataset = LuxonisParser(
+        url,
+        dataset_name=dataset_name,
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()
+
+    original_splits = dataset.get_splits()
+    assert original_splits is not None
+
+    export_dir = tempdir / "exported"
+    dataset.export(
+        output_path=export_dir,
+        zip_output=True,
+        dataset_type=dataset_type,
+    )
+
+    zip_files = sorted(export_dir.glob("*.zip"))
+    assert len(zip_files) == 1
+
+    exported_zip = zip_files[0]
+    parser = LuxonisParser(
+        str(exported_zip),
+        dataset_name=f"{dataset_name}_reimported",
+        delete_local=True,
+        save_dir=tempdir,
+    )
+
+    if dataset_type == DatasetType.COCO:
+        new_dataset = parser.parse(split_val_to_test=False)
+    else:
+        new_dataset = parser.parse()
+
+    new_splits = new_dataset.get_splits()
+    assert new_splits is not None
+    assert set(original_splits.keys()) == set(new_splits.keys())
+
+    for split in original_splits:
+        original_split = sorted(original_splits[split])
+        new_split = sorted(new_splits[split])
+        assert original_split == new_split
