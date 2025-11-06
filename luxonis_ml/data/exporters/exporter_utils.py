@@ -153,3 +153,12 @@ class ExporterUtils:
         # COCO expects 1-based indices in skeleton
         skeleton_1_based = [[a + 1, b + 1] for a, b in edges]
         return labels, skeleton_1_based
+
+    def _normalize(
+        self, xs: list[float], ys: list[float], w: float, h: float
+    ) -> list[float]:
+        out: list[float] = []
+        for x, y in zip(xs, ys, strict=True):
+            out.append(max(0.0, min(1.0, x / w)))
+            out.append(max(0.0, min(1.0, y / h)))
+        return out

@@ -38,7 +38,8 @@ class CocoExporter(BaseExporter):
         else:
             self.allow_keypoints = False
             logger.warning(
-                "Skipping keypoint annotations because COCO only supports a single keypoint export class"
+                "Skipping keypoint annotations because COCO only supports a single keypoint export class."
+                "To export multiple keypoint classes please use the Luxonis native export format"
             )
 
         splits = self.get_split_names()
@@ -92,8 +93,6 @@ class CocoExporter(BaseExporter):
                 ann = self._process_row(
                     row, split, annotation_splits, ann, width, height
                 )
-            annotation_splits[split]["annotations"].append(ann)
-
             annotation_splits[split]["annotations"].append(ann)
             ann_id_counter[split] += 1
 
@@ -182,7 +181,6 @@ class CocoExporter(BaseExporter):
 
             cat_entry = {"id": cid, "name": cname}
 
-            # If keypoints are allowed, attach keypoint meta to the category
             if self.allow_keypoints:
                 kp_labels, kp_skeleton = ExporterUtils.get_single_skeleton(
                     self.allow_keypoints, self.skeletons
@@ -249,15 +247,13 @@ class CocoExporter(BaseExporter):
         split: str,
         cname: str,
     ) -> None:
-        # ensure category
         ann["category_id"] = (
             ann.get("category_id")
             or self.class_name_to_category_id[split][cname]
         )
-        # store segmentation as COCO RLE
-        H = int(data.get("height"))
-        W = int(data.get("width"))
-        counts = data.get("counts")
+        H = int(data["height"])
+        W = int(data["width"])
+        counts = data["counts"]
         ann["segmentation"] = {"size": [H, W], "counts": counts}
         ann["iscrowd"] = 0 if ann.get("iscrowd") is None else ann["iscrowd"]
 
@@ -269,7 +265,8 @@ class CocoExporter(BaseExporter):
             area = float(maskUtils.area(rle_runtime))
             bbox = maskUtils.toBbox(rle_runtime).tolist()  # [x,y,w,h]
             ann["area"] = area
-            ann["bbox"] = bbox
+            if not ann.get("bbox"):
+                ann["bbox"] = bbox
             return
 
         ann["area"] = H * W
@@ -317,7 +314,8 @@ class CocoExporter(BaseExporter):
             y_max = float(max(ys))
             bw = max(0.0, x_max - x_min)
             bh = max(0.0, y_max - y_min)
-            ann["bbox"] = [x_min, y_min, bw, bh]
+            if not ann.get("bbox"):
+                ann["bbox"] = [x_min, y_min, bw, bh]
             ann["area"] = bw * bh
         else:
             ann.setdefault("bbox", [0.0, 0.0, 0.0, 0.0])

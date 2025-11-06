@@ -28,18 +28,16 @@ class ClassificationDirectoryExporter(BaseExporter):
 
             split = ExporterUtils.split_of_group(prepared_ldf, group_id)
 
-            # Collect unique classification class names for this image
             class_names: set[str] = set()
             for row in entry.iter_rows(named=True):
                 if (
-                    row.get("task_type") == "classification"
-                    and row.get("instance_id") == -1
+                    row.get["task_type"] == "classification"
+                    and row["instance_id"] == -1
                 ):
-                    cname = row.get("class_name")
+                    cname = row["class_name"]
                     if cname:
                         class_names.add(str(cname))
 
-            # Skip images without classification tags
             if not class_names:
                 continue
 

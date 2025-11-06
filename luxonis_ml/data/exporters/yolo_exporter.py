@@ -5,6 +5,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, cast
 
+from PIL import Image
+
 from luxonis_ml.data.exporters.exporter_utils import ExporterUtils, PreparedLDF
 
 from .base_exporter import BaseExporter
@@ -33,10 +35,6 @@ class YoloExporter(BaseExporter):
         self.version = version
 
     def get_split_names(self) -> dict[str, str]:
-        """Logical split name -> folder name on disk.
-
-        PreparedLDF uses 'train'/'val'/'test' logically.
-        """
         if self.version is YOLOFormat.V8:
             return {"train": "train", "val": "val", "test": "test"}
         return {"train": "train", "val": "valid", "test": "test"}
@@ -46,14 +44,14 @@ class YoloExporter(BaseExporter):
             return "data.yaml"
         if self.version is YOLOFormat.V8:
             return "dataset.yaml"
-        # V4 has no top-level yaml
         return ""
 
     def transform(self, prepared_ldf: PreparedLDF) -> None:
         ExporterUtils.check_group_file_correspondence(prepared_ldf)
-        annotation_splits: dict[str, dict[str, list[str]]] = {
-            k: {} for k in self.get_split_names().values()
-        }
+
+        annotation_splits: dict[
+            str, dict[str, list[tuple[int, float, float, float, float]]]
+        ] = {k: {} for k in self.get_split_names().values()}
 
         df = prepared_ldf.processed_df
         grouped = df.group_by(["file", "group_id"], maintain_order=True)
@@ -73,12 +71,12 @@ class YoloExporter(BaseExporter):
             )
             new_name = f"{idx}{file_path.suffix}"
 
-            label_lines: list[str] = []
+            label_lines: list[tuple[int, float, float, float, float]] = []
 
             for row in group_df.iter_rows(named=True):
-                ttype = row.get("task_type")
-                ann_str = row.get("annotation")
-                cname = row.get("class_name")
+                ttype = row["task_type"]
+                ann_str = row["annotation"]
+                cname = row["class_name"]
 
                 if ttype != "boundingbox" or ann_str is None:
                     continue
@@ -97,15 +95,14 @@ class YoloExporter(BaseExporter):
                 h = float(data.get("h", 0.0))
                 cid = self.class_to_id[cname]
 
-                # Same numeric representation for all versions, difference is in dumping
-                label_lines.append(f"{cid} {x:.6f} {y:.6f} {w:.6f} {h:.6f}")
+                label_lines.append((cid, x, y, w, h))
 
             annotation_splits[split][new_name] = label_lines
 
-            ann_size = sum(len(l_line) for l_line in label_lines)
+            ann_size_estimate = len(label_lines) * 32
             img_size = file_path.stat().st_size
             annotation_splits = self._maybe_roll_partition(
-                annotation_splits, ann_size + img_size
+                annotation_splits, ann_size_estimate + img_size
             )
 
             data_path = self._get_data_path(self.output_path, split, self.part)
@@ -121,9 +118,11 @@ class YoloExporter(BaseExporter):
 
     def _maybe_roll_partition(
         self,
-        annotation_splits: dict[str, dict[str, list[str]]],
+        annotation_splits: dict[
+            str, dict[str, list[tuple[int, float, float, float, float]]]
+        ],
         additional_size: int,
-    ) -> dict[str, dict[str, list[str]]]:
+    ) -> dict[str, dict[str, list[tuple[int, float, float, float, float]]]]:
         if (
             self.max_partition_size
             and self.part is not None
@@ -139,7 +138,9 @@ class YoloExporter(BaseExporter):
 
     def _dump_annotations(
         self,
-        annotation_splits: dict[str, dict[str, list[str]]],
+        annotation_splits: dict[
+            str, dict[str, list[tuple[int, float, float, float, float]]]
+        ],
         output_path: Path,
         part: int | None = None,
     ) -> None:
@@ -147,6 +148,7 @@ class YoloExporter(BaseExporter):
             self._dump_annotations_v4(annotation_splits, output_path, part)
             return
 
+        # V6/V8 layout
         base = (
             output_path / f"{self.dataset_identifier}_part{part}"
             if part is not None
@@ -162,8 +164,22 @@ class YoloExporter(BaseExporter):
             for img_name, lines in annotation_splits.get(
                 split_name, {}
             ).items():
+                if self.version in (YOLOFormat.V6, YOLOFormat.V8):
+                    formatted = []
+                    for cid, x, y, w, h in lines:
+                        xc = x + w / 2.0
+                        yc = y + h / 2.0
+                        formatted.append(
+                            f"{cid} {xc:.12f} {yc:.12f} {w:.12f} {h:.12f}"
+                        )
+                else:
+                    formatted = [
+                        f"{cid} {x:.12f} {y:.12f} {w:.12f} {h:.12f}"
+                        for (cid, x, y, w, h) in lines
+                    ]
+
                 (labels_dir / f"{Path(img_name).stem}.txt").write_text(
-                    "\n".join(lines), encoding="utf-8"
+                    "\n".join(formatted), encoding="utf-8"
                 )
 
         yaml_filename = self._yaml_filename()
@@ -182,7 +198,9 @@ class YoloExporter(BaseExporter):
 
     def _dump_annotations_v4(
         self,
-        annotation_splits: dict[str, dict[str, list[str]]],
+        annotation_splits: dict[
+            str, dict[str, list[tuple[int, float, float, float, float]]]
+        ],
         output_path: Path,
         part: int | None = None,
     ) -> None:
@@ -202,17 +220,24 @@ class YoloExporter(BaseExporter):
                 encoding="utf-8",
             )
 
-            # Aggregate annotations for this split
             lines_out: list[str] = []
             for img_name, lines in annotation_splits.get(
                 split_name, {}
             ).items():
-                # each 'lines' entry is "cid cx cy w h"
-                # Serialized as:
-                # "<img_filename> <cx> <cy> <w> <h> <cid>"
-                for line in lines:
-                    cid_str, cx, cy, w, h = line.split()
-                    lines_out.append(f"{img_name} {cx} {cy} {w} {h} {cid_str}")
+                img_path = split_dir / img_name
+                with Image.open(img_path) as im:
+                    width, height = im.size
+
+                anns: list[str] = []
+                for cid, x, y, w, h in lines:
+                    x_min = x * width
+                    y_min = y * height
+                    x_max = (x + w) * width
+                    y_max = (y + h) * height
+
+                    anns.append(f"{x_min},{y_min},{x_max},{y_max},{cid}")
+
+                lines_out.append(f"{img_name} {' '.join(anns)}")
 
             (split_dir / "_annotations.txt").write_text(
                 "\n".join(lines_out) + ("\n" if lines_out else ""),
@@ -223,14 +248,12 @@ class YoloExporter(BaseExporter):
         self, output_path: Path, split: str, part: int | None = None
     ) -> Path:
         base = (
-            output_path / f"{self.dataset_identifier}_part{self.part}"
+            output_path / f"{self.dataset_identifier}_part{part}"
             if part is not None
             else output_path / self.dataset_identifier
         )
         if self.version is YOLOFormat.V4:
-            # Images live directly under split/
             return base / split
-        # V8/V6: Images go in images/<split>
         return base / "images" / split
 
     @staticmethod
