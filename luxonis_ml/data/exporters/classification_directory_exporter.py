@@ -31,7 +31,7 @@ class ClassificationDirectoryExporter(BaseExporter):
             class_names: set[str] = set()
             for row in entry.iter_rows(named=True):
                 if (
-                    row.get["task_type"] == "classification"
+                    row["task_type"] == "classification"
                     and row["instance_id"] == -1
                 ):
                     cname = row["class_name"]

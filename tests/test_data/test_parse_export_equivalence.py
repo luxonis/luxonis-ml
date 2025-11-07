@@ -20,7 +20,7 @@ def _export_and_reimport(
     tempdir: Path,
 ) -> tuple[LuxonisDataset, LuxonisDataset]:
     """Parse -> export -> re-import and return (original_dataset,
-    reimported_dataset)."""
+    reimported_dataset) to compare the two."""
     url = f"{storage_url}/{url}"
     dataset = LuxonisParser(
         url,
@@ -61,8 +61,8 @@ def _assert_equivalence(
     keypoints)."""
     previous_ldf = PreparedLDF.from_dataset(dataset)
     new_ldf = PreparedLDF.from_dataset(new_dataset)
-    prev = collector(previous_ldf, round_ndigits=2)
-    new = collector(new_ldf, round_ndigits=2)
+    prev = collector(previous_ldf)
+    new = collector(new_ldf)
     assert prev == new
 
 
@@ -74,9 +74,7 @@ def file_sha256(
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def collect_bbox_multiset(
-    prepared_ldf: PreparedLDF, *, round_ndigits: int = 2
-):
+def collect_bbox_multiset(prepared_ldf: PreparedLDF):
     out = {}
     g = prepared_ldf.processed_df.groupby(
         ["file", "group_id"], maintain_order=True
@@ -89,10 +87,10 @@ def collect_bbox_multiset(
                 d = json.loads(row["annotation"])
                 boxes.append(
                     (
-                        round(d["x"], round_ndigits),
-                        round(d["y"], round_ndigits),
-                        round(d["w"], round_ndigits),
-                        round(d["h"], round_ndigits),
+                        round(d["x"], 2),
+                        round(d["y"], 2),
+                        round(d["w"], 2),
+                        round(d["h"], 2),
                     )
                 )
         if boxes:
@@ -100,9 +98,7 @@ def collect_bbox_multiset(
     return out
 
 
-def collect_keypoint_multiset(
-    prepared_ldf: PreparedLDF, round_ndigits: int = 2
-):
+def collect_keypoint_multiset(prepared_ldf: PreparedLDF):
     out = {}
     g = prepared_ldf.processed_df.groupby(
         ["file", "group_id"], maintain_order=True
@@ -119,54 +115,54 @@ def collect_keypoint_multiset(
     return out
 
 
-@pytest.mark.parametrize("url", ["COCO_people_subset.zip"])
-@pytest.mark.parametrize(
-    ("dataset_type", "collector"),
-    [
-        # TODO: Do we need it to be exact? Because it's maybe not feasible to save bounding boxes to .12f
-        # Bounding boxes
-        pytest.param(
-            DatasetType.COCO,
-            collect_bbox_multiset,
-        ),
-        pytest.param(
-            DatasetType.DARKNET,
-            collect_bbox_multiset,
-        ),
-        pytest.param(
-            DatasetType.YOLOV4,
-            collect_bbox_multiset,
-        ),
-        pytest.param(
-            DatasetType.YOLOV6,
-            collect_bbox_multiset,
-        ),
-        pytest.param(
-            DatasetType.YOLOV8,
-            collect_bbox_multiset,
-        ),
-        pytest.param(
-            DatasetType.NATIVE,
-            collect_bbox_multiset,
-        ),
-        # TODO: VOC and maybe createML and
-        # Keypoints
-        pytest.param(
-            DatasetType.COCO,
-            collect_keypoint_multiset,
-        ),
-        pytest.param(
-            DatasetType.NATIVE,
-            collect_keypoint_multiset,
-        ),
-        # Instance segmentation
-        # TODO: COCO, NATIVE, YOLOV8, VOC
-        # Classification
-        # TODO: NATIVE, CLS
-        # Semantic Segmentation
-        # TODO:
-    ],
-)
+def collect_instance_segmentation_multiset(prepared_ldf: PreparedLDF):
+    out = {}
+    g = prepared_ldf.processed_df.groupby(
+        ["file", "group_id"], maintain_order=True
+    )
+    for (file_path, _gid), df in g:
+        key = (file_sha256(Path(file_path)),)
+        keypoints = []
+        for row in df.iter_rows(named=True):
+            if row["task_type"] == "instance_segmentation":
+                d = json.loads(row["annotation"])
+                keypoints.extend(d["counts"])
+        if keypoints:
+            out.setdefault(key, Counter()).update(keypoints)
+    return out
+
+
+def collect_classification_multiset(prepared_ldf: PreparedLDF):
+    out = {}
+    g = prepared_ldf.processed_df.groupby(
+        ["file", "group_id"], maintain_order=True
+    )
+    for (file_path, _gid), df in g:
+        key = (file_sha256(Path(file_path)),)
+        classification_entries = []
+        for row in df.iter_rows(named=True):
+            if row["task_type"] == "classification":
+                d = json.loads(row["annotation"])
+                classification_entries.extend(d["class_name"])
+        if classification_entries:
+            out.setdefault(key, Counter()).update(classification_entries)
+    return out
+
+
+test_matrix = [
+    # Bounding boxes
+    pytest.param(DatasetType.YOLOV4, collect_bbox_multiset),
+    pytest.param(DatasetType.YOLOV6, collect_bbox_multiset),
+    pytest.param(DatasetType.YOLOV8, collect_bbox_multiset),
+    pytest.param(DatasetType.COCO, collect_bbox_multiset),
+    pytest.param(DatasetType.DARKNET, collect_bbox_multiset),
+    pytest.param(DatasetType.VOC, collect_bbox_multiset),
+    pytest.param(DatasetType.NATIVE, collect_bbox_multiset),
+]
+
+
+@pytest.mark.parametrize("url", ["horse_pose.v8i.yolov8.zip"])
+@pytest.mark.parametrize(("dataset_type", "collector"), test_matrix)
 def test_export_import_equivalence(
     dataset_name: str,
     storage_url: str,

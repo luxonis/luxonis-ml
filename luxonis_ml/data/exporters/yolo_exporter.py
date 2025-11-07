@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from enum import Enum
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, TypeAlias, cast
 
 from PIL import Image
 
@@ -16,6 +16,9 @@ class YOLOFormat(Enum):
     V4 = "v4"
     V6 = "v6"
     V8 = "v8"
+
+
+BBox: TypeAlias = tuple[int, float, float, float, float]
 
 
 class YoloExporter(BaseExporter):
@@ -49,9 +52,9 @@ class YoloExporter(BaseExporter):
     def transform(self, prepared_ldf: PreparedLDF) -> None:
         ExporterUtils.check_group_file_correspondence(prepared_ldf)
 
-        annotation_splits: dict[
-            str, dict[str, list[tuple[int, float, float, float, float]]]
-        ] = {k: {} for k in self.get_split_names().values()}
+        annotation_splits: dict[str, dict[str, list[BBox]]] = {
+            k: {} for k in self.get_split_names().values()
+        }
 
         df = prepared_ldf.processed_df
         grouped = df.group_by(["file", "group_id"], maintain_order=True)
@@ -118,11 +121,9 @@ class YoloExporter(BaseExporter):
 
     def _maybe_roll_partition(
         self,
-        annotation_splits: dict[
-            str, dict[str, list[tuple[int, float, float, float, float]]]
-        ],
+        annotation_splits: dict[str, dict[str, list[BBox]]],
         additional_size: int,
-    ) -> dict[str, dict[str, list[tuple[int, float, float, float, float]]]]:
+    ) -> dict[str, dict[str, list[BBox]]]:
         if (
             self.max_partition_size
             and self.part is not None
@@ -138,9 +139,7 @@ class YoloExporter(BaseExporter):
 
     def _dump_annotations(
         self,
-        annotation_splits: dict[
-            str, dict[str, list[tuple[int, float, float, float, float]]]
-        ],
+        annotation_splits: dict[str, dict[str, list[BBox]]],
         output_path: Path,
         part: int | None = None,
     ) -> None:
@@ -148,7 +147,6 @@ class YoloExporter(BaseExporter):
             self._dump_annotations_v4(annotation_splits, output_path, part)
             return
 
-        # V6/V8 layout
         base = (
             output_path / f"{self.dataset_identifier}_part{part}"
             if part is not None
@@ -198,9 +196,7 @@ class YoloExporter(BaseExporter):
 
     def _dump_annotations_v4(
         self,
-        annotation_splits: dict[
-            str, dict[str, list[tuple[int, float, float, float, float]]]
-        ],
+        annotation_splits: dict[str, dict[str, list[BBox]]],
         output_path: Path,
         part: int | None = None,
     ) -> None:

@@ -25,6 +25,7 @@ from luxonis_ml.data.exporters import (
     NativeExporter,
     PreparedLDF,
     SegmentationMaskDirectoryExporter,
+    VOCExporter,
     YoloExporter,
     YOLOFormat,
 )
@@ -1540,6 +1541,7 @@ class LuxonisDataset(BaseDataset):
             DatasetType.SEGMASK: ExporterSpec(
                 SegmentationMaskDirectoryExporter, {}
             ),
+            DatasetType.VOC: ExporterSpec(VOCExporter, {}),
         }
         spec = EXPORTER_MAP.get(dataset_type)
         if spec is None:

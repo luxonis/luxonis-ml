@@ -7,6 +7,7 @@ from .native_exporter import NativeExporter
 from .segmentation_mask_directory_exporter import (
     SegmentationMaskDirectoryExporter,
 )
+from .voc_exporter import VOCExporter
 from .yolo_exporter import YoloExporter, YOLOFormat
 
 __all__ = [
@@ -17,6 +18,7 @@ __all__ = [
     "NativeExporter",
     "PreparedLDF",
     "SegmentationMaskDirectoryExporter",
+    "VOCExporter",
     "YOLOFormat",
     "YoloExporter",
 ]
