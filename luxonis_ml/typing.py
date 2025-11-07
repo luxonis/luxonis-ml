@@ -3,7 +3,7 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeGuard, TypeVar
 
 import typeguard
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 # When used without installed dependencies
 if TYPE_CHECKING:  # pragma: no cover
@@ -83,7 +83,13 @@ Kwargs: TypeAlias = dict[str, Any]
 """A keyword dictionary of arbitrary parameters."""
 
 
-class ConfigItem(BaseModel):
+class BaseModelExtraForbid(BaseModel):
+    """BaseModel with extra fields forbidden."""
+
+    model_config: ConfigDict = ConfigDict(extra="forbid")
+
+
+class ConfigItem(BaseModelExtraForbid):
     """Configuration schema for dynamic object instantiation. Typically
     used to instantiate objects stored in registries.
 

@@ -9,7 +9,7 @@ from luxonis_ml.nn_archive.config_building_blocks.enums import (
     InputType,
 )
 from luxonis_ml.nn_archive.utils import infer_layout
-from luxonis_ml.utils import BaseModelExtraForbid
+from luxonis_ml.typing import BaseModelExtraForbid
 
 
 class PreprocessingBlock(BaseModelExtraForbid):
