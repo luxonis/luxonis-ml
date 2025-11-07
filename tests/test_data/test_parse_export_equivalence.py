@@ -87,10 +87,10 @@ def collect_bbox_multiset(prepared_ldf: PreparedLDF):
                 d = json.loads(row["annotation"])
                 boxes.append(
                     (
-                        round(d["x"], 2),
-                        round(d["y"], 2),
-                        round(d["w"], 2),
-                        round(d["h"], 2),
+                        round(d["x"], 1),
+                        round(d["y"], 1),
+                        round(d["w"], 1),
+                        round(d["h"], 1),
                     )
                 )
         if boxes:

@@ -21,10 +21,12 @@ from luxonis_ml.data.exporters import (
     BaseExporter,
     ClassificationDirectoryExporter,
     CocoExporter,
+    CreateMLExporter,
     DarknetExporter,
     NativeExporter,
     PreparedLDF,
     SegmentationMaskDirectoryExporter,
+    TensorflowCSVExporter,
     VOCExporter,
     YoloExporter,
     YOLOFormat,
@@ -1542,6 +1544,8 @@ class LuxonisDataset(BaseDataset):
                 SegmentationMaskDirectoryExporter, {}
             ),
             DatasetType.VOC: ExporterSpec(VOCExporter, {}),
+            DatasetType.CREATEML: CreateMLExporter,
+            DatasetType.TFCSV: TensorflowCSVExporter,
         }
         spec = EXPORTER_MAP.get(dataset_type)
         if spec is None:

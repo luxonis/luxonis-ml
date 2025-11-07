@@ -1,4 +1,3 @@
-# voc_exporter.py
 from __future__ import annotations
 
 import json
@@ -63,15 +62,20 @@ class VOCExporter(BaseExporter):
 
                 xmin = int(round(xn * W))
                 ymin = int(round(yn * H))
-                xmax = int(round((xn + wn) * W))
-                ymax = int(round((yn + hn) * H))
 
+                # widths/heights: round once (no double rounding)
+                w_px = max(1, int(round(wn * W)))
+                h_px = max(1, int(round(hn * H)))
+
+                # build EXCLUSIVE max from min + size
+                xmax = xmin + w_px  # exclusive right edge
+                ymax = ymin + h_px  # exclusive bottom edge
+
+                # clamp: allow touching the edge (exclusive bound can be == W/H)
                 xmin = max(0, min(xmin, W - 1))
                 ymin = max(0, min(ymin, H - 1))
-                xmax = max(0, min(xmax, W - 1))
-                ymax = max(0, min(ymax, H - 1))
-                xmax = max(xmax, xmin)
-                ymax = max(ymax, ymin)
+                xmax = max(xmin + 1, min(xmax, W))
+                ymax = max(ymin + 1, min(ymax, H))
 
                 objects.append(
                     {
@@ -91,7 +95,7 @@ class VOCExporter(BaseExporter):
             }
 
             img_size = src_path.stat().st_size
-            approx_xml_size = self._estimate_xml_size(new_name, W, H, objects)
+            approx_xml_size = self._estimate_xml_size(objects)
             per_split_data = self._maybe_roll_partition(
                 per_split_data, img_size + approx_xml_size
             )
@@ -126,10 +130,12 @@ class VOCExporter(BaseExporter):
         return per_split_data
 
     @staticmethod
-    def _estimate_xml_size(
-        filename: str, w: int, h: int, objects: list[dict[str, Any]]
-    ) -> int:
-        # Approximate byte-count, the alternative is to serialize, pretty-print and discard every time just to compute the true xml size.
+    def _estimate_xml_size(objects: list[dict[str, Any]]) -> int:
+        """Approximate byte-count.
+
+        The alternative is to serialize, pretty-print and discard every
+        time just to compute the true xml size.
+        """
         per_object = 140  # ~lines for name/bbox/flags
         header = 300  # folder/filename/path/size etc.
         return header + per_object * max(1, len(objects))
@@ -203,10 +209,10 @@ class VOCExporter(BaseExporter):
                 int(bool(obj.get("difficult", 0)))
             )
             bb = SubElement(o, "bndbox")
-            SubElement(bb, "xmin").text = str(xmin)
-            SubElement(bb, "ymin").text = str(ymin)
-            SubElement(bb, "xmax").text = str(xmax)
-            SubElement(bb, "ymax").text = str(ymax)
+            SubElement(bb, "xmin").text = f"{xmin:.12f}"
+            SubElement(bb, "ymin").text = f"{ymin:.12f}"
+            SubElement(bb, "xmax").text = f"{xmax:.12f}"
+            SubElement(bb, "ymax").text = f"{ymax:.12f}"
 
         # pretty print with XML declaration
         xml_bytes = self._etree_to_pretty_bytes(ann)
