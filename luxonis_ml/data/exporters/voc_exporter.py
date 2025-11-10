@@ -17,8 +17,14 @@ class VOCExporter(BaseExporter):
     def get_split_names() -> dict[str, str]:
         return {"train": "train", "val": "valid", "test": "test"}
 
+    def supported_ann_types(self) -> list[str]:
+        return ["boundingbox"]
+
     def transform(self, prepared_ldf: PreparedLDF) -> None:
         ExporterUtils.check_group_file_correspondence(prepared_ldf)
+        ExporterUtils.exporter_specific_annotation_warning(
+            prepared_ldf, self.supported_ann_types()
+        )
 
         per_split_data: dict[str, dict[str, dict[str, Any]]] = {
             v: {} for v in self.get_split_names().values()
@@ -223,7 +229,9 @@ class VOCExporter(BaseExporter):
 
         raw = BytesIO()
         tmp.write(raw, encoding="utf-8", xml_declaration=True)
-        pretty = minidom.parseString(raw.getvalue()).toprettyxml(indent="  ")
+        pretty = minidom.parseString(
+            raw.getvalue().decode("utf-8")
+        ).toprettyxml(indent="  ")
         buf.extend(pretty.encode("utf-8"))
         return bytes(buf)
 

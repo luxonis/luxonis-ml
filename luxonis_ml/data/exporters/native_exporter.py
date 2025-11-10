@@ -19,14 +19,19 @@ class NativeExporter(BaseExporter):
     def get_split_names() -> dict[str, str]:
         return {"train": "train", "val": "val", "test": "test"}
 
-    SUPPORTED_ANN_TYPES: set[str] = {
-        "boundingbox",
-        "segmentation",
-        "keypoints",
-        "instance_segmentation",
-    }
+    def supported_ann_types(self) -> list[str]:
+        return [
+            "boundingbox",
+            "segmentation",
+            "keypoints",
+            "instance_segmentation",
+        ]
 
     def transform(self, prepared_ldf: PreparedLDF) -> None:
+        ExporterUtils.exporter_specific_annotation_warning(
+            prepared_ldf, self.supported_ann_types()
+        )
+
         annotation_splits: dict[str, list[dict[str, Any]]] = {
             k: [] for k in self.get_split_names()
         }
@@ -125,7 +130,7 @@ class NativeExporter(BaseExporter):
                 "instance_id": instance_id,
                 "class": class_name,
             }
-            if task_type in self.SUPPORTED_ANN_TYPES:
+            if task_type in self.supported_ann_types():
                 ann[task_type] = data
             elif task_type.startswith("metadata/"):
                 ann["metadata"] = {task_type[9:]: data}

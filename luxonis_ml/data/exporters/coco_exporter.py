@@ -24,7 +24,7 @@ class CocoExporter(BaseExporter):
         max_partition_size_gb: float | None,
         format: COCOFormat = COCOFormat.ROBOFLOW,
         *,
-        skeletons: dict[str, Any] | list[dict[str, Any]] | None = None,
+        skeletons: dict[str, Any] | None = None,
     ):
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
@@ -56,14 +56,21 @@ class CocoExporter(BaseExporter):
             return {"train": "train", "val": "valid", "test": "test"}
         return {"train": "train", "val": "validation", "test": "test"}
 
+    def supported_ann_types(self) -> list[str]:
+        return ["boundingbox", "instance_segmentation", "keypoints"]
+
     def transform(self, prepared_ldf: PreparedLDF) -> None:
+        ExporterUtils.check_group_file_correspondence(prepared_ldf)
+        ExporterUtils.exporter_specific_annotation_warning(
+            prepared_ldf, self.supported_ann_types()
+        )
+
         splits = self.get_split_names()
         annotation_splits: dict[str, dict[str, Any]] = {
             s: {"images": [], "categories": [], "annotations": []}
             for s in splits
         }
         ann_id_counter: dict[str, int] = {s: 1 for s in splits}
-        ExporterUtils.check_group_file_correspondence(prepared_ldf)
 
         grouped = prepared_ldf.processed_df.group_by(
             ["file", "instance_id", "group_id"], maintain_order=True
@@ -262,8 +269,8 @@ class CocoExporter(BaseExporter):
                 "size": [H, W],
                 "counts": counts.encode("utf-8"),
             }
-            area = float(maskUtils.area(rle_runtime))
-            bbox = maskUtils.toBbox(rle_runtime).tolist()  # [x,y,w,h]
+            area = float(maskUtils.area(rle_runtime))  # type: ignore[arg-type]
+            bbox = maskUtils.toBbox(rle_runtime).tolist()  # type: ignore[arg-type]
             ann["area"] = area
             if not ann.get("bbox"):
                 ann["bbox"] = bbox

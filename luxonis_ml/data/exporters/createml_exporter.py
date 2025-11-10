@@ -25,8 +25,14 @@ class CreateMLExporter(BaseExporter):
     def get_split_names() -> dict[str, str]:
         return {"train": "train", "val": "valid", "test": "test"}
 
+    def supported_ann_types(self) -> list[str]:
+        return ["boundingbox"]
+
     def transform(self, prepared_ldf: PreparedLDF) -> None:
         ExporterUtils.check_group_file_correspondence(prepared_ldf)
+        ExporterUtils.exporter_specific_annotation_warning(
+            prepared_ldf, self.supported_ann_types()
+        )
 
         anns_by_split: dict[str, dict[str, list[dict[str, Any]]]] = {
             v: {} for v in self.get_split_names().values()

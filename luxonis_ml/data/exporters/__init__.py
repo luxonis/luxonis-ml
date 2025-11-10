@@ -10,7 +10,9 @@ from .segmentation_mask_directory_exporter import (
 )
 from .tensorflow_csv_exporter import TensorflowCSVExporter
 from .voc_exporter import VOCExporter
-from .yolo_exporter import YoloExporter, YOLOFormat
+from .yolov4_exporter import YoloV4Exporter
+from .yolov6_exporter import YoloV6Exporter
+from .yolov8_exporter import YoloV8Exporter
 
 __all__ = [
     "BaseExporter",
@@ -23,6 +25,7 @@ __all__ = [
     "SegmentationMaskDirectoryExporter",
     "TensorflowCSVExporter",
     "VOCExporter",
-    "YOLOFormat",
-    "YoloExporter",
+    "YoloV4Exporter",
+    "YoloV6Exporter",
+    "YoloV8Exporter",
 ]

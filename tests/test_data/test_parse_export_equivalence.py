@@ -3,6 +3,7 @@ import json
 from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -134,13 +135,14 @@ def file_sha256(path: Path) -> str:
 
 def collect_bbox_multiset(prepared_ldf: PreparedLDF):
     out: dict[tuple[str], Counter] = {}
-    g = prepared_ldf.processed_df.groupby(
+    grouped = prepared_ldf.processed_df.group_by(
         ["file", "group_id"], maintain_order=True
     )
-    for (file_path, _gid), df in g:
-        key = (file_sha256(Path(file_path)),)
+    for key, entry in grouped:
+        file_path, _gid = cast(tuple[str, str], key)
+        hashed_key = (file_sha256(Path(file_path)),)
         boxes = []
-        for row in df.iter_rows(named=True):
+        for row in entry.iter_rows(named=True):
             if row["task_type"] == "boundingbox":
                 d = json.loads(row["annotation"])
                 boxes.append(
@@ -152,70 +154,88 @@ def collect_bbox_multiset(prepared_ldf: PreparedLDF):
                     )
                 )
         if boxes:
-            out.setdefault(key, Counter()).update(boxes)
+            out.setdefault(hashed_key, Counter()).update(boxes)
     return out
 
 
 def collect_keypoint_multiset(prepared_ldf: PreparedLDF):
     out: dict[tuple[str], Counter] = {}
-    g = prepared_ldf.processed_df.groupby(
+    grouped = prepared_ldf.processed_df.group_by(
         ["file", "group_id"], maintain_order=True
     )
-    for (file_path, _gid), df in g:
-        key = (file_sha256(Path(file_path)),)
+    for key, entry in grouped:
+        file_path, _gid = cast(tuple[str, str], key)
+        hashed_key = (file_sha256(Path(file_path)),)
         keypoints = []
-        for row in df.iter_rows(named=True):
+        for row in entry.iter_rows(named=True):
             if row["task_type"] == "keypoints":
                 d = json.loads(row["annotation"])
                 keypoints.extend(tuple(kp) for kp in d["keypoints"])
         if keypoints:
-            out.setdefault(key, Counter()).update(keypoints)
+            out.setdefault(hashed_key, Counter()).update(keypoints)
     return out
 
 
 def collect_instance_segmentation_multiset(prepared_ldf: PreparedLDF):
     out: dict[tuple[str], Counter] = {}
-    g = prepared_ldf.processed_df.groupby(
+    grouped = prepared_ldf.processed_df.group_by(
         ["file", "group_id"], maintain_order=True
     )
-    for (file_path, _gid), df in g:
-        key = (file_sha256(Path(file_path)),)
+    for key, entry in grouped:
+        file_path, _gid = cast(tuple[str, str], key)
+        hashed_key = (file_sha256(Path(file_path)),)
         counts = []
-        for row in df.iter_rows(named=True):
+        for row in entry.iter_rows(named=True):
             if row["task_type"] == "instance_segmentation":
                 d = json.loads(row["annotation"])
                 counts.extend(d["counts"])
         if counts:
-            out.setdefault(key, Counter()).update(counts)
+            out.setdefault(hashed_key, Counter()).update(counts)
     return out
 
 
 def collect_classification_multiset(prepared_ldf: PreparedLDF):
     out: dict[tuple[str], Counter] = {}
-    g = prepared_ldf.processed_df.groupby(
+    grouped = prepared_ldf.processed_df.group_by(
         ["file", "group_id"], maintain_order=True
     )
-    for (file_path, _gid), df in g:
-        key = (file_sha256(Path(file_path)),)
+    for key, entry in grouped:
+        file_path, _gid = cast(tuple[str, str], key)
+        hashed_key = (file_sha256(Path(file_path)),)
         classes = []
-        for row in df.iter_rows(named=True):
+        for row in entry.iter_rows(named=True):
             if (
                 row["task_type"] == "classification"
                 and row["instance_id"] == -1
             ):
                 classes.append(row["class_name"])
         if classes:
-            out.setdefault(key, Counter()).update(classes)
+            out.setdefault(hashed_key, Counter()).update(classes)
+    return out
+
+
+def collect_segmentation_multiset(prepared_ldf: PreparedLDF):
+    out: dict[tuple[str], Counter] = {}
+    grouped = prepared_ldf.processed_df.group_by(
+        ["file", "group_id"], maintain_order=True
+    )
+    for key, entry in grouped:
+        file_path, _gid = cast(tuple[str, str], key)
+        hashed_key = (file_sha256(Path(file_path)),)
+        classes = []
+        for row in entry.iter_rows(named=True):
+            if row["task_type"] == "segmentation" and row["instance_id"] == -1:
+                classes.append(row["class_name"])
+        if classes:
+            out.setdefault(hashed_key, Counter()).update(classes)
     return out
 
 
 # Which (DatasetType, collector) pairs to run for each logical annotation type
 ANNOTATION_REGISTRY: dict[str, list[tuple[DatasetType, Callable]]] = {
-    # Bounding boxes
     "boundingbox": [
         (DatasetType.YOLOV4, collect_bbox_multiset),
         (DatasetType.YOLOV6, collect_bbox_multiset),
-        (DatasetType.YOLOV8, collect_bbox_multiset),
         (DatasetType.COCO, collect_bbox_multiset),
         (DatasetType.DARKNET, collect_bbox_multiset),
         (DatasetType.VOC, collect_bbox_multiset),
@@ -223,18 +243,21 @@ ANNOTATION_REGISTRY: dict[str, list[tuple[DatasetType, Callable]]] = {
         (DatasetType.CREATEML, collect_bbox_multiset),
         (DatasetType.TFCSV, collect_bbox_multiset),
     ],
-    "instance_segmentation": [
+    "instance_segmentation": [  # to add: YoloV8
         (DatasetType.NATIVE, collect_instance_segmentation_multiset),
         (DatasetType.COCO, collect_instance_segmentation_multiset),
-        (DatasetType.YOLOV8, collect_instance_segmentation_multiset),
     ],
-    "keypoints": [
+    "keypoints": [  # to add: YoloV8
         (DatasetType.COCO, collect_keypoint_multiset),
         (DatasetType.NATIVE, collect_keypoint_multiset),
     ],
     "classification": [
         (DatasetType.NATIVE, collect_classification_multiset),
         (DatasetType.CLSDIR, collect_classification_multiset),
+    ],
+    "segmentation": [
+        (DatasetType.SEGMASK, collect_segmentation_multiset),
+        (DatasetType.NATIVE, collect_segmentation_multiset),
     ],
 }
 
@@ -246,8 +269,13 @@ DATASETS = [
     {"url": "D2_Tile.png-mask-semantic.zip", "types": ["segmentation"]},
     {
         "url": "COCO_people_subset.zip",
-        "types": ["instance_segmentation", "boundingbox"],
+        "types": ["instance_segmentation", "boundingbox", "keypoints"],
     },
+    {
+        "url": "Flowers_Classification.v2-raw.folder.zip",
+        "types": ["classification"],
+    },
+    {"url": "D2_Tile.png-mask-semantic.zip", "types": ["segmentation"]},
 ]
 
 

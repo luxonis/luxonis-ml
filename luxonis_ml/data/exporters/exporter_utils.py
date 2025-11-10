@@ -4,7 +4,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import cv2
+import numpy as np
 import polars as pl
+from loguru import logger
 from pycocotools import mask
 
 if TYPE_CHECKING:
@@ -100,6 +102,29 @@ class ExporterUtils:
         )
 
     @staticmethod
+    def exporter_specific_annotation_warning(
+        prepared_ldf: PreparedLDF, supported_ann_types: list[str]
+    ) -> None:
+        df = prepared_ldf.processed_df
+
+        present_task_types = (
+            df.select(pl.col("task_type").drop_nans().drop_nulls().unique())
+            .to_series()
+            .to_list()
+        )
+
+        unsupported = [
+            name
+            for name in present_task_types
+            if name not in supported_ann_types
+        ]
+
+        for name in unsupported:
+            logger.warning(
+                f"Found unsupported annotation type '{name}'; skipping this annotation type."
+            )
+
+    @staticmethod
     def split_of_group(prepared_ldf: PreparedLDF, group_id: Any) -> str:
         split = next(
             (s for s, ids in prepared_ldf.splits.items() if group_id in ids),
@@ -137,7 +162,7 @@ class ExporterUtils:
 
     @staticmethod
     def get_single_skeleton(
-        allow_keypoints: bool, skeletons: dict
+        allow_keypoints: bool, skeletons: dict[str, Any] | None = None
     ) -> tuple[list[str], list[list[int]]]:
         """Returns (labels, skeleton_edges_1_based) for the single
         skeleton.
@@ -177,6 +202,45 @@ class ExporterUtils:
             polygons.append(polygon)
 
         return polygons
+
+    @staticmethod
+    def _bbox_from_poly(
+        coords: list[float],
+    ) -> tuple[float, float, float, float]:
+        xs = coords[0::2]
+        ys = coords[1::2]
+        x_min, x_max = min(xs), max(xs)
+        y_min, y_max = min(ys), max(ys)
+        return x_min, y_min, (x_max - x_min), (y_max - y_min)
+
+    @staticmethod
+    def _iou_xywh(
+        a: tuple[float, float, float, float],
+        b: tuple[float, float, float, float],
+    ) -> float:
+        ax, ay, aw, ah = a
+        bx, by, bw, bh = b
+        ax2, ay2 = ax + aw, ay + ah
+        bx2, by2 = bx + bw, by + bh
+        inter_w = max(0.0, min(ax2, bx2) - max(ax, bx))
+        inter_h = max(0.0, min(ay2, by2) - max(ay, by))
+        inter = inter_w * inter_h
+        if inter <= 0.0:
+            return 0.0
+        union = aw * ah + bw * bh - inter
+        return inter / union if union > 0.0 else 0.0
+
+    @staticmethod
+    def decode_rle_with_pycoco(ann: dict[str, Any]) -> np.ndarray:
+        h = int(ann["height"])
+        w = int(ann["width"])
+        counts = ann["counts"]
+
+        # pycocotools expects an RLE object with 'size' and 'counts'
+        rle = {"size": [h, w], "counts": counts.encode("utf-8")}
+
+        m = mask.decode(rle)  # type: ignore[arg-type]
+        return np.array(m, dtype=np.uint8, order="C")
 
     def _normalize(
         self, xs: list[float], ys: list[float], w: float, h: float

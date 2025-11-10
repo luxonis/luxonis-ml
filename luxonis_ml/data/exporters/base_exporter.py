@@ -44,3 +44,7 @@ class BaseExporter(ABC):
         self, annotations: dict, output_path: Path, part: int | None = None
     ) -> None:
         raise NotImplementedError
+
+    @abstractmethod
+    def supported_ann_types(self) -> list[str]:
+        raise NotImplementedError

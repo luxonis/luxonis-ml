@@ -28,8 +28,9 @@ from luxonis_ml.data.exporters import (
     SegmentationMaskDirectoryExporter,
     TensorflowCSVExporter,
     VOCExporter,
-    YoloExporter,
-    YOLOFormat,
+    YoloV4Exporter,
+    YoloV6Exporter,
+    YoloV8Exporter,
 )
 from luxonis_ml.data.exporters.exporter_utils import (
     ExporterSpec,
@@ -1528,14 +1529,13 @@ class LuxonisDataset(BaseDataset):
                 },
             ),
             DatasetType.YOLOV8: ExporterSpec(
-                YoloExporter, {"version": YOLOFormat.V8}
+                YoloV8Exporter,
+                {
+                    "skeletons": getattr(self.metadata, "skeletons", None),
+                },
             ),
-            DatasetType.YOLOV6: ExporterSpec(
-                YoloExporter, {"version": YOLOFormat.V6}
-            ),
-            DatasetType.YOLOV4: ExporterSpec(
-                YoloExporter, {"version": YOLOFormat.V4}
-            ),
+            DatasetType.YOLOV6: ExporterSpec(YoloV6Exporter, {}),
+            DatasetType.YOLOV4: ExporterSpec(YoloV4Exporter, {}),
             DatasetType.DARKNET: ExporterSpec(DarknetExporter, {}),
             DatasetType.CLSDIR: ExporterSpec(
                 ClassificationDirectoryExporter, {}

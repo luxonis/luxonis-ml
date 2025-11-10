@@ -11,8 +11,14 @@ class ClassificationDirectoryExporter(BaseExporter):
     def get_split_names(self) -> dict[str, str]:
         return {"train": "train", "val": "valid", "test": "test"}
 
+    def supported_ann_types(self) -> list[str]:
+        return ["classification"]
+
     def transform(self, prepared_ldf: PreparedLDF) -> None:
         ExporterUtils.check_group_file_correspondence(prepared_ldf)
+        ExporterUtils.exporter_specific_annotation_warning(
+            prepared_ldf, self.supported_ann_types()
+        )
 
         grouped = prepared_ldf.processed_df.group_by(
             ["file", "group_id"], maintain_order=True

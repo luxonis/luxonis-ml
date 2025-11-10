@@ -8,22 +8,9 @@ from typing import Any, cast
 
 import numpy as np
 from PIL import Image
-from pycocotools import mask as maskUtils
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
 from luxonis_ml.data.exporters.exporter_utils import ExporterUtils, PreparedLDF
-
-
-def _decode_rle_with_pycoco(ann: dict[str, Any]) -> np.ndarray:
-    h = int(ann["height"])
-    w = int(ann["width"])
-    counts = ann["counts"]
-
-    # pycocotools expects an RLE object with 'size' and 'counts'
-    rle = {"size": [h, w], "counts": counts.encode("utf-8")}
-
-    m = maskUtils.decode(rle)
-    return np.array(m, dtype=np.uint8, order="C")
 
 
 class SegmentationMaskDirectoryExporter(BaseExporter):
@@ -39,30 +26,51 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
         self.split_class_maps: dict[str, OrderedDict[str, int]] = defaultdict(
             OrderedDict
         )
+        self.BACKGROUND_NAME = " background"
+        self.CLASS_COL = " Class"
+        self.ID_COL = "id"
 
     def get_split_names(self) -> dict[str, str]:
         return {"train": "train", "val": "valid", "test": "test"}
 
+    def supported_ann_types(self) -> list[str]:
+        return ["segmentation"]
+
+    def _ensure_background(self, split: str) -> None:
+        cmap = self.split_class_maps[split]
+        if self.BACKGROUND_NAME not in cmap:
+            # Insert background first so insertion order aligns with index = id
+            cmap.clear()
+            cmap[self.BACKGROUND_NAME] = 0
+
     def _class_id_for(self, split: str, class_name: str) -> int:
+        self._ensure_background(split)
         cmap = self.split_class_maps[split]
         if class_name not in cmap:
-            cmap[class_name] = len(cmap) + 1
+            cmap[class_name] = len(cmap)
         return cmap[class_name]
 
     def _write_classes_csv(self, split: str, split_dir: Path) -> None:
         cmap = self.split_class_maps.get(split)
-        if not cmap:
+        if cmap is None or len(cmap) == 0:
             return
+
+        # Write in ascending id order so the CSV row order matches list indexing
+        items_by_id = sorted(cmap.items(), key=lambda kv: kv[1])
+
         csv_path = split_dir / "_classes.csv"
         csv_path.parent.mkdir(parents=True, exist_ok=True)
         with csv_path.open("w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
-            w.writerow(["id", "name"])
-            for name, cid in cmap.items():
+            w.writerow([self.ID_COL, self.CLASS_COL])
+            for name, cid in items_by_id:
                 w.writerow([cid, name])
 
     def transform(self, prepared_ldf: PreparedLDF) -> None:
         ExporterUtils.check_group_file_correspondence(prepared_ldf)
+        ExporterUtils.exporter_specific_annotation_warning(
+            prepared_ldf, self.supported_ann_types()
+        )
 
         grouped = prepared_ldf.processed_df.group_by(
             ["file", "group_id"], maintain_order=True
@@ -74,6 +82,9 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
             file_name, group_id = cast(tuple[str, Any], key)
             file_path = Path(str(file_name))
             split = ExporterUtils.split_of_group(prepared_ldf, group_id)
+
+            # Ensure background exists for this split up-front
+            self._ensure_background(split)
 
             # Only semantic segmentation rows for the entire image (instance_id == -1)
             seg_rows = [
@@ -110,13 +121,12 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
                 if not cname:
                     continue
 
-                ann = row["annotation"]
-                ann = json.loads(ann)
-
-                m = _decode_rle_with_pycoco(ann)  # uint8 {0,1}
+                ann = json.loads(row["annotation"])
+                m = ExporterUtils.decode_rle_with_pycoco(ann)
                 h, w = m.shape
 
                 if combined is None:
+                    # Start with background (0) everywhere
                     combined = np.zeros((h, w), dtype=np.uint16)
 
                 cid = self._class_id_for(split, cname)
@@ -124,19 +134,23 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
 
             if combined is not None:
                 max_id = int(combined.max())
-                if max_id <= 255:
-                    out_arr = combined.astype(np.uint8, copy=False)
-                    pil_mode = "L"
-                else:
-                    out_arr = combined
-                    pil_mode = "I;16"
+                if max_id > 255:
+                    raise ValueError(
+                        f"SegmentationMaskDirectoryExporter: class id {max_id} exceeds 255; "
+                        f"the downstream parser expects 8-bit masks (cv2.IMREAD_GRAYSCALE). "
+                        f"Reduce the number of classes or adjust the parser."
+                    )
 
+                # Always write 8-bit L to match parser behavior
+                out_arr = combined.astype(np.uint8, copy=False)
                 dest_mask = split_dir / mask_name
-                Image.fromarray(out_arr, mode=pil_mode).save(dest_mask)
+                Image.fromarray(out_arr, mode="L").save(dest_mask)
 
         for split in ("train", "val", "test"):
             split_dir = self._get_data_path(self.output_path, split, self.part)
             if split_dir.exists():
+                # make sure background exists even if no classes were encountered
+                self._ensure_background(split)
                 self._write_classes_csv(split, split_dir)
 
     def _dump_annotations(
