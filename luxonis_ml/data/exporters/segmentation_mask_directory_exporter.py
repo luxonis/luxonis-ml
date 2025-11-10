@@ -46,7 +46,7 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
     def _class_id_for(self, split: str, class_name: str) -> int:
         cmap = self.split_class_maps[split]
         if class_name not in cmap:
-            cmap[class_name] = len(cmap) + 1  # start at 1 (0 is background)
+            cmap[class_name] = len(cmap) + 1
         return cmap[class_name]
 
     def _write_classes_csv(self, split: str, split_dir: Path) -> None:

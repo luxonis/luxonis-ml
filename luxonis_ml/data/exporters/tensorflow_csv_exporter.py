@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 from pathlib import Path
 from typing import Any, cast
 
@@ -58,6 +59,7 @@ class TensorflowCSVExporter(BaseExporter):
                 if row.get("task_type") != "boundingbox":
                     continue
                 ann = row.get("annotation")
+                ann = json.loads(ann)
                 cname = row.get("class_name")
                 if ann is None or not cname:
                     continue

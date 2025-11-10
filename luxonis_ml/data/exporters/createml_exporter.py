@@ -11,26 +11,6 @@ from luxonis_ml.data.exporters.exporter_utils import ExporterUtils, PreparedLDF
 
 
 class CreateMLExporter(BaseExporter):
-    """Exports LDF to CreateML format.
-
-    Output structure:
-
-        output/
-        └── <dataset_identifier>[_partN]/
-            ├── train/
-            │   ├── 0.jpg
-            │   ├── 1.jpg
-            │   └── _annotations.createml.json
-            ├── valid/
-            │   └── ...
-            └── test/
-                └── ...
-
-    Notes:
-    - CreateML uses center-based pixel coordinates.
-    - This exporter converts from normalized TL (x,y,w,h) to pixel centers.
-    """
-
     def __init__(
         self,
         dataset_identifier: str,
@@ -74,44 +54,17 @@ class CreateMLExporter(BaseExporter):
             with Image.open(file_path) as im:
                 width, height = im.size
 
-            per_image_anns: list[dict[str, Any]] = []
-            for row in group_df.iter_rows(named=True):
-                ttype = row.get("task_type")
-                ann_str = row.get("annotation")
-                cname = row.get("class_name")
-
-                if ttype != "boundingbox" or ann_str is None or not cname:
-                    continue
-
-                data = json.loads(ann_str)
-                x_tl = float(data.get("x", 0.0))
-                y_tl = float(data.get("y", 0.0))
-                w = float(data.get("w", 0.0))
-                h = float(data.get("h", 0.0))
-
-                x_px = x_tl * width
-                y_px = y_tl * height
-                w_px = w * width
-                h_px = h * height
-                cx_px = x_px + w_px / 2.0
-                cy_px = y_px + h_px / 2.0
-
-                per_image_anns.append(
-                    {
-                        "label": cname,
-                        "coordinates": {
-                            "x": cx_px,
-                            "y": cy_px,
-                            "width": w_px,
-                            "height": h_px,
-                        },
-                    }
-                )
+            per_image_anns = self._collect_bounding_box_annotations(
+                group_df=group_df, width=width, height=height
+            )
 
             anns_by_split[split_name][new_name] = per_image_anns
 
-            ann_size_est = sum(
-                64 + len(a.get("label", "")) for a in per_image_anns
+            per_image_anns = self._collect_bounding_box_annotations(
+                group_df, width, height
+            )
+            ann_size_est = self._estimate_annotation_bytes(
+                new_name, per_image_anns
             )
             img_size = file_path.stat().st_size
 
@@ -131,8 +84,59 @@ class CreateMLExporter(BaseExporter):
                     dest_img.write_bytes(file_path.read_bytes())
                 self.current_size += img_size
 
-        # Final dump
         self._dump_annotations(anns_by_split, self.output_path, self.part)
+
+    @staticmethod
+    def _estimate_annotation_bytes(
+        img_name: str, anns: list[dict[str, Any]]
+    ) -> int:
+        payload = {"image": img_name, "annotations": anns}
+        return len(
+            (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8")
+        )
+
+    def _collect_bounding_box_annotations(
+        self,
+        group_df: Any,
+        width: int,
+        height: int,
+    ) -> list[dict[str, Any]]:
+        per_image_anns: list[dict[str, Any]] = []
+
+        for row in group_df.iter_rows(named=True):
+            ttype = row.get("task_type")
+            ann_str = row.get("annotation")
+            cname = row.get("class_name")
+
+            if ttype != "boundingbox" or ann_str is None or not cname:
+                continue
+
+            data = json.loads(ann_str)
+            x_tl = float(data.get("x", 0.0))
+            y_tl = float(data.get("y", 0.0))
+            w = float(data.get("w", 0.0))
+            h = float(data.get("h", 0.0))
+
+            x_px = x_tl * width
+            y_px = y_tl * height
+            w_px = w * width
+            h_px = h * height
+            cx_px = x_px + w_px / 2.0
+            cy_px = y_px + h_px / 2.0
+
+            per_image_anns.append(
+                {
+                    "label": cname,
+                    "coordinates": {
+                        "x": cx_px,
+                        "y": cy_px,
+                        "width": w_px,
+                        "height": h_px,
+                    },
+                }
+            )
+
+        return per_image_anns
 
     def _maybe_roll_partition(
         self,

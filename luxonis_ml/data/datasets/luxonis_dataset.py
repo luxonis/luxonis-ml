@@ -1544,8 +1544,8 @@ class LuxonisDataset(BaseDataset):
                 SegmentationMaskDirectoryExporter, {}
             ),
             DatasetType.VOC: ExporterSpec(VOCExporter, {}),
-            DatasetType.CREATEML: CreateMLExporter,
-            DatasetType.TFCSV: TensorflowCSVExporter,
+            DatasetType.CREATEML: ExporterSpec(CreateMLExporter, {}),
+            DatasetType.TFCSV: ExporterSpec(TensorflowCSVExporter, {}),
         }
         spec = EXPORTER_MAP.get(dataset_type)
         if spec is None:

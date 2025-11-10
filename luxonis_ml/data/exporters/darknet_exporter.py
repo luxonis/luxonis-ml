@@ -49,35 +49,7 @@ class DarknetExporter(BaseExporter):
             new_name = f"{idx}{file_path.suffix}"
             new_stem = Path(new_name).stem
 
-            label_lines: list[str] = []
-            for row in group_df.iter_rows(named=True):
-                ttype = row.get("task_type")
-                ann_str = row.get("annotation")
-                cname = row.get("class_name")
-
-                if ttype != "boundingbox" or ann_str is None:
-                    continue
-
-                if cname and cname not in self.class_to_id:
-                    self.class_to_id[cname] = len(self.class_to_id)
-                    self.class_names.append(cname)
-
-                if not cname or cname not in self.class_to_id:
-                    continue
-
-                data = json.loads(ann_str)
-                x_tl = float(data.get("x", 0.0))
-                y_tl = float(data.get("y", 0.0))
-                w = float(data.get("w", 0.0))
-                h = float(data.get("h", 0.0))
-
-                cx = x_tl + w / 2.0
-                cy = y_tl + h / 2.0
-
-                cid = self.class_to_id[cname]
-                label_lines.append(
-                    f"{cid} {cx:.12f} {cy:.12f} {w:.12f} {h:.12f}"
-                )
+            label_lines = self._collect_darknet_bounding_box_labels(group_df)
 
             labels_by_split[split_name][new_stem] = label_lines
 
@@ -100,6 +72,42 @@ class DarknetExporter(BaseExporter):
                 self.current_size += img_size
 
         self._dump_annotations(labels_by_split, self.output_path, self.part)
+
+    def _collect_darknet_bounding_box_labels(
+        self,
+        group_df: Any,
+    ) -> list[str]:
+        label_lines: list[str] = []
+
+        for row in group_df.iter_rows(named=True):
+            ttype = row.get("task_type")
+            ann_str = row.get("annotation")
+            cname = row.get("class_name")
+
+            if ttype != "boundingbox" or ann_str is None:
+                continue
+
+            # Register class if new
+            if cname and cname not in self.class_to_id:
+                self.class_to_id[cname] = len(self.class_to_id)
+                self.class_names.append(cname)
+
+            if not cname or cname not in self.class_to_id:
+                continue
+
+            data = json.loads(ann_str)
+            x_tl = float(data.get("x", 0.0))
+            y_tl = float(data.get("y", 0.0))
+            w = float(data.get("w", 0.0))
+            h = float(data.get("h", 0.0))
+
+            cx = x_tl + w / 2.0
+            cy = y_tl + h / 2.0
+
+            cid = self.class_to_id[cname]
+            label_lines.append(f"{cid} {cx:.12f} {cy:.12f} {w:.12f} {h:.12f}")
+
+        return label_lines
 
     def _maybe_roll_partition(
         self,

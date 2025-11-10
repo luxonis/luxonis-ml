@@ -74,31 +74,59 @@ class YoloExporter(BaseExporter):
             )
             new_name = f"{idx}{file_path.suffix}"
 
-            label_lines: list[tuple[int, float, float, float, float]] = []
+            label_lines: list[BBox] = []
 
             for row in group_df.iter_rows(named=True):
                 ttype = row["task_type"]
                 ann_str = row["annotation"]
                 cname = row["class_name"]
 
-                if ttype != "boundingbox" or ann_str is None:
+                if ann_str is None:
                     continue
 
-                if cname and cname not in self.class_to_id:
-                    self.class_to_id[cname] = len(self.class_to_id)
-                    self.class_names.append(cname)
+                if ttype == "boundingbox":
+                    if cname and cname not in self.class_to_id:
+                        self.class_to_id[cname] = len(self.class_to_id)
+                        self.class_names.append(cname)
 
-                if not cname or cname not in self.class_to_id:
-                    continue
+                    if not cname or cname not in self.class_to_id:
+                        continue
 
-                data = json.loads(ann_str)
-                x = float(data.get("x", 0.0))
-                y = float(data.get("y", 0.0))
-                w = float(data.get("w", 0.0))
-                h = float(data.get("h", 0.0))
-                cid = self.class_to_id[cname]
+                    data = json.loads(ann_str)
+                    x = float(data.get("x", 0.0))
+                    y = float(data.get("y", 0.0))
+                    w = float(data.get("w", 0.0))
+                    h = float(data.get("h", 0.0))
+                    cid = self.class_to_id[cname]
 
-                label_lines.append((cid, x, y, w, h))
+                    label_lines.append((cid, x, y, w, h))
+                elif (
+                    ttype == "instance_segmentation"
+                    and self.version == YOLOFormat.V8
+                ):
+                    data = json.loads(ann_str)
+                    height = data.get("height")
+                    width = data.get("width")
+                    rle = data.get("counts")
+
+                    if not cname:
+                        continue
+
+                    if cname not in self.class_to_id:
+                        self.class_to_id[cname] = len(self.class_to_id)
+                        self.class_names.append(cname)
+
+                    cid = self.class_to_id[cname]
+
+                    polygons = ExporterUtils.rle_to_yolo_polygon(
+                        rle, height, width
+                    )
+
+                    for poly in polygons:
+                        if len(poly) < 6:
+                            continue
+
+                        label_lines.append((cid, *poly))
 
             annotation_splits[split][new_name] = label_lines
 
@@ -164,12 +192,28 @@ class YoloExporter(BaseExporter):
             ).items():
                 if self.version in (YOLOFormat.V6, YOLOFormat.V8):
                     formatted = []
-                    for cid, x, y, w, h in lines:
-                        xc = x + w / 2.0
-                        yc = y + h / 2.0
-                        formatted.append(
-                            f"{cid} {xc:.12f} {yc:.12f} {w:.12f} {h:.12f}"
-                        )
+                    for line in lines:
+                        cid = line[0]
+                        if (
+                            len(line) == 5
+                        ):  # bounding box annotations are always len 5
+                            _, x, y, w, h = line
+                            if self.version in (YOLOFormat.V6, YOLOFormat.V8):
+                                xc = x + w / 2.0
+                                yc = y + h / 2.0
+                                formatted.append(
+                                    f"{cid} {xc:.12f} {yc:.12f} {w:.12f} {h:.12f}"
+                                )
+                            else:
+                                formatted.append(
+                                    f"{cid} {x:.12f} {y:.12f} {w:.12f} {h:.12f}"
+                                )
+
+                        elif (
+                            len(line) > 5
+                        ):  #  instance segmentation annotations
+                            coords = " ".join([f"{v:.12f}" for v in line[1:]])
+                            formatted.append(f"{cid} {coords}")
                 else:
                     formatted = [
                         f"{cid} {x:.12f} {y:.12f} {w:.12f} {h:.12f}"

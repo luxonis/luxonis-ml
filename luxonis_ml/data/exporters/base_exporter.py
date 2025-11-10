@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from luxonis_ml.data.exporters.exporter_utils import PreparedLDF
@@ -30,9 +30,7 @@ class BaseExporter(ABC):
         self.current_size = 0
 
     @abstractmethod
-    def transform(
-        self, prepared_ldf: PreparedLDF
-    ) -> dict[str, list[dict[str, Any]]]:
+    def transform(self, prepared_ldf: PreparedLDF) -> None:
         """Convert the prepared dataset into the exporter's format."""
         raise NotImplementedError
 

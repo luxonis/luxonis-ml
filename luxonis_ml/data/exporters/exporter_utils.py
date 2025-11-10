@@ -3,7 +3,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import cv2
 import polars as pl
+from pycocotools import mask
 
 if TYPE_CHECKING:
     from luxonis_ml.data.datasets.luxonis_dataset import LuxonisDataset
@@ -153,6 +155,28 @@ class ExporterUtils:
         # COCO expects 1-based indices in skeleton
         skeleton_1_based = [[a + 1, b + 1] for a, b in edges]
         return labels, skeleton_1_based
+
+    @staticmethod
+    def rle_to_yolo_polygon(rle: str, height: int, width: int) -> list:
+        # Decode RLE to binary mask
+        m = mask.decode({"size": [height, width], "counts": rle})
+
+        # Each contour = one polygon
+        contours, _ = cv2.findContours(
+            m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+
+        polygons = []
+        for contour in contours:
+            contour = contour.squeeze()
+            if len(contour.shape) != 2:
+                continue
+            polygon = []
+            for x, y in contour:
+                polygon.extend([x / width, y / height])
+            polygons.append(polygon)
+
+        return polygons
 
     def _normalize(
         self, xs: list[float], ys: list[float], w: float, h: float
