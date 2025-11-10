@@ -4,7 +4,7 @@ from typing import Literal
 from typing_extensions import TypedDict
 
 from luxonis_ml.data.utils.constants import LDF_VERSION
-from luxonis_ml.utils.pydantic_utils import BaseModelExtraForbid
+from luxonis_ml.typing import BaseModelExtraForbid
 
 from .source import LuxonisSource
 

@@ -3,7 +3,7 @@ from typing import Any
 from pydantic import Field, field_validator
 
 from luxonis_ml.data.utils import ImageType, MediaType
-from luxonis_ml.utils import BaseModelExtraForbid
+from luxonis_ml.typing import BaseModelExtraForbid
 
 
 class LuxonisComponent(BaseModelExtraForbid):

@@ -1,6 +1,6 @@
 from pydantic import Field
 
-from luxonis_ml.utils import BaseModelExtraForbid
+from luxonis_ml.typing import BaseModelExtraForbid
 
 from .config_building_blocks import HeadType, Input, Metadata, Output
 

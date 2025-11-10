@@ -40,9 +40,6 @@ def test_skip_augmentations():
             "name": "Perspective",
         },
         {
-            "name": "Flip",
-        },
-        {
             "name": "HorizontalFlip",
         },
         {
@@ -87,9 +84,12 @@ def test_skip_augmentations():
     batched_transform_names = [
         t.__class__.__name__ for t in augmentations.batch_transform.transforms
     ]
-
     assert spatial_transform_names == [
         "Perspective",
+        "Lambda",
+        "HorizontalFlip",
+        "Lambda",
+        "VerticalFlip",
         "Lambda",
         "Rotate",
         "Lambda",

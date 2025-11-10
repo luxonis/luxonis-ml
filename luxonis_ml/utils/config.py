@@ -5,10 +5,9 @@ from typing import Any, TypeVar
 import yaml
 from typing_extensions import Self
 
-from luxonis_ml.typing import Params, PathType
+from luxonis_ml.typing import BaseModelExtraForbid, Params, PathType
 
 from .filesystem import LuxonisFileSystem
-from .pydantic_utils import BaseModelExtraForbid
 
 T = TypeVar("T", bound="LuxonisConfig")
 
