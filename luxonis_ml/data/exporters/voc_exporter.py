@@ -47,10 +47,10 @@ class VOCExporter(BaseExporter):
 
             objects: list[dict[str, Any]] = []
             for row in group_df.iter_rows(named=True):
-                if row.get("task_type") != "boundingbox":
+                if row["task_type"] != "boundingbox":
                     continue
-                ann_str = row.get("annotation")
-                cname = row.get("class_name")
+                ann_str = row["annotation"]
+                cname = row["class_name"]
                 if not ann_str or not cname:
                     continue
 
@@ -63,11 +63,9 @@ class VOCExporter(BaseExporter):
                 xmin = int(round(xn * W))
                 ymin = int(round(yn * H))
 
-                # widths/heights: round once (no double rounding)
                 w_px = max(1, int(round(wn * W)))
                 h_px = max(1, int(round(hn * H)))
 
-                # build EXCLUSIVE max from min + size
                 xmax = xmin + w_px  # exclusive right edge
                 ymax = ymin + h_px  # exclusive bottom edge
 
@@ -214,7 +212,6 @@ class VOCExporter(BaseExporter):
             SubElement(bb, "xmax").text = f"{xmax:.12f}"
             SubElement(bb, "ymax").text = f"{ymax:.12f}"
 
-        # pretty print with XML declaration
         xml_bytes = self._etree_to_pretty_bytes(ann)
         return xml_bytes.decode("utf-8")
 

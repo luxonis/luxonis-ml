@@ -80,9 +80,9 @@ class DarknetExporter(BaseExporter):
         label_lines: list[str] = []
 
         for row in group_df.iter_rows(named=True):
-            ttype = row.get("task_type")
-            ann_str = row.get("annotation")
-            cname = row.get("class_name")
+            ttype = row["task_type"]
+            ann_str = row["annotation"]
+            cname = row["class_name"]
 
             if ttype != "boundingbox" or ann_str is None:
                 continue

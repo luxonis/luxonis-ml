@@ -74,7 +74,7 @@ class YoloExporter(BaseExporter):
             )
             new_name = f"{idx}{file_path.suffix}"
 
-            label_lines: list[BBox] = []
+            label_lines: list = []
 
             for row in group_df.iter_rows(named=True):
                 ttype = row["task_type"]

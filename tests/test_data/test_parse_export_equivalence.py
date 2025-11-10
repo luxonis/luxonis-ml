@@ -246,7 +246,7 @@ DATASETS = [
     {"url": "D2_Tile.png-mask-semantic.zip", "types": ["segmentation"]},
     {
         "url": "COCO_people_subset.zip",
-        "types": ["instance_segmentation", "boundingbox", "keypoints"],
+        "types": ["instance_segmentation", "boundingbox"],
     },
 ]
 

@@ -56,11 +56,11 @@ class TensorflowCSVExporter(BaseExporter):
 
             per_image_rows: list[dict[str, Any]] = []
             for row in group_df.iter_rows(named=True):
-                if row.get("task_type") != "boundingbox":
+                if row["task_type"] != "boundingbox":
                     continue
-                ann = row.get("annotation")
+                ann = row["annotation"]
                 ann = json.loads(ann)
-                cname = row.get("class_name")
+                cname = row["class_name"]
                 if ann is None or not cname:
                     continue
 
@@ -90,6 +90,9 @@ class TensorflowCSVExporter(BaseExporter):
             if per_image_rows:
                 rows_by_split[split_name].extend(per_image_rows)
 
+            # NOTE: We use a rough constant (64) to approximate the per-row CSV bytes that do NOT
+            # depend on variable-length fields. Getting the true on-disk size here would require
+            # serializing with csv.DictWriter using the exact dialect and encoding
             ann_size_est = sum(
                 64 + len(r["class"]) + len(r["filename"])
                 for r in per_image_rows

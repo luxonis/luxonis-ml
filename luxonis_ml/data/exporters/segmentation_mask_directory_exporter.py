@@ -8,7 +8,7 @@ from typing import Any, cast
 
 import numpy as np
 from PIL import Image
-from pycocotools import mask as maskUtils  # <- use pycocotools
+from pycocotools import mask as maskUtils
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
 from luxonis_ml.data.exporters.exporter_utils import ExporterUtils, PreparedLDF
@@ -75,13 +75,13 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
             file_path = Path(str(file_name))
             split = ExporterUtils.split_of_group(prepared_ldf, group_id)
 
-            # Only segmentation rows (instance_id == -1)
+            # Only semantic segmentation rows for the entire image (instance_id == -1)
             seg_rows = [
                 row
                 for row in entry.iter_rows(named=True)
-                if row.get("task_type") == "segmentation"
-                and row.get("instance_id") == -1
-                and row.get("annotation")
+                if row["task_type"] == "segmentation"
+                and row["instance_id"] == -1
+                and row["annotation"]
             ]
             if not seg_rows:
                 continue
@@ -106,11 +106,11 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
             combined: np.ndarray | None = None
 
             for row in seg_rows:
-                cname = str(row.get("class_name") or "")
+                cname = str(row["class_name"] or "")
                 if not cname:
                     continue
 
-                ann = row.get("annotation")
+                ann = row["annotation"]
                 ann = json.loads(ann)
 
                 m = _decode_rle_with_pycoco(ann)  # uint8 {0,1}
