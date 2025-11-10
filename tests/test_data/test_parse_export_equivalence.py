@@ -236,6 +236,7 @@ ANNOTATION_REGISTRY: dict[str, list[tuple[DatasetType, Callable]]] = {
     "boundingbox": [
         (DatasetType.YOLOV4, collect_bbox_multiset),
         (DatasetType.YOLOV6, collect_bbox_multiset),
+        (DatasetType.YOLOV8, collect_bbox_multiset),
         (DatasetType.COCO, collect_bbox_multiset),
         (DatasetType.DARKNET, collect_bbox_multiset),
         (DatasetType.VOC, collect_bbox_multiset),

@@ -17,12 +17,15 @@ class YoloV8Exporter(BaseExporter):
         dataset_identifier: str,
         output_path: Path,
         max_partition_size_gb: float | None,
+        *,
+        skeletons: dict[str, Any] | None = None,
     ):
         super().__init__(
             dataset_identifier, output_path, max_partition_size_gb
         )
         self.class_to_id: dict[str, int] = {}
         self.class_names: list[str] = []
+        self.skeletons = skeletons  # for later keypoint export implementation
 
     # v8 uses "val"
     def get_split_names(self) -> dict[str, str]:
@@ -33,7 +36,7 @@ class YoloV8Exporter(BaseExporter):
         return "dataset.yaml"
 
     def supported_ann_types(self) -> list[str]:
-        return ["boundingbox", "keypoints", "instance_segmentation"]
+        return ["boundingbox"]
 
     def transform(self, prepared_ldf: PreparedLDF) -> None:
         ExporterUtils.check_group_file_correspondence(prepared_ldf)
@@ -88,28 +91,6 @@ class YoloV8Exporter(BaseExporter):
                     h = float(data.get("h", 0.0))
                     cid = self.class_to_id[cname]
                     label_lines.append((cid, x, y, w, h))
-
-                elif ttype == "instance_segmentation":
-                    data = json.loads(ann_str)
-                    height = data.get("height")
-                    width = data.get("width")
-                    rle = data.get("counts")
-
-                    if not cname:
-                        continue
-
-                    if cname not in self.class_to_id:
-                        self.class_to_id[cname] = len(self.class_to_id)
-                        self.class_names.append(cname)
-                    cid = self.class_to_id[cname]
-
-                    polygons = ExporterUtils.rle_to_yolo_polygon(
-                        rle, height, width
-                    )
-                    for poly in polygons:
-                        if len(poly) < 6:
-                            continue
-                        label_lines.append((cid, *poly))
 
             annotation_splits[split][new_name] = label_lines
 
@@ -180,10 +161,6 @@ class YoloV8Exporter(BaseExporter):
                         formatted.append(
                             f"{cid} {xc:.12f} {yc:.12f} {w:.12f} {h:.12f}"
                         )
-                    elif len(line) > 5:
-                        # polygon segmentation: "cid x1 y1 x2 y2 ..."
-                        coords = " ".join(f"{v:.12f}" for v in line[1:])
-                        formatted.append(f"{cid} {coords}")
 
                 (labels_dir / f"{Path(img_name).stem}.txt").write_text(
                     "\n".join(formatted), encoding="utf-8"
