@@ -2,7 +2,7 @@ import re
 
 from pydantic import Field, field_validator
 
-from luxonis_ml.utils import BaseModelExtraForbid
+from luxonis_ml.typing import BaseModelExtraForbid
 
 from .model import Model
 

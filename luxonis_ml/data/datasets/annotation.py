@@ -23,8 +23,7 @@ from pydantic_core import core_schema
 from typing_extensions import Self, override
 
 from luxonis_ml.data.utils.parquet import ParquetRecord
-from luxonis_ml.typing import PathType, check_type
-from luxonis_ml.utils import BaseModelExtraForbid
+from luxonis_ml.typing import BaseModelExtraForbid, PathType, check_type
 from luxonis_ml.utils.logging import log_once
 
 KeypointVisibility: TypeAlias = Literal[0, 1, 2]
