@@ -3,7 +3,7 @@ from enum import Enum
 
 class DatasetType(str, Enum):
     COCO = "coco"
-    VOC = "voc"  # check precision errors and why they occur
+    VOC = "voc"
     DARKNET = "darknet"
     YOLOV6 = "yolov6"
     YOLOV4 = "yolov4"
@@ -13,4 +13,6 @@ class DatasetType(str, Enum):
     SEGMASK = "segmask"
     SOLO = "solo"
     NATIVE = "native"
-    YOLOV8 = "yolov8"  # add keypoints and instance segmentation
+    YOLOV8 = "yolov8"
+    YOLOV8INSTANCESEGMENTATION = "yolov8instancesegmentation"
+    YOLOV8KEYPOINTS = "yolov8keypoints"

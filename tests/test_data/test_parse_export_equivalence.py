@@ -5,7 +5,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
+import numpy as np
 import pytest
+from pycocotools import mask as mask_utils
 
 from luxonis_ml.data import LuxonisDataset
 from luxonis_ml.data.exporters import PreparedLDF
@@ -113,16 +115,58 @@ def _multiset_equal_with_tolerance(
 def _assert_equivalence(
     dataset: LuxonisDataset, new_dataset: LuxonisDataset, collector: Callable
 ) -> None:
-    """Compare two datasets using a given collector (e.g., bbox or
-    keypoints)."""
     previous_ldf = PreparedLDF.from_dataset(dataset)
     new_ldf = PreparedLDF.from_dataset(new_dataset)
     prev = collector(previous_ldf)
     new = collector(new_ldf)
 
     if collector.__name__ == "collect_bbox_multiset":
-        # account for precision loss in exporting then parsing
         _multiset_equal_with_tolerance(prev, new, tol=0.02)
+
+    elif (
+        collector.__name__
+        == "collect_instance_segmentation_mask_overlap_multiset"
+    ):
+        # Combine all masks per image and assert there is spatial overlap
+        def _combine_masks(masks: list[np.ndarray]) -> np.ndarray:
+            if not masks:
+                # An empty set of masks is treated as a zero mask
+                return np.zeros((0, 0), dtype=bool)
+            combined = masks[0].astype(bool).copy()
+            for m in masks[1:]:
+                if m.shape != combined.shape:
+                    raise AssertionError(
+                        f"Mask shape mismatch: {m.shape} vs {combined.shape}"
+                    )
+                combined |= m.astype(bool)
+            return combined
+
+        # Ensure we compare the same images
+        assert prev.keys() == new.keys(), (
+            f"Different image sets:\nprev-only={set(prev) - set(new)}\nnew-only={set(new) - set(prev)}"
+        )
+
+        for key in prev:
+            comb_prev = _combine_masks(prev[key])
+            comb_new = _combine_masks(new[key])
+
+            if comb_prev.size == 0 or comb_new.size == 0:
+                assert comb_prev.size == comb_new.size, (
+                    f"Mask presence differs for {key}"
+                )
+                continue
+
+            assert comb_prev.shape == comb_new.shape, (
+                f"Combined mask shape differs for {key}"
+            )
+
+            intersection = np.logical_and(comb_prev, comb_new).sum()
+
+            union = np.logical_or(comb_prev, comb_new).sum()
+            iou = intersection / union if union > 0 else 0.0
+
+            assert iou > 0.75, f"Low IoU in combined masks for {key}"
+
     else:
         assert prev == new
 
@@ -170,7 +214,11 @@ def collect_keypoint_multiset(prepared_ldf: PreparedLDF):
         for row in entry.iter_rows(named=True):
             if row["task_type"] == "keypoints":
                 d = json.loads(row["annotation"])
-                keypoints.extend(tuple(kp) for kp in d["keypoints"])
+                for kp in d["keypoints"]:
+                    rounded_kp = tuple(
+                        round(v, 3) if i < 2 else v for i, v in enumerate(kp)
+                    )
+                    keypoints.append(rounded_kp)
         if keypoints:
             out.setdefault(hashed_key, Counter()).update(keypoints)
     return out
@@ -191,6 +239,44 @@ def collect_instance_segmentation_multiset(prepared_ldf: PreparedLDF):
                 counts.extend(d["counts"])
         if counts:
             out.setdefault(hashed_key, Counter()).update(counts)
+    return out
+
+
+def collect_instance_segmentation_mask_overlap_multiset(
+    prepared_ldf: PreparedLDF,
+):
+    """Collect decoded binary masks from instance segmentation
+    annotations.
+
+    Used for exporters (like YOLOv8) that can convert between RLE and
+    polygons.
+    """
+    out: dict[tuple[str], list[np.ndarray]] = {}
+    grouped = prepared_ldf.processed_df.group_by(
+        ["file", "group_id"], maintain_order=True
+    )
+
+    for key, entry in grouped:
+        file_path, _gid = cast(tuple[str, str], key)
+        hashed_key = (file_sha256(Path(file_path)),)
+        masks: list[np.ndarray] = []
+
+        for row in entry.iter_rows(named=True):
+            if row["task_type"] == "instance_segmentation":
+                d = json.loads(row["annotation"])
+
+                # Decode RLE mask from COCO-style dict
+                if isinstance(d.get("counts"), str):
+                    rle = {
+                        "counts": d["counts"].encode("utf-8"),
+                        "size": [d["height"], d["width"]],
+                    }
+                    mask = mask_utils.decode(rle).astype(bool)  # type: ignore
+                    masks.append(mask)
+
+        if masks:
+            out.setdefault(hashed_key, []).extend(masks)
+
     return out
 
 
@@ -244,13 +330,18 @@ ANNOTATION_REGISTRY: dict[str, list[tuple[DatasetType, Callable]]] = {
         (DatasetType.CREATEML, collect_bbox_multiset),
         (DatasetType.TFCSV, collect_bbox_multiset),
     ],
-    "instance_segmentation": [  # to add: YoloV8
+    "instance_segmentation": [
         (DatasetType.NATIVE, collect_instance_segmentation_multiset),
         (DatasetType.COCO, collect_instance_segmentation_multiset),
+        (
+            DatasetType.YOLOV8INSTANCESEGMENTATION,
+            collect_instance_segmentation_mask_overlap_multiset,
+        ),
     ],
-    "keypoints": [  # to add: YoloV8
+    "keypoints": [
         (DatasetType.COCO, collect_keypoint_multiset),
         (DatasetType.NATIVE, collect_keypoint_multiset),
+        (DatasetType.YOLOV8KEYPOINTS, collect_keypoint_multiset),
     ],
     "classification": [
         (DatasetType.NATIVE, collect_classification_multiset),

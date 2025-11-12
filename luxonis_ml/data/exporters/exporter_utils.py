@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 import polars as pl
 from loguru import logger
-from pycocotools import mask
+from pycocotools import mask as maskUtils
 
 if TYPE_CHECKING:
     from luxonis_ml.data.datasets.luxonis_dataset import LuxonisDataset
@@ -182,55 +182,6 @@ class ExporterUtils:
         return labels, skeleton_1_based
 
     @staticmethod
-    def rle_to_yolo_polygon(rle: str, height: int, width: int) -> list:
-        # Decode RLE to binary mask
-        m = mask.decode({"size": [height, width], "counts": rle})
-
-        # Each contour = one polygon
-        contours, _ = cv2.findContours(
-            m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-        )
-
-        polygons = []
-        for contour in contours:
-            contour = contour.squeeze()
-            if len(contour.shape) != 2:
-                continue
-            polygon = []
-            for x, y in contour:
-                polygon.extend([x / width, y / height])
-            polygons.append(polygon)
-
-        return polygons
-
-    @staticmethod
-    def _bbox_from_poly(
-        coords: list[float],
-    ) -> tuple[float, float, float, float]:
-        xs = coords[0::2]
-        ys = coords[1::2]
-        x_min, x_max = min(xs), max(xs)
-        y_min, y_max = min(ys), max(ys)
-        return x_min, y_min, (x_max - x_min), (y_max - y_min)
-
-    @staticmethod
-    def _iou_xywh(
-        a: tuple[float, float, float, float],
-        b: tuple[float, float, float, float],
-    ) -> float:
-        ax, ay, aw, ah = a
-        bx, by, bw, bh = b
-        ax2, ay2 = ax + aw, ay + ah
-        bx2, by2 = bx + bw, by + bh
-        inter_w = max(0.0, min(ax2, bx2) - max(ax, bx))
-        inter_h = max(0.0, min(ay2, by2) - max(ay, by))
-        inter = inter_w * inter_h
-        if inter <= 0.0:
-            return 0.0
-        union = aw * ah + bw * bh - inter
-        return inter / union if union > 0.0 else 0.0
-
-    @staticmethod
     def decode_rle_with_pycoco(ann: dict[str, Any]) -> np.ndarray:
         h = int(ann["height"])
         w = int(ann["width"])
@@ -239,14 +190,43 @@ class ExporterUtils:
         # pycocotools expects an RLE object with 'size' and 'counts'
         rle = {"size": [h, w], "counts": counts.encode("utf-8")}
 
-        m = mask.decode(rle)  # type: ignore[arg-type]
+        m = maskUtils.decode(rle)  # type: ignore[arg-type]
         return np.array(m, dtype=np.uint8, order="C")
 
-    def _normalize(
-        self, xs: list[float], ys: list[float], w: float, h: float
-    ) -> list[float]:
-        out: list[float] = []
-        for x, y in zip(xs, ys, strict=True):
-            out.append(max(0.0, min(1.0, x / w)))
-            out.append(max(0.0, min(1.0, y / h)))
-        return out
+    @staticmethod
+    def annotation_to_polygons(
+        ann: dict[str, Any], file_path: Path
+    ) -> list[list[tuple[float, float]]]:
+        polygons: list[list[tuple[float, float]]] = []
+
+        # COCO RLE -> decode to mask -> contours -> polygons
+        if "counts" in ann:
+            H = int(ann["height"])
+            W = int(ann["width"])
+            rle = {"size": [H, W], "counts": ann["counts"]}
+            try:
+                mask = maskUtils.decode(rle)  # type: ignore
+                if mask.ndim == 3:
+                    mask = mask[:, :, 0]
+                mask = (mask > 0).astype(np.uint8)
+
+                contours, _ = cv2.findContours(
+                    mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+                )
+                for cnt in contours:
+                    if len(cnt) < 3:
+                        continue
+                    cnt = cnt.squeeze(1)
+                    poly = [
+                        (float(x) / W, float(y) / H) for x, y in cnt.tolist()
+                    ]
+                    if len(poly) >= 3:
+                        polygons.append(poly)
+            except Exception:
+                logger.warning(
+                    "Failed to decode COCO RLE; skipping this instance.",
+                    RuntimeWarning,
+                )
+            return polygons
+
+        return polygons

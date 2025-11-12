@@ -2,16 +2,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, TypeAlias, cast
+from typing import Any, cast
 
 from luxonis_ml.data.exporters.exporter_utils import ExporterUtils, PreparedLDF
 
 from .base_exporter import BaseExporter
 
-BBox: TypeAlias = tuple[int, float, float, float, float]
 
-
-class YoloV8Exporter(BaseExporter):
+class YoloV8InstanceSegmentationExporter(BaseExporter):
     def __init__(
         self,
         dataset_identifier: str,
@@ -31,7 +29,7 @@ class YoloV8Exporter(BaseExporter):
         return "dataset.yaml"
 
     def supported_ann_types(self) -> list[str]:
-        return ["boundingbox"]
+        return ["instance_segmentation"]
 
     def transform(self, prepared_ldf: PreparedLDF) -> None:
         ExporterUtils.check_group_file_correspondence(prepared_ldf)
@@ -39,7 +37,7 @@ class YoloV8Exporter(BaseExporter):
             prepared_ldf, self.supported_ann_types()
         )
 
-        annotation_splits: dict[str, dict[str, list[tuple]]] = {
+        annotation_splits: dict[str, dict[str, list[str]]] = {
             k: {} for k in self.get_split_names().values()
         }
 
@@ -60,7 +58,7 @@ class YoloV8Exporter(BaseExporter):
             )
             new_name = f"{idx}{file_path.suffix}"
 
-            label_lines: list[tuple] = []
+            label_lines: list[str] = []
 
             for row in group_df.iter_rows(named=True):
                 ttype = row["task_type"]
@@ -69,26 +67,34 @@ class YoloV8Exporter(BaseExporter):
 
                 if ann_str is None:
                     continue
+                if ttype != "instance_segmentation":
+                    continue
 
-                if ttype == "boundingbox":
-                    if cname and cname not in self.class_to_id:
-                        self.class_to_id[cname] = len(self.class_to_id)
-                        self.class_names.append(cname)
+                if cname and cname not in self.class_to_id:
+                    self.class_to_id[cname] = len(self.class_to_id)
+                    self.class_names.append(cname)
+                if not cname or cname not in self.class_to_id:
+                    continue
 
-                    if not cname or cname not in self.class_to_id:
+                ann = json.loads(ann_str)
+
+                cid = self.class_to_id[cname]
+                polygons = ExporterUtils.annotation_to_polygons(ann, file_path)
+
+                for poly in polygons:
+                    if len(poly) < 3:
                         continue
-
-                    data = json.loads(ann_str)
-                    x = float(data.get("x", 0.0))
-                    y = float(data.get("y", 0.0))
-                    w = float(data.get("w", 0.0))
-                    h = float(data.get("h", 0.0))
-                    cid = self.class_to_id[cname]
-                    label_lines.append((cid, x, y, w, h))
+                    parts = []
+                    for x, y in poly:
+                        x_ = 0.0 if x < 0 else 1.0 if x > 1 else x
+                        y_ = 0.0 if y < 0 else 1.0 if y > 1 else y
+                        parts.append(f"{x_:.12f} {y_:.12f}")
+                    line = f"{cid} " + " ".join(parts)
+                    label_lines.append(line)
 
             annotation_splits[split][new_name] = label_lines
 
-            ann_size_estimate = len(label_lines) * 32
+            ann_size_estimate = sum(len(s) + 1 for s in label_lines)
             img_size = file_path.stat().st_size
             annotation_splits = self._maybe_roll_partition(
                 annotation_splits, ann_size_estimate + img_size
@@ -107,9 +113,9 @@ class YoloV8Exporter(BaseExporter):
 
     def _maybe_roll_partition(
         self,
-        annotation_splits: dict[str, dict[str, list[tuple]]],
+        annotation_splits: dict[str, dict[str, list[str]]],
         additional_size: int,
-    ) -> dict[str, dict[str, list[tuple]]]:
+    ) -> dict[str, dict[str, list[str]]]:
         if (
             self.max_partition_size
             and self.part is not None
@@ -125,7 +131,7 @@ class YoloV8Exporter(BaseExporter):
 
     def _dump_annotations(
         self,
-        annotation_splits: dict[str, dict[str, list[tuple]]],
+        annotation_splits: dict[str, dict[str, list[str]]],
         output_path: Path,
         part: int | None = None,
     ) -> None:
@@ -144,20 +150,8 @@ class YoloV8Exporter(BaseExporter):
             for img_name, lines in annotation_splits.get(
                 split_name, {}
             ).items():
-                formatted: list[str] = []
-                for line in lines:
-                    cid = line[0]
-                    if len(line) == 5:
-                        # bbox: convert top-left (x,y,w,h) -> center (xc,yc,w,h)
-                        _, x, y, w, h = line
-                        xc = x + w / 2.0
-                        yc = y + h / 2.0
-                        formatted.append(
-                            f"{cid} {xc:.12f} {yc:.12f} {w:.12f} {h:.12f}"
-                        )
-
                 (labels_dir / f"{Path(img_name).stem}.txt").write_text(
-                    "\n".join(formatted), encoding="utf-8"
+                    "\n".join(lines), encoding="utf-8"
                 )
 
         yaml_filename = self._yaml_filename()

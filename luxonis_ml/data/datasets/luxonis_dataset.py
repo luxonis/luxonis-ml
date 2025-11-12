@@ -31,6 +31,8 @@ from luxonis_ml.data.exporters import (
     YoloV4Exporter,
     YoloV6Exporter,
     YoloV8Exporter,
+    YoloV8InstanceSegmentationExporter,
+    YoloV8KeypointsExporter,
 )
 from luxonis_ml.data.exporters.exporter_utils import (
     ExporterSpec,
@@ -1528,11 +1530,12 @@ class LuxonisDataset(BaseDataset):
                     "skeletons": getattr(self.metadata, "skeletons", None),
                 },
             ),
-            DatasetType.YOLOV8: ExporterSpec(
-                YoloV8Exporter,
-                {
-                    "skeletons": getattr(self.metadata, "skeletons", None),
-                },
+            DatasetType.YOLOV8: ExporterSpec(YoloV8Exporter, {}),
+            DatasetType.YOLOV8INSTANCESEGMENTATION: ExporterSpec(
+                YoloV8InstanceSegmentationExporter, {}
+            ),
+            DatasetType.YOLOV8KEYPOINTS: ExporterSpec(
+                YoloV8KeypointsExporter, {}
             ),
             DatasetType.YOLOV6: ExporterSpec(YoloV6Exporter, {}),
             DatasetType.YOLOV4: ExporterSpec(YoloV4Exporter, {}),

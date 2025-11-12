@@ -13,6 +13,10 @@ from .voc_exporter import VOCExporter
 from .yolov4_exporter import YoloV4Exporter
 from .yolov6_exporter import YoloV6Exporter
 from .yolov8_exporter import YoloV8Exporter
+from .yolov8_instance_segmentation_exporter import (
+    YoloV8InstanceSegmentationExporter,
+)
+from .yolov8_keypoints_exporter import YoloV8KeypointsExporter
 
 __all__ = [
     "BaseExporter",
@@ -28,4 +32,6 @@ __all__ = [
     "YoloV4Exporter",
     "YoloV6Exporter",
     "YoloV8Exporter",
+    "YoloV8InstanceSegmentationExporter",
+    "YoloV8KeypointsExporter",
 ]
