@@ -4,7 +4,7 @@
 
 LuxonisML Data is a library for creating and interacting with datasets in the LuxonisDataFormat (LDF).
 
-> \[!NOTE\]
+> [!NOTE]
 > For hands-on examples of how to prepare and iteract with `LuxonisML` datasets, check out [this guide](https://github.com/luxonis/ai-tutorials/tree/main/training#%EF%B8%8F-prepare-data-using-luxonis-ml).
 
 The lifecycle of an LDF dataset is as follows:
@@ -77,7 +77,7 @@ You can create as many datasets as you want, each with a unique name.
 
 Datasets can be stored locally or in one of the supported cloud storage providers.
 
-> \[!NOTE\]
+> [!NOTE]
 > 📚 For a complete list of all parameters and methods of the `LuxonisDataset` class, see the [datasets README.md](datasets/README.md).
 
 ### Dataset Creation
@@ -92,10 +92,10 @@ dataset_name = "parking_lot"
 dataset = LuxonisDataset(dataset_name)
 ```
 
-> \[!NOTE\]
+> [!NOTE]
 > By default, the dataset will be created locally. For more information on creating a remote dataset, see [this section](datasets/README.md#creating-a-dataset-remotely).
 
-> \[!NOTE\]
+> [!NOTE]
 > If there already is a dataset with the same name, it will be loaded instead of creating a new one.
 > If you want to always create a new dataset, you can pass `delete_local=True` to the `LuxonisDataset` constructor.\
 > For detailed information about how the luxonis-ml dataset is stored in both local and remote storage, please check the [datasets README.md](datasets/README.md#in-depth-explanation-of-luxonis-ml-dataset-storage)
@@ -254,7 +254,7 @@ Once you've defined your data source, pass it to the dataset's add method:
 dataset.add(generator())
 ```
 
-> \[!NOTE\]
+> [!NOTE]
 > The `add` method accepts any iterable, not only generators.
 
 ### Defining Splits
@@ -291,7 +291,7 @@ Calling `make_splits` with no arguments will default to an 80/10/10 split.
 In order for splits to be created, there must be some new data in the dataset. If no new data were added, calling `make_splits` will raise an error.
 If you wish to delete old splits and create new ones using all the data, pass `redefine_splits=True` to the method call.
 
-> \[!NOTE\]
+> [!NOTE]
 > There are no restrictions on the split names,
 > however for most cases one should stick to `"train"`, `"val"`, and `"test"`.
 
@@ -338,8 +338,8 @@ The available commands are:
 - `luxonis_ml data ls` - lists all datasets
 - `luxonis_ml data info <dataset_name>` - prints information about the dataset
 - `luxonis_ml data inspect <dataset_name>` - renders the data in the dataset on screen using `cv2`
-- `luxonis_ml data health <dataset_name>` -  checks the health of the dataset and logs and renders dataset statistics
-- `luxonis_ml data sanitize <dataset_name>` -  removes duplicate files and duplicate annotations from the dataset
+- `luxonis_ml data health <dataset_name>` - checks the health of the dataset and logs and renders dataset statistics
+- `luxonis_ml data sanitize <dataset_name>` - removes duplicate files and duplicate annotations from the dataset
 - `luxonis_ml data delete <dataset_name>` - deletes the dataset
 - `luxonis_ml data export <dataset_name>` - exports the dataset to a chosen format and directory
 - `luxonis_ml data push <dataset_name>` - pushes local dataset to remote storage
@@ -357,7 +357,7 @@ This guide covers the loading of datasets using the `LuxonisLoader` class.
 
 The `LuxonisLoader` class can also take care of data augmentation, for more info see [Augmentation](#augmentation).
 
-> \[!NOTE\]
+> [!NOTE]
 > 📚 For a complete list of all parameters of the `LuxonisLoader` class, see the [loaders README.md](loaders/README.md).
 
 ### Dataset Loading
@@ -609,7 +609,7 @@ The directory can also be a zip file containing the dataset.
 The `task_name` argument can be specified as a single string or as a dictionary. If a string is provided, it will be used as the task name for all records.
 Alternatively, you can provide a dictionary that maps class names to task names for better dataset organization. See the example below.
 
-> \[!NOTE\]
+> [!NOTE]
 > 📚 For a complete list of all parameters of the `LuxonisParser` class, see the [parsers README.md](parsers/README.md).
 
 ```python
@@ -664,7 +664,7 @@ A single class label for the entire image.
 }
 ```
 
-> \[!NOTE\]
+> [!NOTE]
 > The `classification` task is always added to the dataset.
 
 ### Bounding Box
@@ -794,10 +794,10 @@ The `counts` field contains either a **compressed byte string** or an **uncompre
 
 ```
 
-> \[!NOTE\]
+> [!NOTE]
 > The RLE format is not intended for regular use and is provided mainly to support datasets that may already be in this format.
 
-> \[!NOTE\]
+> [!NOTE]
 > Masks provided as numpy arrays are converted to RLE format internally.
 
 ### Array
@@ -993,7 +993,7 @@ The following example demonstrates a simple augmentation pipeline:
 
 ```
 
-> \[!NOTE\]
+> [!NOTE]
 > The augmentations are **not** applied in order. Instead, an optimal order is determined based on the type of the augmentations to minimize the computational cost.
 
 ### Usage with LuxonisLoader
