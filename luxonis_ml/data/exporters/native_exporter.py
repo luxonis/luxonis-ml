@@ -9,7 +9,11 @@ from typing import Any
 import polars as pl
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
-from luxonis_ml.data.exporters.exporter_utils import ExporterUtils, PreparedLDF
+from luxonis_ml.data.exporters.exporter_utils import (
+    PreparedLDF,
+    exporter_specific_annotation_warning,
+    split_of_group,
+)
 
 
 class NativeExporter(BaseExporter):
@@ -27,8 +31,8 @@ class NativeExporter(BaseExporter):
             "instance_segmentation",
         ]
 
-    def transform(self, prepared_ldf: PreparedLDF) -> None:
-        ExporterUtils.exporter_specific_annotation_warning(
+    def export(self, prepared_ldf: PreparedLDF) -> None:
+        exporter_specific_annotation_warning(
             prepared_ldf, self.supported_ann_types()
         )
 
@@ -42,7 +46,7 @@ class NativeExporter(BaseExporter):
         copied_files: set[Path] = set()
 
         for group_id, group_df in grouped_df:
-            split = ExporterUtils.split_of_group(prepared_ldf, group_id)
+            split = split_of_group(prepared_ldf, group_id)
 
             matched_df = grouped_image_sources.filter(
                 pl.col("group_id") == group_id

@@ -29,7 +29,7 @@ Install the development dependencies by running `pip install -r requirements-dev
 pip install -e .[dev]
 ```
 
-> \[!NOTE\]
+> [!NOTE]
 > This will install the package in editable mode (`-e`),
 > so you can make changes to the code and run them immediately.
 
@@ -90,15 +90,15 @@ pytest tests --cov=luxonis_ml --cov-report=html -n auto
 
 This command will run all tests in parallel (`-n auto`) and will generate an HTML coverage report.
 
-> \[!TIP\]
+> [!TIP]
 > The coverage report will be saved to `htmlcov` directory.
 > If you want to inspect the coverage in more detail, open `htmlcov/index.html` in a browser.
 
-> \[!IMPORTANT\]
+> [!IMPORTANT]
 > If a new feature is added, a new test should be added to cover it.
 > There is no minimum coverage requirement for now, but minimal coverage will be enforced in the future.
 
-> \[!IMPORTANT\]
+> [!IMPORTANT]
 > All tests must be passing using the `-n auto` flag before merging a PR.
 
 ## GitHub Actions
@@ -108,10 +108,10 @@ Our GitHub Actions workflow is run when a new PR is opened.
 1. First, the [pre-commit](#pre-commit-hooks) hooks must pass and the [documentation](#documentation) must be built successfully.
 1. If all previous checks pass, the [tests](#tests) are run.
 
-> \[!TIP\]
+> [!TIP]
 > Review the GitHub Actions output if your PR fails.
 
-> \[!IMPORTANT\]
+> [!IMPORTANT]
 > Successful completion of all the workflow checks is required for merging a PR.
 
 ## Making and Reviewing Changes

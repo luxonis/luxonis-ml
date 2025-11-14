@@ -322,7 +322,7 @@ class LuxonisTracker:
                         max(
                             (
                                 int(f.split("_")[-1])
-                                for f in os.listdir(log_dir)
+                                for f in os.listdir(log_dir)  # noqa: PTH208
                                 if f.startswith("trial_")
                             ),
                             default=0,

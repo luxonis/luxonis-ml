@@ -49,7 +49,7 @@ class LuxonisParser(Generic[T]):
         DatasetType.SEGMASK: SegmentationMaskDirectoryParser,
         DatasetType.SOLO: SOLOParser,
         DatasetType.NATIVE: NativeParser,
-        DatasetType.YOLOV8: YOLOv8Parser,
+        DatasetType.YOLOV8BOUNDINGBOX: YOLOv8Parser,
     }
 
     def __init__(

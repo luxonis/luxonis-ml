@@ -10,7 +10,13 @@ from loguru import logger
 from PIL import Image
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
-from luxonis_ml.data.exporters.exporter_utils import ExporterUtils, PreparedLDF
+from luxonis_ml.data.exporters.exporter_utils import (
+    PreparedLDF,
+    check_group_file_correspondence,
+    exporter_specific_annotation_warning,
+    get_single_skeleton,
+    split_of_group,
+)
 from luxonis_ml.data.utils import COCOFormat
 
 
@@ -46,7 +52,7 @@ class CocoExporter(BaseExporter):
         self.class_name_to_category_id: dict[str, dict[str, int]] = {
             s: {} for s in splits
         }
-        self.last_category_id: dict[str, int] = {s: 1 for s in splits}
+        self.last_category_id: dict[str, int] = dict.fromkeys(splits, 1)
         self.image_registry: dict[str, dict[str, dict[str, Any]]] = {
             s: {} for s in splits
         }
@@ -59,9 +65,9 @@ class CocoExporter(BaseExporter):
     def supported_ann_types(self) -> list[str]:
         return ["boundingbox", "instance_segmentation", "keypoints"]
 
-    def transform(self, prepared_ldf: PreparedLDF) -> None:
-        ExporterUtils.check_group_file_correspondence(prepared_ldf)
-        ExporterUtils.exporter_specific_annotation_warning(
+    def export(self, prepared_ldf: PreparedLDF) -> None:
+        check_group_file_correspondence(prepared_ldf)
+        exporter_specific_annotation_warning(
             prepared_ldf, self.supported_ann_types()
         )
 
@@ -70,7 +76,7 @@ class CocoExporter(BaseExporter):
             s: {"images": [], "categories": [], "annotations": []}
             for s in splits
         }
-        ann_id_counter: dict[str, int] = {s: 1 for s in splits}
+        ann_id_counter: dict[str, int] = dict.fromkeys(splits, 1)
 
         grouped = prepared_ldf.processed_df.group_by(
             ["file", "instance_id", "group_id"], maintain_order=True
@@ -78,9 +84,9 @@ class CocoExporter(BaseExporter):
         copied_files: set[Path] = set()
 
         for key, entry in grouped:
-            file_name, instance_id, group_id = cast(tuple[str, int, Any], key)
+            file_name, _instance_id, group_id = cast(tuple[str, int, Any], key)
 
-            split = ExporterUtils.split_of_group(prepared_ldf, group_id)
+            split = split_of_group(prepared_ldf, group_id)
             file_path = Path(str(file_name))
 
             image_id, width, height, new_name = self._get_or_register_image(
@@ -189,7 +195,7 @@ class CocoExporter(BaseExporter):
             cat_entry = {"id": cid, "name": cname}
 
             if self.allow_keypoints:
-                kp_labels, kp_skeleton = ExporterUtils.get_single_skeleton(
+                kp_labels, kp_skeleton = get_single_skeleton(
                     self.allow_keypoints, self.skeletons
                 )
                 if kp_labels:

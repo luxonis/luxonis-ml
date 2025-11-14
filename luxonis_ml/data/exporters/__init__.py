@@ -12,7 +12,7 @@ from .tensorflow_csv_exporter import TensorflowCSVExporter
 from .voc_exporter import VOCExporter
 from .yolov4_exporter import YoloV4Exporter
 from .yolov6_exporter import YoloV6Exporter
-from .yolov8_exporter import YoloV8Exporter
+from .yolov8_bbox_exporter import YoloV8Exporter
 from .yolov8_instance_segmentation_exporter import (
     YoloV8InstanceSegmentationExporter,
 )

@@ -13,6 +13,6 @@ class DatasetType(str, Enum):
     SEGMASK = "segmask"
     SOLO = "solo"
     NATIVE = "native"
-    YOLOV8 = "yolov8"
+    YOLOV8BOUNDINGBOX = "yolov8boundingbox"
     YOLOV8INSTANCESEGMENTATION = "yolov8instancesegmentation"
     YOLOV8KEYPOINTS = "yolov8keypoints"

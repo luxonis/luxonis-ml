@@ -4,7 +4,12 @@ import json
 from pathlib import Path
 from typing import Any, TypeAlias, cast
 
-from luxonis_ml.data.exporters.exporter_utils import ExporterUtils, PreparedLDF
+from luxonis_ml.data.exporters.exporter_utils import (
+    PreparedLDF,
+    check_group_file_correspondence,
+    exporter_specific_annotation_warning,
+    split_of_group,
+)
 
 from .base_exporter import BaseExporter
 
@@ -35,9 +40,9 @@ class YoloV6Exporter(BaseExporter):
     def supported_ann_types(self) -> list[str]:
         return ["boundingbox"]
 
-    def transform(self, prepared_ldf: PreparedLDF) -> None:
-        ExporterUtils.check_group_file_correspondence(prepared_ldf)
-        ExporterUtils.exporter_specific_annotation_warning(
+    def export(self, prepared_ldf: PreparedLDF) -> None:
+        check_group_file_correspondence(prepared_ldf)
+        exporter_specific_annotation_warning(
             prepared_ldf, self.supported_ann_types()
         )
 
@@ -51,9 +56,7 @@ class YoloV6Exporter(BaseExporter):
 
         for key, group_df in grouped:
             file_name, group_id = cast(tuple[str, Any], key)
-            logical_split = ExporterUtils.split_of_group(
-                prepared_ldf, group_id
-            )
+            logical_split = split_of_group(prepared_ldf, group_id)
             split = self.get_split_names()[logical_split]
 
             file_path = Path(str(file_name))

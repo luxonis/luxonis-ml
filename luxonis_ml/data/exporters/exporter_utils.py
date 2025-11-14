@@ -87,146 +87,139 @@ class ExporterSpec:
     kwargs: dict
 
 
-class ExporterUtils:
-    @staticmethod
-    def check_group_file_correspondence(prepared_ldf: PreparedLDF) -> None:
-        df = prepared_ldf.processed_df
-        group_to_files = df.group_by("group_id").agg(
-            pl.col("file").n_unique().alias("file_count")
+def check_group_file_correspondence(prepared_ldf: PreparedLDF) -> None:
+    df = prepared_ldf.processed_df
+    group_to_files = df.group_by("group_id").agg(
+        pl.col("file").n_unique().alias("file_count")
+    )
+    invalid_groups = group_to_files.filter(pl.col("file_count") > 1)
+    assert invalid_groups.is_empty(), (
+        "Each annotation instance must correspond to exactly one file. "
+        f"Found groups with multiple files: {invalid_groups['group_id'].to_list()}"
+        f"To export multiple files (e.g. RGB, depth) per instance, export to Native format"
+    )
+
+
+def exporter_specific_annotation_warning(
+    prepared_ldf: PreparedLDF, supported_ann_types: list[str]
+) -> None:
+    df = prepared_ldf.processed_df
+
+    present_task_types = (
+        df.select(pl.col("task_type").drop_nans().drop_nulls().unique())
+        .to_series()
+        .to_list()
+    )
+
+    unsupported = [
+        name for name in present_task_types if name not in supported_ann_types
+    ]
+
+    for name in unsupported:
+        logger.warning(
+            f"Found unsupported annotation type '{name}'; skipping this annotation type."
         )
-        invalid_groups = group_to_files.filter(pl.col("file_count") > 1)
-        assert invalid_groups.is_empty(), (
-            "Each annotation instance must correspond to exactly one file. "
-            f"Found groups with multiple files: {invalid_groups['group_id'].to_list()}"
-            f"To export multiple files (e.g. RGB, depth) per instance, export to Native format"
-        )
 
-    @staticmethod
-    def exporter_specific_annotation_warning(
-        prepared_ldf: PreparedLDF, supported_ann_types: list[str]
-    ) -> None:
-        df = prepared_ldf.processed_df
 
-        present_task_types = (
-            df.select(pl.col("task_type").drop_nans().drop_nulls().unique())
-            .to_series()
-            .to_list()
-        )
+def split_of_group(prepared_ldf: PreparedLDF, group_id: Any) -> str:
+    split = next(
+        (s for s, ids in prepared_ldf.splits.items() if group_id in ids),
+        None,
+    )
+    assert split is not None, "group must belong to a split"
+    return split
 
-        unsupported = [
-            name
-            for name in present_task_types
-            if name not in supported_ann_types
-        ]
 
-        for name in unsupported:
-            logger.warning(
-                f"Found unsupported annotation type '{name}'; skipping this annotation type."
-            )
+def create_zip_output(
+    max_partition_size: float | None,
+    output_path: Path,
+    part: int | None,
+    dataset_identifier: str,
+) -> Path | list[Path]:
+    archives: list[Path] = []
 
-    @staticmethod
-    def split_of_group(prepared_ldf: PreparedLDF, group_id: Any) -> str:
-        split = next(
-            (s for s, ids in prepared_ldf.splits.items() if group_id in ids),
-            None,
-        )
-        assert split is not None, "group must belong to a split"
-        return split
-
-    @staticmethod
-    def create_zip_output(
-        max_partition_size: float | None,
-        output_path: Path,
-        part: int | None,
-        dataset_identifier: str,
-    ) -> Path | list[Path]:
-        archives: list[Path] = []
-
-        if max_partition_size is not None and part is not None:
-            for i in range(part + 1):
-                folder = output_path / f"{dataset_identifier}_part{i}"
-                if folder.exists():
-                    archive_file = shutil.make_archive(
-                        str(folder), "zip", root_dir=folder
-                    )
-                    archives.append(Path(archive_file))
-        else:
-            folder = output_path / dataset_identifier
+    if max_partition_size is not None and part is not None:
+        for i in range(part + 1):
+            folder = output_path / f"{dataset_identifier}_part{i}"
             if folder.exists():
                 archive_file = shutil.make_archive(
                     str(folder), "zip", root_dir=folder
                 )
                 archives.append(Path(archive_file))
+    else:
+        folder = output_path / dataset_identifier
+        if folder.exists():
+            archive_file = shutil.make_archive(
+                str(folder), "zip", root_dir=folder
+            )
+            archives.append(Path(archive_file))
 
-        return archives if len(archives) > 1 else archives[0]
+    return archives if len(archives) > 1 else archives[0]
 
-    @staticmethod
-    def get_single_skeleton(
-        allow_keypoints: bool, skeletons: dict[str, Any] | None = None
-    ) -> tuple[list[str], list[list[int]]]:
-        """Returns (labels, skeleton_edges_1_based) for the single
-        skeleton.
 
-        Edges are converted to 1-based indices per COCO spec.
-        """
-        if not allow_keypoints or skeletons is None:
-            return [], []
-        if isinstance(skeletons, dict):
-            sk = next(iter(skeletons.values()))
-        else:  # list
-            sk = skeletons[0]
-        labels = list(sk.get("labels", []))
-        edges = sk.get("edges", [])
-        # COCO expects 1-based indices in skeleton
-        skeleton_1_based = [[a + 1, b + 1] for a, b in edges]
-        return labels, skeleton_1_based
+def get_single_skeleton(
+    allow_keypoints: bool, skeletons: dict[str, Any] | None = None
+) -> tuple[list[str], list[list[int]]]:
+    """Returns (labels, skeleton_edges_1_based) for the single skeleton.
 
-    @staticmethod
-    def decode_rle_with_pycoco(ann: dict[str, Any]) -> np.ndarray:
-        h = int(ann["height"])
-        w = int(ann["width"])
-        counts = ann["counts"]
+    Edges are converted to 1-based indices per COCO spec.
+    """
+    if not allow_keypoints or skeletons is None:
+        return [], []
+    if isinstance(skeletons, dict):
+        sk = next(iter(skeletons.values()))
+    else:  # list
+        sk = skeletons[0]
+    labels = list(sk.get("labels", []))
+    edges = sk.get("edges", [])
+    # COCO expects 1-based indices in skeleton
+    skeleton_1_based = [[a + 1, b + 1] for a, b in edges]
+    return labels, skeleton_1_based
 
-        # pycocotools expects an RLE object with 'size' and 'counts'
-        rle = {"size": [h, w], "counts": counts.encode("utf-8")}
 
-        m = maskUtils.decode(rle)  # type: ignore[arg-type]
-        return np.array(m, dtype=np.uint8, order="C")
+def decode_rle_with_pycoco(ann: dict[str, Any]) -> np.ndarray:
+    h = int(ann["height"])
+    w = int(ann["width"])
+    counts = ann["counts"]
 
-    @staticmethod
-    def annotation_to_polygons(
-        ann: dict[str, Any], file_path: Path
-    ) -> list[list[tuple[float, float]]]:
-        polygons: list[list[tuple[float, float]]] = []
+    # pycocotools expects an RLE object with 'size' and 'counts'
+    rle = {"size": [h, w], "counts": counts.encode("utf-8")}
 
-        # COCO RLE -> decode to mask -> contours -> polygons
-        if "counts" in ann:
-            H = int(ann["height"])
-            W = int(ann["width"])
-            rle = {"size": [H, W], "counts": ann["counts"]}
-            try:
-                mask = maskUtils.decode(rle)  # type: ignore
-                if mask.ndim == 3:
-                    mask = mask[:, :, 0]
-                mask = (mask > 0).astype(np.uint8)
+    m = maskUtils.decode(rle)  # type: ignore[arg-type]
+    return np.array(m, dtype=np.uint8, order="C")
 
-                contours, _ = cv2.findContours(
-                    mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-                )
-                for cnt in contours:
-                    if len(cnt) < 3:
-                        continue
-                    cnt = cnt.squeeze(1)
-                    poly = [
-                        (float(x) / W, float(y) / H) for x, y in cnt.tolist()
-                    ]
-                    if len(poly) >= 3:
-                        polygons.append(poly)
-            except Exception:
-                logger.warning(
-                    "Failed to decode COCO RLE; skipping this instance.",
-                    RuntimeWarning,
-                )
-            return polygons
 
+def annotation_to_polygons(
+    ann: dict[str, Any], file_path: Path
+) -> list[list[tuple[float, float]]]:
+    polygons: list[list[tuple[float, float]]] = []
+
+    # COCO RLE -> decode to mask -> contours -> polygons
+    if "counts" in ann:
+        H = int(ann["height"])
+        W = int(ann["width"])
+        rle = {"size": [H, W], "counts": ann["counts"]}
+        try:
+            mask = maskUtils.decode(rle)  # type: ignore
+            if mask.ndim == 3:
+                mask = mask[:, :, 0]
+            mask = (mask > 0).astype(np.uint8)
+
+            contours, _ = cv2.findContours(
+                mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
+            for cnt in contours:
+                if len(cnt) < 3:
+                    continue
+                cnt = cnt.squeeze(1)
+                poly = [(float(x) / W, float(y) / H) for x, y in cnt.tolist()]
+                if len(poly) >= 3:
+                    polygons.append(poly)
+        except Exception:
+            logger.warning(
+                "Failed to decode COCO RLE; skipping this instance.",
+                RuntimeWarning,
+            )
         return polygons
+
+    return polygons

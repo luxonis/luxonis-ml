@@ -10,7 +10,13 @@ import numpy as np
 from PIL import Image
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
-from luxonis_ml.data.exporters.exporter_utils import ExporterUtils, PreparedLDF
+from luxonis_ml.data.exporters.exporter_utils import (
+    PreparedLDF,
+    check_group_file_correspondence,
+    decode_rle_with_pycoco,
+    exporter_specific_annotation_warning,
+    split_of_group,
+)
 
 
 class SegmentationMaskDirectoryExporter(BaseExporter):
@@ -66,9 +72,9 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
             for name, cid in items_by_id:
                 w.writerow([cid, name])
 
-    def transform(self, prepared_ldf: PreparedLDF) -> None:
-        ExporterUtils.check_group_file_correspondence(prepared_ldf)
-        ExporterUtils.exporter_specific_annotation_warning(
+    def export(self, prepared_ldf: PreparedLDF) -> None:
+        check_group_file_correspondence(prepared_ldf)
+        exporter_specific_annotation_warning(
             prepared_ldf, self.supported_ann_types()
         )
 
@@ -81,7 +87,7 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
         for key, entry in grouped:
             file_name, group_id = cast(tuple[str, Any], key)
             file_path = Path(str(file_name))
-            split = ExporterUtils.split_of_group(prepared_ldf, group_id)
+            split = split_of_group(prepared_ldf, group_id)
 
             # Ensure background exists for this split up-front
             self._ensure_background(split)
@@ -122,7 +128,7 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
                     continue
 
                 ann = json.loads(row["annotation"])
-                m = ExporterUtils.decode_rle_with_pycoco(ann)
+                m = decode_rle_with_pycoco(ann)
                 h, w = m.shape
 
                 if combined is None:

@@ -16,7 +16,7 @@ def get_file(
     remote_path: PosixPathType,
     local_path: PathType,
     mlflow_instance: ModuleType | None = ...,
-    default: Literal[None] = ...,
+    default: None = ...,
 ) -> Path | None: ...
 
 
@@ -126,7 +126,7 @@ def get_dir(
     local_dir: PathType,
     mlflow_instance: ModuleType | None = ...,
     *,
-    default: Literal[None] = None,
+    default: None = None,
 ) -> Path | None: ...
 
 

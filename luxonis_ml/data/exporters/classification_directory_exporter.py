@@ -4,7 +4,12 @@ from pathlib import Path
 from typing import Any, cast
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
-from luxonis_ml.data.exporters.exporter_utils import ExporterUtils, PreparedLDF
+from luxonis_ml.data.exporters.exporter_utils import (
+    PreparedLDF,
+    check_group_file_correspondence,
+    exporter_specific_annotation_warning,
+    split_of_group,
+)
 
 
 class ClassificationDirectoryExporter(BaseExporter):
@@ -14,9 +19,9 @@ class ClassificationDirectoryExporter(BaseExporter):
     def supported_ann_types(self) -> list[str]:
         return ["classification"]
 
-    def transform(self, prepared_ldf: PreparedLDF) -> None:
-        ExporterUtils.check_group_file_correspondence(prepared_ldf)
-        ExporterUtils.exporter_specific_annotation_warning(
+    def export(self, prepared_ldf: PreparedLDF) -> None:
+        check_group_file_correspondence(prepared_ldf)
+        exporter_specific_annotation_warning(
             prepared_ldf, self.supported_ann_types()
         )
 
@@ -32,7 +37,7 @@ class ClassificationDirectoryExporter(BaseExporter):
             file_name, group_id = cast(tuple[str, Any], key)
             file_path = Path(str(file_name))
 
-            split = ExporterUtils.split_of_group(prepared_ldf, group_id)
+            split = split_of_group(prepared_ldf, group_id)
 
             class_names: set[str] = set()
             for row in entry.iter_rows(named=True):

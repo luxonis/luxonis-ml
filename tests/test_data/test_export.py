@@ -180,7 +180,7 @@ def test_export_regular_splits(
         DatasetType.COCO,
         DatasetType.YOLOV4,
         DatasetType.YOLOV6,
-        DatasetType.YOLOV8,
+        DatasetType.YOLOV8BOUNDINGBOX,
         DatasetType.DARKNET,
     ],
 )

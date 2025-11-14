@@ -5,7 +5,12 @@ from pathlib import Path
 from typing import Any, cast
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
-from luxonis_ml.data.exporters.exporter_utils import ExporterUtils, PreparedLDF
+from luxonis_ml.data.exporters.exporter_utils import (
+    PreparedLDF,
+    check_group_file_correspondence,
+    exporter_specific_annotation_warning,
+    split_of_group,
+)
 
 
 class DarknetExporter(BaseExporter):
@@ -28,9 +33,9 @@ class DarknetExporter(BaseExporter):
     def supported_ann_types(self) -> list[str]:
         return ["boundingbox"]
 
-    def transform(self, prepared_ldf: PreparedLDF) -> None:
-        ExporterUtils.check_group_file_correspondence(prepared_ldf)
-        ExporterUtils.exporter_specific_annotation_warning(
+    def export(self, prepared_ldf: PreparedLDF) -> None:
+        check_group_file_correspondence(prepared_ldf)
+        exporter_specific_annotation_warning(
             prepared_ldf, self.supported_ann_types()
         )
 
@@ -45,7 +50,7 @@ class DarknetExporter(BaseExporter):
 
         for key, group_df in grouped:
             file_name, group_id = cast(tuple[str, Any], key)
-            split_key = ExporterUtils.split_of_group(prepared_ldf, group_id)
+            split_key = split_of_group(prepared_ldf, group_id)
             split_name = self.get_split_names()[split_key]
 
             file_path = Path(str(file_name))

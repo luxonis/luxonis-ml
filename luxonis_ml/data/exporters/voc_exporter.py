@@ -9,7 +9,12 @@ from defusedxml import minidom
 from PIL import Image
 
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
-from luxonis_ml.data.exporters.exporter_utils import ExporterUtils, PreparedLDF
+from luxonis_ml.data.exporters.exporter_utils import (
+    PreparedLDF,
+    check_group_file_correspondence,
+    exporter_specific_annotation_warning,
+    split_of_group,
+)
 
 
 class VOCExporter(BaseExporter):
@@ -20,9 +25,9 @@ class VOCExporter(BaseExporter):
     def supported_ann_types(self) -> list[str]:
         return ["boundingbox"]
 
-    def transform(self, prepared_ldf: PreparedLDF) -> None:
-        ExporterUtils.check_group_file_correspondence(prepared_ldf)
-        ExporterUtils.exporter_specific_annotation_warning(
+    def export(self, prepared_ldf: PreparedLDF) -> None:
+        check_group_file_correspondence(prepared_ldf)
+        exporter_specific_annotation_warning(
             prepared_ldf, self.supported_ann_types()
         )
 
@@ -37,7 +42,7 @@ class VOCExporter(BaseExporter):
 
         for key, group_df in grouped:
             file_name, group_id = cast(tuple[str, Any], key)
-            split_key = ExporterUtils.split_of_group(prepared_ldf, group_id)
+            split_key = split_of_group(prepared_ldf, group_id)
             split_name = self.get_split_names()[split_key]
 
             src_path = Path(str(file_name))
@@ -66,11 +71,11 @@ class VOCExporter(BaseExporter):
                 wn = float(data.get("w", 0.0))
                 hn = float(data.get("h", 0.0))
 
-                xmin = int(round(xn * W))
-                ymin = int(round(yn * H))
+                xmin = round(xn * W)
+                ymin = round(yn * H)
 
-                w_px = max(1, int(round(wn * W)))
-                h_px = max(1, int(round(hn * H)))
+                w_px = max(1, round(wn * W))
+                h_px = max(1, round(hn * H))
 
                 xmax = xmin + w_px  # exclusive right edge
                 ymax = ymin + h_px  # exclusive bottom edge

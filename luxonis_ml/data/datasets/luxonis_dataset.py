@@ -36,7 +36,7 @@ from luxonis_ml.data.exporters import (
 )
 from luxonis_ml.data.exporters.exporter_utils import (
     ExporterSpec,
-    ExporterUtils,
+    create_zip_output,
 )
 from luxonis_ml.data.utils import (
     BucketStorage,
@@ -1530,7 +1530,7 @@ class LuxonisDataset(BaseDataset):
                     "skeletons": getattr(self.metadata, "skeletons", None),
                 },
             ),
-            DatasetType.YOLOV8: ExporterSpec(YoloV8Exporter, {}),
+            DatasetType.YOLOV8BOUNDINGBOX: ExporterSpec(YoloV8Exporter, {}),
             DatasetType.YOLOV8INSTANCESEGMENTATION: ExporterSpec(
                 YoloV8InstanceSegmentationExporter, {}
             ),
@@ -1573,7 +1573,7 @@ class LuxonisDataset(BaseDataset):
             self.identifier, out_path, max_partition_size_gb, **spec.kwargs
         )
 
-        exporter.transform(prepared_ldf=prepared_ldf)
+        exporter.export(prepared_ldf=prepared_ldf)
 
         # Detect whether partitioned export was produced and the max part index
         def _detect_last_part(base: Path, ds_id: str) -> int | None:
@@ -1593,7 +1593,7 @@ class LuxonisDataset(BaseDataset):
         last_part = _detect_last_part(out_path, self.identifier)
 
         if zip_output:
-            archives = ExporterUtils.create_zip_output(
+            archives = create_zip_output(
                 max_partition_size=max_partition_size_gb,
                 output_path=out_path,
                 part=last_part,

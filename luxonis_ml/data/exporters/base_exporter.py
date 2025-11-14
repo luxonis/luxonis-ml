@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -30,7 +28,7 @@ class BaseExporter(ABC):
         self.current_size = 0
 
     @abstractmethod
-    def transform(self, prepared_ldf: PreparedLDF) -> None:
+    def export(self, prepared_ldf: "PreparedLDF") -> None:
         """Convert the prepared dataset into the exporter's format."""
         raise NotImplementedError
 

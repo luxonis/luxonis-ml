@@ -4,7 +4,13 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
-from luxonis_ml.data.exporters.exporter_utils import ExporterUtils, PreparedLDF
+from luxonis_ml.data.exporters.exporter_utils import (
+    PreparedLDF,
+    annotation_to_polygons,
+    check_group_file_correspondence,
+    exporter_specific_annotation_warning,
+    split_of_group,
+)
 
 from .base_exporter import BaseExporter
 
@@ -31,9 +37,9 @@ class YoloV8InstanceSegmentationExporter(BaseExporter):
     def supported_ann_types(self) -> list[str]:
         return ["instance_segmentation"]
 
-    def transform(self, prepared_ldf: PreparedLDF) -> None:
-        ExporterUtils.check_group_file_correspondence(prepared_ldf)
-        ExporterUtils.exporter_specific_annotation_warning(
+    def export(self, prepared_ldf: PreparedLDF) -> None:
+        check_group_file_correspondence(prepared_ldf)
+        exporter_specific_annotation_warning(
             prepared_ldf, self.supported_ann_types()
         )
 
@@ -47,9 +53,7 @@ class YoloV8InstanceSegmentationExporter(BaseExporter):
 
         for key, group_df in grouped:
             file_name, group_id = cast(tuple[str, Any], key)
-            logical_split = ExporterUtils.split_of_group(
-                prepared_ldf, group_id
-            )
+            logical_split = split_of_group(prepared_ldf, group_id)
             split = self.get_split_names()[logical_split]
 
             file_path = Path(str(file_name))
@@ -79,7 +83,7 @@ class YoloV8InstanceSegmentationExporter(BaseExporter):
                 ann = json.loads(ann_str)
 
                 cid = self.class_to_id[cname]
-                polygons = ExporterUtils.annotation_to_polygons(ann, file_path)
+                polygons = annotation_to_polygons(ann, file_path)
 
                 for poly in polygons:
                     if len(poly) < 3:
