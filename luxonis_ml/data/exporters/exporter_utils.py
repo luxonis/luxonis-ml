@@ -28,13 +28,13 @@ class PreparedLDF:
         self.grouped_image_sources = grouped_image_sources
 
     @classmethod
-    def from_dataset(cls, ldf: "LuxonisDataset") -> "PreparedLDF":
+    def from_dataset(cls, dataset: "LuxonisDataset") -> "PreparedLDF":
         """Prepare a dataset for export into the LDF representation."""
-        splits = ldf.get_splits()
+        splits = dataset.get_splits()
         if splits is None:
             raise ValueError("Cannot export dataset without splits")
 
-        df = ldf._load_df_offline(raise_when_empty=True).with_row_count(
+        df = dataset._load_df_offline(raise_when_empty=True).with_row_count(
             "row_idx"
         )
 
@@ -53,7 +53,7 @@ class PreparedLDF:
             pl.struct(["file", "uuid"])
             .map_elements(
                 lambda r: resolve_path(
-                    r["file"], r["uuid"], str(ldf.media_path)
+                    r["file"], r["uuid"], str(dataset.media_path)
                 ),
                 return_dtype=pl.Utf8,
             )
