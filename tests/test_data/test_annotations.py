@@ -481,7 +481,7 @@ def test_array_annotation(subtests: SubTests, tempdir: Path):
             ArrayAnnotation(path=Path("non_existent.npy"))
 
         cv2.imwrite(str(tempdir / "image.png"), np.zeros((100, 100, 3)))
-        with pytest.raises(ValueError, match="must be a .npy file"):
+        with pytest.raises(ValueError, match=r"must be a .npy file"):
             ArrayAnnotation(path=tempdir / "image.png")
 
 

@@ -259,7 +259,7 @@ def test_make_splits(
     with pytest.raises(ValueError, match="Splits cannot be empty"):
         dataset.make_splits({})
 
-    with pytest.raises(ValueError, match="Ratios must sum to 1.0"):
+    with pytest.raises(ValueError, match=r"Ratios must sum to 1.0"):
         dataset.make_splits((0.7, 0.1, 1))
 
     with pytest.raises(ValueError, match="must be a tuple of 3 floats"):
@@ -268,7 +268,7 @@ def test_make_splits(
     with pytest.raises(ValueError, match="Cannot provide both splits and"):
         dataset.make_splits((0.7, 0.1, 0.2), definitions=definitions)
 
-    with pytest.raises(ValueError, match="Ratios must sum to 1.0"):
+    with pytest.raises(ValueError, match=r"Ratios must sum to 1.0"):
         dataset.make_splits({"train": 1.5})
 
     dataset.add(generator(10))

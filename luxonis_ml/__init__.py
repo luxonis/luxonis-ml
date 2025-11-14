@@ -1,4 +1,9 @@
-__version__ = "0.8.0"
+from typing import Final
+
+from pydantic_extra_types.semantic_version import SemanticVersion
+
+__version__: Final[str] = "0.8.1"
+__semver__: Final[SemanticVersion] = SemanticVersion.parse(__version__)
 
 import os
 

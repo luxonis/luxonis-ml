@@ -202,7 +202,7 @@ class YOLOv8Parser(BaseParser):
         if not yaml_file:
             raise ValueError("Exactly one yaml file is expected")
         classes_path = dataset_dir / yaml_file.name
-        dir_format, splits = self._detect_dataset_dir_format(dataset_dir)
+        dir_format, _splits = self._detect_dataset_dir_format(dataset_dir)
         added_train_imgs = self._parse_split(
             image_dir=(
                 dataset_dir / "images" / "train"
