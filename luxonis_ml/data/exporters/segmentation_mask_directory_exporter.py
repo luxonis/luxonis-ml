@@ -57,15 +57,16 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
         return cmap[class_name]
 
     def _write_classes_csv(self, split: str, split_dir: Path) -> None:
-        cmap = self.split_class_maps.get(split)
-        if cmap is None or len(cmap) == 0:
-            return
+        self._ensure_background(split)
 
-        # Write in ascending id order so the CSV row order matches list indexing
-        items_by_id = sorted(cmap.items(), key=lambda kv: kv[1])
+        cmap = self.split_class_maps[split]
 
+        # Ensure directory exists
         csv_path = split_dir / "_classes.csv"
         csv_path.parent.mkdir(parents=True, exist_ok=True)
+
+        items_by_id = sorted(cmap.items(), key=lambda kv: kv[1])
+
         with csv_path.open("w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
             w.writerow([self.ID_COL, self.CLASS_COL])
@@ -83,6 +84,10 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
         )
 
         copied_pairs: set[tuple[Path, str]] = set()
+
+        for split in ("train", "val", "test"):
+            split_dir = self._get_data_path(self.output_path, split, self.part)
+            split_dir.mkdir(parents=True, exist_ok=True)
 
         for key, entry in grouped:
             file_name, group_id = cast(tuple[str, Any], key)
