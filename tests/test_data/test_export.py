@@ -7,6 +7,16 @@ from pytest_subtests import SubTests
 from luxonis_ml.data import LuxonisLoader, LuxonisParser
 from luxonis_ml.enums.enums import DatasetType
 
+# SOLO does not have an associated exporter,
+# SEGMASK and CLSDIR return empty directories
+# because COCO_people_subset does not contain
+# image-level masks or classes
+EXPORT_DATASET_TYPES = [
+    dt
+    for dt in DatasetType
+    if dt not in {DatasetType.SOLO, DatasetType.SEGMASK, DatasetType.CLSDIR}
+]
+
 
 @pytest.mark.parametrize("url", ["COCO_people_subset.zip"])
 def test_dir_parser(
@@ -82,6 +92,7 @@ def test_dir_parser(
     assert imported_anns == anns
 
 
+@pytest.mark.parametrize("dataset_type", EXPORT_DATASET_TYPES)
 @pytest.mark.parametrize("url", ["COCO_people_subset.zip"])
 def test_export_edge_cases(
     dataset_name: str,
@@ -89,6 +100,7 @@ def test_export_edge_cases(
     tempdir: Path,
     url: str,
     subtests: SubTests,
+    dataset_type: DatasetType,
 ):
     url = f"{storage_url}/{url}"
     dataset = LuxonisParser(
@@ -174,16 +186,7 @@ def test_export_regular_splits(
 
 
 @pytest.mark.parametrize("url", ["COCO_people_subset.zip"])
-@pytest.mark.parametrize(
-    "dataset_type",
-    [
-        DatasetType.COCO,
-        DatasetType.YOLOV4,
-        DatasetType.YOLOV6,
-        DatasetType.YOLOV8BOUNDINGBOX,
-        DatasetType.DARKNET,
-    ],
-)
+@pytest.mark.parametrize("dataset_type", EXPORT_DATASET_TYPES)
 def test_export_no_partition(
     dataset_name: str,
     storage_url: str,

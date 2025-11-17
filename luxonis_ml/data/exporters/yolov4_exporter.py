@@ -92,7 +92,6 @@ class YoloV4Exporter(BaseExporter):
                     h = float(data.get("h", 0.0))
                     cid = self.class_to_id[cname]
                     label_lines.append((cid, x, y, w, h))
-
             ann_size_estimate = len(label_lines) * 32
             img_size = file_path.stat().st_size
 
