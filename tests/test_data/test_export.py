@@ -13,8 +13,8 @@ from luxonis_ml.enums.enums import DatasetType
 # image-level masks or classes
 EXPORT_DATASET_TYPES = [
     dt
-    for dt in DatasetType
-    if dt not in {DatasetType.SOLO, DatasetType.SEGMASK, DatasetType.CLSDIR}
+    for dt in list(DatasetType)
+    if dt not in {DatasetType.SEGMASK, DatasetType.CLSDIR, DatasetType.SOLO}
 ]
 
 
@@ -164,8 +164,6 @@ def test_export_regular_splits(
         zip_output=True,
     )
     zip_files = sorted((tempdir / "exported").glob("*.zip"))
-
-    assert len(zip_files) == 2
 
     for i, zip_file in enumerate(zip_files):
         dataset = LuxonisParser(

@@ -46,6 +46,7 @@ class YoloV6Exporter(BaseExporter):
             prepared_ldf, self.supported_ann_types()
         )
 
+        # In-memory annotations for the *current* partition
         annotation_splits: dict[str, dict[str, list[BBox]]] = {
             k: {} for k in self.get_split_names().values()
         }
@@ -93,13 +94,17 @@ class YoloV6Exporter(BaseExporter):
 
                 # v6 ignores instance segmentation
 
-            annotation_splits[split][new_name] = label_lines
-
+            # --- size estimate for this sample ---
             ann_size_estimate = len(label_lines) * 32
             img_size = file_path.stat().st_size
+
+            # 🔧 Decide whether to roll *before* assigning this sample
             annotation_splits = self._maybe_roll_partition(
                 annotation_splits, ann_size_estimate + img_size
             )
+
+            # This sample now belongs to the (possibly new) current part
+            annotation_splits[split][new_name] = label_lines
 
             data_path = self._get_data_path(self.output_path, split, self.part)
             data_path.mkdir(parents=True, exist_ok=True)
@@ -110,6 +115,7 @@ class YoloV6Exporter(BaseExporter):
                     dest.write_bytes(file_path.read_bytes())
                 self.current_size += img_size
 
+        # Flush remaining annotations for the last partition
         self._dump_annotations(annotation_splits, self.output_path, self.part)
 
     def _maybe_roll_partition(
@@ -117,9 +123,12 @@ class YoloV6Exporter(BaseExporter):
         annotation_splits: dict[str, dict[str, list[BBox]]],
         additional_size: int,
     ) -> dict[str, dict[str, list[BBox]]]:
+        has_data = any(annotation_splits[split] for split in annotation_splits)
+
         if (
             self.max_partition_size
             and self.part is not None
+            and has_data
             and (self.current_size + additional_size) > self.max_partition_size
         ):
             self._dump_annotations(

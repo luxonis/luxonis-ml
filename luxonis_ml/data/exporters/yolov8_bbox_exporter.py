@@ -113,9 +113,12 @@ class YoloV8Exporter(BaseExporter):
         annotation_splits: dict[str, dict[str, list[tuple]]],
         additional_size: int,
     ) -> dict[str, dict[str, list[tuple]]]:
+        has_data = any(annotation_splits[split] for split in annotation_splits)
+
         if (
             self.max_partition_size
             and self.part is not None
+            and has_data
             and (self.current_size + additional_size) > self.max_partition_size
         ):
             self._dump_annotations(
