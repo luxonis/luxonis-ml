@@ -164,6 +164,7 @@ def test_export_regular_splits(
         zip_output=True,
     )
     zip_files = sorted((tempdir / "exported").glob("*.zip"))
+    assert len(zip_files) == 2
 
     for i, zip_file in enumerate(zip_files):
         dataset = LuxonisParser(
