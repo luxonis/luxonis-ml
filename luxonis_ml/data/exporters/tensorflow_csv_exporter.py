@@ -96,9 +96,6 @@ class TensorflowCSVExporter(BaseExporter):
                     }
                 )
 
-            if per_image_rows:
-                rows_by_split[split_name].extend(per_image_rows)
-
             # NOTE: We use a rough constant (64) to approximate the per-row CSV bytes that do NOT
             # depend on variable-length fields. Getting the true on-disk size here would require
             # serializing with csv.DictWriter using the exact dialect and encoding
@@ -111,6 +108,9 @@ class TensorflowCSVExporter(BaseExporter):
             rows_by_split = self._maybe_roll_partition(
                 rows_by_split, ann_size_est + img_size
             )
+
+            if per_image_rows:
+                rows_by_split[split_name].extend(per_image_rows)
 
             split_dir = self._get_data_path(
                 self.output_path, split_name, self.part

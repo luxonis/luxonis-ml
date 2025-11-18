@@ -96,18 +96,18 @@ class VOCExporter(BaseExporter):
                     }
                 )
 
+            img_size = src_path.stat().st_size
+            approx_xml_size = self._estimate_xml_size(objects)
+            per_split_data = self._maybe_roll_partition(
+                per_split_data, img_size + approx_xml_size
+            )
+
             per_split_data[split_name][new_stem] = {
                 "filename": new_name,
                 "abs_path": src_path.resolve(),
                 "size": (W, H, C),
                 "objects": objects,
             }
-
-            img_size = src_path.stat().st_size
-            approx_xml_size = self._estimate_xml_size(objects)
-            per_split_data = self._maybe_roll_partition(
-                per_split_data, img_size + approx_xml_size
-            )
 
             split_dir = self._get_data_path(
                 self.output_path, split_name, self.part

@@ -106,14 +106,15 @@ class CocoExporter(BaseExporter):
                 ann = self._process_row(
                     row, split, annotation_splits, ann, width, height
                 )
-            annotation_splits[split]["annotations"].append(ann)
-            ann_id_counter[split] += 1
 
             ann_size = sys.getsizeof(ann)
             img_size = file_path.stat().st_size
             annotation_splits = self._maybe_roll_partition(
                 annotation_splits, ann_size + img_size
             )
+
+            annotation_splits[split]["annotations"].append(ann)
+            ann_id_counter[split] += 1
 
             data_path = self._get_data_path(self.output_path, split, self.part)
             data_path.mkdir(parents=True, exist_ok=True)

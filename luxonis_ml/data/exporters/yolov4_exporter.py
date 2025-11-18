@@ -110,10 +110,7 @@ class YoloV4Exporter(BaseExporter):
                     dest.write_bytes(file_path.read_bytes())
                 self.current_size += img_size
 
-        if any(annotation_splits[split] for split in annotation_splits):
-            self._dump_annotations(
-                annotation_splits, self.output_path, self.part
-            )
+        self._dump_annotations(annotation_splits, self.output_path, self.part)
 
     def _maybe_roll_partition(
         self,

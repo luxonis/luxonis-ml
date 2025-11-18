@@ -67,11 +67,6 @@ class CreateMLExporter(BaseExporter):
                 group_df=group_df, width=width, height=height
             )
 
-            anns_by_split[split_name][new_name] = per_image_anns
-
-            per_image_anns = self._collect_bounding_box_annotations(
-                group_df, width, height
-            )
             ann_size_est = self._estimate_annotation_bytes(
                 new_name, per_image_anns
             )
@@ -80,6 +75,8 @@ class CreateMLExporter(BaseExporter):
             anns_by_split = self._maybe_roll_partition(
                 anns_by_split, ann_size_est + img_size
             )
+
+            anns_by_split[split_name][new_name] = per_image_anns
 
             split_dir = self._get_data_path(
                 self.output_path, split_name, self.part

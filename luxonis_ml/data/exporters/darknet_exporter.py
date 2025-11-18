@@ -62,13 +62,13 @@ class DarknetExporter(BaseExporter):
 
             label_lines = self._collect_darknet_bounding_box_labels(group_df)
 
-            labels_by_split[split_name][new_stem] = label_lines
-
             ann_size = sum(len(line) for line in label_lines)
             img_size = file_path.stat().st_size
             labels_by_split = self._maybe_roll_partition(
                 labels_by_split, ann_size + img_size
             )
+
+            labels_by_split[split_name][new_stem] = label_lines
 
             split_dir = self._get_data_path(
                 self.output_path, split_name, self.part

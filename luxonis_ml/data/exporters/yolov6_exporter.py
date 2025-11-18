@@ -94,16 +94,13 @@ class YoloV6Exporter(BaseExporter):
 
                 # v6 ignores instance segmentation
 
-            # --- size estimate for this sample ---
             ann_size_estimate = len(label_lines) * 32
             img_size = file_path.stat().st_size
 
-            # 🔧 Decide whether to roll *before* assigning this sample
             annotation_splits = self._maybe_roll_partition(
                 annotation_splits, ann_size_estimate + img_size
             )
 
-            # This sample now belongs to the (possibly new) current part
             annotation_splits[split][new_name] = label_lines
 
             data_path = self._get_data_path(self.output_path, split, self.part)

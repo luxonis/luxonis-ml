@@ -156,13 +156,13 @@ class YoloV8KeypointsExporter(BaseExporter):
                 )
                 label_lines.append(line)
 
-            annotation_splits[split][new_name] = label_lines
-
             ann_size_estimate = sum(len(s) + 1 for s in label_lines)
             img_size = file_path.stat().st_size
             annotation_splits = self._maybe_roll_partition(
                 annotation_splits, ann_size_estimate + img_size
             )
+
+            annotation_splits[split][new_name] = label_lines
 
             data_path = self._get_data_path(self.output_path, split, self.part)
             data_path.mkdir(parents=True, exist_ok=True)
