@@ -145,6 +145,9 @@ class YoloV4Exporter(BaseExporter):
         output_path: Path,
         part: int | None = None,
     ) -> None:
+        if all(len(rows) == 0 for rows in annotation_splits.values()):
+            return
+
         base_root = (
             output_path / f"{self.dataset_identifier}_part{part}"
             if part is not None

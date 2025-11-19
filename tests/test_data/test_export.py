@@ -92,7 +92,6 @@ def test_dir_parser(
     assert imported_anns == anns
 
 
-@pytest.mark.parametrize("dataset_type", EXPORT_DATASET_TYPES)
 @pytest.mark.parametrize("url", ["COCO_people_subset.zip"])
 def test_export_edge_cases(
     dataset_name: str,
@@ -100,7 +99,6 @@ def test_export_edge_cases(
     tempdir: Path,
     url: str,
     subtests: SubTests,
-    dataset_type: DatasetType,
 ):
     url = f"{storage_url}/{url}"
     dataset = LuxonisParser(
@@ -184,8 +182,8 @@ def test_export_regular_splits(
         assert original_split == new_split
 
 
-@pytest.mark.parametrize("url", ["COCO_people_subset.zip"])
 @pytest.mark.parametrize("dataset_type", EXPORT_DATASET_TYPES)
+@pytest.mark.parametrize("url", ["COCO_people_subset.zip"])
 def test_export_no_partition(
     dataset_name: str,
     storage_url: str,

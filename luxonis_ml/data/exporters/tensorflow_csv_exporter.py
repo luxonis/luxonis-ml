@@ -149,7 +149,7 @@ class TensorflowCSVExporter(BaseExporter):
         output_path: Path,
         part: int | None = None,
     ) -> None:
-        if not rows_by_split:
+        if all(len(rows) == 0 for rows in rows_by_split.values()):
             return
 
         base = (

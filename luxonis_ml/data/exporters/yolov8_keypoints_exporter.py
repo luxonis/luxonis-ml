@@ -199,6 +199,9 @@ class YoloV8KeypointsExporter(BaseExporter):
         output_path: Path,
         part: int | None = None,
     ) -> None:
+        if all(len(images) == 0 for images in annotation_splits.values()):
+            return
+
         base = (
             output_path / f"{self.dataset_identifier}_part{part}"
             if part is not None

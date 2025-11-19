@@ -155,7 +155,7 @@ class VOCExporter(BaseExporter):
         output_path: Path,
         part: int | None = None,
     ) -> None:
-        if not per_split_data:
+        if all(len(images) == 0 for images in per_split_data.values()):
             return
 
         base = (

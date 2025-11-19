@@ -112,7 +112,6 @@ class YoloV6Exporter(BaseExporter):
                     dest.write_bytes(file_path.read_bytes())
                 self.current_size += img_size
 
-        # Flush remaining annotations for the last partition
         self._dump_annotations(annotation_splits, self.output_path, self.part)
 
     def _maybe_roll_partition(
@@ -147,6 +146,8 @@ class YoloV6Exporter(BaseExporter):
             if part is not None
             else output_path / self.dataset_identifier
         )
+        if all(len(images) == 0 for images in annotation_splits.values()):
+            return
 
         for split_name in self.get_split_names().values():
             labels_dir = base / "labels" / split_name

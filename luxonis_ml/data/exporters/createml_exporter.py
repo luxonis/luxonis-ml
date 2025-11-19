@@ -166,7 +166,7 @@ class CreateMLExporter(BaseExporter):
         output_path: Path,
         part: int | None = None,
     ) -> None:
-        if not anns_by_split:
+        if all(len(per_image) == 0 for per_image in anns_by_split.values()):
             return
 
         base = (

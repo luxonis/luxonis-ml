@@ -140,6 +140,8 @@ class YoloV8Exporter(BaseExporter):
             if part is not None
             else output_path / self.dataset_identifier
         )
+        if all(len(images) == 0 for images in annotation_splits.values()):
+            return
 
         for split_name in self.get_split_names().values():
             labels_dir = base / "labels" / split_name

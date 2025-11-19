@@ -144,7 +144,7 @@ class DarknetExporter(BaseExporter):
         output_path: Path,
         part: int | None = None,
     ) -> None:
-        if not labels_by_split:
+        if all(len(imgs) == 0 for imgs in labels_by_split.values()):
             return
 
         base = (
