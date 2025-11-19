@@ -1,6 +1,8 @@
 from luxonis_ml.guard_extras import guard_missing_extra
 
 with guard_missing_extra("utils"):
+    from luxonis_ml.typing import BaseModelExtraForbid
+
     from .config import LuxonisConfig
     from .environ import Environ, environ
     from .filesystem import PUT_FILE_REGISTRY, LuxonisFileSystem
@@ -13,6 +15,7 @@ with guard_missing_extra("utils"):
 __all__ = [
     "PUT_FILE_REGISTRY",
     "AutoRegisterMeta",
+    "BaseModelExtraForbid",
     "Environ",
     "LuxonisConfig",
     "LuxonisFileSystem",
