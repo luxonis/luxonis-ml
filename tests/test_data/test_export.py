@@ -7,6 +7,16 @@ from pytest_subtests import SubTests
 from luxonis_ml.data import LuxonisLoader, LuxonisParser
 from luxonis_ml.enums.enums import DatasetType
 
+# SOLO does not have an associated exporter,
+# SEGMASK and CLSDIR return empty directories
+# because COCO_people_subset does not contain
+# image-level masks or classes
+EXPORT_DATASET_TYPES = [
+    dt
+    for dt in list(DatasetType)
+    if dt not in {DatasetType.SEGMASK, DatasetType.CLSDIR, DatasetType.SOLO}
+]
+
 
 @pytest.mark.parametrize("url", ["COCO_people_subset.zip"])
 def test_dir_parser(
@@ -152,7 +162,6 @@ def test_export_regular_splits(
         zip_output=True,
     )
     zip_files = sorted((tempdir / "exported").glob("*.zip"))
-
     assert len(zip_files) == 2
 
     for i, zip_file in enumerate(zip_files):
@@ -166,6 +175,59 @@ def test_export_regular_splits(
     new_splits = dataset.get_splits()
     assert new_splits is not None
     assert len(new_splits) == len(original_splits)
+
+    for split in original_splits:
+        original_split = sorted(original_splits[split])
+        new_split = sorted(new_splits[split])
+        assert original_split == new_split
+
+
+@pytest.mark.parametrize("dataset_type", EXPORT_DATASET_TYPES)
+@pytest.mark.parametrize("url", ["COCO_people_subset.zip"])
+def test_export_no_partition(
+    dataset_name: str,
+    storage_url: str,
+    tempdir: Path,
+    url: str,
+    dataset_type: DatasetType,
+):
+    url = f"{storage_url}/{url}"
+    dataset = LuxonisParser(
+        url,
+        dataset_name=dataset_name,
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()
+
+    original_splits = dataset.get_splits()
+    assert original_splits is not None
+
+    export_dir = tempdir / "exported"
+    dataset.export(
+        output_path=export_dir,
+        zip_output=True,
+        dataset_type=dataset_type,
+    )
+
+    zip_files = sorted(export_dir.glob("*.zip"))
+    assert len(zip_files) == 1
+
+    exported_zip = zip_files[0]
+    parser = LuxonisParser(
+        str(exported_zip),
+        dataset_name=f"{dataset_name}_reimported",
+        delete_local=True,
+        save_dir=tempdir,
+    )
+
+    if dataset_type == DatasetType.COCO:
+        new_dataset = parser.parse(split_val_to_test=False)
+    else:
+        new_dataset = parser.parse()
+
+    new_splits = new_dataset.get_splits()
+    assert new_splits is not None
+    assert set(original_splits.keys()) == set(new_splits.keys())
 
     for split in original_splits:
         original_split = sorted(original_splits[split])

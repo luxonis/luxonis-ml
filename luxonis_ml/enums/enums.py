@@ -2,7 +2,6 @@ from enum import Enum
 
 
 class DatasetType(str, Enum):
-    LDF = "ldf"
     COCO = "coco"
     VOC = "voc"
     DARKNET = "darknet"
@@ -14,4 +13,6 @@ class DatasetType(str, Enum):
     SEGMASK = "segmask"
     SOLO = "solo"
     NATIVE = "native"
-    YOLOV8 = "yolov8"
+    YOLOV8BOUNDINGBOX = "yolov8"
+    YOLOV8INSTANCESEGMENTATION = "yolov8instancesegmentation"
+    YOLOV8KEYPOINTS = "yolov8keypoints"
