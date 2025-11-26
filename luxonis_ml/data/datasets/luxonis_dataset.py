@@ -1395,9 +1395,9 @@ class LuxonisDataset(BaseDataset):
                     )
 
                     if group_id is None:
-                        logger.warning(
-                            f"No group ID found for '{filepath}' in definitions; skipping."
-                        )
+                        # logger.warning(
+                        #     f"No group ID found for '{filepath}' in definitions; skipping."
+                        # )
                         continue
                     ids.append(group_id)
 

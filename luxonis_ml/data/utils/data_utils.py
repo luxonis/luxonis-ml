@@ -251,10 +251,10 @@ def warn_on_duplicates(df: pl.LazyFrame) -> None:
     """
     duplicates_info = find_duplicates(df)
     if duplicates_info["duplicate_uuids"]:
-        for item in duplicates_info["duplicate_uuids"]:
-            logger.warning(
-                f"UUID {item['uuid']} is the same for multiple files: {item['files']}"
-            )
+        # for item in duplicates_info["duplicate_uuids"]:
+            # logger.warning(
+            #     f"UUID {item['uuid']} is the same for multiple files: {item['files']}"
+            # )
         logger.warning(
             "Duplicate files detected. "
             "To clean them up, call `dataset.remove_duplicates()` "

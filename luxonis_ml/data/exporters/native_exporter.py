@@ -19,6 +19,10 @@ from luxonis_ml.data.exporters.exporter_utils import (
 class NativeExporter(BaseExporter):
     """Exporter for LDF format."""
 
+    def __init__(self, *args, multiplier: int = 100, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.multiplier = multiplier
+
     @staticmethod
     def get_split_names() -> dict[str, str]:
         return {"train": "train", "val": "val", "test": "test"}
@@ -48,35 +52,62 @@ class NativeExporter(BaseExporter):
         for group_id, group_df in grouped_df:
             split = split_of_group(prepared_ldf, group_id)
 
-            matched_df = grouped_image_sources.filter(
-                pl.col("group_id") == group_id
-            )
-            group_files = matched_df.get_column("file").to_list()
-            group_source_names = matched_df.get_column("source_name").to_list()
+            matched_df = grouped_image_sources.filter(pl.col("group_id") == group_id)
+            orig_files = matched_df.get_column("file").to_list()
+            orig_sources = matched_df.get_column("source_name").to_list()
 
-            records = [
-                self._process_row(row, group_source_names, group_files)
-                for row in group_df.iter_rows(named=True)
-            ]
+            # Repeat the group images & annotations
+            for rep_idx in range(self.multiplier):
 
-            ann_size = sum(sys.getsizeof(r) for r in records)
-            img_size = sum(Path(f).stat().st_size for f in group_files)
-            annotation_splits = self._maybe_roll_partition(
-                annotation_splits, ann_size + img_size
-            )
+                # Create synthetic file paths for each replication
+                if rep_idx == 0:
+                    # First repetition uses real files
+                    group_files = orig_files
+                    group_sources = orig_sources
+                else:
+                    # Additional repetitions get synthetic paths
+                    group_files = []
+                    group_sources = orig_sources
+                    for f in orig_files:
+                        p = Path(f)
+                        fake_name = p.with_name(f"{p.stem}__rep{rep_idx}{p.suffix}")
+                        group_files.append(str(fake_name))
 
-            data_path = self._get_data_path(self.output_path, split, self.part)
-            data_path.mkdir(parents=True, exist_ok=True)
+                # Generate annotation records
+                records = [
+                    self._process_row(row, group_sources, group_files)
+                    for row in group_df.iter_rows(named=True)
+                ]
 
-            for f in group_files:
-                p = Path(f)
-                if p not in copied_files:
-                    copied_files.add(p)
-                    idx = self.image_indices[p]
-                    shutil.copy(p, data_path / f"{idx}{p.suffix}")
-                    self.current_size += p.stat().st_size
+                ann_size = sum(sys.getsizeof(r) for r in records)
+                img_size = sum(Path(orig).stat().st_size for orig in orig_files)
+                annotation_splits = self._maybe_roll_partition(
+                    annotation_splits, ann_size + img_size
+                )
 
-            annotation_splits[split].extend(records)
+                data_path = self._get_data_path(self.output_path, split, self.part)
+                data_path.mkdir(parents=True, exist_ok=True)
+
+                # Copy: each replicated file gets a new index & new file on disk
+                for orig, fake in zip(orig_files, group_files, strict=True):
+                    p_orig = Path(orig)
+                    p_fake = Path(fake)  # synthetic path for index lookup
+
+                    if p_fake not in copied_files:
+                        copied_files.add(p_fake)
+
+                        # Assign a new index for EACH replication
+                        idx = self.image_indices.setdefault(
+                            p_fake, len(self.image_indices)
+                        )
+
+                        shutil.copy(
+                            p_orig,
+                            data_path / f"{idx}{p_orig.suffix}"
+                        )
+                        self.current_size += p_orig.stat().st_size
+
+                annotation_splits[split].extend(records)
 
         self._dump_annotations(annotation_splits, self.output_path, self.part)
 
