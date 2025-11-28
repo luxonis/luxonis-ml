@@ -638,6 +638,9 @@ After initializing the parser, you can parse the dataset to create a `LuxonisDat
 dataset = parser.parse()
 ```
 
+> [!NOTE]
+> The dataset parsers do not follow symbolic links. Datasets that rely on symlinks may not be parsed correctly.
+
 ### LuxonisParser CLI
 
 The parser can be invoked using the `luxonis_ml data parse` command.
