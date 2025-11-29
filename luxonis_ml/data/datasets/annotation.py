@@ -564,7 +564,7 @@ class DatasetRecord(BaseModelExtraForbid):
         if "files" in values:
             files_dict = values["files"]
             values["files"] = {
-                k: Path(v).resolve() for k, v in files_dict.items()
+                k: Path(v).absolute() for k, v in files_dict.items()
             }
         return values
 
