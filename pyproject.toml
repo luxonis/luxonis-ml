@@ -3,13 +3,13 @@ name = "luxonis-ml"
 description = "MLOps tools for training models for Luxonis devices"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { file = "LICENSE" }
+license-files = ["LICENSE"]
+license = "Apache-2.0"
 authors = [{ name = "Luxonis", email = "support@luxonis.com" }]
 maintainers = [{ name = "Luxonis", email = "support@luxonis.com" }]
 keywords = ["ml", "ops", "camera", "luxonis", "oak"]
 dynamic = ["dependencies", "optional-dependencies", "version"]
 classifiers = [
-  "License :: OSI Approved :: Apache Software License",
   "Development Status :: 4 - Beta",
   "Programming Language :: Python :: 3.10",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
