@@ -18,6 +18,7 @@ from .classification_directory_parser import ClassificationDirectoryParser
 from .coco_parser import COCOParser
 from .create_ml_parser import CreateMLParser
 from .darknet_parser import DarknetParser
+from .fiftyone_classification_parser import FiftyOneClassificationParser
 from .native_parser import NativeParser
 from .segmentation_mask_directory_parser import SegmentationMaskDirectoryParser
 from .solo_parser import SOLOParser
@@ -52,6 +53,7 @@ class LuxonisParser(Generic[T]):
         DatasetType.YOLOV8BOUNDINGBOX: YOLOv8Parser,
         DatasetType.YOLOV8INSTANCESEGMENTATION: YOLOv8Parser,
         DatasetType.YOLOV8KEYPOINTS: YOLOv8Parser,
+        DatasetType.FIFTYONECLASSIFICATION: FiftyOneClassificationParser,
     }
 
     def __init__(

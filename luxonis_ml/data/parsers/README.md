@@ -5,8 +5,72 @@ The `LuxonisParser` class provides functionality for converting various dataset 
 ## Table of Contents
 
 - [LuxonisML Parsers](#luxonisml-parsers)
+  - [Supported Formats](#supported-formats)
   - [Parameters](#parameters)
   - [Parse Method Parameters](#parse-method-parameters)
+
+## Supported Formats
+
+### FiftyOneClassification
+
+The FiftyOne Classification format is used by the [FiftyOne](https://voxel51.com/fiftyone/) library for image classification datasets.
+
+**Format characteristics:**
+
+- **Flat structure only** - This format does not support pre-defined train/valid/test splits
+- When parsing, all data is treated as a single dataset and LDF's random splitting creates train/val/test splits internally
+- When exporting back to this format, the flat structure is preserved (LDF splits are not reflected in the output)
+- **Round-trip consistent** - Parse → Export produces the same flat structure
+
+**Expected directory structure:**
+
+```
+dataset_dir/
+├── data/
+│   ├── img1.jpg
+│   ├── img2.jpg
+│   └── ...
+├── labels.json
+└── info.json (optional)
+```
+
+**labels.json structure:**
+
+```json
+{
+    "classes": ["class1", "class2", ...],
+    "labels": {
+        "img1": 0,
+        "img2": 1,
+        ...
+    }
+}
+```
+
+Where each key in `labels` is the image filename (without extension) and the value is the index into the `classes` list.
+
+**Usage:**
+
+```python
+from luxonis_ml.data.parsers import LuxonisParser
+from luxonis_ml.enums import DatasetType
+
+# Auto-detection
+parser = LuxonisParser("path/to/fiftyone_dataset")
+dataset = parser.parse()
+
+# Explicit type
+parser = LuxonisParser(
+    "path/to/fiftyone_dataset",
+    dataset_type=DatasetType.FIFTYONECLASSIFICATION
+)
+dataset = parser.parse()
+
+# Export back to FiftyOneClassification format
+dataset.export("output_path", DatasetType.FIFTYONECLASSIFICATION)
+```
+
+**Note on splits:** The FiftyOne Classification format is inherently flat. When you parse a dataset, LDF creates internal train/val/test splits (default 80/10/10) for training purposes. However, when you export back to FiftyOneClassification format, all images are exported to a single flat structure, preserving format consistency.
 
 ## Parameters
 

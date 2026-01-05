@@ -23,6 +23,7 @@ from luxonis_ml.data.exporters import (
     CocoExporter,
     CreateMLExporter,
     DarknetExporter,
+    FiftyOneClassificationExporter,
     NativeExporter,
     PreparedLDF,
     SegmentationMaskDirectoryExporter,
@@ -1549,6 +1550,9 @@ class LuxonisDataset(BaseDataset):
             DatasetType.VOC: ExporterSpec(VOCExporter, {}),
             DatasetType.CREATEML: ExporterSpec(CreateMLExporter, {}),
             DatasetType.TFCSV: ExporterSpec(TensorflowCSVExporter, {}),
+            DatasetType.FIFTYONECLASSIFICATION: ExporterSpec(
+                FiftyOneClassificationExporter, {}
+            ),
         }
         spec = EXPORTER_MAP.get(dataset_type)
         if spec is None:
