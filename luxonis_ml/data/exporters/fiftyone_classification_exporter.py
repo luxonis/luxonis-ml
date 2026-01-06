@@ -14,8 +14,9 @@ from luxonis_ml.data.exporters.exporter_utils import (
 
 
 class FiftyOneClassificationExporter(BaseExporter):
-    """Output structure:
-        {dataset_name}/
+    """Output structure::
+
+        <dataset_name>/
             train/
                 data/
                     000001.jpg
@@ -31,15 +32,16 @@ class FiftyOneClassificationExporter(BaseExporter):
                     ...
                 labels.json
 
-    The labels.json has structure:
-        {
+    The labels.json has structure::
+
+        E{lb}
             "classes": ["class1", "class2", ...],
-            "labels": {
+            "labels": E{lb}
                 "000001": 0,  # index into classes array
                 "000002": 1,
                 ...
-            }
-        }
+            E{rb}
+        E{rb}
     """
 
     def __init__(

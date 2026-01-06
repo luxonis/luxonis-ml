@@ -8,13 +8,19 @@ from luxonis_ml.data import LuxonisLoader, LuxonisParser
 from luxonis_ml.enums.enums import DatasetType
 
 # SOLO does not have an associated exporter,
-# SEGMASK and CLSDIR return empty directories
+# SEGMASK, CLSDIR, and FIFTYONECLS return empty directories
 # because COCO_people_subset does not contain
-# image-level masks or classes
+# image-level masks or classification labels
 EXPORT_DATASET_TYPES = [
     dt
     for dt in list(DatasetType)
-    if dt not in {DatasetType.SEGMASK, DatasetType.CLSDIR, DatasetType.SOLO}
+    if dt
+    not in {
+        DatasetType.SEGMASK,
+        DatasetType.CLSDIR,
+        DatasetType.SOLO,
+        DatasetType.FIFTYONECLS,
+    }
 ]
 
 
