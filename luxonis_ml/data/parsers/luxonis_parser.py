@@ -53,7 +53,7 @@ class LuxonisParser(Generic[T]):
         DatasetType.YOLOV8BOUNDINGBOX: YOLOv8Parser,
         DatasetType.YOLOV8INSTANCESEGMENTATION: YOLOv8Parser,
         DatasetType.YOLOV8KEYPOINTS: YOLOv8Parser,
-        DatasetType.FIFTYONE_CLS: FiftyOneClassificationParser,
+        DatasetType.FIFTYONECLS: FiftyOneClassificationParser,
     }
 
     def __init__(

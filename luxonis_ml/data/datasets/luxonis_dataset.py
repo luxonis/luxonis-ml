@@ -1544,7 +1544,7 @@ class LuxonisDataset(BaseDataset):
             DatasetType.CLSDIR: ExporterSpec(
                 ClassificationDirectoryExporter, {}
             ),
-            DatasetType.FIFTYONE_CLS: ExporterSpec(
+            DatasetType.FIFTYONECLS: ExporterSpec(
                 FiftyOneClassificationExporter, {}
             ),
             DatasetType.SEGMASK: ExporterSpec(

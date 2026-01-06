@@ -77,7 +77,7 @@ class COCOParser(BaseParser):
         try:
             with open(json_path) as f:
                 data = json.load(f)
-            # COCO format requires these three fields
+            # Distinguish between COCO and FiftyOne classification as they both have labels.json files
             return (
                 isinstance(data, dict)
                 and "images" in data

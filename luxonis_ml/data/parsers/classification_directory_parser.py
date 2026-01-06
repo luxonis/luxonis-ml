@@ -88,7 +88,6 @@ class ClassificationDirectoryParser(BaseParser):
         @return: Annotation generator, list of classes names, skeleton
             dictionary for keypoints and list of added images.
         """
-
         class_names = [d.name for d in class_dir.iterdir() if d.is_dir()]
 
         def generator() -> DatasetIterator:

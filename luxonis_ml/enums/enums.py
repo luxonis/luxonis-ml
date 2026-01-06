@@ -16,4 +16,4 @@ class DatasetType(str, Enum):
     YOLOV8BOUNDINGBOX = "yolov8"
     YOLOV8INSTANCESEGMENTATION = "yolov8instancesegmentation"
     YOLOV8KEYPOINTS = "yolov8keypoints"
-    FIFTYONE_CLS = "fiftyone-classification"
+    FIFTYONECLS = "fiftyone-classification"
