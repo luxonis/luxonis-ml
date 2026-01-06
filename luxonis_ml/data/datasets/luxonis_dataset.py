@@ -23,6 +23,7 @@ from luxonis_ml.data.exporters import (
     CocoExporter,
     CreateMLExporter,
     DarknetExporter,
+    FiftyOneClassificationExporter,
     NativeExporter,
     PreparedLDF,
     SegmentationMaskDirectoryExporter,
@@ -1542,6 +1543,9 @@ class LuxonisDataset(BaseDataset):
             DatasetType.DARKNET: ExporterSpec(DarknetExporter, {}),
             DatasetType.CLSDIR: ExporterSpec(
                 ClassificationDirectoryExporter, {}
+            ),
+            DatasetType.FIFTYONE_CLS: ExporterSpec(
+                FiftyOneClassificationExporter, {}
             ),
             DatasetType.SEGMASK: ExporterSpec(
                 SegmentationMaskDirectoryExporter, {}

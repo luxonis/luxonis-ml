@@ -72,6 +72,22 @@ class COCOParser(BaseParser):
         return None, []
 
     @staticmethod
+    def _is_coco_json(json_path: Path) -> bool:
+        """Check if JSON file has required COCO format fields."""
+        try:
+            with open(json_path) as f:
+                data = json.load(f)
+            # COCO format requires these three fields
+            return (
+                isinstance(data, dict)
+                and "images" in data
+                and "annotations" in data
+                and "categories" in data
+            )
+        except (json.JSONDecodeError, OSError):
+            return False
+
+    @staticmethod
     def validate_split(split_path: Path) -> dict[str, Any] | None:
         if not split_path.exists():
             return None
@@ -79,9 +95,13 @@ class COCOParser(BaseParser):
         if not json_path:
             return None
         if json_path.name == "_annotations.coco.json":
+            if not COCOParser._is_coco_json(json_path):
+                return None
             logger.info("Identified Roboflow format")
             image_dir = split_path
             return {"image_dir": image_dir, "annotation_path": json_path}
+        if not COCOParser._is_coco_json(json_path):
+            return None
         logger.info("Identified FiftyOne format")
         dirs = [d for d in split_path.iterdir() if d.is_dir()]
         if len(dirs) != 1:
