@@ -557,19 +557,68 @@ The supported formats are:
     └── test/
   ```
 
-- **Classification Directory** - A directory with subdirectories for each class
+- **Classification Directory** - A directory with subdirectories for each class. Two structures are supported:
 
-  ```plaintext
-  dataset_dir/
-  ├── train/
-  │   ├── class1/
-  │   │   ├── img1.jpg
-  │   │   ├── img2.jpg
-  │   │   └── ...
-  │   ├── class2/
-  │   └── ...
-  ├── valid/
-  └── test/
+  - Split structure with train/valid/test subdirectories:
+    ```plaintext
+    dataset_dir/
+    ├── train/
+    │   ├── class1/
+    │   │   ├── img1.jpg
+    │   │   ├── img2.jpg
+    │   │   └── ...
+    │   ├── class2/
+    │   └── ...
+    ├── valid/
+    └── test/
+    ```
+  - Flat structure (class subdirectories directly in root, random splits applied at parse time):
+    ```plaintext
+    dataset_dir/
+    ├── class1/
+    │   ├── img1.jpg
+    │   └── ...
+    ├── class2/
+    │   └── ...
+    └── info.json  (optional metadata file)
+    ```
+
+- [**FiftyOne Classification**](https://docs.voxel51.com/user_guide/export_datasets.html#fiftyone-image-classification-dataset) - FiftyOneImageClassificationDataset format with images in a `data/` folder and labels in `labels.json`. Two structures are supported:
+
+  - Split structure with train/validation/test subdirectories:
+    ```plaintext
+    dataset_dir/
+    ├── train/
+    │   ├── data/
+    │   │   ├── img1.jpg
+    │   │   └── ...
+    │   └── labels.json
+    ├── validation/
+    │   ├── data/
+    │   └── labels.json
+    └── test/
+        ├── data/
+        └── labels.json
+    ```
+  - Flat structure (random splits applied at parse time):
+    ```plaintext
+    dataset_dir/
+    ├── data/
+    │   ├── img1.jpg
+    │   └── ...
+    └── labels.json
+    ```
+
+  The `labels.json` format:
+
+  ```json
+  {
+      "classes": ["class1", "class2", ...],
+      "labels": {
+          "image_stem": class_index,
+          ...
+      }
+  }
   ```
 
 - **Segmentation Mask Directory** - A directory with images and corresponding masks.
