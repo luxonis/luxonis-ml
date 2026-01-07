@@ -18,6 +18,7 @@ from .classification_directory_parser import ClassificationDirectoryParser
 from .coco_parser import COCOParser
 from .create_ml_parser import CreateMLParser
 from .darknet_parser import DarknetParser
+from .fiftyone_classification_parser import FiftyOneClassificationParser
 from .native_parser import NativeParser
 from .segmentation_mask_directory_parser import SegmentationMaskDirectoryParser
 from .solo_parser import SOLOParser
@@ -39,6 +40,7 @@ T = TypeVar("T", str, None)
 class LuxonisParser(Generic[T]):
     parsers: dict[DatasetType, type[BaseParser]] = {
         DatasetType.COCO: COCOParser,
+        DatasetType.FIFTYONECLS: FiftyOneClassificationParser,
         DatasetType.VOC: VOCParser,
         DatasetType.DARKNET: DarknetParser,
         DatasetType.YOLOV6: YoloV6Parser,

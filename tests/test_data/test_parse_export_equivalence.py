@@ -346,6 +346,7 @@ ANNOTATION_REGISTRY: dict[str, list[tuple[DatasetType, Callable]]] = {
     "classification": [
         (DatasetType.NATIVE, collect_classification_multiset),
         (DatasetType.CLSDIR, collect_classification_multiset),
+        (DatasetType.FIFTYONECLS, collect_classification_multiset),
     ],
     "segmentation": [
         (DatasetType.SEGMASK, collect_segmentation_multiset),

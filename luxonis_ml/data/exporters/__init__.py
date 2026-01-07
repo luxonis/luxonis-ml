@@ -4,6 +4,7 @@ from .coco_exporter import CocoExporter
 from .createml_exporter import CreateMLExporter
 from .darknet_exporter import DarknetExporter
 from .exporter_utils import PreparedLDF
+from .fiftyone_classification_exporter import FiftyOneClassificationExporter
 from .native_exporter import NativeExporter
 from .segmentation_mask_directory_exporter import (
     SegmentationMaskDirectoryExporter,
@@ -24,6 +25,7 @@ __all__ = [
     "CocoExporter",
     "CreateMLExporter",
     "DarknetExporter",
+    "FiftyOneClassificationExporter",
     "NativeExporter",
     "PreparedLDF",
     "SegmentationMaskDirectoryExporter",
