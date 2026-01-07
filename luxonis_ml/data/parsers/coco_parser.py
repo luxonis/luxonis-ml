@@ -77,12 +77,16 @@ class COCOParser(BaseParser):
         try:
             with open(json_path) as f:
                 data = json.load(f)
-            # Distinguish between COCO and FiftyOne classification as they both have labels.json files
-            return (
-                isinstance(data, dict)
-                and "images" in data
-                and "annotations" in data
-                and "categories" in data
+            if not isinstance(data, dict):
+                return False
+            # images is required, annotations is optional (test sets don't have them)
+            if "images" not in data:
+                return False
+            # Categories can be at top level or nested inside info
+            return "categories" in data or (
+                "info" in data
+                and isinstance(data["info"], dict)
+                and "categories" in data["info"]
             )
         except (json.JSONDecodeError, OSError):
             return False

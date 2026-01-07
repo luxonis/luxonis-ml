@@ -40,6 +40,7 @@ T = TypeVar("T", str, None)
 class LuxonisParser(Generic[T]):
     parsers: dict[DatasetType, type[BaseParser]] = {
         DatasetType.COCO: COCOParser,
+        DatasetType.FIFTYONECLS: FiftyOneClassificationParser,
         DatasetType.VOC: VOCParser,
         DatasetType.DARKNET: DarknetParser,
         DatasetType.YOLOV6: YoloV6Parser,
@@ -53,7 +54,6 @@ class LuxonisParser(Generic[T]):
         DatasetType.YOLOV8BOUNDINGBOX: YOLOv8Parser,
         DatasetType.YOLOV8INSTANCESEGMENTATION: YOLOv8Parser,
         DatasetType.YOLOV8KEYPOINTS: YOLOv8Parser,
-        DatasetType.FIFTYONECLS: FiftyOneClassificationParser,
     }
 
     def __init__(

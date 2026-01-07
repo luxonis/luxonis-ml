@@ -53,7 +53,7 @@ class ClassificationDirectoryParser(BaseParser):
                 "valid",
                 "test",
                 "val",
-                "valdation",
+                "validation",
                 "images",
                 "labels",
             }
