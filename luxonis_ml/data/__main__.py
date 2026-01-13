@@ -575,6 +575,15 @@ def parse(
             show_default=False,
         ),
     ] = None,
+    no_clean: Annotated[
+        bool,
+        typer.Option(
+            ...,
+            "--no-clean",
+            help="Skip automatic cleaning of known dataset issues "
+            "(e.g., duplicate images in COCO, duplicate class names in ImageNet).",
+        ),
+    ] = False,
 ):
     """Parses a directory with data and creates Luxonis dataset."""
     parser = LuxonisParser(
@@ -584,6 +593,7 @@ def parse(
         delete_local=delete_local,
         save_dir=save_dir,
         task_name=task_name,
+        skip_clean=no_clean,
     )
     dataset = parser.parse()
 

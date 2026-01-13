@@ -127,6 +127,7 @@ class COCOParser(BaseParser):
         use_keypoint_ann: bool = False,
         keypoint_ann_paths: dict[str, str] | None = None,
         split_val_to_test: bool = True,
+        skip_clean: bool = False,
     ) -> tuple[list[Path], list[Path], list[Path]]:
         dir_format, splits = COCOParser._detect_dataset_dir_format(dataset_dir)
         if dir_format is None:
@@ -160,7 +161,9 @@ class COCOParser(BaseParser):
             and dir_format is COCOFormat.FIFTYONE
             else train_paths["annotation_path"]
         )
-        cleaned_annotation_path = clean_annotations(train_ann_path)
+        cleaned_annotation_path = (
+            train_ann_path if skip_clean else clean_annotations(train_ann_path)
+        )
         added_train_imgs = self._parse_split(
             image_dir=train_paths["image_dir"],
             annotation_path=cleaned_annotation_path,

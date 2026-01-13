@@ -65,6 +65,7 @@ class LuxonisParser(Generic[T]):
         dataset_plugin: T = None,
         dataset_type: DatasetType | None = None,
         task_name: str | dict[str, str] | None = None,
+        skip_clean: bool = False,
         **kwargs,
     ):
         """High-level abstraction over various parsers.
@@ -104,6 +105,10 @@ class LuxonisParser(Generic[T]):
             a dictionary with class names as keys and task names as values.
             In the latter case, the task name for a record with a given
             class name will be taken from the dictionary.
+        @type skip_clean: bool
+        @param skip_clean: If C{True}, skip automatic cleaning of known
+            dataset issues (e.g., duplicate images in COCO, duplicate
+            class names in ImageNet). Defaults to C{False}.
         @type kwargs: Dict[str, Any]
         @param kwargs: Additional C{kwargs} to be passed to the
             constructor of specific L{BaseDataset} implementation.
@@ -155,6 +160,7 @@ class LuxonisParser(Generic[T]):
         self.parser = self.parsers[self.dataset_type](
             self.dataset, self.dataset_type, task_name
         )
+        self.skip_clean = skip_clean
 
     @overload
     def parse(self: "LuxonisParser[str]", **kwargs) -> BaseDataset: ...
@@ -216,7 +222,9 @@ class LuxonisParser(Generic[T]):
         @return: C{LDF} with all the images and annotations parsed.
         """
 
-        return self.parser.parse_dir(self.dataset_dir, **kwargs)
+        return self.parser.parse_dir(
+            self.dataset_dir, skip_clean=self.skip_clean, **kwargs
+        )
 
     def _parse_split(
         self,
@@ -252,7 +260,12 @@ class LuxonisParser(Generic[T]):
                 f"Dataset {self.dataset_dir} is not in the expected format for {self.dataset_type} parser."
             )
         return self.parser.parse_split(
-            split, random_split, split_ratios, **parsed_kwargs, **kwargs
+            split,
+            random_split,
+            split_ratios,
+            skip_clean=self.skip_clean,
+            **parsed_kwargs,
+            **kwargs,
         )
 
     def _download_roboflow_dataset(

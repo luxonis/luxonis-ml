@@ -114,7 +114,9 @@ class FiftyOneClassificationParser(BaseParser):
         classes = labels_data.get("classes", [])
         return dict(enumerate(classes))
 
-    def from_split(self, split_path: Path) -> ParserOutput:
+    def from_split(
+        self, split_path: Path, skip_clean: bool = False
+    ) -> ParserOutput:
         labels_path = split_path / "labels.json"
         data_path = split_path / "data"
 
@@ -123,7 +125,8 @@ class FiftyOneClassificationParser(BaseParser):
         # and label indices, and set native classes
         is_flat_structure = split_path.name not in self.SPLIT_NAMES
         if is_flat_structure:
-            labels_path = clean_imagenet_annotations(labels_path)
+            if not skip_clean:
+                labels_path = clean_imagenet_annotations(labels_path)
             native_classes = self._extract_native_classes(labels_path)
             if native_classes:
                 self.dataset.set_native_classes(native_classes, "imagenet")
