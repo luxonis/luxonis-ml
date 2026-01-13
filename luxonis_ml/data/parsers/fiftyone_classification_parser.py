@@ -124,7 +124,6 @@ class FiftyOneClassificationParser(BaseParser):
         is_flat_structure = split_path.name not in self.SPLIT_NAMES
         if is_flat_structure:
             labels_path = clean_imagenet_annotations(labels_path)
-            # Extract and set native ImageNet class indexing for flat structure
             native_classes = self._extract_native_classes(labels_path)
             if native_classes:
                 self.dataset.set_native_classes(native_classes, "imagenet")
@@ -163,12 +162,12 @@ def clean_imagenet_annotations(labels_path: Path) -> Path:
     This function handles two known issues in ImageNet FiftyOne exports:
 
     1. Duplicate class names:
-       - First instance of "crane" → "crane_bird"
-       - Second instance of "maillot" → "maillot_swim_suit"
+       - First instance of "crane" -> "crane_bird"
+       - Second instance of "maillot" -> "maillot_swim_suit"
 
     2. Misindexed labels:
-       - "006742": 517 → "006742": 134
-       - "031933": 639 → "031933": 638
+       - "006742": 517 -> "006742": 134
+       - "031933": 639 -> "031933": 638
     """
     with open(labels_path) as f:
         labels_data = json.load(f)

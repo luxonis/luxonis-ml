@@ -224,7 +224,7 @@ class COCOParser(BaseParser):
             annotation_data = json.load(f)
 
         categories = annotation_data.get("categories", [])
-        # Sort by original ID and create contiguous 0-indexed mapping
+        # Contiguous 0-indexed mapping
         sorted_categories = sorted(categories, key=lambda x: x["id"])
         return {i: cat["name"] for i, cat in enumerate(sorted_categories)}
 
