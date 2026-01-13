@@ -110,6 +110,27 @@ class BaseDataset(
         ...
 
     @abstractmethod
+    def set_native_classes(
+        self,
+        native_classes: dict[int, str],
+        source_format: str,
+    ) -> None:
+        """Sets the native class indexing from the original dataset
+        format.
+
+        This stores the mapping from original dataset indices to class
+        names.
+
+        @type native_classes: Dict[int, str]
+        @param native_classes: A dictionary mapping original dataset
+            indices to class names.
+        @type source_format: str
+        @param source_format: The name of the source format (e.g.,
+            "coco", "imagenet").
+        """
+        ...
+
+    @abstractmethod
     def set_skeletons(
         self,
         labels: list[str] | None = None,

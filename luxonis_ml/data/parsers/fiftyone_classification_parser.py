@@ -164,13 +164,17 @@ def clean_imagenet_annotations(labels_path: Path) -> Path:
 
     This function handles two known issues in ImageNet FiftyOne exports:
 
-    1. Duplicate class names:
-       - First instance of "crane" -> "crane_bird"
-       - Second instance of "maillot" -> "maillot_swim_suit"
+        1. Duplicate class names: First instance of "crane" is renamed
+           to "crane_bird", second instance of "maillot" is renamed to
+           "maillot_swim_suit".
 
-    2. Misindexed labels:
-       - "006742": 517 -> "006742": 134
-       - "031933": 639 -> "031933": 638
+        2. Misindexed labels: "006742" label 517 is corrected to 134,
+           "031933" label 639 is corrected to 638.
+
+    @type labels_path: Path
+    @param labels_path: Path to the labels.json file.
+    @rtype: Path
+    @return: Path to the cleaned labels file.
     """
     with open(labels_path) as f:
         labels_data = json.load(f)
