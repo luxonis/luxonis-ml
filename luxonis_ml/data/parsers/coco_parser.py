@@ -232,7 +232,10 @@ class COCOParser(BaseParser):
         return {i: cat["name"] for i, cat in enumerate(sorted_categories)}
 
     def from_split(
-        self, image_dir: Path, annotation_path: Path
+        self,
+        image_dir: Path,
+        annotation_path: Path,
+        skip_clean: bool = False,
     ) -> ParserOutput:
         """Parses annotations from COCO format to LDF. Annotations
         include classification, segmentation, object detection and
@@ -242,10 +245,18 @@ class COCOParser(BaseParser):
         @param image_dir: Path to directory with images
         @type annotation_path: Path
         @param annotation_path: Path to annotation json file
+        @type skip_clean: bool
+        @param skip_clean: If C{True}, skip automatic cleaning of known
+            dataset issues. Defaults to C{False}.
         @rtype: L{ParserOutput}
         @return: Annotation generator, list of classes names, skeleton
             dictionary for keypoints and list of added images.
         """
+        annotation_path = (
+            annotation_path
+            if skip_clean
+            else clean_annotations(annotation_path)
+        )
 
         with open(annotation_path) as f:
             annotation_data = json.load(f)
