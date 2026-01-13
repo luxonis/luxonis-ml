@@ -211,7 +211,20 @@ class COCOParser(BaseParser):
                 annotation_path=test_ann_path,
             )
 
+        # Extract and set native COCO class indexing
+        native_classes = self._extract_native_classes(cleaned_annotation_path)
+        if native_classes:
+            self.dataset.set_native_classes(native_classes, "coco")
+
         return added_train_imgs, added_val_imgs, added_test_imgs
+
+    @staticmethod
+    def _extract_native_classes(annotation_path: Path) -> dict[int, str]:
+        with open(annotation_path) as f:
+            annotation_data = json.load(f)
+
+        categories = annotation_data.get("categories", [])
+        return {cat["id"]: cat["name"] for cat in categories}
 
     def from_split(
         self, image_dir: Path, annotation_path: Path

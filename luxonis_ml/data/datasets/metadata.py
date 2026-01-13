@@ -23,6 +23,7 @@ class Metadata(BaseModelExtraForbid):
     categorical_encodings: dict[str, dict[str, int]] = {}
     metadata_types: dict[str, Literal["float", "int", "str", "Category"]] = {}
     parent_dataset: str | None = None
+    native_classes: dict[str, dict[int, str]] = {}
 
     def set_classes(
         self, classes: list[str] | dict[str, int], task: str
@@ -99,6 +100,8 @@ class Metadata(BaseModelExtraForbid):
         else:
             merged_source = None
 
+        merged_native_classes = {**self.native_classes, **other.native_classes}
+
         return Metadata(
             ldf_version=self.ldf_version,
             source=merged_source,
@@ -107,6 +110,7 @@ class Metadata(BaseModelExtraForbid):
             skeletons=merged_skeletons,
             categorical_encodings=merged_categorical_encodings,
             metadata_types=merged_metadata_types,  # type: ignore
+            native_classes=merged_native_classes,
         )
 
     def _sort_classes(self, classes: Iterable[str]) -> list[str]:

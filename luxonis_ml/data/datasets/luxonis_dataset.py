@@ -848,6 +848,28 @@ class LuxonisDataset(BaseDataset):
     ) -> dict[str, Literal["float", "int", "str", "Category"]]:
         return self._metadata.metadata_types
 
+    def set_native_classes(
+        self,
+        native_classes: dict[int, str],
+        source_format: str,
+    ) -> None:
+        """Sets the native class indexing from the original dataset
+        format.
+
+        This stores the mapping from original dataset indices to class
+        names
+        """
+        self._metadata.native_classes[source_format] = native_classes
+        self._write_metadata()
+
+    def get_native_classes(
+        self,
+        source_format: str | None = None,
+    ) -> dict[str, dict[int, str]] | dict[int, str] | None:
+        if source_format is None:
+            return self._metadata.native_classes
+        return self._metadata.native_classes.get(source_format)
+
     def pull_from_cloud(
         self, update_mode: UpdateMode = UpdateMode.MISSING
     ) -> None:
