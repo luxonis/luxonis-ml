@@ -151,6 +151,7 @@ class BaseParser(ABC):
         @rtype: LuxonisDataset
         @return: C{LDF} with all the images and annotations parsed.
         """
+        self.skip_clean = kwargs.pop("skip_clean", False)
         added_images = self._parse_split(**kwargs)
         if split is not None:
             self.dataset.make_splits({split: added_images})
@@ -169,6 +170,7 @@ class BaseParser(ABC):
         @rtype: LuxonisDataset
         @return: C{LDF} with all the images and annotations parsed.
         """
+        self.skip_clean = kwargs.pop("skip_clean", False)
         train, val, test = self.from_dir(dataset_dir, **kwargs)
 
         self.dataset.make_splits({"train": train, "val": val, "test": test})
