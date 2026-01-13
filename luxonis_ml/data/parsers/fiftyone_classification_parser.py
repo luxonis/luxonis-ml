@@ -163,8 +163,8 @@ def clean_imagenet_annotations(labels_path: Path) -> Path:
     This function handles two known issues in ImageNet FiftyOne exports:
 
         1. Duplicate class names: First instance of "crane" is renamed
-           to "crane_bird", second instance of "maillot" is renamed to
-           "maillot_swim_suit".
+           to "crane bird", second instance of "maillot" is renamed to
+           "maillot swim suit".
 
         2. Misindexed labels: "006742" label 517 is corrected to 134,
            "031933" label 639 is corrected to 638.
@@ -183,24 +183,24 @@ def clean_imagenet_annotations(labels_path: Path) -> Path:
     modified = False
 
     # Fix duplicate class names
-    # First "crane" (bird) should be renamed to "crane_bird"
+    # First "crane" (bird) should be renamed to "crane bird"
     crane_indices = [i for i, c in enumerate(classes) if c == "crane"]
     if len(crane_indices) >= 1:
         first_crane_idx = crane_indices[0]
         classes[first_crane_idx] = "crane_bird"
         logger.info(
-            f"Renamed class 'crane' at index {first_crane_idx} to 'crane_bird'"
+            f"Renamed class 'crane' at index {first_crane_idx} to 'crane bird'"
         )
         modified = True
 
-    # Second "maillot" should be renamed to "maillot_swim_suit"
+    # Second "maillot" should be renamed to "maillot swim suit"
     maillot_indices = [i for i, c in enumerate(classes) if c == "maillot"]
     if len(maillot_indices) >= 2:
         second_maillot_idx = maillot_indices[1]
         classes[second_maillot_idx] = "maillot_swim_suit"
         logger.info(
             f"Renamed class 'maillot' at index {second_maillot_idx} "
-            "to 'maillot_swim_suit'"
+            "to 'maillot swim suit'"
         )
         modified = True
 
