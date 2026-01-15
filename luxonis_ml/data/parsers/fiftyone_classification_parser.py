@@ -187,7 +187,7 @@ def clean_imagenet_annotations(labels_path: Path) -> Path:
     crane_indices = [i for i, c in enumerate(classes) if c == "crane"]
     if len(crane_indices) >= 1:
         first_crane_idx = crane_indices[0]
-        classes[first_crane_idx] = "crane_bird"
+        classes[first_crane_idx] = "crane bird"
         logger.info(
             f"Renamed class 'crane' at index {first_crane_idx} to 'crane bird'"
         )
@@ -197,7 +197,7 @@ def clean_imagenet_annotations(labels_path: Path) -> Path:
     maillot_indices = [i for i, c in enumerate(classes) if c == "maillot"]
     if len(maillot_indices) >= 2:
         second_maillot_idx = maillot_indices[1]
-        classes[second_maillot_idx] = "maillot_swim_suit"
+        classes[second_maillot_idx] = "maillot swim suit"
         logger.info(
             f"Renamed class 'maillot' at index {second_maillot_idx} "
             "to 'maillot swim suit'"
