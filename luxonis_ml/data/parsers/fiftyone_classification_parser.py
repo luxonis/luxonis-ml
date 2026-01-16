@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
+
 from luxonis_ml.data import DatasetIterator
 
 from .base_parser import BaseParser, ParserOutput
@@ -102,6 +104,10 @@ class FiftyOneClassificationParser(BaseParser):
         labels_path = split_path / "labels.json"
         data_path = split_path / "data"
 
+        is_flat_structure = split_path.name not in self.SPLIT_NAMES
+        if is_flat_structure:
+            labels_path = clean_imagenet_annotations(labels_path)
+
         with open(labels_path) as f:
             labels_data = json.load(f)
 
@@ -127,3 +133,74 @@ class FiftyOneClassificationParser(BaseParser):
         added_images = self._get_added_images(generator())
 
         return generator(), {}, added_images
+
+
+def clean_imagenet_annotations(labels_path: Path) -> Path:
+    """Cleans ImageNet annotations by fixing known issues with class
+    names and label indices.
+    This function handles two known issues in ImageNet FiftyOne exports:
+        1. Duplicate class names: First instance of "crane" is renamed
+           to "crane bird", second instance of "maillot" is renamed to
+           "maillot swim suit".
+        2. Misindexed labels: "006742" label 517 is corrected to 134,
+           "031933" label 639 is corrected to 638.
+    @type labels_path: Path
+    @param labels_path: Path to the labels.json file.
+    @rtype: Path
+    @return: Path to the cleaned labels file.
+    """
+    with open(labels_path) as f:
+        labels_data = json.load(f)
+
+    classes = labels_data["classes"]
+    labels = labels_data["labels"]
+
+    modified = False
+
+    # Fix duplicate class names
+    # First "crane" (bird) should be renamed to "crane bird"
+    crane_indices = [i for i, c in enumerate(classes) if c == "crane"]
+    if len(crane_indices) >= 1:
+        first_crane_idx = crane_indices[0]
+        classes[first_crane_idx] = "crane bird"
+        logger.info(
+            f"Renamed class 'crane' at index {first_crane_idx} to 'crane bird'"
+        )
+        modified = True
+
+    # Second "maillot" should be renamed to "maillot swim suit"
+    maillot_indices = [i for i, c in enumerate(classes) if c == "maillot"]
+    if len(maillot_indices) >= 2:
+        second_maillot_idx = maillot_indices[1]
+        classes[second_maillot_idx] = "maillot swim suit"
+        logger.info(
+            f"Renamed class 'maillot' at index {second_maillot_idx} "
+            "to 'maillot swim suit'"
+        )
+        modified = True
+
+    # Fix misindexed labels
+    # Image 006742 should map to index 134, not 517
+    if labels.get("006742") == 517:
+        labels["006742"] = 134
+        logger.info("Fixed label index for image '006742': 517 -> 134")
+        modified = True
+
+    # Image 031933 should map to index 638, not 639
+    if labels.get("031933") == 639:
+        labels["031933"] = 638
+        logger.info("Fixed label index for image '031933': 639 -> 638")
+        modified = True
+
+    if not modified:
+        return labels_path
+
+    labels_data["classes"] = classes
+    labels_data["labels"] = labels
+
+    cleaned_labels_path = labels_path.with_name("labels_fixed.json")
+    with open(cleaned_labels_path, "w") as f:
+        json.dump(labels_data, f)
+
+    logger.info(f"Cleaned annotations saved to {cleaned_labels_path}")
+    return cleaned_labels_path
