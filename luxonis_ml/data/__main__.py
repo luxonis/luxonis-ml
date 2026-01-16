@@ -55,6 +55,38 @@ bucket_option = typer.Option(
 )
 
 
+def parse_split_ratio(value: str | None) -> dict[str, float] | None:
+    if value is None:
+        return None
+
+    parts = value.split(",")
+    if len(parts) != 3:
+        raise typer.BadParameter(
+            f"Split ratio must have exactly 3 values (train,val,test), got {len(parts)}."
+        )
+
+    try:
+        ratios = [float(p.strip()) for p in parts]
+    except ValueError as e:
+        raise typer.BadParameter(
+            f"Split ratio values must be valid numbers: {e}"
+        ) from e
+
+    for ratio in ratios:
+        if ratio < 0 or ratio > 1:
+            raise typer.BadParameter(
+                f"Split ratio values must be between 0 and 1, got {ratio}."
+            )
+
+    total = sum(ratios)
+    if abs(total - 1.0) > 1e-6:
+        raise typer.BadParameter(
+            f"Split ratios must sum to 1.0, got {total:.4f}."
+        )
+
+    return {"train": ratios[0], "val": ratios[1], "test": ratios[2]}
+
+
 def check_exists(name: str, bucket_storage: BucketStorage):
     if not LuxonisDataset.exists(name, bucket_storage=bucket_storage):
         print(f"[red]Dataset [magenta]'{name}'[red] does not exist.")
@@ -575,8 +607,21 @@ def parse(
             show_default=False,
         ),
     ] = None,
+    split_ratio: Annotated[
+        str | None,
+        typer.Option(
+            ...,
+            "--split-ratio",
+            "-sr",
+            help="Split ratios for train,val,test as comma-separated values "
+            "For example: '0.8,0.1,0.1'. Must sum to 1.0. "
+            "If not provided, defaults to 0.8,0.1,0.1.",
+            show_default=False,
+        ),
+    ] = None,
 ):
     """Parses a directory with data and creates Luxonis dataset."""
+    split_ratios = parse_split_ratio(split_ratio)
     parser = LuxonisParser(
         dataset_dir,
         dataset_name=name,
@@ -585,7 +630,7 @@ def parse(
         save_dir=save_dir,
         task_name=task_name,
     )
-    dataset = parser.parse()
+    dataset = parser.parse(split_ratios=split_ratios)
 
     print()
     print(Rule())
