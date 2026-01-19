@@ -169,9 +169,15 @@ class BaseParser(ABC):
         @rtype: LuxonisDataset
         @return: C{LDF} with all the images and annotations parsed.
         """
+        split_ratios = kwargs.pop("split_ratios", None)
         train, val, test = self.from_dir(dataset_dir, **kwargs)
 
-        self.dataset.make_splits({"train": train, "val": val, "test": test})
+        if split_ratios is not None:
+            self.dataset.make_splits(split_ratios)
+        else:
+            self.dataset.make_splits(
+                {"train": train, "val": val, "test": test}
+            )
         return self.dataset
 
     @staticmethod
