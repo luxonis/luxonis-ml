@@ -61,11 +61,12 @@ def parse_split_ratio(
 ) -> dict[str, float | int | str] | None:
     """Parse split ratio argument.
 
-    Supports two modes:
-    - Percentages: e.g., "0.8,0.1,0.1" - values must sum to 1.0
-      These redistribute/shuffle all samples across splits.
-    - Raw counts: e.g., "1000,100,50" - integer values that don't sum to 1.0
-      These draw samples from each respective original split without redistribution.
+    Supports two modes::
+
+        - Percentages (e.g., C{"0.8,0.1,0.1"}), values must sum to 1.0.
+          These redistribute/shuffle all samples across splits.
+        - Raw counts (e.g., C{"1000,100,50"}), integer values that don't sum to 1.0.
+          These draw samples from each respective original split without redistribution.
     """
     if value is None:
         return None
