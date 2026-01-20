@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import rich.box
 import typer
+from loguru import logger
 from rich import print
 from rich.console import Console, RenderableType, group
 from rich.panel import Panel
@@ -55,7 +56,17 @@ bucket_option = typer.Option(
 )
 
 
-def parse_split_ratio(value: str | None) -> dict[str, float] | None:
+def parse_split_ratio(
+    value: str | None,
+) -> dict[str, float | int | str] | None:
+    """Parse split ratio argument.
+
+    Supports two modes:
+    - Percentages: e.g., "0.8,0.1,0.1" - values must sum to 1.0
+      These redistribute/shuffle all samples across splits.
+    - Raw counts: e.g., "1000,100,50" - integer values that don't sum to 1.0
+      These draw samples from each respective original split without redistribution.
+    """
     if value is None:
         return None
 
@@ -66,25 +77,51 @@ def parse_split_ratio(value: str | None) -> dict[str, float] | None:
         )
 
     try:
-        ratios = [float(p.strip()) for p in parts]
+        raw_values = [p.strip() for p in parts]
+        # Check if all values are integers (raw counts mode)
+        all_integers = all(
+            v.isdigit() or (v.startswith("-") and v[1:].isdigit())
+            for v in raw_values
+        )
+
+        if all_integers:
+            counts = [int(v) for v in raw_values]
+            for count in counts:
+                if count < 0:
+                    raise typer.BadParameter(
+                        f"Split count values must be non-negative, got {count}."
+                    )
+            # Raw counts mode
+            return {
+                "train": counts[0],
+                "val": counts[1],
+                "test": counts[2],
+                "_mode": "counts",
+            }
+        # Percentages mode
+        ratios = [float(v) for v in raw_values]
+        for ratio in ratios:
+            if ratio < 0 or ratio > 1:
+                raise typer.BadParameter(
+                    f"Split ratio values must be between 0 and 1, got {ratio}."
+                )
+
+        total = sum(ratios)
+        if abs(total - 1.0) > 1e-6:
+            raise typer.BadParameter(
+                f"Split ratios must sum to 1.0, got {total:.4f}."
+            )
+
+        return {
+            "train": ratios[0],
+            "val": ratios[1],
+            "test": ratios[2],
+            "_mode": "ratios",
+        }
     except ValueError as e:
         raise typer.BadParameter(
             f"Split ratio values must be valid numbers: {e}"
         ) from e
-
-    for ratio in ratios:
-        if ratio < 0 or ratio > 1:
-            raise typer.BadParameter(
-                f"Split ratio values must be between 0 and 1, got {ratio}."
-            )
-
-    total = sum(ratios)
-    if abs(total - 1.0) > 1e-6:
-        raise typer.BadParameter(
-            f"Split ratios must sum to 1.0, got {total:.4f}."
-        )
-
-    return {"train": ratios[0], "val": ratios[1], "test": ratios[2]}
 
 
 def check_exists(name: str, bucket_storage: BucketStorage):
@@ -613,15 +650,32 @@ def parse(
             ...,
             "--split-ratio",
             "-sr",
-            help="Split ratios for train,val,test as comma-separated values "
-            "For example: '0.8,0.1,0.1'. Must sum to 1.0. "
-            "If not provided, defaults to 0.8,0.1,0.1.",
+            help="Split specification for train,val,test as comma-separated values. "
+            "Two modes: (1) Percentages like '0.8,0.1,0.1' must sum to 1.0 and will "
+            "redistribute/shuffle all samples across splits. (2) Raw counts like "
+            "'1000,100,50' will sample from each original split independently "
+            "(no cross-split redistribution).",
             show_default=False,
         ),
     ] = None,
 ):
     """Parses a directory with data and creates Luxonis dataset."""
     split_ratios = parse_split_ratio(split_ratio)
+
+    if split_ratios is not None:
+        mode = split_ratios.pop("_mode", "ratios")
+        if mode == "ratios":
+            logger.warning(
+                "Using percentage-based split ratios will redistribute "
+                "and shuffle all samples across splits. Original split boundaries will "
+                "not be preserved."
+            )
+        else:
+            logger.warning(
+                "Using raw count mode. Samples will be drawn from each "
+                "original split independently without redistribution."
+            )
+
     parser = LuxonisParser(
         dataset_dir,
         dataset_name=name,

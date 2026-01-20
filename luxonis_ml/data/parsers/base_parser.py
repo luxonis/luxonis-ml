@@ -1,12 +1,16 @@
+import random
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
+
+from loguru import logger
 
 from luxonis_ml.data import BaseDataset, DatasetIterator
 from luxonis_ml.data.datasets.annotation import DatasetRecord
 from luxonis_ml.enums.enums import DatasetType
+from luxonis_ml.typing import PathType
 
 ParserOutput = tuple[DatasetIterator, dict[str, dict], list[Path]]
 
@@ -173,7 +177,39 @@ class BaseParser(ABC):
         train, val, test = self.from_dir(dataset_dir, **kwargs)
 
         if split_ratios is not None:
-            self.dataset.make_splits(split_ratios)
+            is_counts_mode = all(
+                isinstance(v, int)
+                for k, v in split_ratios.items()
+                if k != "_mode"
+            )
+
+            if is_counts_mode:
+                original_splits = {"train": train, "val": val, "test": test}
+                sampled_splits: dict[str, Sequence[PathType]] = {}
+
+                for split_name in ["train", "val", "test"]:
+                    requested = split_ratios[split_name]
+                    available = original_splits[split_name]
+                    available_count = len(available)
+
+                    if requested == 0:
+                        sampled_splits[split_name] = []
+                    elif requested >= available_count:
+                        if requested > available_count:
+                            logger.warning(
+                                f"Requested {requested} samples for '{split_name}' split, "
+                                f"but only {available_count} available. Using all {available_count} samples."
+                            )
+                        sampled_splits[split_name] = list(available)
+                    else:
+                        sampled_splits[split_name] = random.sample(
+                            list(available), requested
+                        )
+
+                self.dataset.make_splits(sampled_splits)
+            else:
+                # Percentages mode: redistribute across all splits
+                self.dataset.make_splits(split_ratios)
         else:
             self.dataset.make_splits(
                 {"train": train, "val": val, "test": test}
