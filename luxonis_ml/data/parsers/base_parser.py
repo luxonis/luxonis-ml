@@ -3,14 +3,18 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+import polars as pl
 from loguru import logger
 
 from luxonis_ml.data import BaseDataset, DatasetIterator
 from luxonis_ml.data.datasets.annotation import DatasetRecord
 from luxonis_ml.enums.enums import DatasetType
 from luxonis_ml.typing import PathType
+
+if TYPE_CHECKING:
+    from luxonis_ml.data import LuxonisDataset
 
 ParserOutput = tuple[DatasetIterator, dict[str, dict], list[Path]]
 
@@ -80,15 +84,15 @@ class BaseParser(ABC):
     @abstractmethod
     def from_dir(
         self, dataset_dir: Path, **kwargs
-    ) -> tuple[list[str], list[str], list[str]]:
+    ) -> tuple[list[Path], list[Path], list[Path]]:
         """Parses all present data to L{LuxonisDataset} format.
 
-        @type dataset_dir: str
+        @type dataset_dir: Path
         @param dataset_dir: Path to source dataset directory.
         @type kwargs: Any
         @param kwargs: Additional arguments for a specific parser
             implementation.
-        @rtype: Tuple[List[str], List[str], List[str]]
+        @rtype: Tuple[List[Path], List[Path], List[Path]]
         @return: Tuple with added images for C{train}, C{val} and
             C{test} splits.
         """
@@ -174,15 +178,27 @@ class BaseParser(ABC):
         @return: C{LDF} with all the images and annotations parsed.
         """
         split_ratios = kwargs.pop("split_ratios", None)
+
+        is_counts_mode = False
+        if split_ratios is not None:
+            is_counts_mode = all(
+                isinstance(v, int) for v in split_ratios.values()
+            )
+            if is_counts_mode:
+                logger.warning(
+                    "Using raw count mode. Samples will be drawn from each "
+                    "original split independently without redistribution."
+                )
+            else:
+                logger.warning(
+                    "Using percentage-based split ratios will redistribute "
+                    "and shuffle all samples across splits. Original split "
+                    "boundaries will not be preserved."
+                )
+
         train, val, test = self.from_dir(dataset_dir, **kwargs)
 
         if split_ratios is not None:
-            is_counts_mode = all(
-                isinstance(v, int)
-                for k, v in split_ratios.items()
-                if k != "_mode"
-            )
-
             if is_counts_mode:
                 original_splits = {"train": train, "val": val, "test": test}
                 sampled_splits: dict[str, Sequence[PathType]] = {}
@@ -207,6 +223,7 @@ class BaseParser(ABC):
                         )
 
                 self.dataset.make_splits(sampled_splits)
+                self._remove_unsplit_records()
             else:
                 # Percentages mode: redistribute across all splits
                 self.dataset.make_splits(split_ratios)
@@ -215,6 +232,32 @@ class BaseParser(ABC):
                 {"train": train, "val": val, "test": test}
             )
         return self.dataset
+
+    def _remove_unsplit_records(self) -> None:
+        """Removes records from the dataset that are not assigned to any
+        split."""
+        # Cast to LuxonisDataset to access internal methods
+        dataset: LuxonisDataset = self.dataset  # type: ignore[assignment]
+
+        splits = dataset.get_splits()
+        if splits is None:
+            return
+
+        # Get all group_ids that are in any split
+        all_split_group_ids: set[str] = set()
+        for group_ids in splits.values():
+            all_split_group_ids.update(group_ids)
+
+        if not all_split_group_ids:
+            return
+
+        df = dataset._load_df_offline(lazy=True)
+        if df is None:
+            return
+
+        # Filter to keep only records whose group_id is in a split
+        df = df.filter(pl.col("group_id").is_in(list(all_split_group_ids)))
+        dataset._save_df_offline(df.collect())
 
     @staticmethod
     def _get_added_images(generator: DatasetIterator) -> list[Path]:

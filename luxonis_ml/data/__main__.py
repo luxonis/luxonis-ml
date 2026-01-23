@@ -1,3 +1,4 @@
+import ast
 import shutil
 from collections.abc import Iterator
 from pathlib import Path
@@ -8,7 +9,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import rich.box
 import typer
-from loguru import logger
 from rich import print
 from rich.console import Console, RenderableType, group
 from rich.panel import Panel
@@ -58,71 +58,50 @@ bucket_option = typer.Option(
 
 def parse_split_ratio(
     value: str | None,
-) -> dict[str, float | int | str] | None:
+) -> dict[str, float | int] | None:
     """Parse split ratio argument.
 
-    Supports two modes::
-
-        - Percentages (e.g., C{"0.8,0.1,0.1"}), values must sum to 1.0.
-          These redistribute/shuffle all samples across splits.
-        - Raw counts (e.g., C{"1000,100,50"}), integer values that don't sum to 1.0.
-          These draw samples from each respective original split without redistribution.
+    Expects a Python list (e.g., C{"[0.8, 0.1, 0.1]"}). If values sum to
+    1.0, treated as ratios. Otherwise, treated as counts.
     """
     if value is None:
         return None
 
-    parts = value.split(",")
-    if len(parts) != 3:
-        raise typer.BadParameter(
-            f"Split ratio must have exactly 3 values (train,val,test), got {len(parts)}."
-        )
-
     try:
-        raw_values = [p.strip() for p in parts]
-        # Check if all values are integers (raw counts mode)
-        all_integers = all(
-            v.isdigit() or (v.startswith("-") and v[1:].isdigit())
-            for v in raw_values
+        parsed = ast.literal_eval(value)
+    except (ValueError, SyntaxError) as e:
+        raise typer.BadParameter(f"Invalid list syntax: {e}") from e
+
+    if not isinstance(parsed, list) or len(parsed) != 3:
+        raise typer.BadParameter(
+            "Split ratio must be a list of 3 values (train, val, test)."
         )
 
-        if all_integers:
-            counts = [int(v) for v in raw_values]
-            for count in counts:
-                if count < 0:
-                    raise typer.BadParameter(
-                        f"Split count values must be non-negative, got {count}."
-                    )
-            # Raw counts mode
-            return {
-                "train": counts[0],
-                "val": counts[1],
-                "test": counts[2],
-                "_mode": "counts",
-            }
-        # Percentages mode
-        ratios = [float(v) for v in raw_values]
-        for ratio in ratios:
-            if ratio < 0 or ratio > 1:
-                raise typer.BadParameter(
-                    f"Split ratio values must be between 0 and 1, got {ratio}."
-                )
+    if not all(isinstance(v, int | float) for v in parsed):
+        raise typer.BadParameter("Split ratio values must be numbers.")
 
-        total = sum(ratios)
-        if abs(total - 1.0) > 1e-6:
-            raise typer.BadParameter(
-                f"Split ratios must sum to 1.0, got {total:.4f}."
-            )
+    all_ints = all(isinstance(v, int) for v in parsed)
+    all_floats = all(isinstance(v, float) for v in parsed)
 
-        return {
-            "train": ratios[0],
-            "val": ratios[1],
-            "test": ratios[2],
-            "_mode": "ratios",
-        }
-    except ValueError as e:
+    if not (all_ints or all_floats):
         raise typer.BadParameter(
-            f"Split ratio values must be valid numbers: {e}"
-        ) from e
+            "Split ratio values must be all integers (counts) "
+            "or all floats (ratios), not a mix."
+        )
+
+    if all_floats and abs(sum(parsed) - 1.0) >= 1e-6:
+        raise typer.BadParameter(
+            f"Float ratios must sum to 1.0, but got {sum(parsed):.2f}."
+        )
+
+    keys = ["train", "val", "test"]
+    return dict(
+        zip(
+            keys,
+            parsed if all_floats else [int(v) for v in parsed],
+            strict=True,
+        )
+    )
 
 
 def check_exists(name: str, bucket_storage: BucketStorage):
@@ -651,10 +630,10 @@ def parse(
             ...,
             "--split-ratio",
             "-sr",
-            help="Split specification for train,val,test as comma-separated values. "
-            "Two modes: (1) Percentages like '0.8,0.1,0.1' must sum to 1.0 and will "
+            help="Split specification for train,val,test as a Python list. "
+            "Two modes: (1) Percentages like '[0.8, 0.1, 0.1]' must sum to 1.0 and will "
             "redistribute/shuffle all samples across splits. (2) Raw counts like "
-            "'1000,100,50' will sample from each original split independently "
+            "'[1000, 100, 50]' will sample from each original split independently "
             "(no cross-split redistribution).",
             show_default=False,
         ),
@@ -662,20 +641,6 @@ def parse(
 ):
     """Parses a directory with data and creates Luxonis dataset."""
     split_ratios = parse_split_ratio(split_ratio)
-
-    if split_ratios is not None:
-        mode = split_ratios.pop("_mode", "ratios")
-        if mode == "ratios":
-            logger.warning(
-                "Using percentage-based split ratios will redistribute "
-                "and shuffle all samples across splits. Original split boundaries will "
-                "not be preserved."
-            )
-        else:
-            logger.warning(
-                "Using raw count mode. Samples will be drawn from each "
-                "original split independently without redistribution."
-            )
 
     parser = LuxonisParser(
         dataset_dir,
