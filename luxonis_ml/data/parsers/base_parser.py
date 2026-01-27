@@ -164,10 +164,9 @@ class BaseParser(ABC):
         if split is not None:
             self.dataset.make_splits({split: added_images})
         elif random_split:
-            is_counts_mode = split_ratios is not None and all(
+            if split_ratios is not None and all(
                 isinstance(v, int) for v in split_ratios.values()
-            )
-            if is_counts_mode:
+            ):
                 total_requested = sum(split_ratios.values())
                 available = len(added_images)
 
