@@ -138,7 +138,7 @@ class BaseParser(ABC):
         self,
         split: str | None = None,
         random_split: bool = False,
-        split_ratios: dict[str, float] | None = None,
+        split_ratios: dict[str, float | int] | None = None,
         **kwargs,
     ) -> BaseDataset:
         """Parses data in a split subdirectory to L{LuxonisDataset}
@@ -150,9 +150,10 @@ class BaseParser(ABC):
         @type random_split: bool
         @param random_split: If random splits should be made. If
             C{True}, C{split_ratios} are used.
-        @type split_ratios: Optional[Tuple[float, float, float]]
-        @param split_ratios: Ratios for random splits. Only used if
-            C{random_split} is C{True}. Defaults to C{(0.8, 0.1, 0.1)}.
+        @type split_ratios: Optional[Dict[str, Union[float, int]]]
+        @param split_ratios: Ratios or counts for splits. Only used if
+            C{random_split} is C{True}. If floats, treated as ratios. If
+            ints, treated as counts. Defaults to C{(0.8, 0.1, 0.1)}.
         @type kwargs: Dict[str, Any]
         @param kwargs: Additional C{kwargs} for specific parser
             implementation.
@@ -163,7 +164,36 @@ class BaseParser(ABC):
         if split is not None:
             self.dataset.make_splits({split: added_images})
         elif random_split:
-            self.dataset.make_splits(split_ratios)
+            is_counts_mode = split_ratios is not None and all(
+                isinstance(v, int) for v in split_ratios.values()
+            )
+            if is_counts_mode:
+                assert split_ratios is not None
+                total_requested = sum(split_ratios.values())
+                available = len(added_images)
+
+                if total_requested > available:
+                    logger.warning(
+                        f"Requested {total_requested} total samples, "
+                        f"but only {available} available. "
+                        "Defaulting to [0.8, 0.1, 0.1] ratios."
+                    )
+                    self.dataset.make_splits()
+                else:
+                    shuffled = list(added_images)
+                    random.shuffle(shuffled)
+
+                    offset = 0
+                    sampled: dict[str, Sequence[PathType]] = {}
+                    for split_name in ["train", "val", "test"]:
+                        count = split_ratios[split_name]
+                        sampled[split_name] = shuffled[offset : offset + count]
+                        offset += count
+
+                    self.dataset.make_splits(sampled)
+                    self._remove_unsplit_records()
+            else:
+                self.dataset.make_splits(split_ratios)
         return self.dataset
 
     def parse_dir(self, dataset_dir: Path, **kwargs) -> BaseDataset:
