@@ -168,7 +168,6 @@ class BaseParser(ABC):
                 isinstance(v, int) for v in split_ratios.values()
             )
             if is_counts_mode:
-                assert split_ratios is not None
                 total_requested = sum(split_ratios.values())
                 available = len(added_images)
 
