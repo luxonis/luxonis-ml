@@ -181,18 +181,17 @@ class COCOParser(BaseParser):
             image_dir=val_paths["image_dir"], annotation_path=val_ann_path
         )
 
-        if split_val_to_test or len(splits) < 3:
-            if not split_val_to_test:
-                logger.warning(
-                    "Splitting validation set into validation and test sets, "
-                    "as no test split is present in the dataset."
-                )
-            split_point = round(len(_added_val_imgs) * 0.5)
-            added_val_imgs = _added_val_imgs[:split_point]
-            added_test_imgs = _added_val_imgs[split_point:]
+        if len(splits) < 3:
+            # No test split in dataset
+            if split_val_to_test:
+                split_point = round(len(_added_val_imgs) * 0.5)
+                added_val_imgs = _added_val_imgs[:split_point]
+                added_test_imgs = _added_val_imgs[split_point:]
+            else:
+                added_val_imgs = _added_val_imgs
+                added_test_imgs = []
         else:
             added_val_imgs = _added_val_imgs
-            added_test_imgs = []
             # NOTE: test split annotations are not included by default for FiftyOne format
             test_paths = COCOParser.validate_split(dataset_dir / splits[2])
             if test_paths is None:

@@ -1,3 +1,4 @@
+import inspect
 import random
 from abc import ABC, abstractmethod
 from collections import defaultdict
@@ -134,6 +135,95 @@ class BaseParser(ABC):
                 )
         return added_images
 
+    def _apply_counts_to_pool(
+        self,
+        images: Sequence[PathType],
+        split_ratios: dict[str, int],
+    ) -> dict[str, Sequence[PathType]]:
+        """Distributes images across splits based on counts.
+
+        When total requested exceeds available, fills splits by priority
+        (most requested first).
+
+        @type images: Sequence[PathType]
+        @param images: List of images to distribute.
+        @type split_ratios: Dict[str, int]
+        @param split_ratios: Counts for each split.
+        @rtype: Dict[str, Sequence[PathType]]
+        @return: Dictionary mapping split names to their assigned
+            images.
+        """
+        total_requested = sum(split_ratios.values())
+        available = len(images)
+
+        shuffled = list(images)
+        random.shuffle(shuffled)
+
+        if total_requested > available:
+            logger.warning(
+                f"Requested {total_requested} total samples, "
+                f"but only {available} available. "
+                "Filling splits by priority (most requested first)."
+            )
+            sorted_splits = sorted(
+                ["train", "val", "test"],
+                key=lambda s: split_ratios[s],
+                reverse=True,
+            )
+
+            sampled: dict[str, Sequence[PathType]] = {}
+            remaining = available
+            offset = 0
+            for split_name in sorted_splits:
+                count = min(split_ratios[split_name], remaining)
+                sampled[split_name] = shuffled[offset : offset + count]
+                offset += count
+                remaining -= count
+            return sampled
+
+        # Enough samples: distribute in order
+        sampled = {}
+        offset = 0
+        for split_name in ["train", "val", "test"]:
+            count = split_ratios[split_name]
+            sampled[split_name] = shuffled[offset : offset + count]
+            offset += count
+        return sampled
+
+    def _sample_from_splits(
+        self,
+        original_splits: dict[str, Sequence[PathType]],
+        split_ratios: dict[str, int],
+    ) -> dict[str, Sequence[PathType]]:
+        """Samples from each original split independently.
+
+        @type original_splits: Dict[str, Sequence[PathType]]
+        @param original_splits: Original split assignments.
+        @type split_ratios: Dict[str, int]
+        @param split_ratios: Requested counts for each split.
+        @rtype: Dict[str, Sequence[PathType]]
+        @return: Dictionary mapping split names to sampled images.
+        """
+        sampled: dict[str, Sequence[PathType]] = {}
+        for split_name in ["train", "val", "test"]:
+            requested = split_ratios[split_name]
+            available = original_splits[split_name]
+            available_count = len(available)
+
+            if requested == 0:
+                sampled[split_name] = []
+            elif requested >= available_count:
+                if requested > available_count:
+                    logger.warning(
+                        f"Requested {requested} samples for '{split_name}' split, "
+                        f"but only {available_count} available. "
+                        f"Using all {available_count} samples."
+                    )
+                sampled[split_name] = list(available)
+            else:
+                sampled[split_name] = random.sample(list(available), requested)
+        return sampled
+
     def parse_split(
         self,
         split: str | None = None,
@@ -161,35 +251,20 @@ class BaseParser(ABC):
         @return: C{LDF} with all the images and annotations parsed.
         """
         added_images = self._parse_split(**kwargs)
+
         if split is not None:
             self.dataset.make_splits({split: added_images})
         elif random_split:
-            if split_ratios is not None and all(
+            is_counts = split_ratios is not None and all(
                 isinstance(v, int) for v in split_ratios.values()
-            ):
-                total_requested = sum(split_ratios.values())
-                available = len(added_images)
-
-                if total_requested > available:
-                    logger.warning(
-                        f"Requested {total_requested} total samples, "
-                        f"but only {available} available. "
-                        "Defaulting to [0.8, 0.1, 0.1] ratios."
-                    )
-                    self.dataset.make_splits()
-                else:
-                    shuffled = list(added_images)
-                    random.shuffle(shuffled)
-
-                    offset = 0
-                    sampled: dict[str, Sequence[PathType]] = {}
-                    for split_name in ["train", "val", "test"]:
-                        count = split_ratios[split_name]
-                        sampled[split_name] = shuffled[offset : offset + count]
-                        offset += count
-
-                    self.dataset.make_splits(sampled)
-                    self._remove_unsplit_records()
+            )
+            if is_counts:
+                sampled = self._apply_counts_to_pool(
+                    added_images,
+                    split_ratios,  # type: ignore[arg-type]
+                )
+                self.dataset.make_splits(sampled)
+                self._remove_unsplit_records()
             else:
                 self.dataset.make_splits(split_ratios)
         return self.dataset
@@ -206,60 +281,57 @@ class BaseParser(ABC):
         @return: C{LDF} with all the images and annotations parsed.
         """
         split_ratios = kwargs.pop("split_ratios", None)
+        is_counts = split_ratios is not None and all(
+            isinstance(v, int) for v in split_ratios.values()
+        )
 
-        is_counts_mode = False
-        if split_ratios is not None:
-            is_counts_mode = all(
-                isinstance(v, int) for v in split_ratios.values()
-            )
-            if is_counts_mode:
-                logger.warning(
-                    "Using raw count mode. Samples will be drawn from each "
-                    "original split independently without redistribution."
-                )
-            else:
-                logger.warning(
-                    "Using percentage-based split ratios will redistribute "
-                    "and shuffle all samples across splits. Original split "
-                    "boundaries will not be preserved."
-                )
+        # Disable automatic val-to-test splitting when using explicit counts
+        if is_counts and "split_val_to_test" not in kwargs:
+            sig = inspect.signature(self.from_dir)
+            if "split_val_to_test" in sig.parameters:
+                kwargs["split_val_to_test"] = False
 
         train, val, test = self.from_dir(dataset_dir, **kwargs)
+        original_splits = {"train": train, "val": val, "test": test}
 
-        if split_ratios is not None:
-            if is_counts_mode:
-                original_splits = {"train": train, "val": val, "test": test}
-                sampled_splits: dict[str, Sequence[PathType]] = {}
-
-                for split_name in ["train", "val", "test"]:
-                    requested = split_ratios[split_name]
-                    available = original_splits[split_name]
-                    available_count = len(available)
-
-                    if requested == 0:
-                        sampled_splits[split_name] = []
-                    elif requested >= available_count:
-                        if requested > available_count:
-                            logger.warning(
-                                f"Requested {requested} samples for '{split_name}' split, "
-                                f"but only {available_count} available. Using all {available_count} samples."
-                            )
-                        sampled_splits[split_name] = list(available)
-                    else:
-                        sampled_splits[split_name] = random.sample(
-                            list(available), requested
-                        )
-
-                self.dataset.make_splits(sampled_splits)
-                self._remove_unsplit_records()
-            else:
-                # Percentages mode: redistribute across all splits
-                self.dataset.make_splits(split_ratios)
-        else:
-            self.dataset.make_splits(
-                {"train": train, "val": val, "test": test}
+        if split_ratios is None:
+            self.dataset.make_splits(original_splits)
+        elif is_counts:
+            sampled = self._apply_counts_to_splits(
+                original_splits,
+                split_ratios,  # type: ignore[arg-type]
             )
+            self.dataset.make_splits(sampled)
+            self._remove_unsplit_records()
+        else:
+            logger.warning(
+                "Using percentage-based split ratios will redistribute "
+                "and shuffle all samples across splits. Original split "
+                "boundaries will not be preserved."
+            )
+            self.dataset.make_splits(split_ratios)
+
         return self.dataset
+
+    def _apply_counts_to_splits(
+        self,
+        original_splits: dict[str, Sequence[PathType]],
+        split_ratios: dict[str, int],
+    ) -> dict[str, Sequence[PathType]]:
+        """Applies count-based split ratios to pre-existing splits.
+
+        Samples from each original split independently. If more samples
+        are requested than available in a split, all available samples
+        from that split are used.
+
+        @type original_splits: Dict[str, Sequence[PathType]]
+        @param original_splits: Original split assignments.
+        @type split_ratios: Dict[str, int]
+        @param split_ratios: Requested counts for each split.
+        @rtype: Dict[str, Sequence[PathType]]
+        @return: Dictionary mapping split names to assigned images.
+        """
+        return self._sample_from_splits(original_splits, split_ratios)
 
     def _remove_unsplit_records(self) -> None:
         """Removes records from the dataset that are not assigned to any
