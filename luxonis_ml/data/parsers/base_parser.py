@@ -292,7 +292,11 @@ class BaseParser(ABC):
                 kwargs["split_val_to_test"] = False
 
         train, val, test = self.from_dir(dataset_dir, **kwargs)
-        original_splits = {"train": train, "val": val, "test": test}
+        original_splits: dict[str, Sequence[PathType]] = {
+            "train": train,
+            "val": val,
+            "test": test,
+        }
 
         if split_ratios is None:
             self.dataset.make_splits(original_splits)
