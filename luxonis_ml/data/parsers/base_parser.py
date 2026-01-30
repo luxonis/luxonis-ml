@@ -280,6 +280,16 @@ class BaseParser(ABC):
         @rtype: LuxonisDataset
         @return: C{LDF} with all the images and annotations parsed.
         """
+        train_dir = dataset_dir / "train"
+        if not train_dir.exists() or not train_dir.is_dir():
+            existing_dirs = [
+                d.name for d in dataset_dir.iterdir() if d.is_dir()
+            ]
+            raise ValueError(
+                f"Train split not found in dataset. "
+                f"Expected a 'train' directory but found: {existing_dirs}."
+            )
+
         split_ratios = kwargs.pop("split_ratios", None)
         is_counts = split_ratios is not None and all(
             isinstance(v, int) for v in split_ratios.values()
