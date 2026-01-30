@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pycocotools.mask as mask_util
 from loguru import logger
 
 from luxonis_ml.data import DatasetIterator
@@ -281,20 +282,12 @@ class COCOParser(BaseParser):
                     coco_seg = ann.get("segmentation", [])
 
                     if isinstance(coco_seg, list) and coco_seg:
-                        poly = []
-                        for s in coco_seg:
-                            poly_arr = np.array(s).reshape(-1, 2)
-                            poly += [
-                                (
-                                    poly_arr[i, 0] / img_w,
-                                    poly_arr[i, 1] / img_h,
-                                )
-                                for i in range(len(poly_arr))
-                            ]
+                        rles = mask_util.frPyObjects(coco_seg, img_h, img_w)
+                        rle = mask_util.merge(rles)
                         segmentation = {
-                            "height": img_h,
-                            "width": img_w,
-                            "points": poly,
+                            "height": rle["size"][0],
+                            "width": rle["size"][1],
+                            "counts": rle["counts"],
                         }
                     elif isinstance(coco_seg, dict):
                         segmentation = {
