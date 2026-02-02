@@ -222,7 +222,7 @@ class LuxonisParser(Generic[T]):
         self,
         split: str | None = None,
         random_split: bool = True,
-        split_ratios: dict[str, float] | None = None,
+        split_ratios: dict[str, float | int] | None = None,
         **kwargs,
     ) -> BaseDataset:
         """Parses data from a subdirectory representing a single split.
@@ -236,10 +236,11 @@ class LuxonisParser(Generic[T]):
         @type random_split: bool
         @param random_split: If random splits should be made. If
             C{True}, C{split_ratios} are used.
-        @type split_ratios: Optional[Dict[str, float]]
-        @param split_ratios: Ratios for random splits. Only used if
-            C{random_split} is C{True}. Defaults to C{{"train": 0.8,
-            "val": 0.1, "test": 0.1}}.
+        @type split_ratios: Optional[Dict[str, Union[float, int]]]
+        @param split_ratios: Ratios or counts for splits. Only used if
+            C{random_split} is C{True}. If floats, treated as ratios. If
+            ints, treated as counts. Defaults to C{{"train": 0.8, "val":
+            0.1, "test": 0.1}}.
         @type kwargs: Dict[str, Any]
         @param kwargs: Additional kwargs for specific parser
             implementation.

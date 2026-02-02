@@ -1,5 +1,4 @@
 import shutil
-from collections.abc import Iterator
 from pathlib import Path
 from typing import Annotated
 
@@ -9,8 +8,7 @@ import numpy as np
 import rich.box
 import typer
 from rich import print
-from rich.console import Console, RenderableType, group
-from rich.panel import Panel
+from rich.console import Console
 from rich.prompt import Confirm
 from rich.rule import Rule
 from rich.table import Table
@@ -21,6 +19,13 @@ from luxonis_ml.data import (
     LuxonisParser,
     UpdateMode,
 )
+from luxonis_ml.data.utils.cli_utils import (
+    check_exists,
+    complete_dataset_name,
+    get_dataset_info,
+    parse_split_ratio,
+    print_info,
+)
 from luxonis_ml.data.utils.enums import BucketStorage
 from luxonis_ml.data.utils.plot_utils import (
     plot_class_distribution,
@@ -30,12 +35,6 @@ from luxonis_ml.data.utils.visualizations import visualize
 from luxonis_ml.enums import DatasetType
 
 app = typer.Typer()
-
-
-def complete_dataset_name(incomplete: str):
-    datasets = LuxonisDataset.list_datasets()
-    return [d for d in datasets if d.startswith(incomplete)]
-
 
 DatasetNameArgument = Annotated[
     str,
@@ -53,91 +52,6 @@ bucket_option = typer.Option(
     "-b",
     help="Storage type for the dataset.",
 )
-
-
-def check_exists(name: str, bucket_storage: BucketStorage):
-    if not LuxonisDataset.exists(name, bucket_storage=bucket_storage):
-        print(f"[red]Dataset [magenta]'{name}'[red] does not exist.")
-        raise typer.Exit
-
-
-def get_dataset_info(dataset: LuxonisDataset) -> tuple[set[str], list[str]]:
-    all_classes = {
-        c for classes in dataset.get_classes().values() for c in classes
-    }
-    return all_classes, dataset.get_task_names()
-
-
-def print_info(dataset: LuxonisDataset) -> None:
-    classes = dataset.get_classes()
-    has_named_classes = any(k for k in classes if k)
-    class_table = Table(
-        title="Classes", box=rich.box.ROUNDED, row_styles=["yellow", "cyan"]
-    )
-    if has_named_classes:
-        class_table.add_column(
-            "Task Name", header_style="magenta i", max_width=30
-        )
-    class_table.add_column(
-        "Class Names", header_style="magenta i", max_width=50
-    )
-
-    for task_name, c in classes.items():
-        if has_named_classes:
-            class_table.add_row(task_name, ", ".join(c))
-        else:
-            class_table.add_row(", ".join(c))
-
-    tasks = dataset.get_tasks()
-    has_named_tasks = any(k for k in tasks if k)
-
-    task_table = Table(
-        title="Tasks", box=rich.box.ROUNDED, row_styles=["yellow", "cyan"]
-    )
-    if has_named_tasks:
-        task_table.add_column(
-            "Task Name", header_style="magenta i", max_width=30
-        )
-    task_table.add_column("Task Types", header_style="magenta i", max_width=50)
-    for task_name, task_types in tasks.items():
-        task_types.sort()
-        if has_named_tasks:
-            task_table.add_row(task_name, ", ".join(task_types))
-        else:
-            task_table.add_row(", ".join(task_types))
-
-    splits = dataset.get_splits()
-    source_names = dataset.get_source_names()
-
-    @group()
-    def get_sizes_panel() -> Iterator[RenderableType]:
-        if splits is not None:
-            total_groups = len(dataset) / len(source_names)
-            for split, group in splits.items():
-                split_size = len(group)
-                percentage = (
-                    (split_size / total_groups * 100)
-                    if total_groups > 0
-                    else 0
-                )
-                yield f"[magenta b]{split}: [not b cyan]{split_size:,} [dim]({percentage:.1f}%)[/dim]"
-        else:
-            yield "[red]No splits found"
-        yield Rule()
-        yield f"[magenta b]Total: [not b cyan]{int(total_groups)}"
-
-    @group()
-    def get_panels() -> Iterator[RenderableType]:
-        yield f"[magenta b]Name: [not b cyan]{dataset.identifier}"
-        yield f"[magenta b]Version: [not b cyan]{dataset.version}"
-        yield f"[magenta b]Bucket Storage: [not b cyan]{dataset.bucket_storage.value}"
-        yield f"[magenta b]Team ID: [not b cyan]{dataset.team_id}"
-        yield ""
-        yield Panel.fit(get_sizes_panel(), title="Split Sizes")
-        yield class_table
-        yield task_table
-
-    print(Panel.fit(get_panels(), title="Dataset Info"))
 
 
 @app.command()
@@ -575,8 +489,24 @@ def parse(
             show_default=False,
         ),
     ] = None,
+    split_ratio: Annotated[
+        str | None,
+        typer.Option(
+            ...,
+            "--split-ratio",
+            "-sr",
+            help="Split specification for train,val,test as a Python list. "
+            "Two modes: (1) Percentages like '[0.8, 0.1, 0.1]' must sum to 1.0 and will "
+            "redistribute/shuffle all samples across splits. (2) Raw counts like "
+            "'[1000, 100, 50]' will sample from each original split independently "
+            "(no cross-split redistribution).",
+            show_default=False,
+        ),
+    ] = None,
 ):
     """Parses a directory with data and creates Luxonis dataset."""
+    split_ratios = parse_split_ratio(split_ratio)
+
     parser = LuxonisParser(
         dataset_dir,
         dataset_name=name,
@@ -585,7 +515,7 @@ def parse(
         save_dir=save_dir,
         task_name=task_name,
     )
-    dataset = parser.parse()
+    dataset = parser.parse(split_ratios=split_ratios)
 
     print()
     print(Rule())

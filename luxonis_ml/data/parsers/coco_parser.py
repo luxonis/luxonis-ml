@@ -182,18 +182,10 @@ class COCOParser(BaseParser):
             image_dir=val_paths["image_dir"], annotation_path=val_ann_path
         )
 
-        if split_val_to_test or len(splits) < 3:
-            if not split_val_to_test:
-                logger.warning(
-                    "Splitting validation set into validation and test sets, "
-                    "as no test split is present in the dataset."
-                )
-            split_point = round(len(_added_val_imgs) * 0.5)
-            added_val_imgs = _added_val_imgs[:split_point]
-            added_test_imgs = _added_val_imgs[split_point:]
-        else:
-            added_val_imgs = _added_val_imgs
+        if len(splits) < 3:
+            # No test split in dataset
             added_test_imgs = []
+        else:
             # NOTE: test split annotations are not included by default for FiftyOne format
             test_paths = COCOParser.validate_split(dataset_dir / splits[2])
             if test_paths is None:
@@ -211,6 +203,20 @@ class COCOParser(BaseParser):
                 image_dir=test_paths["image_dir"],
                 annotation_path=test_ann_path,
             )
+            if len(added_test_imgs) == 0 and not split_val_to_test:
+                logger.warning(
+                    "Sampling from the test set cannot be done since the "
+                    "labels are missing. This is expected for COCO datasets "
+                    "where the test set annotations are not publicly available."
+                )
+
+        # If test split is empty (no test directory or no annotations), split val into val/test
+        if len(added_test_imgs) == 0 and split_val_to_test:
+            split_point = round(len(_added_val_imgs) * 0.5)
+            added_val_imgs = _added_val_imgs[:split_point]
+            added_test_imgs = _added_val_imgs[split_point:]
+        else:
+            added_val_imgs = _added_val_imgs
 
         return added_train_imgs, added_val_imgs, added_test_imgs
 
@@ -234,8 +240,8 @@ class COCOParser(BaseParser):
             annotation_data = json.load(f)
 
         coco_images = annotation_data["images"]
-        coco_annotations = annotation_data["annotations"]
-        coco_categories = annotation_data["categories"]
+        coco_annotations = annotation_data.get("annotations", [])
+        coco_categories = annotation_data.get("categories", [])
         categories = {cat["id"]: cat["name"] for cat in coco_categories}
 
         skeletons = {}
