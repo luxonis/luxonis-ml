@@ -134,9 +134,8 @@ class YOLOv8Parser(BaseParser):
         if images_path is None or labels_path is None or yaml_root is None:
             return None
 
-        label_files = list(labels_path.glob("*.txt"))
         images = BaseParser._list_images(images_path)
-        if not BaseParser._compare_stem_files(images, label_files):
+        if not images:
             return None
 
         yaml_file = next(
@@ -283,13 +282,23 @@ class YOLOv8Parser(BaseParser):
             for img_path in self._list_images(image_dir):
                 ann_path = annotation_dir / img_path.with_suffix(".txt").name
 
-                with open(ann_path) as f:
-                    annotation_data = f.readlines()
+                annotation_data = []
+                # First check if file exists (would crash otherwise)
+                if ann_path.exists():
+                    with open(ann_path) as f:
+                        annotation_data = f.readlines()
+
+                # pre-filter empty lines
+                annotation_data = [
+                    line for line in annotation_data if line.strip()
+                ]
+
+                # Handle missing annotations
+                if not annotation_data:
+                    yield {"file": str(img_path), "annotation": None}
+                    continue
 
                 for instance_id, ann_line in enumerate(annotation_data):
-                    if not ann_line.strip():
-                        continue
-
                     annotation_elements = ann_line.split()
                     # object detection format: class_id x_center y_center width height
                     # segmentation format: class_id x1 y1 x2 y2 x3 y3 ... xn yn (min 3 points)

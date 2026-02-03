@@ -45,9 +45,8 @@ class YoloV6Parser(BaseParser):
         if not label_split.exists():
             return None
 
-        labels = label_split.glob("*.txt")
         images = BaseParser._list_images(split_path)
-        if not BaseParser._compare_stem_files(images, labels):
+        if not images:
             return None
         data_yaml = split_path.parent.parent / "data.yaml"
         if not data_yaml.exists():
@@ -118,8 +117,14 @@ class YoloV6Parser(BaseParser):
             for img_path in self._list_images(image_dir):
                 ann_path = annotation_dir / img_path.with_suffix(".txt").name
 
-                with open(ann_path) as f:
-                    annotation_data = f.readlines()
+                annotation_data = []
+                if ann_path.exists():
+                    with open(ann_path) as f:
+                        annotation_data = f.readlines()
+
+                if not annotation_data:
+                    yield {"file": str(img_path), "annotation": None}
+                    continue
 
                 for ann_line in annotation_data:
                     class_id, x_center, y_center, width, height = list(

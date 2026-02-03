@@ -86,15 +86,23 @@ class YoloV4Parser(BaseParser):
             with open(annotation_path) as f:
                 annotation_data = [line.rstrip() for line in f]
 
+            annotated_images: set[str] = set()
+
             for ann_line in annotation_data:
                 data = ann_line.split(" ")
                 img_path = data[0]
+                annotated_images.add(img_path)
 
                 path = image_dir.absolute().resolve() / img_path
                 if not path.exists():
                     continue
 
                 file = str(path)
+
+                # Handle image names listed with no following annotation in the line
+                if len(data) == 1:
+                    yield {"file": file, "annotation": None}
+                    continue
 
                 img = Image.open(file)
                 width, height = img.size
@@ -116,6 +124,11 @@ class YoloV4Parser(BaseParser):
                             },
                         },
                     }
+
+            # Images in the directory not listed in annotations file
+            for img_path in self._list_images(image_dir):
+                if img_path.name not in annotated_images:
+                    yield {"file": str(img_path), "annotation": None}
 
         added_images = self._get_added_images(generator())
 
