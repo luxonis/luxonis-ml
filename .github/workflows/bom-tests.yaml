@@ -70,6 +70,7 @@ jobs:
     secrets:
       GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
       CODECOV_TOKEN:                  ${{ secrets.CODECOV_TOKEN }}
+      HUBAI_API_KEY:                  ${{ secrets.HUBAI_API_KEY }}
 
   test-modelconverter:
     name: Test Modelconverter
