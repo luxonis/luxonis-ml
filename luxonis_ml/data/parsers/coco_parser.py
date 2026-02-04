@@ -272,6 +272,11 @@ class COCOParser(BaseParser):
                 img_h = img["height"]
                 img_w = img["width"]
 
+                if not img_anns:
+                    # Register image with no annotations (valid COCO case)
+                    yield {"file": file, "annotation": None}
+                    continue
+
                 for i, ann in enumerate(img_anns):
                     if ann.get("iscrowd"):
                         continue
