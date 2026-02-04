@@ -30,9 +30,7 @@ class DarknetParser(BaseParser):
             return None
         if not (split_path / "_darknet.labels").exists():
             return None
-        images = BaseParser._list_images(split_path)
-        labels = split_path.glob("*.txt")
-        if not BaseParser._compare_stem_files(images, labels):
+        if not BaseParser._list_images(split_path):
             return None
         return {
             "image_dir": split_path,
@@ -77,8 +75,15 @@ class DarknetParser(BaseParser):
             for img_path in self._list_images(image_dir):
                 ann_path = img_path.with_suffix(".txt")
                 file = str(img_path)
-                with open(ann_path) as f:
-                    annotation_data = f.readlines()
+                if ann_path.exists():
+                    with open(ann_path) as f:
+                        annotation_data = f.readlines()
+                else:
+                    annotation_data = []
+
+                if not annotation_data:
+                    yield {"file": file, "annotation": None}
+                    continue
 
                 for ann_line in annotation_data:
                     class_id, x_center, y_center, width, height = list(

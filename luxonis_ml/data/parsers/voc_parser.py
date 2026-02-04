@@ -114,6 +114,9 @@ class VOCParser(BaseParser):
         def generator() -> DatasetIterator:
             for curr_annotations in images_annotations:
                 path = str(curr_annotations["path"])
+                if not curr_annotations["bboxes"]:
+                    yield {"file": path, "annotation": None}
+                    continue
                 for bbox_class, bbox in curr_annotations["bboxes"]:
                     yield {
                         "file": path,

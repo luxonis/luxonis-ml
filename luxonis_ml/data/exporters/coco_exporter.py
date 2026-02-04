@@ -101,20 +101,23 @@ class CocoExporter(BaseExporter):
                 "area": 0,
                 "iscrowd": 0,
             }
+            has_valid_ann = False
 
             for row in entry.iter_rows(named=True):
-                ann = self._process_row(
+                ann, row_has_ann = self._process_row(
                     row, split, annotation_splits, ann, width, height
                 )
+                has_valid_ann = has_valid_ann or row_has_ann
 
-            ann_size = sys.getsizeof(ann)
             img_size = file_path.stat().st_size
-            annotation_splits = self._maybe_roll_partition(
-                annotation_splits, ann_size + img_size
-            )
+            if has_valid_ann:
+                ann_size = sys.getsizeof(ann)
+                annotation_splits = self._maybe_roll_partition(
+                    annotation_splits, ann_size + img_size
+                )
 
-            annotation_splits[split]["annotations"].append(ann)
-            ann_id_counter[split] += 1
+                annotation_splits[split]["annotations"].append(ann)
+                ann_id_counter[split] += 1
 
             data_path = self._get_data_path(self.output_path, split, self.part)
             data_path.mkdir(parents=True, exist_ok=True)
@@ -185,7 +188,7 @@ class CocoExporter(BaseExporter):
         ann: dict[str, Any],
         w: int,
         h: int,
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], bool]:
         ttype = row["task_type"]
         ann_str = row["annotation"]
         cname = row["class_name"]
@@ -209,27 +212,27 @@ class CocoExporter(BaseExporter):
 
         if ttype == "classification" and cname:
             ann["category_id"] = self.class_name_to_category_id[split][cname]
-            return ann
+            return ann, True
 
         if ann_str is None:
-            return ann
+            return ann, False
 
         if ttype == "boundingbox":
             data = json.loads(ann_str)
             self._fill_bbox(ann, data, w, h, split, cname)
-            return ann
+            return ann, True
 
         if ttype == "instance_segmentation":
             data = json.loads(ann_str)
             self._fill_instance_segmentation(ann, data, split, cname)
-            return ann
+            return ann, True
 
         if ttype == "keypoints" and self.allow_keypoints:
             data = json.loads(ann_str)
             self._fill_keypoints(ann, data, w, h, split, cname)
-            return ann
+            return ann, True
 
-        return ann
+        return ann, False
 
     def _fill_bbox(
         self,
