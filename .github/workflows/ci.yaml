@@ -78,7 +78,12 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -e .[dev]
+        shell: bash
+        env:
+          PIP_CONSTRAINT: ${{ github.workspace }}/constraints.txt
+        run: |
+          echo 'setuptools<81' > "$PIP_CONSTRAINT"
+          pip install -e '.[dev]'
 
       - name: Pyright check
         uses: jakebailey/pyright-action@v2
@@ -166,10 +171,13 @@ jobs:
           cache: pip
 
       - name: Install the package
+        shell: bash
+        env:
+          PIP_CONSTRAINT: ${{ github.workspace }}/constraints.txt
         run: |
-          pip install 'setuptools<81'
+          echo 'setuptools<81' > "$PIP_CONSTRAINT"
           pip install 'pillow-heif<0.22.0'
-          pip install -e .[dev]
+          pip install -e '.[dev]'
 
       - name: Authenticate to Google Cloud
         if: ${{ env.GHC_ENABLED }}
