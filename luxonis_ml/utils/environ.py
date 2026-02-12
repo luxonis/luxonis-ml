@@ -38,6 +38,14 @@ class Environ(BaseSettings):
     LUXONISML_TEAM_ID: str = "offline"
     LUXONISML_DISABLE_SETUP_LOGGING: bool = False
 
+    LUXONIS_TELEMETRY_ENABLED: bool = False
+    LUXONIS_TELEMETRY_BACKEND: str | None = None
+    LUXONIS_TELEMETRY_API_KEY: SecretStr | None = None
+    LUXONIS_TELEMETRY_ENDPOINT: str | None = None
+    LUXONIS_TELEMETRY_DEBUG: bool = False
+    LUXONIS_TELEMETRY_INSTALL_ID_PATH: Path | None = None
+    LUXONIS_TELEMETRY_ID: str | None = None
+
     ROBOFLOW_API_KEY: SecretStr | None = None
 
     GOOGLE_APPLICATION_CREDENTIALS: SecretStr | None = None

@@ -39,12 +39,14 @@ version = { attr = "luxonis_ml.__version__" }
 data = { file = ["luxonis_ml/data/requirements.txt"] }
 utils = { file = ["luxonis_ml/utils/requirements.txt"] }
 tracker = { file = ["luxonis_ml/tracker/requirements.txt"] }
+telemetry = { file = ["extra_requirements/posthog.txt"] }
 nn_archive = { file = ["luxonis_ml/nn_archive/requirements.txt"] }
 
 roboflow = { file = ["extra_requirements/roboflow.txt"] }
 gcs = { file = ["extra_requirements/gcs.txt"] }
 s3 = { file = ["extra_requirements/s3.txt"] }
 mlflow = { file = ["extra_requirements/mlflow.txt"] }
+posthog = { file = ["extra_requirements/posthog.txt"] }
 
 [tool.setuptools.dynamic.optional-dependencies.all]
 file = [
@@ -56,6 +58,7 @@ file = [
   "extra_requirements/gcs.txt",
   "extra_requirements/s3.txt",
   "extra_requirements/mlflow.txt",
+  "extra_requirements/posthog.txt",
 ]
 
 [tool.setuptools.dynamic.optional-dependencies.dev]
@@ -69,6 +72,7 @@ file = [
   "extra_requirements/gcs.txt",
   "extra_requirements/s3.txt",
   "extra_requirements/mlflow.txt",
+  "extra_requirements/posthog.txt",
   "requirements-dev.txt",
 ]
 

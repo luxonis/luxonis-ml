@@ -16,6 +16,7 @@ This library includes a collection of helper functions and utilities for the Lux
 
 - **Dataset Management**: Creating computer vision datasets focused around Luxonis hardware and to be used with our [LuxonisTrain](https://pypi.org/project/luxonis-train/) framework. Additional documentation can be found [here](https://github.com/luxonis/luxonis-ml/blob/main/luxonis_ml/data/README.md).
 - **Tracking**: Our implementation of a logger for use with PyTorch Lightning or in [LuxonisTrain](https://pypi.org/project/luxonis-train/)
+- **Telemetry**: A lightweight, reusable telemetry layer with pluggable backends. Additional documentation can be found [here](https://github.com/luxonis/luxonis-ml/blob/main/luxonis_ml/telemetry/README.md).
 - **Utils**: Miscellaneous utils for developers.
 
 **NOTE**:
@@ -36,6 +37,7 @@ We offer several versions of the package:
 - `luxonis-ml[data]`: installs necessary dependencies for using `luxonis_ml.data` module
 - `luxonis-ml[utils]`: installs necessary dependencies for using `luxonis_ml.utils` module
 - `luxonis-ml[tracker]`: installs necessary dependencies for using `luxonis_ml.tracker` module
+- `luxonis-ml[telemetry]`: installs necessary dependencies for using `luxonis_ml.telemetry` module
 - `luxonis-ml[all]`: installs all dependencies
 - `luxonis-ml[dev]`: installs all dependencies, including development dependencies
 
@@ -47,6 +49,7 @@ Additional dependencies for working with specific cloud services can be installe
 - `s3`: Dependencies for working with AWS S3
 - `roboflow`: Dependencies for downloading datasets from Roboflow
 - `mlflow`: Dependencies for working with MLFlow
+- `posthog`: Dependencies for using the PostHog telemetry backend
 
 > [!NOTE]
 > If some of the additional dependencies are required but not installed (_e.g._ attempting to use Google Cloud Storage without installing the `gcs` extra), then the missing dependencies will be installed automatically.
