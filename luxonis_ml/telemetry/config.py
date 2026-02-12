@@ -33,7 +33,7 @@ class TelemetryConfig:
     @param install_id_path: Path to persist the anonymous install id.
     """
 
-    enabled: bool = False
+    enabled: bool = True
     backend: str = "posthog"
     api_key: str | None = None
     endpoint: str | None = None

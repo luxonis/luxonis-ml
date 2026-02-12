@@ -11,6 +11,7 @@ from luxonis_ml.telemetry import (
     TelemetryConfig,
     get_telemetry,
     initialize_telemetry,
+    skip_telemetry,
     suppress_telemetry,
 )
 from luxonis_ml.telemetry.redaction import sanitize_properties
@@ -223,3 +224,64 @@ def test_instrument_typer_emits_event(dummy_backend: DummyBackend) -> None:
     result = cmd(epochs=5)
     assert result == 5
     assert any(event.name == "cli.command" for event in dummy_backend.events)
+
+
+def test_instrument_typer_exclude_commands(
+    dummy_backend: DummyBackend,
+) -> None:
+    config = TelemetryConfig(enabled=True, backend="dummy")
+    telemetry = Telemetry("luxonis_ml", config=config)
+
+    app = typer.Typer()
+
+    @app.command()
+    def train(epochs: int = 10) -> int:
+        return epochs
+
+    @app.command()
+    def evaluate() -> int:
+        return 1
+
+    from luxonis_ml.telemetry.cli import instrument_typer
+
+    instrument_typer(app, telemetry, exclude_commands={"train"})
+
+    cmd_by_name = {cmd.name: cmd.callback for cmd in app.registered_commands}
+    cmd_by_name["train"](epochs=5)
+    cmd_by_name["evaluate"]()
+
+    assert len(dummy_backend.events) == 1
+    event = dummy_backend.events[0]
+    assert event.name == "cli.command"
+    assert event.properties["command"] == "evaluate"
+
+
+def test_instrument_typer_skip_decorator(
+    dummy_backend: DummyBackend,
+) -> None:
+    config = TelemetryConfig(enabled=True, backend="dummy")
+    telemetry = Telemetry("luxonis_ml", config=config)
+
+    app = typer.Typer()
+
+    @skip_telemetry
+    @app.command()
+    def secret() -> int:
+        return 0
+
+    @app.command()
+    def visible() -> int:
+        return 1
+
+    from luxonis_ml.telemetry.cli import instrument_typer
+
+    instrument_typer(app, telemetry)
+
+    cmd_by_name = {cmd.name: cmd.callback for cmd in app.registered_commands}
+    cmd_by_name["secret"]()
+    cmd_by_name["visible"]()
+
+    assert len(dummy_backend.events) == 1
+    event = dummy_backend.events[0]
+    assert event.name == "cli.command"
+    assert event.properties["command"] == "visible"

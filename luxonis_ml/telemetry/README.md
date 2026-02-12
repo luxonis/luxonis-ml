@@ -150,7 +150,7 @@ Multiple singletons are supported by using different library names.
 The telemetry module reads the following environment variables:
 
 - `LUXONIS_TELEMETRY_ENABLED`\
-  Enables telemetry when set to a truthy value.
+  Enables telemetry (default). Set to a falsy value to disable.
 - `LUXONIS_TELEMETRY_BACKEND`\
   Backend name to use (e.g., `posthog`, `stdout`, or a custom registered backend).
 - `LUXONIS_TELEMETRY_API_KEY`\

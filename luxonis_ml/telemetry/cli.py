@@ -18,6 +18,7 @@ def instrument_typer(
     *,
     allowlist: set[str] | None = None,
     include_system_metadata: bool | None = None,
+    exclude_commands: set[str] | None = None,
 ) -> None:
     """Wrap Typer commands to emit telemetry events.
 
@@ -30,12 +31,16 @@ def instrument_typer(
     @type include_system_metadata: Optional[bool]
     @param include_system_metadata: If True, adds extended system
         metadata.
+    @type exclude_commands: Optional[set]
+    @param exclude_commands: If set, skips telemetry for these full
+        command names (for example: "data ls").
     """
     _wrap_typer(
         app,
         telemetry,
         allowlist=allowlist,
         include_system_metadata=include_system_metadata,
+        exclude_commands=exclude_commands,
         prefix="",
     )
 
@@ -46,6 +51,7 @@ def _wrap_typer(
     *,
     allowlist: set[str] | None,
     include_system_metadata: bool | None,
+    exclude_commands: set[str] | None,
     prefix: str,
 ) -> None:
     """Wrap commands/groups recursively in a Typer app."""
@@ -55,6 +61,8 @@ def _wrap_typer(
             continue
         name = command.name or callback.__name__
         full_name = _join_command(prefix, name)
+        if exclude_commands and full_name in exclude_commands:
+            continue
         command.callback = _wrap_callback(
             callback,
             telemetry,
@@ -72,6 +80,7 @@ def _wrap_typer(
             telemetry,
             allowlist=allowlist,
             include_system_metadata=include_system_metadata,
+            exclude_commands=exclude_commands,
             prefix=group_prefix,
         )
 
@@ -85,6 +94,8 @@ def _wrap_callback(
     include_system_metadata: bool | None,
 ) -> Callable[..., Any]:
     """Wrap a command callback to emit telemetry for execution."""
+    if getattr(func, "_telemetry_skip", False):
+        return func
     if getattr(func, "_telemetry_wrapped", False):
         return func
 
@@ -117,6 +128,12 @@ def _wrap_callback(
 
     wrapper._telemetry_wrapped = True
     return wrapper
+
+
+def skip_telemetry(func: Callable[..., Any]) -> Callable[..., Any]:
+    """Mark a command callback as excluded from telemetry."""
+    func._telemetry_skip = True
+    return func
 
 
 def _extract_params(

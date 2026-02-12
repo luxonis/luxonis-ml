@@ -3,6 +3,7 @@ from importlib.metadata import version
 import rich
 import rich.box
 import typer
+from loguru import logger
 from rich.markup import escape
 from rich.table import Table
 
@@ -32,6 +33,16 @@ try:
     app.add_typer(utils_app, name="archive", help="NN Archive utilities.")
 except ImportError:
     pass
+
+try:
+    from luxonis_ml.telemetry import initialize_telemetry, instrument_typer
+
+    _telemetry = initialize_telemetry(library_name="luxonis_ml")
+    instrument_typer(app, _telemetry)
+except Exception:
+    logger.opt(exception=True).debug(
+        "Telemetry initialization failed; continuing without telemetry."
+    )
 
 
 def version_callback(value: bool) -> None:

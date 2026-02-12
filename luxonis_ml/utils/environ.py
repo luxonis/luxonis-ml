@@ -38,7 +38,7 @@ class Environ(BaseSettings):
     LUXONISML_TEAM_ID: str = "offline"
     LUXONISML_DISABLE_SETUP_LOGGING: bool = False
 
-    LUXONIS_TELEMETRY_ENABLED: bool = False
+    LUXONIS_TELEMETRY_ENABLED: bool = True
     LUXONIS_TELEMETRY_BACKEND: str | None = None
     LUXONIS_TELEMETRY_API_KEY: SecretStr | None = None
     LUXONIS_TELEMETRY_ENDPOINT: str | None = None

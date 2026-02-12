@@ -33,6 +33,7 @@ from luxonis_ml.data.utils.plot_utils import (
 )
 from luxonis_ml.data.utils.visualizations import visualize
 from luxonis_ml.enums import DatasetType
+from luxonis_ml.telemetry import suppress_telemetry
 
 app = typer.Typer()
 
@@ -129,36 +130,39 @@ def ls(
     bucket_storage: BucketStorage = bucket_option,
 ):
     """Lists all datasets."""
-    datasets = LuxonisDataset.list_datasets(bucket_storage=bucket_storage)
-    table = Table(
-        title="Datasets" + (" - Full Table" if full else ""),
-        box=rich.box.ROUNDED,
-        row_styles=["yellow", "cyan"],
-    )
-    table.add_column("Name", header_style="magenta i")
-    table.add_column("Size", header_style="magenta i")
-    if full:
-        table.add_column("Classes", header_style="magenta i")
-        table.add_column("Tasks", header_style="magenta i")
-    for name in datasets:
-        dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
-        rows = [name]
-        try:
-            size = len(dataset)
-        except Exception:
-            size = -1
-        rows.append(str(size))
+    with suppress_telemetry():
+        datasets = LuxonisDataset.list_datasets(bucket_storage=bucket_storage)
+        table = Table(
+            title="Datasets" + (" - Full Table" if full else ""),
+            box=rich.box.ROUNDED,
+            row_styles=["yellow", "cyan"],
+        )
+        table.add_column("Name", header_style="magenta i")
+        table.add_column("Size", header_style="magenta i")
         if full:
-            classes, tasks = get_dataset_info(dataset)
-            rows.extend(
-                [
-                    ", ".join(classes) if classes else "[red]<empty>[no red]",
-                    ", ".join(tasks) if tasks else "[red]<empty>[no red]",
-                ]
-            )
-        table.add_row(*rows)
-    console = Console()
-    console.print(table)
+            table.add_column("Classes", header_style="magenta i")
+            table.add_column("Tasks", header_style="magenta i")
+        for name in datasets:
+            dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
+            rows = [name]
+            try:
+                size = len(dataset)
+            except Exception:
+                size = -1
+            rows.append(str(size))
+            if full:
+                classes, tasks = get_dataset_info(dataset)
+                rows.extend(
+                    [
+                        ", ".join(classes)
+                        if classes
+                        else "[red]<empty>[no red]",
+                        ", ".join(tasks) if tasks else "[red]<empty>[no red]",
+                    ]
+                )
+            table.add_row(*rows)
+        console = Console()
+        console.print(table)
 
 
 @app.command()

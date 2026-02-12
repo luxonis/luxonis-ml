@@ -5,6 +5,8 @@ from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 from uuid import uuid4
 
+from loguru import logger
+
 from luxonis_ml.telemetry.backends.base import TelemetryBackend
 from luxonis_ml.telemetry.backends.noop import NoopBackend
 from luxonis_ml.telemetry.backends.posthog import PostHogBackend
@@ -28,6 +30,7 @@ class Telemetry:
     """Telemetry client for emitting events via pluggable backends."""
 
     _backend_factories: dict[str, BackendFactory] = {}
+    _logged_enabled_notice: bool = False
 
     def __init__(
         self,
@@ -53,6 +56,12 @@ class Telemetry:
             attach to every event.
         """
         self._config = config or TelemetryConfig.from_environ()
+        if self._config.enabled and not Telemetry._logged_enabled_notice:
+            logger.warning(
+                "Using anonymized telemetry. Set "
+                "LUXONIS_TELEMETRY_ENABLED=false to disable."
+            )
+            Telemetry._logged_enabled_notice = True
         self._library_name = library_name
         self._library_version = library_version or _safe_version(library_name)
         self._session_id = str(uuid4())
@@ -134,21 +143,21 @@ class Telemetry:
             return
         if is_suppressed():
             return
-        sanitized = sanitize_properties(
-            properties,
-            allowlist=allowlist or self._config.allowlist,
-        )
-        context = self._build_context(include_system_metadata)
-        payload = TelemetryEvent.create(
-            name=event,
-            properties=sanitized,
-            context=context,
-            library=self._library_name,
-            library_version=self._library_version,
-            distinct_id=self._distinct_id,
-            user_id=user_id,
-        )
         try:
+            sanitized = sanitize_properties(
+                properties,
+                allowlist=allowlist or self._config.allowlist,
+            )
+            context = self._build_context(include_system_metadata)
+            payload = TelemetryEvent.create(
+                name=event,
+                properties=sanitized,
+                context=context,
+                library=self._library_name,
+                library_version=self._library_version,
+                distinct_id=self._distinct_id,
+                user_id=user_id,
+            )
             self._backend.capture(payload)
         except Exception:
             return
@@ -215,7 +224,13 @@ class Telemetry:
         if include_system_metadata:
             context.update(system_context())
         for provider in self._context_providers:
-            extra = provider(self)
+            try:
+                extra = provider(self)
+            except Exception:
+                logger.opt(exception=True).debug(
+                    "Telemetry context provider failed; skipping."
+                )
+                continue
             if extra:
                 context.update(extra)
         return context
