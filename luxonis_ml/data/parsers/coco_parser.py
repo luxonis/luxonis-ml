@@ -173,6 +173,7 @@ class COCOParser(BaseParser):
             added_train_imgs = self._parse_split(
                 image_dir=train_paths["image_dir"],
                 annotation_path=cleaned_annotation_path,
+                keypoints_only=use_keypoint_ann,
             )
 
         val_paths = COCOParser.validate_split(dataset_dir / splits[1])
@@ -197,6 +198,7 @@ class COCOParser(BaseParser):
             _added_val_imgs = self._parse_split(
                 image_dir=val_paths["image_dir"],
                 annotation_path=val_ann_path,
+                keypoints_only=use_keypoint_ann,
             )
 
         if len(splits) < 3:
@@ -228,6 +230,7 @@ class COCOParser(BaseParser):
                 added_test_imgs = self._parse_split(
                     image_dir=test_paths["image_dir"],
                     annotation_path=test_ann_path,
+                    keypoints_only=use_keypoint_ann,
                 )
             if len(added_test_imgs) == 0 and not split_val_to_test:
                 logger.warning(
@@ -247,7 +250,10 @@ class COCOParser(BaseParser):
         return added_train_imgs, added_val_imgs, added_test_imgs
 
     def from_split(
-        self, image_dir: Path, annotation_path: Path
+        self,
+        image_dir: Path,
+        annotation_path: Path,
+        keypoints_only: bool = False,
     ) -> ParserOutput:
         """Parses annotations from COCO format to LDF. Annotations
         include classification, segmentation, object detection and
@@ -299,8 +305,14 @@ class COCOParser(BaseParser):
                 img_w = img["width"]
 
                 if not img_anns:
-                    # Register image with no annotations (valid COCO case)
-                    yield {"file": file, "annotation": None}
+                    if not keypoints_only:
+                        # Register image with no annotations (valid COCO case)
+                        yield {"file": file, "annotation": None}
+                    continue
+
+                if keypoints_only and not any(
+                    "keypoints" in ann for ann in img_anns
+                ):
                     continue
 
                 for i, ann in enumerate(img_anns):
