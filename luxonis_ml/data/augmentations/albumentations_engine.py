@@ -379,12 +379,13 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 batch_transforms.append(transform)
             elif isinstance(transform, A.DualTransform):
                 spatial_transforms.append(transform)
-            elif isinstance(transform, A.BasicTransform):
+            elif isinstance(transform, (A.BaseCompose, A.BasicTransform)):
                 custom_transforms.append(transform)
             else:
                 raise ValueError(
-                    f"Unsupported transformation type: '{transform.__name__}'. "
-                    f"Only subclasses of `A.BasicTransform` are allowed. "
+                    f"Unsupported transformation type: '{type(transform).__name__}'. "
+                    f"Only subclasses of `A.BasicTransform` "
+                    f"or `A.BaseCompose` are allowed. "
                 )
 
         wrapped_spatial_ops: TransformsSeqType = []
@@ -685,9 +686,31 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     def create_transformation(
         config: AlbumentationConfigItem,
     ) -> A.BasicTransform:
+        params = config.params.copy()
+
+        # Recursively handle nested transform compositions
+        # (for example: OneOf, SomeOf, Sequential)
+        if "transforms" in params and isinstance(params["transforms"], list):
+            nested_transforms = []
+            for item in params["transforms"]:
+                if isinstance(item, dict) and "name" in item:
+                    nested_cfg = AlbumentationConfigItem(
+                        name=item["name"],
+                        params=item.get("params", {}),
+                        use_for_resizing=item.get("use_for_resizing", False),
+                    )
+                    nested_transforms.append(
+                        AlbumentationsEngine.create_transformation(nested_cfg)
+                    )
+                else:
+                    raise ValueError(
+                        f"Invalid nested transform configuration: {item}"
+                    )
+            params["transforms"] = nested_transforms
+
         if hasattr(A, config.name):
-            return getattr(A, config.name)(**config.params)
-        return TRANSFORMATIONS.get(config.name)(**config.params)  # type: ignore
+            return getattr(A, config.name)(**params)
+        return TRANSFORMATIONS.get(config.name)(**params)  # type: ignore
 
     @staticmethod
     def task_to_target_name(task: str) -> str:
