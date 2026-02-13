@@ -161,11 +161,19 @@ class COCOParser(BaseParser):
             and dir_format is COCOFormat.FIFTYONE
             else train_paths["annotation_path"]
         )
-        cleaned_annotation_path = clean_annotations(train_ann_path)
-        added_train_imgs = self._parse_split(
-            image_dir=train_paths["image_dir"],
-            annotation_path=cleaned_annotation_path,
-        )
+
+        if not train_ann_path.exists():
+            logger.warning(
+                f"Train annotation file '{train_ann_path}' not found. "
+                "Train split will be empty."
+            )
+            added_train_imgs = []
+        else:
+            cleaned_annotation_path = clean_annotations(train_ann_path)
+            added_train_imgs = self._parse_split(
+                image_dir=train_paths["image_dir"],
+                annotation_path=cleaned_annotation_path,
+            )
 
         val_paths = COCOParser.validate_split(dataset_dir / splits[1])
         if val_paths is None:
@@ -178,9 +186,18 @@ class COCOParser(BaseParser):
             and dir_format is COCOFormat.FIFTYONE
             else val_paths["annotation_path"]
         )
-        _added_val_imgs = self._parse_split(
-            image_dir=val_paths["image_dir"], annotation_path=val_ann_path
-        )
+
+        if not val_ann_path.exists():
+            logger.warning(
+                f"Val annotation file '{val_ann_path}' not found. "
+                "Val split will be empty."
+            )
+            _added_val_imgs = []
+        else:
+            _added_val_imgs = self._parse_split(
+                image_dir=val_paths["image_dir"],
+                annotation_path=val_ann_path,
+            )
 
         if len(splits) < 3:
             # No test split in dataset
