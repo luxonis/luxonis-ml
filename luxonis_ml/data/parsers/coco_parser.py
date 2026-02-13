@@ -199,10 +199,19 @@ class COCOParser(BaseParser):
                 else test_paths["annotation_path"]
             )
 
-            added_test_imgs = self._parse_split(
-                image_dir=test_paths["image_dir"],
-                annotation_path=test_ann_path,
-            )
+            if not test_ann_path.exists():
+                logger.warning(
+                    f"Test annotation file '{test_ann_path}' not found. "
+                    "This is expected for COCO datasets where the test set "
+                    "annotations are not publicly available. "
+                    "Test split will be empty."
+                )
+                added_test_imgs = []
+            else:
+                added_test_imgs = self._parse_split(
+                    image_dir=test_paths["image_dir"],
+                    annotation_path=test_ann_path,
+                )
             if len(added_test_imgs) == 0 and not split_val_to_test:
                 logger.warning(
                     "Sampling from the test set cannot be done since the "
