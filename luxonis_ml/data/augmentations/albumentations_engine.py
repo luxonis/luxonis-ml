@@ -2,7 +2,7 @@ import warnings
 from collections import defaultdict
 from collections.abc import Callable, Iterable
 from math import prod
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal, TypeAlias, cast
 
 import albumentations as A
 import numpy as np
@@ -695,9 +695,11 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             for item in params["transforms"]:
                 if isinstance(item, dict) and "name" in item:
                     nested_cfg = AlbumentationConfigItem(
-                        name=item["name"],
-                        params=item.get("params", {}),
-                        use_for_resizing=item.get("use_for_resizing", False),
+                        name=str(item["name"]),
+                        params=cast(Params, item.get("params", {})),
+                        use_for_resizing=bool(
+                            item.get("use_for_resizing", False)
+                        ),
                     )
                     nested_transforms.append(
                         AlbumentationsEngine.create_transformation(nested_cfg)
