@@ -91,7 +91,8 @@ def test_mixed_pipeline():
 
 
 def test_batch_transform_inside_composition():
-    """BatchTransforms nested inside compositions should raise an error."""
+    """BatchTransforms nested inside compositions should raise an
+    error."""
     with pytest.raises(ValueError, match="cannot be nested inside"):
         _make_engine(
             [
@@ -245,9 +246,9 @@ def test_nested_equivalent_to_direct(
     coco_image: np.ndarray,
     coco_labels: Labels,
 ):
-    """Wrapping a p=1 augmentation inside
-    Sequential, OneOf, or SomeOf must produce exactly the same
-    result as using the augmentation directly."""
+    """Wrapping a p=1 augmentation inside Sequential, OneOf, or SomeOf
+    must produce exactly the same result as using the augmentation
+    directly."""
     direct_config: list[Params] = [augmentation]
 
     nested_params: dict = {

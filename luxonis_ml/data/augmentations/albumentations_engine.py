@@ -377,9 +377,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 pixel_transforms.append(transform)
             elif isinstance(transform, BatchTransform):
                 batch_transforms.append(transform)
-            elif isinstance(transform, A.DualTransform):
-                spatial_transforms.append(transform)
-            elif isinstance(transform, A.BaseCompose):
+            elif isinstance(transform, (A.DualTransform, A.BaseCompose)):
                 spatial_transforms.append(transform)
             elif isinstance(transform, A.BasicTransform):
                 custom_transforms.append(transform)
@@ -703,8 +701,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                             item.get("use_for_resizing", False)
                         ),
                     )
-                    transform = (
-                        AlbumentationsEngine.create_transformation(nested_cfg)
+                    transform = AlbumentationsEngine.create_transformation(
+                        nested_cfg
                     )
                     if isinstance(transform, BatchTransform):
                         raise ValueError(
