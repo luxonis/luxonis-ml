@@ -379,7 +379,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 batch_transforms.append(transform)
             elif isinstance(transform, A.DualTransform):
                 spatial_transforms.append(transform)
-            elif isinstance(transform, (A.BaseCompose, A.BasicTransform)):
+            elif isinstance(transform, A.BaseCompose):
+                spatial_transforms.append(transform)
+            elif isinstance(transform, A.BasicTransform):
                 custom_transforms.append(transform)
             else:
                 raise ValueError(
@@ -701,9 +703,18 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                             item.get("use_for_resizing", False)
                         ),
                     )
-                    nested_transforms.append(
+                    transform = (
                         AlbumentationsEngine.create_transformation(nested_cfg)
                     )
+                    if isinstance(transform, BatchTransform):
+                        raise ValueError(
+                            f"Batch transform '{item['name']}' cannot be "
+                            f"nested inside '{config.name}'. "
+                            f"Batch transforms (e.g Mosaic4 and MixUp) "
+                            f"require multiple images and must be used "
+                            f"as top-level augmentations."
+                        )
+                    nested_transforms.append(transform)
                 else:
                     raise ValueError(
                         f"Invalid nested transform configuration: {item}"
