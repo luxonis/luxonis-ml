@@ -259,7 +259,12 @@ def _assert_results_equal(
         },
         {
             "name": "CoarseDropout",
-            "params": {"num_holes_range": (3, 5), "hole_height_range": (20, 30), "hole_width_range": (20, 30), "p": 1.0},
+            "params": {
+                "num_holes_range": (3, 5),
+                "hole_height_range": (20, 30),
+                "hole_width_range": (20, 30),
+                "p": 1.0,
+            },
         },
     ],
     ids=[
