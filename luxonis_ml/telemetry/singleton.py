@@ -25,6 +25,43 @@ def get_telemetry(library_name: str | None = None) -> Telemetry | None:
     return _telemetry_by_name.get(library_name)
 
 
+def get_or_init(
+    library_name: str,
+    *,
+    library_version: str | None = None,
+    config: TelemetryConfig | None = None,
+    context_providers: list[ContextProvider] | None = None,
+    register_exit_handler: bool = True,
+) -> Telemetry:
+    """Return an existing telemetry instance or initialize one.
+
+    @type library_name: str
+    @param library_name: Name of the library emitting telemetry.
+    @type library_version: Optional[str]
+    @param library_version: Version string for the library.
+    @type config: Optional[L{TelemetryConfig}]
+    @param config: Optional TelemetryConfig to use.
+    @type context_providers: Optional[list]
+    @param context_providers: Callables that return extra context to
+        attach to every event.
+    @type register_exit_handler: bool
+    @param register_exit_handler: If True, flush telemetry on process
+        exit.
+    @rtype: L{Telemetry}
+    @return: The existing or newly initialized telemetry instance.
+    """
+    existing = get_telemetry(library_name)
+    if existing is not None:
+        return existing
+    return initialize_telemetry(
+        library_name=library_name,
+        library_version=library_version,
+        config=config,
+        context_providers=context_providers,
+        register_exit_handler=register_exit_handler,
+    )
+
+
 def initialize_telemetry(
     *,
     library_name: str,

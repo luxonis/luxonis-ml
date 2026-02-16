@@ -25,7 +25,7 @@ class PostHogBackend(TelemetryBackend):
             raise ImportError(
                 "PostHog backend requires the 'posthog' package."
             ) from exc
-        kwargs = {"project_api_key": api_key, "disable_geoip": True}
+        kwargs = {"project_api_key": api_key, "disable_geoip": False}
         if host:
             kwargs["host"] = host
         self._client = Posthog(**kwargs)

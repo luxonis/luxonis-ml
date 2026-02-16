@@ -135,9 +135,9 @@ telemetry = Telemetry("luxonis_ml", context_providers=[my_context])
 For a global instance per library name:
 
 ```python
-from luxonis_ml.telemetry import initialize_telemetry, get_telemetry
+from luxonis_ml.telemetry import get_or_init, get_telemetry
 
-initialize_telemetry(library_name="luxonis_ml")
+get_or_init(library_name="luxonis_ml")
 telemetry = get_telemetry("luxonis_ml")
 if telemetry:
     telemetry.capture("init")

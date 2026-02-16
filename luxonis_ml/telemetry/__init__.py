@@ -4,6 +4,7 @@ from luxonis_ml.telemetry.cli import instrument_typer, skip_telemetry
 from luxonis_ml.telemetry.client import Telemetry
 from luxonis_ml.telemetry.config import TelemetryConfig
 from luxonis_ml.telemetry.singleton import (
+    get_or_init,
     get_telemetry,
     initialize_telemetry,
     shutdown_on_exit,
@@ -13,6 +14,7 @@ from luxonis_ml.telemetry.suppression import suppress_telemetry
 __all__ = [
     "Telemetry",
     "TelemetryConfig",
+    "get_or_init",
     "get_telemetry",
     "initialize_telemetry",
     "instrument_typer",

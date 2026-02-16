@@ -35,9 +35,13 @@ except ImportError:
     pass
 
 try:
-    from luxonis_ml.telemetry import initialize_telemetry, instrument_typer
+    from luxonis_ml.telemetry import get_or_init, instrument_typer
+    from luxonis_ml.utils import get_telemetry_config
 
-    _telemetry = initialize_telemetry(library_name="luxonis_ml")
+    _telemetry = get_or_init(
+        library_name="luxonis_ml",
+        config=get_telemetry_config(),
+    )
     instrument_typer(app, _telemetry)
 except Exception:
     logger.opt(exception=True).debug(

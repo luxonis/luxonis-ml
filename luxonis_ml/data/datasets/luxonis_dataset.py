@@ -55,12 +55,13 @@ from luxonis_ml.data.utils import (
 )
 from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.enums.enums import DatasetType
-from luxonis_ml.telemetry import initialize_telemetry
+from luxonis_ml.telemetry import get_or_init
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import (
     LuxonisFileSystem,
     deprecated,
     environ,
+    get_telemetry_config,
     make_progress_bar,
 )
 
@@ -186,7 +187,10 @@ class LuxonisDataset(BaseDataset):
                 split_sizes = {
                     split: len(ids) for split, ids in splits.items()
                 }
-        initialize_telemetry(library_name="luxonis_ml").capture(
+        get_or_init(
+            library_name="luxonis_ml",
+            config=get_telemetry_config(),
+        ).capture(
             "data.dataset.init",
             {
                 "component": "data",
@@ -204,6 +208,7 @@ class LuxonisDataset(BaseDataset):
                 "dataset_size": dataset_size,
                 "split_sizes": split_sizes,
             },
+            include_system_metadata=True,
         )
 
     @property
@@ -1290,7 +1295,10 @@ class LuxonisDataset(BaseDataset):
             )
             self.update_source(source)
         self._warn_on_duplicates()
-        initialize_telemetry(library_name="luxonis_ml").capture(
+        get_or_init(
+            library_name="luxonis_ml",
+            config=get_telemetry_config(),
+        ).capture(
             "data.dataset.add",
             {
                 "component": "data",
@@ -1682,19 +1690,34 @@ class LuxonisDataset(BaseDataset):
                 logger.info(
                     f"Dataset successfully exported to: {[str(p) for p in archives]}"
                 )
-                initialize_telemetry(library_name="luxonis_ml").capture(
-                    "data.dataset.export", export_properties
+                get_or_init(
+                    library_name="luxonis_ml",
+                    config=get_telemetry_config(),
+                ).capture(
+                    "data.dataset.export",
+                    export_properties,
+                    include_system_metadata=True,
                 )
                 return archives
             logger.info(f"Dataset successfully exported to: {archives}")
-            initialize_telemetry(library_name="luxonis_ml").capture(
-                "data.dataset.export", export_properties
+            get_or_init(
+                library_name="luxonis_ml",
+                config=get_telemetry_config(),
+            ).capture(
+                "data.dataset.export",
+                export_properties,
+                include_system_metadata=True,
             )
             return archives
 
         logger.info(f"Dataset successfully exported to: {out_path}")
-        initialize_telemetry(library_name="luxonis_ml").capture(
-            "data.dataset.export", export_properties
+        get_or_init(
+            library_name="luxonis_ml",
+            config=get_telemetry_config(),
+        ).capture(
+            "data.dataset.export",
+            export_properties,
+            include_system_metadata=True,
         )
         return out_path
 

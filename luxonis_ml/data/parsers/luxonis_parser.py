@@ -10,8 +10,8 @@ from loguru import logger
 
 from luxonis_ml.data import DATASETS_REGISTRY, BaseDataset, LuxonisDataset
 from luxonis_ml.enums import DatasetType
-from luxonis_ml.telemetry import initialize_telemetry
-from luxonis_ml.utils import LuxonisFileSystem, environ
+from luxonis_ml.telemetry import get_or_init
+from luxonis_ml.utils import LuxonisFileSystem, environ, get_telemetry_config
 from luxonis_ml.utils.filesystem import _pip_install
 
 from .base_parser import BaseParser
@@ -181,13 +181,17 @@ class LuxonisParser(Generic[T]):
             dataset = self._parse_split(**kwargs)
 
         logger.info("Dataset parsed successfully.")
-        initialize_telemetry(library_name="luxonis_ml").capture(
+        get_or_init(
+            library_name="luxonis_ml",
+            config=get_telemetry_config(),
+        ).capture(
             "data.parser.parse",
             {
                 "component": "data",
                 "dataset_type": self.dataset_type.name,
                 "parser_type": self.parser_type.value,
             },
+            include_system_metadata=True,
         )
         return dataset
 
