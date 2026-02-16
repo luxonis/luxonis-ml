@@ -235,8 +235,44 @@ def _assert_results_equal(
         {"name": "HorizontalFlip", "params": {"p": 1.0}},
         {"name": "VerticalFlip", "params": {"p": 1.0}},
         {"name": "Transpose", "params": {"p": 1.0}},
+        {"name": "RandomRotate90", "params": {"p": 1.0}},
+        {
+            "name": "Rotate",
+            "params": {"limit": (45, 45), "p": 1.0},
+        },
+        {
+            "name": "Affine",
+            "params": {"scale": (0.8, 0.8), "rotate": (30, 30), "p": 1.0},
+        },
+        {
+            "name": "CenterCrop",
+            "params": {"height": 200, "width": 200, "p": 1.0},
+        },
+        {
+            "name": "PadIfNeeded",
+            "params": {
+                "min_height": 400,
+                "min_width": 400,
+                "border_mode": 0,
+                "p": 1.0,
+            },
+        },
+        {
+            "name": "CoarseDropout",
+            "params": {"num_holes_range": (3, 5), "hole_height_range": (20, 30), "hole_width_range": (20, 30), "p": 1.0},
+        },
     ],
-    ids=["HorizontalFlip", "VerticalFlip", "Transpose"],
+    ids=[
+        "HorizontalFlip",
+        "VerticalFlip",
+        "Transpose",
+        "RandomRotate90",
+        "Rotate_45",
+        "Affine",
+        "CenterCrop",
+        "PadIfNeeded",
+        "CoarseDropout",
+    ],
 )
 def test_nested_equivalent_to_direct(
     wrapper: str,
