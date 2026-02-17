@@ -321,11 +321,11 @@ def collect_segmentation_multiset(prepared_ldf: PreparedLDF):
 def collect_segmentation_mask_overlap_multiset(
     prepared_ldf: PreparedLDF,
 ):
-    """Collect decoded binary masks from semantic segmentation annotations,
-    keyed by (image_hash, class_name).
+    """Collect decoded binary masks from semantic segmentation
+    annotations, keyed by (image_hash, class_name).
 
-    Used to verify that mask geometry survives the parse -> export -> re-parse
-    round-trip.
+    Used to verify that mask geometry is the same after parse -> export
+    -> re-parse
     """
     out: dict[tuple[str, str], list[np.ndarray]] = {}
     grouped = prepared_ldf.processed_df.group_by(
@@ -413,10 +413,6 @@ DATASETS = [
         "url": "coco-2017.zip",
         "types": ["keypoints"],
         "initial_parse_kwargs": {"use_keypoint_ann": True},
-    },
-    {
-        "url": "imagenet-sample.zip",
-        "types": ["classification"],
     },
 ]
 

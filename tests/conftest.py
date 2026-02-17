@@ -227,8 +227,8 @@ def _make_coco_variant(
 ) -> Path:
     """Creates a coco-2017 directory with only the requested splits.
 
-    Always copies the raw/ folder (needed for keypoint annotations)
-    and info.json.
+    Always copies the raw/ folder (needed for keypoint annotations) and
+    info.json.
     """
     dest = dest_dir / "coco-2017"
     shutil.copytree(source, dest)
