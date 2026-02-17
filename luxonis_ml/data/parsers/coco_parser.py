@@ -191,18 +191,28 @@ class COCOParser(BaseParser):
             if test_paths is None:
                 raise ValueError("Test split not in expected format")
 
-            test_ann_path = (
-                dataset_dir / keypoint_ann_paths["test"]
-                if keypoint_ann_paths
+            if (
+                keypoint_ann_paths
                 and use_keypoint_ann
                 and dir_format == COCOFormat.FIFTYONE
-                else test_paths["annotation_path"]
-            )
-
-            added_test_imgs = self._parse_split(
-                image_dir=test_paths["image_dir"],
-                annotation_path=test_ann_path,
-            )
+            ):
+                kp_path = dataset_dir / keypoint_ann_paths["test"]
+                if kp_path.exists():
+                    added_test_imgs = self._parse_split(
+                        image_dir=test_paths["image_dir"],
+                        annotation_path=kp_path,
+                    )
+                else:
+                    logger.warning(
+                        f"Keypoint annotation file not found: {kp_path}. "
+                        "Skipping test split."
+                    )
+                    added_test_imgs = []
+            else:
+                added_test_imgs = self._parse_split(
+                    image_dir=test_paths["image_dir"],
+                    annotation_path=test_paths["annotation_path"],
+                )
             if len(added_test_imgs) == 0 and not split_val_to_test:
                 logger.warning(
                     "Sampling from the test set cannot be done since the "
@@ -273,6 +283,9 @@ class COCOParser(BaseParser):
                 img_w = img["width"]
 
                 if not img_anns:
+                    if skeletons:
+                        # Keypoint annotations: skip images with no labels
+                        continue
                     # Register image with no annotations (valid COCO case)
                     yield {"file": file, "annotation": None}
                     continue

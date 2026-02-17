@@ -21,6 +21,7 @@ def _export_and_reimport(
     dataset_name: str,
     storage_url: str,
     tempdir: Path,
+    initial_parse_kwargs: dict | None = None,
 ) -> tuple[LuxonisDataset, LuxonisDataset]:
     """Parse -> export -> re-import and return (original_dataset,
     reimported_dataset) to compare the two."""
@@ -30,7 +31,7 @@ def _export_and_reimport(
         dataset_name=dataset_name,
         delete_local=True,
         save_dir=tempdir,
-    ).parse()
+    ).parse(**(initial_parse_kwargs or {}))
 
     export_dir = tempdir / "exported"
     dataset.export(
@@ -123,11 +124,11 @@ def _assert_equivalence(
     if collector.__name__ == "collect_bbox_multiset":
         _multiset_equal_with_tolerance(prev, new, tol=0.02)
 
-    elif (
-        collector.__name__
-        == "collect_instance_segmentation_mask_overlap_multiset"
+    elif collector.__name__ in (
+        "collect_instance_segmentation_mask_overlap_multiset",
+        "collect_segmentation_mask_overlap_multiset",
     ):
-        # Combine all masks per image and assert there is spatial overlap
+        # Combine all masks per key and assert there is spatial overlap
         def _combine_masks(masks: list[np.ndarray]) -> np.ndarray:
             if not masks:
                 # An empty set of masks is treated as a zero mask
@@ -141,9 +142,9 @@ def _assert_equivalence(
                 combined |= m.astype(bool)
             return combined
 
-        # Ensure we compare the same images
+        # Ensure we compare the same keys
         assert prev.keys() == new.keys(), (
-            f"Different image sets:\nprev-only={set(prev) - set(new)}\nnew-only={set(new) - set(prev)}"
+            f"Different key sets:\nprev-only={set(prev) - set(new)}\nnew-only={set(new) - set(prev)}"
         )
 
         for key in prev:
@@ -317,6 +318,40 @@ def collect_segmentation_multiset(prepared_ldf: PreparedLDF):
     return out
 
 
+def collect_segmentation_mask_overlap_multiset(
+    prepared_ldf: PreparedLDF,
+):
+    """Collect decoded binary masks from semantic segmentation annotations,
+    keyed by (image_hash, class_name).
+
+    Used to verify that mask geometry survives the parse -> export -> re-parse
+    round-trip.
+    """
+    out: dict[tuple[str, str], list[np.ndarray]] = {}
+    grouped = prepared_ldf.processed_df.group_by(
+        ["file", "group_id"], maintain_order=True
+    )
+
+    for key, entry in grouped:
+        file_path, _gid = cast(tuple[str, str], key)
+        img_hash = file_sha256(Path(file_path))
+
+        for row in entry.iter_rows(named=True):
+            if row["task_type"] == "segmentation" and row["instance_id"] == -1:
+                d = json.loads(row["annotation"])
+                class_name = row["class_name"]
+
+                if isinstance(d.get("counts"), str):
+                    rle = {
+                        "counts": d["counts"].encode("utf-8"),
+                        "size": [d["height"], d["width"]],
+                    }
+                    mask = mask_utils.decode(rle).astype(bool)  # type: ignore
+                    out.setdefault((img_hash, class_name), []).append(mask)
+
+    return out
+
+
 # Which (DatasetType, collector) pairs to run for each logical annotation type
 ANNOTATION_REGISTRY: dict[str, list[tuple[DatasetType, Callable]]] = {
     "boundingbox": [
@@ -350,6 +385,7 @@ ANNOTATION_REGISTRY: dict[str, list[tuple[DatasetType, Callable]]] = {
     ],
     "segmentation": [
         (DatasetType.SEGMASK, collect_segmentation_multiset),
+        (DatasetType.SEGMASK, collect_segmentation_mask_overlap_multiset),
         (DatasetType.NATIVE, collect_segmentation_multiset),
     ],
 }
@@ -369,6 +405,19 @@ DATASETS = [
         "types": ["classification"],
     },
     {"url": "D2_Tile.png-mask-semantic.zip", "types": ["segmentation"]},
+    {
+        "url": "coco-2017.zip",
+        "types": ["instance_segmentation", "boundingbox"],
+    },
+    {
+        "url": "coco-2017.zip",
+        "types": ["keypoints"],
+        "initial_parse_kwargs": {"use_keypoint_ann": True},
+    },
+    {
+        "url": "imagenet-sample.zip",
+        "types": ["classification"],
+    },
 ]
 
 
@@ -378,6 +427,7 @@ def build_params():
     params = []
     for ds in DATASETS:
         url = ds["url"]
+        initial_parse_kwargs = ds.get("initial_parse_kwargs")
         for anno_type in ds["types"]:
             combos = ANNOTATION_REGISTRY.get(anno_type, [])
             for dataset_type, collector in combos:
@@ -386,13 +436,17 @@ def build_params():
                         url,
                         dataset_type,
                         collector,
+                        initial_parse_kwargs,
                         id=f"{url}::{anno_type}::{dataset_type.name}",
                     )
                 )
     return params
 
 
-@pytest.mark.parametrize(("url", "dataset_type", "collector"), build_params())
+@pytest.mark.parametrize(
+    ("url", "dataset_type", "collector", "initial_parse_kwargs"),
+    build_params(),
+)
 def test_export_import_equivalence(
     dataset_name: str,
     storage_url: str,
@@ -400,6 +454,7 @@ def test_export_import_equivalence(
     url: str,
     dataset_type: DatasetType,
     collector: Callable,
+    initial_parse_kwargs: dict | None,
 ):
     original, reimported = _export_and_reimport(
         url=url,
@@ -407,5 +462,6 @@ def test_export_import_equivalence(
         dataset_name=dataset_name,
         storage_url=storage_url,
         tempdir=tempdir,
+        initial_parse_kwargs=initial_parse_kwargs,
     )
     _assert_equivalence(original, reimported, collector)
