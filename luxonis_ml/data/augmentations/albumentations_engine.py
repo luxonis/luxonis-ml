@@ -2,7 +2,7 @@ import warnings
 from collections import defaultdict
 from collections.abc import Callable, Iterable
 from math import prod
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal, TypeAlias, cast
 
 import albumentations as A
 import numpy as np
@@ -377,14 +377,15 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 pixel_transforms.append(transform)
             elif isinstance(transform, BatchTransform):
                 batch_transforms.append(transform)
-            elif isinstance(transform, A.DualTransform):
+            elif isinstance(transform, (A.DualTransform, A.BaseCompose)):
                 spatial_transforms.append(transform)
             elif isinstance(transform, A.BasicTransform):
                 custom_transforms.append(transform)
             else:
                 raise ValueError(
-                    f"Unsupported transformation type: '{transform.__name__}'. "
-                    f"Only subclasses of `A.BasicTransform` are allowed. "
+                    f"Unsupported transformation type: '{type(transform).__name__}'. "
+                    f"Only subclasses of `A.BasicTransform` "
+                    f"or `A.BaseCompose` are allowed. "
                 )
 
         wrapped_spatial_ops: TransformsSeqType = []
@@ -685,9 +686,42 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     def create_transformation(
         config: AlbumentationConfigItem,
     ) -> A.BasicTransform:
+        params = config.params.copy()
+
+        # Recursively handle nested transform compositions
+        # (for example: OneOf, SomeOf, Sequential)
+        if "transforms" in params and isinstance(params["transforms"], list):
+            nested_transforms = []
+            for item in params["transforms"]:
+                if isinstance(item, dict) and "name" in item:
+                    nested_cfg = AlbumentationConfigItem(
+                        name=str(item["name"]),
+                        params=cast(Params, item.get("params", {})),
+                        use_for_resizing=bool(
+                            item.get("use_for_resizing", False)
+                        ),
+                    )
+                    transform = AlbumentationsEngine.create_transformation(
+                        nested_cfg
+                    )
+                    if isinstance(transform, BatchTransform):
+                        raise ValueError(
+                            f"Batch transform '{item['name']}' cannot be "
+                            f"nested inside '{config.name}'. "
+                            f"Batch transforms (e.g Mosaic4 and MixUp) "
+                            f"require multiple images and must be used "
+                            f"as top-level augmentations."
+                        )
+                    nested_transforms.append(transform)
+                else:
+                    raise ValueError(
+                        f"Invalid nested transform configuration: {item}"
+                    )
+            params["transforms"] = nested_transforms
+
         if hasattr(A, config.name):
-            return getattr(A, config.name)(**config.params)
-        return TRANSFORMATIONS.get(config.name)(**config.params)  # type: ignore
+            return getattr(A, config.name)(**params)
+        return TRANSFORMATIONS.get(config.name)(**params)  # type: ignore
 
     @staticmethod
     def task_to_target_name(task: str) -> str:
