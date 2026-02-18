@@ -7,19 +7,19 @@ The `LuxonisParser` class provides functionality for converting various dataset 
 - [LuxonisML Parsers](#luxonisml-parsers)
   - [Parameters](#parameters)
   - [Parse Method Parameters](#parse-method-parameters)
-  - [Common dataset formats for evaluation](#common-datasets-for-evaluation)
-    - [COCO-2017](#coco-2017-dataset-parsing)
-      - [Supported Directory Formats](#supported-directory-formats)
-      - [Parsed Annotation Types](#parsed-annotation-types)
-      - [Keypoint Annotations (`use_keypoint_ann`)](#keypoint-annotations-use_keypoint_ann)
-      - [Additional COCO-Specific Parameters](#additional-coco-specific-parameters)
-      - [Examples](#examples)
-    - [Imagenet-sample](#imagenet-sample-dataset-parsing)
-      - [Supported Directory Formats](#supported-directory-formats-1)
-      - [Labels Format](#labels-format)
-      - [Parsed Annotation Types](#parsed-annotation-types-1)
-      - [Automatic Annotation Cleaning](#automatic-annotation-cleaning)
-      - [Examples](#examples-1)
+- [Common datasets for evaluation](#common-datasets-for-evaluation)
+  - [COCO-2017](#coco-2017-dataset-parsing)
+    - [Supported Directory Formats](#supported-directory-formats)
+    - [Parsed Annotation Types](#parsed-annotation-types)
+    - [Keypoint Annotations (`use_keypoint_ann`)](#keypoint-annotations-use_keypoint_ann)
+    - [Additional COCO-Specific Parameters](#additional-coco-specific-parameters)
+    - [Examples](#examples)
+  - [Imagenet-sample](#imagenet-sample-dataset-parsing)
+    - [Supported Directory Formats](#supported-directory-formats-1)
+    - [Labels Format](#labels-format)
+    - [Parsed Annotation Types](#parsed-annotation-types-1)
+    - [Automatic Annotation Cleaning](#automatic-annotation-cleaning)
+    - [Examples](#examples-1)
 
 ## Parameters
 
@@ -76,15 +76,15 @@ This mode:
 - Take 100 random samples from the original val split
 - Take 0 samples from the test split
 
-## Common datasets for evaluation
+# Common datasets for evaluation
 
-### COCO-2017 Dataset Parsing
+## COCO-2017 Dataset Parsing
 
 The COCO parser supports two directory layout variants: **FiftyOne** and **Roboflow**. It automatically detects which format is present.
 
-#### Supported Directory Formats
+### Supported Directory Formats
 
-##### FiftyOne Format
+#### FiftyOne Format
 
 This is the default layout when downloading COCO via the [FiftyOne](https://docs.voxel51.com/) package.
 
@@ -110,7 +110,7 @@ dataset_dir/
     └── labels.json
 ```
 
-##### Roboflow Format
+#### Roboflow Format
 
 ```
 dataset_dir/
@@ -121,7 +121,7 @@ dataset_dir/
 └── test/
 ```
 
-#### Parsed Annotation Types
+### Parsed Annotation Types
 
 The COCO parser extracts the following annotation types from each instance:
 
@@ -135,13 +135,13 @@ The COCO parser extracts the following annotation types from each instance:
 
 Skeleton information (keypoint labels and edges) is automatically extracted from COCO categories that contain `keypoints` and `skeleton` fields.
 
-#### Keypoint Annotations (`use_keypoint_ann`)
+### Keypoint Annotations (`use_keypoint_ann`)
 
 By default, keypoints are read from the same annotation file as bounding boxes and segmentations (e.g., `labels.json`). The standard COCO `labels.json` exported by FiftyOne uses the **instances** annotations, which contain bounding boxes and segmentations for all 80 COCO categories but **do not include keypoints**.
 
 To parse person keypoints, set `use_keypoint_ann=True`. This tells the parser to read from the dedicated **person keypoints** annotation files (`person_keypoints_*.json`) instead of the default instance annotation files.
 
-##### How It Works
+#### How It Works
 
 When `use_keypoint_ann=True` (FiftyOne format only), the parser looks for keypoint-specific annotation files at these default paths:
 
@@ -168,7 +168,7 @@ dataset = parser.parse(
 
 > **Note:** `use_keypoint_ann` is only supported for the FiftyOne format. If a Roboflow-format dataset is detected, the parameter is ignored.
 
-#### Additional COCO-Specific Parameters
+### Additional COCO-Specific Parameters
 
 | Parameter            | Type                       | Default | Description                                                                                                                                                                        |
 | -------------------- | -------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -178,7 +178,7 @@ dataset = parser.parse(
 
 These parameters are passed as keyword arguments to `parser.parse()`.
 
-#### Example: Parsing COCO-2017 with Keypoints
+### Example: Parsing COCO-2017 with Keypoints
 
 > **Note:** The `use_keypoint_ann` flag is not exposed via the CLI. Use the Python API for keypoint-specific parsing.
 
@@ -197,7 +197,7 @@ dataset = parser.parse(
 )
 ```
 
-#### Example: CLI Parsing
+### Example: CLI Parsing
 
 ```bash
 # Basic COCO parsing (instances only, no keypoints)
@@ -207,17 +207,17 @@ luxonis_ml data parse ./coco-2017
 luxonis_ml data parse ./coco-2017 --split-ratio 1000,200,100
 ```
 
-#### Corrupted Image Handling
+### Corrupted Image Handling
 
 The COCO-2017 train set contains a small number of images known to cause issues. The parser automatically filters these out when parsing the train split. No user action is required.
 
-### Imagenet-sample Dataset Parsing
+## Imagenet-sample Dataset Parsing
 
 The ImageNet-sample parser handles the [FiftyOneImageClassificationDataset](https://docs.voxel51.com/user_guide/export_datasets.html#fiftyone-image-classification-dataset) format. It supports both a flat (single-directory) layout and a split-based layout.
 
-#### Supported Directory Formats
+### Supported Directory Formats
 
-##### Flat Format (ImageNet-sample default)
+#### Flat Format (ImageNet-sample default)
 
 This is the layout produced by `fiftyone zoo datasets load imagenet-sample`. Since the dataset contains as a single split, random splits are applied at parse time.
 
@@ -234,7 +234,7 @@ dataset_dir/
 └── labels.json
 ```
 
-##### Split Format
+#### Split Format
 
 If the dataset is organized into split subdirectories, each split is parsed independently.
 
@@ -253,7 +253,7 @@ dataset_dir/
     └── labels.json
 ```
 
-#### Labels Format
+### Labels Format
 
 The `labels.json` file maps image stems to class indices:
 
@@ -268,13 +268,13 @@ The `labels.json` file maps image stems to class indices:
 }
 ```
 
-#### Parsed Annotation Types
+### Parsed Annotation Types
 
 | Annotation     | Source Field | Notes                                       |
 | -------------- | ------------ | ------------------------------------------- |
 | Classification | `labels`     | Class name resolved from the `classes` list |
 
-#### Automatic Annotation Cleaning
+### Automatic Annotation Cleaning
 
 The ImageNet FiftyOne export contains known issues that the parser automatically fixes when using the flat format:
 
@@ -287,13 +287,13 @@ The ImageNet FiftyOne export contains known issues that the parser automatically
 
 A cleaned copy (`labels_fixed.json`) is saved alongside the original file.
 
-#### Dataset Details
+### Dataset Details
 
 - **Samples:** 1,000 images
 - **Classes:** 1,000 ImageNet categories
 - **Task:** Image classification
 
-#### Example: Parsing ImageNet-sample
+### Example: Parsing ImageNet-sample
 
 ```python
 from luxonis_ml.data import LuxonisParser
@@ -309,7 +309,7 @@ dataset = parser.parse(
 )
 ```
 
-#### Example: CLI Parsing
+### Example: CLI Parsing
 
 ```bash
 # Basic ImageNet-sample parsing
