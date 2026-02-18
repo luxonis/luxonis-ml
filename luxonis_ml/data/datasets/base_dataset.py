@@ -151,7 +151,10 @@ class BaseDataset(
 
     @abstractmethod
     def add(
-        self, generator: DatasetIterator, batch_size: int = 1_000_000
+        self,
+        generator: DatasetIterator,
+        batch_size: int = 1_000_000,
+        initial_class_ordering: dict[str, list[str]] | None = None,
     ) -> None:
         """Write annotations to parquet files.
 
@@ -163,6 +166,9 @@ class BaseDataset(
         @param batch_size: The number of annotations generated before
             processing. This can be set to a lower value to reduce
             memory usage.
+        @type initial_class_ordering: Optional[Dict[str, List[str]]]
+        @param initial_class_ordering: Optional original mapping from
+         task names to ordered lists of class names
         """
         ...
 

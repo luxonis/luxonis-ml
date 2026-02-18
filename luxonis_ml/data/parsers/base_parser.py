@@ -44,10 +44,30 @@ class BaseParser(ABC):
         """
         self.dataset = dataset
         self.dataset_type = dataset_type
+        self.initial_class_ordering: dict[str, list[str]] | None = None
         if isinstance(task_name, str):
             self.task_name = defaultdict(lambda: task_name)
         else:
             self.task_name = task_name
+
+    def _set_initial_class_ordering(
+        self, ordered_classes: list[str]
+    ) -> None:
+        """Sets initial_class_ordering from an ordered list of class
+        names, grouping by task name if there is one configured.
+
+        @type ordered_classes: list[str]
+        @param ordered_classes: Class names in the initial order
+        """
+        if self.task_name is not None:
+            tasks_to_classes: dict[str, list[str]] = {}
+            for class_name in ordered_classes:
+                tasks_to_classes.setdefault(
+                    self.task_name[class_name], []
+                ).append(class_name)
+            self.initial_class_ordering = tasks_to_classes
+        else:
+            self.initial_class_ordering = {"": ordered_classes}
 
     @staticmethod
     @abstractmethod
@@ -126,7 +146,10 @@ class BaseParser(ABC):
         @return: List of added images.
         """
         generator, skeletons, added_images = self.from_split(**kwargs)
-        self.dataset.add(self._wrap_generator(generator))
+        self.dataset.add(
+            self._wrap_generator(generator),
+            initial_class_ordering=self.initial_class_ordering,
+        )
         if skeletons:
             for skeleton in skeletons.values():
                 self.dataset.set_skeletons(

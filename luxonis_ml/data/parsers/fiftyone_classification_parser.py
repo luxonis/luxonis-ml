@@ -114,6 +114,8 @@ class FiftyOneClassificationParser(BaseParser):
         classes = labels_data["classes"]
         labels = labels_data["labels"]
 
+        self._set_initial_class_ordering(list(classes))
+
         images = self._list_images(data_path)
         stem_to_path = {img.stem: img for img in images}
 

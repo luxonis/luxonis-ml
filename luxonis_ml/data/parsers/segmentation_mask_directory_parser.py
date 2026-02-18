@@ -91,6 +91,8 @@ class SegmentationMaskDirectoryParser(BaseParser):
         df = pl.read_csv(classes_path).filter(pl.col(idx_class).is_not_null())
         class_names = df[idx_class].to_list()
 
+        self._set_initial_class_ordering(list(class_names))
+
         def generator() -> DatasetIterator:
             for mask_path in seg_dir.glob("*_mask.*"):
                 image_path = next(image_dir.glob(f"{mask_path.stem[:-5]}.*"))

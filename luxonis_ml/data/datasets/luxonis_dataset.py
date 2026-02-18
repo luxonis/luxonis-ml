@@ -681,6 +681,35 @@ class LuxonisDataset(BaseDataset):
         with suppress(shutil.SameFileError):
             self.fs.put_file(path, "metadata/metadata.json")
 
+    def _write_initial_class_ordering(
+        self, class_order_per_task: dict[str, list[str]]
+    ) -> None:
+        """Writes a JSON file that preserves the initial class
+        ordering from the source dataset format.
+        """
+        existing = self.get_initial_class_ordering()
+        for task, new_order in class_order_per_task.items():
+            if task in existing:
+                seen = set(existing[task])
+                existing[task].extend(c for c in new_order if c not in seen)
+            else:
+                existing[task] = new_order
+        path = self.metadata_path / "initial_class_ordering.json"
+        path.write_text(json.dumps(existing, indent=4))
+        with suppress(shutil.SameFileError):
+            self.fs.put_file(path, "metadata/initial_class_ordering.json")
+
+    def get_initial_class_ordering(self) -> dict[str, list[str]]:
+        """Returns the initial class ordering from the source dataset.
+
+        @rtype: dict[str, list[str]]
+        @return: A mapping from task names to ordered lists of class names.
+        """
+        path = self.metadata_path / "initial_class_ordering.json"
+        if path.exists():
+            return json.loads(path.read_text())
+        return {}
+
     @staticmethod
     def _construct_url(
         bucket_storage: BucketStorage,
@@ -1119,7 +1148,10 @@ class LuxonisDataset(BaseDataset):
         self.progress.remove_task(task)
 
     def add(
-        self, generator: DatasetIterator, batch_size: int = 1_000_000
+        self,
+        generator: DatasetIterator,
+        batch_size: int = 1_000_000,
+        initial_class_ordering: dict[str, list[str]] | None = None,
     ) -> Self:
         logger.info(f"Adding data to dataset '{self.dataset_name}'...")
 
@@ -1242,6 +1274,8 @@ class LuxonisDataset(BaseDataset):
                 main_component=next(iter(components.keys())),
             )
             self.update_source(source)
+        if initial_class_ordering:
+            self._write_initial_class_ordering(initial_class_ordering)
         self._warn_on_duplicates()
         return self
 

@@ -244,6 +244,10 @@ class COCOParser(BaseParser):
         coco_categories = annotation_data.get("categories", [])
         categories = {cat["id"]: cat["name"] for cat in coco_categories}
 
+        self._set_initial_class_ordering(
+            [cat["name"] for cat in coco_categories]
+        )
+
         skeletons = {}
         for cat in coco_categories:
             if "keypoints" in cat and "skeleton" in cat:
