@@ -114,7 +114,7 @@ class LuxonisParser(Generic[T]):
                 dataset_dir, save_dir
             )
         else:
-            name = dataset_dir.split("/")[-1]
+            name = dataset_dir.rsplit("/", maxsplit=1)[-1]
             local_path = (save_dir or Path.cwd()) / name
             self.dataset_dir = LuxonisFileSystem.download(
                 dataset_dir, local_path
