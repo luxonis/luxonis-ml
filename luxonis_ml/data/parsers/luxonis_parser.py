@@ -126,7 +126,7 @@ class LuxonisParser(Generic[T]):
                     f"Extracting '{self.dataset_dir.name}' to '{unzip_dir}'"
                 )
                 zip_ref.extractall(unzip_dir)
-                self.dataset_dir = unzip_dir
+                self.dataset_dir = self._resolve_extracted_zip_root(unzip_dir)
 
         if dataset_type:
             self.dataset_type = dataset_type
@@ -155,6 +155,56 @@ class LuxonisParser(Generic[T]):
         self.parser = self.parsers[self.dataset_type](
             self.dataset, self.dataset_type, task_name
         )
+
+    @staticmethod
+    def _resolve_extracted_zip_root(unzip_dir: Path) -> Path:
+        ignored_entries = {"__MACOSX", "Thumbs.db", "desktop.ini"}
+        visible_entries = [
+            entry
+            for entry in unzip_dir.iterdir()
+            if entry.name not in ignored_entries
+            and not entry.name.startswith(".")
+        ]
+        if len(visible_entries) != 1:
+            return unzip_dir
+
+        only_entry = visible_entries[0]
+        if not only_entry.is_dir():
+            return unzip_dir
+
+        # only unwrap when the inner directory clearly
+        # looks like a dataset root, not an arbitrary folder.
+        # this is because ClassificationDirectoryParser accepts
+        # any directory whose children are subdirectories (class names)
+        marker_dirs = {
+            "train",
+            "valid",
+            "val",
+            "validation",
+            "test",
+            "images",
+            "labels",
+            "data",
+            "raw",
+            "masks",
+        }
+        marker_files = {
+            "annotations.json",
+            "labels.json",
+            "data.yaml",
+            "dataset.yaml",
+            "dataset.yml",
+        }
+        child_dirs = {d.name for d in only_entry.iterdir() if d.is_dir()}
+        child_files = {f.name for f in only_entry.iterdir() if f.is_file()}
+        if not (child_dirs & marker_dirs or child_files & marker_files):
+            return unzip_dir
+
+        logger.info(
+            f"Detected top-level folder '{only_entry.name}' in extracted zip. "
+            "Using it as dataset root."
+        )
+        return only_entry
 
     @overload
     def parse(self: "LuxonisParser[str]", **kwargs) -> BaseDataset: ...
