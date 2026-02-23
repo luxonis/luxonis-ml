@@ -172,10 +172,10 @@ class LuxonisParser(Generic[T]):
         if not only_entry.is_dir():
             return unzip_dir
 
-        # only unwrap when the inner directory clearly
-        # looks like a dataset root, not an arbitrary folder.
-        # this is because ClassificationDirectoryParser accepts
-        # any directory whose children are subdirectories (class names)
+        # Only unwrap when the inner directory clearly looks like a
+        # dataset root, not an arbitrary folder.
+        # ClassificationDirectoryParser is excluded from parser-based
+        # checks because a single class folder can look like a wrapper.
         marker_dirs = {
             "train",
             "valid",
@@ -197,8 +197,22 @@ class LuxonisParser(Generic[T]):
         }
         child_dirs = {d.name for d in only_entry.iterdir() if d.is_dir()}
         child_files = {f.name for f in only_entry.iterdir() if f.is_file()}
-        if not (child_dirs & marker_dirs or child_files & marker_files):
-            return unzip_dir
+        has_markers = bool(
+            child_dirs & marker_dirs or child_files & marker_files
+        )
+        if not has_markers:
+            recognized_by_non_clsdir = any(
+                (
+                    typ != DatasetType.CLSDIR
+                    and (
+                        parser.validate(only_entry)
+                        or parser.validate_split(only_entry)
+                    )
+                )
+                for typ, parser in LuxonisParser.parsers.items()
+            )
+            if not recognized_by_non_clsdir:
+                return unzip_dir
 
         logger.info(
             f"Detected top-level folder '{only_entry.name}' in extracted zip. "

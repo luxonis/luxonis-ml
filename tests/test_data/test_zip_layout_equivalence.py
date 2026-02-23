@@ -12,14 +12,19 @@ from .utils import LDFEquivalence
 
 
 def _resolve_extracted_root(unzip_dir: Path) -> Path:
-    visible_entries = [
-        entry
-        for entry in unzip_dir.iterdir()
-        if not entry.name.startswith(".")
-    ]
-    if len(visible_entries) == 1 and visible_entries[0].is_dir():
-        return visible_entries[0]
-    return unzip_dir
+    ignored_entries = {"__MACOSX", "Thumbs.db", "desktop.ini"}
+    current = unzip_dir
+    while True:
+        visible_entries = [
+            entry
+            for entry in current.iterdir()
+            if entry.name not in ignored_entries
+            and not entry.name.startswith(".")
+        ]
+        if len(visible_entries) == 1 and visible_entries[0].is_dir():
+            current = visible_entries[0]
+            continue
+        return current
 
 
 def _make_wrapped_zip(dataset_root: Path, wrapped_zip_path: Path) -> None:
