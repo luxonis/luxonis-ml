@@ -87,11 +87,14 @@ class SegmentationMaskDirectoryParser(BaseParser):
 
         # NOTE: space prefix included
         idx_class = " Class"
+        idx_pixel = "Pixel Value"
 
         df = pl.read_csv(classes_path).filter(pl.col(idx_class).is_not_null())
-        class_names = df[idx_class].to_list()
+        pixel_to_class = dict(
+            zip(df[idx_pixel].to_list(), df[idx_class].to_list())
+        )
 
-        self._set_initial_class_ordering(list(class_names))
+        self._set_initial_class_ordering(df[idx_class].to_list())
 
         def generator() -> DatasetIterator:
             for mask_path in seg_dir.glob("*_mask.*"):
@@ -101,7 +104,9 @@ class SegmentationMaskDirectoryParser(BaseParser):
 
                 ids = np.unique(mask)
                 for id in ids:
-                    class_name = class_names[id]
+                    if id not in pixel_to_class:
+                        continue
+                    class_name = pixel_to_class[id]
 
                     curr_seg_mask = np.zeros_like(mask)
                     curr_seg_mask[mask == id] = 1

@@ -684,9 +684,8 @@ class LuxonisDataset(BaseDataset):
     def _write_initial_class_ordering(
         self, class_order_per_task: dict[str, list[str]]
     ) -> None:
-        """Writes a JSON file that preserves the initial class
-        ordering from the source dataset format.
-        """
+        """Writes a JSON file that preserves the initial class ordering
+        from the source dataset format."""
         existing = self.get_initial_class_ordering()
         for task, new_order in class_order_per_task.items():
             if task in existing:
@@ -703,7 +702,8 @@ class LuxonisDataset(BaseDataset):
         """Returns the initial class ordering from the source dataset.
 
         @rtype: dict[str, list[str]]
-        @return: A mapping from task names to ordered lists of class names.
+        @return: A mapping from task names to ordered lists of class
+            names.
         """
         path = self.metadata_path / "initial_class_ordering.json"
         if path.exists():

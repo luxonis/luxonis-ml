@@ -50,9 +50,7 @@ class BaseParser(ABC):
         else:
             self.task_name = task_name
 
-    def _set_initial_class_ordering(
-        self, ordered_classes: list[str]
-    ) -> None:
+    def _set_initial_class_ordering(self, ordered_classes: list[str]) -> None:
         """Sets initial_class_ordering from an ordered list of class
         names, grouping by task name if there is one configured.
 

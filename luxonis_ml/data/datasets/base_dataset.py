@@ -168,7 +168,7 @@ class BaseDataset(
             memory usage.
         @type initial_class_ordering: Optional[Dict[str, List[str]]]
         @param initial_class_ordering: Optional original mapping from
-         task names to ordered lists of class names
+            task names to ordered lists of class names
         """
         ...
 
