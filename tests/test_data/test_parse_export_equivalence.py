@@ -1,18 +1,13 @@
-import hashlib
-import json
-from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
-from typing import cast
 
-import numpy as np
 import pytest
-from pycocotools import mask as mask_utils
 
 from luxonis_ml.data import LuxonisDataset
-from luxonis_ml.data.exporters import PreparedLDF
 from luxonis_ml.data.parsers import LuxonisParser
 from luxonis_ml.enums import DatasetType
+
+from .utils import LDFEquivalence
 
 
 def _export_and_reimport(
@@ -57,336 +52,56 @@ def _export_and_reimport(
     return dataset, new_dataset
 
 
-def _multiset_equal_with_tolerance(
-    prev_map: dict[tuple[str], Counter],
-    new_map: dict[tuple[str], Counter],
-    tol: float,
-) -> None:
-    """Assert that two dict[key -> multiset of tuples] are equal up to a
-    per-coordinate absolute tolerance `tol`.
-
-    Keys are image hashes; values are Counters of bbox tuples (x, y, w,
-    h).
-    """
-    assert prev_map.keys() == new_map.keys(), (
-        f"Different image sets:\nprev-only={set(prev_map) - set(new_map)}\n"
-        f"new-only={set(new_map) - set(prev_map)}"
-    )
-
-    for key, prev_counter in prev_map.items():
-        new_counter = new_map[key]
-
-        if prev_counter == new_counter:
-            continue
-
-        prev_list = list(prev_counter.elements())
-        new_list = list(new_counter.elements())
-
-        assert len(prev_list) == len(new_list), (
-            f"Different number of boxes for {key}: "
-            f"{len(prev_list)} vs {len(new_list)}"
-        )
-
-        used = [False] * len(new_list)
-
-        def within_tol(a: tuple[float, ...], b: tuple[float, ...]) -> bool:
-            return all(
-                abs(aa - bb) <= tol for aa, bb in zip(a, b, strict=True)
-            )
-
-        for _i, box in enumerate(prev_list):
-            found = False
-            for j, cand in enumerate(new_list):
-                if not used[j] and within_tol(box, cand):
-                    used[j] = True
-                    found = True
-                    break
-            assert found, (
-                f"No match within tol={tol} for box {box} in image {key}. "
-                f"Unmatched candidates: "
-                f"{[c for u, c in zip(used, new_list, strict=True) if not u]}"
-            )
-
-        assert all(used), (
-            f"Extra unmatched boxes in new for {key}: "
-            f"{[c for u, c in zip(used, new_list, strict=True) if not u]}"
-        )
-
-
-def _assert_equivalence(
-    dataset: LuxonisDataset, new_dataset: LuxonisDataset, collector: Callable
-) -> None:
-    previous_ldf = PreparedLDF.from_dataset(dataset)
-    new_ldf = PreparedLDF.from_dataset(new_dataset)
-    prev = collector(previous_ldf)
-    new = collector(new_ldf)
-
-    if collector.__name__ == "collect_bbox_multiset":
-        _multiset_equal_with_tolerance(prev, new, tol=0.02)
-
-    elif collector.__name__ in (
-        "collect_instance_segmentation_mask_overlap_multiset",
-        "collect_segmentation_mask_overlap_multiset",
-    ):
-        # Combine all masks per key and assert there is spatial overlap
-        def _combine_masks(masks: list[np.ndarray]) -> np.ndarray:
-            if not masks:
-                # An empty set of masks is treated as a zero mask
-                return np.zeros((0, 0), dtype=bool)
-            combined = masks[0].astype(bool).copy()
-            for m in masks[1:]:
-                if m.shape != combined.shape:
-                    raise AssertionError(
-                        f"Mask shape mismatch: {m.shape} vs {combined.shape}"
-                    )
-                combined |= m.astype(bool)
-            return combined
-
-        # Ensure we compare the same keys
-        assert prev.keys() == new.keys(), (
-            f"Different key sets:\nprev-only={set(prev) - set(new)}\nnew-only={set(new) - set(prev)}"
-        )
-
-        for key in prev:
-            comb_prev = _combine_masks(prev[key])
-            comb_new = _combine_masks(new[key])
-
-            if comb_prev.size == 0 or comb_new.size == 0:
-                assert comb_prev.size == comb_new.size, (
-                    f"Mask presence differs for {key}"
-                )
-                continue
-
-            assert comb_prev.shape == comb_new.shape, (
-                f"Combined mask shape differs for {key}"
-            )
-
-            intersection = np.logical_and(comb_prev, comb_new).sum()
-
-            union = np.logical_or(comb_prev, comb_new).sum()
-            iou = intersection / union if union > 0 else 0.0
-
-            assert iou > 0.75, f"Low IoU in combined masks for {key}"
-
-    else:
-        assert prev == new
-
-
-def file_sha256(path: Path) -> str:
-    """The image's hash is used to order the bounding boxes to survive
-    renaming during export."""
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def collect_bbox_multiset(prepared_ldf: PreparedLDF):
-    out: dict[tuple[str], Counter] = {}
-    grouped = prepared_ldf.processed_df.group_by(
-        ["file", "group_id"], maintain_order=True
-    )
-    for key, entry in grouped:
-        file_path, _gid = cast(tuple[str, str], key)
-        hashed_key = (file_sha256(Path(file_path)),)
-        boxes = []
-        for row in entry.iter_rows(named=True):
-            if row["task_type"] == "boundingbox":
-                d = json.loads(row["annotation"])
-                boxes.append(
-                    (
-                        round(d["x"], 2),
-                        round(d["y"], 2),
-                        round(d["w"], 2),
-                        round(d["h"], 2),
-                    )
-                )
-        if boxes:
-            out.setdefault(hashed_key, Counter()).update(boxes)
-    return out
-
-
-def collect_keypoint_multiset(prepared_ldf: PreparedLDF):
-    out: dict[tuple[str], Counter] = {}
-    grouped = prepared_ldf.processed_df.group_by(
-        ["file", "group_id"], maintain_order=True
-    )
-    for key, entry in grouped:
-        file_path, _gid = cast(tuple[str, str], key)
-        hashed_key = (file_sha256(Path(file_path)),)
-        keypoints = []
-        for row in entry.iter_rows(named=True):
-            if row["task_type"] == "keypoints":
-                d = json.loads(row["annotation"])
-                for kp in d["keypoints"]:
-                    rounded_kp = tuple(
-                        round(v, 3) if i < 2 else v for i, v in enumerate(kp)
-                    )
-                    keypoints.append(rounded_kp)
-        if keypoints:
-            out.setdefault(hashed_key, Counter()).update(keypoints)
-    return out
-
-
-def collect_instance_segmentation_multiset(prepared_ldf: PreparedLDF):
-    out: dict[tuple[str], Counter] = {}
-    grouped = prepared_ldf.processed_df.group_by(
-        ["file", "group_id"], maintain_order=True
-    )
-    for key, entry in grouped:
-        file_path, _gid = cast(tuple[str, str], key)
-        hashed_key = (file_sha256(Path(file_path)),)
-        counts = []
-        for row in entry.iter_rows(named=True):
-            if row["task_type"] == "instance_segmentation":
-                d = json.loads(row["annotation"])
-                counts.extend(d["counts"])
-        if counts:
-            out.setdefault(hashed_key, Counter()).update(counts)
-    return out
-
-
-def collect_instance_segmentation_mask_overlap_multiset(
-    prepared_ldf: PreparedLDF,
-):
-    """Collect decoded binary masks from instance segmentation
-    annotations.
-
-    Used for exporters (like YOLOv8) that can convert between RLE and
-    polygons.
-    """
-    out: dict[tuple[str], list[np.ndarray]] = {}
-    grouped = prepared_ldf.processed_df.group_by(
-        ["file", "group_id"], maintain_order=True
-    )
-
-    for key, entry in grouped:
-        file_path, _gid = cast(tuple[str, str], key)
-        hashed_key = (file_sha256(Path(file_path)),)
-        masks: list[np.ndarray] = []
-
-        for row in entry.iter_rows(named=True):
-            if row["task_type"] == "instance_segmentation":
-                d = json.loads(row["annotation"])
-
-                # Decode RLE mask from COCO-style dict
-                if isinstance(d.get("counts"), str):
-                    rle = {
-                        "counts": d["counts"].encode("utf-8"),
-                        "size": [d["height"], d["width"]],
-                    }
-                    mask = mask_utils.decode(rle).astype(bool)  # type: ignore
-                    masks.append(mask)
-
-        if masks:
-            out.setdefault(hashed_key, []).extend(masks)
-
-    return out
-
-
-def collect_classification_multiset(prepared_ldf: PreparedLDF):
-    out: dict[tuple[str], Counter] = {}
-    grouped = prepared_ldf.processed_df.group_by(
-        ["file", "group_id"], maintain_order=True
-    )
-    for key, entry in grouped:
-        file_path, _gid = cast(tuple[str, str], key)
-        hashed_key = (file_sha256(Path(file_path)),)
-        classes = []
-        for row in entry.iter_rows(named=True):
-            if (
-                row["task_type"] == "classification"
-                and row["instance_id"] == -1
-            ):
-                classes.append(row["class_name"])
-        if classes:
-            out.setdefault(hashed_key, Counter()).update(classes)
-    return out
-
-
-def collect_segmentation_multiset(prepared_ldf: PreparedLDF):
-    out: dict[tuple[str], Counter] = {}
-    grouped = prepared_ldf.processed_df.group_by(
-        ["file", "group_id"], maintain_order=True
-    )
-    for key, entry in grouped:
-        file_path, _gid = cast(tuple[str, str], key)
-        hashed_key = (file_sha256(Path(file_path)),)
-        classes = []
-        for row in entry.iter_rows(named=True):
-            if row["task_type"] == "segmentation" and row["instance_id"] == -1:
-                classes.append(row["class_name"])
-        if classes:
-            out.setdefault(hashed_key, Counter()).update(classes)
-    return out
-
-
-def collect_segmentation_mask_overlap_multiset(
-    prepared_ldf: PreparedLDF,
-):
-    """Collect decoded binary masks from semantic segmentation
-    annotations, keyed by (image_hash, class_name).
-
-    Used to verify that mask geometry is the same after parse -> export
-    -> re-parse
-    """
-    out: dict[tuple[str, str], list[np.ndarray]] = {}
-    grouped = prepared_ldf.processed_df.group_by(
-        ["file", "group_id"], maintain_order=True
-    )
-
-    for key, entry in grouped:
-        file_path, _gid = cast(tuple[str, str], key)
-        img_hash = file_sha256(Path(file_path))
-
-        for row in entry.iter_rows(named=True):
-            if row["task_type"] == "segmentation" and row["instance_id"] == -1:
-                d = json.loads(row["annotation"])
-                class_name = row["class_name"]
-
-                if isinstance(d.get("counts"), str):
-                    rle = {
-                        "counts": d["counts"].encode("utf-8"),
-                        "size": [d["height"], d["width"]],
-                    }
-                    mask = mask_utils.decode(rle).astype(bool)  # type: ignore
-                    out.setdefault((img_hash, class_name), []).append(mask)
-
-    return out
-
-
 # Which (DatasetType, collector) pairs to run for each logical annotation type
 ANNOTATION_REGISTRY: dict[str, list[tuple[DatasetType, Callable]]] = {
     "boundingbox": [
-        (DatasetType.YOLOV4, collect_bbox_multiset),
-        (DatasetType.YOLOV6, collect_bbox_multiset),
-        (DatasetType.YOLOV8BOUNDINGBOX, collect_bbox_multiset),
-        (DatasetType.COCO, collect_bbox_multiset),
-        (DatasetType.DARKNET, collect_bbox_multiset),
-        (DatasetType.VOC, collect_bbox_multiset),
-        (DatasetType.NATIVE, collect_bbox_multiset),
-        (DatasetType.CREATEML, collect_bbox_multiset),
-        (DatasetType.TFCSV, collect_bbox_multiset),
+        (DatasetType.YOLOV4, LDFEquivalence.collect_bbox_multiset),
+        (DatasetType.YOLOV6, LDFEquivalence.collect_bbox_multiset),
+        (DatasetType.YOLOV8BOUNDINGBOX, LDFEquivalence.collect_bbox_multiset),
+        (DatasetType.COCO, LDFEquivalence.collect_bbox_multiset),
+        (DatasetType.DARKNET, LDFEquivalence.collect_bbox_multiset),
+        (DatasetType.VOC, LDFEquivalence.collect_bbox_multiset),
+        (DatasetType.NATIVE, LDFEquivalence.collect_bbox_multiset),
+        (DatasetType.CREATEML, LDFEquivalence.collect_bbox_multiset),
+        (DatasetType.TFCSV, LDFEquivalence.collect_bbox_multiset),
     ],
     "instance_segmentation": [
-        (DatasetType.NATIVE, collect_instance_segmentation_multiset),
-        (DatasetType.COCO, collect_instance_segmentation_multiset),
+        (
+            DatasetType.NATIVE,
+            LDFEquivalence.collect_instance_segmentation_multiset,
+        ),
+        (
+            DatasetType.COCO,
+            LDFEquivalence.collect_instance_segmentation_multiset,
+        ),
         (
             DatasetType.YOLOV8INSTANCESEGMENTATION,
-            collect_instance_segmentation_mask_overlap_multiset,
+            LDFEquivalence.collect_instance_segmentation_mask_overlap_multiset,
         ),
     ],
     "keypoints": [
-        (DatasetType.COCO, collect_keypoint_multiset),
-        (DatasetType.NATIVE, collect_keypoint_multiset),
-        (DatasetType.YOLOV8KEYPOINTS, collect_keypoint_multiset),
+        (DatasetType.COCO, LDFEquivalence.collect_keypoint_multiset),
+        (DatasetType.NATIVE, LDFEquivalence.collect_keypoint_multiset),
+        (
+            DatasetType.YOLOV8KEYPOINTS,
+            LDFEquivalence.collect_keypoint_multiset,
+        ),
     ],
     "classification": [
-        (DatasetType.NATIVE, collect_classification_multiset),
-        (DatasetType.CLSDIR, collect_classification_multiset),
-        (DatasetType.FIFTYONECLS, collect_classification_multiset),
+        (DatasetType.NATIVE, LDFEquivalence.collect_classification_multiset),
+        (DatasetType.CLSDIR, LDFEquivalence.collect_classification_multiset),
+        (
+            DatasetType.FIFTYONECLS,
+            LDFEquivalence.collect_classification_multiset,
+        ),
     ],
     "segmentation": [
-        (DatasetType.SEGMASK, collect_segmentation_multiset),
-        (DatasetType.SEGMASK, collect_segmentation_mask_overlap_multiset),
-        (DatasetType.NATIVE, collect_segmentation_multiset),
+        (DatasetType.SEGMASK, LDFEquivalence.collect_segmentation_multiset),
+        (DatasetType.NATIVE, LDFEquivalence.collect_segmentation_multiset),
+        (
+            DatasetType.SEGMASK,
+            LDFEquivalence.collect_segmentation_mask_overlap_multiset,
+        ),
     ],
 }
 
@@ -460,4 +175,4 @@ def test_export_import_equivalence(
         tempdir=tempdir,
         initial_parse_kwargs=initial_parse_kwargs,
     )
-    _assert_equivalence(original, reimported, collector)
+    LDFEquivalence.assert_equivalence(original, reimported, collector)

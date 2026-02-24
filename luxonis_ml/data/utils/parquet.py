@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import TypedDict
 
 import polars as pl
+from typing_extensions import Self
 
 from luxonis_ml.typing import PathType
 
@@ -106,7 +107,7 @@ class ParquetFileManager:
             df = pl.DataFrame(self.buffer)
             df.write_parquet(self.current_file)
 
-    def __enter__(self) -> "ParquetFileManager":
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *_) -> None:

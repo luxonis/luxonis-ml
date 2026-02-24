@@ -114,7 +114,7 @@ class LuxonisParser(Generic[T]):
                 dataset_dir, save_dir
             )
         else:
-            name = dataset_dir.split("/")[-1]
+            name = dataset_dir.rsplit("/", maxsplit=1)[-1]
             local_path = (save_dir or Path.cwd()) / name
             self.dataset_dir = LuxonisFileSystem.download(
                 dataset_dir, local_path
@@ -126,7 +126,7 @@ class LuxonisParser(Generic[T]):
                     f"Extracting '{self.dataset_dir.name}' to '{unzip_dir}'"
                 )
                 zip_ref.extractall(unzip_dir)
-                self.dataset_dir = unzip_dir
+                self.dataset_dir = self._resolve_extracted_zip_root(unzip_dir)
 
         if dataset_type:
             self.dataset_type = dataset_type
@@ -155,6 +155,70 @@ class LuxonisParser(Generic[T]):
         self.parser = self.parsers[self.dataset_type](
             self.dataset, self.dataset_type, task_name
         )
+
+    @staticmethod
+    def _resolve_extracted_zip_root(unzip_dir: Path) -> Path:
+        ignored_entries = {"__MACOSX", "Thumbs.db", "desktop.ini"}
+        visible_entries = [
+            entry
+            for entry in unzip_dir.iterdir()
+            if entry.name not in ignored_entries
+            and not entry.name.startswith(".")
+        ]
+        if len(visible_entries) != 1:
+            return unzip_dir
+
+        only_entry = visible_entries[0]
+        if not only_entry.is_dir():
+            return unzip_dir
+
+        # Only unwrap when the inner directory clearly looks like a
+        # dataset root, not an arbitrary folder.
+        # ClassificationDirectoryParser is excluded from parser-based
+        # checks because a single class folder can look like a wrapper.
+        marker_dirs = {
+            "train",
+            "valid",
+            "val",
+            "validation",
+            "test",
+            "images",
+            "labels",
+            "data",
+            "raw",
+            "masks",
+        }
+        marker_files = {
+            "annotations.json",
+            "labels.json",
+            "data.yaml",
+            "dataset.yaml",
+            "dataset.yml",
+        }
+        child_dirs = {d.name for d in only_entry.iterdir() if d.is_dir()}
+        child_files = {f.name for f in only_entry.iterdir() if f.is_file()}
+        has_markers = bool(
+            child_dirs & marker_dirs or child_files & marker_files
+        )
+        if not has_markers:
+            recognized_by_non_clsdir = any(
+                (
+                    typ != DatasetType.CLSDIR
+                    and (
+                        parser.validate(only_entry)
+                        or parser.validate_split(only_entry)
+                    )
+                )
+                for typ, parser in LuxonisParser.parsers.items()
+            )
+            if not recognized_by_non_clsdir:
+                return unzip_dir
+
+        logger.info(
+            f"Detected top-level folder '{only_entry.name}' in extracted zip. "
+            "Using it as dataset root."
+        )
+        return only_entry
 
     @overload
     def parse(self: "LuxonisParser[str]", **kwargs) -> BaseDataset: ...
