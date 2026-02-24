@@ -136,9 +136,9 @@ class LDFEquivalence:
 
         if collector.__name__ == "collect_bbox_multiset":
             LDFEquivalence.multiset_equal_with_tolerance(prev, new, tol=0.02)
-        elif (
-            collector.__name__
-            == "collect_instance_segmentation_mask_overlap_multiset"
+        elif collector.__name__ in (
+            "collect_instance_segmentation_mask_overlap_multiset",
+            "collect_segmentation_mask_overlap_multiset",
         ):
             # Combine all masks per image and assert there is spatial overlap.
             def _combine_masks(masks: list[np.ndarray]) -> np.ndarray:
@@ -323,4 +323,34 @@ class LDFEquivalence:
                     classes.append(row["class_name"])
             if classes:
                 out.setdefault(hashed_key, Counter()).update(classes)
+        return out
+
+    @staticmethod
+    def collect_segmentation_mask_overlap_multiset(
+        prepared_ldf: PreparedLDF,
+    ) -> dict[tuple[str, str], list[np.ndarray]]:
+        out: dict[tuple[str, str], list[np.ndarray]] = {}
+        grouped = prepared_ldf.processed_df.group_by(
+            ["file", "group_id"], maintain_order=True
+        )
+
+        for key, entry in grouped:
+            file_path, _gid = cast(tuple[str, str], key)
+            img_hash = LDFEquivalence.file_sha256(Path(file_path))
+
+            for row in entry.iter_rows(named=True):
+                if (
+                    row["task_type"] == "segmentation"
+                    and row["instance_id"] == -1
+                ):
+                    d = json.loads(row["annotation"])
+                    class_name = row["class_name"]
+                    if isinstance(d.get("counts"), str):
+                        rle = {
+                            "counts": d["counts"].encode("utf-8"),
+                            "size": [d["height"], d["width"]],
+                        }
+                        mask = mask_utils.decode(rle).astype(bool)  # type: ignore
+                        out.setdefault((img_hash, class_name), []).append(mask)
+
         return out
