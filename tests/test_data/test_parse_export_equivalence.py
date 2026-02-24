@@ -16,6 +16,7 @@ def _export_and_reimport(
     dataset_name: str,
     storage_url: str,
     tempdir: Path,
+    initial_parse_kwargs: dict | None = None,
 ) -> tuple[LuxonisDataset, LuxonisDataset]:
     """Parse -> export -> re-import and return (original_dataset,
     reimported_dataset) to compare the two."""
@@ -25,7 +26,7 @@ def _export_and_reimport(
         dataset_name=dataset_name,
         delete_local=True,
         save_dir=tempdir,
-    ).parse()
+    ).parse(**(initial_parse_kwargs or {}))
 
     export_dir = tempdir / "exported"
     dataset.export(
@@ -97,6 +98,10 @@ ANNOTATION_REGISTRY: dict[str, list[tuple[DatasetType, Callable]]] = {
     "segmentation": [
         (DatasetType.SEGMASK, LDFEquivalence.collect_segmentation_multiset),
         (DatasetType.NATIVE, LDFEquivalence.collect_segmentation_multiset),
+        (
+            DatasetType.SEGMASK,
+            LDFEquivalence.collect_segmentation_mask_overlap_multiset,
+        ),
     ],
 }
 
@@ -115,6 +120,15 @@ DATASETS = [
         "types": ["classification"],
     },
     {"url": "D2_Tile.png-mask-semantic.zip", "types": ["segmentation"]},
+    {
+        "url": "coco-2017.zip",
+        "types": ["instance_segmentation", "boundingbox"],
+    },
+    {
+        "url": "coco-2017.zip",
+        "types": ["keypoints"],
+        "initial_parse_kwargs": {"use_keypoint_ann": True},
+    },
 ]
 
 
@@ -124,6 +138,7 @@ def build_params():
     params = []
     for ds in DATASETS:
         url = ds["url"]
+        initial_parse_kwargs = ds.get("initial_parse_kwargs")
         for anno_type in ds["types"]:
             combos = ANNOTATION_REGISTRY.get(anno_type, [])
             for dataset_type, collector in combos:
@@ -132,13 +147,17 @@ def build_params():
                         url,
                         dataset_type,
                         collector,
+                        initial_parse_kwargs,
                         id=f"{url}::{anno_type}::{dataset_type.name}",
                     )
                 )
     return params
 
 
-@pytest.mark.parametrize(("url", "dataset_type", "collector"), build_params())
+@pytest.mark.parametrize(
+    ("url", "dataset_type", "collector", "initial_parse_kwargs"),
+    build_params(),
+)
 def test_export_import_equivalence(
     dataset_name: str,
     storage_url: str,
@@ -146,6 +165,7 @@ def test_export_import_equivalence(
     url: str,
     dataset_type: DatasetType,
     collector: Callable,
+    initial_parse_kwargs: dict | None,
 ):
     original, reimported = _export_and_reimport(
         url=url,
@@ -153,5 +173,6 @@ def test_export_import_equivalence(
         dataset_name=dataset_name,
         storage_url=storage_url,
         tempdir=tempdir,
+        initial_parse_kwargs=initial_parse_kwargs,
     )
     LDFEquivalence.assert_equivalence(original, reimported, collector)
