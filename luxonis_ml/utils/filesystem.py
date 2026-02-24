@@ -731,7 +731,7 @@ def _get_protocol_and_path(path: str) -> tuple[str, str | None]:
         # assume that it is local path
         protocol = "file"
 
-    return protocol, path if path else None
+    return protocol, path or None
 
 
 def _pip_install(protocol: str, package: str) -> None:
