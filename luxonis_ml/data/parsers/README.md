@@ -20,6 +20,7 @@ The `LuxonisParser` class provides functionality for converting various dataset 
     - [Parsed Annotation Types](#parsed-annotation-types-1)
     - [Automatic Annotation Cleaning](#automatic-annotation-cleaning)
     - [Examples](#examples-1)
+  - [ImageNet-2012](#imagenet-2012-dataset-parsing)
 
 ## Parameters
 
@@ -318,3 +319,28 @@ luxonis_ml data parse ./imagenet-sample
 # With custom split ratios
 luxonis_ml data parse ./imagenet-sample --split-ratio 0.8,0.1,0.1
 ```
+
+## ImageNet-2012 Dataset Parsing
+
+ImageNet-2012 is the full ImageNet dataset ([dataset format reference](https://docs.voxel51.com/dataset_zoo/datasets/imagenet_2012.html#imagenet-2012)). In its original layout, it is not directly parsable by `LuxonisParser`.
+
+Original layout:
+
+```plaintext
+source_dir/
+    ILSVRC2012_devkit_t12.tar.gz    # both splits
+    ILSVRC2012_img_train.tar        # train split
+    ILSVRC2012_img_val.tar          # validation split
+```
+
+To parse ImageNet-2012 with LuxonisML, first rearrange it into the Classification Directory format (`class_dir`) supported by `LuxonisParser` (class subdirectories, either split-based or flat).
+
+Brief conversion steps:
+
+1. Extract `ILSVRC2012_img_train.tar` and `ILSVRC2012_img_val.tar`.
+1. Extract train class archives so images are grouped per class (`train/<class_name>/*.JPEG`).
+1. Use the devkit metadata to map validation images to class labels.
+1. Move validation images into class folders (`valid/<class_name>/*.JPEG`).
+1. Parse the rearranged directory with `LuxonisParser` as `class_dir`.
+
+For the expected `class_dir` directory structure, see the [Classification Directory format docs](../README.md#luxonisparser).
