@@ -290,7 +290,7 @@ class COCOParser(BaseParser):
                     yield {"file": file, "annotation": None}
                     continue
 
-                for i, ann in enumerate(img_anns):
+                for ann in img_anns:
                     if ann.get("iscrowd"):
                         continue
                     class_name = categories[ann["category_id"]]
@@ -320,7 +320,7 @@ class COCOParser(BaseParser):
                         "file": file,
                         "annotation": {
                             "class": class_name,
-                            "instance_id": i,
+                            "instance_id": ann["id"],
                             "boundingbox": {
                                 "x": x / img_w,
                                 "y": y / img_h,
