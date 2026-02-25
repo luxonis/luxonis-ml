@@ -22,6 +22,12 @@ repos:
         additional_dependencies:
           - mdformat-gfm==1.0.0
 
+  - repo: https://github.com/JoC0de/pre-commit-prettier
+    rev: v3.8.1
+    hooks:
+      - id: prettier
+        types_or: [yaml]
+
   - repo: https://github.com/ComPWA/taplo-pre-commit
     rev: v0.9.3
 

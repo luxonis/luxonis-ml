@@ -1,46 +1,46 @@
 data:
   - changed-files:
-    - any-glob-to-any-file: 'luxonis_ml/data/*'
+      - any-glob-to-any-file: "luxonis_ml/data/*"
 utils:
   - changed-files:
-    - any-glob-to-any-file: 'luxonis_ml/utils/*'
+      - any-glob-to-any-file: "luxonis_ml/utils/*"
 NN Archive:
   - changed-files:
-    - any-glob-to-any-file: 'luxonis_ml/nn_archive/*'
+      - any-glob-to-any-file: "luxonis_ml/nn_archive/*"
 tests:
   - changed-files:
-    - any-glob-to-any-file: 'tests/*'
+      - any-glob-to-any-file: "tests/*"
 embeddings:
   - changed-files:
-    - any-glob-to-any-file: 'luxonis_ml/embeddings/*'
+      - any-glob-to-any-file: "luxonis_ml/embeddings/*"
 tracker:
   - changed-files:
-    - any-glob-to-any-file: 'luxonis_ml/tracker/*'
+      - any-glob-to-any-file: "luxonis_ml/tracker/*"
 CLI:
   - changed-files:
-    - any-glob-to-any-file: '**/__main__.py'
+      - any-glob-to-any-file: "**/__main__.py"
 documentation:
   - head-branch:
-    - 'documentation/*'
-    - 'docs/*'
+      - "documentation/*"
+      - "docs/*"
   - changed-files:
-    - any-glob-to-any-file: '**/README.md'
+      - any-glob-to-any-file: "**/README.md"
 DevOps:
   - head-branch:
-    - 'devops/*'
-    - 'ci/*'
+      - "devops/*"
+      - "ci/*"
   - changed-files:
-    - any-glob-to-any-file: '.github/workflows/ci.yaml'
+      - any-glob-to-any-file: ".github/workflows/ci.yaml"
 enhancement:
   - head-branch:
-    - 'feature/*'
-    - 'feat/*'
-    - 'enhancement/*'
+      - "feature/*"
+      - "feat/*"
+      - "enhancement/*"
 fix:
   - head-branch:
-    - 'fix/*'
-    - 'bug/*'
-    - 'hotfix/*'
-    - 'issue/*'
-    - 'bugfix/*'
-    - 'patch/*'
+      - "fix/*"
+      - "bug/*"
+      - "hotfix/*"
+      - "issue/*"
+      - "bugfix/*"
+      - "patch/*"
