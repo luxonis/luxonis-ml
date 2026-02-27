@@ -11,9 +11,9 @@ import polars as pl
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
 from luxonis_ml.data.exporters.exporter_utils import (
     PreparedLDF,
-    exporter_specific_annotation_warning,
     split_of_group,
 )
+from luxonis_ml.enums import DatasetType
 
 
 class NativeExporter(BaseExporter):
@@ -24,18 +24,9 @@ class NativeExporter(BaseExporter):
         return {"train": "train", "val": "val", "test": "test"}
 
     def supported_ann_types(self) -> list[str]:
-        return [
-            "boundingbox",
-            "segmentation",
-            "keypoints",
-            "instance_segmentation",
-        ]
+        return list(DatasetType.NATIVE.supported_annotation_formats)
 
     def export(self, prepared_ldf: PreparedLDF) -> None:
-        exporter_specific_annotation_warning(
-            prepared_ldf, self.supported_ann_types()
-        )
-
         annotation_splits: dict[str, list[dict[str, Any]]] = {
             k: [] for k in self.get_split_names()
         }
@@ -134,7 +125,12 @@ class NativeExporter(BaseExporter):
                 "instance_id": instance_id,
                 "class": class_name,
             }
-            if task_type in self.supported_ann_types():
+            if task_type in (
+                "boundingbox",
+                "segmentation",
+                "instance_segmentation",
+                "keypoints",
+            ):
                 ann[task_type] = data
             elif task_type.startswith("metadata/"):
                 ann["metadata"] = {task_type[9:]: data}

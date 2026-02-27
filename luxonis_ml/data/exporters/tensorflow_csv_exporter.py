@@ -14,6 +14,7 @@ from luxonis_ml.data.exporters.exporter_utils import (
     exporter_specific_annotation_warning,
     split_of_group,
 )
+from luxonis_ml.enums import DatasetType
 
 
 class TensorflowCSVExporter(BaseExporter):
@@ -32,7 +33,7 @@ class TensorflowCSVExporter(BaseExporter):
         return {"train": "train", "val": "valid", "test": "test"}
 
     def supported_ann_types(self) -> list[str]:
-        return ["boundingbox"]
+        return list(DatasetType.TFCSV.supported_annotation_formats)
 
     def export(self, prepared_ldf: PreparedLDF) -> None:
         check_group_file_correspondence(prepared_ldf)

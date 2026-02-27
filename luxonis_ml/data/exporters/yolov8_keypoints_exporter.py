@@ -12,6 +12,7 @@ from luxonis_ml.data.exporters.exporter_utils import (
     exporter_specific_annotation_warning,
     split_of_group,
 )
+from luxonis_ml.enums import DatasetType
 
 from .base_exporter import BaseExporter
 
@@ -37,7 +38,7 @@ class YoloV8KeypointsExporter(BaseExporter):
         return "dataset.yaml"
 
     def supported_ann_types(self) -> list[str]:
-        return ["keypoints"]
+        return list(DatasetType.YOLOV8KEYPOINTS.supported_annotation_formats)
 
     def export(self, prepared_ldf: PreparedLDF) -> None:
         check_group_file_correspondence(prepared_ldf)

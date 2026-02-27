@@ -10,6 +10,7 @@ from luxonis_ml.data.exporters.exporter_utils import (
     exporter_specific_annotation_warning,
     split_of_group,
 )
+from luxonis_ml.enums import DatasetType
 
 
 class ClassificationDirectoryExporter(BaseExporter):
@@ -17,7 +18,7 @@ class ClassificationDirectoryExporter(BaseExporter):
         return {"train": "train", "val": "valid", "test": "test"}
 
     def supported_ann_types(self) -> list[str]:
-        return ["classification"]
+        return list(DatasetType.CLSDIR.supported_annotation_formats)
 
     def export(self, prepared_ldf: PreparedLDF) -> None:
         check_group_file_correspondence(prepared_ldf)
