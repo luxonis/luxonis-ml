@@ -267,6 +267,10 @@ class COCOParser(BaseParser):
         def generator() -> DatasetIterator:
             img_dict = {img["id"]: img for img in coco_images}
             ann_dict = {}
+            existing_ids = {
+                ann["id"] for ann in coco_annotations if "id" in ann
+            }
+            next_fallback_id = 0
             for ann in coco_annotations:
                 img_id = ann["image_id"]
                 if img_id not in ann_dict:
@@ -290,7 +294,7 @@ class COCOParser(BaseParser):
                     yield {"file": file, "annotation": None}
                     continue
 
-                for i, ann in enumerate(img_anns):
+                for ann in img_anns:
                     if ann.get("iscrowd"):
                         continue
                     class_name = categories[ann["category_id"]]
@@ -316,11 +320,20 @@ class COCOParser(BaseParser):
 
                     x, y, w, h = ann["bbox"]
 
+                    if "id" in ann:
+                        instance_id = ann["id"]
+                    else:
+                        while next_fallback_id in existing_ids:
+                            next_fallback_id += 1
+                        instance_id = next_fallback_id
+                        existing_ids.add(instance_id)
+                        next_fallback_id += 1
+
                     record = {
                         "file": file,
                         "annotation": {
                             "class": class_name,
-                            "instance_id": i,
+                            "instance_id": instance_id,
                             "boundingbox": {
                                 "x": x / img_w,
                                 "y": y / img_h,
