@@ -130,7 +130,12 @@ class NativeExporter(BaseExporter):
                 "instance_id": instance_id,
                 "class": class_name,
             }
-            if task_type in self.supported_ann_types():
+            # classification is supported but through the
+            # "class" field
+            if (
+                task_type in self.supported_ann_types()
+                and task_type != "classification"
+            ):
                 ann[task_type] = data
             elif task_type.startswith("metadata/"):
                 ann["metadata"] = {task_type[9:]: data}
