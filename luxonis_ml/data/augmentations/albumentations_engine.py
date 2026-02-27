@@ -321,9 +321,6 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
             elif task_type == "boundingbox":
                 target_type = "bboxes"
-                # Some Albumentations transforms read data["bboxes"] directly.
-                if "bboxes" not in self.targets:
-                    target_name = "bboxes"
 
             elif task_type == "keypoints":
                 target_type = "keypoints"
