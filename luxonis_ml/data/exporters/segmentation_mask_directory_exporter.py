@@ -17,6 +17,7 @@ from luxonis_ml.data.exporters.exporter_utils import (
     exporter_specific_annotation_warning,
     split_of_group,
 )
+from luxonis_ml.enums import DatasetType
 
 
 class SegmentationMaskDirectoryExporter(BaseExporter):
@@ -40,7 +41,7 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
         return {"train": "train", "val": "valid", "test": "test"}
 
     def supported_ann_types(self) -> list[str]:
-        return ["segmentation"]
+        return list(DatasetType.SEGMASK.supported_annotation_formats)
 
     def _ensure_background(self, split: str) -> None:
         cmap = self.split_class_maps[split]

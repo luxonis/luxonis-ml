@@ -11,6 +11,7 @@ from luxonis_ml.data.exporters.exporter_utils import (
     exporter_specific_annotation_warning,
     split_of_group,
 )
+from luxonis_ml.enums import DatasetType
 
 
 class FiftyOneClassificationExporter(BaseExporter):
@@ -61,7 +62,7 @@ class FiftyOneClassificationExporter(BaseExporter):
         return {"train": "train", "val": "validation", "test": "test"}
 
     def supported_ann_types(self) -> list[str]:
-        return ["classification"]
+        return list(DatasetType.FIFTYONECLS.supported_annotation_formats)
 
     def export(self, prepared_ldf: PreparedLDF) -> None:
         check_group_file_correspondence(prepared_ldf)

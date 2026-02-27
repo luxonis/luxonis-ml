@@ -18,6 +18,7 @@ from luxonis_ml.data.exporters.exporter_utils import (
     split_of_group,
 )
 from luxonis_ml.data.utils import COCOFormat
+from luxonis_ml.enums import DatasetType
 
 
 class CocoExporter(BaseExporter):
@@ -63,7 +64,7 @@ class CocoExporter(BaseExporter):
         return {"train": "train", "val": "validation", "test": "test"}
 
     def supported_ann_types(self) -> list[str]:
-        return ["boundingbox", "instance_segmentation", "keypoints"]
+        return list(DatasetType.COCO.supported_annotation_formats)
 
     def export(self, prepared_ldf: PreparedLDF) -> None:
         check_group_file_correspondence(prepared_ldf)

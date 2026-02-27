@@ -14,6 +14,7 @@ from luxonis_ml.data.exporters.exporter_utils import (
     exporter_specific_annotation_warning,
     split_of_group,
 )
+from luxonis_ml.enums import DatasetType
 
 
 class NativeExporter(BaseExporter):
@@ -24,12 +25,7 @@ class NativeExporter(BaseExporter):
         return {"train": "train", "val": "val", "test": "test"}
 
     def supported_ann_types(self) -> list[str]:
-        return [
-            "boundingbox",
-            "segmentation",
-            "keypoints",
-            "instance_segmentation",
-        ]
+        return list(DatasetType.NATIVE.supported_annotation_formats)
 
     def export(self, prepared_ldf: PreparedLDF) -> None:
         exporter_specific_annotation_warning(
