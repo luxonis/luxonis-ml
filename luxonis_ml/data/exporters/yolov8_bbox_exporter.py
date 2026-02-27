@@ -37,9 +37,7 @@ class YoloV8Exporter(BaseExporter):
         return "dataset.yaml"
 
     def supported_ann_types(self) -> list[str]:
-        return list(
-            DatasetType.YOLOV8BOUNDINGBOX.supported_annotation_formats
-        )
+        return list(DatasetType.YOLOV8BOUNDINGBOX.supported_annotation_formats)
 
     def export(self, prepared_ldf: PreparedLDF) -> None:
         check_group_file_correspondence(prepared_ldf)
