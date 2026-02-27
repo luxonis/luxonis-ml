@@ -49,7 +49,7 @@ _SUPPORTED_ANNOTATION_FORMATS: dict[DatasetType, tuple[str, ...]] = {
         "instance_segmentation",
         "keypoints",
         "classification",
-        "metadata/text"
+        "metadata/text",
     ),
     DatasetType.YOLOV8BOUNDINGBOX: ("boundingbox",),
     DatasetType.YOLOV8INSTANCESEGMENTATION: ("instance_segmentation",),
