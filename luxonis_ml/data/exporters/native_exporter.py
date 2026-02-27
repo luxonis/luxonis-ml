@@ -11,7 +11,6 @@ import polars as pl
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
 from luxonis_ml.data.exporters.exporter_utils import (
     PreparedLDF,
-    exporter_specific_annotation_warning,
     split_of_group,
 )
 from luxonis_ml.enums import DatasetType
