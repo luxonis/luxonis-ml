@@ -28,10 +28,6 @@ class NativeExporter(BaseExporter):
         return list(DatasetType.NATIVE.supported_annotation_formats)
 
     def export(self, prepared_ldf: PreparedLDF) -> None:
-        exporter_specific_annotation_warning(
-            prepared_ldf, self.supported_ann_types()
-        )
-
         annotation_splits: dict[str, list[dict[str, Any]]] = {
             k: [] for k in self.get_split_names()
         }
