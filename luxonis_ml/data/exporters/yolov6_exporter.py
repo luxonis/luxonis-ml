@@ -39,7 +39,7 @@ class YoloV6Exporter(BaseExporter):
         return "data.yaml"
 
     def supported_ann_types(self) -> list[str]:
-        return list(DatasetType.YOLOV6.supported_annotation_formats)
+        return DatasetType.YOLOV6.supported_annotation_formats
 
     def export(self, prepared_ldf: PreparedLDF) -> None:
         check_group_file_correspondence(prepared_ldf)

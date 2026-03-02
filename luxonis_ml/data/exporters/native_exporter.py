@@ -24,7 +24,7 @@ class NativeExporter(BaseExporter):
         return {"train": "train", "val": "val", "test": "test"}
 
     def supported_ann_types(self) -> list[str]:
-        return list(DatasetType.NATIVE.supported_annotation_formats)
+        return DatasetType.NATIVE.supported_annotation_formats
 
     def export(self, prepared_ldf: PreparedLDF) -> None:
         annotation_splits: dict[str, list[dict[str, Any]]] = {

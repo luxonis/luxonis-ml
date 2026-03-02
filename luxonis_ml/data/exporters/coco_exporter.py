@@ -64,7 +64,7 @@ class CocoExporter(BaseExporter):
         return {"train": "train", "val": "validation", "test": "test"}
 
     def supported_ann_types(self) -> list[str]:
-        return list(DatasetType.COCO.supported_annotation_formats)
+        return DatasetType.COCO.supported_annotation_formats
 
     def export(self, prepared_ldf: PreparedLDF) -> None:
         check_group_file_correspondence(prepared_ldf)

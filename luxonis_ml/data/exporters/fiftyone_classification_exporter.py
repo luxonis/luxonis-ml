@@ -62,7 +62,7 @@ class FiftyOneClassificationExporter(BaseExporter):
         return {"train": "train", "val": "validation", "test": "test"}
 
     def supported_ann_types(self) -> list[str]:
-        return list(DatasetType.FIFTYONECLS.supported_annotation_formats)
+        return DatasetType.FIFTYONECLS.supported_annotation_formats
 
     def export(self, prepared_ldf: PreparedLDF) -> None:
         check_group_file_correspondence(prepared_ldf)

@@ -41,7 +41,7 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
         return {"train": "train", "val": "valid", "test": "test"}
 
     def supported_ann_types(self) -> list[str]:
-        return list(DatasetType.SEGMASK.supported_annotation_formats)
+        return DatasetType.SEGMASK.supported_annotation_formats
 
     def _ensure_background(self, split: str) -> None:
         cmap = self.split_class_maps[split]
