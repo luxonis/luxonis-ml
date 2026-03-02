@@ -74,7 +74,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: "3.10"
           cache: pip
 
       - name: Install dependencies
@@ -90,7 +90,7 @@ jobs:
         with:
           level: warning
           warnings: true
-          python-version: '3.10'
+          python-version: "3.10"
           project: pyproject.toml
 
   semgrep:
@@ -145,7 +145,7 @@ jobs:
   tests:
     strategy:
       matrix:
-        os: [ ubuntu-latest, windows-latest ]
+        os: [ubuntu-latest, windows-latest]
 
     needs: [type-check, semgrep]
     runs-on: ${{ matrix.os }}
@@ -167,7 +167,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: "3.10"
           cache: pip
 
       - name: Install the package
@@ -214,14 +214,13 @@ jobs:
           path: coverage.xml
           overwrite: true
 
-
   check-requirements:
     if: ${{ startsWith(github.head_ref, 'release/') }}
     runs-on: ubuntu-latest
 
     strategy:
       matrix:
-        submodule: [ 'data', 'nn_archive', 'utils' ]
+        submodule: ["data", "nn_archive", "utils"]
 
     steps:
       - name: Checkout
@@ -232,7 +231,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: "3.10"
           cache: pip
 
       - name: Install the package

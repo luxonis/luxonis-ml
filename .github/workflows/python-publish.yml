@@ -12,27 +12,27 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
-        cache: pip
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
 
-    - name: Install dependencies
-      run: pip install build pydoctor
+      - name: Install dependencies
+        run: pip install build pydoctor
 
-    - name: Generate docs
-      run: |
-        curl -L "https://raw.githubusercontent.com/luxonis/python-api-analyzer-to-json/main/gen-docs.py" -o "gen-docs.py"
-        python gen-docs.py luxonis_ml
+      - name: Generate docs
+        run: |
+          curl -L "https://raw.githubusercontent.com/luxonis/python-api-analyzer-to-json/main/gen-docs.py" -o "gen-docs.py"
+          python gen-docs.py luxonis_ml
 
-    - name: Build package
-      run: python -m build
+      - name: Build package
+        run: python -m build
 
-    - name: Publish package
-      uses: pypa/gh-action-pypi-publish@27b31702a0e7fc50959f5ad993c78deac1bdfc29
-      with:
-        user: __token__
-        password: ${{ secrets.PYPI_API_TOKEN }}
+      - name: Publish package
+        uses: pypa/gh-action-pypi-publish@27b31702a0e7fc50959f5ad993c78deac1bdfc29
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_API_TOKEN }}
