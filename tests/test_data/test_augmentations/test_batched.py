@@ -99,9 +99,8 @@ def test_mixup(
 def test_at_least_one_bbox_random_crop() -> None:
     """Test that AtLeastOneBBoxRandomCrop guarantees at least one bbox.
 
-    This is a test for ensuring that the correct "bboxes" key
-    is passed to Albumentations transforms that read
-    data["bboxes"] directly.
+    This is a test for ensuring that the correct "bboxes" key is passed
+    to Albumentations transforms that read data["bboxes"] directly.
     """
     image = np.random.randint(0, 255, (320, 320, 3), dtype=np.uint8)
     images_dict = {"image": image}
@@ -129,7 +128,9 @@ def test_at_least_one_bbox_random_crop() -> None:
         256, 256, targets, n_classes, ["image"], config
     )
     for _ in range(10):
-        out_images, out_labels = engine.apply([(images_dict, deepcopy(labels))])
+        out_images, out_labels = engine.apply(
+            [(images_dict, deepcopy(labels))]
+        )
         bboxes = out_labels.get("task/boundingbox")
         assert bboxes is not None and len(bboxes) > 0, (
             "AtLeastOneBBoxRandomCrop should guarantee at least one "
