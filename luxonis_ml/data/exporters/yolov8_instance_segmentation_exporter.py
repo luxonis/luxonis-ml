@@ -36,7 +36,9 @@ class YoloV8InstanceSegmentationExporter(BaseExporter):
         return "dataset.yaml"
 
     def supported_ann_types(self) -> list[str]:
-        return DatasetType.YOLOV8INSTANCESEGMENTATION.supported_annotation_formats
+        return (
+            DatasetType.YOLOV8INSTANCESEGMENTATION.supported_annotation_formats
+        )
 
     def export(self, prepared_ldf: PreparedLDF) -> None:
         check_group_file_correspondence(prepared_ldf)
