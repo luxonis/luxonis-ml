@@ -576,8 +576,8 @@ class LuxonisTracker:
                 "flat_array": matrix.flatten().tolist(),
                 "shape": matrix.shape,
             }
-            if extra_data is not None and "class_names" in extra_data:
-                matrix_data["class_names"] = extra_data["class_names"]
+            if extra_data is not None:
+                matrix_data.update(extra_data)
             self.log_to_mlflow(
                 self.experiment["mlflow"].log_dict,
                 matrix_data,
