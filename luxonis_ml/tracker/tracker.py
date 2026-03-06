@@ -552,7 +552,13 @@ class LuxonisTracker:
         )
 
     @rank_zero_only
-    def log_matrix(self, matrix: np.ndarray, name: str, step: int) -> None:
+    def log_matrix(
+        self,
+        matrix: np.ndarray,
+        name: str,
+        step: int,
+        class_names: list[str] | None = None,
+    ) -> None:
         """Logs matrix to the logging service.
 
         @type matrix: np.ndarray
@@ -561,12 +567,17 @@ class LuxonisTracker:
         @param name: The name used to log the matrix.
         @type step: int
         @param step: The current step.
+        @type class_names: list[str] | None
+        @param class_names: Optional list of class names corresponding
+            to the rows/columns of the matrix.
         """
         if self.is_mlflow:
-            matrix_data = {
+            matrix_data: dict = {
                 "flat_array": matrix.flatten().tolist(),
                 "shape": matrix.shape,
             }
+            if class_names is not None:
+                matrix_data["class_names"] = class_names
             self.log_to_mlflow(
                 self.experiment["mlflow"].log_dict,
                 matrix_data,
