@@ -557,7 +557,7 @@ class LuxonisTracker:
         matrix: np.ndarray,
         name: str,
         step: int,
-        class_names: list[str] | None = None,
+        extra_data: dict | None = None,
     ) -> None:
         """Logs matrix to the logging service.
 
@@ -567,17 +567,18 @@ class LuxonisTracker:
         @param name: The name used to log the matrix.
         @type step: int
         @param step: The current step.
-        @type class_names: list[str] | None
-        @param class_names: Optional list of class names corresponding
-            to the rows/columns of the matrix.
+        @type extra_data: dict | None
+        @param extra_data: Optional dictionary of additional data to
+            include in the logged matrix artifact.
         """
         if self.is_mlflow:
             matrix_data: dict = {
                 "flat_array": matrix.flatten().tolist(),
                 "shape": matrix.shape,
             }
-            if class_names is not None:
-                matrix_data["class_names"] = class_names
+            if extra_data is not None:
+                if "class_names" in extra_data:
+                    matrix_data["class_names"] = extra_data["class_names"]
             self.log_to_mlflow(
                 self.experiment["mlflow"].log_dict,
                 matrix_data,
