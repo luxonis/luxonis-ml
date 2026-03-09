@@ -366,6 +366,29 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 config_item, available_target_types
             )
             cfg = AlbumentationConfigItem(**config_item)  # type: ignore
+
+            if cfg.use_for_resizing:
+                image_h, image_w = self.image_size
+                cfg_h = cfg.params.get("height")
+                cfg_w = cfg.params.get("width")
+                if cfg_h != image_h or cfg_w != image_w:
+                    logger.warning(
+                        f"Resizing augmentation '{cfg.name}' has "
+                        f"(height, width) that doesn't match "
+                        f"image_size ({image_h}, {image_w}). Overriding."
+                    )
+                cfg.params["height"] = image_h
+                cfg.params["width"] = image_w
+
+                cfg_p = cfg.params.get("p")
+                if cfg_p != 1:
+                    if cfg_p is not None:
+                        logger.warning(
+                            f"Resizing augmentation '{cfg.name}' has p={cfg_p}. "
+                            f"Overriding to p=1."
+                        )
+                    cfg.params["p"] = 1
+
             transform = self.create_transformation(cfg)
 
             if cfg.use_for_resizing:
