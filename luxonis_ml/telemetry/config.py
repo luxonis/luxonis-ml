@@ -29,6 +29,9 @@ class TelemetryConfig:
     @type include_system_metadata: bool
     @param include_system_metadata: Include extended system metadata by
         default.
+    @type include_base_context: bool
+    @param include_base_context: Include the shared default context on
+        every event by default.
     @type install_id_path: Optional[Path]
     @param install_id_path: Path to persist the anonymous install id.
     """
@@ -41,6 +44,7 @@ class TelemetryConfig:
     allowlist: set[str] | None = None
     install_id_path: Path | None = None
     distinct_id: str | None = None
+    include_base_context: bool = True
     include_system_metadata: bool = False
 
     @classmethod

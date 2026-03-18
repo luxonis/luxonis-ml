@@ -3,7 +3,13 @@ from __future__ import annotations
 import atexit
 from contextlib import suppress
 
-from luxonis_ml.telemetry.client import ContextProvider, Telemetry
+from loguru import logger
+
+from luxonis_ml.telemetry.client import (
+    ContextProvider,
+    SystemContextProvider,
+    Telemetry,
+)
 from luxonis_ml.telemetry.config import TelemetryConfig
 
 _telemetry_by_name: dict[str, Telemetry] = {}
@@ -31,6 +37,7 @@ def get_or_init(
     library_version: str | None = None,
     config: TelemetryConfig | None = None,
     context_providers: list[ContextProvider] | None = None,
+    system_context_providers: list[SystemContextProvider] | None = None,
     register_exit_handler: bool = True,
 ) -> Telemetry:
     """Return an existing telemetry instance or initialize one.
@@ -44,6 +51,9 @@ def get_or_init(
     @type context_providers: Optional[list]
     @param context_providers: Callables that return extra context to
         attach to every event.
+    @type system_context_providers: Optional[list]
+    @param system_context_providers: Callables that return extra context
+        to attach only when system metadata is requested.
     @type register_exit_handler: bool
     @param register_exit_handler: If True, flush telemetry on process
         exit.
@@ -52,12 +62,23 @@ def get_or_init(
     """
     existing = get_telemetry(library_name)
     if existing is not None:
+        _reconcile_existing_telemetry(
+            existing=existing,
+            library_name=library_name,
+            library_version=library_version,
+            config=config,
+            context_providers=context_providers,
+            system_context_providers=system_context_providers,
+        )
+        if register_exit_handler:
+            shutdown_on_exit()
         return existing
     return initialize_telemetry(
         library_name=library_name,
         library_version=library_version,
         config=config,
         context_providers=context_providers,
+        system_context_providers=system_context_providers,
         register_exit_handler=register_exit_handler,
     )
 
@@ -68,6 +89,7 @@ def initialize_telemetry(
     library_version: str | None = None,
     config: TelemetryConfig | None = None,
     context_providers: list[ContextProvider] | None = None,
+    system_context_providers: list[SystemContextProvider] | None = None,
     register_exit_handler: bool = True,
 ) -> Telemetry:
     """Initialize and return a telemetry instance for a library.
@@ -81,6 +103,9 @@ def initialize_telemetry(
     @type context_providers: Optional[list]
     @param context_providers: Optional list of context provider
         callables.
+    @type system_context_providers: Optional[list]
+    @param system_context_providers: Optional list of system context
+        provider callables.
     @type register_exit_handler: bool
     @param register_exit_handler: If True, flush telemetry on process
         exit.
@@ -91,6 +116,7 @@ def initialize_telemetry(
             library_version=library_version,
             config=config,
             context_providers=context_providers,
+            system_context_providers=system_context_providers,
         )
         if (
             register_exit_handler
@@ -113,3 +139,33 @@ def _flush_on_exit() -> None:
     for telemetry in list(_telemetry_by_name.values()):
         with suppress(Exception):
             telemetry.shutdown()
+
+
+def _reconcile_existing_telemetry(
+    *,
+    existing: Telemetry,
+    library_name: str,
+    library_version: str | None,
+    config: TelemetryConfig | None,
+    context_providers: list[ContextProvider] | None,
+    system_context_providers: list[SystemContextProvider] | None,
+) -> None:
+    """Merge additive inputs and warn when immutable args are
+    ignored."""
+    if config is not None and config != existing.config:
+        logger.warning(
+            "Telemetry for '{}' is already initialized; the new config "
+            "was ignored.",
+            library_name,
+        )
+    if (
+        library_version is not None
+        and library_version != existing.library_version
+    ):
+        logger.warning(
+            "Telemetry for '{}' is already initialized; the new library "
+            "version was ignored.",
+            library_name,
+        )
+    existing.extend_context_providers(context_providers)
+    existing.extend_system_context_providers(system_context_providers)

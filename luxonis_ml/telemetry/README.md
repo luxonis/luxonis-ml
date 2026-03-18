@@ -64,11 +64,16 @@ config = TelemetryConfig(
     backend="posthog",
     api_key="phc_xxx",
     endpoint="https://us.i.posthog.com",
+    include_base_context=True,
 )
 
 telemetry = Telemetry("luxonis_ml", config=config)
 telemetry.capture("train.start", {"epochs": 20})
 ```
+
+Set `include_base_context=False` if a consuming library wants to build
+its own default event context instead of always attaching the shared
+LuxonisML base metadata.
 
 ## CLI Instrumentation
 
@@ -109,6 +114,10 @@ telemetry = Telemetry("luxonis_ml", config=config)
 telemetry.capture("custom.event")
 ```
 
+Backend names are matched case-insensitively, so registering
+`"My_Backend"` and configuring `backend="my_backend"` will resolve to
+the same backend.
+
 ## Context and Metadata
 
 Each event includes a base context (OS, Python version, library name/version,
@@ -130,6 +139,21 @@ def my_context(_telemetry):
 telemetry = Telemetry("luxonis_ml", context_providers=[my_context])
 ```
 
+If a library needs extra metadata only on events that explicitly opt
+into system metadata, use `system_context_providers`:
+
+```python
+def runtime_context(_telemetry):
+    return {"cli": True, "install": "pip"}
+
+telemetry = Telemetry(
+    "luxonis_ml",
+    system_context_providers=[runtime_context],
+)
+
+telemetry.capture("init", include_system_metadata=True)
+```
+
 ## Singleton Usage
 
 For a global instance per library name:
@@ -144,6 +168,24 @@ if telemetry:
 ```
 
 Multiple singletons are supported by using different library names.
+
+If `get_or_init(...)` is called again for the same library name, the
+existing telemetry instance is reused. Conflicting config or version
+arguments are ignored with a warning, while new `context_providers` and
+`system_context_providers` are merged into the existing instance. This
+lets multiple integration points contribute telemetry context without
+rebuilding the singleton.
+
+## Failure Behavior
+
+Telemetry is designed to fail open inside consuming libraries:
+
+- If the configured backend is unavailable or misconfigured, telemetry
+  falls back to `NoopBackend`.
+- Capture, identify, flush, and shutdown failures are swallowed so they
+  do not break the host application.
+- Corrupted install-id files are regenerated automatically when
+  possible.
 
 ## Environment Variables
 

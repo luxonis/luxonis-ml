@@ -46,10 +46,11 @@ def sanitize_properties(
     for key, value in properties.items():
         if allowlist is not None and key not in allowlist:
             continue
-        if _should_redact(key, redact_keys):
-            output[key] = "<redacted>"
+        safe_key = _truncate(str(key))
+        if _should_redact(safe_key, redact_keys):
+            output[safe_key] = "<redacted>"
             continue
-        output[key] = _safe_serialize(value)
+        output[safe_key] = _safe_serialize(value, redact_keys=redact_keys)
     return output
 
 
@@ -59,7 +60,7 @@ def _should_redact(key: str, redact_keys: set[str]) -> bool:
     return any(token in lowered for token in redact_keys)
 
 
-def _safe_serialize(value: Any) -> Any:
+def _safe_serialize(value: Any, *, redact_keys: set[str]) -> Any:
     """Convert values into a safe, JSON-friendly representation."""
     if value is None or isinstance(value, (str, int, float, bool)):
         if isinstance(value, str):
@@ -70,15 +71,31 @@ def _safe_serialize(value: Any) -> Any:
     if isinstance(value, bytes):
         return "<bytes>"
     if isinstance(value, (list, tuple, set)):
-        return [_safe_serialize(item) for item in list(value)[:20]]
-    if isinstance(value, dict):
-        return {
-            _truncate(str(k)): _safe_serialize(v)
-            for k, v in list(value.items())[:50]
-        }
+        return [
+            _safe_serialize(item, redact_keys=redact_keys)
+            for item in list(value)[:20]
+        ]
+    if isinstance(value, Mapping):
+        return _safe_mapping(value, redact_keys=redact_keys)
     if hasattr(value, "value"):
-        return _safe_serialize(value.value)
+        return _safe_serialize(value.value, redact_keys=redact_keys)
     return f"<{type(value).__name__}>"
+
+
+def _safe_mapping(
+    value: Mapping[Any, Any], *, redact_keys: set[str]
+) -> dict[str, Any]:
+    """Serialize a mapping while redacting nested secrets."""
+    output: dict[str, Any] = {}
+    for key, nested_value in list(value.items())[:50]:
+        safe_key = _truncate(str(key))
+        if _should_redact(safe_key, redact_keys):
+            output[safe_key] = "<redacted>"
+            continue
+        output[safe_key] = _safe_serialize(
+            nested_value, redact_keys=redact_keys
+        )
+    return output
 
 
 def _truncate(value: str, limit: int = 200) -> str:

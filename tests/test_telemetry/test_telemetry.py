@@ -9,6 +9,7 @@ import typer
 from luxonis_ml.telemetry import (
     Telemetry,
     TelemetryConfig,
+    get_or_init,
     get_telemetry,
     initialize_telemetry,
     skip_telemetry,
@@ -127,6 +128,43 @@ def test_include_system_metadata_flag(dummy_backend: DummyBackend) -> None:
     assert "cpu_count" in event.context
 
 
+def test_base_context_can_be_disabled(dummy_backend: DummyBackend) -> None:
+    config = TelemetryConfig(
+        enabled=True,
+        backend="dummy",
+        include_base_context=False,
+    )
+    telemetry = Telemetry("luxonis_ml", config=config)
+
+    telemetry.capture("event.no_base")
+
+    event = dummy_backend.events[-1]
+    assert event.context == {}
+
+
+def test_system_context_providers_only_apply_when_requested(
+    dummy_backend: DummyBackend,
+) -> None:
+    config = TelemetryConfig(enabled=True, backend="dummy")
+
+    def my_system_context(_telemetry: Telemetry) -> dict[str, str]:
+        return {"runtime": "docker"}
+
+    telemetry = Telemetry(
+        "luxonis_ml",
+        config=config,
+        system_context_providers=[my_system_context],
+    )
+
+    telemetry.capture("event.no_system")
+    event = dummy_backend.events[-1]
+    assert "runtime" not in event.context
+
+    telemetry.capture("event.with_system", include_system_metadata=True)
+    event = dummy_backend.events[-1]
+    assert event.context["runtime"] == "docker"
+
+
 def test_suppression_skips_capture(dummy_backend: DummyBackend) -> None:
     config = TelemetryConfig(enabled=True, backend="dummy")
     telemetry = Telemetry("luxonis_ml", config=config)
@@ -148,6 +186,20 @@ def test_sanitize_properties_allowlist() -> None:
     assert "drop" not in out
 
 
+def test_sanitize_properties_redacts_nested_mappings() -> None:
+    props = {
+        "config": {
+            "api_key": "secret",
+            "nested": {"token": "abc"},
+        }
+    }
+
+    out = sanitize_properties(props)
+
+    assert out["config"]["api_key"] == "<redacted>"
+    assert out["config"]["nested"]["token"] == "<redacted>"  # noqa: S105
+
+
 def test_install_id_created(
     tmp_path: Path, reset_backend_registry: Generator[None, None, None]
 ) -> None:
@@ -159,6 +211,23 @@ def test_install_id_created(
     )
     telemetry = Telemetry("luxonis_ml", config=config)
     assert install_path.exists()
+    data = json.loads(install_path.read_text(encoding="utf-8"))
+    assert telemetry._distinct_id == data["install_id"]
+
+
+def test_install_id_recovers_from_invalid_file(
+    tmp_path: Path, reset_backend_registry: Generator[None, None, None]
+) -> None:
+    install_path = tmp_path / "telemetry.json"
+    install_path.write_text("{invalid", encoding="utf-8")
+    config = TelemetryConfig(
+        enabled=True,
+        backend="noop",
+        install_id_path=install_path,
+    )
+
+    telemetry = Telemetry("luxonis_ml", config=config)
+
     data = json.loads(install_path.read_text(encoding="utf-8"))
     assert telemetry._distinct_id == data["install_id"]
 
@@ -204,6 +273,84 @@ def test_singleton_registry_single(dummy_backend: DummyBackend) -> None:
         register_exit_handler=False,
     )
     assert get_telemetry() is t1
+
+
+def test_get_or_init_reuses_existing_instance(
+    dummy_backend: DummyBackend,
+) -> None:
+    config = TelemetryConfig(enabled=True, backend="dummy")
+    t1 = initialize_telemetry(
+        library_name="lib_a",
+        config=config,
+        register_exit_handler=False,
+    )
+    t2 = get_or_init(
+        library_name="lib_a",
+        config=TelemetryConfig(enabled=True, backend="noop"),
+        register_exit_handler=False,
+    )
+    assert t1 is t2
+    assert t2.config.backend == "dummy"
+
+
+def test_get_or_init_merges_new_context_providers(
+    dummy_backend: DummyBackend,
+) -> None:
+    config = TelemetryConfig(enabled=True, backend="dummy")
+
+    def first_context(_telemetry: Telemetry) -> dict[str, str]:
+        return {"first": "value"}
+
+    def second_context(_telemetry: Telemetry) -> dict[str, str]:
+        return {"second": "value"}
+
+    telemetry = initialize_telemetry(
+        library_name="lib_a",
+        config=config,
+        context_providers=[first_context],
+        register_exit_handler=False,
+    )
+    reused = get_or_init(
+        library_name="lib_a",
+        context_providers=[second_context],
+        register_exit_handler=False,
+    )
+
+    reused.capture("event.test")
+
+    assert reused is telemetry
+    event = dummy_backend.events[-1]
+    assert event.context["first"] == "value"
+    assert event.context["second"] == "value"
+
+
+def test_registering_custom_backend_keeps_builtin_backends(
+    reset_backend_registry: Generator[None, None, None],
+) -> None:
+    Telemetry.register_backend("dummy", lambda cfg: DummyBackend())
+
+    telemetry = Telemetry(
+        "luxonis_ml",
+        config=TelemetryConfig(enabled=True, backend="noop"),
+    )
+
+    assert telemetry._backend.__class__.__name__ == "NoopBackend"
+
+
+def test_register_backend_is_case_insensitive(
+    reset_backend_registry: Generator[None, None, None],
+) -> None:
+    backend = DummyBackend()
+    Telemetry.register_backend("Dummy", lambda cfg: backend)
+
+    telemetry = Telemetry(
+        "luxonis_ml",
+        config=TelemetryConfig(enabled=True, backend="dummy"),
+    )
+    telemetry.capture("event.test")
+
+    assert telemetry._backend is backend
+    assert len(backend.events) == 1
 
 
 def test_instrument_typer_emits_event(dummy_backend: DummyBackend) -> None:

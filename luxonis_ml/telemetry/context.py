@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -29,10 +30,14 @@ def load_install_id(path: Path) -> str | None:
     """
     try:
         if path.exists():
-            data = json.loads(path.read_text(encoding="utf-8"))
-            value = data.get("install_id")
-            if isinstance(value, str) and value:
-                return value
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (JSONDecodeError, ValueError, TypeError):
+                data = None
+            if isinstance(data, dict):
+                value = data.get("install_id")
+                if isinstance(value, str) and value:
+                    return value
         path.parent.mkdir(parents=True, exist_ok=True)
         install_id = str(uuid4())
         path.write_text(
