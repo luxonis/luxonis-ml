@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from luxonis_ml.utils.environ import environ
+
 
 def default_install_id_path() -> Path:
     """Return the default path for storing the install id."""
@@ -63,6 +65,11 @@ def is_ci() -> bool:
     return any(os.environ.get(marker) for marker in markers)
 
 
+def is_luxonis_cloud() -> bool:
+    """Return True when telemetry runs inside the Luxonis cloud."""
+    return bool(environ.LUXONIS_TELEMETRY_IS_LUXONIS_CLOUD)
+
+
 def base_context(
     *,
     library_name: str,
@@ -91,6 +98,7 @@ def base_context(
         "library_version": library_version,
         "session_id": session_id,
         "install_id": install_id,
+        "is_luxonis_cloud": is_luxonis_cloud(),
         "ci": is_ci(),
     }
 

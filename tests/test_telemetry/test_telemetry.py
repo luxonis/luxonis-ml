@@ -72,6 +72,7 @@ def test_config_from_environ(
     monkeypatch.setenv("LUXONIS_TELEMETRY_ENDPOINT", "https://example")
     monkeypatch.setenv("LUXONIS_TELEMETRY_DEBUG", "1")
     monkeypatch.setenv("LUXONIS_TELEMETRY_ID", "override")
+    monkeypatch.setenv("LUXONIS_TELEMETRY_IS_LUXONIS_CLOUD", "1")
     monkeypatch.setenv(
         "LUXONIS_TELEMETRY_INSTALL_ID_PATH",
         str(tmp_path / "telemetry.json"),
@@ -87,7 +88,11 @@ def test_config_from_environ(
     assert cfg.install_id_path == tmp_path / "telemetry.json"
 
 
-def test_capture_includes_context(dummy_backend: DummyBackend) -> None:
+def test_capture_includes_context(
+    dummy_backend: DummyBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LUXONIS_TELEMETRY_IS_LUXONIS_CLOUD", "1")
     config = TelemetryConfig(
         enabled=True,
         backend="dummy",
@@ -113,6 +118,7 @@ def test_capture_includes_context(dummy_backend: DummyBackend) -> None:
     assert event.context["custom"] == "value"
     assert "cpu_count" in event.context
     assert event.distinct_id == "abc"
+    assert event.context["is_luxonis_cloud"] is True
 
 
 def test_include_system_metadata_flag(dummy_backend: DummyBackend) -> None:
