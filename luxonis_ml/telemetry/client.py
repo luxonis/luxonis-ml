@@ -14,8 +14,6 @@ from luxonis_ml.telemetry.backends.stdout import StdoutBackend
 from luxonis_ml.telemetry.config import TelemetryConfig
 from luxonis_ml.telemetry.context import (
     base_context,
-    default_install_id_path,
-    load_install_id,
     system_context,
 )
 from luxonis_ml.telemetry.events import TelemetryEvent
@@ -70,19 +68,10 @@ class Telemetry:
         self._library_name = library_name
         self._library_version = library_version or _safe_version(library_name)
         self._session_id = str(uuid4())
-        if self._config.distinct_id:
-            self._distinct_id = self._config.distinct_id
-        elif self._config.enabled:
-            install_path = (
-                self._config.install_id_path or default_install_id_path()
-            )
-            self._distinct_id = load_install_id(install_path)
-        else:
-            self._distinct_id = None
+        self._distinct_id = self._config.distinct_id
         self._base_context = base_context(
             library_name=self._library_name,
             library_version=self._library_version,
-            install_id=self._distinct_id,
             session_id=self._session_id,
         )
         self._context_providers: list[ContextProvider] = []
@@ -190,9 +179,11 @@ class Telemetry:
                 user_id=user_id,
             )
             self._backend.capture(payload)
-        except Exception:
-            logger.opt(exception=True).debug(
-                "Telemetry capture failed for event '{}'; skipping.", event
+        except Exception as exc:
+            logger.debug(
+                "Telemetry capture failed for event '{}': {}",
+                event,
+                type(exc).__name__,
             )
             return
 
@@ -214,10 +205,11 @@ class Telemetry:
         sanitized = sanitize_properties(traits)
         try:
             self._backend.identify(user_id, sanitized)
-        except Exception:
-            logger.opt(exception=True).debug(
-                "Telemetry identify failed for user '{}'; skipping.",
+        except Exception as exc:
+            logger.debug(
+                "Telemetry identify failed for user '{}': {}",
                 user_id,
+                type(exc).__name__,
             )
             return
 
@@ -227,9 +219,10 @@ class Telemetry:
             return
         try:
             self._backend.flush()
-        except Exception:
-            logger.opt(exception=True).debug(
-                "Telemetry flush failed; continuing."
+        except Exception as exc:
+            logger.debug(
+                "Telemetry flush failed: {}",
+                type(exc).__name__,
             )
             return
 
@@ -239,9 +232,10 @@ class Telemetry:
             return
         try:
             self._backend.shutdown()
-        except Exception:
-            logger.opt(exception=True).debug(
-                "Telemetry shutdown failed; continuing."
+        except Exception as exc:
+            logger.debug(
+                "Telemetry shutdown failed: {}",
+                type(exc).__name__,
             )
             return
 
@@ -262,7 +256,7 @@ class Telemetry:
         try:
             return factory(self._config)
         except Exception:
-            logger.opt(exception=True).debug(
+            logger.debug(
                 "Telemetry backend '{}' failed to initialize; using noop.",
                 name,
             )
@@ -303,8 +297,8 @@ class Telemetry:
         for provider in providers:
             try:
                 extra = provider(self)
-            except Exception:
-                logger.opt(exception=True).debug(error_message)
+            except Exception as exc:
+                logger.debug("{} ({})", error_message, type(exc).__name__)
                 continue
             if extra is None:
                 continue

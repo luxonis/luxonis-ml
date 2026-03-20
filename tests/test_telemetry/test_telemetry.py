@@ -1,4 +1,3 @@
-import json
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any
@@ -17,6 +16,7 @@ from luxonis_ml.telemetry import (
 )
 from luxonis_ml.telemetry.redaction import sanitize_properties
 from luxonis_ml.telemetry.singleton import _telemetry_by_name
+from luxonis_ml.utils.telemetry import get_telemetry_config
 
 
 class DummyBackend:
@@ -73,10 +73,6 @@ def test_config_from_environ(
     monkeypatch.setenv("LUXONIS_TELEMETRY_DEBUG", "1")
     monkeypatch.setenv("LUXONIS_TELEMETRY_ID", "override")
     monkeypatch.setenv("LUXONIS_TELEMETRY_IS_LUXONIS_CLOUD", "1")
-    monkeypatch.setenv(
-        "LUXONIS_TELEMETRY_INSTALL_ID_PATH",
-        str(tmp_path / "telemetry.json"),
-    )
 
     cfg = TelemetryConfig.from_environ()
     assert cfg.enabled is True
@@ -85,7 +81,21 @@ def test_config_from_environ(
     assert cfg.endpoint == "https://example"
     assert cfg.debug is True
     assert cfg.distinct_id == "override"
-    assert cfg.install_id_path == tmp_path / "telemetry.json"
+
+
+def test_luxonis_telemetry_config_uses_project_fallbacks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("LUXONIS_TELEMETRY_BACKEND", raising=False)
+    monkeypatch.delenv("LUXONIS_TELEMETRY_API_KEY", raising=False)
+    monkeypatch.delenv("LUXONIS_TELEMETRY_ENDPOINT", raising=False)
+    monkeypatch.setenv("LUXONIS_TELEMETRY_DEBUG", "0")
+
+    cfg = get_telemetry_config()
+
+    assert cfg.backend == "posthog"
+    assert cfg.api_key == "#TODO"
+    assert cfg.endpoint == "#TODO"
 
 
 def test_capture_includes_context(
@@ -132,6 +142,23 @@ def test_include_system_metadata_flag(dummy_backend: DummyBackend) -> None:
     telemetry.capture("event.with_system", include_system_metadata=True)
     event = dummy_backend.events[-1]
     assert "cpu_count" in event.context
+
+
+def test_system_metadata_normalizes_processor_family(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from luxonis_ml.telemetry import context
+
+    monkeypatch.setattr(context.platform, "machine", lambda: "AMD64")
+    monkeypatch.setattr(
+        context.platform,
+        "processor",
+        lambda: "Intel(R) Core(TM) i7-1185G7 CPU @ 3.00GHz",
+    )
+
+    system = context.system_context()
+
+    assert system["processor"] == "x86_64"
 
 
 def test_base_context_can_be_disabled(dummy_backend: DummyBackend) -> None:
@@ -206,51 +233,29 @@ def test_sanitize_properties_redacts_nested_mappings() -> None:
     assert out["config"]["nested"]["token"] == "<redacted>"  # noqa: S105
 
 
-def test_install_id_created(
-    tmp_path: Path, reset_backend_registry: Generator[None, None, None]
+def test_default_telemetry_uses_session_only(
+    reset_backend_registry: Generator[None, None, None],
 ) -> None:
-    install_path = tmp_path / "telemetry.json"
     config = TelemetryConfig(
         enabled=True,
         backend="noop",
-        install_id_path=install_path,
     )
     telemetry = Telemetry("luxonis_ml", config=config)
-    assert install_path.exists()
-    data = json.loads(install_path.read_text(encoding="utf-8"))
-    assert telemetry._distinct_id == data["install_id"]
+    assert telemetry._distinct_id is None
+    assert "session_id" in telemetry._base_context
+    assert "install_id" not in telemetry._base_context
 
 
-def test_install_id_recovers_from_invalid_file(
-    tmp_path: Path, reset_backend_registry: Generator[None, None, None]
+def test_distinct_id_override_is_preserved(
+    reset_backend_registry: Generator[None, None, None],
 ) -> None:
-    install_path = tmp_path / "telemetry.json"
-    install_path.write_text("{invalid", encoding="utf-8")
     config = TelemetryConfig(
         enabled=True,
         backend="noop",
-        install_id_path=install_path,
-    )
-
-    telemetry = Telemetry("luxonis_ml", config=config)
-
-    data = json.loads(install_path.read_text(encoding="utf-8"))
-    assert telemetry._distinct_id == data["install_id"]
-
-
-def test_distinct_id_override_avoids_file(
-    tmp_path: Path, reset_backend_registry: Generator[None, None, None]
-) -> None:
-    install_path = tmp_path / "telemetry.json"
-    config = TelemetryConfig(
-        enabled=True,
-        backend="noop",
-        install_id_path=install_path,
         distinct_id="override",
     )
     telemetry = Telemetry("luxonis_ml", config=config)
     assert telemetry._distinct_id == "override"
-    assert not install_path.exists()
 
 
 def test_singleton_registry_multiple(dummy_backend: DummyBackend) -> None:
@@ -376,7 +381,37 @@ def test_instrument_typer_emits_event(dummy_backend: DummyBackend) -> None:
     cmd = app.registered_commands[0].callback
     result = cmd(epochs=5)
     assert result == 5
-    assert any(event.name == "cli.command" for event in dummy_backend.events)
+    event = dummy_backend.events[-1]
+    assert event.name == "cli.command"
+    assert event.properties["command"] == "train"
+    assert "epochs" not in event.properties
+
+
+def test_instrument_typer_allowlist_keeps_core_fields(
+    dummy_backend: DummyBackend,
+) -> None:
+    config = TelemetryConfig(enabled=True, backend="dummy")
+    telemetry = Telemetry("luxonis_ml", config=config)
+
+    app = typer.Typer()
+
+    @app.command()
+    def train(epochs: int = 10, dataset_name: str = "private") -> int:
+        return epochs
+
+    from luxonis_ml.telemetry.cli import instrument_typer
+
+    instrument_typer(app, telemetry, allowlist={"epochs"})
+
+    cmd = app.registered_commands[0].callback
+    cmd(epochs=5, dataset_name="secret")
+
+    event = dummy_backend.events[-1]
+    assert event.properties["command"] == "train"
+    assert event.properties["epochs"] == 5
+    assert "dataset_name" not in event.properties
+    assert "success" in event.properties
+    assert "duration_ms" in event.properties
 
 
 def test_instrument_typer_exclude_commands(

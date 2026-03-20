@@ -45,6 +45,7 @@ from luxonis_ml.data.utils import (
     COCOFormat,
     ParquetFileManager,
     UpdateMode,
+    count_range,
     get_class_distributions,
     get_duplicates_info,
     get_heatmaps,
@@ -177,16 +178,11 @@ class LuxonisDataset(BaseDataset):
                 for task_type in types
             }
         )
-        dataset_size: int | None = None
-        split_sizes: dict[str, int] = {}
-        with suppress(Exception):
-            dataset_size = len(self)
-        with suppress(Exception):
-            splits = self.get_splits()
-            if splits:
-                split_sizes = {
-                    split: len(ids) for split, ids in splits.items()
-                }
+        dataset_size = len(self)
+        split_size_ranges = {
+            split_name: count_range(len(split_values))
+            for split_name, split_values in (self.get_splits() or {}).items()
+        }
         get_or_init(
             library_name="luxonis_ml",
             config=get_telemetry_config(),
@@ -205,8 +201,8 @@ class LuxonisDataset(BaseDataset):
                 "version_mismatch": self.version != LDF_VERSION,
                 "task_types": task_types,
                 "task_type_count": len(task_types),
-                "dataset_size": dataset_size,
-                "split_sizes": split_sizes,
+                "dataset_size_range": count_range(dataset_size),
+                "split_size_ranges": split_size_ranges,
             },
             include_system_metadata=True,
         )
@@ -1302,21 +1298,29 @@ class LuxonisDataset(BaseDataset):
             "data.dataset.add",
             {
                 "component": "data",
-                "records": record_count,
-                "annotations": annotation_count,
+                "record_count_range": count_range(record_count),
+                "annotation_count_range": count_range(annotation_count),
                 "batch_size": batch_size,
-                "tasks": len(tasks),
+                "task_count_range": count_range(len(tasks)),
                 "annotation_types": annotation_types,
-                "annotation_type_counts": annotation_type_counts,
-                "classes": sum(
-                    len(task_classes)
-                    for task_classes in classes_per_task.values()
+                "annotation_type_count_ranges": {
+                    annotation_type: count_range(count)
+                    for annotation_type, count in annotation_type_counts.items()
+                },
+                "class_count_range": count_range(
+                    sum(
+                        len(task_classes)
+                        for task_classes in classes_per_task.values()
+                    )
                 ),
-                "sources": len(sources),
-                "metadata_fields": len(metadata_types),
-                "categorical_fields": len(categorical_encodings),
+                "source_count_range": count_range(len(sources)),
+                "metadata_field_count_range": count_range(len(metadata_types)),
+                "categorical_field_count_range": count_range(
+                    len(categorical_encodings)
+                ),
                 "is_remote": self.is_remote,
             },
+            include_system_metadata=True,
         )
         return self
 

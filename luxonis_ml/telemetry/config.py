@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 
 from luxonis_ml.utils.environ import environ
 
@@ -32,8 +31,6 @@ class TelemetryConfig:
     @type include_base_context: bool
     @param include_base_context: Include the shared default context on
         every event by default.
-    @type install_id_path: Optional[Path]
-    @param install_id_path: Path to persist the anonymous install id.
     """
 
     enabled: bool = True
@@ -42,7 +39,6 @@ class TelemetryConfig:
     endpoint: str | None = None
     debug: bool = False
     allowlist: set[str] | None = None
-    install_id_path: Path | None = None
     distinct_id: str | None = None
     include_base_context: bool = True
     include_system_metadata: bool = False
@@ -65,7 +61,6 @@ class TelemetryConfig:
             else None
         )
         endpoint = environ.LUXONIS_TELEMETRY_ENDPOINT
-        install_id_path = environ.LUXONIS_TELEMETRY_INSTALL_ID_PATH
         distinct_id = environ.LUXONIS_TELEMETRY_ID
         return cls(
             enabled=enabled,
@@ -73,6 +68,5 @@ class TelemetryConfig:
             api_key=api_key,
             endpoint=endpoint,
             debug=debug,
-            install_id_path=install_id_path,
             distinct_id=distinct_id,
         )

@@ -14,6 +14,29 @@ from luxonis_ml.data.utils.task_utils import task_is_metadata
 from luxonis_ml.typing import RGB
 
 
+def count_range(value: int) -> str:
+    """Convert exact counts into coarse telemetry ranges."""
+    if value <= 0:
+        return "0"
+    if value == 1:
+        return "1"
+    if value <= 10:
+        return "2-10"
+    if value <= 100:
+        return "11-100"
+    if value <= 1_000:
+        return "101-1000"
+    if value <= 10_000:
+        return "1001-10000"
+    if value <= 20_000:
+        return "10001-20000"
+    if value <= 50_000:
+        return "20001-50000"
+    if value <= 100_000:
+        return "50001-100000"
+    return "100000+"
+
+
 def rgb_to_bool_masks(
     segmentation_mask: np.ndarray,
     class_colors: dict[str, RGB],

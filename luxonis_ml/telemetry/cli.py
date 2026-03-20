@@ -27,7 +27,8 @@ def instrument_typer(
     @type telemetry: L{Telemetry}
     @param telemetry: Telemetry instance to emit events through.
     @type allowlist: Optional[set]
-    @param allowlist: If set, only these params are logged.
+    @param allowlist: If set, only these callback params are logged. If
+        omitted, command arguments are not logged.
     @type include_system_metadata: Optional[bool]
     @param include_system_metadata: If True, adds extended system
         metadata.
@@ -117,12 +118,18 @@ def _wrap_callback(
                 "success": success,
                 "duration_ms": duration_ms,
             }
-            properties.update(_extract_params(signature, args, kwargs))
+            properties.update(
+                _extract_params(
+                    signature,
+                    args,
+                    kwargs,
+                    allowlist=allowlist,
+                )
+            )
             with suppress(Exception):
                 telemetry.capture(
                     "cli.command",
                     properties,
-                    allowlist=allowlist,
                     include_system_metadata=include_system_metadata,
                 )
 
@@ -140,8 +147,13 @@ def _extract_params(
     signature: inspect.Signature,
     args: Iterable[Any],
     kwargs: dict[str, Any],
+    *,
+    allowlist: set[str] | None,
 ) -> dict[str, Any]:
     """Extract call arguments into a parameter map."""
+    if allowlist is None:
+        return {}
+
     try:
         bound = signature.bind_partial(*args, **kwargs)
     except TypeError:
@@ -149,6 +161,8 @@ def _extract_params(
 
     output: dict[str, Any] = {}
     for name, value in bound.arguments.items():
+        if name not in allowlist:
+            continue
         if name in {"self", "ctx", "context"}:
             continue
         if _is_click_context(value):

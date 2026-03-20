@@ -1,55 +1,11 @@
 from __future__ import annotations
 
-import json
 import os
 import platform
-from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
 from luxonis_ml.utils.environ import environ
-
-
-def default_install_id_path() -> Path:
-    """Return the default path for storing the install id."""
-    if os.name == "nt" and "APPDATA" in os.environ:
-        base = Path(os.environ["APPDATA"])
-    elif "XDG_CONFIG_HOME" in os.environ:
-        base = Path(os.environ["XDG_CONFIG_HOME"])
-    else:
-        base = Path.home() / ".config"
-    return base / "luxonis" / "telemetry.json"
-
-
-def load_install_id(path: Path) -> str | None:
-    """Load or create a persistent anonymous install id.
-
-    If the file cannot be read or written, returns None.
-
-    @type path: L{Path}
-    @param path: Path where the install id is stored.
-    """
-    try:
-        if path.exists():
-            try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-            except (JSONDecodeError, ValueError, TypeError):
-                data = None
-            if isinstance(data, dict):
-                value = data.get("install_id")
-                if isinstance(value, str) and value:
-                    return value
-        path.parent.mkdir(parents=True, exist_ok=True)
-        install_id = str(uuid4())
-        path.write_text(
-            json.dumps({"install_id": install_id}, sort_keys=True),
-            encoding="utf-8",
-        )
-    except OSError:
-        return None
-    else:
-        return install_id
 
 
 def is_ci() -> bool:
@@ -70,11 +26,31 @@ def is_luxonis_cloud() -> bool:
     return bool(environ.LUXONIS_TELEMETRY_IS_LUXONIS_CLOUD)
 
 
+def normalized_processor() -> str:
+    """Return a coarse processor family for telemetry."""
+    raw_values = [platform.machine().lower(), platform.processor().lower()]
+    for value in raw_values:
+        if not value:
+            continue
+        if any(token in value for token in ("aarch64", "arm64")):
+            return "arm64"
+        if "arm" in value:
+            return "arm"
+        if any(token in value for token in ("x86_64", "amd64")):
+            return "x86_64"
+        if any(token in value for token in ("x86", "i386", "i686")):
+            return "x86"
+        if "ppc" in value or "powerpc" in value:
+            return "powerpc"
+        if "riscv" in value:
+            return "riscv"
+    return "unknown"
+
+
 def base_context(
     *,
     library_name: str,
     library_version: str | None,
-    install_id: str | None,
     session_id: str,
 ) -> dict[str, Any]:
     """Create base context for all events.
@@ -83,21 +59,17 @@ def base_context(
     @param library_name: Name of the emitting library.
     @type library_version: Optional[str]
     @param library_version: Version string for the library.
-    @type install_id: Optional[str]
-    @param install_id: Anonymous install id (distinct id).
     @type session_id: str
     @param session_id: Random per-process session id.
     """
     return {
         "os": platform.system(),
         "os_version": platform.release(),
-        "platform": platform.platform(),
         "arch": platform.machine(),
         "python_version": platform.python_version(),
         "library": library_name,
         "library_version": library_version,
         "session_id": session_id,
-        "install_id": install_id,
         "is_luxonis_cloud": is_luxonis_cloud(),
         "ci": is_ci(),
     }
@@ -106,7 +78,7 @@ def base_context(
 def system_context() -> dict[str, Any]:
     """Extended system metadata for telemetry events."""
     return {
-        "processor": platform.processor(),
+        "processor": normalized_processor(),
         "cpu_count": os.cpu_count(),
         "is_docker": Path("/.dockerenv").exists(),
     }

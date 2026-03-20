@@ -91,6 +91,14 @@ def train(epochs: int = 10):
     telemetry.capture("train.invoked", {"epochs": epochs})
 ```
 
+By default, CLI telemetry logs only the command name, success flag, and
+duration. Command arguments are omitted unless you explicitly pass an
+`allowlist`:
+
+```python
+instrument_typer(app, telemetry, allowlist={"epochs"})
+```
+
 ## Custom Backends
 
 ```python
@@ -120,13 +128,29 @@ the same backend.
 
 ## Context and Metadata
 
-Each event includes a base context (OS, Python version, library name/version,
-session id, install id, and CI indicator). You can optionally include extended
-system metadata per event:
+Each event includes a base context with:
+
+- `os`
+- `os_version`
+- `arch`
+- `python_version`
+- `library`
+- `library_version`
+- `session_id`
+- `is_luxonis_cloud`
+- `ci`
+
+You can optionally include extended system metadata per event:
 
 ```python
 telemetry.capture("train.start", include_system_metadata=True)
 ```
+
+System metadata currently includes:
+
+- normalized `processor` family (`x86_64`, `x86`, `arm64`, `arm`, etc.)
+- `cpu_count`
+- `is_docker`
 
 You can also add custom context providers:
 
@@ -184,8 +208,6 @@ Telemetry is designed to fail open inside consuming libraries:
   falls back to `NoopBackend`.
 - Capture, identify, flush, and shutdown failures are swallowed so they
   do not break the host application.
-- Corrupted install-id files are regenerated automatically when
-  possible.
 
 ## Environment Variables
 
@@ -201,7 +223,5 @@ The telemetry module reads the following environment variables:
   Backend endpoint/host URL (e.g., PostHog host).
 - `LUXONIS_TELEMETRY_DEBUG`\
   When truthy, defaults backend to `stdout` unless explicitly overridden.
-- `LUXONIS_TELEMETRY_INSTALL_ID_PATH`\
-  Custom path to store the anonymous install ID.
 - `LUXONIS_TELEMETRY_ID`\
   Override the anonymous distinct ID.

@@ -43,7 +43,6 @@ class Environ(BaseSettings):
     LUXONIS_TELEMETRY_API_KEY: SecretStr | None = None
     LUXONIS_TELEMETRY_ENDPOINT: str | None = None
     LUXONIS_TELEMETRY_DEBUG: bool = False
-    LUXONIS_TELEMETRY_INSTALL_ID_PATH: Path | None = None
     LUXONIS_TELEMETRY_ID: str | None = None
     LUXONIS_TELEMETRY_IS_LUXONIS_CLOUD: bool = False
 
