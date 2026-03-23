@@ -9,7 +9,6 @@ with guard_missing_extra("utils"):
     from .graph import is_acyclic, traverse_graph
     from .logging import deprecated, log_once, setup_logging
     from .registry import AutoRegisterMeta, Registry
-    from .rich_utils import make_progress_bar
 
 
 __all__ = [
@@ -24,7 +23,6 @@ __all__ = [
     "environ",
     "is_acyclic",
     "log_once",
-    "make_progress_bar",
     "setup_logging",
     "traverse_graph",
 ]
