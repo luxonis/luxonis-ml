@@ -128,6 +128,7 @@ class COCOParser(BaseParser):
         use_keypoint_ann: bool = False,
         keypoint_ann_paths: dict[str, str] | None = None,
         split_val_to_test: bool = True,
+        require_keypoints: bool = False,
     ) -> tuple[list[Path], list[Path], list[Path]]:
         dir_format, splits = COCOParser._detect_dataset_dir_format(dataset_dir)
         if dir_format is None:
@@ -165,6 +166,7 @@ class COCOParser(BaseParser):
         added_train_imgs = self._parse_split(
             image_dir=train_paths["image_dir"],
             annotation_path=cleaned_annotation_path,
+            require_keypoints=require_keypoints,
         )
 
         val_paths = COCOParser.validate_split(dataset_dir / splits[1])
@@ -179,7 +181,9 @@ class COCOParser(BaseParser):
             else val_paths["annotation_path"]
         )
         _added_val_imgs = self._parse_split(
-            image_dir=val_paths["image_dir"], annotation_path=val_ann_path
+            image_dir=val_paths["image_dir"],
+            annotation_path=val_ann_path,
+            require_keypoints=require_keypoints,
         )
 
         if len(splits) < 3:
@@ -201,6 +205,7 @@ class COCOParser(BaseParser):
                     added_test_imgs = self._parse_split(
                         image_dir=test_paths["image_dir"],
                         annotation_path=kp_path,
+                        require_keypoints=require_keypoints,
                     )
                 else:
                     logger.warning(
@@ -212,6 +217,7 @@ class COCOParser(BaseParser):
                 added_test_imgs = self._parse_split(
                     image_dir=test_paths["image_dir"],
                     annotation_path=test_paths["annotation_path"],
+                    require_keypoints=require_keypoints,
                 )
             if len(added_test_imgs) == 0 and not split_val_to_test:
                 logger.warning(
@@ -231,7 +237,10 @@ class COCOParser(BaseParser):
         return added_train_imgs, added_val_imgs, added_test_imgs
 
     def from_split(
-        self, image_dir: Path, annotation_path: Path
+        self,
+        image_dir: Path,
+        annotation_path: Path,
+        require_keypoints: bool = False,
     ) -> ParserOutput:
         """Parses annotations from COCO format to LDF. Annotations
         include classification, segmentation, object detection and
@@ -241,6 +250,13 @@ class COCOParser(BaseParser):
         @param image_dir: Path to directory with images
         @type annotation_path: Path
         @param annotation_path: Path to annotation json file
+        @type require_keypoints: bool
+        @param require_keypoints: If C{True}, only include images that
+            have at least one annotation with keypoints. Annotations
+            without keypoints within those images are also skipped.
+            This is useful for multitask training (bbox + mask +
+            keypoints) where all three annotation types are needed.
+            Defaults to C{False}.
         @rtype: L{ParserOutput}
         @return: Annotation generator, list of classes names, skeleton
             dictionary for keypoints and list of added images.
@@ -287,16 +303,25 @@ class COCOParser(BaseParser):
                 img_w = img["width"]
 
                 if not img_anns:
-                    if skeletons:
+                    if skeletons or require_keypoints:
                         # Keypoint annotations: skip images with no labels
                         continue
                     # Register image with no annotations (valid COCO case)
                     yield {"file": file, "annotation": None}
                     continue
 
+                if require_keypoints and not any(
+                    "keypoints" in ann for ann in img_anns
+                ):
+                    continue
+
                 for ann in img_anns:
                     if ann.get("iscrowd"):
                         continue
+
+                    if require_keypoints and "keypoints" not in ann:
+                        continue
+
                     class_name = categories[ann["category_id"]]
 
                     segmentation = None
