@@ -9,7 +9,11 @@ import matplotlib.colors
 import numpy as np
 from bidict import bidict
 
-from luxonis_ml.data.utils import get_task_name, task_type_iterator
+from luxonis_ml.data.utils import (
+    get_task_name,
+    get_task_type,
+    task_type_iterator,
+)
 from luxonis_ml.typing import HSV, RGB, Color, Labels
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX
@@ -271,6 +275,103 @@ def create_text_image(
     return img
 
 
+def wrap_text(
+    text: str,
+    max_width: int,
+    font_scale: float,
+    thickness: int = 1,
+) -> list[str]:
+    """Wraps text into lines that fit within the given width."""
+    if max_width <= 0:
+        return [text]
+
+    words = text.split()
+    if not words:
+        return [""]
+
+    lines: list[str] = []
+    current_line = words[0]
+
+    for word in words[1:]:
+        candidate = f"{current_line} {word}"
+        candidate_width = cv2.getTextSize(
+            candidate, FONT, font_scale, thickness
+        )[0][0]
+        if candidate_width <= max_width:
+            current_line = candidate
+        else:
+            lines.append(current_line)
+            current_line = word
+
+    lines.append(current_line)
+    return lines
+
+
+def append_text_block(
+    image: np.ndarray,
+    lines: list[str],
+    font_scale: float,
+    bg_color: Color = (245, 245, 245),
+    text_color: Color = (32, 32, 32),
+) -> np.ndarray:
+    """Appends a multi-line text block below the image."""
+    if not lines:
+        return image
+
+    font_scale = max(0.4, font_scale)
+    padding_x = max(10, round(18 * font_scale))
+    padding_y = max(8, round(14 * font_scale))
+    line_spacing = max(6, round(8 * font_scale))
+    thickness = 1
+    max_text_width = image.shape[1] - 2 * padding_x
+
+    wrapped_lines: list[str] = []
+    for line in lines:
+        wrapped_lines.extend(wrap_text(line, max_text_width, font_scale))
+
+    if not wrapped_lines:
+        return image
+
+    (_, text_height), baseline = cv2.getTextSize(
+        "Ag", FONT, font_scale, thickness
+    )
+    footer_height = (
+        2 * padding_y
+        + len(wrapped_lines) * text_height
+        + max(0, len(wrapped_lines) - 1) * line_spacing
+        + baseline
+    )
+
+    footer = np.full(
+        (footer_height, image.shape[1], 3),
+        resolve_color(bg_color),
+        dtype=np.uint8,
+    )
+    cv2.line(
+        footer,
+        (0, 0),
+        (footer.shape[1], 0),
+        resolve_color((210, 210, 210)),
+        1,
+    )
+
+    y = padding_y + text_height
+    for line in wrapped_lines:
+        cv2.putText(
+            footer,
+            line,
+            (padding_x, y),
+            FONT,
+            font_scale,
+            resolve_color(text_color),
+            thickness,
+            cv2.LINE_AA,
+        )
+        y += text_height + line_spacing
+
+    return np.vstack((image, footer))
+
+
 def concat_images(
     image_dict: dict[str, np.ndarray],
     padding: int = 10,
@@ -473,6 +574,7 @@ def visualize(
         )
 
     bbox_classes = defaultdict(list)
+    classification_labels: list[tuple[str, list[str]]] = []
 
     for task, arr in task_type_iterator(labels, "segmentation"):
         task_name = get_task_name(task)
@@ -522,6 +624,21 @@ def visualize(
             curr_image, arr, task_name, is_instance=True
         )
 
+    for task, arr in task_type_iterator(labels, "classification"):
+        task_name = get_task_name(task)
+        task_classes = mappings.get(task_name)
+        if task_classes is None:
+            continue
+
+        class_ids = np.flatnonzero(np.asarray(arr).reshape(-1) > 0)
+        if len(class_ids) == 0:
+            continue
+
+        class_names = [
+            task_classes.inverse[int(class_id)] for class_id in class_ids
+        ]
+        classification_labels.append((task_name, class_names))
+
     for task, arr in task_type_iterator(labels, "keypoints"):
         task_name = get_task_name(task)
         image_name = task_name if task_name and not blend_all else "labels"
@@ -566,4 +683,31 @@ def visualize(
 
         images[image_name] = curr_image
 
-    return concat_images(images)
+    output = concat_images(images)
+
+    classification_only = all(
+        (
+            get_task_type(task) == "classification"
+            or get_task_type(task).startswith("metadata/")
+        )
+        for task in labels
+    )
+
+    if classification_only and len(classification_labels) == 1:
+        _, class_names = classification_labels[0]
+        prefix = "Class" if len(class_names) == 1 else "Classes"
+        output = append_text_block(
+            output, [f"{prefix}: {', '.join(class_names)}"], font_scale
+        )
+    elif classification_only and classification_labels:
+        output = append_text_block(
+            output,
+            ["Classification labels"]
+            + [
+                f"{task_name}: {', '.join(class_names)}"
+                for task_name, class_names in classification_labels
+            ],
+            font_scale,
+        )
+
+    return output
