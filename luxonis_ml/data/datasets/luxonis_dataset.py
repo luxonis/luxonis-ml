@@ -12,6 +12,7 @@ from typing import Any, Literal, overload
 
 import numpy as np
 import polars as pl
+import rich.progress
 from filelock import FileLock
 from loguru import logger
 from semver.version import Version
@@ -56,12 +57,7 @@ from luxonis_ml.data.utils import (
 from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.enums.enums import DatasetType
 from luxonis_ml.typing import PathType
-from luxonis_ml.utils import (
-    LuxonisFileSystem,
-    deprecated,
-    environ,
-    make_progress_bar,
-)
+from luxonis_ml.utils import LuxonisFileSystem, deprecated, environ
 
 from .annotation import Category, DatasetRecord, Detection
 from .base_dataset import BaseDataset, DatasetIterator
@@ -165,7 +161,18 @@ class LuxonisDataset(BaseDataset):
                 "manually re-create the dataset using the latest version "
                 "of `luxonis-ml`."
             )
-        self.progress = make_progress_bar()
+
+    @cached_property
+    def progress(self) -> rich.progress.Progress:
+        return rich.progress.Progress(
+            rich.progress.TextColumn(
+                "[progress.description]{task.description}"
+            ),
+            rich.progress.BarColumn(),
+            rich.progress.TaskProgressColumn(),
+            rich.progress.MofNCompleteColumn(),
+            rich.progress.TimeRemainingColumn(),
+        )
 
     @property
     def metadata(self) -> Metadata:
