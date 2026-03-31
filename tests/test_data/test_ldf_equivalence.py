@@ -26,7 +26,10 @@ def _parse_dataset(
 def _load_coco_annotation_payload(
     dataset_root: Path,
 ) -> tuple[Path, Path, dict]:
-    split_dirs = [dataset_root, *sorted(path for path in dataset_root.rglob("*") if path.is_dir())]
+    split_dirs = [
+        dataset_root,
+        *sorted(path for path in dataset_root.rglob("*") if path.is_dir()),
+    ]
     for split_dir in split_dirs:
         split_info = COCOParser.validate_split(split_dir)
         if split_info is None:
@@ -34,7 +37,9 @@ def _load_coco_annotation_payload(
 
         json_path = split_info["annotation_path"]
         payload = json.loads(json_path.read_text(encoding="utf-8"))
-        annotations = payload.get("annotations") if isinstance(payload, dict) else None
+        annotations = (
+            payload.get("annotations") if isinstance(payload, dict) else None
+        )
         images = payload.get("images") if isinstance(payload, dict) else None
         if isinstance(annotations, list) and isinstance(images, list):
             return json_path, split_info["image_dir"], payload

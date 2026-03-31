@@ -9,7 +9,6 @@ import numpy as np
 import polars as pl
 from pycocotools import mask as mask_utils
 
-from luxonis_ml.data.utils.enums import BucketStorage
 from luxonis_ml.data.exporters import PreparedLDF
 from luxonis_ml.utils.environ import environ
 
@@ -20,8 +19,8 @@ LDFCollector = Callable[[PreparedLDF], Any]
 
 
 def ldf_equivalent(
-        previous_dataset: Union[str, "LuxonisDataset"],
-        new_dataset: Union[str, "LuxonisDataset"],
+    previous_dataset: Union[str, "LuxonisDataset"],
+    new_dataset: Union[str, "LuxonisDataset"],
 ) -> bool:
     return LDFEquivalence.ldf_equivalent(previous_dataset, new_dataset)
 
@@ -35,9 +34,9 @@ class LDFEquivalence:
 
     @classmethod
     def ldf_equivalent(
-            cls,
-            previous_dataset: Union[str, "LuxonisDataset"],
-            new_dataset: Union[str, "LuxonisDataset"],
+        cls,
+        previous_dataset: Union[str, "LuxonisDataset"],
+        new_dataset: Union[str, "LuxonisDataset"],
     ) -> bool:
         try:
             previous_ldf = cls._prepared_ldf_from_public_input(
@@ -51,26 +50,24 @@ class LDFEquivalence:
 
     @classmethod
     def equivalent(
-            cls,
-            previous_dataset: Union[str, "LuxonisDataset"],
-            new_dataset: Union[str, "LuxonisDataset"],
+        cls,
+        previous_dataset: Union[str, "LuxonisDataset"],
+        new_dataset: Union[str, "LuxonisDataset"],
     ) -> bool:
         return cls.ldf_equivalent(previous_dataset, new_dataset)
 
     @classmethod
     def assert_equivalence(
-            cls,
-            previous: Any,
-            new: Any,
-            collector: LDFCollector | None = None,
+        cls,
+        previous: Any,
+        new: Any,
+        collector: LDFCollector | None = None,
     ) -> None:
         previous_ldf = cls._to_prepared_ldf(previous)
         new_ldf = cls._to_prepared_ldf(new)
 
         if collector is not None:
-            cls._assert_collected_equivalence(
-                previous_ldf, new_ldf, collector
-            )
+            cls._assert_collected_equivalence(previous_ldf, new_ldf, collector)
             return
 
         assert cls.collect_image_multiset(
@@ -78,7 +75,7 @@ class LDFEquivalence:
         ) == cls.collect_image_multiset(new_ldf), "Different image sets"
 
         for task_type in sorted(
-                cls._task_types(previous_ldf) | cls._task_types(new_ldf)
+            cls._task_types(previous_ldf) | cls._task_types(new_ldf)
         ):
             if task_type == "boundingbox":
                 cls._assert_collected_equivalence(
@@ -113,9 +110,9 @@ class LDFEquivalence:
 
     @staticmethod
     def multiset_equal_with_tolerance(
-            prev_map: dict[tuple[str], Counter],
-            new_map: dict[tuple[str], Counter],
-            tol: float,
+        prev_map: dict[tuple[str], Counter],
+        new_map: dict[tuple[str], Counter],
+        tol: float,
     ) -> None:
         assert prev_map.keys() == new_map.keys(), (
             f"Different image sets:\nprev-only={set(prev_map) - set(new_map)}\n"
@@ -174,9 +171,9 @@ class LDFEquivalence:
 
     @classmethod
     def collect_annotation_multiset(
-            cls,
-            prepared_ldf: PreparedLDF,
-            task_type: str,
+        cls,
+        prepared_ldf: PreparedLDF,
+        task_type: str,
     ) -> dict[tuple[str], Counter]:
         out: dict[tuple[str], Counter] = {}
         grouped = prepared_ldf.processed_df.group_by(
@@ -203,8 +200,8 @@ class LDFEquivalence:
 
     @classmethod
     def collect_bbox_multiset(
-            cls,
-            prepared_ldf: PreparedLDF,
+        cls,
+        prepared_ldf: PreparedLDF,
     ) -> dict[tuple[str], Counter]:
         out: dict[tuple[str], Counter] = {}
         grouped = prepared_ldf.processed_df.group_by(
@@ -231,8 +228,8 @@ class LDFEquivalence:
 
     @classmethod
     def collect_keypoint_multiset(
-            cls,
-            prepared_ldf: PreparedLDF,
+        cls,
+        prepared_ldf: PreparedLDF,
     ) -> dict[tuple[str], Counter]:
         out: dict[tuple[str], Counter] = {}
         grouped = prepared_ldf.processed_df.group_by(
@@ -257,8 +254,8 @@ class LDFEquivalence:
 
     @classmethod
     def collect_instance_segmentation_multiset(
-            cls,
-            prepared_ldf: PreparedLDF,
+        cls,
+        prepared_ldf: PreparedLDF,
     ) -> dict[tuple[str], Counter]:
         out: dict[tuple[str], Counter] = {}
         grouped = prepared_ldf.processed_df.group_by(
@@ -278,8 +275,8 @@ class LDFEquivalence:
 
     @classmethod
     def collect_instance_segmentation_mask_overlap_multiset(
-            cls,
-            prepared_ldf: PreparedLDF,
+        cls,
+        prepared_ldf: PreparedLDF,
     ) -> dict[tuple[str], list[np.ndarray]]:
         out: dict[tuple[str], list[np.ndarray]] = {}
         grouped = prepared_ldf.processed_df.group_by(
@@ -309,8 +306,8 @@ class LDFEquivalence:
 
     @classmethod
     def collect_classification_multiset(
-            cls,
-            prepared_ldf: PreparedLDF,
+        cls,
+        prepared_ldf: PreparedLDF,
     ) -> dict[tuple[str], Counter]:
         out: dict[tuple[str], Counter] = {}
         grouped = prepared_ldf.processed_df.group_by(
@@ -322,8 +319,8 @@ class LDFEquivalence:
             classes = []
             for row in entry.iter_rows(named=True):
                 if (
-                        row["task_type"] == "classification"
-                        and row["instance_id"] == -1
+                    row["task_type"] == "classification"
+                    and row["instance_id"] == -1
                 ):
                     classes.append(row["class_name"])
             if classes:
@@ -332,8 +329,8 @@ class LDFEquivalence:
 
     @classmethod
     def collect_segmentation_multiset(
-            cls,
-            prepared_ldf: PreparedLDF,
+        cls,
+        prepared_ldf: PreparedLDF,
     ) -> dict[tuple[str], Counter]:
         out: dict[tuple[str], Counter] = {}
         grouped = prepared_ldf.processed_df.group_by(
@@ -345,8 +342,8 @@ class LDFEquivalence:
             classes = []
             for row in entry.iter_rows(named=True):
                 if (
-                        row["task_type"] == "segmentation"
-                        and row["instance_id"] == -1
+                    row["task_type"] == "segmentation"
+                    and row["instance_id"] == -1
                 ):
                     classes.append(row["class_name"])
             if classes:
@@ -355,8 +352,8 @@ class LDFEquivalence:
 
     @classmethod
     def collect_segmentation_mask_overlap_multiset(
-            cls,
-            prepared_ldf: PreparedLDF,
+        cls,
+        prepared_ldf: PreparedLDF,
     ) -> dict[tuple[str, str], list[np.ndarray]]:
         out: dict[tuple[str, str], list[np.ndarray]] = {}
         grouped = prepared_ldf.processed_df.group_by(
@@ -369,8 +366,8 @@ class LDFEquivalence:
 
             for row in entry.iter_rows(named=True):
                 if (
-                        row["task_type"] == "segmentation"
-                        and row["instance_id"] == -1
+                    row["task_type"] == "segmentation"
+                    and row["instance_id"] == -1
                 ):
                     d = json.loads(row["annotation"])
                     class_name = row["class_name"]
@@ -409,10 +406,10 @@ class LDFEquivalence:
 
     @classmethod
     def _assert_collected_equivalence(
-            cls,
-            previous_ldf: PreparedLDF,
-            new_ldf: PreparedLDF,
-            collector: LDFCollector,
+        cls,
+        previous_ldf: PreparedLDF,
+        new_ldf: PreparedLDF,
+        collector: LDFCollector,
     ) -> None:
         prev = collector(previous_ldf)
         new = collector(new_ldf)
@@ -420,8 +417,8 @@ class LDFEquivalence:
         if collector.__name__ == "collect_bbox_multiset":
             cls.multiset_equal_with_tolerance(prev, new, tol=0.02)
         elif collector.__name__ in (
-                "collect_instance_segmentation_mask_overlap_multiset",
-                "collect_segmentation_mask_overlap_multiset",
+            "collect_instance_segmentation_mask_overlap_multiset",
+            "collect_segmentation_mask_overlap_multiset",
         ):
             assert prev.keys() == new.keys(), (
                 "Different image sets:\n"
@@ -488,7 +485,7 @@ class LDFEquivalence:
 
     @staticmethod
     def _prepared_ldf_from_public_input(
-            dataset: Union[str, "LuxonisDataset"],
+        dataset: Union[str, "LuxonisDataset"],
     ) -> PreparedLDF:
         if isinstance(dataset, str):
             return LDFEquivalence._prepared_ldf_from_name(dataset)
@@ -524,13 +521,17 @@ class LDFEquivalence:
             )
         splits = json.loads(splits_path.read_text())
 
-        annotation_files = sorted((dataset_path / "annotations").glob("*.parquet"))
+        annotation_files = sorted(
+            (dataset_path / "annotations").glob("*.parquet")
+        )
         if not annotation_files:
             raise FileNotFoundError(
                 f"Dataset '{dataset_path.name}' does not contain annotations."
             )
 
-        df = pl.scan_parquet([str(path) for path in annotation_files]).collect()
+        df = pl.scan_parquet(
+            [str(path) for path in annotation_files]
+        ).collect()
         if df.is_empty():
             raise FileNotFoundError(f"Dataset '{dataset_path.name}' is empty.")
 
@@ -538,7 +539,7 @@ class LDFEquivalence:
         media_path = dataset_path / "media"
 
         def resolve_path(
-                img_path: str | Path, uuid: str, local_media_path: Path
+            img_path: str | Path, uuid: str, local_media_path: Path
         ) -> str:
             path = Path(img_path)
             if path.exists():
@@ -551,9 +552,7 @@ class LDFEquivalence:
         df = df.with_columns(
             pl.struct(["file", "uuid"])
             .map_elements(
-                lambda row: resolve_path(
-                    row["file"], row["uuid"], media_path
-                ),
+                lambda row: resolve_path(row["file"], row["uuid"], media_path),
                 return_dtype=pl.Utf8,
             )
             .alias("file")
