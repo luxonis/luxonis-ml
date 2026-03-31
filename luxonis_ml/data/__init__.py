@@ -18,6 +18,7 @@ with guard_missing_extra("data"):
     from .loaders import LOADERS_REGISTRY, BaseLoader, LuxonisLoader
     from .parsers import LuxonisParser
     from .utils.enums import BucketStorage, BucketType, ImageType, MediaType
+    from .utils.ldf_equivalence import LDFEquivalence, ldf_equivalent
 
 
 def load_dataset_plugins() -> None:  # pragma: no cover
@@ -62,6 +63,7 @@ __all__ = [
     "Category",
     "DatasetIterator",
     "ImageType",
+    "LDFEquivalence",
     "LuxonisComponent",
     "LuxonisDataset",
     "LuxonisLoader",
@@ -70,4 +72,5 @@ __all__ = [
     "MediaType",
     "Metadata",
     "UpdateMode",
+    "ldf_equivalent",
 ]

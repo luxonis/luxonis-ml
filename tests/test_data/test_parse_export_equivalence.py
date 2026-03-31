@@ -3,11 +3,9 @@ from pathlib import Path
 
 import pytest
 
-from luxonis_ml.data import LuxonisDataset
+from luxonis_ml.data import LDFEquivalence, LuxonisDataset
 from luxonis_ml.data.parsers import LuxonisParser
 from luxonis_ml.enums import DatasetType
-
-from .utils import LDFEquivalence
 
 
 def _export_and_reimport(
