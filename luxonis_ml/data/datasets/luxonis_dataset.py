@@ -215,7 +215,7 @@ class LuxonisDataset(BaseDataset):
         return self.dataset_name
 
     # Needed to complement __eq__.
-    __hash__ = None
+    __hash__ = None  # type: ignore[reportAssignmentType]
 
     def __eq__(self, other: object) -> bool | NotImplementedType:
         if not isinstance(other, LuxonisDataset):
