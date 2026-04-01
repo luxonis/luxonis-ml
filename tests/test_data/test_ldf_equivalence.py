@@ -244,3 +244,40 @@ def test_ldf_equivalent_returns_false_when_annotations_change(
             original_dataset.delete_dataset(delete_local=True)
         if modified_dataset is not None:
             modified_dataset.delete_dataset(delete_local=True)
+
+
+def test_luxonis_dataset_eq_uses_ldf_equivalence(
+    dataset_name: str,
+    storage_url: str,
+    tempdir: Path,
+):
+    first_dataset: LuxonisDataset | None = None
+    second_dataset: LuxonisDataset | None = None
+    different_dataset: LuxonisDataset | None = None
+    try:
+        first_dataset = _parse_dataset(
+            f"{storage_url}/COCO_people_subset.zip",
+            f"{dataset_name}_eq_first",
+            tempdir,
+        )
+        second_dataset = _parse_dataset(
+            f"{storage_url}/COCO_people_subset.zip",
+            f"{dataset_name}_eq_second",
+            tempdir,
+        )
+        different_dataset = _parse_dataset(
+            f"{storage_url}/Flowers_Classification.v2-raw.folder.zip",
+            f"{dataset_name}_eq_different",
+            tempdir,
+        )
+
+        assert first_dataset == second_dataset
+        assert first_dataset != different_dataset
+        assert first_dataset != object()
+    finally:
+        if first_dataset is not None:
+            first_dataset.delete_dataset(delete_local=True)
+        if second_dataset is not None:
+            second_dataset.delete_dataset(delete_local=True)
+        if different_dataset is not None:
+            different_dataset.delete_dataset(delete_local=True)
