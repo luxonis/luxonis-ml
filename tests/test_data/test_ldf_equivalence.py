@@ -272,7 +272,9 @@ def test_luxonis_dataset_eq_uses_ldf_equivalence(
         )
 
         assert first_dataset == second_dataset
+        assert first_dataset == second_dataset.dataset_name
         assert first_dataset != different_dataset
+        assert first_dataset != different_dataset.dataset_name
         assert first_dataset != object()
     finally:
         if first_dataset is not None:

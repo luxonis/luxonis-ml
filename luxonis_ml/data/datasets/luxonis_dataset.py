@@ -218,7 +218,7 @@ class LuxonisDataset(BaseDataset):
     __hash__ = None  # type: ignore[reportAssignmentType]
 
     def __eq__(self, other: object) -> bool | NotImplementedType:
-        if not isinstance(other, LuxonisDataset):
+        if not isinstance(other, (LuxonisDataset, str)):
             return NotImplemented
         return ldf_equivalent(self, other)
 
