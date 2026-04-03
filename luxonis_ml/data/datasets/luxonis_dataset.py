@@ -8,6 +8,7 @@ from contextlib import suppress
 from functools import cached_property
 from os import PathLike
 from pathlib import Path, PurePosixPath
+from types import NotImplementedType
 from typing import Any, Literal, overload
 
 import numpy as np
@@ -55,6 +56,7 @@ from luxonis_ml.data.utils import (
     warn_on_duplicates,
 )
 from luxonis_ml.data.utils.constants import LDF_VERSION
+from luxonis_ml.data.utils.ldf_equivalence import ldf_equivalent
 from luxonis_ml.enums.enums import DatasetType
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import LuxonisFileSystem, deprecated, environ
@@ -218,6 +220,14 @@ class LuxonisDataset(BaseDataset):
     @override
     def identifier(self) -> str:
         return self.dataset_name
+
+    # Needed to complement __eq__.
+    __hash__ = None  # type: ignore[reportAssignmentType]
+
+    def __eq__(self, other: object) -> bool | NotImplementedType:
+        if not isinstance(other, (LuxonisDataset, str)):
+            return NotImplemented
+        return ldf_equivalent(self, other)
 
     def __len__(self) -> int:
         """Returns the number of instances in the dataset."""

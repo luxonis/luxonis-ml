@@ -4,11 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from luxonis_ml.data import LuxonisDataset
+from luxonis_ml.data import LDFEquivalence, LuxonisDataset
 from luxonis_ml.data.parsers import LuxonisParser
 from luxonis_ml.utils import LuxonisFileSystem
-
-from .utils import LDFEquivalence
 
 
 def _resolve_extracted_root(unzip_dir: Path) -> Path:
