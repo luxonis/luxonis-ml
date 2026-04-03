@@ -516,6 +516,7 @@ def visualize(
     labels: Labels,
     classes: dict[str, dict[str, int]],
     blend_all: bool = False,
+    categorical_encodings: dict[str, dict[str, int]] | None = None,
 ) -> np.ndarray:
     """Visualizes the labels on the image.
 
@@ -532,12 +533,21 @@ def visualize(
     @param blend_all: Whether to blend all labels (apart from semantic
         segmentations) into a single image. This means mixing labels
         belonging to different tasks. Default is False.
+    @type categorical_encodings: Optional[Dict[str, Dict[str, int]]]
+    @param categorical_encodings: Optional mapping for categorical
+        metadata tasks. Keys are full task identifiers such as
+        C{"task_name/metadata/key"} and values map string labels to
+        encoded integers.
     @rtype: np.ndarray
     @return: The visualized image.
     """
     h, w, _ = image.shape
     images = {source_name: image}
     mappings = {task: bidict(c) for task, c in classes.items()}
+    metadata_mappings = {
+        task: bidict(encoding)
+        for task, encoding in (categorical_encodings or {}).items()
+    }
 
     min_dimension = min(h, w)
     font_scale = max(0.25, min(1.1, 0.4 * min_dimension / 500))
@@ -575,6 +585,21 @@ def visualize(
 
     bbox_classes = defaultdict(list)
     classification_labels: list[tuple[str, list[str]]] = []
+    metadata_labels: list[tuple[str, list[str]]] = []
+
+    def format_metadata_value(task: str, value: object) -> str:
+        if isinstance(value, np.generic):
+            value = value.item()
+
+        if task in metadata_mappings:
+            try:
+                return metadata_mappings[task].inverse[int(value)]
+            except (KeyError, TypeError, ValueError):
+                pass
+
+        if isinstance(value, float):
+            return f"{value:g}"
+        return str(value)
 
     for task, arr in task_type_iterator(labels, "segmentation"):
         task_name = get_task_name(task)
@@ -639,6 +664,26 @@ def visualize(
         ]
         classification_labels.append((task_name, class_names))
 
+    for task, arr in labels.items():
+        task_type = get_task_type(task)
+        if not task_type.startswith("metadata/"):
+            continue
+
+        metadata_name = task_type.removeprefix("metadata/")
+        task_name = get_task_name(task)
+        label_name = (
+            f"{task_name}/{metadata_name}" if task_name else metadata_name
+        )
+        values = np.asarray(arr).reshape(-1)
+        if len(values) == 0:
+            continue
+
+        formatted_values = [
+            format_metadata_value(task, value) for value in values
+        ]
+        unique_values = list(dict.fromkeys(formatted_values))
+        metadata_labels.append((label_name, unique_values))
+
     for task, arr in task_type_iterator(labels, "keypoints"):
         task_name = get_task_name(task)
         image_name = task_name if task_name and not blend_all else "labels"
@@ -693,21 +738,34 @@ def visualize(
         for task in labels
     )
 
+    text_lines: list[str] = []
     if classification_only and len(classification_labels) == 1:
         _, class_names = classification_labels[0]
         prefix = "Class" if len(class_names) == 1 else "Classes"
-        output = append_text_block(
-            output, [f"{prefix}: {', '.join(class_names)}"], font_scale
-        )
+        text_lines.append(f"{prefix}: {', '.join(class_names)}")
     elif classification_only and classification_labels:
-        output = append_text_block(
-            output,
+        text_lines.extend(
             ["Classification labels"]
             + [
                 f"{task_name}: {', '.join(class_names)}"
                 for task_name, class_names in classification_labels
-            ],
-            font_scale,
+            ]
         )
+
+    if metadata_labels:
+        if len(metadata_labels) == 1 and not text_lines:
+            label_name, values = metadata_labels[0]
+            text_lines.append(f"{label_name}: {', '.join(values)}")
+        else:
+            text_lines.extend(
+                ["Metadata labels"]
+                + [
+                    f"{label_name}: {', '.join(values)}"
+                    for label_name, values in metadata_labels
+                ]
+            )
+
+    if text_lines:
+        output = append_text_block(output, text_lines, font_scale)
 
     return output
