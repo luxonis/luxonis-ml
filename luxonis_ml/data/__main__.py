@@ -283,6 +283,7 @@ def inspect(
         raise ValueError(f"Dataset '{name}' is empty.")
 
     classes = dataset.get_classes()
+    categorical_encodings = dataset.get_categorical_encodings()
     prev_windows = set()
 
     for img, labels in loader:
@@ -333,6 +334,7 @@ def inspect(
                         instance_labels,
                         classes,
                         blend_all=blend_all,
+                        categorical_encodings=categorical_encodings,
                     )
                     cv2.resizeWindow(
                         source_name,
@@ -349,7 +351,12 @@ def inspect(
                         f"Showing all labels in one window for '{source_name}'.[/yellow]"
                     )
                 labeled_image = visualize(
-                    image, source_name, labels, classes, blend_all=blend_all
+                    image,
+                    source_name,
+                    labels,
+                    classes,
+                    blend_all=blend_all,
+                    categorical_encodings=categorical_encodings,
                 )
                 cv2.resizeWindow(
                     source_name, labeled_image.shape[1], labeled_image.shape[0]
