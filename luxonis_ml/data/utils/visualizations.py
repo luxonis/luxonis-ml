@@ -741,11 +741,10 @@ def visualize(
     text_lines: list[str] = []
     if classification_only and len(classification_labels) == 1:
         _, class_names = classification_labels[0]
-        prefix = "Class" if len(class_names) == 1 else "Classes"
-        text_lines.append(f"{prefix}: {', '.join(class_names)}")
+        text_lines.extend(["Classes:", ", ".join(class_names)])
     elif classification_only and classification_labels:
         text_lines.extend(
-            ["Classification labels"]
+            ["Classification labels:"]
             + [
                 f"{task_name}: {', '.join(class_names)}"
                 for task_name, class_names in classification_labels
@@ -753,17 +752,13 @@ def visualize(
         )
 
     if metadata_labels:
-        if len(metadata_labels) == 1 and not text_lines:
-            label_name, values = metadata_labels[0]
-            text_lines.append(f"{label_name}: {', '.join(values)}")
-        else:
-            text_lines.extend(
-                ["Metadata labels"]
-                + [
-                    f"{label_name}: {', '.join(values)}"
-                    for label_name, values in metadata_labels
-                ]
-            )
+        text_lines.extend(
+            ["Metadata labels:"]
+            + [
+                f"{label_name}: {', '.join(values)}"
+                for label_name, values in metadata_labels
+            ]
+        )
 
     if text_lines:
         output = append_text_block(output, text_lines, font_scale)
