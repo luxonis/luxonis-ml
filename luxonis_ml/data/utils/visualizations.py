@@ -591,10 +591,12 @@ def visualize(
         if isinstance(value, np.generic):
             value = value.item()
 
-        if task in metadata_mappings:
+        if task in metadata_mappings and isinstance(
+            value, (int, str, bytes, bytearray)
+        ):
             try:
                 return metadata_mappings[task].inverse[int(value)]
-            except (KeyError, TypeError, ValueError):
+            except (KeyError, ValueError):
                 pass
 
         if isinstance(value, float):
