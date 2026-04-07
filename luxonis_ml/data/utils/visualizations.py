@@ -275,36 +275,56 @@ def create_text_image(
     return img
 
 
-def wrap_text(
-    text: str,
-    max_width: int,
-    font_scale: float,
-    thickness: int = 1,
-) -> list[str]:
-    """Wraps text into lines that fit within the given width."""
-    if max_width <= 0:
-        return [text]
+def concat_images(
+    image_dict: dict[str, np.ndarray],
+    padding: int = 10,
+    label_height: int = 30,
+) -> np.ndarray:
+    """Concatenates images into a single image with labels.
 
-    words = text.split()
-    if not words:
-        return [""]
+    It will attempt to create a square grid of images.
 
-    lines: list[str] = []
-    current_line = words[0]
+    @type image_dict: Dict[str, np.ndarray]
+    @param image_dict: A dictionary mapping image names to images.
+    @type padding: int
+    @param padding: The padding between images. Default is 10.
+    @type label_height: int
+    @param label_height: The height of the label. Default
+    @rtype: np.ndarray
+    @return: The concatenated image.
+    """
+    n_images = len(image_dict)
+    n_cols = math.ceil(math.sqrt(n_images))
+    n_rows = math.ceil(n_images / n_cols)
 
-    for word in words[1:]:
-        candidate = f"{current_line} {word}"
-        candidate_width = cv2.getTextSize(
-            candidate, FONT, font_scale, thickness
-        )[0][0]
-        if candidate_width <= max_width:
-            current_line = candidate
-        else:
-            lines.append(current_line)
-            current_line = word
+    max_h = max(img.shape[0] for img in image_dict.values())
+    max_w = max(img.shape[1] for img in image_dict.values())
 
-    lines.append(current_line)
-    return lines
+    cell_height = max_h + 2 * padding + label_height
+    cell_width = max_w + 2 * padding
+
+    output = np.full(
+        (cell_height * n_rows, cell_width * n_cols, 3), 255, dtype=np.uint8
+    )
+
+    for idx, (name, img) in enumerate(image_dict.items()):
+        i = idx // n_cols
+        j = idx % n_cols
+
+        y_start = i * cell_height
+        x_start = j * cell_width
+
+        label = create_text_image(name, cell_width, label_height)
+        output[
+            y_start : y_start + label_height, x_start : x_start + cell_width
+        ] = label
+
+        h, w = img.shape[:2]
+        y_img = y_start + label_height + padding
+        x_img = x_start + padding
+        output[y_img : y_img + h, x_img : x_img + w] = img
+
+    return output
 
 
 def append_text_block(
@@ -372,56 +392,36 @@ def append_text_block(
     return np.vstack((image, footer))
 
 
-def concat_images(
-    image_dict: dict[str, np.ndarray],
-    padding: int = 10,
-    label_height: int = 30,
-) -> np.ndarray:
-    """Concatenates images into a single image with labels.
+def wrap_text(
+    text: str,
+    max_width: int,
+    font_scale: float,
+    thickness: int = 1,
+) -> list[str]:
+    """Wraps text into lines that fit within the given width."""
+    if max_width <= 0:
+        return [text]
 
-    It will attempt to create a square grid of images.
+    words = text.split()
+    if not words:
+        return [""]
 
-    @type image_dict: Dict[str, np.ndarray]
-    @param image_dict: A dictionary mapping image names to images.
-    @type padding: int
-    @param padding: The padding between images. Default is 10.
-    @type label_height: int
-    @param label_height: The height of the label. Default
-    @rtype: np.ndarray
-    @return: The concatenated image.
-    """
-    n_images = len(image_dict)
-    n_cols = math.ceil(math.sqrt(n_images))
-    n_rows = math.ceil(n_images / n_cols)
+    lines: list[str] = []
+    current_line = words[0]
 
-    max_h = max(img.shape[0] for img in image_dict.values())
-    max_w = max(img.shape[1] for img in image_dict.values())
+    for word in words[1:]:
+        candidate = f"{current_line} {word}"
+        candidate_width = cv2.getTextSize(
+            candidate, FONT, font_scale, thickness
+        )[0][0]
+        if candidate_width <= max_width:
+            current_line = candidate
+        else:
+            lines.append(current_line)
+            current_line = word
 
-    cell_height = max_h + 2 * padding + label_height
-    cell_width = max_w + 2 * padding
-
-    output = np.full(
-        (cell_height * n_rows, cell_width * n_cols, 3), 255, dtype=np.uint8
-    )
-
-    for idx, (name, img) in enumerate(image_dict.items()):
-        i = idx // n_cols
-        j = idx % n_cols
-
-        y_start = i * cell_height
-        x_start = j * cell_width
-
-        label = create_text_image(name, cell_width, label_height)
-        output[
-            y_start : y_start + label_height, x_start : x_start + cell_width
-        ] = label
-
-        h, w = img.shape[:2]
-        y_img = y_start + label_height + padding
-        x_img = x_start + padding
-        output[y_img : y_img + h, x_img : x_img + w] = img
-
-    return output
+    lines.append(current_line)
+    return lines
 
 
 def draw_bbox_label(
@@ -732,19 +732,11 @@ def visualize(
 
     output = concat_images(images)
 
-    classification_only = all(
-        (
-            get_task_type(task) == "classification"
-            or get_task_type(task).startswith("metadata/")
-        )
-        for task in labels
-    )
-
     text_lines: list[str] = []
-    if classification_only and len(classification_labels) == 1:
+    if len(classification_labels) == 1:
         _, class_names = classification_labels[0]
         text_lines.extend(["Classes:", ", ".join(class_names)])
-    elif classification_only and classification_labels:
+    elif classification_labels:
         text_lines.extend(
             ["Classification labels:"]
             + [
