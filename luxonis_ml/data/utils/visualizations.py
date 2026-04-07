@@ -9,7 +9,11 @@ import matplotlib.colors
 import numpy as np
 from bidict import bidict
 
-from luxonis_ml.data.utils import get_task_name, task_type_iterator
+from luxonis_ml.data.utils import (
+    get_task_name,
+    get_task_type,
+    task_type_iterator,
+)
 from luxonis_ml.typing import HSV, RGB, Color, Labels
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX
@@ -323,6 +327,103 @@ def concat_images(
     return output
 
 
+def append_text_block(
+    image: np.ndarray,
+    lines: list[str],
+    font_scale: float,
+    bg_color: Color = (245, 245, 245),
+    text_color: Color = (32, 32, 32),
+) -> np.ndarray:
+    """Appends a multi-line text block below the image."""
+    if not lines:
+        return image
+
+    font_scale = max(0.4, font_scale)
+    padding_x = max(10, round(18 * font_scale))
+    padding_y = max(8, round(14 * font_scale))
+    line_spacing = max(6, round(8 * font_scale))
+    thickness = 1
+    max_text_width = image.shape[1] - 2 * padding_x
+
+    wrapped_lines: list[str] = []
+    for line in lines:
+        wrapped_lines.extend(wrap_text(line, max_text_width, font_scale))
+
+    if not wrapped_lines:
+        return image
+
+    (_, text_height), baseline = cv2.getTextSize(
+        "Ag", FONT, font_scale, thickness
+    )
+    footer_height = (
+        2 * padding_y
+        + len(wrapped_lines) * text_height
+        + max(0, len(wrapped_lines) - 1) * line_spacing
+        + baseline
+    )
+
+    footer = np.full(
+        (footer_height, image.shape[1], 3),
+        resolve_color(bg_color),
+        dtype=np.uint8,
+    )
+    cv2.line(
+        footer,
+        (0, 0),
+        (footer.shape[1], 0),
+        resolve_color((210, 210, 210)),
+        1,
+    )
+
+    y = padding_y + text_height
+    for line in wrapped_lines:
+        cv2.putText(
+            footer,
+            line,
+            (padding_x, y),
+            FONT,
+            font_scale,
+            resolve_color(text_color),
+            thickness,
+            cv2.LINE_AA,
+        )
+        y += text_height + line_spacing
+
+    return np.vstack((image, footer))
+
+
+def wrap_text(
+    text: str,
+    max_width: int,
+    font_scale: float,
+    thickness: int = 1,
+) -> list[str]:
+    """Wraps text into lines that fit within the given width."""
+    if max_width <= 0:
+        return [text]
+
+    words = text.split()
+    if not words:
+        return [""]
+
+    lines: list[str] = []
+    current_line = words[0]
+
+    for word in words[1:]:
+        candidate = f"{current_line} {word}"
+        candidate_width = cv2.getTextSize(
+            candidate, FONT, font_scale, thickness
+        )[0][0]
+        if candidate_width <= max_width:
+            current_line = candidate
+        else:
+            lines.append(current_line)
+            current_line = word
+
+    lines.append(current_line)
+    return lines
+
+
 def draw_bbox_label(
     image: np.ndarray,
     class_name: str,
@@ -415,6 +516,7 @@ def visualize(
     labels: Labels,
     classes: dict[str, dict[str, int]],
     blend_all: bool = False,
+    categorical_encodings: dict[str, dict[str, int]] | None = None,
 ) -> np.ndarray:
     """Visualizes the labels on the image.
 
@@ -431,12 +533,21 @@ def visualize(
     @param blend_all: Whether to blend all labels (apart from semantic
         segmentations) into a single image. This means mixing labels
         belonging to different tasks. Default is False.
+    @type categorical_encodings: Optional[Dict[str, Dict[str, int]]]
+    @param categorical_encodings: Optional mapping for categorical
+        metadata tasks. Keys are full task identifiers such as
+        C{"task_name/metadata/key"} and values map string labels to
+        encoded integers.
     @rtype: np.ndarray
     @return: The visualized image.
     """
     h, w, _ = image.shape
     images = {source_name: image}
     mappings = {task: bidict(c) for task, c in classes.items()}
+    metadata_mappings = {
+        task: bidict(encoding)
+        for task, encoding in (categorical_encodings or {}).items()
+    }
 
     min_dimension = min(h, w)
     font_scale = max(0.25, min(1.1, 0.4 * min_dimension / 500))
@@ -473,6 +584,24 @@ def visualize(
         )
 
     bbox_classes = defaultdict(list)
+    classification_labels: list[tuple[str, list[str]]] = []
+    metadata_labels: list[tuple[str, list[str]]] = []
+
+    def format_metadata_value(task: str, value: object) -> str:
+        if isinstance(value, np.generic):
+            value = value.item()
+
+        if task in metadata_mappings and isinstance(
+            value, (int, str, bytes, bytearray)
+        ):
+            try:
+                return metadata_mappings[task].inverse[int(value)]
+            except (KeyError, ValueError):
+                pass
+
+        if isinstance(value, float):
+            return f"{value:g}"
+        return str(value)
 
     for task, arr in task_type_iterator(labels, "segmentation"):
         task_name = get_task_name(task)
@@ -522,6 +651,41 @@ def visualize(
             curr_image, arr, task_name, is_instance=True
         )
 
+    for task, arr in task_type_iterator(labels, "classification"):
+        task_name = get_task_name(task)
+        task_classes = mappings.get(task_name)
+        if task_classes is None:
+            continue
+
+        class_ids = np.flatnonzero(np.asarray(arr).reshape(-1) > 0)
+        if len(class_ids) == 0:
+            continue
+
+        class_names = [
+            task_classes.inverse[int(class_id)] for class_id in class_ids
+        ]
+        classification_labels.append((task_name, class_names))
+
+    for task, arr in labels.items():
+        task_type = get_task_type(task)
+        if not task_type.startswith("metadata/"):
+            continue
+
+        metadata_name = task_type.removeprefix("metadata/")
+        task_name = get_task_name(task)
+        label_name = (
+            f"{task_name}/{metadata_name}" if task_name else metadata_name
+        )
+        values = np.asarray(arr).reshape(-1)
+        if len(values) == 0:
+            continue
+
+        formatted_values = [
+            format_metadata_value(task, value) for value in values
+        ]
+        unique_values = list(dict.fromkeys(formatted_values))
+        metadata_labels.append((label_name, unique_values))
+
     for task, arr in task_type_iterator(labels, "keypoints"):
         task_name = get_task_name(task)
         image_name = task_name if task_name and not blend_all else "labels"
@@ -566,4 +730,31 @@ def visualize(
 
         images[image_name] = curr_image
 
-    return concat_images(images)
+    output = concat_images(images)
+
+    text_lines: list[str] = []
+    if len(classification_labels) == 1:
+        _, class_names = classification_labels[0]
+        text_lines.extend(["Classes:", ", ".join(class_names)])
+    elif classification_labels:
+        text_lines.extend(
+            ["Classification labels:"]
+            + [
+                f"{task_name}: {', '.join(class_names)}"
+                for task_name, class_names in classification_labels
+            ]
+        )
+
+    if metadata_labels:
+        text_lines.extend(
+            ["Metadata labels:"]
+            + [
+                f"{label_name}: {', '.join(values)}"
+                for label_name, values in metadata_labels
+            ]
+        )
+
+    if text_lines:
+        output = append_text_block(output, text_lines, font_scale)
+
+    return output
