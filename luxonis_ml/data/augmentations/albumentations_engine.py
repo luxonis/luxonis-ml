@@ -56,6 +56,10 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     whether the transformation should be used for resizing. If no resizing
     augmentation is provided, the engine will use either L{A.Resize} or
     L{LetterboxResize} depending on the C{keep_aspect_ratio} parameter.
+    When the designated resizing transformation has C{p < 1}, the engine
+    combines it with the default resize through L{A.OneOf}. In this case
+    the transformation C{p} values are used as branch weights so exactly
+    one resize branch is still selected.
 
     The name must be either a valid name of an Albumentations
     transformation (accessible under the C{albumentations} namespace),
@@ -371,6 +375,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 image_h, image_w = self.image_size
                 cfg_h = cfg.params.get("height")
                 cfg_w = cfg.params.get("width")
+                cfg.params.setdefault("p", 1.0)
                 if cfg_h != image_h or cfg_w != image_w:
                     logger.warning(
                         f"Resizing augmentation '{cfg.name}' has "
@@ -380,15 +385,6 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 cfg.params["height"] = image_h
                 cfg.params["width"] = image_w
 
-                cfg_p = cfg.params.get("p")
-                if cfg_p != 1:
-                    if cfg_p is not None:
-                        logger.warning(
-                            f"Resizing augmentation '{cfg.name}' has p={cfg_p}. "
-                            f"Overriding to p=1."
-                        )
-                    cfg.params["p"] = 1
-
             transform = self.create_transformation(cfg)
 
             if cfg.use_for_resizing:
@@ -397,7 +393,30 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                     raise ValueError(
                         "Only one resizing augmentation can be provided."
                     )
-                resize_transform = transform
+                resize_probability = cfg.params["p"]
+                if isinstance(resize_probability, bool) or not isinstance(
+                    resize_probability, (int, float)
+                ):
+                    raise TypeError(
+                        f"Resizing augmentation '{cfg.name}' has invalid "
+                        f"p={resize_probability!r}. Expected a float."
+                    )
+                resize_probability = float(resize_probability)
+                if resize_probability < 1:
+                    resize_transform = A.OneOf(
+                        [
+                            transform,
+                            self._create_default_resize_transform(
+                                keep_aspect_ratio=keep_aspect_ratio,
+                                height=height,
+                                width=width,
+                                p=1 - resize_probability,
+                            ),
+                        ],
+                        p=1.0,
+                    )
+                else:
+                    resize_transform = transform
 
             elif isinstance(transform, A.ImageOnlyTransform):
                 pixel_transforms.append(transform)
@@ -429,10 +448,11 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             wrapped_spatial_ops = spatial_transforms
 
         if resize_transform is None:
-            if keep_aspect_ratio:
-                resize_transform = LetterboxResize(height=height, width=width)
-            else:
-                resize_transform = A.Resize(height=height, width=width)
+            resize_transform = self._create_default_resize_transform(
+                keep_aspect_ratio=keep_aspect_ratio,
+                height=height,
+                width=width,
+            )
 
         def get_params(is_custom: bool = False) -> dict[str, Any]:
             return {
@@ -707,6 +727,21 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         oob = (xs < 0) | (ys < 0) | (xs >= w) | (ys >= h)
         kps[oob, -1] = 0.0
         return kps
+
+    def _create_default_resize_transform(
+        self,
+        keep_aspect_ratio: bool,
+        height: int,
+        width: int,
+        p: float = 1.0,
+    ) -> A.DualTransform:
+        if keep_aspect_ratio:
+            return LetterboxResize(
+                height=height,
+                width=width,
+                p=p,
+            )
+        return A.Resize(height=height, width=width, p=p)
 
     @staticmethod
     def create_transformation(
