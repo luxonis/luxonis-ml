@@ -75,7 +75,7 @@ The configuration format for the `AlbumentationsEngine` consists of a list of re
 
 - `name`: The name of the transformation class to be applied (e.g., `HorizontalFlip`, `RandomCrop`, etc.). The name must be either a valid name of an Albumentations transformation (accessible under the `albumentations` namespace), or a name of a custom transformation registered in the `TRANSFORMATIONS` registry.
 - `params`: A dictionary of parameters to be passed to the transformation.
-- `use_for_resizing`: An optional boolean flag that indicates whether the transformation should be used for resizing. If no resizing augmentation is provided, the engine will use either `A.Resize` or `LetterboxResize` depending on the `keep_aspect_ratio` parameter (provided through the `LuxonisLoader`).
+- `use_for_resizing`: An optional boolean flag that indicates whether the transformation should be used for resizing. If no resizing augmentation is provided, the engine will use either `A.Resize` or `LetterboxResize` depending on the `keep_aspect_ratio` parameter (provided through the `LuxonisLoader`). When the designated resize transform has `p < 1`, the engine keeps it in the resize stage and fills the remaining probability mass with the default resize by wrapping both inside an always-on `OneOf`.
 
 **Example:**
 
