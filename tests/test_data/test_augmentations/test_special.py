@@ -3,6 +3,7 @@ import numpy as np
 import pytest
 
 from luxonis_ml.data import AlbumentationsEngine
+from luxonis_ml.data.augmentations.custom import LetterboxResize
 
 
 def test_metadata_no_boxes():
@@ -135,6 +136,50 @@ def test_use_for_resizing_wraps_probabilistic_resize_in_oneof():
     assert len(resize_op.transforms) == 2
     assert isinstance(resize_op.transforms[0], A.AtLeastOneBBoxRandomCrop)
     assert isinstance(resize_op.transforms[1], A.Resize)
+    assert resize_op.transforms[0].height == 256
+    assert resize_op.transforms[0].width == 256
+    assert resize_op.transforms[0].p == pytest.approx(0.3)
+    assert resize_op.transforms[1].p == pytest.approx(0.7)
+    assert resize_op.transforms[1].height == 256
+    assert resize_op.transforms[1].width == 256
+
+
+def test_use_for_resizing_uses_letterbox_fallback_when_keeping_aspect_ratio():
+    augmentations = AlbumentationsEngine(
+        256,
+        256,
+        {"task/boundingbox": "boundingbox"},
+        {"task/boundingbox": 1},
+        ["image"],
+        [
+            {
+                "name": "AtLeastOneBBoxRandomCrop",
+                "params": {
+                    "height": 32,
+                    "width": 32,
+                    "erosion_factor": 0.0,
+                    "p": 0.3,
+                },
+                "use_for_resizing": True,
+            }
+        ],
+        keep_aspect_ratio=True,
+    )
+
+    resize_ops = next(
+        (
+            cell.cell_contents.transforms
+            for cell in augmentations.resize_transform.__closure__  # type: ignore
+            if hasattr(cell.cell_contents, "transforms")
+        ),
+        [],
+    )
+
+    resize_op = resize_ops[0]
+    assert isinstance(resize_op, A.OneOf)
+    assert len(resize_op.transforms) == 2
+    assert isinstance(resize_op.transforms[0], A.AtLeastOneBBoxRandomCrop)
+    assert isinstance(resize_op.transforms[1], LetterboxResize)
     assert resize_op.transforms[0].height == 256
     assert resize_op.transforms[0].width == 256
     assert resize_op.transforms[0].p == pytest.approx(0.3)
