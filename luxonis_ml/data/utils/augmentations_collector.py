@@ -1,5 +1,4 @@
 import inspect as pyinspect
-import inspect as pyinspect
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -74,9 +73,7 @@ class AugmentationsCollector:
 
             current_path = (*parent_path, name)
             paths.append("/".join(current_path))
-            if AugmentationsCollector._is_probabilistic_resize_transform(
-                item
-            ):
+            if AugmentationsCollector._is_probabilistic_resize_transform(item):
                 paths.append("/".join((*parent_path, "OneOf", name)))
 
             params = item.get("params", {})
