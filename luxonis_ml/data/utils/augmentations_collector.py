@@ -1,4 +1,5 @@
 import inspect as pyinspect
+import inspect as pyinspect
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -73,6 +74,10 @@ class AugmentationsCollector:
 
             current_path = (*parent_path, name)
             paths.append("/".join(current_path))
+            if AugmentationsCollector._is_probabilistic_resize_transform(
+                item
+            ):
+                paths.append("/".join((*parent_path, "OneOf", name)))
 
             params = item.get("params", {})
             if not isinstance(params, dict):
@@ -93,6 +98,23 @@ class AugmentationsCollector:
                 )
             )
         return paths
+
+    @staticmethod
+    def _is_probabilistic_resize_transform(item: dict[str, Any]) -> bool:
+        if not item.get("use_for_resizing", False):
+            return False
+
+        params = item.get("params", {})
+        if not isinstance(params, dict):
+            return False
+
+        probability = params.get("p", 1.0)
+        if isinstance(probability, bool) or not isinstance(
+            probability, (int, float)
+        ):
+            return False
+
+        return float(probability) < 1.0
 
     @staticmethod
     def get_tracked_transforms(augmentations: AugmentationsLike) -> list[Any]:

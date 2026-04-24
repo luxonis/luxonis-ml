@@ -78,3 +78,25 @@ def test_flatten_config_augmentation_paths_handles_deeply_nested_transforms():
         "OneOf/OneOf",
         "OneOf/OneOf/Rotate",
     ]
+
+
+def test_flatten_config_augmentation_paths_adds_resize_oneof_alias():
+    config = [
+        {
+            "name": "AtLeastOneBBoxRandomCrop",
+            "params": {
+                "height": 32,
+                "width": 32,
+                "erosion_factor": 0.0,
+                "p": 0.3,
+            },
+            "use_for_resizing": True,
+        }
+    ]
+
+    assert AugmentationsCollector.flatten_config_augmentation_paths(
+        config
+    ) == [
+        "AtLeastOneBBoxRandomCrop",
+        "OneOf/AtLeastOneBBoxRandomCrop",
+    ]

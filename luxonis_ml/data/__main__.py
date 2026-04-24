@@ -269,12 +269,11 @@ def inspect(
     bucket_storage: BucketStorage = bucket_option,
 ):
     """Inspects images and annotations in a dataset."""
-    if list_augmentations and aug_config is not None:
+    if aug_config is not None:
         aug_config_path = Path(aug_config)
         if aug_config_path.suffix.lower() not in {".yaml", ".yml", ".json"}:
             raise typer.BadParameter(
-                "--aug-config must point to an augmentation YAML or JSON file "
-                "when --list-augmentations is enabled.",
+                "--aug-config must point to an augmentation YAML or JSON file.",
                 param_hint="--aug-config",
             )
         if not aug_config_path.is_file():
