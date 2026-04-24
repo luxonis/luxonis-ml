@@ -1,3 +1,4 @@
+from .augmentations_collector import AugmentationsCollector
 from .data_utils import (
     find_duplicates,
     get_class_distributions,
@@ -35,6 +36,7 @@ from .visualizations import (
 )
 
 __all__ = [
+    "AugmentationsCollector",
     "BucketStorage",
     "BucketType",
     "COCOFormat",
