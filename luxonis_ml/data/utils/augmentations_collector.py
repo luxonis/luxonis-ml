@@ -33,7 +33,7 @@ class AugmentationsCollector:
         return self._applied_augmentations.copy()
 
     def _instrument(self) -> None:
-        def capture_apply(input_batch):
+        def capture_apply(input_batch: object) -> object:
             self._applied_augmentations.clear()
             for transform in self._tracked_transforms:
                 self.reset_transform_params(transform)
