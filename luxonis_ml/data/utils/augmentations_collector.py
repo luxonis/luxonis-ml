@@ -17,10 +17,14 @@ class AugmentationsLike(Protocol):
 
 
 class AugmentationsCollector:
-    def __init__(self, augmentations: object, aug_config_path: Path):
+    def __init__(
+        self,
+        augmentations: object,
+        aug_config: Path | list[dict[str, Any]],
+    ):
         self.augmentations = cast(AugmentationsLike, augmentations)
         self.configured_paths = set(
-            self.load_augmentation_paths(aug_config_path)
+            self.load_augmentation_paths(aug_config)
         )
         self._applied_augmentations: list[str] = []
         self._original_apply = self.augmentations.apply
@@ -53,12 +57,17 @@ class AugmentationsCollector:
         self.augmentations.apply = capture_apply
 
     @staticmethod
-    def load_augmentation_paths(aug_config_path: Path) -> list[str]:
-        with open(aug_config_path) as file:
-            if aug_config_path.suffix.lower() == ".json":
-                config = json.load(file) or []
-            else:
-                config = yaml.safe_load(file) or []
+    def load_augmentation_paths(
+        aug_config: Path | list[dict[str, Any]],
+    ) -> list[str]:
+        if isinstance(aug_config, Path):
+            with open(aug_config) as file:
+                if aug_config.suffix.lower() == ".json":
+                    config = json.load(file) or []
+                else:
+                    config = yaml.safe_load(file) or []
+        else:
+            config = aug_config
         return AugmentationsCollector.flatten_config_augmentation_paths(config)
 
     @staticmethod
