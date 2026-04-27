@@ -361,7 +361,11 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         resize_transform = None
 
         if is_validation_pipeline:
-            config = (a for a in config if a["name"] == "Normalize")
+            config = (
+                a
+                for a in config
+                if a["name"] in {"Normalize", "ToGray"}
+            )
 
         available_target_types = set(self.targets.values())
 
