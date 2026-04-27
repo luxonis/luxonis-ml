@@ -100,3 +100,23 @@ def test_flatten_config_augmentation_paths_adds_resize_oneof_alias():
         "AtLeastOneBBoxRandomCrop",
         "OneOf/AtLeastOneBBoxRandomCrop",
     ]
+
+
+def test_load_augmentation_paths_accepts_in_memory_config():
+    config = [
+        {"name": "HorizontalFlip", "params": {"p": 0.5}},
+        {
+            "name": "OneOf",
+            "params": {
+                "transforms": [
+                    {"name": "Blur", "params": {"p": 1.0}},
+                ]
+            },
+        },
+    ]
+
+    assert AugmentationsCollector.load_augmentation_paths(config) == [
+        "HorizontalFlip",
+        "OneOf",
+        "OneOf/Blur",
+    ]

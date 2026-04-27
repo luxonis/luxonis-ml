@@ -23,9 +23,7 @@ class AugmentationsCollector:
         aug_config: Path | list[dict[str, Any]],
     ):
         self.augmentations = cast(AugmentationsLike, augmentations)
-        self.configured_paths = set(
-            self.load_augmentation_paths(aug_config)
-        )
+        self.configured_paths = set(self.load_augmentation_paths(aug_config))
         self._applied_augmentations: list[str] = []
         self._original_apply = self.augmentations.apply
         self._tracked_transforms = self.get_tracked_transforms(
