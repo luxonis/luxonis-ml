@@ -1,3 +1,4 @@
+from .augmentations_collector import AugmentationsCollector
 from .data_utils import (
     find_duplicates,
     get_class_distributions,
@@ -28,6 +29,7 @@ from .task_utils import (
 )
 from .visualizations import (
     ColorMap,
+    add_augmentation_footer,
     concat_images,
     create_text_image,
     distinct_color_generator,
@@ -35,6 +37,7 @@ from .visualizations import (
 )
 
 __all__ = [
+    "AugmentationsCollector",
     "BucketStorage",
     "BucketType",
     "COCOFormat",
@@ -44,6 +47,7 @@ __all__ = [
     "ParquetFileManager",
     "ParquetRecord",
     "UpdateMode",
+    "add_augmentation_footer",
     "concat_images",
     "create_text_image",
     "distinct_color_generator",

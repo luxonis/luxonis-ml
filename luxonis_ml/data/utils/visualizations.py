@@ -392,6 +392,20 @@ def append_text_block(
     return np.vstack((image, footer))
 
 
+def add_augmentation_footer(
+    image: np.ndarray, augmentations: list[str]
+) -> np.ndarray:
+    """Appends the applied augmentations as a footer below the image."""
+    min_dimension = min(image.shape[:2])
+    font_scale = max(0.25, min(1.1, 0.4 * min_dimension / 500))
+    augmentations_text = ", ".join(augmentations) if augmentations else "none"
+    return append_text_block(
+        image,
+        [f"Augmentations: {augmentations_text}"],
+        font_scale=font_scale,
+    )
+
+
 def wrap_text(
     text: str,
     max_width: int,
