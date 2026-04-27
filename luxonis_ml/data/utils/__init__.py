@@ -29,6 +29,7 @@ from .task_utils import (
 )
 from .visualizations import (
     ColorMap,
+    add_augmentation_footer,
     concat_images,
     create_text_image,
     distinct_color_generator,
@@ -46,6 +47,7 @@ __all__ = [
     "ParquetFileManager",
     "ParquetRecord",
     "UpdateMode",
+    "add_augmentation_footer",
     "concat_images",
     "create_text_image",
     "distinct_color_generator",

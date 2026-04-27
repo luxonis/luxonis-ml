@@ -36,7 +36,7 @@ from luxonis_ml.data.utils.plot_utils import (
     plot_heatmap,
 )
 from luxonis_ml.data.utils.visualizations import (
-    append_text_block,
+    add_augmentation_footer,
     visualize,
 )
 from luxonis_ml.enums import DatasetType
@@ -423,19 +423,6 @@ def inspect(
 
         if cv2.waitKey() == ord("q"):
             break
-
-
-def add_augmentation_footer(
-    image: np.ndarray, augmentations: list[str]
-) -> np.ndarray:
-    min_dimension = min(image.shape[:2])
-    font_scale = max(0.25, min(1.1, 0.4 * min_dimension / 500))
-    augmentations_text = ", ".join(augmentations) if augmentations else "none"
-    return append_text_block(
-        image,
-        [f"Augmentations: {augmentations_text}"],
-        font_scale=font_scale,
-    )
 
 
 @app.command()
