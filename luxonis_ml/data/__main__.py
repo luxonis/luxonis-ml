@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import rich.box
 import typer
+from loguru import logger
 from rich import print
 from rich.console import Console
 from rich.prompt import Confirm
@@ -18,6 +19,9 @@ from luxonis_ml.data import (
     LuxonisLoader,
     LuxonisParser,
     UpdateMode,
+)
+from luxonis_ml.data.utils.augmentations_collector import (
+    AugmentationsCollector,
 )
 from luxonis_ml.data.utils.cli_utils import (
     check_exists,
@@ -31,7 +35,10 @@ from luxonis_ml.data.utils.plot_utils import (
     plot_class_distribution,
     plot_heatmap,
 )
-from luxonis_ml.data.utils.visualizations import visualize
+from luxonis_ml.data.utils.visualizations import (
+    add_augmentation_footer,
+    visualize,
+)
 from luxonis_ml.enums import DatasetType
 
 app = typer.Typer()
@@ -248,9 +255,33 @@ def inspect(
             help="Show each label instance in a separate window.",
         ),
     ] = False,
+    list_augmentations: Annotated[
+        bool,
+        typer.Option(
+            ...,
+            "--list-augmentations",
+            help=(
+                "Show the augmentations applied to each displayed image "
+                "in the footer. Requires --aug-config."
+            ),
+        ),
+    ] = False,
     bucket_storage: BucketStorage = bucket_option,
 ):
     """Inspects images and annotations in a dataset."""
+    if aug_config is not None:
+        aug_config_path = Path(aug_config)
+        if aug_config_path.suffix.lower() not in {".yaml", ".yml", ".json"}:
+            raise typer.BadParameter(
+                "--aug-config must point to an augmentation YAML or JSON file.",
+                param_hint="--aug-config",
+            )
+        if not aug_config_path.is_file():
+            raise typer.BadParameter(
+                f"Augmentation config '{aug_config}' does not exist.",
+                param_hint="--aug-config",
+            )
+
     check_exists(name, bucket_storage)
 
     view = view or ["train"]
@@ -278,6 +309,23 @@ def inspect(
             keep_aspect_ratio=not ignore_aspect_ratio,
             seed=42 if deterministic else None,
         )
+
+    if list_augmentations:
+        if aug_config is None:
+            logger.warning(
+                "--list-augmentations was set but --aug-config was not "
+                "provided. No augmentations will be shown."
+            )
+            get_applied_augmentations = list
+        elif loader.augmentations is not None:
+            collector = AugmentationsCollector(
+                loader.augmentations, Path(aug_config)
+            )
+            get_applied_augmentations = collector.get_applied_augmentations
+        else:
+            get_applied_augmentations = list
+    else:
+        get_applied_augmentations = list
 
     if len(dataset) == 0:
         raise ValueError(f"Dataset '{name}' is empty.")
@@ -336,6 +384,10 @@ def inspect(
                         blend_all=blend_all,
                         categorical_encodings=categorical_encodings,
                     )
+                    if list_augmentations:
+                        instance_image = add_augmentation_footer(
+                            instance_image, get_applied_augmentations()
+                        )
                     cv2.resizeWindow(
                         source_name,
                         instance_image.shape[1],
@@ -358,6 +410,10 @@ def inspect(
                     blend_all=blend_all,
                     categorical_encodings=categorical_encodings,
                 )
+                if list_augmentations:
+                    labeled_image = add_augmentation_footer(
+                        labeled_image, get_applied_augmentations()
+                    )
                 cv2.resizeWindow(
                     source_name, labeled_image.shape[1], labeled_image.shape[0]
                 )
