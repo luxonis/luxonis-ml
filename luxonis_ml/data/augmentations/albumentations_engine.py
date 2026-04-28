@@ -364,7 +364,13 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             config = (
                 a
                 for a in config
-                if a["name"] in {"Normalize", "ToGray", "HueSaturationValue"}
+                if a["name"]
+                in {
+                    "BarcodeColorize",
+                    "Normalize",
+                    "ToGray",
+                    "HueSaturationValue",
+                }
             )
 
         available_target_types = set(self.targets.values())
