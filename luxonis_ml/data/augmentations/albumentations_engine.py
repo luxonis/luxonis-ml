@@ -279,7 +279,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         source_names: list[str],
         config: Iterable[Params],
         keep_aspect_ratio: bool = True,
-        pipeline_stage: PipelineStage = "train",
+        is_validation_pipeline: bool | None = None,
+        pipeline_stage: PipelineStage | None = None,
         min_bbox_visibility: float = 0.0,
         seed: int | None = None,
         bbox_area_threshold: float = 0.0004,
@@ -365,6 +366,10 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         batch_transforms = []
         custom_transforms = []
         resize_transform = None
+        pipeline_stage = self._resolve_pipeline_stage(
+            pipeline_stage=pipeline_stage,
+            is_validation_pipeline=is_validation_pipeline,
+        )
         validated_config = [
             cfg
             for cfg in (
@@ -499,6 +504,15 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             self.custom_transform = wrap_transform(
                 A.Compose(custom_transforms, **get_params(is_custom=True))
             )
+
+    @staticmethod
+    def _resolve_pipeline_stage(
+        pipeline_stage: PipelineStage | None,
+        is_validation_pipeline: bool | None,
+    ) -> PipelineStage:
+        if pipeline_stage is not None:
+            return pipeline_stage
+        return "val" if is_validation_pipeline else "train"
 
     @property
     @override

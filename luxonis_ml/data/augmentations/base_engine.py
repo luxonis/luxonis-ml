@@ -30,7 +30,8 @@ class AugmentationEngine(
         source_names: list[str],
         config: Iterable[Params],
         keep_aspect_ratio: bool,
-        pipeline_stage: PipelineStage,
+        is_validation_pipeline: bool | None = None,
+        pipeline_stage: PipelineStage | None = None,
         min_bbox_visibility: float = 0.0,
         seed: int | None = None,
         bbox_area_threshold: float = 0.0004,
@@ -66,9 +67,14 @@ class AugmentationEngine(
 
         @type keep_aspect_ratio: bool
         @param keep_aspect_ratio: Whether to keep aspect ratio
-        @type pipeline_stage: Literal["train", "val", "test"]
+        @type is_validation_pipeline: Optional[bool]
+        @param is_validation_pipeline: Backward-compatible train-vs-eval
+            boolean hint.
+        @type pipeline_stage: Optional[Literal["train", "val", "test"]]
         @param pipeline_stage: Explicit pipeline stage. This allows
-            augmentations to target specific evaluation stages.
+            augmentations to target specific evaluation stages. If
+            provided, it takes precedence over
+            C{is_validation_pipeline}.
         @type min_bbox_visibility: float
         @param min_bbox_visibility: Minimum fraction of the original bounding box that must remain visible after augmentation.
         @type bbox_area_threshold: float
