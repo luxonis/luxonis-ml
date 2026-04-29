@@ -7,20 +7,21 @@ from pytest_subtests import SubTests
 from luxonis_ml.data import LuxonisLoader, LuxonisParser
 from luxonis_ml.enums.enums import DatasetType
 
-# SOLO does not have an associated exporter,
-# SEGMASK, CLSDIR, and FIFTYONECLS return empty directories
-# because COCO_people_subset does not contain
-# image-level masks or classification labels
+# Export formats applicable to COCO_people_subset in this test module.
+# Types that require image-level masks or classification labels are
+# intentionally omitted because this fixture does not contain them.
 EXPORT_DATASET_TYPES = [
-    dt
-    for dt in list(DatasetType)
-    if dt
-    not in {
-        DatasetType.SEGMASK,
-        DatasetType.CLSDIR,
-        DatasetType.SOLO,
-        DatasetType.FIFTYONECLS,
-    }
+    DatasetType.COCO,
+    DatasetType.VOC,
+    DatasetType.DARKNET,
+    DatasetType.YOLOV6,
+    DatasetType.YOLOV4,
+    DatasetType.CREATEML,
+    DatasetType.TFCSV,
+    DatasetType.NATIVE,
+    DatasetType.YOLOV8BOUNDINGBOX,
+    DatasetType.YOLOV8INSTANCESEGMENTATION,
+    DatasetType.YOLOV8KEYPOINTS,
 ]
 
 

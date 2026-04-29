@@ -23,6 +23,7 @@ from .native_parser import NativeParser
 from .segmentation_mask_directory_parser import SegmentationMaskDirectoryParser
 from .solo_parser import SOLOParser
 from .tensorflow_csv_parser import TensorflowCSVParser
+from .ultralytics_ndjson_parser import UltralyticsNDJSONParser
 from .voc_parser import VOCParser
 from .yolov4_parser import YoloV4Parser
 from .yolov6_parser import YoloV6Parser
@@ -39,6 +40,7 @@ T = TypeVar("T", str, None)
 
 class LuxonisParser(Generic[T]):
     parsers: dict[DatasetType, type[BaseParser]] = {
+        DatasetType.ULTRALYTICSNDJSON: UltralyticsNDJSONParser,
         DatasetType.COCO: COCOParser,
         DatasetType.FIFTYONECLS: FiftyOneClassificationParser,
         DatasetType.VOC: VOCParser,
