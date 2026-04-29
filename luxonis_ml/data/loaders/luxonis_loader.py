@@ -1,3 +1,4 @@
+import inspect
 import json
 import random
 import warnings
@@ -516,20 +517,46 @@ class LuxonisLoader(BaseLoader):
             or task_name in self.filter_task_names
             for task_type in task_types
         }
+        pipeline_stage = self._get_augmentation_pipeline_stage()
 
-        return AUGMENTATION_ENGINES.get(augmentation_engine)(
-            height=height,
-            width=width,
-            config=augmentation_config,
-            targets=targets,
-            n_classes=n_classes,
-            source_names=self.source_names,
-            keep_aspect_ratio=keep_aspect_ratio,
-            is_validation_pipeline="train" not in self.view,
-            seed=seed,
-            min_bbox_visibility=min_bbox_visibility,
-            bbox_area_threshold=bbox_area_threshold,
-        )
+        engine_cls = AUGMENTATION_ENGINES.get(augmentation_engine)
+        init_kwargs = {
+            "height": height,
+            "width": width,
+            "config": augmentation_config,
+            "targets": targets,
+            "n_classes": n_classes,
+            "source_names": self.source_names,
+            "keep_aspect_ratio": keep_aspect_ratio,
+            "seed": seed,
+            "min_bbox_visibility": min_bbox_visibility,
+            "bbox_area_threshold": bbox_area_threshold,
+        }
+        if (
+            "pipeline_stage"
+            in inspect.signature(engine_cls.__init__).parameters
+        ):
+            init_kwargs["pipeline_stage"] = pipeline_stage
+        elif (
+            "is_validation_pipeline"
+            in inspect.signature(engine_cls.__init__).parameters
+        ):
+            # Backward compatibility for custom engines still using
+            # the older `is_validation_pipeline` train-vs-eval boolean API.
+            init_kwargs["is_validation_pipeline"] = pipeline_stage != "train"
+
+        return engine_cls(**init_kwargs)
+
+    def _get_augmentation_pipeline_stage(self) -> str:
+        if "train" in self.view:
+            return "train"
+        if "val" in self.view:
+            return "val"
+        if "test" in self.view:
+            return "test"
+        # preserve the old `is_validation_pipeline` behavior:
+        # any non-train split is treated as an evaluation pipeline
+        return "val"
 
     def _precompute_image_paths(self) -> None:
         self.idx_to_img_paths = {}

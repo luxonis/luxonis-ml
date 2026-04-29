@@ -8,12 +8,13 @@ import albumentations as A
 import numpy as np
 from albumentations.core.composition import TransformsSeqType
 from loguru import logger
+from pydantic import Field
 from typing_extensions import override
 
 from luxonis_ml.data.utils.task_utils import get_task_name, task_is_metadata
 from luxonis_ml.typing import ConfigItem, LoaderMultiOutput, Params
 
-from .base_engine import AugmentationEngine
+from .base_engine import AugmentationEngine, PipelineStage
 from .batch_compose import BatchCompose
 from .batch_transform import BatchTransform
 from .custom import TRANSFORMATIONS, LetterboxResize
@@ -41,6 +42,9 @@ TargetType: TypeAlias = Literal[
 
 class AlbumentationConfigItem(ConfigItem):
     use_for_resizing: bool = False
+    apply_on_stages: list[PipelineStage] = Field(
+        default_factory=lambda: ["train"]
+    )
 
 
 class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
@@ -246,9 +250,11 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     """
 
     def _check_augmentation_warnings(
-        self, config_item: dict[str, Any], available_target_types: set
+        self,
+        config_item: AlbumentationConfigItem,
+        available_target_types: set,
     ) -> None:
-        augmentation_name = config_item["name"]
+        augmentation_name = config_item.name
 
         if "keypoints" in available_target_types and augmentation_name in [
             "HorizontalFlip",
@@ -273,7 +279,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         source_names: list[str],
         config: Iterable[Params],
         keep_aspect_ratio: bool = True,
-        is_validation_pipeline: bool = False,
+        pipeline_stage: PipelineStage = "train",
         min_bbox_visibility: float = 0.0,
         seed: int | None = None,
         bbox_area_threshold: float = 0.0004,
@@ -359,17 +365,19 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         batch_transforms = []
         custom_transforms = []
         resize_transform = None
-
-        if is_validation_pipeline:
-            config = (a for a in config if a["name"] == "Normalize")
+        validated_config = [
+            cfg
+            for cfg in (
+                AlbumentationConfigItem.model_validate(config_item)
+                for config_item in config
+            )
+            if cfg.name == "Normalize" or pipeline_stage in cfg.apply_on_stages
+        ]
 
         available_target_types = set(self.targets.values())
 
-        for config_item in config:
-            self._check_augmentation_warnings(
-                config_item, available_target_types
-            )
-            cfg = AlbumentationConfigItem(**config_item)  # type: ignore
+        for cfg in validated_config:
+            self._check_augmentation_warnings(cfg, available_target_types)
 
             if cfg.use_for_resizing:
                 image_h, image_w = self.image_size

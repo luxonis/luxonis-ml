@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Mapping
+from typing import Literal
 
 from luxonis_ml.typing import LoaderMultiOutput, Params
 from luxonis_ml.utils import AutoRegisterMeta, Registry
@@ -7,6 +8,7 @@ from luxonis_ml.utils import AutoRegisterMeta, Registry
 AUGMENTATION_ENGINES: Registry[type["AugmentationEngine"]] = Registry(
     name="augmentation_engines"
 )
+PipelineStage = Literal["train", "val", "test"]
 
 
 # TODO: The engine should probably also handle normalization
@@ -28,7 +30,7 @@ class AugmentationEngine(
         source_names: list[str],
         config: Iterable[Params],
         keep_aspect_ratio: bool,
-        is_validation_pipeline: bool,
+        pipeline_stage: PipelineStage,
         min_bbox_visibility: float = 0.0,
         seed: int | None = None,
         bbox_area_threshold: float = 0.0004,
@@ -64,9 +66,9 @@ class AugmentationEngine(
 
         @type keep_aspect_ratio: bool
         @param keep_aspect_ratio: Whether to keep aspect ratio
-        @type is_validation_pipeline: bool
-        @param is_validation_pipeline: Whether this is a validation
-            pipeline (in which case some augmentations are skipped)
+        @type pipeline_stage: Literal["train", "val", "test"]
+        @param pipeline_stage: Explicit pipeline stage. This allows
+            augmentations to target specific evaluation stages.
         @type min_bbox_visibility: float
         @param min_bbox_visibility: Minimum fraction of the original bounding box that must remain visible after augmentation.
         @type bbox_area_threshold: float
