@@ -1,5 +1,6 @@
 import hashlib
 import json
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -11,6 +12,7 @@ from luxonis_ml.data import BaseDataset, DatasetIterator
 from luxonis_ml.data.utils.remote_file_downloader import (
     download_remote_file,
 )
+from luxonis_ml.typing import PathType
 
 from .base_parser import BaseParser, ParserOutput
 
@@ -323,7 +325,7 @@ class UltralyticsNDJSONParser(BaseParser):
         )
 
         train, val, test = self.from_dir(dataset_dir, **kwargs)
-        original_splits = {
+        original_splits: dict[str, Sequence[PathType]] = {
             "train": train,
             "val": val,
             "test": test,
@@ -369,6 +371,10 @@ class UltralyticsNDJSONParser(BaseParser):
             ndjson_path
         )
         self.dataset.add(self._wrap_generator(generator))
+        split_definitions: dict[str, Sequence[PathType]] = {
+            split_name: images
+            for split_name, images in added_by_split.items()
+        }
 
         is_counts = split_ratios is not None and all(
             isinstance(v, int) for v in split_ratios.values()
@@ -377,10 +383,10 @@ class UltralyticsNDJSONParser(BaseParser):
         if split is not None:
             self.dataset.make_splits({split: added_images})
         elif split_ratios is None:
-            self.dataset.make_splits(added_by_split)
+            self.dataset.make_splits(split_definitions)
         elif is_counts:
             sampled = self._apply_counts_to_splits(
-                added_by_split,
+                split_definitions,
                 split_ratios,  # type: ignore[arg-type]
             )
             self.dataset.make_splits(sampled)
