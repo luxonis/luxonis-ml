@@ -141,21 +141,24 @@ def test_apply_on_stages_filters_eval_pipeline():
 
 
 def test_is_validation_pipeline_backwards_compatibility_uses_eval_stage():
-    augmentations = AlbumentationsEngine(
-        256,
-        256,
-        {"/classification": "classification"},
-        {"/classification": 1},
-        ["image"],
-        [
-            {
-                "name": "Defocus",
-                "params": {"p": 1.0},
-                "apply_on_stages": ["val", "test"],
-            }
-        ],
-        is_validation_pipeline=True,
-    )
+    with pytest.deprecated_call(
+        match="is_validation_pipeline.*pipeline_stage"
+    ):
+        augmentations = AlbumentationsEngine(
+            256,
+            256,
+            {"/classification": "classification"},
+            {"/classification": 1},
+            ["image"],
+            [
+                {
+                    "name": "Defocus",
+                    "params": {"p": 1.0},
+                    "apply_on_stages": ["val", "test"],
+                }
+            ],
+            is_validation_pipeline=True,
+        )
 
     assert _get_transform_names(augmentations.pixel_transform) == ["Defocus"]
 

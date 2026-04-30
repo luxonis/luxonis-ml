@@ -13,6 +13,7 @@ from typing_extensions import override
 
 from luxonis_ml.data.utils.task_utils import get_task_name, task_is_metadata
 from luxonis_ml.typing import ConfigItem, LoaderMultiOutput, Params
+from luxonis_ml.utils import deprecated
 
 from .base_engine import AugmentationEngine, PipelineStage
 from .batch_compose import BatchCompose
@@ -269,6 +270,13 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 "to ensure keypoints are correctly reordered."
             )
 
+    @deprecated(
+        "is_validation_pipeline",
+        suggest={"is_validation_pipeline": "pipeline_stage"},
+        additional_message=(
+            "Use `pipeline_stage='train'`, `'val'`, or `'test'` instead."
+        ),
+    )
     @override
     def __init__(
         self,
