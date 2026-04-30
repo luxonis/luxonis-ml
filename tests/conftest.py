@@ -172,6 +172,11 @@ def fruit_ndjson_url(storage_url: str) -> str:
     return f"{storage_url.rstrip('/')}/fruit_ndjson.zip"
 
 
+@pytest.fixture(scope="session")
+def fruit_ndjson_remote_url(storage_url: str) -> str:
+    return f"{storage_url.rstrip('/')}/fruit_ndjson_remote/fruit.ndjson"
+
+
 def pytest_addoption(parser: pytest.Parser):
     parser.addoption(
         "--only-local",

@@ -134,7 +134,9 @@ def _validate_image_format(
             pillow_formats
             for declared_format, suffixes in ALLOWED_IMAGE_SUFFIXES_BY_FORMAT.items()
             if suffix in suffixes
-            for pillow_formats in [ALLOWED_PILLOW_FORMATS_BY_FORMAT[declared_format]]
+            for pillow_formats in [
+                ALLOWED_PILLOW_FORMATS_BY_FORMAT[declared_format]
+            ]
         ),
         None,
     )

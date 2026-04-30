@@ -20,6 +20,7 @@ from .enums import (
 )
 from .parquet import ParquetFileManager, ParquetRecord
 from .plot_utils import plot_class_distribution, plot_heatmap
+from .remote_file_downloader import download_remote_file
 from .task_utils import (
     get_task_name,
     get_task_type,
@@ -51,6 +52,7 @@ __all__ = [
     "concat_images",
     "create_text_image",
     "distinct_color_generator",
+    "download_remote_file",
     "find_duplicates",
     "get_class_distributions",
     "get_duplicates_info",

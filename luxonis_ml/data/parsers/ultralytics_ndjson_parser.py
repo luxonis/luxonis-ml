@@ -38,7 +38,7 @@ class UltralyticsNDJSONParser(BaseParser):
         dataset_record = None
         has_image_record = False
         try:
-            with open(ndjson_path, encoding="utf-8") as file:
+            with open(ndjson_path, encoding="utf-8-sig") as file:
                 for raw_line in file:
                     line = raw_line.strip()
                     if not line:
@@ -105,11 +105,17 @@ class UltralyticsNDJSONParser(BaseParser):
         }
 
     @classmethod
-    def _download_image(cls, ndjson_path: Path, record: dict[str, Any]) -> Path:
+    def _download_image(
+        cls, ndjson_path: Path, record: dict[str, Any]
+    ) -> Path:
         file_name = Path(record["file"])
         url = record["url"]
         split_name = cls._normalize_split_name(record.get("split"))
-        url_hash = hashlib.sha1(url.encode("utf-8")).hexdigest()[:12]
+        # Keep cached filenames deterministic while avoiding collisions
+        # when different URLs share the same basename.
+        url_hash = hashlib.blake2s(
+            url.encode("utf-8"), digest_size=6
+        ).hexdigest()
         suffix = file_name.suffix or Path(urlsplit(url).path).suffix
         destination = (
             ndjson_path.parent
@@ -120,7 +126,9 @@ class UltralyticsNDJSONParser(BaseParser):
         return download_remote_file(url, destination, validate_image=True)
 
     @classmethod
-    def _resolve_image_path(cls, ndjson_path: Path, record: dict[str, Any]) -> Path:
+    def _resolve_image_path(
+        cls, ndjson_path: Path, record: dict[str, Any]
+    ) -> Path:
         if record.get("url"):
             return cls._download_image(ndjson_path, record)
 
@@ -146,7 +154,7 @@ class UltralyticsNDJSONParser(BaseParser):
         seen_images: set[Path] = set()
 
         def generator() -> DatasetIterator:
-            with open(ndjson_path, encoding="utf-8") as file:
+            with open(ndjson_path, encoding="utf-8-sig") as file:
                 for raw_line in file:
                     line = raw_line.strip()
                     if not line:
@@ -157,7 +165,9 @@ class UltralyticsNDJSONParser(BaseParser):
                         continue
 
                     image_path = self._resolve_image_path(ndjson_path, record)
-                    split_name = self._normalize_split_name(record.get("split"))
+                    split_name = self._normalize_split_name(
+                        record.get("split")
+                    )
 
                     if image_path not in seen_images:
                         seen_images.add(image_path)
@@ -190,14 +200,18 @@ class UltralyticsNDJSONParser(BaseParser):
 
                     for segment in annotations.get("segments", []):
                         class_id, *points = segment
-                        points_array = np.array(points, dtype=float).reshape(-1, 2)
+                        points_array = np.array(points, dtype=float).reshape(
+                            -1, 2
+                        )
                         yielded_annotation = True
                         yield {
                             "file": str(image_path),
                             "annotation": {
                                 "class": class_names[int(class_id)],
                                 "instance_id": instance_id,
-                                "boundingbox": self._fit_boundingbox(points_array),
+                                "boundingbox": self._fit_boundingbox(
+                                    points_array
+                                ),
                                 "instance_segmentation": {
                                     "height": int(record["height"]),
                                     "width": int(record["width"]),
@@ -211,7 +225,14 @@ class UltralyticsNDJSONParser(BaseParser):
                         instance_id += 1
 
                     for pose in annotations.get("pose", []):
-                        class_id, x_center, y_center, width, height, *keypoints = pose
+                        (
+                            class_id,
+                            x_center,
+                            y_center,
+                            width,
+                            height,
+                            *keypoints,
+                        ) = pose
                         if kpt_shape is None:
                             if len(keypoints) % 3 != 0:
                                 raise ValueError(
@@ -224,9 +245,9 @@ class UltralyticsNDJSONParser(BaseParser):
                         else:
                             n_kpts, kpt_dim = kpt_shape
 
-                        keypoints_array = np.array(keypoints, dtype=float).reshape(
-                            n_kpts, kpt_dim
-                        )
+                        keypoints_array = np.array(
+                            keypoints, dtype=float
+                        ).reshape(n_kpts, kpt_dim)
                         if kpt_dim == 2:
                             keypoints_array = np.concatenate(
                                 [

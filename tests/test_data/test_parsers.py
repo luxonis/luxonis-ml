@@ -252,6 +252,7 @@ def test_dir_parser_explicit_type(
     assert task_types == expected_task_types
     dataset.delete_dataset(delete_local=True)
 
+
 def test_ultralytics_ndjson_parser(
     dataset_name: str,
     fruit_ndjson_url: str,
@@ -287,6 +288,32 @@ def test_ultralytics_ndjson_parser_explicit_type(
         fruit_ndjson_url,
         dataset_name=dataset_name,
         dataset_type="ultralytics-ndjson",  # type: ignore[arg-type]
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()
+
+    assert len(dataset) > 0
+    splits = dataset.get_splits()
+    assert splits is not None
+    assert set(splits) == {"train", "val", "test"}
+    loader = LuxonisLoader(dataset)
+    _, ann = next(iter(loader))
+    task_types = {get_task_type(task) for task in ann}
+    assert task_types == {
+        "boundingbox",
+        "classification",
+    }
+    dataset.delete_dataset(delete_local=True)
+
+
+def test_ultralytics_ndjson_remote_urls_parser(
+    dataset_name: str,
+    fruit_ndjson_remote_url: str,
+    tempdir: Path,
+):
+    dataset = LuxonisParser(
+        fruit_ndjson_remote_url,
+        dataset_name=dataset_name,
         delete_local=True,
         save_dir=tempdir,
     ).parse()
