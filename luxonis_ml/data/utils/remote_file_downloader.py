@@ -2,9 +2,9 @@ import shutil
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
+import requests
 from filelock import FileLock
 from PIL import Image, UnidentifiedImageError
-import requests
 
 from luxonis_ml.utils.filesystem import LuxonisFileSystem
 

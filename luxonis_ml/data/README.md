@@ -465,6 +465,7 @@ The supported formats are:
   ```
 
   Each image record can either:
+
   - reference a local image path through `file`
   - reference a remote image through `url` while still using `file` as the local cached filename
 
