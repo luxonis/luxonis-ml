@@ -371,10 +371,7 @@ class UltralyticsNDJSONParser(BaseParser):
             ndjson_path
         )
         self.dataset.add(self._wrap_generator(generator))
-        split_definitions: dict[str, Sequence[PathType]] = {
-            split_name: images
-            for split_name, images in added_by_split.items()
-        }
+        split_definitions: dict[str, Sequence[PathType]] = dict(added_by_split)
 
         is_counts = split_ratios is not None and all(
             isinstance(v, int) for v in split_ratios.values()
