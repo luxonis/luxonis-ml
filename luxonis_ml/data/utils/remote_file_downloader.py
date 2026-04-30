@@ -1,10 +1,10 @@
 import shutil
 from pathlib import Path
-from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+from urllib.parse import unquote, urlsplit
 
 from filelock import FileLock
 from PIL import Image, UnidentifiedImageError
+import requests
 
 from luxonis_ml.utils.filesystem import LuxonisFileSystem
 
@@ -77,19 +77,20 @@ def download_remote_file(
                 downloaded_path = LuxonisFileSystem.download(url, tmp_path)
                 if downloaded_path != tmp_path:
                     downloaded_path.replace(tmp_path)
+            elif scheme == "file":
+                shutil.copyfile(_path_from_file_url(url), tmp_path)
             else:
-                request = (
-                    url
-                    if scheme == "file"
-                    else Request(  # noqa: S310
-                        url, headers={"User-Agent": "luxonis-ml"}
-                    )
-                )
                 with (
-                    urlopen(request, timeout=timeout) as response,  # nosec B310  # noqa: S310
+                    requests.get(
+                        url,
+                        headers={"User-Agent": "luxonis-ml"},
+                        stream=True,
+                        timeout=timeout,
+                    ) as response,
                     open(tmp_path, "wb") as output_file,
                 ):
-                    shutil.copyfileobj(response, output_file)
+                    response.raise_for_status()
+                    shutil.copyfileobj(response.raw, output_file)
 
             if validate_image:
                 _validate_image_format(tmp_path, destination=destination)
@@ -101,6 +102,19 @@ def download_remote_file(
             raise
 
     return destination
+
+
+def _path_from_file_url(url: str) -> Path:
+    parsed = urlsplit(url)
+    path = unquote(parsed.path)
+
+    if parsed.netloc and parsed.netloc != "localhost":
+        return Path(f"//{parsed.netloc}{path}")
+
+    if len(path) >= 3 and path[0] == "/" and path[2] == ":":
+        path = path[1:]
+
+    return Path(path)
 
 
 def _validate_image_format(

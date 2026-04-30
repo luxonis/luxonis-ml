@@ -454,6 +454,26 @@ The supported formats are:
         └── *.yaml
     ```
 
+- **Ultralytics NDJSON** - A single `.ndjson` file with per-image records. The parser supports both local file paths and remote image URLs in each record.
+
+  ```plaintext
+      dataset_dir/
+      ├── dataset.ndjson
+      ├── train/
+      ├── val/
+      └── test/
+  ```
+
+  Each image record can either:
+  - reference a local image path through `file`
+  - reference a remote image through `url` while still using `file` as the local cached filename
+
+  The supported Luxonis dataset type is:
+
+  ```python
+  DatasetType.ULTRALYTICSNDJSON
+  ```
+
 - [**Pascal VOC XML**](https://roboflow.com/formats/pascal-voc-xml)
 
   ```plaintext
