@@ -990,6 +990,7 @@ The augmentations are specified as a list of dictionaries, where each dictionary
 ```python
 {
     "name": str,  # name of the augmentation
+    "apply_on_stages": ["train"],  # optional, defaults to ["train"]
     "params": dict  # parameters of the augmentation
 }
 ```

@@ -1,9 +1,22 @@
+from typing import Any
+
 import albumentations as A
 import numpy as np
 import pytest
 
 from luxonis_ml.data import AlbumentationsEngine
 from luxonis_ml.data.augmentations.custom import LetterboxResize
+
+
+def _get_transform_names(wrapped_transform: Any) -> list[str]:
+    return next(
+        (
+            [t.__class__.__name__ for t in cell.cell_contents.transforms]
+            for cell in wrapped_transform.__closure__  # type: ignore[attr-defined]
+            if hasattr(cell.cell_contents, "transforms")
+        ),
+        [],
+    )
 
 
 def test_metadata_no_boxes():
@@ -75,13 +88,8 @@ def test_skip_augmentations():
         256, 256, targets, n_classes, source_names, config
     )
 
-    spatial_transform_names = next(
-        (
-            [t.__class__.__name__ for t in cell.cell_contents.transforms]
-            for cell in augmentations.spatial_transform.__closure__  # type: ignore
-            if hasattr(cell.cell_contents, "transforms")
-        ),
-        [],
+    spatial_transform_names = _get_transform_names(
+        augmentations.spatial_transform
     )
 
     batched_transform_names = [
@@ -98,6 +106,61 @@ def test_skip_augmentations():
         "Lambda",
     ]
     assert batched_transform_names == ["Mosaic4"]
+
+
+def test_apply_on_stages_filters_eval_pipeline():
+    augmentations = AlbumentationsEngine(
+        256,
+        256,
+        {"/classification": "classification"},
+        {"/classification": 1},
+        ["image"],
+        [
+            {"name": "HorizontalFlip", "params": {"p": 1.0}},
+            {
+                "name": "Defocus",
+                "params": {"p": 1.0},
+                "apply_on_stages": ["train", "val"],
+            },
+            {
+                "name": "Normalize",
+                "params": {
+                    "mean": [0.485, 0.456, 0.406],
+                    "std": [0.229, 0.224, 0.225],
+                },
+            },
+        ],
+        pipeline_stage="val",
+    )
+
+    assert _get_transform_names(augmentations.spatial_transform) == []
+    assert _get_transform_names(augmentations.pixel_transform) == [
+        "Defocus",
+        "Normalize",
+    ]
+
+
+def test_is_validation_pipeline_backwards_compatibility_uses_eval_stage():
+    with pytest.deprecated_call(
+        match="is_validation_pipeline.*pipeline_stage"
+    ):
+        augmentations = AlbumentationsEngine(
+            256,
+            256,
+            {"/classification": "classification"},
+            {"/classification": 1},
+            ["image"],
+            [
+                {
+                    "name": "Defocus",
+                    "params": {"p": 1.0},
+                    "apply_on_stages": ["val", "test"],
+                }
+            ],
+            is_validation_pipeline=True,
+        )
+
+    assert _get_transform_names(augmentations.pixel_transform) == ["Defocus"]
 
 
 def test_use_for_resizing_wraps_probabilistic_resize_in_oneof():
