@@ -4,7 +4,6 @@ from typing import Protocol
 from urllib.parse import unquote, urlsplit
 
 import requests
-from filelock import FileLock
 from PIL import Image, UnidentifiedImageError
 
 from luxonis_ml.utils.filesystem import LuxonisFileSystem
@@ -44,10 +43,9 @@ class RemoteFileDownloader:
         validate_image: bool = False,
     ) -> Path:
         destination.parent.mkdir(parents=True, exist_ok=True)
-        lock_path = destination.with_suffix(f"{destination.suffix}.lock")
         tmp_path = destination.with_suffix(f"{destination.suffix}.tmp")
 
-        with FileLock(str(lock_path)):
+        try:
             if destination.exists():
                 if validate_image:
                     self._validate_image_format(destination)
@@ -77,6 +75,8 @@ class RemoteFileDownloader:
             except Exception:
                 self._remove_temporary_file(tmp_path)
                 raise
+        finally:
+            self._remove_temporary_file(tmp_path)
 
         return destination
 

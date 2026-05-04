@@ -454,7 +454,7 @@ The supported formats are:
         └── *.yaml
     ```
 
-- **Ultralytics NDJSON** - A single `.ndjson` file with per-image records. The parser supports both local file paths and remote image URLs in each record.
+- [**Ultralytics NDJSON**](https://docs.ultralytics.com/datasets/detect/#ultralytics-ndjson-format) - A single `.ndjson` file with per-image records. The parser supports both local file paths and remote image URLs in each record.
 
   ```plaintext
       dataset_dir/

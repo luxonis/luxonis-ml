@@ -20,8 +20,13 @@ class RecordingAPIClient:
 
 
 def assert_no_temporary_artifacts(destination: Path) -> None:
-    assert not destination.exists()
     assert not destination.with_suffix(f"{destination.suffix}.tmp").exists()
+    assert not destination.with_suffix(f"{destination.suffix}.lock").exists()
+
+
+def assert_no_downloaded_file(destination: Path) -> None:
+    assert not destination.exists()
+    assert_no_temporary_artifacts(destination)
 
 
 def test_download_remote_file_accepts_valid_file_url_image(
@@ -31,12 +36,13 @@ def test_download_remote_file_accepts_valid_file_url_image(
     destination = tempdir / "downloads" / "copied.jpg"
 
     downloaded = download_remote_file(
-        source.as_uri(), destination, validate_image=True
+        source.resolve().as_uri(), destination, validate_image=True
     )
 
     assert downloaded == destination
     assert destination.is_file()
     assert destination.read_bytes() == source.read_bytes()
+    assert_no_temporary_artifacts(destination)
 
 
 def test_remote_file_downloader_dispatches_https_urls_to_api_client(
@@ -63,6 +69,7 @@ def test_remote_file_downloader_dispatches_https_urls_to_api_client(
             12.5,
         )
     ]
+    assert_no_temporary_artifacts(destination)
 
 
 def test_remote_file_downloader_reuses_existing_destination(
@@ -80,6 +87,7 @@ def test_remote_file_downloader_reuses_existing_destination(
 
     assert downloaded == destination
     assert api_client.calls == []
+    assert_no_temporary_artifacts(destination)
 
 
 def test_remote_file_downloader_rejects_unsupported_scheme(
@@ -93,7 +101,7 @@ def test_remote_file_downloader_rejects_unsupported_scheme(
         downloader.download("ftp://example.com/payload.jpg", destination)
 
     assert api_client.calls == []
-    assert_no_temporary_artifacts(destination)
+    assert_no_downloaded_file(destination)
 
 
 def test_download_remote_file_rejects_non_image_content_and_cleans_up(
@@ -104,9 +112,13 @@ def test_download_remote_file_rejects_non_image_content_and_cleans_up(
     destination = tempdir / "downloads" / "copied.jpg"
 
     with pytest.raises(ValueError, match="not a valid image"):
-        download_remote_file(source.as_uri(), destination, validate_image=True)
+        download_remote_file(
+            source.resolve().as_uri(),
+            destination,
+            validate_image=True,
+        )
 
-    assert_no_temporary_artifacts(destination)
+    assert_no_downloaded_file(destination)
 
 
 def test_download_remote_file_rejects_extension_mismatch_and_cleans_up(
@@ -116,9 +128,13 @@ def test_download_remote_file_rejects_extension_mismatch_and_cleans_up(
     destination = tempdir / "downloads" / "copied.png"
 
     with pytest.raises(ValueError, match="incompatible with extension"):
-        download_remote_file(source.as_uri(), destination, validate_image=True)
+        download_remote_file(
+            source.resolve().as_uri(),
+            destination,
+            validate_image=True,
+        )
 
-    assert_no_temporary_artifacts(destination)
+    assert_no_downloaded_file(destination)
 
 
 def test_remote_file_downloader_does_not_send_file_urls_to_api_client(
@@ -130,7 +146,7 @@ def test_remote_file_downloader_does_not_send_file_urls_to_api_client(
     downloader = RemoteFileDownloader(api_client=api_client)
 
     downloaded = downloader.download(
-        source.as_uri(),
+        source.resolve().as_uri(),
         destination,
         validate_image=True,
     )
@@ -138,3 +154,4 @@ def test_remote_file_downloader_does_not_send_file_urls_to_api_client(
     assert downloaded == destination
     assert destination.read_bytes() == source.read_bytes()
     assert api_client.calls == []
+    assert_no_temporary_artifacts(destination)

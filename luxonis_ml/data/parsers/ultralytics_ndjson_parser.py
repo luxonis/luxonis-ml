@@ -149,8 +149,11 @@ class UltralyticsNDJSONParser(BaseParser):
         seen_by_split = {"train": set(), "val": set(), "test": set()}
         added_images: list[Path] = []
         seen_images: set[Path] = set()
+        remote_image_dir = ndjson_path.parent / ndjson_path.stem
+        remote_image_dir_checked = False
 
         def generator() -> DatasetIterator:
+            nonlocal remote_image_dir_checked
             with open(ndjson_path, encoding="utf-8-sig") as file:
                 for raw_line in file:
                     line = raw_line.strip()
@@ -161,7 +164,19 @@ class UltralyticsNDJSONParser(BaseParser):
                     if record.get("type") != "image":
                         continue
 
-                    image_path = self._resolve_image_path(ndjson_path, record)
+                    if record.get("url") and not remote_image_dir_checked:
+                        if remote_image_dir.exists():
+                            raise ValueError(
+                                f"Remote NDJSON image directory "
+                                f"'{remote_image_dir}' already exists."
+                            )
+                        remote_image_dir_checked = True
+
+                    image_path = self._resolve_image_path(
+                        ndjson_path,
+                        record,
+                        remote_image_dir=remote_image_dir,
+                    )
                     split_name = self._normalize_split_name(
                         record.get("split")
                     )
@@ -330,10 +345,17 @@ class UltralyticsNDJSONParser(BaseParser):
 
     @classmethod
     def _resolve_image_path(
-        cls, ndjson_path: Path, record: dict[str, Any]
+        cls,
+        ndjson_path: Path,
+        record: dict[str, Any],
+        *,
+        remote_image_dir: Path,
     ) -> Path:
         if record.get("url"):
-            return cls._download_image(ndjson_path, record)
+            return cls._download_image(
+                record,
+                remote_image_dir=remote_image_dir,
+            )
 
         file_path = Path(record["file"])
         if file_path.is_absolute():
@@ -342,7 +364,10 @@ class UltralyticsNDJSONParser(BaseParser):
 
     @classmethod
     def _download_image(
-        cls, ndjson_path: Path, record: dict[str, Any]
+        cls,
+        record: dict[str, Any],
+        *,
+        remote_image_dir: Path,
     ) -> Path:
         file_name = Path(record["file"])
         url = record["url"]
@@ -352,8 +377,7 @@ class UltralyticsNDJSONParser(BaseParser):
         ).hexdigest()
         suffix = file_name.suffix or Path(urlsplit(url).path).suffix
         destination = (
-            ndjson_path.parent
-            / f".{ndjson_path.stem}_cache"
+            remote_image_dir
             / split_name
             / f"{file_name.stem}-{url_hash}{suffix}"
         )

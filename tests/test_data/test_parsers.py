@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -5,6 +6,8 @@ import pytest
 from luxonis_ml.data import LuxonisLoader, LuxonisParser
 from luxonis_ml.data.utils import get_task_type
 from luxonis_ml.utils import environ
+
+from .utils import create_image
 
 
 @pytest.mark.parametrize(
@@ -330,3 +333,47 @@ def test_ultralytics_ndjson_remote_urls_parser(
         "classification",
     }
     dataset.delete_dataset(delete_local=True)
+
+
+def test_ultralytics_ndjson_remote_urls_parser_rejects_existing_remote_dir(
+    dataset_name: str,
+    tempdir: Path,
+):
+    source = create_image(10, tempdir)
+    ndjson_path = tempdir / "budgie.ndjson"
+    ndjson_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "dataset",
+                        "class_names": {"0": "budgie"},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "image",
+                        "file": "train/img1.jpg",
+                        "url": source.resolve().as_uri(),
+                        "split": "train",
+                        "width": 512,
+                        "height": 512,
+                        "annotations": {"boxes": [[0, 0.5, 0.5, 0.4, 0.4]]},
+                    }
+                ),
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (tempdir / "budgie").mkdir()
+
+    with pytest.raises(
+        ValueError,
+        match=r"Remote NDJSON image directory '.*budgie' already exists",
+    ):
+        LuxonisParser(
+            str(ndjson_path),
+            dataset_name=dataset_name,
+            delete_local=True,
+            save_dir=tempdir,
+        ).parse()
