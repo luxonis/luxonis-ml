@@ -8,12 +8,14 @@ import albumentations as A
 import numpy as np
 from albumentations.core.composition import TransformsSeqType
 from loguru import logger
+from pydantic import Field
 from typing_extensions import override
 
 from luxonis_ml.data.utils.task_utils import get_task_name, task_is_metadata
 from luxonis_ml.typing import ConfigItem, LoaderMultiOutput, Params
+from luxonis_ml.utils import deprecated
 
-from .base_engine import AugmentationEngine
+from .base_engine import AugmentationEngine, PipelineStage
 from .batch_compose import BatchCompose
 from .batch_transform import BatchTransform
 from .custom import TRANSFORMATIONS, LetterboxResize
@@ -41,6 +43,9 @@ TargetType: TypeAlias = Literal[
 
 class AlbumentationConfigItem(ConfigItem):
     use_for_resizing: bool = False
+    apply_on_stages: list[PipelineStage] = Field(
+        default_factory=lambda: ["train"]
+    )
 
 
 class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
@@ -246,9 +251,11 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     """
 
     def _check_augmentation_warnings(
-        self, config_item: dict[str, Any], available_target_types: set
+        self,
+        config_item: AlbumentationConfigItem,
+        available_target_types: set,
     ) -> None:
-        augmentation_name = config_item["name"]
+        augmentation_name = config_item.name
 
         if "keypoints" in available_target_types and augmentation_name in [
             "HorizontalFlip",
@@ -263,6 +270,13 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 "to ensure keypoints are correctly reordered."
             )
 
+    @deprecated(
+        "is_validation_pipeline",
+        suggest={"is_validation_pipeline": "pipeline_stage"},
+        additional_message=(
+            "Use `pipeline_stage='train'`, `'val'`, or `'test'` instead."
+        ),
+    )
     @override
     def __init__(
         self,
@@ -273,7 +287,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         source_names: list[str],
         config: Iterable[Params],
         keep_aspect_ratio: bool = True,
-        is_validation_pipeline: bool = False,
+        is_validation_pipeline: bool | None = None,
+        pipeline_stage: PipelineStage | None = None,
         min_bbox_visibility: float = 0.0,
         seed: int | None = None,
         bbox_area_threshold: float = 0.0004,
@@ -359,17 +374,23 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         batch_transforms = []
         custom_transforms = []
         resize_transform = None
-
-        if is_validation_pipeline:
-            config = (a for a in config if a["name"] == "Normalize")
+        pipeline_stage = self._resolve_pipeline_stage(
+            pipeline_stage=pipeline_stage,
+            is_validation_pipeline=is_validation_pipeline,
+        )
+        validated_config = [
+            cfg
+            for cfg in (
+                AlbumentationConfigItem.model_validate(config_item)
+                for config_item in config
+            )
+            if cfg.name == "Normalize" or pipeline_stage in cfg.apply_on_stages
+        ]
 
         available_target_types = set(self.targets.values())
 
-        for config_item in config:
-            self._check_augmentation_warnings(
-                config_item, available_target_types
-            )
-            cfg = AlbumentationConfigItem(**config_item)  # type: ignore
+        for cfg in validated_config:
+            self._check_augmentation_warnings(cfg, available_target_types)
 
             if cfg.use_for_resizing:
                 image_h, image_w = self.image_size
@@ -491,6 +512,15 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             self.custom_transform = wrap_transform(
                 A.Compose(custom_transforms, **get_params(is_custom=True))
             )
+
+    @staticmethod
+    def _resolve_pipeline_stage(
+        pipeline_stage: PipelineStage | None,
+        is_validation_pipeline: bool | None,
+    ) -> PipelineStage:
+        if pipeline_stage is not None:
+            return pipeline_stage
+        return "val" if is_validation_pipeline else "train"
 
     @property
     @override

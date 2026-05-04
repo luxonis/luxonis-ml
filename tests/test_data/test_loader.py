@@ -1,5 +1,6 @@
 import json
 import random
+from collections.abc import Iterable, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, cast
@@ -12,12 +13,13 @@ from luxonis_ml.data import (
     LuxonisLoader,
     LuxonisParser,
 )
+from luxonis_ml.data.augmentations import AugmentationEngine
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.enums import DatasetType
-from luxonis_ml.typing import LoaderSingleOutput, Params
+from luxonis_ml.typing import LoaderMultiOutput, LoaderSingleOutput, Params
 from luxonis_ml.utils import LuxonisFileSystem
 
-from .utils import create_image
+from .utils import create_dataset, create_image
 
 AUGMENTATIONS_CONFIG: list[Params] = [  # type: ignore[reportAssignmentType]
     {
@@ -117,6 +119,47 @@ AUGMENTATIONS_CONFIG: list[Params] = [  # type: ignore[reportAssignmentType]
 ]
 
 
+class CompatibilityOnlyEngine(
+    AugmentationEngine, register_name="compatibility_only_engine"
+):
+    last_is_validation_pipeline: bool | None = None
+
+    def __init__(
+        self,
+        height: int,
+        width: int,
+        targets: Mapping[str, str],
+        n_classes: Mapping[str, int],
+        source_names: list[str],
+        config: Iterable[Params],
+        keep_aspect_ratio: bool,
+        is_validation_pipeline: bool | None = None,
+        min_bbox_visibility: float = 0.0,
+        seed: int | None = None,
+        bbox_area_threshold: float = 0.0004,
+    ) -> None:
+        del (
+            height,
+            width,
+            targets,
+            n_classes,
+            source_names,
+            config,
+            keep_aspect_ratio,
+            min_bbox_visibility,
+            seed,
+            bbox_area_threshold,
+        )
+        type(self).last_is_validation_pipeline = is_validation_pipeline
+
+    def apply(self, data: list[LoaderMultiOutput]) -> LoaderMultiOutput:
+        return data[0]
+
+    @property
+    def batch_size(self) -> int:
+        return 1
+
+
 @contextmanager
 def set_seed(seed: int):
     np_state = np.random.get_state()
@@ -149,6 +192,36 @@ def create_loader(
         seed=42,
         **kwargs,
     )
+
+
+def test_loader_passes_is_validation_pipeline_to_legacy_engines(
+    dataset_name: str, tempdir: Path
+):
+    def generator() -> DatasetIterator:
+        img = create_image(0, tempdir)
+        yield {
+            "file": img,
+            "annotation": {
+                "class": "person",
+                "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
+            },
+        }
+
+    CompatibilityOnlyEngine.last_is_validation_pipeline = None
+    dataset = create_dataset(
+        dataset_name, generator(), splits={"custom_split": 1.0}
+    )
+
+    LuxonisLoader(
+        dataset,
+        view="custom_split",
+        height=256,
+        width=256,
+        augmentation_engine="compatibility_only_engine",
+        augmentation_config=[{"name": "Normalize"}],
+    )
+
+    assert CompatibilityOnlyEngine.last_is_validation_pipeline is True
 
 
 def load_annotations(annotation_name: str) -> list[dict[str, Any]]:
