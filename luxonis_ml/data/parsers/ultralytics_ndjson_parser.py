@@ -7,11 +7,10 @@ from urllib.parse import urlsplit
 
 import numpy as np
 from loguru import logger
+from typing_extensions import override
 
 from luxonis_ml.data import BaseDataset, DatasetIterator
-from luxonis_ml.data.utils.remote_file_downloader import (
-    download_remote_file,
-)
+from luxonis_ml.data.utils.remote_file_downloader import RemoteFileDownloader
 from luxonis_ml.typing import PathType
 
 from .base_parser import BaseParser, ParserOutput
@@ -20,124 +19,120 @@ from .base_parser import BaseParser, ParserOutput
 class UltralyticsNDJSONParser(BaseParser):
     """Parses Ultralytics NDJSON datasets into LDF."""
 
-    @staticmethod
-    def _resolve_ndjson_path(path: Path) -> Path | None:
-        path = path.resolve()
-        if path.is_file() and path.suffix.lower() == ".ndjson":
-            return path
-        if path.is_dir():
-            matches = sorted(path.glob("*.ndjson"))
-            if len(matches) == 1:
-                return matches[0].resolve()
-        return None
+    _remote_file_downloader = RemoteFileDownloader()
 
-    @classmethod
-    def _load_header(cls, path: Path) -> dict[str, Any] | None:
-        ndjson_path = cls._resolve_ndjson_path(path)
+    @staticmethod
+    def validate_split(split_path: Path) -> dict[str, Any] | None:
+        ndjson_path = UltralyticsNDJSONParser._resolve_ndjson_path(split_path)
         if ndjson_path is None:
             return None
-
-        dataset_record = None
-        has_image_record = False
-        try:
-            with open(ndjson_path, encoding="utf-8-sig") as file:
-                for raw_line in file:
-                    line = raw_line.strip()
-                    if not line:
-                        continue
-
-                    record = json.loads(line)
-                    if dataset_record is None:
-                        dataset_record = record
-                        continue
-
-                    if record.get("type") == "image":
-                        has_image_record = True
-                        break
-        except (OSError, json.JSONDecodeError):
+        if UltralyticsNDJSONParser._load_header(ndjson_path) is None:
             return None
+        return {"ndjson_path": ndjson_path}
 
-        if (
-            dataset_record is None
-            or dataset_record.get("type") != "dataset"
-            or "class_names" not in dataset_record
-            or not has_image_record
-        ):
-            return None
+    @classmethod
+    def validate(cls, dataset_dir: Path) -> bool:
+        return cls._load_header(dataset_dir) is not None
 
-        return dataset_record
-
-    @staticmethod
-    def _normalize_split_name(split_name: str | None) -> str:
-        if split_name in {"train", "val", "test"}:
-            return split_name
-        if split_name in {"valid", "validation"}:
-            return "val"
-        if split_name is None:
-            logger.warning(
-                "Missing split in Ultralytics NDJSON record. Defaulting to 'train'."
+    def from_dir(
+        self, dataset_dir: Path
+    ) -> tuple[list[Path], list[Path], list[Path]]:
+        ndjson_path = self._resolve_ndjson_path(dataset_dir)
+        if ndjson_path is None:
+            raise ValueError(
+                f"Ultralytics NDJSON dataset file not found in '{dataset_dir}'."
             )
-            return "train"
 
-        logger.warning(
-            f"Unknown split '{split_name}' in Ultralytics NDJSON record. "
-            "Defaulting to 'train'."
+        generator, added_by_split, _added_images = self._build_record_stream(
+            ndjson_path
         )
-        return "train"
+        self.dataset.add(self._wrap_generator(generator))
+        return (
+            added_by_split["train"],
+            added_by_split["val"],
+            added_by_split["test"],
+        )
 
-    @staticmethod
-    def _get_class_names(
-        class_names: list[str] | dict[str, str],
-    ) -> dict[int, str]:
-        if isinstance(class_names, list):
-            return dict(enumerate(class_names))
-        return {int(k): v for k, v in class_names.items()}
+    def parse_dir(self, dataset_dir: Path, **kwargs) -> BaseDataset:
+        split_ratios = kwargs.pop("split_ratios", None)
+        is_counts = split_ratios is not None and all(
+            isinstance(v, int) for v in split_ratios.values()
+        )
 
-    @staticmethod
-    def _fit_boundingbox(points: np.ndarray) -> dict[str, float]:
-        x_min = float(np.min(points[:, 0]))
-        y_min = float(np.min(points[:, 1]))
-        x_max = float(np.max(points[:, 0]))
-        y_max = float(np.max(points[:, 1]))
-        return {
-            "x": x_min,
-            "y": y_min,
-            "w": x_max - x_min,
-            "h": y_max - y_min,
+        train, val, test = self.from_dir(dataset_dir, **kwargs)
+        original_splits: dict[str, Sequence[PathType]] = {
+            "train": train,
+            "val": val,
+            "test": test,
         }
 
-    @classmethod
-    def _download_image(
-        cls, ndjson_path: Path, record: dict[str, Any]
-    ) -> Path:
-        file_name = Path(record["file"])
-        url = record["url"]
-        split_name = cls._normalize_split_name(record.get("split"))
-        # Keep cached filenames deterministic while avoiding collisions
-        # when different URLs share the same basename.
-        url_hash = hashlib.blake2s(
-            url.encode("utf-8"), digest_size=6
-        ).hexdigest()
-        suffix = file_name.suffix or Path(urlsplit(url).path).suffix
-        destination = (
-            ndjson_path.parent
-            / f".{ndjson_path.stem}_cache"
-            / split_name
-            / f"{file_name.stem}-{url_hash}{suffix}"
+        if split_ratios is None:
+            self.dataset.make_splits(original_splits)
+        elif is_counts:
+            sampled = self._apply_counts_to_splits(
+                original_splits,
+                split_ratios,  # type: ignore[arg-type]
+            )
+            self.dataset.make_splits(sampled)
+            self._remove_unsplit_records()
+        else:
+            logger.warning(
+                "Using percentage-based split ratios will redistribute "
+                "and shuffle all samples across splits. Original split "
+                "boundaries from the NDJSON file will not be preserved."
+            )
+            self.dataset.make_splits(split_ratios)
+
+        return self.dataset
+
+    def from_split(self, ndjson_path: Path) -> ParserOutput:
+        generator, _added_by_split, added_images = self._build_record_stream(
+            ndjson_path
         )
-        return download_remote_file(url, destination, validate_image=True)
+        return generator, {}, added_images
 
-    @classmethod
-    def _resolve_image_path(
-        cls, ndjson_path: Path, record: dict[str, Any]
-    ) -> Path:
-        if record.get("url"):
-            return cls._download_image(ndjson_path, record)
+    @override
+    def parse_split(
+        self,
+        split: str | None = None,
+        random_split: bool = True,
+        split_ratios: dict[str, float | int] | None = None,
+        **kwargs,
+    ) -> BaseDataset:
+        ndjson_path = kwargs.get("ndjson_path")
+        if ndjson_path is None:
+            raise ValueError("`ndjson_path` is required for NDJSON parsing.")
 
-        file_path = Path(record["file"])
-        if file_path.is_absolute():
-            return file_path.resolve()
-        return (ndjson_path.parent / file_path).resolve()
+        generator, added_by_split, added_images = self._build_record_stream(
+            ndjson_path
+        )
+        self.dataset.add(self._wrap_generator(generator))
+        split_definitions: dict[str, Sequence[PathType]] = dict(added_by_split)
+
+        is_counts = split_ratios is not None and all(
+            isinstance(v, int) for v in split_ratios.values()
+        )
+
+        if split is not None:
+            self.dataset.make_splits({split: added_images})
+        elif split_ratios is None:
+            self.dataset.make_splits(split_definitions)
+        elif is_counts:
+            sampled = self._apply_counts_to_splits(
+                split_definitions,
+                split_ratios,  # type: ignore[arg-type]
+            )
+            self.dataset.make_splits(sampled)
+            self._remove_unsplit_records()
+        elif random_split:
+            logger.warning(
+                "Using percentage-based split ratios will redistribute "
+                "and shuffle all samples across splits. Original split "
+                "boundaries from the NDJSON file will not be preserved."
+            )
+            self.dataset.make_splits(split_ratios)
+
+        return self.dataset
 
     def _build_record_stream(
         self, ndjson_path: Path
@@ -287,113 +282,120 @@ class UltralyticsNDJSONParser(BaseParser):
         return generator(), added_by_split, added_images
 
     @staticmethod
-    def validate_split(split_path: Path) -> dict[str, Any] | None:
-        ndjson_path = UltralyticsNDJSONParser._resolve_ndjson_path(split_path)
-        if ndjson_path is None:
-            return None
-        if UltralyticsNDJSONParser._load_header(ndjson_path) is None:
-            return None
-        return {"ndjson_path": ndjson_path}
+    def _resolve_ndjson_path(path: Path) -> Path | None:
+        path = path.resolve()
+        if path.is_file() and path.suffix.lower() == ".ndjson":
+            return path
+        if path.is_dir():
+            matches = sorted(path.glob("*.ndjson"))
+            if len(matches) == 1:
+                return matches[0].resolve()
+        return None
 
     @classmethod
-    def validate(cls, dataset_dir: Path) -> bool:
-        return cls._load_header(dataset_dir) is not None
-
-    def from_dir(
-        self, dataset_dir: Path
-    ) -> tuple[list[Path], list[Path], list[Path]]:
-        ndjson_path = self._resolve_ndjson_path(dataset_dir)
+    def _load_header(cls, path: Path) -> dict[str, Any] | None:
+        ndjson_path = cls._resolve_ndjson_path(path)
         if ndjson_path is None:
-            raise ValueError(
-                f"Ultralytics NDJSON dataset file not found in '{dataset_dir}'."
+            return None
+
+        dataset_record = None
+        has_image_record = False
+        try:
+            with open(ndjson_path, encoding="utf-8-sig") as file:
+                for raw_line in file:
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+
+                    record = json.loads(line)
+                    if dataset_record is None:
+                        dataset_record = record
+                        continue
+
+                    if record.get("type") == "image":
+                        has_image_record = True
+                        break
+        except (OSError, json.JSONDecodeError):
+            return None
+
+        if (
+            dataset_record is None
+            or dataset_record.get("type") != "dataset"
+            or "class_names" not in dataset_record
+            or not has_image_record
+        ):
+            return None
+
+        return dataset_record
+
+    @classmethod
+    def _resolve_image_path(
+        cls, ndjson_path: Path, record: dict[str, Any]
+    ) -> Path:
+        if record.get("url"):
+            return cls._download_image(ndjson_path, record)
+
+        file_path = Path(record["file"])
+        if file_path.is_absolute():
+            return file_path.resolve()
+        return (ndjson_path.parent / file_path).resolve()
+
+    @classmethod
+    def _download_image(
+        cls, ndjson_path: Path, record: dict[str, Any]
+    ) -> Path:
+        file_name = Path(record["file"])
+        url = record["url"]
+        split_name = cls._normalize_split_name(record.get("split"))
+        url_hash = hashlib.blake2s(
+            url.encode("utf-8"), digest_size=6
+        ).hexdigest()
+        suffix = file_name.suffix or Path(urlsplit(url).path).suffix
+        destination = (
+            ndjson_path.parent
+            / f".{ndjson_path.stem}_cache"
+            / split_name
+            / f"{file_name.stem}-{url_hash}{suffix}"
+        )
+        return cls._remote_file_downloader.download(
+            url, destination, validate_image=True
+        )
+
+    @staticmethod
+    def _normalize_split_name(split_name: str | None) -> str:
+        if split_name in {"train", "val", "test"}:
+            return split_name
+        if split_name in {"valid", "validation"}:
+            return "val"
+        if split_name is None:
+            logger.warning(
+                "Missing split in Ultralytics NDJSON record. Defaulting to 'train'."
             )
+            return "train"
 
-        generator, added_by_split, _added_images = self._build_record_stream(
-            ndjson_path
+        logger.warning(
+            f"Unknown split '{split_name}' in Ultralytics NDJSON record. "
+            "Defaulting to 'train'."
         )
-        self.dataset.add(self._wrap_generator(generator))
-        return (
-            added_by_split["train"],
-            added_by_split["val"],
-            added_by_split["test"],
-        )
+        return "train"
 
-    def parse_dir(self, dataset_dir: Path, **kwargs) -> BaseDataset:
-        split_ratios = kwargs.pop("split_ratios", None)
-        is_counts = split_ratios is not None and all(
-            isinstance(v, int) for v in split_ratios.values()
-        )
+    @staticmethod
+    def _get_class_names(
+        class_names: list[str] | dict[str, str],
+    ) -> dict[int, str]:
+        if isinstance(class_names, list):
+            return dict(enumerate(class_names))
+        return {int(k): v for k, v in class_names.items()}
 
-        train, val, test = self.from_dir(dataset_dir, **kwargs)
-        original_splits: dict[str, Sequence[PathType]] = {
-            "train": train,
-            "val": val,
-            "test": test,
+    @staticmethod
+    def _fit_boundingbox(points: np.ndarray) -> dict[str, float]:
+        x_min = float(np.min(points[:, 0]))
+        y_min = float(np.min(points[:, 1]))
+        x_max = float(np.max(points[:, 0]))
+        y_max = float(np.max(points[:, 1]))
+        return {
+            "x": x_min,
+            "y": y_min,
+            "w": x_max - x_min,
+            "h": y_max - y_min,
         }
-
-        if split_ratios is None:
-            self.dataset.make_splits(original_splits)
-        elif is_counts:
-            sampled = self._apply_counts_to_splits(
-                original_splits,
-                split_ratios,  # type: ignore[arg-type]
-            )
-            self.dataset.make_splits(sampled)
-            self._remove_unsplit_records()
-        else:
-            logger.warning(
-                "Using percentage-based split ratios will redistribute "
-                "and shuffle all samples across splits. Original split "
-                "boundaries from the NDJSON file will not be preserved."
-            )
-            self.dataset.make_splits(split_ratios)
-
-        return self.dataset
-
-    def from_split(self, ndjson_path: Path) -> ParserOutput:
-        generator, _added_by_split, added_images = self._build_record_stream(
-            ndjson_path
-        )
-        return generator, {}, added_images
-
-    def parse_split(
-        self,
-        split: str | None = None,
-        random_split: bool = True,
-        split_ratios: dict[str, float | int] | None = None,
-        **kwargs,
-    ) -> BaseDataset:
-        ndjson_path = kwargs.get("ndjson_path")
-        if ndjson_path is None:
-            raise ValueError("`ndjson_path` is required for NDJSON parsing.")
-
-        generator, added_by_split, added_images = self._build_record_stream(
-            ndjson_path
-        )
-        self.dataset.add(self._wrap_generator(generator))
-        split_definitions: dict[str, Sequence[PathType]] = dict(added_by_split)
-
-        is_counts = split_ratios is not None and all(
-            isinstance(v, int) for v in split_ratios.values()
-        )
-
-        if split is not None:
-            self.dataset.make_splits({split: added_images})
-        elif split_ratios is None:
-            self.dataset.make_splits(split_definitions)
-        elif is_counts:
-            sampled = self._apply_counts_to_splits(
-                split_definitions,
-                split_ratios,  # type: ignore[arg-type]
-            )
-            self.dataset.make_splits(sampled)
-            self._remove_unsplit_records()
-        elif random_split:
-            logger.warning(
-                "Using percentage-based split ratios will redistribute "
-                "and shuffle all samples across splits. Original split "
-                "boundaries from the NDJSON file will not be preserved."
-            )
-            self.dataset.make_splits(split_ratios)
-
-        return self.dataset

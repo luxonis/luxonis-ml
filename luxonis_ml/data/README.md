@@ -464,6 +464,12 @@ The supported formats are:
       └── test/
   ```
 
+  Or a standalone manifest when the file paths are remote:
+
+  ```plaintext
+  dataset.ndjson
+  ```
+
   Each image record can either:
 
   - reference a local image path through `file`

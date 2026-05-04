@@ -20,7 +20,10 @@ from .enums import (
 )
 from .parquet import ParquetFileManager, ParquetRecord
 from .plot_utils import plot_class_distribution, plot_heatmap
-from .remote_file_downloader import download_remote_file
+from .remote_file_downloader import (
+    RemoteFileDownloader,
+    download_remote_file,
+)
 from .task_utils import (
     get_task_name,
     get_task_type,
@@ -47,6 +50,7 @@ __all__ = [
     "MediaType",
     "ParquetFileManager",
     "ParquetRecord",
+    "RemoteFileDownloader",
     "UpdateMode",
     "add_augmentation_footer",
     "concat_images",
