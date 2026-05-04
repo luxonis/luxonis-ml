@@ -344,4 +344,3 @@ Brief conversion steps:
 1. Parse the rearranged directory with `LuxonisParser` as `class_dir`.
 
 For the expected `class_dir` directory structure, see the [Classification Directory format docs](../README.md#luxonisparser).
-
