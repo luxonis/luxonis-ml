@@ -95,6 +95,11 @@ class YoloV4Parser(BaseParser):
 
                 path = image_dir.absolute().resolve() / img_path
                 if not path.exists():
+                    self._warn_skipped_annotation(
+                        "referenced image file does not exist",
+                        source=annotation_path,
+                        image=path,
+                    )
                     continue
 
                 file = str(path)
