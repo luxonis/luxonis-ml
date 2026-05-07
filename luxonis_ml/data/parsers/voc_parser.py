@@ -81,6 +81,11 @@ class VOCParser(BaseParser):
                 root, "filename"
             )
             if not path.exists():
+                self._warn_skipped_annotation(
+                    "referenced image file does not exist",
+                    source=anno_xml,
+                    image=path,
+                )
                 continue
 
             curr_annotations = {"path": path, "classes": [], "bboxes": []}

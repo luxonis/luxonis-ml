@@ -120,6 +120,11 @@ class FiftyOneClassificationParser(BaseParser):
         def generator() -> DatasetIterator:
             for image_stem, class_idx in labels.items():
                 if image_stem not in stem_to_path:
+                    self._warn_skipped_annotation(
+                        "label references an image stem that is not present in the split",
+                        source=labels_path,
+                        image=image_stem,
+                    )
                     continue
 
                 img_path = stem_to_path[image_stem]
