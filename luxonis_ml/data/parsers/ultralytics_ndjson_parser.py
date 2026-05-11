@@ -177,6 +177,13 @@ class UltralyticsNDJSONParser(BaseParser):
                         record,
                         remote_image_dir=remote_image_dir,
                     )
+                    if not record.get("url") and not image_path.exists():
+                        self._warn_skipped_annotation(
+                            "referenced image file does not exist",
+                            source=ndjson_path,
+                            image=image_path,
+                        )
+                        continue
                     split_name = self._normalize_split_name(
                         record.get("split")
                     )
