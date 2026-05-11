@@ -85,6 +85,11 @@ class CreateMLParser(BaseParser):
         for annotations in annotations_data:
             path = image_dir.absolute().resolve() / annotations["image"]
             if not path.exists():
+                self._warn_skipped_annotation(
+                    "referenced image file does not exist",
+                    source=annotation_path,
+                    image=path,
+                )
                 continue
             file = str(path)
             img = Image.open(file)

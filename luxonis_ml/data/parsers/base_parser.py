@@ -408,6 +408,25 @@ class BaseParser(ABC):
         )
 
     @staticmethod
+    def _warn_skipped_annotation(
+        reason: str,
+        *,
+        source: PathType | None = None,
+        image: PathType | None = None,
+        annotation_id: str | int | None = None,
+    ) -> None:
+        details = []
+        if annotation_id is not None:
+            details.append(f"annotation_id={annotation_id}")
+        if source is not None:
+            details.append(f"source={source}")
+        if image is not None:
+            details.append(f"image={image}")
+
+        suffix = f" ({', '.join(details)})" if details else ""
+        logger.warning(f"Skipping annotation: {reason}{suffix}")
+
+    @staticmethod
     def _compare_stem_files(
         list1: Iterable[Path], list2: Iterable[Path]
     ) -> bool:

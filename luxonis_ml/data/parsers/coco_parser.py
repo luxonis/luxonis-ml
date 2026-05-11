@@ -280,6 +280,11 @@ class COCOParser(BaseParser):
             for img_id, img in img_dict.items():
                 file: Path = image_dir.absolute().resolve() / img["file_name"]
                 if not file.exists():
+                    self._warn_skipped_annotation(
+                        "referenced image file does not exist",
+                        source=annotation_path,
+                        image=file,
+                    )
                     continue
 
                 img_anns = ann_dict.get(img_id, [])
@@ -296,6 +301,12 @@ class COCOParser(BaseParser):
 
                 for ann in img_anns:
                     if ann.get("iscrowd"):
+                        self._warn_skipped_annotation(
+                            "COCO annotation has iscrowd=1",
+                            source=annotation_path,
+                            image=file,
+                            annotation_id=ann.get("id"),
+                        )
                         continue
                     class_name = categories[ann["category_id"]]
 
