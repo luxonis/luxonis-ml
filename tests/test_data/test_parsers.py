@@ -258,11 +258,12 @@ def test_dir_parser_explicit_type(
 
 def test_ultralytics_ndjson_parser(
     dataset_name: str,
-    fruit_ndjson_url: str,
+    storage_url: str,
     tempdir: Path,
 ):
+    url = f"{storage_url.rstrip('/')}/fruit_ndjson.zip"
     dataset = LuxonisParser(
-        fruit_ndjson_url,
+        url,
         dataset_name=dataset_name,
         delete_local=True,
         save_dir=tempdir,
@@ -284,11 +285,12 @@ def test_ultralytics_ndjson_parser(
 
 def test_ultralytics_ndjson_parser_explicit_type(
     dataset_name: str,
-    fruit_ndjson_url: str,
+    storage_url: str,
     tempdir: Path,
 ):
+    url = f"{storage_url.rstrip('/')}/fruit_ndjson.zip"
     dataset = LuxonisParser(
-        fruit_ndjson_url,
+        url,
         dataset_name=dataset_name,
         dataset_type="ultralytics-ndjson",  # type: ignore[arg-type]
         delete_local=True,
@@ -311,11 +313,12 @@ def test_ultralytics_ndjson_parser_explicit_type(
 
 def test_ultralytics_ndjson_remote_urls_parser(
     dataset_name: str,
-    fruit_ndjson_remote_url: str,
+    storage_url: str,
     tempdir: Path,
 ):
+    url = f"{storage_url.rstrip('/')}/fruit_ndjson_remote/fruit.ndjson"
     dataset = LuxonisParser(
-        fruit_ndjson_remote_url,
+        url,
         dataset_name=dataset_name,
         delete_local=True,
         save_dir=tempdir,

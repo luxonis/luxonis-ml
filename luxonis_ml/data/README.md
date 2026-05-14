@@ -349,6 +349,14 @@ The available commands are:
 
 For more information, run `luxonis_ml data --help` or pass the `--help` flag to any of the above commands.
 
+Examples:
+
+```bash
+luxonis_ml data export my_dataset --type ultralytics-ndjson
+luxonis_ml data export my_dataset --type ultralytics-ndjson-instancesegmentation
+luxonis_ml data export my_dataset --type ultralytics-ndjson-keypoints
+```
+
 ## LuxonisLoader
 
 `LuxonisLoader` provides an easy way to load datasets in the Luxonis Data Format. It is designed to work with the `LuxonisDataset` class and provides an abstraction over the dataset, allowing you to iterate over the stored data.
@@ -479,6 +487,27 @@ The supported formats are:
 
   ```python
   DatasetType.ULTRALYTICSNDJSON
+  ```
+
+  Task-specific export targets are also available:
+
+  ```python
+  DatasetType.ULTRALYTICSNDJSONINSTANCESEGMENTATION
+  DatasetType.ULTRALYTICSNDJSONKEYPOINTS
+  ```
+
+  These map to task-specific Ultralytics manifests:
+
+  - `DatasetType.ULTRALYTICSNDJSON` writes detection NDJSON with `task="detect"` and only `boxes`
+  - `DatasetType.ULTRALYTICSNDJSONINSTANCESEGMENTATION` writes segmentation NDJSON with `task="segment"` and only `segments`
+  - `DatasetType.ULTRALYTICSNDJSONKEYPOINTS` writes pose NDJSON with `task="pose"` and only `pose`
+
+  CLI `--type` values:
+
+  ```plaintext
+  ultralytics-ndjson
+  ultralytics-ndjson-instancesegmentation
+  ultralytics-ndjson-keypoints
   ```
 
 - [**Pascal VOC XML**](https://roboflow.com/formats/pascal-voc-xml)

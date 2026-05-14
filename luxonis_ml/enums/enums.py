@@ -17,6 +17,10 @@ class DatasetType(str, Enum):
     YOLOV8INSTANCESEGMENTATION = "yolov8instancesegmentation"
     YOLOV8KEYPOINTS = "yolov8keypoints"
     ULTRALYTICSNDJSON = "ultralytics-ndjson"
+    ULTRALYTICSNDJSONINSTANCESEGMENTATION = (
+        "ultralytics-ndjson-instancesegmentation"
+    )
+    ULTRALYTICSNDJSONKEYPOINTS = "ultralytics-ndjson-keypoints"
     FIFTYONECLS = "fiftyone-classification"
 
     @property
@@ -55,10 +59,10 @@ _SUPPORTED_ANNOTATION_FORMATS: dict[DatasetType, list[str]] = {
     DatasetType.YOLOV8BOUNDINGBOX: ["boundingbox"],
     DatasetType.YOLOV8INSTANCESEGMENTATION: ["instance_segmentation"],
     DatasetType.YOLOV8KEYPOINTS: ["keypoints"],
-    DatasetType.ULTRALYTICSNDJSON: [
-        "boundingbox",
-        "instance_segmentation",
-        "keypoints",
+    DatasetType.ULTRALYTICSNDJSON: ["boundingbox"],
+    DatasetType.ULTRALYTICSNDJSONINSTANCESEGMENTATION: [
+        "instance_segmentation"
     ],
+    DatasetType.ULTRALYTICSNDJSONKEYPOINTS: ["keypoints"],
     DatasetType.FIFTYONECLS: ["classification"],
 }

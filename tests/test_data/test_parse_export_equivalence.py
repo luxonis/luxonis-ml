@@ -53,6 +53,7 @@ def _export_and_reimport(
 # Which (DatasetType, collector) pairs to run for each logical annotation type
 ANNOTATION_REGISTRY: dict[str, list[tuple[DatasetType, Callable]]] = {
     "boundingbox": [
+        (DatasetType.ULTRALYTICSNDJSON, LDFEquivalence.collect_bbox_multiset),
         (DatasetType.YOLOV4, LDFEquivalence.collect_bbox_multiset),
         (DatasetType.YOLOV6, LDFEquivalence.collect_bbox_multiset),
         (DatasetType.YOLOV8BOUNDINGBOX, LDFEquivalence.collect_bbox_multiset),
@@ -76,12 +77,20 @@ ANNOTATION_REGISTRY: dict[str, list[tuple[DatasetType, Callable]]] = {
             DatasetType.YOLOV8INSTANCESEGMENTATION,
             LDFEquivalence.collect_instance_segmentation_mask_overlap_multiset,
         ),
+        (
+            DatasetType.ULTRALYTICSNDJSONINSTANCESEGMENTATION,
+            LDFEquivalence.collect_instance_segmentation_mask_overlap_multiset,
+        ),
     ],
     "keypoints": [
         (DatasetType.COCO, LDFEquivalence.collect_keypoint_multiset),
         (DatasetType.NATIVE, LDFEquivalence.collect_keypoint_multiset),
         (
             DatasetType.YOLOV8KEYPOINTS,
+            LDFEquivalence.collect_keypoint_multiset,
+        ),
+        (
+            DatasetType.ULTRALYTICSNDJSONKEYPOINTS,
             LDFEquivalence.collect_keypoint_multiset,
         ),
     ],
@@ -174,43 +183,3 @@ def test_export_import_equivalence(
         initial_parse_kwargs=initial_parse_kwargs,
     )
     LDFEquivalence.assert_equivalence(original, reimported, collector)
-
-
-## Ultralytics NDJSON does not have a dedicated exporter, so this test
-## verifies parse NDJSON -> export YOLOv8 -> parse YOLOv8 and asserts
-## that the original and round-tripped datasets produce the same LDF
-## for bounding boxes.
-def test_ultralytics_ndjson_export_import_equivalence(
-    dataset_name: str,
-    fruit_ndjson_url: str,
-    tempdir: Path,
-):
-    original = LuxonisParser(
-        fruit_ndjson_url,
-        dataset_name=dataset_name,
-        dataset_type=DatasetType.ULTRALYTICSNDJSON,
-        delete_local=True,
-        save_dir=tempdir,
-    ).parse()
-
-    export_dir = tempdir / "exported"
-    original.export(
-        output_path=export_dir,
-        zip_output=True,
-        dataset_type=DatasetType.YOLOV8BOUNDINGBOX,
-    )
-
-    exported_zip = sorted(export_dir.glob("*.zip"))[0]
-    reimported = LuxonisParser(
-        str(exported_zip),
-        dataset_name=f"{dataset_name}_reimported",
-        dataset_type=DatasetType.YOLOV8BOUNDINGBOX,
-        delete_local=True,
-        save_dir=tempdir,
-    ).parse()
-
-    LDFEquivalence.assert_equivalence(
-        original,
-        reimported,
-        LDFEquivalence.collect_bbox_multiset,
-    )

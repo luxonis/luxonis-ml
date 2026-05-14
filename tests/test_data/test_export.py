@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import polars as pl
@@ -22,6 +23,9 @@ EXPORT_DATASET_TYPES = [
     DatasetType.YOLOV8BOUNDINGBOX,
     DatasetType.YOLOV8INSTANCESEGMENTATION,
     DatasetType.YOLOV8KEYPOINTS,
+    DatasetType.ULTRALYTICSNDJSON,
+    DatasetType.ULTRALYTICSNDJSONINSTANCESEGMENTATION,
+    DatasetType.ULTRALYTICSNDJSONKEYPOINTS,
 ]
 
 
@@ -240,3 +244,87 @@ def test_export_no_partition(
         original_split = sorted(original_splits[split])
         new_split = sorted(new_splits[split])
         assert original_split == new_split
+
+
+@pytest.mark.parametrize(
+    (
+        "url",
+        "source_dataset_type",
+        "export_dataset_type",
+        "expected_task",
+        "expected_annotation_key",
+    ),
+    [
+        (
+            "fruit_ndjson.zip",
+            DatasetType.ULTRALYTICSNDJSON,
+            DatasetType.ULTRALYTICSNDJSON,
+            "detect",
+            "boxes",
+        ),
+        (
+            "COCO_people_subset.zip",
+            None,
+            DatasetType.ULTRALYTICSNDJSONINSTANCESEGMENTATION,
+            "segment",
+            "segments",
+        ),
+        (
+            "COCO_people_subset.zip",
+            None,
+            DatasetType.ULTRALYTICSNDJSONKEYPOINTS,
+            "pose",
+            "pose",
+        ),
+    ],
+)
+def test_ultralytics_ndjson_export_relative_file_paths(
+    dataset_name: str,
+    storage_url: str,
+    tempdir: Path,
+    url: str,
+    source_dataset_type: DatasetType | None,
+    export_dataset_type: DatasetType,
+    expected_task: str,
+    expected_annotation_key: str,
+):
+    url = f"{storage_url.rstrip('/')}/{url}"
+    dataset = LuxonisParser(
+        url,
+        dataset_name=dataset_name,
+        dataset_type=source_dataset_type,
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()
+
+    export_dir = tempdir / "exported"
+    dataset.export(
+        output_path=export_dir,
+        dataset_type=export_dataset_type,
+    )
+
+    base = export_dir / dataset_name
+    ndjson_path = base / "dataset.ndjson"
+    lines = ndjson_path.read_text(encoding="utf-8").splitlines()
+    records = [json.loads(line) for line in lines]
+
+    assert records[0]["type"] == "dataset"
+    assert records[0]["task"] == expected_task
+    if expected_task == "pose":
+        assert "kpt_shape" in records[0]
+
+    found_expected_annotations = False
+    for record in records[1:]:
+        assert record["type"] == "image"
+        assert "url" not in record
+        relative_path = Path(record["file"])
+        assert not relative_path.is_absolute()
+        assert relative_path.parts[0] in {"train", "val", "test"}
+        assert (base / relative_path).exists()
+
+        annotations = record.get("annotations") or {}
+        if expected_annotation_key in annotations:
+            found_expected_annotations = True
+            assert set(annotations) == {expected_annotation_key}
+
+    assert found_expected_annotations

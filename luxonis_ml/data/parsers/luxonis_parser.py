@@ -41,6 +41,10 @@ T = TypeVar("T", str, None)
 class LuxonisParser(Generic[T]):
     parsers: dict[DatasetType, type[BaseParser]] = {
         DatasetType.ULTRALYTICSNDJSON: UltralyticsNDJSONParser,
+        DatasetType.ULTRALYTICSNDJSONINSTANCESEGMENTATION: (
+            UltralyticsNDJSONParser
+        ),
+        DatasetType.ULTRALYTICSNDJSONKEYPOINTS: UltralyticsNDJSONParser,
         DatasetType.COCO: COCOParser,
         DatasetType.FIFTYONECLS: FiftyOneClassificationParser,
         DatasetType.VOC: VOCParser,

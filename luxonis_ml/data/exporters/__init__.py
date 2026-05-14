@@ -10,6 +10,7 @@ from .segmentation_mask_directory_exporter import (
     SegmentationMaskDirectoryExporter,
 )
 from .tensorflow_csv_exporter import TensorflowCSVExporter
+from .ultralytics_ndjson_exporter import UltralyticsNDJSONExporter
 from .voc_exporter import VOCExporter
 from .yolov4_exporter import YoloV4Exporter
 from .yolov6_exporter import YoloV6Exporter
@@ -30,6 +31,7 @@ __all__ = [
     "PreparedLDF",
     "SegmentationMaskDirectoryExporter",
     "TensorflowCSVExporter",
+    "UltralyticsNDJSONExporter",
     "VOCExporter",
     "YoloV4Exporter",
     "YoloV6Exporter",
