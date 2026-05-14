@@ -7,6 +7,12 @@ from luxonis_ml.data import LDFEquivalence, LuxonisDataset
 from luxonis_ml.data.parsers import LuxonisParser
 from luxonis_ml.enums import DatasetType
 
+ULTRALYTICS_NDJSON_EXPORT_TYPES = {
+    DatasetType.ULTRALYTICSNDJSON,
+    DatasetType.ULTRALYTICSNDJSONINSTANCESEGMENTATION,
+    DatasetType.ULTRALYTICSNDJSONKEYPOINTS,
+}
+
 
 def _export_and_reimport(
     url: str,
@@ -149,6 +155,15 @@ def build_params():
         for anno_type in ds["types"]:
             combos = ANNOTATION_REGISTRY.get(anno_type, [])
             for dataset_type, collector in combos:
+                if (
+                    url == "coco-2017.zip"
+                    and dataset_type in ULTRALYTICS_NDJSON_EXPORT_TYPES
+                ):
+                    # Skip the full COCO 2017 round-trip for Ultralytics NDJSON
+                    # exporters because of very long test times. Ultralytics NDJSON
+                    # coverage for bbox, segmentation, and keypoints is kept through
+                    # the smaller fruit_ndjson and COCO_people_subset fixtures.
+                    continue
                 params.append(
                     pytest.param(
                         url,
