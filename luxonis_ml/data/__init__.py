@@ -16,8 +16,15 @@ with guard_missing_extra("data"):
         UpdateMode,
     )
     from .loaders import LOADERS_REGISTRY, BaseLoader, LuxonisLoader
-    from .parsers import LuxonisParser, ParserIssue, ParserIssueMessage
-    from .utils.enums import BucketStorage, BucketType, ImageType, MediaType
+    from .parsers import LuxonisParser
+    from .utils.enums import (
+        BucketStorage,
+        BucketType,
+        ImageType,
+        MediaType,
+        ParserIssue,
+        ParserIssueMessage,
+    )
     from .utils.ldf_equivalence import LDFEquivalence, ldf_equivalent
 
 

@@ -9,6 +9,7 @@ from typing import Generic, TypeVar, overload
 from loguru import logger
 
 from luxonis_ml.data import DATASETS_REGISTRY, BaseDataset, LuxonisDataset
+from luxonis_ml.data.utils.enums import ParserIssueMessage
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.utils import LuxonisFileSystem, environ
 from luxonis_ml.utils.filesystem import _pip_install
@@ -20,7 +21,6 @@ from .create_ml_parser import CreateMLParser
 from .darknet_parser import DarknetParser
 from .fiftyone_classification_parser import FiftyOneClassificationParser
 from .native_parser import NativeParser
-from .parser_issues import ParserIssueMessage
 from .segmentation_mask_directory_parser import SegmentationMaskDirectoryParser
 from .solo_parser import SOLOParser
 from .tensorflow_csv_parser import TensorflowCSVParser

@@ -6,9 +6,9 @@ import numpy as np
 from defusedxml.ElementTree import parse
 
 from luxonis_ml.data import DatasetIterator
+from luxonis_ml.data.utils.enums import ParserIssue
 
 from .base_parser import BaseParser, ParserOutput
-from .parser_issues import ParserIssue
 
 
 class VOCParser(BaseParser):

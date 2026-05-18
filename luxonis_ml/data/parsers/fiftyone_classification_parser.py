@@ -5,9 +5,9 @@ from typing import Any
 from loguru import logger
 
 from luxonis_ml.data import DatasetIterator
+from luxonis_ml.data.utils.enums import ParserIssue
 
 from .base_parser import BaseParser, ParserOutput
-from .parser_issues import ParserIssue
 
 
 class FiftyOneClassificationParser(BaseParser):
