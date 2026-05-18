@@ -20,6 +20,7 @@ from .create_ml_parser import CreateMLParser
 from .darknet_parser import DarknetParser
 from .fiftyone_classification_parser import FiftyOneClassificationParser
 from .native_parser import NativeParser
+from .parser_issues import ParserIssueMessage
 from .segmentation_mask_directory_parser import SegmentationMaskDirectoryParser
 from .solo_parser import SOLOParser
 from .tensorflow_csv_parser import TensorflowCSVParser
@@ -245,6 +246,15 @@ class LuxonisParser(Generic[T]):
 
         logger.info("Dataset parsed successfully.")
         return dataset
+
+    def get_parser_issue_messages(self) -> list[ParserIssueMessage]:
+        """Returns collected parser issue messages from the last
+        parse."""
+        return self.parser.get_parser_issue_messages()
+
+    def get_skipped_annotations(self) -> list[ParserIssueMessage]:
+        """Alias for collected parser issue messages."""
+        return self.get_parser_issue_messages()
 
     def _recognize_dataset(self) -> tuple[DatasetType, ParserType]:
         """Recognizes the dataset format and parser type.

@@ -16,6 +16,8 @@ from .enums import (
     COCOFormat,
     ImageType,
     MediaType,
+    ParserIssue,
+    ParserIssueMessage,
     UpdateMode,
 )
 from .parquet import ParquetFileManager, ParquetRecord
@@ -44,6 +46,8 @@ __all__ = [
     "ColorMap",
     "ImageType",
     "MediaType",
+    "ParserIssue",
+    "ParserIssueMessage",
     "ParquetFileManager",
     "ParquetRecord",
     "UpdateMode",

@@ -8,6 +8,7 @@ from defusedxml.ElementTree import parse
 from luxonis_ml.data import DatasetIterator
 
 from .base_parser import BaseParser, ParserOutput
+from .parser_issues import ParserIssue
 
 
 class VOCParser(BaseParser):
@@ -82,6 +83,7 @@ class VOCParser(BaseParser):
             )
             if not path.exists():
                 self._warn_skipped_annotation(
+                    ParserIssue.MISSING_IMAGE,
                     "referenced image file does not exist",
                     source=anno_xml,
                     image=path,

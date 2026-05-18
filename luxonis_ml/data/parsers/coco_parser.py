@@ -8,6 +8,7 @@ from loguru import logger
 
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils import COCOFormat
+from luxonis_ml.data.utils.enums import ParserIssue
 
 from .base_parser import BaseParser, ParserOutput
 
@@ -281,6 +282,7 @@ class COCOParser(BaseParser):
                 file: Path = image_dir.absolute().resolve() / img["file_name"]
                 if not file.exists():
                     self._warn_skipped_annotation(
+                        ParserIssue.MISSING_IMAGE,
                         "referenced image file does not exist",
                         source=annotation_path,
                         image=file,
@@ -302,6 +304,7 @@ class COCOParser(BaseParser):
                 for ann in img_anns:
                     if ann.get("iscrowd"):
                         self._warn_skipped_annotation(
+                            ParserIssue.COCO_ISCROWD,
                             "COCO annotation has iscrowd=1",
                             source=annotation_path,
                             image=file,

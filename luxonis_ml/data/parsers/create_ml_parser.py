@@ -7,6 +7,7 @@ from PIL import Image
 from luxonis_ml.data import DatasetIterator
 
 from .base_parser import BaseParser, ParserOutput
+from .parser_issues import ParserIssue
 
 
 class CreateMLParser(BaseParser):
@@ -86,6 +87,7 @@ class CreateMLParser(BaseParser):
             path = image_dir.absolute().resolve() / annotations["image"]
             if not path.exists():
                 self._warn_skipped_annotation(
+                    ParserIssue.MISSING_IMAGE,
                     "referenced image file does not exist",
                     source=annotation_path,
                     image=path,
