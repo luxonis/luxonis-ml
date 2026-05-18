@@ -30,6 +30,7 @@ from luxonis_ml.data.exporters import (
     PreparedLDF,
     SegmentationMaskDirectoryExporter,
     TensorflowCSVExporter,
+    UltralyticsNDJSONExporter,
     VOCExporter,
     YoloV4Exporter,
     YoloV6Exporter,
@@ -1523,7 +1524,6 @@ class LuxonisDataset(BaseDataset):
             be exported.
         @type dataset_type: DatasetType
         @param dataset_type: To what format to export the dataset.
-            Currently only DatasetType.NATIVE is supported.
         @type max_partition_size_gb: Optional[float]
         @param max_partition_size_gb: Maximum size of each partition in
             GB. If the dataset exceeds this size, it will be split into
@@ -1570,6 +1570,29 @@ class LuxonisDataset(BaseDataset):
             DatasetType.VOC: ExporterSpec(VOCExporter, {}),
             DatasetType.CREATEML: ExporterSpec(CreateMLExporter, {}),
             DatasetType.TFCSV: ExporterSpec(TensorflowCSVExporter, {}),
+            DatasetType.ULTRALYTICSNDJSON: ExporterSpec(
+                UltralyticsNDJSONExporter,
+                {
+                    "dataset_type": DatasetType.ULTRALYTICSNDJSON,
+                    "ndjson_task": "detect",
+                },
+            ),
+            DatasetType.ULTRALYTICSNDJSONINSTANCESEGMENTATION: ExporterSpec(
+                UltralyticsNDJSONExporter,
+                {
+                    "dataset_type": (
+                        DatasetType.ULTRALYTICSNDJSONINSTANCESEGMENTATION
+                    ),
+                    "ndjson_task": "segment",
+                },
+            ),
+            DatasetType.ULTRALYTICSNDJSONKEYPOINTS: ExporterSpec(
+                UltralyticsNDJSONExporter,
+                {
+                    "dataset_type": DatasetType.ULTRALYTICSNDJSONKEYPOINTS,
+                    "ndjson_task": "pose",
+                },
+            ),
         }
         spec = EXPORTER_MAP.get(dataset_type)
         if spec is None:
