@@ -321,7 +321,7 @@ def test_parser_issue_messages_collect_skipped_annotations(
     )
 
     parser = LuxonisParser(
-        str(dataset_dir),
+        str(split_dir),
         dataset_name=dataset_name,
         delete_local=True,
     )
