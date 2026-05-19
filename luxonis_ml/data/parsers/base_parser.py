@@ -50,10 +50,12 @@ class BaseParser(ABC):
         else:
             self.task_name = task_name
         self._parser_issue_messages: list[ParserIssueMessage] = []
+        self._seen_parser_issue_messages: set[ParserIssueMessage] = set()
 
     def reset_parser_issue_messages(self) -> None:
         """Clears collected parser issue messages."""
         self._parser_issue_messages.clear()
+        self._seen_parser_issue_messages.clear()
 
     def get_parser_issue_messages(self) -> list[ParserIssueMessage]:
         """Returns collected parser issue messages from the last
@@ -433,15 +435,18 @@ class BaseParser(ABC):
         image: PathType | None = None,
         annotation_id: str | int | None = None,
     ) -> None:
-        self._parser_issue_messages.append(
-            ParserIssueMessage(
-                parser_issue=parser_issue,
-                reason=reason,
-                source=source,
-                image=image,
-                annotation_id=annotation_id,
-            )
+        message = ParserIssueMessage(
+            parser_issue=parser_issue,
+            reason=reason,
+            source=source,
+            image=image,
+            annotation_id=annotation_id,
         )
+        if message in self._seen_parser_issue_messages:
+            return
+
+        self._seen_parser_issue_messages.add(message)
+        self._parser_issue_messages.append(message)
 
         details = []
         if annotation_id is not None:
