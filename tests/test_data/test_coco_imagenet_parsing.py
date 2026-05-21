@@ -132,6 +132,21 @@ class TestCLIParseCoco:
         assert total > 0
         assert set(counts.keys()) == {"train", "val", "test"}
 
+    def test_train_only_dataset_root_parses(
+        self, coco_2017_train_only: Path, dataset_name: str
+    ):
+        dataset = LuxonisParser(
+            str(coco_2017_train_only),
+            dataset_name=dataset_name,
+            delete_local=True,
+        ).parse()
+
+        counts = _split_counts(dataset)
+        total = sum(counts.values())
+
+        assert total > 0
+        assert "train" in counts
+
 
 class TestCLIParseImagenet:
     """Luxonis-ml data parse with imagenet-sample."""
