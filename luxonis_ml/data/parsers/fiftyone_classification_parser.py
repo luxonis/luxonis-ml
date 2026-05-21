@@ -5,6 +5,7 @@ from typing import Any
 from loguru import logger
 
 from luxonis_ml.data import DatasetIterator
+from luxonis_ml.data.utils.enums import ParserIssue
 
 from .base_parser import BaseParser, ParserOutput
 
@@ -121,6 +122,7 @@ class FiftyOneClassificationParser(BaseParser):
             for image_stem, class_idx in labels.items():
                 if image_stem not in stem_to_path:
                     self._warn_skipped_annotation(
+                        ParserIssue.MISSING_IMAGE_STEM,
                         "label references an image stem that is not present in the split",
                         source=labels_path,
                         image=image_stem,

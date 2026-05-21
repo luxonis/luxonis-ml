@@ -17,7 +17,14 @@ with guard_missing_extra("data"):
     )
     from .loaders import LOADERS_REGISTRY, BaseLoader, LuxonisLoader
     from .parsers import LuxonisParser
-    from .utils.enums import BucketStorage, BucketType, ImageType, MediaType
+    from .utils.enums import (
+        BucketStorage,
+        BucketType,
+        ImageType,
+        MediaType,
+        ParserIssue,
+        ParserIssueMessage,
+    )
     from .utils.ldf_equivalence import LDFEquivalence, ldf_equivalent
 
 
@@ -71,6 +78,8 @@ __all__ = [
     "LuxonisSource",
     "MediaType",
     "Metadata",
+    "ParserIssue",
+    "ParserIssueMessage",
     "UpdateMode",
     "ldf_equivalent",
 ]

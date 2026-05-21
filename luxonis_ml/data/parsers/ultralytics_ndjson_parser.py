@@ -10,6 +10,7 @@ from loguru import logger
 from typing_extensions import override
 
 from luxonis_ml.data import BaseDataset, DatasetIterator
+from luxonis_ml.data.utils.enums import ParserIssue
 from luxonis_ml.data.utils.remote_file_downloader import RemoteFileDownloader
 from luxonis_ml.typing import PathType
 
@@ -54,6 +55,7 @@ class UltralyticsNDJSONParser(BaseParser):
         )
 
     def parse_dir(self, dataset_dir: Path, **kwargs) -> BaseDataset:
+        self.reset_parser_issue_messages()
         split_ratios = kwargs.pop("split_ratios", None)
         is_counts = split_ratios is not None and all(
             isinstance(v, int) for v in split_ratios.values()
@@ -99,6 +101,7 @@ class UltralyticsNDJSONParser(BaseParser):
         split_ratios: dict[str, float | int] | None = None,
         **kwargs,
     ) -> BaseDataset:
+        self.reset_parser_issue_messages()
         ndjson_path = kwargs.get("ndjson_path")
         if ndjson_path is None:
             raise ValueError("`ndjson_path` is required for NDJSON parsing.")
@@ -179,6 +182,7 @@ class UltralyticsNDJSONParser(BaseParser):
                     )
                     if not record.get("url") and not image_path.exists():
                         self._warn_skipped_annotation(
+                            ParserIssue.MISSING_IMAGE,
                             "referenced image file does not exist",
                             source=ndjson_path,
                             image=image_path,

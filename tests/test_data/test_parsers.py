@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from luxonis_ml.data import LuxonisLoader, LuxonisParser
+from luxonis_ml.data import LuxonisLoader, LuxonisParser, ParserIssue
 from luxonis_ml.data.utils import get_task_type
 from luxonis_ml.utils import environ
 
@@ -254,6 +254,118 @@ def test_dir_parser_explicit_type(
     task_types = {get_task_type(task) for task in ann}
     assert task_types == expected_task_types
     dataset.delete_dataset(delete_local=True)
+
+
+def test_parser_issue_messages_collect_skipped_annotations(
+    dataset_name: str, tempdir: Path
+):
+    dataset_dir = tempdir / "coco_issues"
+    split_dir = dataset_dir / "train"
+    image_dir = split_dir / "data"
+    image_dir.mkdir(parents=True)
+
+    valid_image = image_dir / "valid.jpg"
+    crowd_image = image_dir / "crowd.jpg"
+    valid_image.write_bytes(b"")
+    crowd_image.write_bytes(b"")
+
+    labels_path = split_dir / "labels.json"
+    labels_path.write_text(
+        json.dumps(
+            {
+                "images": [
+                    {
+                        "id": 1,
+                        "file_name": valid_image.name,
+                        "width": 100,
+                        "height": 100,
+                    },
+                    {
+                        "id": 2,
+                        "file_name": crowd_image.name,
+                        "width": 100,
+                        "height": 100,
+                    },
+                    {
+                        "id": 3,
+                        "file_name": "missing.jpg",
+                        "width": 100,
+                        "height": 100,
+                    },
+                ],
+                "annotations": [
+                    {
+                        "id": 10,
+                        "image_id": 1,
+                        "category_id": 1,
+                        "bbox": [10, 10, 20, 20],
+                    },
+                    {
+                        "id": 11,
+                        "image_id": 2,
+                        "category_id": 1,
+                        "bbox": [15, 15, 10, 10],
+                        "iscrowd": 1,
+                    },
+                    {
+                        "id": 12,
+                        "image_id": 3,
+                        "category_id": 1,
+                        "bbox": [5, 5, 10, 10],
+                    },
+                ],
+                "categories": [{"id": 1, "name": "vehicle"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    parser = LuxonisParser(
+        str(split_dir),
+        dataset_name=dataset_name,
+        delete_local=True,
+        save_dir=tempdir,
+    )
+    dataset = parser.parse()
+    try:
+        assert len(dataset) == 1
+
+        issues = parser.get_parser_issue_messages()
+        assert len(issues) == 2
+        assert {issue.parser_issue for issue in issues} == {
+            ParserIssue.COCO_ISCROWD,
+            ParserIssue.MISSING_IMAGE,
+        }
+
+        crowd_issue = next(
+            issue
+            for issue in issues
+            if issue.parser_issue is ParserIssue.COCO_ISCROWD
+        )
+        assert crowd_issue.reason == "COCO annotation has iscrowd=1"
+        assert crowd_issue.source == labels_path
+        assert crowd_issue.image == crowd_image.resolve()
+        assert crowd_issue.annotation_id == 11
+
+        missing_image_issue = next(
+            issue
+            for issue in issues
+            if issue.parser_issue is ParserIssue.MISSING_IMAGE
+        )
+        assert (
+            missing_image_issue.reason
+            == "referenced image file does not exist"
+        )
+        assert missing_image_issue.source == labels_path
+        assert (
+            missing_image_issue.image == (image_dir / "missing.jpg").resolve()
+        )
+        assert missing_image_issue.annotation_id is None
+
+        issues.pop()
+        assert len(parser.get_parser_issue_messages()) == 2
+    finally:
+        dataset.delete_dataset(delete_local=True)
 
 
 def test_ultralytics_ndjson_parser(
