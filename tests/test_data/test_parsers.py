@@ -308,6 +308,12 @@ def test_parser_issue_messages_collect_skipped_annotations(
                         "iscrowd": 1,
                     },
                     {
+                        "id": 13,
+                        "image_id": 1,
+                        "category_id": 1,
+                        "bbox": [10, "bad", 20, 20],
+                    },
+                    {
                         "id": 12,
                         "image_id": 3,
                         "category_id": 1,
@@ -331,10 +337,11 @@ def test_parser_issue_messages_collect_skipped_annotations(
         assert len(dataset) == 1
 
         issues = parser.get_parser_issue_messages()
-        assert len(issues) == 2
+        assert len(issues) == 3
         assert {issue.parser_issue for issue in issues} == {
             ParserIssue.COCO_ISCROWD,
             ParserIssue.MISSING_IMAGE,
+            ParserIssue.NON_NUMERIC_ANNOTATION,
         }
 
         crowd_issue = next(
@@ -346,6 +353,19 @@ def test_parser_issue_messages_collect_skipped_annotations(
         assert crowd_issue.source == labels_path
         assert crowd_issue.image == crowd_image.resolve()
         assert crowd_issue.annotation_id == 11
+
+        non_numeric_issue = next(
+            issue
+            for issue in issues
+            if issue.parser_issue is ParserIssue.NON_NUMERIC_ANNOTATION
+        )
+        assert (
+            non_numeric_issue.reason
+            == "Annotation contains non-numeric bbox values"
+        )
+        assert non_numeric_issue.source == labels_path
+        assert non_numeric_issue.image == valid_image.resolve()
+        assert non_numeric_issue.annotation_id == 13
 
         missing_image_issue = next(
             issue
@@ -363,7 +383,7 @@ def test_parser_issue_messages_collect_skipped_annotations(
         assert missing_image_issue.annotation_id is None
 
         issues.pop()
-        assert len(parser.get_parser_issue_messages()) == 2
+        assert len(parser.get_parser_issue_messages()) == 3
     finally:
         dataset.delete_dataset(delete_local=True)
 
