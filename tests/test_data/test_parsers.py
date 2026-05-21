@@ -324,40 +324,48 @@ def test_parser_issue_messages_collect_skipped_annotations(
         str(split_dir),
         dataset_name=dataset_name,
         delete_local=True,
+        save_dir=tempdir,
     )
     dataset = parser.parse()
+    try:
+        assert len(dataset) == 1
 
-    assert len(dataset) == 1
+        issues = parser.get_parser_issue_messages()
+        assert len(issues) == 2
+        assert {issue.parser_issue for issue in issues} == {
+            ParserIssue.COCO_ISCROWD,
+            ParserIssue.MISSING_IMAGE,
+        }
 
-    issues = parser.get_parser_issue_messages()
-    assert len(issues) == 2
-    assert {issue.parser_issue for issue in issues} == {
-        ParserIssue.COCO_ISCROWD,
-        ParserIssue.MISSING_IMAGE,
-    }
+        crowd_issue = next(
+            issue
+            for issue in issues
+            if issue.parser_issue is ParserIssue.COCO_ISCROWD
+        )
+        assert crowd_issue.reason == "COCO annotation has iscrowd=1"
+        assert crowd_issue.source == labels_path
+        assert crowd_issue.image == crowd_image.resolve()
+        assert crowd_issue.annotation_id == 11
 
-    crowd_issue = next(
-        issue
-        for issue in issues
-        if issue.parser_issue is ParserIssue.COCO_ISCROWD
-    )
-    assert crowd_issue.reason == "COCO annotation has iscrowd=1"
-    assert crowd_issue.source == labels_path
-    assert crowd_issue.image == crowd_image.resolve()
-    assert crowd_issue.annotation_id == 11
+        missing_image_issue = next(
+            issue
+            for issue in issues
+            if issue.parser_issue is ParserIssue.MISSING_IMAGE
+        )
+        assert (
+            missing_image_issue.reason
+            == "referenced image file does not exist"
+        )
+        assert missing_image_issue.source == labels_path
+        assert missing_image_issue.image == (
+            image_dir / "missing.jpg"
+        ).resolve()
+        assert missing_image_issue.annotation_id is None
 
-    missing_image_issue = next(
-        issue
-        for issue in issues
-        if issue.parser_issue is ParserIssue.MISSING_IMAGE
-    )
-    assert missing_image_issue.reason == "referenced image file does not exist"
-    assert missing_image_issue.source == labels_path
-    assert missing_image_issue.image == (image_dir / "missing.jpg").resolve()
-    assert missing_image_issue.annotation_id is None
-
-    issues.pop()
-    assert len(parser.get_parser_issue_messages()) == 2
+        issues.pop()
+        assert len(parser.get_parser_issue_messages()) == 2
+    finally:
+        dataset.delete_dataset(delete_local=True)
 
 
 def test_ultralytics_ndjson_parser(
