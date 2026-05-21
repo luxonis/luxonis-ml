@@ -357,7 +357,7 @@ def test_parser_issue_messages_collect_skipped_annotations(
     assert missing_image_issue.annotation_id is None
 
     issues.pop()
-    assert len(parser.get_skipped_annotations()) == 2
+    assert len(parser.get_parser_issue_messages()) == 2
 
 
 def test_ultralytics_ndjson_parser(

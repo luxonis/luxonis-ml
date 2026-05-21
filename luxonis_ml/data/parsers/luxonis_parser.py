@@ -258,10 +258,6 @@ class LuxonisParser(Generic[T]):
         parse."""
         return self.parser.get_parser_issue_messages()
 
-    def get_skipped_annotations(self) -> list[ParserIssueMessage]:
-        """Alias for collected parser issue messages."""
-        return self.get_parser_issue_messages()
-
     def _recognize_dataset(self) -> tuple[DatasetType, ParserType]:
         """Recognizes the dataset format and parser type.
 
