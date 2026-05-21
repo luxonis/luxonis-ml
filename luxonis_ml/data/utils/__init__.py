@@ -16,6 +16,8 @@ from .enums import (
     COCOFormat,
     ImageType,
     MediaType,
+    ParserIssue,
+    ParserIssueMessage,
     UpdateMode,
 )
 from .parquet import ParquetFileManager, ParquetRecord
@@ -50,6 +52,8 @@ __all__ = [
     "MediaType",
     "ParquetFileManager",
     "ParquetRecord",
+    "ParserIssue",
+    "ParserIssueMessage",
     "RemoteFileDownloader",
     "UpdateMode",
     "add_augmentation_footer",

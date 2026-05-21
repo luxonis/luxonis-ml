@@ -11,6 +11,7 @@ from loguru import logger
 
 from luxonis_ml.data import BaseDataset, DatasetIterator
 from luxonis_ml.data.datasets.annotation import DatasetRecord
+from luxonis_ml.data.utils.enums import ParserIssue, ParserIssueMessage
 from luxonis_ml.enums.enums import DatasetType
 from luxonis_ml.typing import PathType
 
@@ -48,6 +49,18 @@ class BaseParser(ABC):
             self.task_name = defaultdict(lambda: task_name)
         else:
             self.task_name = task_name
+        self._parser_issue_messages: list[ParserIssueMessage] = []
+        self._seen_parser_issue_messages: set[ParserIssueMessage] = set()
+
+    def reset_parser_issue_messages(self) -> None:
+        """Clears collected parser issue messages."""
+        self._parser_issue_messages.clear()
+        self._seen_parser_issue_messages.clear()
+
+    def get_parser_issue_messages(self) -> list[ParserIssueMessage]:
+        """Returns collected parser issue messages from the last
+        parse."""
+        return list(self._parser_issue_messages)
 
     @staticmethod
     @abstractmethod
@@ -250,6 +263,7 @@ class BaseParser(ABC):
         @rtype: LuxonisDataset
         @return: C{LDF} with all the images and annotations parsed.
         """
+        self.reset_parser_issue_messages()
         added_images = self._parse_split(**kwargs)
 
         if split is not None:
@@ -280,6 +294,7 @@ class BaseParser(ABC):
         @rtype: LuxonisDataset
         @return: C{LDF} with all the images and annotations parsed.
         """
+        self.reset_parser_issue_messages()
         # Skip train directory check for parsers that use images/labels
         # subdirectory structure (YoloV6, YOLOv8) instead of train/valid/test
         # at root level
@@ -407,14 +422,28 @@ class BaseParser(ABC):
             }
         )
 
-    @staticmethod
     def _warn_skipped_annotation(
+        self,
+        parser_issue: ParserIssue,
         reason: str,
         *,
         source: PathType | None = None,
         image: PathType | None = None,
         annotation_id: str | int | None = None,
     ) -> None:
+        message = ParserIssueMessage(
+            parser_issue=parser_issue,
+            reason=reason,
+            source=source,
+            image=image,
+            annotation_id=annotation_id,
+        )
+        if message in self._seen_parser_issue_messages:
+            return
+
+        self._seen_parser_issue_messages.add(message)
+        self._parser_issue_messages.append(message)
+
         details = []
         if annotation_id is not None:
             details.append(f"annotation_id={annotation_id}")

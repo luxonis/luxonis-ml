@@ -1,3 +1,5 @@
+from luxonis_ml.data.utils.enums import ParserIssue, ParserIssueMessage
+
 from .base_parser import BaseParser
 from .classification_directory_parser import ClassificationDirectoryParser
 from .coco_parser import COCOParser
@@ -22,6 +24,8 @@ __all__ = [
     "DarknetParser",
     "FiftyOneClassificationParser",
     "LuxonisParser",
+    "ParserIssue",
+    "ParserIssueMessage",
     "SOLOParser",
     "SegmentationMaskDirectoryParser",
     "TensorflowCSVParser",
