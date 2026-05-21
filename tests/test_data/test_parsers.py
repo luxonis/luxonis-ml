@@ -357,9 +357,9 @@ def test_parser_issue_messages_collect_skipped_annotations(
             == "referenced image file does not exist"
         )
         assert missing_image_issue.source == labels_path
-        assert missing_image_issue.image == (
-            image_dir / "missing.jpg"
-        ).resolve()
+        assert (
+            missing_image_issue.image == (image_dir / "missing.jpg").resolve()
+        )
         assert missing_image_issue.annotation_id is None
 
         issues.pop()
