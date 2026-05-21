@@ -340,6 +340,7 @@ class COCOParser(BaseParser):
                         x, y, w, h = (float(value) for value in ann["bbox"])
                     except (TypeError, ValueError):
                         self._warn_skipped_annotation(
+                            ParserIssue.COCO_NON_NUMERIC_BBOX,
                             "COCO bbox contains non-numeric values",
                             source=annotation_path,
                             image=file,
