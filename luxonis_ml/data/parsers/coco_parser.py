@@ -1,4 +1,5 @@
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -168,62 +169,58 @@ class COCOParser(BaseParser):
             annotation_path=cleaned_annotation_path,
         )
 
-        if len(splits) < 2:
-            _added_val_imgs = []
+        val_paths = COCOParser.validate_split(dataset_dir / splits[1])
+        if val_paths is None:
+            raise ValueError("Val split not in expected format")
+
+        val_ann_path = (
+            dataset_dir / keypoint_ann_paths["val"]
+            if keypoint_ann_paths
+            and use_keypoint_ann
+            and dir_format is COCOFormat.FIFTYONE
+            else val_paths["annotation_path"]
+        )
+        _added_val_imgs = self._parse_split(
+            image_dir=val_paths["image_dir"], annotation_path=val_ann_path
+        )
+
+        if len(splits) < 3:
+            # No test split in dataset
             added_test_imgs = []
         else:
-            val_paths = COCOParser.validate_split(dataset_dir / splits[1])
-            if val_paths is None:
-                raise ValueError("Val split not in expected format")
+            # NOTE: test split annotations are not included by default for FiftyOne format
+            test_paths = COCOParser.validate_split(dataset_dir / splits[2])
+            if test_paths is None:
+                raise ValueError("Test split not in expected format")
 
-            val_ann_path = (
-                dataset_dir / keypoint_ann_paths["val"]
-                if keypoint_ann_paths
+            if (
+                keypoint_ann_paths
                 and use_keypoint_ann
-                and dir_format is COCOFormat.FIFTYONE
-                else val_paths["annotation_path"]
-            )
-            _added_val_imgs = self._parse_split(
-                image_dir=val_paths["image_dir"], annotation_path=val_ann_path
-            )
-
-            if len(splits) < 3:
-                # No test split in dataset
-                added_test_imgs = []
-            else:
-                # NOTE: test split annotations are not included by default for FiftyOne format
-                test_paths = COCOParser.validate_split(dataset_dir / splits[2])
-                if test_paths is None:
-                    raise ValueError("Test split not in expected format")
-
-                if (
-                    keypoint_ann_paths
-                    and use_keypoint_ann
-                    and dir_format == COCOFormat.FIFTYONE
-                ):
-                    kp_path = dataset_dir / keypoint_ann_paths["test"]
-                    if kp_path.exists():
-                        added_test_imgs = self._parse_split(
-                            image_dir=test_paths["image_dir"],
-                            annotation_path=kp_path,
-                        )
-                    else:
-                        logger.warning(
-                            f"Keypoint annotation file not found: {kp_path}. "
-                            "Skipping test split."
-                        )
-                        added_test_imgs = []
-                else:
+                and dir_format == COCOFormat.FIFTYONE
+            ):
+                kp_path = dataset_dir / keypoint_ann_paths["test"]
+                if kp_path.exists():
                     added_test_imgs = self._parse_split(
                         image_dir=test_paths["image_dir"],
-                        annotation_path=test_paths["annotation_path"],
+                        annotation_path=kp_path,
                     )
-                if len(added_test_imgs) == 0 and not split_val_to_test:
+                else:
                     logger.warning(
-                        "Sampling from the test set cannot be done since the "
-                        "labels are missing. This is expected for COCO datasets "
-                        "where the test set annotations are not publicly available."
+                        f"Keypoint annotation file not found: {kp_path}. "
+                        "Skipping test split."
                     )
+                    added_test_imgs = []
+            else:
+                added_test_imgs = self._parse_split(
+                    image_dir=test_paths["image_dir"],
+                    annotation_path=test_paths["annotation_path"],
+                )
+            if len(added_test_imgs) == 0 and not split_val_to_test:
+                logger.warning(
+                    "Sampling from the test set cannot be done since the "
+                    "labels are missing. This is expected for COCO datasets "
+                    "where the test set annotations are not publicly available."
+                )
 
         # If test split is empty (no test directory or no annotations), split val into val/test
         if len(added_test_imgs) == 0 and split_val_to_test:
@@ -338,7 +335,13 @@ class COCOParser(BaseParser):
 
                     try:
                         x, y, w, h = (float(value) for value in ann["bbox"])
+                        valid_bbox = all(
+                            math.isfinite(value) for value in (x, y, w, h)
+                        )
                     except (TypeError, ValueError):
+                        valid_bbox = False
+
+                    if not valid_bbox:
                         self._warn_skipped_annotation(
                             ParserIssue.NON_NUMERIC_ANNOTATION,
                             "Annotation contains non-numeric bbox values",

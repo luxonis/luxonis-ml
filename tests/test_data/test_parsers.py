@@ -311,7 +311,7 @@ def test_parser_issue_messages_collect_skipped_annotations(
                         "id": 13,
                         "image_id": 1,
                         "category_id": 1,
-                        "bbox": [10, "bad", 20, 20],
+                        "bbox": [10, "inf", 20, 20],
                     },
                     {
                         "id": 12,
