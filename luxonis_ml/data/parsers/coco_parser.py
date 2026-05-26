@@ -1,4 +1,5 @@
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -332,7 +333,23 @@ class COCOParser(BaseParser):
                             "counts": coco_seg["counts"],
                         }
 
-                    x, y, w, h = ann["bbox"]
+                    try:
+                        x, y, w, h = (float(value) for value in ann["bbox"])
+                        valid_bbox = all(
+                            math.isfinite(value) for value in (x, y, w, h)
+                        )
+                    except (TypeError, ValueError):
+                        valid_bbox = False
+
+                    if not valid_bbox:
+                        self._warn_skipped_annotation(
+                            ParserIssue.NON_NUMERIC_ANNOTATION,
+                            "Annotation contains non-numeric bbox values",
+                            source=annotation_path,
+                            image=file,
+                            annotation_id=ann.get("id"),
+                        )
+                        continue
 
                     if "id" in ann:
                         instance_id = ann["id"]

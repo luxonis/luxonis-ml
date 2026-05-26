@@ -51,6 +51,7 @@ class COCOFormat(str, Enum):
 class ParserIssue(Enum):
     MISSING_IMAGE = "missing_image"
     COCO_ISCROWD = "coco_iscrowd"
+    NON_NUMERIC_ANNOTATION = "non_numeric_annotation"
     MISSING_IMAGE_STEM = "missing_image_stem"
 
 
