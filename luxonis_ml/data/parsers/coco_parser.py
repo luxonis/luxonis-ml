@@ -9,6 +9,7 @@ from loguru import logger
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils import COCOFormat
 from luxonis_ml.data.utils.enums import ParserIssue
+from luxonis_ml.utils.path import resolve_manifest_path
 
 from .base_parser import BaseParser, ParserOutput
 
@@ -279,7 +280,9 @@ class COCOParser(BaseParser):
                 ann_dict[img_id].append(ann)
 
             for img_id, img in img_dict.items():
-                file: Path = image_dir.absolute().resolve() / img["file_name"]
+                file = resolve_manifest_path(
+                    image_dir.absolute().resolve(), img["file_name"]
+                )
                 if not file.exists():
                     self._warn_skipped_annotation(
                         ParserIssue.MISSING_IMAGE,

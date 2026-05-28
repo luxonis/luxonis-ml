@@ -5,6 +5,7 @@ from PIL import Image
 
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue
+from luxonis_ml.utils.path import resolve_manifest_path
 
 from .base_parser import BaseParser, ParserOutput
 
@@ -92,9 +93,10 @@ class YoloV4Parser(BaseParser):
             for ann_line in annotation_data:
                 data = ann_line.split(" ")
                 img_path = data[0]
-                annotated_images.add(img_path)
-
-                path = image_dir.absolute().resolve() / img_path
+                path = resolve_manifest_path(
+                    image_dir.absolute().resolve(), img_path
+                )
+                annotated_images.add(path.name)
                 if not path.exists():
                     self._warn_skipped_annotation(
                         ParserIssue.MISSING_IMAGE,
