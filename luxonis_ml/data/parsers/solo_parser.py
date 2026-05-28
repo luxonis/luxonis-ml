@@ -173,6 +173,10 @@ class SOLOParser(BaseParser):
                                 mask_path = resolve_manifest_path(
                                     sequence_path, mask_fname
                                 )
+                                if not mask_path.exists():
+                                    raise FileNotFoundError(
+                                        f"{mask_path} not existent."
+                                    )
                                 mask = cv2.imread(str(mask_path))
 
                                 mask_int = (
@@ -251,6 +255,10 @@ class SOLOParser(BaseParser):
                                 mask_path = resolve_manifest_path(
                                     sequence_path, mask_fname
                                 )
+                                if not mask_path.exists():
+                                    raise FileNotFoundError(
+                                        f"{mask_path} not existent."
+                                    )
                                 mask = cv2.imread(str(mask_path))
 
                                 mask_int = (

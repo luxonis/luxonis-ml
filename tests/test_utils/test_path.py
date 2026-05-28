@@ -21,3 +21,12 @@ def test_parse_and_resolve_manifest_path(tempdir: Path):
 
     assert parsed == Path("nested/images/0.png")
     assert resolved == (base_dir / "nested" / "images" / "0.png").resolve()
+
+
+def test_resolve_manifest_path_preserves_windows_absolute_path(tempdir: Path):
+    base_dir = tempdir / "dataset"
+    base_dir.mkdir()
+
+    resolved = resolve_manifest_path(base_dir, r"C:\data\img.png")
+
+    assert str(resolved).replace("\\", "/") == "C:/data/img.png"

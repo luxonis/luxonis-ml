@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from luxonis_ml.data.parsers.native_parser import NativeParser
+from luxonis_ml.data.parsers.yolov4_parser import YoloV4Parser
 from luxonis_ml.enums import DatasetType
 
 from .utils import create_image
@@ -52,3 +53,43 @@ def test_native_parser_accepts_windows_style_file_paths(tempdir: Path):
     )
     assert parsed_file == copied_image.resolve()
     assert added_images == [copied_image.resolve()]
+
+
+def test_yolov4_parser_keeps_unlabeled_image_with_duplicate_basename(
+    tempdir: Path,
+):
+    split_dir = tempdir / "train"
+    split_dir.mkdir()
+    nested_dir = split_dir / "nested"
+    nested_dir.mkdir()
+
+    unlabeled_image = create_image(0, split_dir)
+    annotated_image = create_image(0, nested_dir)
+
+    annotations_path = split_dir / "_annotations.txt"
+    annotations_path.write_text(
+        "nested/img_0.jpg 0,0,10,10,0\n", encoding="utf-8"
+    )
+    classes_path = split_dir / "_classes.txt"
+    classes_path.write_text("class0\n", encoding="utf-8")
+
+    generator, _, _ = YoloV4Parser(
+        dataset=None,  # type: ignore[arg-type]
+        dataset_type=DatasetType.YOLOV4,
+        task_name=None,
+    ).from_split(
+        image_dir=split_dir,
+        annotation_path=annotations_path,
+        classes_path=classes_path,
+    )
+
+    records = list(generator)
+    files = {
+        Path(
+            record["file"] if isinstance(record, dict) else record.file
+        ).resolve()
+        for record in records
+    }
+
+    assert annotated_image.resolve() in files
+    assert unlabeled_image.resolve() in files

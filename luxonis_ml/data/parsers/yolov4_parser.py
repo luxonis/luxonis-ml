@@ -88,7 +88,7 @@ class YoloV4Parser(BaseParser):
             with open(annotation_path) as f:
                 annotation_data = [line.rstrip() for line in f]
 
-            annotated_images: set[str] = set()
+            annotated_images: set[Path] = set()
 
             for ann_line in annotation_data:
                 data = ann_line.split(" ")
@@ -96,7 +96,7 @@ class YoloV4Parser(BaseParser):
                 path = resolve_manifest_path(
                     image_dir.absolute().resolve(), img_path
                 )
-                annotated_images.add(path.name)
+                annotated_images.add(path.resolve())
                 if not path.exists():
                     self._warn_skipped_annotation(
                         ParserIssue.MISSING_IMAGE,
@@ -136,7 +136,7 @@ class YoloV4Parser(BaseParser):
 
             # Images in the directory not listed in annotations file
             for img_path in self._list_images(image_dir):
-                if img_path.name not in annotated_images:
+                if img_path.resolve() not in annotated_images:
                     yield {"file": str(img_path), "annotation": None}
 
         added_images = self._get_added_images(generator())
