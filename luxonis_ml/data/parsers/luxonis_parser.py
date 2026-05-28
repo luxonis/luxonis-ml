@@ -63,6 +63,8 @@ class LuxonisParser(Generic[T]):
         DatasetType.YOLOV8KEYPOINTS: YOLOv8Parser,
     }
 
+    _YOLO_AMBIGUOUS_PARSERS = {YoloV6Parser, YOLOv8Parser}
+
     def __init__(
         self,
         dataset_dir: str,
@@ -137,13 +139,8 @@ class LuxonisParser(Generic[T]):
 
         if dataset_type:
             self.dataset_type = dataset_type
-            self.parser_type = (
-                ParserType.DIR
-                if Path(self.dataset_dir / "train").exists()
-                or Path(
-                    self.dataset_dir / "images" / "train"
-                ).exists()  # temporary fix for yolov6
-                else ParserType.SPLIT
+            self.parser_type = self._infer_parser_type_for_explicit_type(
+                self.dataset_type
             )
         else:
             self.dataset_type, self.parser_type = self._recognize_dataset()
@@ -269,6 +266,30 @@ class LuxonisParser(Generic[T]):
                 logger.info(f"Recognized dataset format as <{typ.name}>")
                 return typ, ParserType.DIR
 
+        subset_matches: dict[type[BaseParser], DatasetType] = {}
+        for typ, parser in self.parsers.items():
+            if parser in subset_matches:
+                continue
+            if parser.discover_dir_splits(self.dataset_dir):
+                subset_matches[parser] = typ
+
+        if len(subset_matches) == 1:
+            typ = next(iter(subset_matches.values()))
+            logger.info(
+                f"Recognized dataset format as <{typ.name}> from partial splits"
+            )
+            return typ, ParserType.DIR
+
+        if len(subset_matches) > 1:
+            matched_parsers = set(subset_matches)
+            if matched_parsers == self._YOLO_AMBIGUOUS_PARSERS:
+                raise ValueError(
+                    "Dataset layout is compatible with multiple parsers when "
+                    "only a subset of splits is present. This layout is "
+                    "ambiguous between YOLOv6 and YOLOv8. Please specify "
+                    "dataset_type."
+                )
+
         for typ, parser in self.parsers.items():
             if parser.validate_split(self.dataset_dir):
                 logger.info(
@@ -278,6 +299,21 @@ class LuxonisParser(Generic[T]):
 
         raise ValueError(
             f"Dataset {self.dataset_dir} is not in expected format for any of the parsers."
+        )
+
+    def _infer_parser_type_for_explicit_type(
+        self, dataset_type: DatasetType
+    ) -> ParserType:
+        parser = self.parsers[dataset_type]
+        if parser.validate(self.dataset_dir) or parser.discover_dir_splits(
+            self.dataset_dir
+        ):
+            return ParserType.DIR
+        if parser.validate_split(self.dataset_dir):
+            return ParserType.SPLIT
+        raise ValueError(
+            f"Dataset {self.dataset_dir} is not in expected format for the "
+            f"{dataset_type.name} parser."
         )
 
     def _parse_dir(self, **kwargs) -> BaseDataset:

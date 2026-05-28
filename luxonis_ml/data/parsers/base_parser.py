@@ -23,6 +23,7 @@ ParserOutput = tuple[DatasetIterator, dict[str, dict], list[Path]]
 
 class BaseParser(ABC):
     SPLIT_NAMES: tuple[str, ...] = ("train", "valid", "test")
+    CANONICAL_SPLIT_NAMES: tuple[str, ...] = ("train", "val", "test")
 
     def __init__(
         self,
@@ -94,6 +95,26 @@ class BaseParser(ABC):
             return False
 
         return all(cls.validate_split(dataset_dir / split) for split in splits)
+
+    @classmethod
+    def _canonicalize_split_name(cls, split_name: str) -> str:
+        if split_name in {"valid", "validation"}:
+            return "val"
+        return split_name
+
+    @classmethod
+    def discover_dir_splits(
+        cls, dataset_dir: Path
+    ) -> dict[str, dict[str, Any]]:
+        """Returns present and valid split directories keyed by their
+        canonical split names."""
+        discovered: dict[str, dict[str, Any]] = {}
+        for split_name in cls.SPLIT_NAMES:
+            split_kwargs = cls.validate_split(dataset_dir / split_name)
+            if split_kwargs is None:
+                continue
+            discovered[cls._canonicalize_split_name(split_name)] = split_kwargs
+        return discovered
 
     @abstractmethod
     def from_dir(
@@ -295,24 +316,6 @@ class BaseParser(ABC):
         @return: C{LDF} with all the images and annotations parsed.
         """
         self.reset_parser_issue_messages()
-        # Skip train directory check for parsers that use images/labels
-        # subdirectory structure (YoloV6, YOLOv8) instead of train/valid/test
-        # at root level
-        skip_train_check = self.__class__.__name__ in (
-            "YoloV6Parser",
-            "YOLOv8Parser",
-        )
-        if not skip_train_check:
-            train_dir = dataset_dir / "train"
-            if not train_dir.exists() or not train_dir.is_dir():
-                existing_dirs = [
-                    d.name for d in dataset_dir.iterdir() if d.is_dir()
-                ]
-                raise ValueError(
-                    f"Train split not found in dataset. "
-                    f"Expected a 'train' directory but found: {existing_dirs}."
-                )
-
         split_ratios = kwargs.pop("split_ratios", None)
         is_counts = split_ratios is not None and all(
             isinstance(v, int) for v in split_ratios.values()
@@ -320,19 +323,27 @@ class BaseParser(ABC):
 
         # Disable automatic val-to-test splitting when using explicit counts
         if is_counts and "split_val_to_test" not in kwargs:
-            sig = inspect.signature(self.from_dir)
+            sig = inspect.signature(self._parse_available_splits)
             if "split_val_to_test" in sig.parameters:
                 kwargs["split_val_to_test"] = False
 
-        train, val, test = self.from_dir(dataset_dir, **kwargs)
+        split_definitions = self._parse_available_splits(dataset_dir, **kwargs)
+        if not split_definitions:
+            existing_dirs = [
+                d.name for d in dataset_dir.iterdir() if d.is_dir()
+            ]
+            raise ValueError(
+                "No valid split directories found in dataset. "
+                f"Found directories: {existing_dirs}."
+            )
+
         original_splits: dict[str, Sequence[PathType]] = {
-            "train": train,
-            "val": val,
-            "test": test,
+            split_name: split_definitions.get(split_name, [])
+            for split_name in self.CANONICAL_SPLIT_NAMES
         }
 
         if split_ratios is None:
-            self.dataset.make_splits(original_splits)
+            self.dataset.make_splits(split_definitions)
         elif is_counts:
             sampled = self._apply_counts_to_splits(
                 original_splits,
@@ -349,6 +360,18 @@ class BaseParser(ABC):
             self.dataset.make_splits(split_ratios)
 
         return self.dataset
+
+    def _parse_available_splits(
+        self, dataset_dir: Path, **kwargs
+    ) -> dict[str, list[Path]]:
+        split_definitions: dict[str, list[Path]] = {}
+        for split_name, split_kwargs in self.discover_dir_splits(
+            dataset_dir
+        ).items():
+            split_definitions[split_name] = self._parse_split(
+                **split_kwargs, **kwargs
+            )
+        return split_definitions
 
     def _apply_counts_to_splits(
         self,

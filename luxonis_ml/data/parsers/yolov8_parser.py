@@ -184,12 +184,43 @@ class YOLOv8Parser(BaseParser):
                 for d in (dataset_dir / "images").iterdir()
                 if d.is_dir()
             ]
+            if "train" not in subfolders or len(subfolders) < 2:
+                return False
             return all(
                 cls.validate_split(dataset_dir / "images" / split)
                 for split in subfolders
             )
 
         return False
+
+    @classmethod
+    def discover_dir_splits(
+        cls, dataset_dir: Path
+    ) -> dict[str, dict[str, Any]]:
+        dir_format, _splits = cls._detect_dataset_dir_format(dataset_dir)
+        if dir_format is None:
+            return {}
+
+        discovered: dict[str, dict[str, Any]] = {}
+        if dir_format is Format.ROBOFLOW:
+            split_paths = [
+                dataset_dir / split_name
+                for split_name in ("train", "valid", "test")
+            ]
+        else:
+            split_paths = [
+                dataset_dir / "images" / split_name
+                for split_name in ("train", "val", "test")
+            ]
+
+        for split_path in split_paths:
+            split_kwargs = cls.validate_split(split_path)
+            if split_kwargs is None:
+                continue
+            discovered[cls._canonicalize_split_name(split_path.name)] = (
+                split_kwargs
+            )
+        return discovered
 
     def from_dir(
         self, dataset_dir: Path

@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -314,6 +315,54 @@ class TestCoco2017Keypoints:
 
         assert len(dataset) > 0
         assert "keypoints" in _task_types(dataset)
+
+    def test_keypoints_validation_only_keeps_coco_exception(
+        self,
+        coco_2017_source: Path,
+        dataset_name: str,
+        tempdir: Path,
+    ):
+        dataset_dir = tempdir / "coco-2017-validation-only"
+        shutil.copytree(coco_2017_source, dataset_dir)
+        shutil.rmtree(dataset_dir / "train", ignore_errors=True)
+        shutil.rmtree(dataset_dir / "test", ignore_errors=True)
+
+        parser = LuxonisParser(
+            str(dataset_dir),
+            dataset_name=dataset_name,
+            delete_local=True,
+        )
+        dataset = parser.parse(use_keypoint_ann=True)
+
+        counts = _split_counts(dataset)
+        assert "train" not in counts
+        assert counts.get("val", 0) > 0
+        assert counts.get("test", 0) > 0
+        assert counts["val"] == counts["test"]
+
+    def test_keypoints_validation_only_explicit_type(
+        self,
+        coco_2017_source: Path,
+        dataset_name: str,
+        tempdir: Path,
+    ):
+        dataset_dir = tempdir / "coco-2017-validation-only-explicit"
+        shutil.copytree(coco_2017_source, dataset_dir)
+        shutil.rmtree(dataset_dir / "train", ignore_errors=True)
+        shutil.rmtree(dataset_dir / "test", ignore_errors=True)
+
+        parser = LuxonisParser(
+            str(dataset_dir),
+            dataset_name=dataset_name,
+            dataset_type="coco",  # type: ignore[arg-type]
+            delete_local=True,
+        )
+        dataset = parser.parse(use_keypoint_ann=True)
+
+        counts = _split_counts(dataset)
+        assert "train" not in counts
+        assert counts.get("val", 0) > 0
+        assert counts.get("test", 0) > 0
 
 
 class TestImagenetSample:

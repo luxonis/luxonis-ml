@@ -512,3 +512,77 @@ def test_ultralytics_ndjson_remote_urls_parser_rejects_existing_remote_dir(
             delete_local=True,
             save_dir=tempdir,
         ).parse()
+
+
+def test_partial_split_clsdir_is_preserved(
+    dataset_name: str,
+    tempdir: Path,
+):
+    dataset_dir = tempdir / "clsdir_partial"
+    split_dir = dataset_dir / "valid" / "budgie"
+    split_dir.mkdir(parents=True)
+    create_image(16, split_dir)
+
+    dataset = LuxonisParser(
+        str(dataset_dir),
+        dataset_name=dataset_name,
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()
+
+    splits = dataset.get_splits()
+    assert splits is not None
+    assert set(splits) == {"val"}
+    assert len(splits["val"]) == 1
+    dataset.delete_dataset(delete_local=True)
+
+
+def test_partial_split_clsdir_explicit_type_uses_dir_mode(
+    dataset_name: str,
+    tempdir: Path,
+):
+    dataset_dir = tempdir / "clsdir_partial_explicit"
+    split_dir = dataset_dir / "test" / "finch"
+    split_dir.mkdir(parents=True)
+    create_image(16, split_dir)
+
+    dataset = LuxonisParser(
+        str(dataset_dir),
+        dataset_name=dataset_name,
+        dataset_type="clsdir",  # type: ignore[arg-type]
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()
+
+    splits = dataset.get_splits()
+    assert splits is not None
+    assert set(splits) == {"test"}
+    assert len(splits["test"]) == 1
+    dataset.delete_dataset(delete_local=True)
+
+
+def test_partial_ultralytics_layout_reports_yolov6_yolov8_ambiguity(
+    dataset_name: str,
+    tempdir: Path,
+):
+    dataset_dir = tempdir / "yolo_partial"
+    image_dir = dataset_dir / "images" / "test"
+    label_dir = dataset_dir / "labels" / "test"
+    image_dir.mkdir(parents=True)
+    label_dir.mkdir(parents=True)
+    create_image(16, image_dir)
+    (label_dir / "img_16.txt").write_text("0 0.5 0.5 0.4 0.4\n")
+    (dataset_dir / "data.yaml").write_text("names:\n  0: budgie\n")
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            r"ambiguous between YOLOv6 and YOLOv8\. Please specify dataset_type\."
+        ),
+    ):
+        LuxonisParser(
+            str(dataset_dir),
+            dataset_name=dataset_name,
+            delete_local=True,
+            save_dir=tempdir,
+        ).parse()

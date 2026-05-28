@@ -71,6 +71,22 @@ class YoloV6Parser(BaseParser):
             return False
         return all(cls.validate_split(img_root / s) for s in splits)
 
+    @classmethod
+    def discover_dir_splits(
+        cls, dataset_dir: Path
+    ) -> dict[str, dict[str, Any]]:
+        img_root = dataset_dir / "images"
+        if not img_root.exists():
+            return {}
+
+        discovered: dict[str, dict[str, Any]] = {}
+        for split_name in ("train", "valid", "test"):
+            split_kwargs = cls.validate_split(img_root / split_name)
+            if split_kwargs is None:
+                continue
+            discovered[cls._canonicalize_split_name(split_name)] = split_kwargs
+        return discovered
+
     def from_dir(
         self, dataset_dir: Path
     ) -> tuple[list[Path], list[Path], list[Path]]:
