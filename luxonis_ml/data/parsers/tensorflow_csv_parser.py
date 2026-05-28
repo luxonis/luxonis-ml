@@ -104,7 +104,7 @@ class TensorflowCSVParser(BaseParser):
 
         def generator() -> DatasetIterator:
             for img_path in self._list_images(image_dir):
-                path = str(img_path)
+                path = str(img_path.resolve())
                 curr_annotations = images_annotations.get(path, {"bboxes": []})
                 if not curr_annotations["bboxes"]:
                     yield {"file": path, "annotation": None}
