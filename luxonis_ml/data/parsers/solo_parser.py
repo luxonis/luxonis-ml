@@ -173,7 +173,7 @@ class SOLOParser(BaseParser):
                                 mask_path = resolve_manifest_path(
                                     sequence_path, mask_fname
                                 )
-                                mask = cv2.imread(mask_path)
+                                mask = cv2.imread(str(mask_path))
 
                                 mask_int = (
                                     (mask[..., 0].astype(np.uint32) << 16)
@@ -251,7 +251,7 @@ class SOLOParser(BaseParser):
                                 mask_path = resolve_manifest_path(
                                     sequence_path, mask_fname
                                 )
-                                mask = cv2.imread(mask_path)
+                                mask = cv2.imread(str(mask_path))
 
                                 mask_int = (
                                     (mask[..., 0].astype(np.uint32) << 16)

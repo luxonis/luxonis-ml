@@ -45,5 +45,10 @@ def test_native_parser_accepts_windows_style_file_paths(tempdir: Path):
     ).from_split(annotation_path=annotations_path)
 
     parsed_record = next(iter(generator))
-    assert parsed_record["file"] == copied_image.resolve()
+    parsed_file = (
+        parsed_record["file"]
+        if isinstance(parsed_record, dict)
+        else parsed_record.file
+    )
+    assert parsed_file == copied_image.resolve()
     assert added_images == [copied_image.resolve()]
