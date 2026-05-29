@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 
@@ -72,9 +73,11 @@ class YoloV6Parser(BaseParser):
         return all(cls.validate_split(img_root / s) for s in splits)
 
     @classmethod
+    @override
     def discover_dir_splits(
         cls, dataset_dir: Path
     ) -> dict[str, dict[str, Any]]:
+        # Split roots live under images/<split> instead of <split>/.
         img_root = dataset_dir / "images"
         if not img_root.exists():
             return {}

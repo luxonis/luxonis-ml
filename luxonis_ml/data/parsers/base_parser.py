@@ -98,6 +98,12 @@ class BaseParser(ABC):
 
     @classmethod
     def _canonicalize_split_name(cls, split_name: str) -> str:
+        """All current parsers use `train` and `test` split names
+        whereas validation splits can vary in name between `val` `valid`
+        and `validation`.
+
+        This maps `valid` -> `val` and `validation` -> val
+        """
         if split_name in {"valid", "validation"}:
             return "val"
         return split_name

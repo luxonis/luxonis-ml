@@ -5,6 +5,7 @@ from typing import Any
 import cv2
 import numpy as np
 import yaml
+from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 
@@ -194,9 +195,11 @@ class YOLOv8Parser(BaseParser):
         return False
 
     @classmethod
+    @override
     def discover_dir_splits(
         cls, dataset_dir: Path
     ) -> dict[str, dict[str, Any]]:
+        # Split roots may live under images/<split> instead of <split>/.
         dir_format, _splits = cls._detect_dataset_dir_format(dataset_dir)
         if dir_format is None:
             return {}
