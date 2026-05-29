@@ -6,6 +6,7 @@ from typing import Any
 import numpy as np
 import pycocotools.mask as mask_util
 from loguru import logger
+from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils import COCOFormat
@@ -125,6 +126,7 @@ class COCOParser(BaseParser):
         return all(cls.validate_split(dataset_dir / split) for split in splits)
 
     @classmethod
+    @override
     def discover_dir_splits(
         cls, dataset_dir: Path
     ) -> dict[str, dict[str, Any]]:
@@ -418,6 +420,7 @@ class COCOParser(BaseParser):
 
         return generator(), skeletons, added_images
 
+    @override
     def _parse_available_splits(
         self,
         dataset_dir: Path,
