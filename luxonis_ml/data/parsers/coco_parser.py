@@ -149,6 +149,24 @@ class COCOParser(BaseParser):
         keypoint_ann_paths: dict[str, str] | None = None,
         split_val_to_test: bool = True,
     ) -> tuple[list[Path], list[Path], list[Path]]:
+        split_definitions = self._parse_available_splits(
+            dataset_dir,
+            use_keypoint_ann=use_keypoint_ann,
+            keypoint_ann_paths=keypoint_ann_paths,
+            split_val_to_test=split_val_to_test,
+        )
+        return (
+            split_definitions.get("train", []),
+            split_definitions.get("val", []),
+            split_definitions.get("test", []),
+        )
+
+    def _resolve_dir_format_and_keypoint_paths(
+        self,
+        dataset_dir: Path,
+        use_keypoint_ann: bool,
+        keypoint_ann_paths: dict[str, str] | None,
+    ) -> tuple[COCOFormat, list[str], dict[str, str] | None]:
         dir_format, splits = COCOParser._detect_dataset_dir_format(dataset_dir)
         if dir_format is None:
             raise ValueError("Dataset is not in any expected format.")
@@ -169,86 +187,31 @@ class COCOParser(BaseParser):
                 # NOTE: this file is not present by default
                 "test": "raw/person_keypoints_test2017.json",
             }
+        return dir_format, splits, keypoint_ann_paths
 
-        train_paths = COCOParser.validate_split(dataset_dir / splits[0])
-        if train_paths is None:
-            raise ValueError("Train split not in expected format")
+    def _finalize_split_definitions(
+        self,
+        split_definitions: dict[str, list[Path]],
+        split_val_to_test: bool,
+    ) -> dict[str, list[Path]]:
+        added_test_imgs = split_definitions.get("test", [])
+        added_val_imgs = split_definitions.get("val", [])
 
-        train_ann_path = (
-            dataset_dir / keypoint_ann_paths["train"]
-            if keypoint_ann_paths
-            and use_keypoint_ann
-            and dir_format is COCOFormat.FIFTYONE
-            else train_paths["annotation_path"]
-        )
-        cleaned_annotation_path = clean_annotations(train_ann_path)
-        added_train_imgs = self._parse_split(
-            image_dir=train_paths["image_dir"],
-            annotation_path=cleaned_annotation_path,
-        )
-
-        val_paths = COCOParser.validate_split(dataset_dir / splits[1])
-        if val_paths is None:
-            raise ValueError("Val split not in expected format")
-
-        val_ann_path = (
-            dataset_dir / keypoint_ann_paths["val"]
-            if keypoint_ann_paths
-            and use_keypoint_ann
-            and dir_format is COCOFormat.FIFTYONE
-            else val_paths["annotation_path"]
-        )
-        _added_val_imgs = self._parse_split(
-            image_dir=val_paths["image_dir"], annotation_path=val_ann_path
-        )
-
-        if len(splits) < 3:
-            # No test split in dataset
-            added_test_imgs = []
-        else:
-            # NOTE: test split annotations are not included by default for FiftyOne format
-            test_paths = COCOParser.validate_split(dataset_dir / splits[2])
-            if test_paths is None:
-                raise ValueError("Test split not in expected format")
-
-            if (
-                keypoint_ann_paths
-                and use_keypoint_ann
-                and dir_format == COCOFormat.FIFTYONE
-            ):
-                kp_path = dataset_dir / keypoint_ann_paths["test"]
-                if kp_path.exists():
-                    added_test_imgs = self._parse_split(
-                        image_dir=test_paths["image_dir"],
-                        annotation_path=kp_path,
-                    )
-                else:
-                    logger.warning(
-                        f"Keypoint annotation file not found: {kp_path}. "
-                        "Skipping test split."
-                    )
-                    added_test_imgs = []
-            else:
-                added_test_imgs = self._parse_split(
-                    image_dir=test_paths["image_dir"],
-                    annotation_path=test_paths["annotation_path"],
-                )
-            if len(added_test_imgs) == 0 and not split_val_to_test:
-                logger.warning(
-                    "Sampling from the test set cannot be done since the "
-                    "labels are missing. This is expected for COCO datasets "
-                    "where the test set annotations are not publicly available."
-                )
-
-        # If test split is empty (no test directory or no annotations), split val into val/test
-        if len(added_test_imgs) == 0 and split_val_to_test:
-            split_point = round(len(_added_val_imgs) * 0.5)
-            added_val_imgs = _added_val_imgs[:split_point]
-            added_test_imgs = _added_val_imgs[split_point:]
-        else:
-            added_val_imgs = _added_val_imgs
-
-        return added_train_imgs, added_val_imgs, added_test_imgs
+        if len(added_test_imgs) == 0 and split_val_to_test and added_val_imgs:
+            split_point = round(len(added_val_imgs) * 0.5)
+            split_definitions["val"] = added_val_imgs[:split_point]
+            split_definitions["test"] = added_val_imgs[split_point:]
+        elif (
+            len(added_test_imgs) == 0
+            and not split_val_to_test
+            and "test" in split_definitions
+        ):
+            logger.warning(
+                "Sampling from the test set cannot be done since the "
+                "labels are missing. This is expected for COCO datasets "
+                "where the test set annotations are not publicly available."
+            )
+        return split_definitions
 
     def from_split(
         self, image_dir: Path, annotation_path: Path
@@ -428,21 +391,13 @@ class COCOParser(BaseParser):
         keypoint_ann_paths: dict[str, str] | None = None,
         split_val_to_test: bool = True,
     ) -> dict[str, list[Path]]:
-        dir_format, splits = COCOParser._detect_dataset_dir_format(dataset_dir)
-        if dir_format is None:
-            raise ValueError("Dataset is not in any expected format.")
-
-        if dir_format is COCOFormat.ROBOFLOW:
-            logger.warning(
-                "Roboflow dataset format detected, following arguments won't be taken "
-                "into account: ['use_keypoint_ann', 'keypoint_ann_paths', 'split_val_to_test']."
+        dir_format, splits, keypoint_ann_paths = (
+            self._resolve_dir_format_and_keypoint_paths(
+                dataset_dir,
+                use_keypoint_ann=use_keypoint_ann,
+                keypoint_ann_paths=keypoint_ann_paths,
             )
-        elif use_keypoint_ann and not keypoint_ann_paths:
-            keypoint_ann_paths = {
-                "train": "raw/person_keypoints_train2017.json",
-                "val": "raw/person_keypoints_val2017.json",
-                "test": "raw/person_keypoints_test2017.json",
-            }
+        )
 
         split_definitions: dict[str, list[Path]] = {}
 
@@ -485,25 +440,9 @@ class COCOParser(BaseParser):
                 annotation_path=annotation_path,
             )
 
-        added_test_imgs = split_definitions.get("test", [])
-        added_val_imgs = split_definitions.get("val", [])
-
-        if len(added_test_imgs) == 0 and split_val_to_test and added_val_imgs:
-            split_point = round(len(added_val_imgs) * 0.5)
-            split_definitions["val"] = added_val_imgs[:split_point]
-            split_definitions["test"] = added_val_imgs[split_point:]
-        elif (
-            len(added_test_imgs) == 0
-            and not split_val_to_test
-            and "test" in split_definitions
-        ):
-            logger.warning(
-                "Sampling from the test set cannot be done since the "
-                "labels are missing. This is expected for COCO datasets "
-                "where the test set annotations are not publicly available."
-            )
-
-        return split_definitions
+        return self._finalize_split_definitions(
+            split_definitions, split_val_to_test
+        )
 
 
 def clean_annotations(annotation_path: Path) -> Path:
