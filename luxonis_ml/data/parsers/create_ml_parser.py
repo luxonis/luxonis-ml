@@ -6,6 +6,7 @@ from PIL import Image
 
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue
+from luxonis_ml.utils.path import resolve_manifest_path
 
 from .base_parser import BaseParser, ParserOutput
 
@@ -84,7 +85,9 @@ class CreateMLParser(BaseParser):
 
         images_annotations = []
         for annotations in annotations_data:
-            path = image_dir.absolute().resolve() / annotations["image"]
+            path = resolve_manifest_path(
+                image_dir.absolute().resolve(), annotations["image"]
+            )
             if not path.exists():
                 self._warn_skipped_annotation(
                     ParserIssue.MISSING_IMAGE,
