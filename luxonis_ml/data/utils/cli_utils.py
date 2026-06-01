@@ -114,11 +114,13 @@ def print_info(dataset: LuxonisDataset) -> None:
 
     splits = dataset.get_splits()
     source_names = dataset.get_source_names()
+    total_groups = len(dataset)
+    if source_names:
+        total_groups /= len(source_names)
 
     @group()
     def get_sizes_panel() -> Iterator[RenderableType]:
-        if splits is not None:
-            total_groups = len(dataset) / len(source_names)
+        if splits:
             for split, group in splits.items():
                 split_size = len(group)
                 percentage = (
