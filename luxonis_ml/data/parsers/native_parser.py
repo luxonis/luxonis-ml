@@ -5,6 +5,7 @@ from typing import Any
 
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.typing import PathType
+from luxonis_ml.utils.path import resolve_manifest_path
 
 from .base_parser import BaseParser, ParserOutput
 
@@ -63,22 +64,24 @@ class NativeParser(BaseParser):
             for record in data:
                 with suppress(KeyError):
                     if "file" in record:
-                        record["file"] = (
-                            annotation_path.parent / record["file"]
-                        ).absolute()
+                        record["file"] = resolve_manifest_path(
+                            annotation_path.parent, record["file"]
+                        )
                     elif "files" in record:
                         for key, value in record["files"].items():
                             if isinstance(value, PathType):
-                                record["files"][key] = (
-                                    annotation_path.parent / value
-                                ).absolute()
+                                record["files"][key] = resolve_manifest_path(
+                                    annotation_path.parent, value
+                                )
                 for mask_type in ["segmentation", "instance_segmentation"]:
                     with suppress(KeyError):
                         mask = record["annotation"][mask_type]["mask"]
                         if isinstance(mask, PathType):
                             record["annotation"][mask_type]["mask"] = (
-                                annotation_path.parent / mask
-                            ).absolute()
+                                resolve_manifest_path(
+                                    annotation_path.parent, mask
+                                )
+                            )
                 yield record
 
         added_images = self._get_added_images(generator())

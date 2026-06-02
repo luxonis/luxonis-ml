@@ -7,6 +7,7 @@ from defusedxml.ElementTree import parse
 
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue
+from luxonis_ml.utils.path import resolve_manifest_path
 
 from .base_parser import BaseParser, ParserOutput
 
@@ -78,8 +79,9 @@ class VOCParser(BaseParser):
             if root is None:
                 raise ValueError(f"Could not parse {anno_xml}")
 
-            path = image_dir.absolute().resolve() / self._xml_find(
-                root, "filename"
+            path = resolve_manifest_path(
+                image_dir.absolute().resolve(),
+                self._xml_find(root, "filename"),
             )
             if not path.exists():
                 self._warn_skipped_annotation(

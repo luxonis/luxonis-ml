@@ -7,6 +7,7 @@ import numpy as np
 from loguru import logger
 
 from luxonis_ml.data import DatasetIterator
+from luxonis_ml.utils.path import resolve_manifest_path
 
 from .base_parser import BaseParser, ParserOutput
 
@@ -144,7 +145,9 @@ class SOLOParser(BaseParser):
                         img_fname = capture["filename"]
                         img_w, img_h = capture["dimension"]
                         annotations = capture["annotations"]
-                        img_path = sequence_path / img_fname
+                        img_path = resolve_manifest_path(
+                            sequence_path, img_fname
+                        )
                         if not img_path.exists():
                             raise FileNotFoundError(
                                 f"{img_path} not existent."
@@ -167,8 +170,14 @@ class SOLOParser(BaseParser):
                                 ].add("SemanticSegmentationAnnotation")
 
                                 mask_fname = anno["filename"]
-                                mask_path = sequence_path / mask_fname
-                                mask = cv2.imread(mask_path)
+                                mask_path = resolve_manifest_path(
+                                    sequence_path, mask_fname
+                                )
+                                if not mask_path.exists():
+                                    raise FileNotFoundError(
+                                        f"{mask_path} not existent."
+                                    )
+                                mask = cv2.imread(str(mask_path))
 
                                 mask_int = (
                                     (mask[..., 0].astype(np.uint32) << 16)
@@ -243,8 +252,14 @@ class SOLOParser(BaseParser):
                                 ].add("InstanceSegmentationAnnotation")
 
                                 mask_fname = anno["filename"]
-                                mask_path = sequence_path / mask_fname
-                                mask = cv2.imread(mask_path)
+                                mask_path = resolve_manifest_path(
+                                    sequence_path, mask_fname
+                                )
+                                if not mask_path.exists():
+                                    raise FileNotFoundError(
+                                        f"{mask_path} not existent."
+                                    )
+                                mask = cv2.imread(str(mask_path))
 
                                 mask_int = (
                                     (mask[..., 0].astype(np.uint32) << 16)

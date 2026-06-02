@@ -14,6 +14,7 @@ from luxonis_ml.data.exporters.exporter_utils import (
     split_of_group,
 )
 from luxonis_ml.enums import DatasetType
+from luxonis_ml.utils.path import path_to_posix
 
 
 class NativeExporter(BaseExporter):
@@ -102,7 +103,7 @@ class NativeExporter(BaseExporter):
         ann_str = row["annotation"]
 
         source_to_file = {
-            name: str(
+            name: path_to_posix(
                 Path("images")
                 / f"{self.image_indices.setdefault(Path(f), len(self.image_indices))}{Path(f).suffix}"
             )

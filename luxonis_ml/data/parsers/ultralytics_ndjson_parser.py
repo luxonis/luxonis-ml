@@ -13,6 +13,10 @@ from luxonis_ml.data import BaseDataset, DatasetIterator
 from luxonis_ml.data.utils.enums import ParserIssue
 from luxonis_ml.data.utils.remote_file_downloader import RemoteFileDownloader
 from luxonis_ml.typing import PathType
+from luxonis_ml.utils.path import (
+    parse_manifest_path,
+    resolve_manifest_path,
+)
 
 from .base_parser import BaseParser, ParserOutput
 
@@ -368,10 +372,10 @@ class UltralyticsNDJSONParser(BaseParser):
                 remote_image_dir=remote_image_dir,
             )
 
-        file_path = Path(record["file"])
+        file_path = parse_manifest_path(record["file"])
         if file_path.is_absolute():
             return file_path.resolve()
-        return (ndjson_path.parent / file_path).resolve()
+        return resolve_manifest_path(ndjson_path.parent, record["file"])
 
     @classmethod
     def _download_image(
@@ -380,7 +384,7 @@ class UltralyticsNDJSONParser(BaseParser):
         *,
         remote_image_dir: Path,
     ) -> Path:
-        file_name = Path(record["file"])
+        file_name = parse_manifest_path(record["file"])
         url = record["url"]
         split_name = cls._normalize_split_name(record.get("split"))
         url_hash = hashlib.blake2s(
