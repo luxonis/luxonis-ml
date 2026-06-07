@@ -1,42 +1,36 @@
-import json
 import tarfile
 from pathlib import Path
-from typing import Annotated, TypeAlias
+from typing import Annotated
 
-import typer
+from cyclopts import App, Parameter
 from rich import print
 from rich.panel import Panel
 from rich.pretty import Pretty
 
 from luxonis_ml.nn_archive import Config
 
-app = typer.Typer()
+app = App(help="NN Archive utilities.", help_flags="--help")
 
 
-PathArgument: TypeAlias = Annotated[
-    str, typer.Argument(..., help="Path to the NN Archive.")
-]
-
-
-@app.command()
+@app.command
 def inspect(
-    path: PathArgument,
-    inputs: Annotated[
-        bool, typer.Option(..., "-i", "--inputs", help="Print inputs info.")
-    ] = False,
-    metadata: Annotated[
-        bool, typer.Option(..., "-m", "--metadata", help="Print metadata.")
-    ] = False,
-    outputs: Annotated[
-        bool, typer.Option(..., "-o", "--outputs", help="Print outputs info.")
-    ] = False,
-    heads: Annotated[
-        bool, typer.Option(..., "-h", "--heads", help="Print heads info.")
-    ] = False,
+    path: str,
+    *,
+    inputs: Annotated[bool, Parameter(alias="-i", negative="")] = False,
+    metadata: Annotated[bool, Parameter(alias="-m", negative="")] = False,
+    outputs: Annotated[bool, Parameter(alias="-o", negative="")] = False,
+    heads: Annotated[bool, Parameter(alias="-h", negative="")] = False,
 ):
-    """Prints NN Archive configuration.
+    """Print NN Archive configuration.
 
     If no options are provided, all info is printed.
+
+    Args:
+        path (str): Path to the NN Archive.
+        inputs (bool): Print inputs info.
+        metadata (bool): Print metadata.
+        outputs (bool): Print outputs info.
+        heads (bool): Print heads info.
     """
 
     with tarfile.open(path) as tar:
@@ -45,40 +39,46 @@ def inspect(
         if extracted_cfg is None:
             raise RuntimeError("Config JSON not found in the archive.")
 
-        archive_config = Config(**json.loads(extracted_cfg.read().decode()))
+        cfg = Config.model_validate_json(extracted_cfg.read())
 
     if not any([inputs, metadata, outputs, heads]):
         inputs = metadata = outputs = heads = True
 
     if metadata:
-        print(
-            Panel.fit(Pretty(archive_config.model.metadata), title="Metadata")
-        )
+        print(Panel.fit(Pretty(cfg.model.metadata), title="Metadata"))
     if heads:
-        print(Panel.fit(Pretty(archive_config.model.heads), title="Heads"))
+        print(Panel.fit(Pretty(cfg.model.heads), title="Heads"))
     if inputs:
-        print(Panel.fit(Pretty(archive_config.model.inputs), title="Inputs"))
+        print(Panel.fit(Pretty(cfg.model.inputs), title="Inputs"))
     if outputs:
-        print(Panel.fit(Pretty(archive_config.model.outputs), title="Outputs"))
+        print(Panel.fit(Pretty(cfg.model.outputs), title="Outputs"))
 
 
-@app.command()
+@app.command
 def extract(
-    path: PathArgument,
+    path: Path,
     destination: Annotated[
-        str,
-        typer.Option(
-            "-d", "--dest", help="Path where to extract the Archive."
+        Path | None,
+        Parameter(
+            name="--dest",
+            alias="-d",
         ),
-    ] = ".",
+    ] = None,
 ):
-    """Extracts NN Archive.
+    """Extract an NN Archive.
 
     Extracts the NN Archive to the destination path. By default, the
     Archive is extracted to the current working directory.
+
+    Args:
+        path (str): Path to the NN Archive.
+        destination (str): Path where to extract the Archive.
+            If not provided, the Archive is extracted to the current
+            working directory.
     """
 
-    extract_path = Path(destination) / (Path(path).name.split(".")[0])
+    destination = destination or Path.cwd()
+    extract_path = destination / path.name.split(".")[0]
     extract_path.mkdir(exist_ok=True, parents=True)
 
     def safe_members(tar: tarfile.TarFile) -> list[tarfile.TarInfo]:
@@ -89,11 +89,11 @@ def extract(
             if not member.name.startswith("/") and ".." not in member.name:
                 safe_files.append(member)
             else:
-                typer.echo(f"Skipping unsafe file: {member.name}")
+                print(f"Skipping unsafe file: {member.name}")
         return safe_files
 
     with tarfile.open(path) as tf:
         for member in safe_members(tf):
             tf.extract(member, extract_path)
 
-    typer.echo(f"Archive extracted to: {extract_path}")
+    print(f"Archive extracted to: {extract_path}")

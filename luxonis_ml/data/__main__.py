@@ -1,12 +1,12 @@
 import shutil
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, TypeAlias
 
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import rich.box
-import typer
+from cyclopts import App, Parameter
 from loguru import logger
 from rich import print
 from rich.console import Console
@@ -41,101 +41,110 @@ from luxonis_ml.data.utils.visualizations import (
 )
 from luxonis_ml.enums import DatasetType
 
-app = typer.Typer()
-
-DatasetNameArgument = Annotated[
-    str,
-    typer.Argument(
-        ...,
-        help="Name of the dataset.",
-        autocompletion=complete_dataset_name,
-        show_default=False,
-    ),
-]
-
-bucket_option = typer.Option(
-    "local",
-    "--bucket-storage",
-    "-b",
-    help="Storage type for the dataset.",
-)
+app = App(help="Dataset utilities.")
 
 
-@app.command()
+
+BucketStorageT: TypeAlias = Annotated[BucketStorage, Parameter(alias="-b")]
+DatasetT: TypeAlias = Annotated[str, complete_dataset_name]
+
+
+@app.command
 def info(
-    name: DatasetNameArgument,
-    bucket_storage: BucketStorage = bucket_option,
+    name: DatasetT,
+    *,
+    bucket_storage: BucketStorageT = BucketStorage.LOCAL,
 ):
-    """Prints information about a dataset."""
+    """Print information about a dataset.
+
+    Args:
+        name (str): Name of the dataset.
+        bucket_storage (BucketStorage): Storage type of the dataset.
+    """
     check_exists(name, bucket_storage)
     print_info(LuxonisDataset(name, bucket_storage=bucket_storage))
 
 
-@app.command()
+@app.command(alias=["rm", "remove"])
 def delete(
-    name: DatasetNameArgument,
-    bucket_storage: BucketStorage = bucket_option,
-    local: bool = typer.Option(
-        False,
-        "--local/--no-local",
-        help="Delete the dataset from local storage.",
-    ),
-    remote: bool = typer.Option(
-        False,
-        "--remote/--no-remote",
-        help="Delete the dataset from remote storage.",
-    ),
+    *names: DatasetT,
+    bucket_storage: BucketStorageT = BucketStorage.LOCAL,
+    local: Annotated[
+        bool,
+        Parameter(alias="-l", negative=""),
+    ] = False,
+    remote: Annotated[
+        bool,
+        Parameter(alias="-r", negative=""),
+    ] = False,
+    yes: Annotated[bool, Parameter(alias="-y", negative="")] = False,
 ):
-    """Deletes a dataset from local storage or remote storage (or both),
-    based on which options are passed."""
-    check_exists(name, bucket_storage)
+    """Delete a dataset from local storage, remote storage, or both.
 
-    if bucket_storage is BucketStorage.LOCAL and remote:
+    Args:
+        names (str): Name(s) of the dataset to delete.
+        bucket_storage (BucketStorage): Storage type of the dataset.
+        local (bool): If True, delete the dataset from local storage.
+        remote (bool): If True, delete the dataset from remote storage.
+        yes (bool): If True, skip confirmation prompt and delete immediately.
+    """
+    if not local and not remote:
         print(
-            "[yellow]Warning: You specified remote deletion, but the bucket is local. "
-            "Remote deletion will not be performed.[/yellow]"
+            "[red]No deletion target specified (local or remote). "
+            "Nothing to delete.[/red]"
         )
-        remote = False
+        raise SystemExit(1)
 
-    where = " and ".join(
-        filter(None, ["local" if local else "", "remote" if remote else ""])
-    )
+    for name in names:
+        check_exists(name, bucket_storage)
 
-    if not where:
-        print(
-            "[red]No deletion target specified (local or remote). Nothing to delete.[/red]"
+        if bucket_storage is BucketStorage.LOCAL and remote:
+            print(
+                "[yellow]Warning: You specified remote deletion, "
+                "but the bucket is local. "
+                "Remote deletion will not be performed.[/yellow]"
+            )
+            remote = False
+
+        storage = (
+            "local and remote"
+            if local and remote
+            else "local"
+            if local
+            else "remote"
         )
-        raise typer.Exit(1)
+        if not yes and not Confirm.ask(
+            f"Delete dataset '{name}' with specified bucket "
+            f"'{bucket_storage}' from {storage} storage?"
+        ):
+            continue
 
-    if not Confirm.ask(
-        f"Delete dataset '{name}' with specified bucket '{bucket_storage}' from {where} storage?"
-    ):
-        raise typer.Exit
-
-    dataset = LuxonisDataset(
-        name,
-        bucket_storage=bucket_storage,
-        delete_local=local,
-        delete_remote=remote,
-    )
-    dataset.delete_dataset(delete_local=local)
-
-    print(
-        f"Dataset '{name}' deleted from: "
-        f"{'local ' if local else ''}"
-        f"{'remote ' if remote else ''}"
-        f"storage."
-    )
+        dataset = LuxonisDataset(
+            name,
+            bucket_storage=bucket_storage,
+            delete_local=local,
+            delete_remote=remote,
+        )
+        dataset.delete_dataset(delete_local=local)
+        print(f"Dataset '{name}' deleted from {storage} storage.")
 
 
-@app.command()
+@app.command
 def ls(
-    full: bool = typer.Option(
-        False, "--full", "-f", help="Show full information."
-    ),
-    bucket_storage: BucketStorage = bucket_option,
+    *,
+    full: Annotated[
+        bool,
+        Parameter(alias="-f"),
+    ] = False,
+    bucket_storage: BucketStorageT = BucketStorage.LOCAL,
 ):
-    """Lists all datasets."""
+    """List datasets.
+
+    Args:
+        full (bool): If True, show full information about each dataset,
+            including classes and tasks.
+        bucket_storage (BucketStorage): Storage type of the dataset.
+    """
     datasets = LuxonisDataset.list_datasets(bucket_storage=bucket_storage)
     table = Table(
         title="Datasets" + (" - Full Table" if full else ""),
@@ -168,120 +177,71 @@ def ls(
     console.print(table)
 
 
-@app.command()
+@app.command
 def inspect(
-    name: DatasetNameArgument,
-    view: Annotated[
-        list[str] | None,
-        typer.Option(
-            ...,
-            "--view",
-            "-v",
-            help="Which splits of the dataset to inspect.",
-            case_sensitive=False,
-            show_default=False,
-        ),
-    ] = None,
+    name: DatasetT,
+    *,
+    view: Annotated[list[str] | None, Parameter(alias="-v")] = None,
     aug_config: Annotated[
-        str | None,
-        typer.Option(
-            ...,
-            "--aug-config",
-            "-a",
-            help="Path to a config defining augmentations. "
-            "This can be either a json or a yaml file.",
-            metavar="PATH",
-            show_default=False,
+        Path | None,
+        Parameter(
+            alias="-a",
+            validator=validators.Path(
+                exists=True, ext={".json", ".yaml", ".yml"}
+            ),
         ),
     ] = None,
     size_multiplier: Annotated[
         float,
-        typer.Option(
-            ...,
-            "--size-multiplier",
-            "-s",
-            help=(
-                "Multiplier for the image size. "
-                "By default the images are shown in their original size."
-            ),
-            show_default=False,
-        ),
+        Parameter(alias="-s"),
     ] = 1.0,
     ignore_aspect_ratio: Annotated[
         bool,
-        typer.Option(
-            ...,
-            "--ignore-aspect-ratio",
-            "-i",
-            help="Don't keep the aspect ratio when resizing images.",
-        ),
+        Parameter(alias="-i", negative=""),
     ] = False,
     deterministic: Annotated[
         bool,
-        typer.Option(
-            ...,
-            "--deterministic",
-            "-d",
-            help="Deterministic mode. Useful for debugging.",
-        ),
+        Parameter(alias="-d", negative=""),
     ] = False,
     force_update: Annotated[
         bool,
-        typer.Option(
-            ...,
-            "--force-update",
-            "-f",
-            help="Force synchronization of the dataset with the "
-            "remote storage. Only relevant for remote datasets.",
-        ),
+        Parameter(alias="-f", negative=""),
     ] = False,
     blend_all: Annotated[
         bool,
-        typer.Option(
-            ...,
-            "--blend-all",
-            "-b",
-            help="Whether to draw labels belonging "
-            "to different tasks on the same image. "
-            "Doesn't apply to semantic segmentations.",
-        ),
+        Parameter(alias="-b", negative=""),
     ] = False,
     per_instance: Annotated[
         bool,
-        typer.Option(
-            ...,
-            "--per-instance",
-            "-pi",
-            help="Show each label instance in a separate window.",
-        ),
+        Parameter(alias="-pi", negative=""),
     ] = False,
     list_augmentations: Annotated[
         bool,
-        typer.Option(
-            ...,
-            "--list-augmentations",
-            help=(
-                "Show the augmentations applied to each displayed image "
-                "in the footer. Requires --aug-config."
-            ),
-        ),
+        Parameter(negative=""),
     ] = False,
-    bucket_storage: BucketStorage = bucket_option,
+    bucket_storage: BucketStorageT = BucketStorage.LOCAL,
 ):
-    """Inspects images and annotations in a dataset."""
-    if aug_config is not None:
-        aug_config_path = Path(aug_config)
-        if aug_config_path.suffix.lower() not in {".yaml", ".yml", ".json"}:
-            raise typer.BadParameter(
-                "--aug-config must point to an augmentation YAML or JSON file.",
-                param_hint="--aug-config",
-            )
-        if not aug_config_path.is_file():
-            raise typer.BadParameter(
-                f"Augmentation config '{aug_config}' does not exist.",
-                param_hint="--aug-config",
-            )
+    """Inspect images and annotations in a dataset.
 
+    Args:
+        name (str): Name of the dataset to inspect.
+        view (list[str], optional): Which splits of the dataset to inspect.
+            If not provided, the "train" split will be inspected by default.
+        aug_config (str, optional): Path to a JSON or YAML config defining
+            augmentations to apply when inspecting the dataset.
+            If not provided, no augmentations will be applied.
+        size_multiplier (float): Multiplier for the displayed image size.
+        ignore_aspect_ratio (bool): Do not keep the aspect ratio when
+            resizing images.
+        deterministic (bool): Use deterministic augmentation mode.
+        force_update (bool): Force synchronization with remote storage first.
+        blend_all (bool): Draw labels belonging to different tasks on the
+            same image.
+        per_instance (bool): Show each label instance in a separate window.
+        list_augmentations (bool): Show the augmentations applied to each
+            displayed image. Requires --aug-config to be set.
+        bucket_storage (BucketStorage): Storage type of the dataset.
+    """
     check_exists(name, bucket_storage)
 
     view = view or ["train"]
@@ -319,7 +279,7 @@ def inspect(
             get_applied_augmentations = list
         elif loader.augmentations is not None:
             collector = AugmentationsCollector(
-                loader.augmentations, Path(aug_config)
+                loader.augmentations, aug_config
             )
             get_applied_augmentations = collector.get_applied_augmentations
         else:
@@ -425,199 +385,188 @@ def inspect(
             break
 
 
-@app.command()
+@app.command
 def export(
-    dataset_name: DatasetNameArgument,
+    name: DatasetT,
+    *,
     save_dir: Annotated[
         str | None,
-        typer.Option(
-            ...,
-            "--save-dir",
-            "-s",
-            help="Directory where the dataset should be saved. "
-            "If not provided, the dataset will be saved in the "
-            "current working directory under the name of the dataset.",
-            show_default=False,
-        ),
+        Parameter(alias="-s"),
     ] = None,
     dataset_type: Annotated[
         DatasetType,
-        typer.Option(
-            ...,
-            "--type",
-            "-t",
-            help="Format of the exported dataset",
-            show_default=False,
+        Parameter(
+            name="--type",
+            alias="-t",
         ),
-    ] = "native",  # type: ignore
+    ] = DatasetType.NATIVE,
     delete_existing: Annotated[
         bool,
-        typer.Option(
-            ...,
-            "--delete",
-            "-d",
-            help="Delete an existing `save_dir` before exporting.",
+        Parameter(
+            name="--delete",
+            alias="-d",
+            negative="",
         ),
     ] = False,
     max_partition_size_gb: Annotated[
         float | None,
-        typer.Option(
-            ...,
-            "--max-partition-size-gb",
-            "-m",
-            help=(
-                "Maximum size of each partition in GB. If the dataset"
-                " exceeds this size, it will be split into multiple partitions named {dataset_name}_part{partition_number}."
-                " Default is None, meaning the dataset will be exported as a single partition named {dataset_name}."
-            ),
-            show_default=False,
-        ),
+        Parameter(alias="-m"),
     ] = None,
-    no_zip: Annotated[
-        bool,
-        typer.Option(
-            "--no-zip",
-            help="Skip zipping the exported dataset. By default, the dataset (or each partition) will be zipped.",
-        ),
-    ] = False,
-    bucket_storage: BucketStorage = bucket_option,
+    zip: bool = True,
+    bucket_storage: BucketStorageT = BucketStorage.LOCAL,
 ):
-    """Export a Luxonis dataset to disk in native format, with optional
-    partitioning and zip compression for flexible storage."""
-    save_dir = save_dir or dataset_name
+    """Export a Luxonis dataset to disk.
+
+    Args:
+        dataset_name (str): Name of the dataset to export.
+        save_dir (str, optional): Directory where the exported dataset will be
+            saved. If not provided, a directory with the same name as the
+            dataset will be created in the current working directory.
+        dataset_type (DatasetType): Format of the exported dataset.
+        delete_existing (bool): If True, delete any existing directory at
+            the save location before exporting.
+        max_partition_size_gb (float, optional): Maximum size of each
+            partition in GB. If not provided, no partitioning will be done.
+        zip (bool): If True, the exported dataset will be zipped into a
+            single archive. If False, the dataset will be exported as a
+            directory with the specified structure.
+        bucket_storage (BucketStorage): Storage type of the dataset.
+    """
+    save_dir = save_dir or name
     if delete_existing and Path(save_dir).exists():
         shutil.rmtree(save_dir)
-    dataset = LuxonisDataset(dataset_name, bucket_storage=bucket_storage)
-    dataset.export(save_dir, dataset_type, max_partition_size_gb, not no_zip)
+    dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
+    dataset.export(save_dir, dataset_type, max_partition_size_gb, zip)
 
 
-@app.command()
+@app.command
 def parse(
-    dataset_dir: Annotated[
-        str, typer.Argument(..., help="Path or URL to the dataset.")
+    dataset: Annotated[
+        str,
+        Parameter(alias="--dataset-dir"),
     ],
+    *,
     name: Annotated[
         str | None,
-        typer.Option(
-            ...,
-            "--name",
-            "-n",
-            autocompletion=complete_dataset_name,
-            help="Name of the dataset.",
-            show_default=False,
-        ),
+        Parameter(alias="-n"),
     ] = None,
     dataset_type: Annotated[
         DatasetType | None,
-        typer.Option(
-            ...,
-            "--type",
-            "-t",
-            help="Type of the dataset. If not provided, "
-            "the parser will try to recognize it automatically.",
-            show_default=False,
+        Parameter(
+            name="--type",
+            alias="-t",
         ),
     ] = None,
     delete_local: Annotated[
         bool,
-        typer.Option(
-            ...,
-            "--delete",
-            "-d",
-            help="If an existing local dataset with the same name should "
-            "be deleted before parsing.",
+        Parameter(
+            name="--delete",
+            alias="-d",
+            negative="",
         ),
     ] = False,
     save_dir: Annotated[
         Path | None,
-        typer.Option(
-            ...,
-            "--save-dir",
-            "-s",
-            help="If a remote URL is provided in 'dataset_dir', "
-            "the dataset will be downloaded to this directory. "
-            "Otherwise, the dataset will be downloaded to the "
-            "current working directory.",
-            show_default=False,
-        ),
+        Parameter(alias="-s"),
     ] = None,
     task_name: Annotated[
         str | None,
-        typer.Option(
-            ...,
-            "--task-name",
-            "-tn",
-            help="Name of the task that should be used with this dataset. "
-            "If not provided, the name of the dataset format will be used.",
-            show_default=False,
-        ),
+        Parameter(alias="-tn"),
     ] = None,
     split_ratio: Annotated[
         str | None,
-        typer.Option(
-            ...,
-            "--split-ratio",
-            "-sr",
-            help="Split specification for train,val,test as a Python list. "
-            "Two modes: (1) Percentages like '[0.8, 0.1, 0.1]' must sum to 1.0 and will "
-            "redistribute/shuffle all samples across splits. (2) Raw counts like "
-            "'[1000, 100, 50]' will sample from each original split independently "
-            "(no cross-split redistribution).",
-            show_default=False,
-        ),
+        Parameter(alias="-sr"),
     ] = None,
+    train: float | None = None,
+    val: float | None = None,
+    test: float | None = None,
+    bucket_storage: BucketStorageT = BucketStorage.LOCAL,
 ):
-    """Parses a directory with data and creates Luxonis dataset."""
-    split_ratios = parse_split_ratio(split_ratio)
+    """Parse a directory with data and create a Luxonis dataset.
 
+    Args:
+        dataset (str): Path or URL to the dataset.
+        name (str, optional): Name of the dataset.
+            If not provided, the directory name will be used.
+        dataset_type (DatasetType, optional): Type of the dataset.
+            If not provided, the parser will attempt to detect it.
+        delete_local (bool): If True, delete any existing local
+            dataset with the same name before parsing.
+        save_dir (str, optional): If dataset_dir is a remote URL,
+            this is the local directory where the dataset will
+            be downloaded before parsing. If not provided,
+            the dataset will be downloaded to the current working directory.
+        task_name (str, optional): Task name to use for all records
+            parsed from this dataset.
+        split_ratio (str, optional): A string representation of a Python list
+            specifying the split ratios for train, val, and test sets.
+            Deprecated in favor of ``--train``,
+            ``--val``, and ``--test`` options.
+        train (float, optional): Ratio or count of records to assign
+            to the training set. Can be used together with
+            ``--val`` and ``--test``. If only some of these options
+            are provided, the remaining split(s) receive an equal share
+            of the leftover records (only supported for ratios, not counts).
+        val (float, optional): Ratio or count of records to assign
+            to the validation set.
+        test (float, optional): Ratio or count of records to assign
+            to the test set.
+    """
     parser = LuxonisParser(
-        dataset_dir,
+        dataset,
         dataset_name=name,
         dataset_type=dataset_type,
         delete_local=delete_local,
         save_dir=save_dir,
         task_name=task_name,
+        bucket_storage=bucket_storage,
     )
-    dataset = parser.parse(split_ratios=split_ratios)
 
     print()
     print(Rule())
     print()
-    print_info(dataset)
+    print_info(
+        parser.parse(
+            split_ratios=parse_split_ratio(split_ratio, train, val, test)
+        )
+    )
 
 
-@app.command()
+@app.command
 def health(
-    name: DatasetNameArgument,
-    view: str | None = typer.Option(
-        None,
-        "--view",
-        "-v",
-        help="Which splits of the dataset to inspect. If not provided, all dataset will be used.",
-        show_default=False,
-    ),
-    sample_size: int | None = typer.Option(
-        None,
-        "--sample-size",
-        "-n",
-        help="Number of annotation rows to sample from the dataset. Note that each task type annotation is in a separate row.",
-        show_default=False,
-    ),
-    save_dir: str | None = typer.Option(
-        None,
-        "--save-dir",
-        "-s",
-        help="Directory where the plots should be saved. "
-        "If not provided, the plots will be displayed.",
-        show_default=False,
-    ),
-    bucket_storage: BucketStorage = bucket_option,
+    name: DatasetT,
+    *,
+    view: Annotated[
+        str | None,
+        Parameter(alias="-v"),
+    ] = None,
+    sample_size: Annotated[
+        int | None,
+        Parameter(alias="-n"),
+    ] = None,
+    save_dir: Annotated[
+        str | None,
+        Parameter(alias="-s"),
+    ] = None,
+    bucket_storage: BucketStorageT = BucketStorage.LOCAL,
 ):
-    """Plots class distributions and heatmaps for every task type and
+    """Plot class distributions and heatmaps for every task type and
     corresponding task name in the dataset.
 
     Also checks for files with missing annotations, files that share the
     same UUIDs, and files with duplicate annotations.
+
+    Args:
+        name (str): Name of the dataset to inspect.
+        view (str, optional): Which split of the dataset to inspect.
+            If not provided, all splits will be inspected.
+        sample_size (int, optional): Number of annotation rows to sample
+            from the dataset for calculating statistics and plots.
+            If not provided, all annotations will be used.
+        save_dir (str, optional): Directory where the generated plots
+            will be saved. If not provided, the plots will be displayed
+            interactively instead of being saved.
+        bucket_storage (BucketStorage): Storage type of the dataset.
     """
     check_exists(name, bucket_storage)
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
@@ -701,7 +650,8 @@ def health(
     if missing_annotations or duplicate_uuids or duplicate_annotations:
         console.print(
             "[bold red]Dataset is unhealthy![/bold red] "
-            "Run [green]luxonis_ml data sanitize[/green] to automatically remove duplicates and missing entries."
+            "Run [green]luxonis_ml data sanitize[/green] "
+            "to automatically remove duplicates and missing entries."
         )
 
     all_task_names = sorted(
@@ -757,81 +707,89 @@ def health(
                 plt.close(fig)
 
 
-@app.command()
+@app.command
 def push(
-    name: DatasetNameArgument,
-    force_update: Annotated[
+    name: DatasetT,
+    *,
+    bucket_storage: BucketStorage,
+    force: Annotated[
         bool,
-        typer.Option(
-            ...,
-            "--force-update",
-            "-f",
-            help="Force pushing all media files, even if they already exist in the cloud. Annotations and metadata will always be pushed.",
-        ),
+        Parameter(alias="-f", negative=""),
     ] = False,
-    target_bucket_storage: BucketStorage = bucket_option,
 ):
-    """Push a local dataset to cloud storage."""
+    """Push a local dataset to cloud storage.
+
+    Args:
+        name (str): Name of the dataset to push.
+        bucket_storage (BucketStorage): Cloud storage type to push to.
+            Cannot be LOCAL.
+        force (bool): If True, push all media files even
+            if they already exist in the target cloud storage.
+    """
     check_exists(name, BucketStorage.LOCAL)
     dataset = LuxonisDataset(name, bucket_storage=BucketStorage.LOCAL)
 
-    if target_bucket_storage == BucketStorage.LOCAL:
+    if bucket_storage == BucketStorage.LOCAL:
         print(
             "[red]Cannot push to LOCAL storage. Please specify a cloud target."
         )
-        raise typer.Exit(1)
+        raise SystemExit(1)
 
     if LuxonisDataset.exists(
-        name, bucket_storage=target_bucket_storage
+        name, bucket_storage=bucket_storage
     ) and not Confirm.ask(
-        f"Dataset '{name}' already exists in {target_bucket_storage} bucket. If you are unsure about the dataset, please delete it from the cloud storage and try again. Do you want to overwrite it?"
+        f"Dataset '{name}' already exists in {bucket_storage} bucket. "
+        "If you are unsure about the dataset, please delete it from "
+        "the cloud storage and try again. Do you want to overwrite it?"
     ):
-        raise typer.Exit
+        raise SystemExit
 
-    print(
-        f"Pushing dataset '{name}' to {target_bucket_storage.value} storage..."
-    )
+    print(f"Pushing dataset '{name}' to {bucket_storage.value} storage...")
 
-    update_mode = UpdateMode.ALL if force_update else UpdateMode.MISSING
+    update_mode = UpdateMode.ALL if force else UpdateMode.MISSING
     dataset.push_to_cloud(
-        bucket_storage=target_bucket_storage, update_mode=update_mode
+        bucket_storage=bucket_storage, update_mode=update_mode
     )
 
     print(
-        f"[green]Dataset '{name}' successfully pushed to {target_bucket_storage.value}."
+        f"[green]Dataset '{name}' successfully pushed to {bucket_storage.value}."
     )
 
 
-@app.command()
+@app.command
 def pull(
-    name: DatasetNameArgument,
-    force_update: Annotated[
+    name: DatasetT,
+    *,
+    force: Annotated[
         bool,
-        typer.Option(
-            ...,
-            "--force-update",
-            "-f",
-            help="Force pulling all media files, even if they already exist locally.",
-        ),
+        Parameter(alias="-f", negative=""),
     ] = False,
-    bucket_storage: BucketStorage = bucket_option,
+    bucket_storage: BucketStorageT = BucketStorage.LOCAL,
 ):
-    """Pull a remote dataset to local storage."""
+    """Pull a remote dataset to local storage.
+
+    Args:
+        name (str): Name of the dataset to pull.
+        force (bool): If True, pull all media files even
+            if they already exist locally.
+        bucket_storage (BucketStorage): Cloud storage type to pull from.
+            Cannot be LOCAL.
+    """
     if bucket_storage == BucketStorage.LOCAL:
         print(
             "[red]Cannot pull from LOCAL storage. Please specify a cloud source."
         )
-        raise typer.Exit(1)
+        raise SystemExit(1)
 
     if not LuxonisDataset.exists(name, bucket_storage=bucket_storage):
         print(
             f"[red]Dataset '{name}' does not exist in {bucket_storage.value} storage."
         )
-        raise typer.Exit
+        raise SystemExit
 
     print(f"Pulling dataset '{name}' from {bucket_storage.value} storage...")
 
-    update_mode = UpdateMode.ALL if force_update else UpdateMode.MISSING
+    update_mode = UpdateMode.ALL if force else UpdateMode.MISSING
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
     dataset.pull_from_cloud(update_mode=update_mode)
 
@@ -840,50 +798,37 @@ def pull(
     )
 
 
-@app.command()
+@app.command
 def clone(
-    name: DatasetNameArgument,
-    new_name: Annotated[
-        str,
-        typer.Argument(
-            ..., help="Name of the new dataset.", show_default=False
-        ),
-    ],
-    push_to_cloud: Annotated[
+    name: DatasetT,
+    new_name: DatasetT,
+    *,
+    push: Annotated[
         bool,
-        typer.Option(
-            "--push/--no-push",
-            help="Whether to upload the newly cloned remote dataset back to cloud storage.",
-            show_default=True,
-        ),
+        Parameter(alias="-p", negative=""),
     ] = True,
-    bucket_storage: BucketStorage = bucket_option,
-    splits_to_clone: Annotated[
-        str | None,
-        typer.Option(
-            "--split",
-            "-s",
-            help=(
-                "Comma separated list of split names to clone, "
-                "e.g. `-s val,test` or just `-s train`. "
-                "If omitted, clones all splits."
-            ),
-            show_default=False,
-        ),
+    bucket_storage: BucketStorageT = BucketStorage.LOCAL,
+    splits: Annotated[
+        list[str] | None,
+        Parameter(alias="-s"),
     ] = None,
     team_id: Annotated[
         str | None,
-        typer.Option(
-            "--team-id",
-            "-t",
-            help="Team ID to use for the new dataset. If not provided, the dataset's current team ID will be used.",
-            show_default=False,
-        ),
+        Parameter(alias="-t"),
     ] = None,
 ):
     """Clone an existing dataset with a new name.
 
     Optionally push it to cloud storage if it is a remote dataset.
+
+    Args:
+        name (str): Name of the source dataset to clone.
+        new_name (str): Name of the new cloned dataset.
+        push (bool): If True, upload the newly cloned dataset to cloud storage.
+        bucket_storage (BucketStorage): Storage type of the source dataset.
+        splits (str, optional): List of split names to clone.
+            If not provided, all splits will be cloned.
+        team_id (str, optional): Team ID to use for the new dataset.
     """
 
     check_exists(name, bucket_storage)
@@ -893,96 +838,74 @@ def clone(
     ) and not Confirm.ask(
         f"Dataset '{new_name}' already exists locally. Overwrite it?"
     ):
-        raise typer.Exit
-
-    if splits_to_clone:
-        split_list = [
-            s.strip() for s in splits_to_clone.split(",") if s.strip()
-        ]
-    else:
-        split_list = None
+        raise SystemExit
 
     print(f"Cloning dataset '{name}' to '{new_name}'...")
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
     dataset.clone(
         new_dataset_name=new_name,
-        push_to_cloud=push_to_cloud,
-        splits_to_clone=split_list,
+        push_to_cloud=push,
+        splits_to_clone=splits,
         team_id=team_id,
     )
     print(f"[green]Dataset '{name}' successfully cloned to '{new_name}'.")
 
 
-@app.command()
+@app.command
 def merge(
-    source_name: Annotated[
-        str,
-        typer.Argument(
-            ...,
-            help="Name of the source dataset.",
-            autocompletion=complete_dataset_name,
-        ),
-    ],
-    target_name: Annotated[
-        str,
-        typer.Argument(
-            ...,
-            help="Name of the target dataset.",
-            autocompletion=complete_dataset_name,
-        ),
-    ],
+    source_name: DatasetT,
+    target_name: DatasetT,
     new_name: Annotated[
         str | None,
-        typer.Option(
-            ...,
-            "--new-name",
-            "-n",
-            help="Name for the new merged dataset. If not provided, will merge into the target dataset.",
-            show_default=False,
-        ),
+        Parameter(alias="-n"),
     ] = None,
     splits_to_merge: Annotated[
         str | None,
-        typer.Option(
-            "--split",
-            "-s",
-            help=(
-                "Comma separated list of split names to merge, "
-                "e.g. `-s val,test` or just `-s train`. "
-                "If omitted, merges all splits."
-            ),
-            show_default=False,
+        Parameter(
+            name="--split",
+            alias="-s",
         ),
     ] = None,
-    bucket_storage: BucketStorage = bucket_option,
+    bucket_storage: BucketStorageT = BucketStorage.LOCAL,
     team_id: Annotated[
         str | None,
-        typer.Option(
-            "--team-id",
-            "-t",
-            help="Team ID to use for the new dataset. If not provided, the dataset's current team ID will be used.",
-            show_default=False,
-        ),
+        Parameter(alias="-t"),
     ] = None,
 ):
-    """Merge two datasets stored in the same type of bucket."""
+    """Merge two datasets stored in the same type of bucket.
+
+    Args:
+        source_name (str): Name of the source dataset to merge from.
+        target_name (str): Name of the target dataset to merge into.
+        new_name (str, optional): If
+            provided, the name of the new merged dataset.
+            If not provided, the source dataset will be
+            merged into the target dataset in place.
+        splits_to_merge (str, optional): Comma-separated list of split
+            names to merge. If not provided, all splits will be merged.
+        bucket_storage (BucketStorage): Storage type for both datasets.
+        team_id (str, optional): Team ID to use for the new dataset.
+            If not provided, the team ID of the target dataset will be used.
+    """
     check_exists(source_name, bucket_storage)
     check_exists(target_name, bucket_storage)
 
     inplace = new_name is None
     if inplace and not Confirm.ask(
-        f"This will merge dataset '{source_name}' into '{target_name}'. Continue?"
+        f"This will merge dataset '{source_name}' "
+        f"into '{target_name}'. Continue?"
     ):
-        raise typer.Exit
+        raise SystemExit
 
     if (
         not inplace
         and LuxonisDataset.exists(new_name, bucket_storage=bucket_storage)
         and not Confirm.ask(
-            f"Dataset '{new_name}' already exists in {bucket_storage.value} bucket. Overwrite it?"
+            f"Dataset '{new_name}' already exists in "
+            f"{bucket_storage.value} bucket. Overwrite it?"
         )
     ):
-        raise typer.Exit
+        raise SystemExit
 
     if splits_to_merge:
         split_list = [
@@ -994,10 +917,8 @@ def merge(
     source_dataset = LuxonisDataset(source_name, bucket_storage=bucket_storage)
     target_dataset = LuxonisDataset(target_name, bucket_storage=bucket_storage)
 
-    operation = "into" if inplace else "creating new dataset"
-    print(
-        f"Merging dataset '{source_name}' with '{target_name}', {operation}..."
-    )
+    operation = "in place" if inplace else ""
+    print(f"Merging dataset '{source_name}' with '{target_name}' {operation}")
 
     _ = target_dataset.merge_with(
         source_dataset,
@@ -1009,21 +930,28 @@ def merge(
 
     if inplace:
         print(
-            f"[green]Dataset '{source_name}' successfully merged into '{target_name}'."
+            f"[green]Dataset '{source_name}' "
+            f"successfully merged into '{target_name}'."
         )
     else:
         print(
-            f"[green]Datasets merged successfully into new dataset '{new_name}'."
+            f"[green]Datasets merged successfully "
+            f"into new dataset '{new_name}'."
         )
 
 
-@app.command()
+@app.command
 def sanitize(
-    name: DatasetNameArgument,
-    bucket_storage: BucketStorage = bucket_option,
+    name: DatasetT,
+    bucket_storage: BucketStorageT = BucketStorage.LOCAL,
 ):
     """Remove duplicate annotations and duplicate files from the
-    dataset."""
+    dataset.
+
+    Args:
+        name (str): Name of the dataset to sanitize.
+        bucket_storage (BucketStorage): Storage type of the dataset.
+    """
     check_exists(name, bucket_storage)
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
     dataset.remove_duplicates()
