@@ -57,7 +57,7 @@ def ls(
         Parameter(alias="-r", negative=""),
     ] = False,
     typ: Annotated[
-        Literal["file", "dir", "all"],
+        Literal["file", "directory", "all"],
         Parameter(
             name=["--type", "-t"],
         ),
@@ -70,10 +70,6 @@ def ls(
         recursive (bool): Whether to list files recursively.
         typ (str): Type of files to list.
     """
-    if not url.endswith("://"):
-        url = url.rstrip("/")
-    print(url)
-    fs = LuxonisFileSystem(url)
-    print(fs.url)
+    fs = LuxonisFileSystem(url.rstrip("/"))
     for file in fs.walk_dir("", recursive=recursive, typ=typ):
         print(file)
