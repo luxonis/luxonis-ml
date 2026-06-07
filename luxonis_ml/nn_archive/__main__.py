@@ -1,3 +1,4 @@
+import json
 import tarfile
 from pathlib import Path
 from typing import Annotated
@@ -20,6 +21,7 @@ def inspect(
     metadata: Annotated[bool, Parameter(alias="-m", negative="")] = False,
     outputs: Annotated[bool, Parameter(alias="-o", negative="")] = False,
     heads: Annotated[bool, Parameter(alias="-h", negative="")] = False,
+    buildinfo: Annotated[bool, Parameter(alias="-b", negative="")] = False,
 ):
     """Print NN Archive configuration.
 
@@ -31,18 +33,28 @@ def inspect(
         metadata (bool): Print metadata.
         outputs (bool): Print outputs info.
         heads (bool): Print heads info.
+        buildinfo (bool): Print build info if available.
     """
+
+    if not any([inputs, metadata, outputs, heads, buildinfo]):
+        inputs = metadata = outputs = heads = buildinfo = True
 
     with tarfile.open(path) as tar:
         extracted_cfg = tar.extractfile("config.json")
+        if buildinfo:
+            extracted_buildinfo = tar.extractfile("buildinfo.json")
+            if extracted_buildinfo is not None:
+                print(
+                    Panel.fit(
+                        Pretty(json.loads(extracted_buildinfo.read())),
+                        title="Build Info",
+                    )
+                )
 
         if extracted_cfg is None:
             raise RuntimeError("Config JSON not found in the archive.")
 
         cfg = Config.model_validate_json(extracted_cfg.read())
-
-    if not any([inputs, metadata, outputs, heads]):
-        inputs = metadata = outputs = heads = True
 
     if metadata:
         print(Panel.fit(Pretty(cfg.model.metadata), title="Metadata"))
