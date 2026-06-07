@@ -25,7 +25,6 @@ from luxonis_ml.data.utils.augmentations_collector import (
 )
 from luxonis_ml.data.utils.cli_utils import (
     check_exists,
-    complete_dataset_name,
     get_dataset_info,
     parse_split_ratio,
     print_info,
@@ -45,12 +44,11 @@ app = App(help="Dataset utilities.")
 
 
 BucketStorageT: TypeAlias = Annotated[BucketStorage, Parameter(alias="-b")]
-DatasetT: TypeAlias = Annotated[str, complete_dataset_name]
 
 
 @app.command
 def info(
-    name: DatasetT,
+    name: str,
     *,
     bucket_storage: BucketStorageT = BucketStorage.LOCAL,
 ):
@@ -66,7 +64,7 @@ def info(
 
 @app.command(alias=["rm", "remove"])
 def delete(
-    *names: DatasetT,
+    *names: str,
     bucket_storage: BucketStorageT = BucketStorage.LOCAL,
     local: Annotated[
         bool,
@@ -178,7 +176,7 @@ def ls(
 
 @app.command
 def inspect(
-    name: DatasetT,
+    name: str,
     *,
     view: Annotated[list[str] | None, Parameter(alias="-v")] = None,
     aug_config: Annotated[
@@ -386,7 +384,7 @@ def inspect(
 
 @app.command
 def export(
-    name: DatasetT,
+    name: str,
     *,
     save_dir: Annotated[
         str | None,
@@ -533,7 +531,7 @@ def parse(
 
 @app.command
 def health(
-    name: DatasetT,
+    name: str,
     *,
     view: Annotated[
         str | None,
@@ -708,7 +706,7 @@ def health(
 
 @app.command
 def push(
-    name: DatasetT,
+    name: str,
     *,
     bucket_storage: BucketStorage,
     force: Annotated[
@@ -757,7 +755,7 @@ def push(
 
 @app.command
 def pull(
-    name: DatasetT,
+    name: str,
     *,
     force: Annotated[
         bool,
@@ -799,8 +797,8 @@ def pull(
 
 @app.command
 def clone(
-    name: DatasetT,
-    new_name: DatasetT,
+    name: str,
+    new_name: str,
     *,
     push: Annotated[
         bool,
@@ -852,8 +850,8 @@ def clone(
 
 @app.command
 def merge(
-    source_name: DatasetT,
-    target_name: DatasetT,
+    source_name: str,
+    target_name: str,
     new_name: Annotated[
         str | None,
         Parameter(alias="-n"),
@@ -941,7 +939,7 @@ def merge(
 
 @app.command
 def sanitize(
-    name: DatasetT,
+    name: str,
     bucket_storage: BucketStorageT = BucketStorage.LOCAL,
 ):
     """Remove duplicate annotations and duplicate files from the
