@@ -122,7 +122,15 @@ def delete(
             delete_local=local,
             delete_remote=remote,
         )
-        dataset.delete_dataset(delete_local=local)
+        if not local and not remote:
+            print(
+                "[red]No valid deletion target remains for this dataset.[/red]"
+            )
+            raise SystemExit(1)
+        dataset.delete_dataset(
+            delete_local=local,
+            delete_remote=remote,
+        )
         print(f"Dataset '{name}' deleted from {storage} storage.")
 
 
@@ -782,7 +790,7 @@ def pull(
         print(
             f"[red]Dataset '{name}' does not exist in {bucket_storage.value} storage."
         )
-        raise SystemExit
+        raise SystemExit(1)
 
     print(f"Pulling dataset '{name}' from {bucket_storage.value} storage...")
 

@@ -3,7 +3,7 @@ import tarfile
 from pathlib import Path
 from typing import Annotated
 
-from cyclopts import App, Parameter
+from cyclopts import App, Parameter, validators
 from rich import print
 from rich.panel import Panel
 from rich.pretty import Pretty
@@ -15,25 +15,45 @@ app = App(help="NN Archive utilities.", help_flags="--help")
 
 @app.command
 def inspect(
-    path: str,
+    path: Annotated[
+        Path,
+        Parameter(
+            validator=validators.Path(exists=True),
+        ),
+    ],
     *,
-    inputs: Annotated[bool, Parameter(alias="-i", negative="")] = False,
-    metadata: Annotated[bool, Parameter(alias="-m", negative="")] = False,
-    outputs: Annotated[bool, Parameter(alias="-o", negative="")] = False,
-    heads: Annotated[bool, Parameter(alias="-h", negative="")] = False,
-    buildinfo: Annotated[bool, Parameter(alias="-b", negative="")] = False,
+    inputs: Annotated[
+        bool,
+        Parameter(alias="-i", negative=""),
+    ] = False,
+    metadata: Annotated[
+        bool,
+        Parameter(alias="-m", negative=""),
+    ] = False,
+    outputs: Annotated[
+        bool,
+        Parameter(alias="-o", negative=""),
+    ] = False,
+    heads: Annotated[
+        bool,
+        Parameter(alias="-h", negative=""),
+    ] = False,
+    buildinfo: Annotated[
+        bool,
+        Parameter(alias="-b", negative=""),
+    ] = False,
 ):
     """Print NN Archive configuration.
 
     If no options are provided, all info is printed.
 
     Args:
-        path (str): Path to the NN Archive.
-        inputs (bool): Print inputs info.
-        metadata (bool): Print metadata.
-        outputs (bool): Print outputs info.
-        heads (bool): Print heads info.
-        buildinfo (bool): Print build info if available.
+        path (Path): Path to the NN Archive.
+        inputs (bool, optional): Print inputs info.
+        metadata (bool, optional): Print metadata.
+        outputs (bool, optional): Print outputs info.
+        heads (bool, optional): Print heads info.
+        buildinfo (bool, optional): Print build info if available.
     """
 
     if not any([inputs, metadata, outputs, heads, buildinfo]):
@@ -68,7 +88,12 @@ def inspect(
 
 @app.command
 def extract(
-    path: Path,
+    path: Annotated[
+        Path,
+        Parameter(
+            validator=validators.Path(exists=True),
+        ),
+    ],
     destination: Annotated[
         Path | None,
         Parameter(
@@ -83,8 +108,8 @@ def extract(
     Archive is extracted to the current working directory.
 
     Args:
-        path (str): Path to the NN Archive.
-        destination (str): Path where to extract the Archive.
+        path (Path): Path to the NN Archive.
+        destination (Path or None, optional): Path where to extract the Archive.
             If not provided, the Archive is extracted to the current
             working directory.
     """

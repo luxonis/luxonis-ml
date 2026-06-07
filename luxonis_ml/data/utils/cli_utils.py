@@ -22,12 +22,16 @@ def parse_split_ratio(
     """Parse split ratio argument.
 
     Args:
-        value: A string representation of a list of 3 values (train, val, test).
-        train: Optional float or int for training split.
-        val: Optional float or int for validation split.
-        test: Optional float or int for test split.
+        value (str or None): A string representation of a list
+            of 3 values (train, val, test).
+        train (float or None, optional):
+            Optional float or int for training split.
+        val (float or None, optional):
+            Optional float or int for validation split.
+        test (float or None, optional):
+            Optional float or int for test split.
     """
-    if all(v is not None for v in (value, train, val, test)):
+    if value is not None and any(v is not None for v in (train, val, test)):
         raise ValueError(
             "Cannot specify split ratio both as a list and as separate "
             "train/val/test arguments."
@@ -46,7 +50,15 @@ def parse_split_ratio(
             )
         parsed = dict(zip(["train", "val", "test"], parsed, strict=True))
     else:
-        sum_ = sum(v for v in (train, val, test) if v is not None)
+        defined = [v for v in (train, val, test) if v is not None]
+        sum_ = sum(defined)
+        is_count_input = all(float(v).is_integer() for v in defined)
+
+        if sum_ > 1 + 1e-6 and not is_count_input:
+            raise ValueError(
+                "Split ratios must sum to 1.0; use whole numbers for counts."
+            )
+
         if sum_ > 1 + 1e-6:
             parsed = {
                 "train": int(train or 0),
