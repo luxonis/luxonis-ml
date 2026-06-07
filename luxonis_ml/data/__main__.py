@@ -230,27 +230,31 @@ def inspect(
 
     Args:
         name (str): Name of the dataset to inspect.
-        view (list[str], optional): Which splits of the dataset to inspect.
+        view (list of str, optional): Which splits of the dataset to inspect.
             If not provided, the "train" split will be inspected by default.
         aug_config (str, optional): Path to a JSON or YAML config defining
             augmentations to apply when inspecting the dataset.
             If not provided, no augmentations will be applied.
-        size_multiplier (float): Multiplier for the displayed image size.
-        ignore_aspect_ratio (bool): Do not keep the aspect ratio when
+        size_multiplier (float, optional): Multiplier for the displayed image size.
+        ignore_aspect_ratio (bool, optional): Do not keep the aspect ratio when
             resizing images.
-        deterministic (bool): Use deterministic augmentation mode.
-        force_update (bool): Force synchronization with remote storage first.
-        blend_all (bool): Draw labels belonging to different tasks on the
+        deterministic (bool, optional): Use deterministic augmentation mode.
+        force_update (bool, optional): Force synchronization with remote storage first.
+        blend_all (bool, optional): Draw labels belonging to different tasks on the
             same image.
-        per_instance (bool): Show each label instance in a separate window.
-        list_augmentations (bool): Show the augmentations applied to each
+        per_instance (bool, optional): Show each label instance in a separate window.
+        list_augmentations (bool, optional): Show the augmentations applied to each
             displayed image. Requires --aug-config to be set.
-        bucket_storage (BucketStorage): Storage type of the dataset.
+        bucket_storage (BucketStorage, optional): Storage type of the dataset.
     """
     check_exists(name, bucket_storage)
 
     view = view or ["train"]
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
+
+    if len(dataset) == 0:
+        raise ValueError(f"Dataset '{name}' is empty.")
+
     loader = LuxonisLoader(
         dataset,
         view=view,
@@ -291,9 +295,6 @@ def inspect(
             get_applied_augmentations = list
     else:
         get_applied_augmentations = list
-
-    if len(dataset) == 0:
-        raise ValueError(f"Dataset '{name}' is empty.")
 
     classes = dataset.get_classes()
     categorical_encodings = dataset.get_categorical_encodings()

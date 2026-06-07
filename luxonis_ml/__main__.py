@@ -29,8 +29,7 @@ def _register_subapp(module: str, name: str) -> None:
     if not isinstance(subapp, App):
         return
 
-    subapp._name = (name,)
-    app.command(subapp)
+    app.command(subapp, name=name)
 
 
 _register_subapp("luxonis_ml.data.__main__", "data")
