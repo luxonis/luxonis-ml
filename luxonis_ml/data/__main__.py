@@ -6,7 +6,7 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import rich.box
-from cyclopts import App, Parameter
+from cyclopts import App, Parameter, validators
 from loguru import logger
 from rich import print
 from rich.console import Console
@@ -42,7 +42,6 @@ from luxonis_ml.data.utils.visualizations import (
 from luxonis_ml.enums import DatasetType
 
 app = App(help="Dataset utilities.")
-
 
 
 BucketStorageT: TypeAlias = Annotated[BucketStorage, Parameter(alias="-b")]
