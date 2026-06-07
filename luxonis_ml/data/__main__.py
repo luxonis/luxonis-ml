@@ -214,7 +214,7 @@ def inspect(
     ] = False,
     blend_all: Annotated[
         bool,
-        Parameter(alias="-b", negative=""),
+        Parameter(alias="-bl", negative=""),
     ] = False,
     per_instance: Annotated[
         bool,

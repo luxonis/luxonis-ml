@@ -57,7 +57,7 @@ def inspect(
     """
 
     if not any([inputs, metadata, outputs, heads, buildinfo]):
-        inputs = metadata = outputs = heads = buildinfo = True
+        inputs = metadata = outputs = heads = True
 
     with tarfile.open(path) as tar:
         extracted_cfg = tar.extractfile("config.json")
