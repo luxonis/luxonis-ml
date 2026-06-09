@@ -349,7 +349,7 @@ class BaseParser(ABC):
         }
 
         if split_ratios is None:
-            self.dataset.make_splits(split_definitions)
+            self.dataset.make_splits(original_splits)
         elif is_counts:
             sampled = self._apply_counts_to_splits(
                 original_splits,

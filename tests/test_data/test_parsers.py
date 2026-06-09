@@ -532,8 +532,10 @@ def test_partial_split_clsdir_is_preserved(
 
     splits = dataset.get_splits()
     assert splits is not None
-    assert set(splits) == {"val"}
+    assert set(splits) == {"train", "val", "test"}
+    assert len(splits["train"]) == 0
     assert len(splits["val"]) == 1
+    assert len(splits["test"]) == 0
     dataset.delete_dataset(delete_local=True)
 
 
@@ -556,8 +558,54 @@ def test_partial_split_clsdir_explicit_type_uses_dir_mode(
 
     splits = dataset.get_splits()
     assert splits is not None
-    assert set(splits) == {"test"}
+    assert set(splits) == {"train", "val", "test"}
+    assert len(splits["train"]) == 0
+    assert len(splits["val"]) == 0
     assert len(splits["test"]) == 1
+    dataset.delete_dataset(delete_local=True)
+
+
+@pytest.mark.parametrize(
+    ("url", "expected_split_sizes", "loader_view"),
+    [
+        (
+            "coco_valid_only_debug.zip",
+            {"train": 0, "val": 2, "test": 1},
+            "val",
+        ),
+        (
+            "native_val_only_debug.zip",
+            {"train": 0, "val": 3, "test": 0},
+            "val",
+        ),
+    ],
+)
+def test_partial_split_fixture_is_preserved(
+    dataset_name: str,
+    storage_url: str,
+    tempdir: Path,
+    url: str,
+    expected_split_sizes: dict[str, int],
+    loader_view: str,
+):
+    dataset = LuxonisParser(
+        f"{storage_url.rstrip('/')}/{url}",
+        dataset_name=dataset_name,
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()
+
+    splits = dataset.get_splits()
+    assert splits is not None
+    assert set(splits) == {"train", "val", "test"}
+    assert {
+        split_name: len(group_ids) for split_name, group_ids in splits.items()
+    } == expected_split_sizes
+
+    loader = LuxonisLoader(dataset, view=loader_view)
+    _, ann = next(iter(loader))
+    task_types = {get_task_type(task) for task in ann}
+    assert task_types == {"boundingbox", "classification"}
     dataset.delete_dataset(delete_local=True)
 
 
