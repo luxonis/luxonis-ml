@@ -36,7 +36,12 @@ def inspect(
 ):
     """Print NN Archive configuration.
 
-    If no options are provided, all sections are printed.
+    Args:
+        path: Path to the NN Archive.
+        inputs: Print inputs info.
+        metadata: Print metadata.
+        outputs: Print outputs info.
+        heads: Print heads info.
     """
 
     with tarfile.open(path) as tar:
@@ -75,7 +80,13 @@ def extract(
     """Extract an NN Archive.
 
     By default, the archive is extracted to the current working
-    directory.
+    direct
+
+    Args:
+        path: Path to the NN Archive.
+        destination: Path where to extract the Archive.
+            If not provided, the Archive is extracted to the current
+            working directory.ory.
     """
 
     extract_path = Path(destination) / (Path(path).name.split(".")[0])
