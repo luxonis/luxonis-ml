@@ -177,8 +177,8 @@ doctest_optionflags = [
   "IGNORE_EXCEPTION_DETAIL",
   "NUMBER",
 ]
-testpaths = ["tests"]
-addopts = ["--disable-warnings"]
+testpaths = ["tests", "luxonis_ml"]
+addopts = ["--disable-warnings", "--doctest-modules"]
 
 
 [tool.coverage.run]
