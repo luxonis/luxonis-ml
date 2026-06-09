@@ -97,13 +97,16 @@ class YOLOv8Parser(BaseParser):
     ) -> tuple[Format | None, list[str]]:
         """Checks if dataset directory structure is in Ultralytics or
         Roboflow format."""
-        roboflow_folders = ["train", "valid"]  # test folder is optional
+        roboflow_splits = ("train", "valid", "test")
         ultralytics_folders = ["images", "labels"]
 
         existing = [d.name for d in dataset_dir.iterdir() if d.is_dir()]
 
-        if all(folder in existing for folder in roboflow_folders):
-            return Format.ROBOFLOW, existing
+        present_roboflow_splits = [
+            split for split in roboflow_splits if split in existing
+        ]
+        if present_roboflow_splits:
+            return Format.ROBOFLOW, present_roboflow_splits
         if all(folder in existing for folder in ultralytics_folders):
             return Format.ULTRALYTICS, existing
         return None, []
