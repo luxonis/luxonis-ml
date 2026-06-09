@@ -59,7 +59,7 @@ jobs:
         run: pip install pydoctor
 
       - name: Build docs
-        run: pydoctor --docformat=epytext luxonis_ml
+        run: pydoctor --docformat=google luxonis_ml
 
   type-check:
     needs: pre-commit
