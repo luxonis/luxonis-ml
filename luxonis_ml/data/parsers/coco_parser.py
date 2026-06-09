@@ -70,6 +70,23 @@ class COCOParser(BaseParser):
         fo = [s for s in fiftyone_splits if s in existing]
         rf = [s for s in roboflow_splits if s in existing]
 
+        if len(fo) != 0 and len(fo) == len(rf):
+            for split_name in ("validation", "valid"):
+                if split_name in existing:
+                    return (
+                        (COCOFormat.FIFTYONE, fo)
+                        if split_name == "validation"
+                        else (COCOFormat.ROBOFLOW, rf)
+                    )
+
+            if "test" in existing:
+                split_info = COCOParser.validate_split(dataset_dir / "test")
+                if split_info is not None:
+                    annotation_name = split_info["annotation_path"].name
+                    if annotation_name == "_annotations.coco.json":
+                        return COCOFormat.ROBOFLOW, rf
+                    return COCOFormat.FIFTYONE, fo
+
         if len(fo) != 0 and len(fo) >= len(rf):
             return COCOFormat.FIFTYONE, fo
         if len(rf) != 0:

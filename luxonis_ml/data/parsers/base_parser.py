@@ -342,6 +342,13 @@ class BaseParser(ABC):
                 "No valid split directories found in dataset. "
                 f"Found directories: {existing_dirs}."
             )
+        if all(
+            len(split_images) == 0
+            for split_images in split_definitions.values()
+        ):
+            raise ValueError(
+                "No samples were parsed from the discovered split directories."
+            )
 
         original_splits: dict[str, Sequence[PathType]] = {
             split_name: split_definitions.get(split_name, [])
