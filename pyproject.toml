@@ -172,7 +172,11 @@ paths = ["luxonis_train"]
 exclude = ["luxonis_ml/tracker", "examples", "__main__.py"]
 
 [tool.pytest]
-doctest_optionflags = "NORMALIZE_WHITESPACE IGNORE_EXCEPTION_DETAIL NUMBER"
+doctest_optionflags = [
+  "NORMALIZE_WHITESPACE",
+  "IGNORE_EXCEPTION_DETAIL",
+  "NUMBER",
+]
 testpaths = ["tests"]
 addopts = ["--disable-warnings"]
 

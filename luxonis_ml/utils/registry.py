@@ -129,13 +129,13 @@ class Registry(Generic[T]):
             >>> @registry.register()
             ... class Foo:
             ...     pass
-            >>> registry.get("Foo")
-            <class '__main__.Foo'>
+            >>> registry.get("Foo").__name__
+            'Foo'
             >>> class Bar:
             ...     pass
             >>> registry.register(module=Bar)
-            >>> registry.get("Bar")
-            <class '__main__.Bar'>
+            >>> registry.get("Bar").__name__
+            'Bar'
 
         Args:
             name: The name of the module. If ``None``, then use class name.
@@ -198,10 +198,10 @@ class AutoRegisterMeta(ABCMeta):
         ...     pass
         >>> class Bar(Base, register_name="Baz"):
         ...     pass
-        >>> REGISTRY.get("Foo")
-        <class '__main__.Foo'>
-        >>> Base.REGISTRY.get("Baz")
-        <class '__main__.Bar'>
+        >>> REGISTRY.get("Foo").__name__
+        'Foo'
+        >>> Base.REGISTRY.get("Baz").__name__
+        'Bar'
     """
 
     REGISTRY: Registry
