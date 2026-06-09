@@ -20,16 +20,17 @@ def traverse_graph(
         b 2 [] ['a']
         a 1 ['b'] []
 
-    @type graph: dict[str, list[str]]
-    @param graph: Graph in a format of a dictionary of predecessors.
-        Keys are node names, values are node predecessors (list of node
-        names).
-    @type nodes: dict[str, T]
-    @param nodes: Dictionary mapping node names to values.
-    @rtype: Iterator[tuple[str, T, list[str], list[str]]]
-    @return: Iterator of tuples containing node name, node value, node
-        predecessors, and remaining unprocessed nodes.
-    @raises RuntimeError: If the graph is malformed.
+    Args:
+        graph: Graph represented as a dictionary of predecessors. Keys
+            are node names, values are node predecessors.
+        nodes: Dictionary mapping node names to values.
+
+    Yields:
+        Tuples containing node name, node value, node predecessors, and
+        remaining unprocessed nodes.
+
+    Raises:
+        RuntimeError: If the graph is malformed.
     """
     # sort the set for consistent behavior
     unprocessed_nodes = sorted(set(nodes.keys()))
@@ -62,10 +63,11 @@ def traverse_graph(
 def is_acyclic(graph: dict[str, list[str]]) -> bool:
     """Tests if graph is acyclic.
 
-    @type graph: dict[str, list[str]]
-    @param graph: Graph in a format of a dictionary of predecessors.
-    @rtype: bool
-    @return: True if graph is acyclic, False otherwise.
+    Args:
+        graph: Graph represented as a dictionary of predecessors.
+
+    Returns:
+        ``True`` if graph is acyclic, ``False`` otherwise.
     """
     graph = graph.copy()
 
