@@ -76,7 +76,7 @@ class LuxonisConfig(BaseModelExtraForbid):
     def __repr__(self) -> str:
         return self.__str__()
 
-    @deprecated("Use `get_json_schema(mode='validation')` instead.")
+    @deprecated("Use `model_json_schema(mode='validation')` instead.")
     def get_json_schema(self) -> Params:
         """Return the JSON schema of the config.
 

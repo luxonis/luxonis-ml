@@ -196,11 +196,11 @@ class AutoRegisterMeta(ABCMeta):
         ...     pass
         >>> class Foo(Base):
         ...     pass
-        >>> class Bar(Base, name="Baz"):
+        >>> class Bar(Base, register_name="Baz"):
         ...     pass
         >>> REGISTRY.get("Foo")
         <class '__main__.Foo'>
-        >>> BaseClass.REGISTRY.get("Baz")
+        >>> Base.REGISTRY.get("Baz")
         <class '__main__.Bar'>
     """
 

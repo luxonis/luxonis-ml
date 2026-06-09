@@ -51,11 +51,11 @@ class LuxonisFileSystem:
     and MLflow artifact storage.
 
     For more flexibility, users can register custom implementations
-    of the `put_file` method in the `PUT_FILE_REGISTRY`. It's name
-    can be then passed as the ``put_file_plugin`` argument when
-    initializing the `LuxonisFileSystem`. This allows for custom
-    upload logic, such as additional processing before upload or
-    integration with other services.
+    of the ``put_file`` method in ``PUT_FILE_REGISTRY``. Its name
+    can then be passed as the ``put_file_plugin`` argument when
+    initializing ``LuxonisFileSystem``. This allows for custom upload
+    logic, such as additional processing before upload or integration
+    with other services.
 
     Attributes:
         url: The original input URL.
@@ -78,11 +78,14 @@ class LuxonisFileSystem:
         ...     print("Custom put_file called!")
         ...     return "remote_path"
         ...
-        >>> fs = LuxonisFileSystem("s3://my-bucket/path", put_file_plugin="put_file_plugin")
+        >>> fs = LuxonisFileSystem(
+        ...     "file:///tmp/luxonis-ml",
+        ...     put_file_plugin="put_file_plugin",
+        ... )
         >>> remote_path = fs.put_file("local/file.txt", "remote/file.txt")
-            Custom put_file called!
+        Custom put_file called!
         >>> print(remote_path)
-            remote_path
+        remote_path
     """
 
     @typechecked
@@ -330,8 +333,7 @@ class LuxonisFileSystem:
         Raises:
             NotImplementedError: If using a protocol that is not
                 yet supported.
-            ValueError: If ``local_paths`` is a directory but
-                ``copy_contents`` is ``False``.
+            ValueError: If ``local_paths`` is not a directory.
         """
         if self.is_mlflow:
             raise NotImplementedError
@@ -388,8 +390,8 @@ class LuxonisFileSystem:
         Args:
             file_bytes: File contents to upload.
             remote_path: Relative path to the remote file.
-            mlflow_instance: MLflow instance to use
-                when uploading to an active run.
+            mlflow_instance: Currently unused. MLflow uploads from bytes
+                are not implemented.
         Raises:
             NotImplementedError: If using a protocol that is not
                 yet supported.
@@ -412,8 +414,8 @@ class LuxonisFileSystem:
         Args:
             remote_path: Relative path to the remote file.
             local_path: Path to the local file.
-            mlflow_instance: MLflow instance to use
-                when downloading from an active run.
+            mlflow_instance: Currently unused. MLflow downloads through
+                this method are not implemented.
 
         Returns:
             Path to the downloaded file.
@@ -481,8 +483,8 @@ class LuxonisFileSystem:
             remote_paths: Either a path specifying a directory to walk,
                 or an iterable of files that may be in different directories.
             local_dir: Path to the local directory.
-            mlflow_instance: MLflow instance to use when downloading
-                from an active run.
+            mlflow_instance: Currently unused. MLflow downloads through
+                this method are not implemented.
 
         Returns:
             Path to the downloaded directory.
@@ -523,7 +525,7 @@ class LuxonisFileSystem:
         """Deletes a directory and all its contents from remote storage.
 
         Args:
-            remote_dir: Relative path to the remote directory..
+            remote_dir: Relative path to the remote directory.
             allow_delete_parent: Whether to allow deleting the parent
                 directory.
 
