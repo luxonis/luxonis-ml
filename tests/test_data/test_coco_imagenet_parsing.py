@@ -335,7 +335,7 @@ class TestCoco2017Keypoints:
         dataset = parser.parse(use_keypoint_ann=True)
 
         counts = _split_counts(dataset)
-        assert "train" not in counts
+        assert counts.get("train", 0) == 0
         assert counts.get("val", 0) > 0
         assert counts.get("test", 0) > 0
         assert counts["val"] == counts["test"]
@@ -360,7 +360,7 @@ class TestCoco2017Keypoints:
         dataset = parser.parse(use_keypoint_ann=True)
 
         counts = _split_counts(dataset)
-        assert "train" not in counts
+        assert counts.get("train", 0) == 0
         assert counts.get("val", 0) > 0
         assert counts.get("test", 0) > 0
 
