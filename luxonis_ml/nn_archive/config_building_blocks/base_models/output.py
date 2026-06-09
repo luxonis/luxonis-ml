@@ -9,29 +9,33 @@ from luxonis_ml.typing import BaseModelExtraForbid
 
 
 class Output(BaseModelExtraForbid):
-    """Represents output stream of a model.
+    """Model output stream definition.
 
-    @type name: str
-    @ivar name: Name of the output layer.
-    @type dtype: DataType
-    @ivar dtype: Data type of the output data (e.g., 'float32').
+    Attributes:
+        name: Name of the output layer.
+        dtype: Data type of the output data, such as ``"float32"``.
+        shape: Optional output tensor shape.
+        layout: Optional letter code for interpreting tensor dimensions,
+            such as ``"NC"``.
     """
 
     name: str = Field(description="Name of the output layer.")
     dtype: DataType = Field(
-        description="Data type of the output data (e.g., 'float32')."
+        description="Data type of the output data, such as 'float32'."
     )
     shape: list[int] | None = Field(
         None,
-        description="Shape of the output as a list of integers (e.g. [1, 1000]).",
+        description="Output tensor shape.",
     )
     layout: str | None = Field(
         None,
-        description="List of letters describing the output layout (e.g. 'NC').",
+        description="Letter code for interpreting tensor dimensions, such as 'NC'.",
     )
 
     @model_validator(mode="after")
     def validate_layout(self) -> Self:
+        """Validate that the layout is compatible with the output
+        shape."""
         if self.layout is None:
             return self
 
@@ -52,6 +56,7 @@ class Output(BaseModelExtraForbid):
 
     @model_validator(mode="after")
     def infer_layout(self) -> Self:
+        """Infer the layout when a shape is provided without one."""
         if self.layout is None and self.shape is not None:
             with suppress(Exception):
                 self.layout = infer_layout(self.shape)

@@ -13,84 +13,78 @@ from luxonis_ml.typing import BaseModelExtraForbid
 
 
 class PreprocessingBlock(BaseModelExtraForbid):
-    """Represents preprocessing operations applied to the input data.
+    """Preprocessing operations applied to model input data.
 
-    @type mean: list | None
-    @ivar mean: Mean values in channel order. Order depends on the order
-        in which the model was trained on.
-    @type scale: list | None
-    @ivar scale: Standardization values in channel order. Order depends
-        on the order in which the model was trained on.
-    @type reverse_channels: bool | None
-    @ivar reverse_channels: If True input to the model is RGB else BGR.
-    @type interleaved_to_planar: bool | None
-    @ivar interleaved_to_planar: If True input to the model is
-        interleaved (NHWC) else planar (NCHW).
-    @type dai_type: str | None
-    @ivar dai_type: DepthAI input type which is read by DepthAI to
-        automatically setup the pipeline.
+    Attributes:
+        mean: Optional mean values in channel order. The order should
+            match the preprocessing used during training.
+        scale: Optional standardization values in channel order. The
+            order should match the preprocessing used during training.
+        reverse_channels: Optional legacy channel-order flag. Deprecated;
+            use ``dai_type`` instead.
+        interleaved_to_planar: Optional legacy layout conversion flag.
+            Deprecated; use ``dai_type`` instead.
+        dai_type: Optional DepthAI input type used to configure pipeline
+            input handling.
     """
 
     mean: list[float] | None = Field(
         None,
-        description="Mean values in channel order. Order depends on the order in which the model was trained on.",
+        description=(
+            "Mean values in channel order, matching the preprocessing used "
+            "during training."
+        ),
     )
     scale: list[float] | None = Field(
         None,
-        description="Standardization values in channel order. Order depends on the order in which the model was trained on.",
+        description=(
+            "Standardization values in channel order, matching the "
+            "preprocessing used during training."
+        ),
     )
     reverse_channels: bool | None = Field(
         None,
         deprecated="Deprecated, use `dai_type` instead.",
-        description="If True input to the model is RGB else BGR.",
+        description="Legacy channel-order flag. Deprecated; use `dai_type` instead.",
     )
     interleaved_to_planar: bool | None = Field(
         None,
         deprecated="Deprecated, use `dai_type` instead.",
-        description="If True input to the model is interleaved (NHWC) else planar (NCHW).",
+        description="Legacy layout conversion flag. Deprecated; use `dai_type` instead.",
     )
     dai_type: str | None = Field(
         None,
-        description="DepthAI input type which is read by DepthAI to automatically setup the pipeline.",
+        description="DepthAI input type used to configure pipeline input handling.",
     )
 
 
 class Input(BaseModelExtraForbid):
-    """Represents input stream of a model.
+    """Model input stream definition.
 
-    @type name: str
-    @ivar name: Name of the input layer.
-
-    @type dtype: DataType
-    @ivar dtype: Data type of the input data (e.g., 'float32').
-
-    @type input_type: InputType
-    @ivar input_type: Type of input data (e.g., 'image').
-
-    @type shape: list
-    @ivar shape: Shape of the input data as a list of integers (e.g. [H,W], [H,W,C], [N,H,W,C], ...).
-
-    @type layout: str
-    @ivar layout: Lettercode interpretation of the input data dimensions (e.g., 'NCHW').
-
-    @type preprocessing: PreprocessingBlock
-    @ivar preprocessing: Preprocessing steps applied to the input data.
+    Attributes:
+        name: Name of the input layer.
+        dtype: Data type of the input data, such as ``"float32"``.
+        input_type: Expected kind of input data, such as ``"image"``.
+        shape: Input tensor shape.
+        layout: Letter code for interpreting tensor dimensions, such as
+            ``"NCHW"``.
+        preprocessing: Preprocessing applied to the input data.
     """
 
     name: str = Field(description="Name of the input layer.")
     dtype: DataType = Field(
-        description="Data type of the input data (e.g., 'float32')."
+        description="Data type of the input data, such as 'float32'."
     )
     input_type: InputType = Field(
-        description="Type of input data (e.g., 'image')."
+        description="Expected kind of input data, such as 'image'."
     )
     shape: list[int] = Field(
         min_length=1,
-        description="Shape of the input data as a list of integers (e.g. [H,W], [H,W,C], [N,H,W,C], ...).",
+        description="Input tensor shape.",
     )
     layout: str = Field(
         "NCHW",
-        description="Lettercode interpretation of the input data dimensions (e.g., 'NCHW')",
+        description="Letter code for interpreting tensor dimensions, such as 'NCHW'.",
         min_length=1,
     )
     preprocessing: PreprocessingBlock = Field(
@@ -99,6 +93,8 @@ class Input(BaseModelExtraForbid):
 
     @model_validator(mode="after")
     def validate_layout(self) -> Self:
+        """Validate that the layout is compatible with the input
+        shape."""
         self.layout = self.layout.upper()
 
         if len(self.layout) != len(set(self.layout)):
@@ -122,6 +118,7 @@ class Input(BaseModelExtraForbid):
     @model_validator(mode="before")
     @staticmethod
     def infer_layout(data: dict[str, Any]) -> dict[str, Any]:
+        """Infer the layout when a shape is provided without one."""
         if "shape" in data and "layout" not in data:
             with suppress(Exception):
                 data["layout"] = infer_layout(data["shape"])

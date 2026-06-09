@@ -2,7 +2,7 @@ from enum import Enum
 
 
 class InputType(Enum):
-    """Represents a type of input the model is expecting."""
+    """Input categories supported by NN Archive model inputs."""
 
     RAW = "raw"
     IMAGE = "image"
