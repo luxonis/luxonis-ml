@@ -17,7 +17,9 @@ from rich.progress import track
 from typeguard import typechecked
 
 from luxonis_ml.typing import PathType, PosixPathType
-from luxonis_ml.utils import Registry, environ
+
+from .environ import environ
+from .registry import Registry
 
 
 class PutFile(Protocol):
