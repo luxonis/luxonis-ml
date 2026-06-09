@@ -1,15 +1,3 @@
-"""This module provides the `LuxonisFileSystem` class, which abstracts
-over remote and local filesystems to provide a unified interface for
-file operations.
-
-Attributes:
-    PutFile: Protocol for the `put_file` plugins. A function conforming to
-        this protocol can be registered in `PUT_FILE_REGISTRY` and used as a
-        plugin in `LuxonisFileSystem` to override the default `put_file` implementation.
-    PUT_FILE_REGISTRY: Registry for `put_file` plugins.
-    FSType: Enum for the type of filesystem, either MLFLOW or FSSPEC
-"""
-
 import os.path as osp
 import subprocess
 import sys

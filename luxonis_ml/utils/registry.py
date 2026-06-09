@@ -3,15 +3,24 @@ from abc import ABCMeta
 from collections.abc import Callable
 from typing import Generic, TypeVar, overload
 
+from typing_extensions import deprecated
+
 T = TypeVar("T", bound=type)
 
 
 class Registry(Generic[T]):
-    def __init__(self, name: str):
-        """A Registry class to store and retrieve modules.
+    """A registry to store and retrieve modules.
 
-        @type name: str
-        @ivar name: Name of the registry
+    The registry stores a mapping from string keys to module classes. It
+    provides an interface to register modules and later retrieve them by
+    their string names.
+    """
+
+    def __init__(self, name: str):
+        """Create a new empty registry.
+
+        Args:
+            name: The name of the registry, used for error messages.
         """
         self._module_dict: dict[str, T] = {}
         self._name = name
@@ -36,17 +45,18 @@ class Registry(Generic[T]):
 
     @property
     def name(self) -> str:
+        """The name of the registry."""
         return self._name
 
     def get(self, key: str) -> T:
         """Retrieves the registry record for the key.
 
-        @type key: str
-        @param key: Name of the registered item, I{e.g.} the class name
-            in string format.
-        @rtype: type
-        @return: Corresponding class if L{key} exists
-        @raise KeyError: If L{key} is not in the registry
+        Args:
+            key: The name of the registered item.
+        Returns:
+            The registered item corresponding to the key.
+        Raises:
+            KeyError: If the key is not found in the registry.
         """
         module_cls = self._module_dict.get(key, None)
         if module_cls is None:
@@ -63,12 +73,20 @@ class Registry(Generic[T]):
         self, name: str | None = ..., module: T = ..., force: bool = ...
     ) -> T: ...
 
+    @deprecated("`register_module` is deprecated, use `register` instead.")
     def register_module(
         self,
         name: str | None = None,
         module: T | None = None,
         force: bool = False,
     ) -> T | Callable[[T], T]:
+        """Registers a module. Deprecated, use `register` instead.
+
+        Args:
+            name: Name of the module. If ``None``, the class name is used.
+            module: Module class to be registered.
+            force: Whether to override an existing class with the same name.
+        """
         warnings.warn(
             "`register_module` is deprecated, use `register` instead.",
             stacklevel=2,
@@ -105,6 +123,8 @@ class Registry(Generic[T]):
 
         Can be used as a decorator or as a normal method:
 
+        Example:
+
             >>> registry = Registry(name="modules")
             >>> @registry.register()
             ... class Foo:
@@ -117,21 +137,18 @@ class Registry(Generic[T]):
             >>> registry.get("Bar")
             <class '__main__.Bar'>
 
-        @type name: Optional[str]
-        @param name: Name of the module. If C{None}, then use class name.
-            Defaults to None.
+        Args:
+            name: The name of the module. If ``None``, then use class name.
+            module: The module class to be registered.
+            force: Whether to override an existing class with the same name.
 
-        @type module: Optional[type]
-        @param module: Module class to be registered. Defaults to None.
+        Returns:
+            ``None`` if used as a normal method,
+            or a decorator function if used as a decorator.
 
-        @type force: bool
-        @param force: Whether to override an existing class with the same name.
-            Defaults to False.
-
-        @rtype: Union[type, Callable[[type], type]]
-        @return: Module class or register function if used as a decorator
-
-        @raise KeyError: Raised if class name already exists and C{force==False}
+        Raises:
+            KeyError: If a module with the same name
+                already exists and ``force`` is ``False``.
         """
 
         if module is not None:
@@ -162,20 +179,29 @@ class Registry(Generic[T]):
 class AutoRegisterMeta(ABCMeta):
     """Metaclass for automatically registering modules.
 
-    Can be set as a metaclass for abstract base classes. Then, all subclasses will be
-    automatically registered under the name of the subclass.
+    Can be set as a metaclass for abstract base classes.
+    All subclasses of that class will be automatically registered.
+
+    Attributes:
+        REGISTRY: The internal registry defined on the base class.
 
     Example:
 
         >>> REGISTRY = Registry(name="modules")
-        >>> class BaseClass(metaclass=AutoRegisterMeta, registry=REGISTRY):
+        >>> class Base(
+        ...     metaclass=AutoRegisterMeta,
+        ...     registry=REGISTRY,
+        ...     register=False
+        ... ):
         ...     pass
-        >>> class SubClass(BaseClass):
+        >>> class Foo(Base):
         ...     pass
-        >>> REGISTRY.get("SubClass")
-        <class '__main__.SubClass'>
-        >>> BaseClass.REGISTRY.get("SubClass")
-        <class '__main__.SubClass'>
+        >>> class Bar(Base, name="Baz"):
+        ...     pass
+        >>> REGISTRY.get("Foo")
+        <class '__main__.Foo'>
+        >>> BaseClass.REGISTRY.get("Baz")
+        <class '__main__.Bar'>
     """
 
     REGISTRY: Registry
@@ -191,26 +217,17 @@ class AutoRegisterMeta(ABCMeta):
     ):
         """Automatically register the class.
 
-        @type name: str
-        @param name: Class name
-
-        @type bases: Tuple[type, ...]
-        @param bases: Base classes
-
-        @type attrs: Dict[str, type]
-        @param attrs: Class attributes
-
-        @type register: bool
-        @param register: Weather to register the class. Defaults to True.
-            Should be set to False for abstract base classes.
-
-        @type register_name: Optional[str]
-        @param register_name: Name used for registration.
-            If unset, the class name is used. Defaults to None.
-
-        @type registry: Optional[Registry]
-        @param registry: Registry to use for registration.
-            Defaults to None. Has to be set in the base class.
+        Args:
+            name: The name of the class being created.
+            bases: The base classes of the class being created.
+            attrs: The attributes of the class being created.
+            register: Whether to register this class.
+                Typically should be set to ``False`` for abstract base classes.
+            register_name: The name to register the class under. If ``None``, then use
+                the class name.
+            registry: The registry to use for registration.
+                Will be saved as the `REGISTRY` attribute
+                of the class if not already set.
         """
         new_class = super().__new__(cls, name, bases, attrs)
         if not hasattr(new_class, "REGISTRY"):
