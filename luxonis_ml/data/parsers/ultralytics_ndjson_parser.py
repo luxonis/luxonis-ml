@@ -22,7 +22,7 @@ from .base_parser import BaseParser, ParserOutput
 
 
 class UltralyticsNDJSONParser(BaseParser):
-    """Parses Ultralytics NDJSON datasets into LDF."""
+    """Parse Ultralytics NDJSON datasets into LDF."""
 
     _remote_file_downloader = RemoteFileDownloader()
 

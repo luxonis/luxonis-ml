@@ -11,7 +11,7 @@ from .base_parser import BaseParser, ParserOutput
 
 
 class FiftyOneClassificationParser(BaseParser):
-    """Parses FiftyOneImageClassificationDataset format to LDF.
+    """Parse FiftyOne image classification data into LDF.
 
     Supports two directory structures:
 
@@ -48,7 +48,7 @@ class FiftyOneClassificationParser(BaseParser):
             }
         }
 
-    U{FiftyOneImageClassificationDataset <https://docs.voxel51.com/user_guide/export_datasets.html#fiftyone-image-classification-dataset>}.
+    This parser supports the FiftyOne image classification export layout.
     """
 
     SPLIT_NAMES: tuple[str, ...] = ("train", "validation", "test")
@@ -143,18 +143,17 @@ class FiftyOneClassificationParser(BaseParser):
 
 
 def clean_imagenet_annotations(labels_path: Path) -> Path:
-    """Cleans ImageNet annotations by fixing known issues with class
-    names and label indices.
-    This function handles two known issues in ImageNet FiftyOne exports:
-        1. Duplicate class names: First instance of "crane" is renamed
-           to "crane bird", second instance of "maillot" is renamed to
-           "maillot swim suit".
-        2. Misindexed labels: "006742" label 517 is corrected to 134,
-           "031933" label 639 is corrected to 638.
-    @type labels_path: Path
-    @param labels_path: Path to the labels.json file.
-    @rtype: Path
-    @return: Path to the cleaned labels file.
+    """Clean known ImageNet issues in FiftyOne labels.
+
+    The cleanup fixes duplicate class names and known label-index errors in
+    ImageNet FiftyOne exports.
+
+    Args:
+        labels_path: Path to ``labels.json``.
+
+    Returns:
+        Path to the cleaned labels file.
+
     """
     with open(labels_path) as f:
         labels_data = json.load(f)

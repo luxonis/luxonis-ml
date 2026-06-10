@@ -8,24 +8,28 @@ from luxonis_ml.typing import Labels, TaskType
 
 @lru_cache
 def task_is_metadata(task: str) -> bool:
-    """Returns whether a task is a metadata task.
+    """Check whether a task is a metadata task.
 
-    @type task: str
-    @param task: The task to check.
-    @rtype: bool
-    @return: Whether the task is a metadata task.
+    Args:
+        task: Task to check.
+
+    Returns:
+        Whether the task is a metadata task.
+
     """
     return get_task_type(task).startswith("metadata/")
 
 
 @lru_cache
 def split_task(task: str) -> tuple[str, str]:
-    """Splits a task into its task name and type.
+    """Split a task into task name and task type.
 
-    @type task: str
-    @param task: The task to split.
-    @rtype: Tuple[str, str]
-    @return: A tuple containing the task name and type.
+    Args:
+        task: Task to split.
+
+    Returns:
+        Task name and task type.
+
     """
     splits = task.split("/", 1)
     if len(splits) == 1:
@@ -35,22 +39,23 @@ def split_task(task: str) -> tuple[str, str]:
 
 @lru_cache
 def get_task_name(task: str) -> str:
-    """Returns the task name from a task.
+    """Return the task name from a task string.
 
-    @type task: str
-    @param task: The task.
-    @rtype: str
-    @return: The task name.
+    Args:
+        task: Task string.
+
+    Returns:
+        Task name.
+
     """
     return task.split("/", maxsplit=1)[0]
 
 
 @lru_cache
 def get_task_type(task: str) -> str:
-    """Returns the task type from a task.
+    """Return the task type from a task string.
 
     Example:
-
         >>> get_task_type("task_name/type")
         'type'
         >>> get_task_type("metadata/name")
@@ -58,11 +63,12 @@ def get_task_type(task: str) -> str:
         >>> get_task_type("task_name/metadata/name")
         'metadata/name'
 
-    @type task: str
-    @param task: The task in a format like "task_name/type".
-    @rtype: str
-    @return: The task type. If the task is a metadata task,
-        the type will be "metadata/type".
+    Args:
+        task: Task string, such as ``"task_name/type"``.
+
+    Returns:
+        Task type. Metadata tasks are returned as ``"metadata/type"``.
+
     """
     parts = task.split("/")
     if len(parts) == 1:
@@ -79,14 +85,15 @@ def get_task_type(task: str) -> str:
 def task_type_iterator(
     labels: Labels, task_type: TaskType
 ) -> Iterator[tuple[str, np.ndarray]]:
-    """Iterates over labels of a specific type.
+    """Iterate over labels of a specific task type.
 
-    @type labels: Labels
-    @param labels: The labels to iterate over.
-    @type task_type: str
-    @param task_type: The type of label to iterate over.
-    @rtype: Iterator[Tuple[str, np.ndarray]]
-    @return: An iterator over the labels of the specified type.
+    Args:
+        labels: Labels to iterate over.
+        task_type: Label type to yield.
+
+    Returns:
+        Iterator over matching labels.
+
     """
     for task, array in labels.items():
         if get_task_type(task) == task_type:

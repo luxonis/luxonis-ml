@@ -19,16 +19,14 @@ class ParquetRecord(TypedDict):
 
 class ParquetFileManager:
     def __init__(self, directory: PathType, num_rows: int = 100_000) -> None:
-        """Manages the insertion of data into parquet files.
+        """Manage writing rows into partitioned parquet files.
 
-        @type directory: str
-        @param directory: The local directory in which parquet files are
-            stored.
-        @type num_rows: int
-        @param num_rows: The maximum number of rows permitted in a
-            parquet file before another file is created.
+        Args:
+            directory: Local directory where parquet files are stored.
+            num_rows: Maximum rows per parquet file before a new file is
+                created.
+
         """
-
         self.dir = Path(directory)
         self.parquet_files = list(self.dir.glob("*.parquet"))
         self.num_rows = num_rows
@@ -60,18 +58,14 @@ class ParquetFileManager:
         self.buffer["group_id"] = []
 
     def write(self, uuid: str, data: ParquetRecord, group_id: str) -> None:
-        """Writes a row to the current working parquet file.
+        """Write a row to the current parquet file.
 
-        @type uuid: str
-        @param uuid: A unique identifier for the row, typically a UUID.
-        @type data: Dict
-        @param data: A dictionary representing annotations, mapping
-            annotation types to values.
-        @type group_id: str
-        @param group_id: An unique identifier for the group to which the
-            row belongs.
+        Args:
+            uuid: Unique row identifier.
+            data: Annotation row data.
+            group_id: Unique identifier for the sample group.
+
         """
-
         if not self.buffer:
             self._initialize_data(data)
 
@@ -101,8 +95,7 @@ class ParquetFileManager:
         self._read()
 
     def _flush(self) -> None:
-        """Writes buffered data to parquet."""
-
+        """Write buffered data to parquet."""
         if self.buffer:
             df = pl.DataFrame(self.buffer)
             df.write_parquet(self.current_file)

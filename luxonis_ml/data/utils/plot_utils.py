@@ -8,7 +8,7 @@ from matplotlib.container import BarContainer
 def _prepare_class_data(
     task_data: list[dict[str, Any]],
 ) -> tuple[list[str], list[int]]:
-    """Extracts class names and counts from task_data."""
+    """Extract class names and counts from task data."""
     classes = [x["class_name"] for x in task_data]
     counts = [x["count"] for x in task_data]
     return classes, counts
@@ -17,7 +17,7 @@ def _prepare_class_data(
 def _annotate_bars(
     ax: plt.Axes, bars: BarContainer
 ) -> None:  # pragma: no cover
-    """Adds numeric labels above bars."""
+    """Add numeric labels above bars."""
     for bar in bars:
         height = bar.get_height()
         ax.annotate(
@@ -34,14 +34,13 @@ def _annotate_bars(
 def plot_class_distribution(
     ax: plt.Axes, task_type: str, task_data: list[dict[str, Any]]
 ) -> None:  # pragma: no cover
-    """Plots a bar chart of class distribution.
+    """Plot a class distribution bar chart.
 
-    @type ax: plt.Axes
-    @param ax: The axis to plot on.
-    @type task_type: str
-    @param task_type: The type of task.
-    @type task_data: List[Dict[str, Any]]
-    @param task_data: The task data to plot.
+    Args:
+        ax: Axis to plot on.
+        task_type: Task type.
+        task_data: Class distribution records.
+
     """
     if not task_data:
         ax.axis("off")
@@ -71,7 +70,7 @@ def plot_class_distribution(
 def _prepare_heatmap_data(
     heatmap_data: list[list[float]] | None,
 ) -> np.ndarray:
-    """Converts heatmap_data to a normalized NumPy array."""
+    """Convert heatmap data to a normalized NumPy array."""
     matrix = np.array(heatmap_data, dtype=np.float32)
     max_val = matrix.max()
     return matrix / max_val if max_val > 0 else matrix
@@ -83,16 +82,14 @@ def plot_heatmap(
     task_type: str,
     heatmap_data: list[list[float]] | None,
 ) -> None:  # pragma: no cover
-    """ " Plots a heatmap of heatmap_data.
+    """Plot a heatmap.
 
-    @type ax: plt.Axes
-    @param ax: The axis to plot on.
-    @type fig: plt.Figure
-    @param fig: The figure to plot on.
-    @type task_type: str
-    @param task_type: The type of task.
-    @type heatmap_data: Optional[List[List[float]]]
-    @param heatmap_data: The heatmap data to plot.
+    Args:
+        ax: Axis to plot on.
+        fig: Figure containing the axis.
+        task_type: Task type.
+        heatmap_data: Heatmap values to plot.
+
     """
     if heatmap_data is None:
         ax.axis("off")
