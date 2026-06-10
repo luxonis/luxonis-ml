@@ -17,6 +17,7 @@ class Output(BaseModelExtraForbid):
         shape: Optional output tensor shape.
         layout: Optional letter code for interpreting tensor dimensions,
             such as ``"NC"``.
+
     """
 
     name: str = Field(description="Name of the output layer.")
@@ -35,7 +36,8 @@ class Output(BaseModelExtraForbid):
     @model_validator(mode="after")
     def validate_layout(self) -> Self:
         """Validate that the layout is compatible with the output
-        shape."""
+        shape.
+        """
         if self.layout is None:
             return self
 

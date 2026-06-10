@@ -21,6 +21,7 @@ class Head(BaseModel, ABC):
         metadata: Parser metadata.
         outputs: Optional names of model outputs fed into the parser. If
             omitted, all outputs are used.
+
     """
 
     name: str | None = Field(None, description="Optional name of the head.")

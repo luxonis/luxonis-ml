@@ -5,12 +5,7 @@ import pytest
 from albumentations.core.bbox_utils import normalize_bboxes
 from pytest_subtests.plugin import SubTests
 
-from luxonis_ml.data.augmentations.custom.mosaic import (
-    Mosaic4,
-    apply_mosaic4_to_bboxes,
-    apply_mosaic4_to_images,
-    apply_mosaic4_to_keypoints,
-)
+from luxonis_ml.data.augmentations.custom.mosaic import Mosaic4
 
 WIDTH: Final[int] = 640
 HEIGHT: Final[int] = 480
@@ -19,7 +14,7 @@ HEIGHT: Final[int] = 480
 def test_mosaic4_helpers(subtests: SubTests):
     with subtests.test("image"):
         img = (np.random.rand(HEIGHT, WIDTH, 3) * 255).astype(np.uint8)
-        mosaic = apply_mosaic4_to_images(
+        mosaic = Mosaic4._apply_mosaic4_to_images(
             [img, img, img, img], HEIGHT, WIDTH, 0, 0, 0
         )
         assert mosaic.shape == (HEIGHT, WIDTH, 3)
@@ -34,7 +29,7 @@ def test_mosaic4_helpers(subtests: SubTests):
         ]
         for i in range(4):
             normalized_bbox = normalize_bboxes(bbox, (HEIGHT, WIDTH))
-            mosaic_bbox = apply_mosaic4_to_bboxes(
+            mosaic_bbox = Mosaic4._apply_mosaic4_to_bboxes(
                 normalized_bbox,
                 HEIGHT // 2,
                 WIDTH // 2,
@@ -61,7 +56,7 @@ def test_mosaic4_helpers(subtests: SubTests):
                 (WIDTH, HEIGHT),
             ]
         ):
-            mosaic_keypoint = apply_mosaic4_to_keypoints(
+            mosaic_keypoint = Mosaic4._apply_mosaic4_to_keypoints(
                 np.array([w, h, 0, 2])[None, ...],
                 HEIGHT // 2,
                 WIDTH // 2,
@@ -76,14 +71,14 @@ def test_mosaic4_helpers(subtests: SubTests):
 
 def test_mosaic4():
     img = (np.random.rand(HEIGHT, WIDTH, 3) * 255).astype(np.uint8)
-    mosaic4 = Mosaic4(out_height=HEIGHT, out_width=WIDTH, p=1.0)
+    mosaic4 = Mosaic4(height=HEIGHT, width=WIDTH, p=1.0)
     m = mosaic4(image=[img, img, img, img])
     assert m["image"].shape == (HEIGHT, WIDTH, 3)
 
 
 def test_invalid():
     with pytest.raises(ValueError, match="`out_height` must be larger"):
-        Mosaic4(out_height=0, out_width=WIDTH)
+        Mosaic4(height=0, width=WIDTH)
 
     with pytest.raises(ValueError, match="`out_width` must be larger"):
-        Mosaic4(out_height=HEIGHT, out_width=0)
+        Mosaic4(height=HEIGHT, width=0)

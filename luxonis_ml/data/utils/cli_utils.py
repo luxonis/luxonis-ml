@@ -18,7 +18,7 @@ def parse_split_ratio(
 ) -> dict[str, float | int] | None:
     """Parse split ratio argument.
 
-    Expects a Python list (e.g., C{"[0.8, 0.1, 0.1]"}). If values sum to
+    Expects a Python list, for example ``"[0.8, 0.1, 0.1]"``. If values sum to
     1.0, treated as ratios. Otherwise, treated as counts.
     """
     if value is None:

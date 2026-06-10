@@ -25,7 +25,7 @@ class LuxonisConfig(BaseModelExtraForbid):
         | tuple[str, ...]
         | None = None,
     ) -> Self:
-        """Loads config from a yaml file or a dictionary.
+        """Load config from a yaml file or a dictionary.
 
         Args:
             cfg: Path to a config file or a dictionary.
@@ -40,6 +40,7 @@ class LuxonisConfig(BaseModelExtraForbid):
             ValueError: If neither ``cfg`` nor ``overrides`` is provided,
                 or if ``overrides`` is a list or a tuple with an odd number
                 of items.
+
         """
         if cfg is None and overrides is None:
             raise ValueError(
@@ -80,16 +81,21 @@ class LuxonisConfig(BaseModelExtraForbid):
     def get_json_schema(self) -> Params:
         """Return the JSON schema of the config.
 
+        .. deprecated:: 0.9.0
+           Use ``model_json_schema(mode='validation')`` instead.
+
         Returns:
             Dictionary with the JSON schema.
+
         """
         return self.model_json_schema(mode="validation")
 
     def save_data(self, path: PathType) -> None:
-        """Saves the config to a YAML file.
+        """Save the config to a YAML file.
 
         Args:
             path: Path to the file where the config should be saved.
+
         """
 
         def path_representer(
@@ -103,7 +109,7 @@ class LuxonisConfig(BaseModelExtraForbid):
             yaml.safe_dump(self.model_dump(), f, default_flow_style=False)
 
     def get(self, key_merged: str, default: Any = None) -> Any:
-        """Returns a value from the config based on the given key.
+        """Return a value from the config based on the given key.
 
         If the key doesn't exist, the default value is returned.
 
@@ -116,6 +122,7 @@ class LuxonisConfig(BaseModelExtraForbid):
 
         Raises:
             ValueError: If a list is accessed with a non-integer key.
+
         """
         value = self
         for key in key_merged.split("."):
@@ -141,7 +148,7 @@ class LuxonisConfig(BaseModelExtraForbid):
 
     @staticmethod
     def _merge_overrides(data: Params, overrides: Params) -> None:
-        """Merges the config dictionary with the CLI overrides.
+        """Merge the config dictionary with the CLI overrides.
 
         The overrides are a dictionary mapping "dotted" keys to either
         final or unparsed values.
@@ -152,6 +159,7 @@ class LuxonisConfig(BaseModelExtraForbid):
 
         Raises:
             ValueError: If the overrides contain an invalid option.
+
         """
 
         def _parse_value(value: Any) -> Any:

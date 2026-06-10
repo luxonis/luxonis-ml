@@ -15,28 +15,27 @@ from luxonis_ml.data.datasets.annotation import (
     InstanceSegmentationAnnotation,
     KeypointAnnotation,
     SegmentationAnnotation,
-    check_valid_identifier,
     load_annotation,
 )
 from luxonis_ml.data.utils.parquet import ParquetRecord
 
 
 def test_valid_identifier():
-    check_valid_identifier("variable", label="")
-    check_valid_identifier("variable_name", label="")
-    check_valid_identifier("variable-name", label="")
+    Detection._check_valid_identifier("variable", label="")
+    Detection._check_valid_identifier("variable_name", label="")
+    Detection._check_valid_identifier("variable-name", label="")
 
     with pytest.raises(ValueError, match="can only contain alphanumeric"):
-        check_valid_identifier("variable name", label="")
+        Detection._check_valid_identifier("variable name", label="")
 
     with pytest.raises(ValueError, match="can only contain alphanumeric"):
-        check_valid_identifier("?variable_name", label="")
+        Detection._check_valid_identifier("?variable_name", label="")
 
     with pytest.raises(ValueError, match="can only contain alphanumeric"):
-        check_valid_identifier("12variable_name", label="")
+        Detection._check_valid_identifier("12variable_name", label="")
 
     with pytest.raises(ValueError, match="can only contain alphanumeric"):
-        check_valid_identifier("variable/name", label="")
+        Detection._check_valid_identifier("variable/name", label="")
 
 
 def test_load_annotation():
@@ -44,7 +43,7 @@ def test_load_annotation():
         "boundingbox", {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4}
     ) == BBoxAnnotation(x=0.1, y=0.2, w=0.3, h=0.4)
     with pytest.raises(ValueError, match="Unknown label type"):
-        load_annotation("invalid_name", {})
+        load_annotation("invalid_name", {})  # type: ignore
 
 
 def test_dataset_record(tempdir: Path):
@@ -230,10 +229,11 @@ def test_segmentation_annotation(subtests: SubTests, tempdir: Path):
         assert seg.height == 4
         assert seg.width == 4
         assert seg.counts == b"11213ON0"
-        assert (
-            seg.model_dump_json()
-            == '{"height":4,"width":4,"counts":"11213ON0"}'
-        )
+        assert seg.model_dump() == {
+            "height": 4,
+            "width": 4,
+            "counts": "11213ON0",
+        }
         np.save(tempdir / "mask.npy", mask)
         seg = SegmentationAnnotation(mask=tempdir / "mask.npy")  # type: ignore
         assert seg.height == 4
@@ -431,7 +431,12 @@ def test_segmentation_annotation(subtests: SubTests, tempdir: Path):
 
         with pytest.raises(ValueError, match="outside of automatic clipping"):
             SegmentationAnnotation(
-                points=[(-2.1, 0), (1.1, 0), (1, 1.5), (-0.6, 1)],  # type: ignore
+                points=[  # type: ignore
+                    (-2.1, 0),
+                    (1.1, 0),
+                    (1, 1.5),
+                    (-0.6, 1),
+                ],
                 height=4,
                 width=4,
             )
@@ -463,7 +468,7 @@ def test_array_annotation(subtests: SubTests, tempdir: Path):
 
     with subtests.test("numpy"):
         annotation = ArrayAnnotation(path=arr_path)
-        assert np.array_equal(annotation.to_numpy(), arr)
+        assert np.array_equal(np.load(annotation.path), arr)
 
         annotations = [ArrayAnnotation(path=arr_path) for _ in range(5)]
         array = ArrayAnnotation.combine_to_numpy(

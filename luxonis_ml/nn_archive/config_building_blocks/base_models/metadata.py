@@ -10,6 +10,7 @@ class Metadata(BaseModel):
         name: Name of the model.
         path: Relative path to the model executable inside the archive.
         precision: Precision of the model weights.
+
     """
 
     name: str = Field(description="Name of the model.")

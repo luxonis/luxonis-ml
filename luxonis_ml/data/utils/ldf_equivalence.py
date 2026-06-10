@@ -28,8 +28,11 @@ def ldf_equivalent(
 class LDFEquivalence:
     @staticmethod
     def file_sha256(path: Path) -> str:
-        """The image's hash is used to order annotations to survive
-        renaming."""
+        """Return the SHA-256 hash for an image file.
+
+        Hashes are used to order annotations robustly when files are
+        renamed.
+        """
         return hashlib.sha256(path.read_bytes()).hexdigest()
 
     @classmethod

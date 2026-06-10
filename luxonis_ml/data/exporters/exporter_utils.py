@@ -53,7 +53,7 @@ class PreparedLDF:
             pl.struct(["file", "uuid"])
             .map_elements(
                 lambda r: resolve_path(
-                    r["file"], r["uuid"], str(dataset.media_path)
+                    r["file"], r["uuid"], str(dataset._media_path)
                 ),
                 return_dtype=pl.Utf8,
             )
@@ -160,7 +160,7 @@ def create_zip_output(
 def get_single_skeleton(
     allow_keypoints: bool, skeletons: dict[str, Any] | None = None
 ) -> tuple[list[str], list[list[int]]]:
-    """Returns (labels, skeleton_edges_1_based) for the single skeleton.
+    """Return labels and COCO-style edges for the single skeleton.
 
     Edges are converted to 1-based indices per COCO spec.
     """

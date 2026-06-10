@@ -15,6 +15,7 @@ def is_nn_archive(path: PathType) -> bool:
 
     Returns:
         ``True`` if the file is a valid NN Archive, otherwise ``False``.
+
     """
     path = Path(path)
 
@@ -48,13 +49,13 @@ def infer_layout(shape: list[int]) -> str:
             layout inference.
 
     Example:
-
         >>> infer_layout([1, 3, 256, 256])
         'NCHW'
         >>> infer_layout([256, 256, 3])
         'HWC'
         >>> infer_layout([1, 19, 7, 8])
         'NCDE'
+
     """
     layout = []
     i = 0

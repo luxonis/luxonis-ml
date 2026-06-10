@@ -14,6 +14,7 @@ class Model(BaseModelExtraForbid):
         outputs: Output stream definitions.
         heads: Optional parser head definitions. If omitted, the archive
             exposes raw model outputs.
+
     """
 
     metadata: Metadata = Field(

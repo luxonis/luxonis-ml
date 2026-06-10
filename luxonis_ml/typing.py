@@ -49,8 +49,11 @@ L{Annotations}."""
 
 
 RGB: TypeAlias = tuple[int, int, int]
+r"""RGB color represented as a tuple of three integers
+in the range :math:`\left[0, 255\right]`"""
 
 HSV: TypeAlias = tuple[float, float, float]
+"""HSV color represented as a tuple of three floats"""
 
 Color: TypeAlias = str | int | RGB
 """Color type alias.

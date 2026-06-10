@@ -22,7 +22,7 @@ def setup_logging(
     use_rich: bool = True,
     **kwargs,
 ) -> None:  # pragma: no cover
-    """Sets up global logging using loguru and rich.
+    """Set up global logging using loguru and rich.
 
     Args:
         level: Logging level. If not set, reads from the environment
@@ -35,6 +35,7 @@ def setup_logging(
 
     Raises:
         ValueError: If the logging level is invalid.
+
     """
     from loguru import logger
 
@@ -95,7 +96,7 @@ def setup_logging(
         category: type[Warning],
         filename: str,
         lineno: int,
-        _file: str | None = None,
+        file: str | None = None,
         line: str | None = None,
     ) -> None:
         text = warnings.formatwarning(
@@ -112,10 +113,9 @@ def deprecated(
     additional_message: str | None = None,
     altogether: bool = False,
 ) -> Callable[[Callable], Callable]:
-    """Decorator to mark a function or its parameters as deprecated.
+    """Mark a function or its parameters as deprecated.
 
     Example:
-
         >>> @deprecated("old_arg",
         ...             "another_old_arg",
         ...             suggest={"old_arg": "new_arg"},
@@ -138,6 +138,7 @@ def deprecated(
 
     Returns:
         Decorator that emits deprecation warnings.
+
     """
 
     def decorator(func: Callable) -> Callable:
@@ -175,11 +176,12 @@ def deprecated(
 
 
 def log_once(logger: Callable[[str], None], message: str) -> None:
-    """Logs a message only once.
+    """Log a message only once.
 
     Args:
         logger: The logger to use.
         message: The message to log.
+
     """
     _cache: set[str]
 

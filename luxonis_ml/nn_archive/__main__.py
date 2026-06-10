@@ -42,6 +42,7 @@ def inspect(
         metadata: Print metadata.
         outputs: Print outputs info.
         heads: Print heads info.
+
     """
 
     with tarfile.open(path) as tar:
@@ -87,6 +88,7 @@ def extract(
         destination: Path where to extract the Archive.
             If not provided, the Archive is extracted to the current
             working directory.ory.
+
     """
 
     extract_path = Path(destination) / (Path(path).name.split(".")[0])

@@ -214,8 +214,7 @@ def download_remote_file(
     timeout: float = 30.0,
     validate_image: bool = False,
 ) -> Path:
-    """Downloads a remote file to the requested destination."""
-
+    """Download a remote file to the requested destination."""
     return RemoteFileDownloader().download(
         url,
         destination,

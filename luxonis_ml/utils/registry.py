@@ -21,6 +21,7 @@ class Registry(Generic[T]):
 
         Args:
             name: The name of the registry, used for error messages.
+
         """
         self._module_dict: dict[str, T] = {}
         self._name = name
@@ -49,14 +50,17 @@ class Registry(Generic[T]):
         return self._name
 
     def get(self, key: str) -> T:
-        """Retrieves the registry record for the key.
+        """Retrieve the registry record for the key.
 
         Args:
             key: The name of the registered item.
+
         Returns:
             The registered item corresponding to the key.
+
         Raises:
             KeyError: If the key is not found in the registry.
+
         """
         module_cls = self._module_dict.get(key, None)
         if module_cls is None:
@@ -80,12 +84,13 @@ class Registry(Generic[T]):
         module: T | None = None,
         force: bool = False,
     ) -> T | Callable[[T], T]:
-        """Registers a module. Deprecated, use `register` instead.
+        """Register a module. Deprecated, use `register` instead.
 
         Args:
             name: Name of the module. If ``None``, the class name is used.
             module: Module class to be registered.
             force: Whether to override an existing class with the same name.
+
         """
         warnings.warn(
             "`register_module` is deprecated, use `register` instead.",
@@ -119,12 +124,11 @@ class Registry(Generic[T]):
         name: str | None = None,
         force: bool = False,
     ) -> Callable[[T], T] | None:
-        """Registers a module.
+        """Register a module.
 
         Can be used as a decorator or as a normal method:
 
         Example:
-
             >>> registry = Registry(name="modules")
             >>> @registry.register()
             ... class Foo:
@@ -149,6 +153,7 @@ class Registry(Generic[T]):
         Raises:
             KeyError: If a module with the same name
                 already exists and ``force`` is ``False``.
+
         """
 
         if module is not None:
@@ -186,7 +191,6 @@ class AutoRegisterMeta(ABCMeta):
         REGISTRY: The internal registry defined on the base class.
 
     Example:
-
         >>> REGISTRY = Registry(name="modules")
         >>> class Base(
         ...     metaclass=AutoRegisterMeta,
@@ -202,6 +206,7 @@ class AutoRegisterMeta(ABCMeta):
         'Foo'
         >>> Base.REGISTRY.get("Baz").__name__
         'Bar'
+
     """
 
     REGISTRY: Registry
@@ -228,6 +233,7 @@ class AutoRegisterMeta(ABCMeta):
             registry: The registry to use for registration.
                 Will be saved as the `REGISTRY` attribute
                 of the class if not already set.
+
         """
         new_class = super().__new__(cls, name, bases, attrs)
         if not hasattr(new_class, "REGISTRY"):

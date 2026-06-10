@@ -15,6 +15,7 @@ class Config(BaseModelExtraForbid):
     Attributes:
         config_version: Schema version in ``major.minor`` format.
         model: Neural network configuration stored in the archive.
+
     """
 
     config_version: str = Field(
@@ -29,7 +30,8 @@ class Config(BaseModelExtraForbid):
     @classmethod
     def validate_config_version_format(cls, v: str) -> str:
         """Validate that the schema version uses ``major.minor``
-        format."""
+        format.
+        """
         # Regular expression to match 'x.y' where x and y are integers.
         if not re.match(r"^\d+\.\d+$", v):
             raise ValueError(

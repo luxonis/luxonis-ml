@@ -18,14 +18,23 @@ class PreprocessingBlock(BaseModelExtraForbid):
     Attributes:
         mean: Optional mean values in channel order. The order should
             match the preprocessing used during training.
+
         scale: Optional standardization values in channel order. The
             order should match the preprocessing used during training.
-        reverse_channels: Optional legacy channel-order flag. Deprecated;
-            use ``dai_type`` instead.
+
+        reverse_channels: Optional legacy channel-order flag.
+
+            .. deprecated:: 0.5.0
+                use ``dai_type`` instead.
+
         interleaved_to_planar: Optional legacy layout conversion flag.
-            Deprecated; use ``dai_type`` instead.
+
+            .. deprecated:: 0.5.0
+                use ``dai_type`` instead.
+
         dai_type: Optional DepthAI input type used to configure pipeline
             input handling.
+
     """
 
     mean: list[float] | None = Field(
@@ -69,6 +78,7 @@ class Input(BaseModelExtraForbid):
         layout: Letter code for interpreting tensor dimensions, such as
             ``"NCHW"``.
         preprocessing: Preprocessing applied to the input data.
+
     """
 
     name: str = Field(description="Name of the input layer.")
@@ -94,7 +104,8 @@ class Input(BaseModelExtraForbid):
     @model_validator(mode="after")
     def validate_layout(self) -> Self:
         """Validate that the layout is compatible with the input
-        shape."""
+        shape.
+        """
         self.layout = self.layout.upper()
 
         if len(self.layout) != len(set(self.layout)):

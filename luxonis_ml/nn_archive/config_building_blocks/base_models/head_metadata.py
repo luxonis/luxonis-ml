@@ -11,6 +11,7 @@ class HeadMetadata(BaseModel):
 
     Attributes:
         postprocessor_path: Optional path to the postprocessor.
+
     """
 
     model_config = ConfigDict(extra="allow")
@@ -35,6 +36,7 @@ class HeadObjectDetectionMetadata(HeadMetadata):
             ratios. The innermost values describe box sizes, the middle
             values group anchors per output, and the outer values are
             ordered from smallest to largest output.
+
     """
 
     classes: list[str] = Field(
@@ -67,6 +69,7 @@ class HeadObjectDetectionSSDMetadata(HeadObjectDetectionMetadata):
             coordinates.
         scores_outputs: Output containing predicted bounding box
             confidence scores.
+
     """
 
     boxes_outputs: str = Field(
@@ -87,6 +90,7 @@ class HeadClassificationMetadata(HeadMetadata):
         n_classes: Number of classes recognized by the model.
         is_softmax: Whether the output already contains softmax
             probabilities.
+
     """
 
     classes: list[str] = Field(
@@ -108,6 +112,7 @@ class HeadSegmentationMetadata(HeadMetadata):
         n_classes: Number of classes segmented by the model.
         is_softmax: Whether the output already contains softmax
             probabilities.
+
     """
 
     classes: list[str] = Field(
@@ -138,6 +143,7 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
             keypoint detection.
         is_softmax: Optional flag indicating whether YOLO instance
             segmentation outputs already contain softmax probabilities.
+
     """
 
     yolo_outputs: list[str] = Field(

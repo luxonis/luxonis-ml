@@ -8,11 +8,10 @@ T = TypeVar("T")
 def traverse_graph(
     graph: dict[str, list[str]], nodes: Mapping[str, T]
 ) -> Iterator[tuple[str, T, list[str], list[str]]]:
-    """Traverses the graph in topological order, starting from the nodes
+    """Traverse the graph in topological order, starting from the nodes
     with no predecessors.
 
     Example:
-
         >>> graph = {"a": ["b"], "b": []}
         >>> nodes = {"a": 1, "b": 2}
         >>> for name, value, preds, rem in traverse_graph(graph, nodes):
@@ -31,6 +30,7 @@ def traverse_graph(
 
     Raises:
         RuntimeError: If the graph is malformed.
+
     """
     # sort the set for consistent behavior
     unprocessed_nodes = sorted(set(nodes.keys()))
@@ -61,13 +61,14 @@ def traverse_graph(
 
 
 def is_acyclic(graph: dict[str, list[str]]) -> bool:
-    """Tests if graph is acyclic.
+    """Test if graph is acyclic.
 
     Args:
         graph: Graph represented as a dictionary of predecessors.
 
     Returns:
         ``True`` if graph is acyclic, ``False`` otherwise.
+
     """
     graph = graph.copy()
 

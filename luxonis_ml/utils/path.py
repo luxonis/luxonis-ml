@@ -15,7 +15,8 @@ def parse_manifest_path(value: PathType) -> Path:
 
 def resolve_manifest_path(base_dir: Path, value: PathType) -> Path:
     """Resolve a manifest path relative to the directory that contains
-    it."""
+    it.
+    """
 
     raw = str(value)
     windows_path = PureWindowsPath(raw)

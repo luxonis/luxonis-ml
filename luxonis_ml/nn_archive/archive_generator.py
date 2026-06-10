@@ -23,6 +23,7 @@ class ArchiveGenerator:
             archive.
         compression: Compression algorithm used for the tar archive.
         cfg: Validated archive configuration.
+
     """
 
     def __init__(
@@ -46,6 +47,7 @@ class ArchiveGenerator:
         Raises:
             ValueError: If ``compression`` is not one of ``"xz"``,
                 ``"gz"``, or ``"bz2"``.
+
         """
         self.save_path = Path(save_path)
         self.executables_paths = executables_paths
@@ -71,6 +73,7 @@ class ArchiveGenerator:
 
         Returns:
             Path to the generated archive.
+
         """
 
         # create an in-memory file-like config object
@@ -98,6 +101,7 @@ class ArchiveGenerator:
 
         Returns:
             Encoded JSON data and a file-like buffer containing it.
+
         """
 
         # read-in config data as dict
