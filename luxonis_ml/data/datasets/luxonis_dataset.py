@@ -909,7 +909,7 @@ class LuxonisDataset(BaseDataset):
 
         Example output:
 
-        .. code-block:: python
+        .. python::
 
             {
                 "vehicles": {
@@ -928,7 +928,7 @@ class LuxonisDataset(BaseDataset):
 
         Example output:
 
-        .. code-block:: python
+        .. python::
 
             {
                 "id": "int",
@@ -1229,7 +1229,7 @@ class LuxonisDataset(BaseDataset):
 
                 For example:
 
-                .. code-block:: python
+                .. python::
 
                     def record_generator():
                         yield {
@@ -1447,9 +1447,17 @@ class LuxonisDataset(BaseDataset):
                 - A mapping of split names to float ratios.
                 - A tuple of three float ratios for train, val, and test splits.
 
-            ratios: (Deprecated) A mapping of split names to float ratios
+            ratios: A mapping of split names to float ratios
                 or a tuple of three float ratios for train, val, and test splits.
-            definitions: (Deprecated) A mapping of split names to lists of file paths.
+
+                .. deprecated:: 0.4.0
+                    Use ``splits`` instead.
+
+            definitions: A mapping of split names to lists of file paths.
+
+                .. deprecated:: 0.4.0
+                    Use ``splits`` instead.
+
             replace_old_splits: Whether to replace old splits with new ones. If ``False`
                 (default), new splits will be added to old splits, and duplicate group IDs will be filtered out. If ``True``, old splits will be replaced with new splits.
 

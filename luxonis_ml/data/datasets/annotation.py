@@ -121,7 +121,7 @@ class Detection(BaseModelExtraForbid):
             annotations if individual detection types are added separately
             and in an inconsistent order across records:
 
-            .. code-block:: python
+            .. python::
 
                 # Without specifying `instance_id`, the
                 # bounding box and keypoint annotation will
@@ -150,7 +150,7 @@ class Detection(BaseModelExtraForbid):
             and to avoid generating annotations individually in separate
             detections:
 
-            .. code-block:: python
+            .. python::
 
                 # This is the correct way
                 def generator():
@@ -904,7 +904,11 @@ class DatasetRecord(BaseModelExtraForbid):
     @property
     @deprecated("Use `list(record.files.values())` instead.")
     def all_file_paths(self) -> list[FilePath]:
-        """All file paths associated with the dataset record."""
+        """All file paths associated with the dataset record.
+
+        .. deprecated:: 0.9.0
+            Use ``list(record.files.values())`` instead.
+        """
         return list(self.files.values())
 
     def to_parquet_rows(self) -> Iterable[ParquetRecord]:

@@ -78,7 +78,7 @@ class BaseDataset(
         Returns:
             Mapping from class names to class IDs grouped by task name:
 
-            .. code-block:: python
+            .. python::
 
                 {
                     "vehicles": {
@@ -121,7 +121,7 @@ class BaseDataset(
 
         For example:
 
-        .. code-block:: python
+        .. python::
 
             dataset.set_skeletons(
                 labels=["right hand", "right shoulder", ...],
@@ -232,7 +232,7 @@ class BaseDataset(
         Returns:
             Class names keyed by task name:
 
-            .. code-block:: python
+            .. python::
 
                 {
                     "vehicles": ["red", "green", "blue"],
