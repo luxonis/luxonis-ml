@@ -233,6 +233,7 @@ class BaseDataset(
             Class names keyed by task name:
 
             .. code-block:: python
+
                 {
                     "vehicles": ["red", "green", "blue"],
                     "brands": ["audi", "bmw", "mercedes"],
