@@ -40,10 +40,11 @@ class BatchTransform(ABC, A.DualTransform):
 
     @abstractmethod
     def apply(self, image_batch: list[np.ndarray], **kwargs) -> np.ndarray:
-        """Apply the transformation to a batch of images.
+        r"""Apply the transformation to a batch of images.
 
         Args:
-            image_batch: A batch of images to transform.
+            image_batch: Images to transform. Each image should be of shape
+                :math:`\left(H, W, C\right)` or :math:`\left(H, W\right)`.
             **kwargs: Additional implementation-specific arguments.
 
         Returns:
@@ -55,12 +56,13 @@ class BatchTransform(ABC, A.DualTransform):
 
     @abstractmethod
     def apply_to_mask(
-        self, mask_batch: list[np.ndarray], **kwargs
+        self, masks_batch: list[np.ndarray], **kwargs
     ) -> np.ndarray:
-        """Apply the transformation to a batch of semantic segmentation masks.
+        r"""Apply the transformation to a batch of semantic segmentation masks.
 
         Args:
-            mask_batch: A batch of semantic segmentation masks to transform.
+            masks_batch: Masks to transform. Each mask should be of shape
+                :math:`\left(H, W, C\right)` or :math:`\left(H, W\right)`.
             **kwargs: Additional implementation-specific arguments.
 
         Returns:
@@ -107,15 +109,17 @@ class BatchTransform(ABC, A.DualTransform):
     def apply_to_instance_mask(
         self, masks_batch: list[np.ndarray], **kwargs
     ) -> np.ndarray:
-        """Apply the transformation to a batch of instance segmentation masks.
+        r"""Apply the transformation to a batch of instance segmentation masks.
 
         Args:
-            masks_batch: A batch of instance segmentation masks to transform.
+            masks_batch: Masks to transform. Each mask should be of shape
+                :math:`\left(H, W, N\right)`, where :math:`N`
+                is the number of instances.
             **kwargs: Additional implementation-specific arguments.
 
         Returns:
-            Single transformed mask resulting from the combination of the input
-            batch.
+            A single instance masks of shape
+            :math:`\left(H_{out}, W_{out}, N\right)`.
 
         """
         ...

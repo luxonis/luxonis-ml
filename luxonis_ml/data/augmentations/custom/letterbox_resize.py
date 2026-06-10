@@ -79,7 +79,7 @@ class LetterboxResize(A.DualTransform):
         orig_height, orig_width, _ = params["shape"]
 
         pad_top, pad_bottom, pad_left, pad_right = self.compute_padding(
-            orig_height, orig_width, self._height, self._width
+            orig_height, orig_width, self.height, self.width
         )
         return {
             "pad_top": pad_top,
@@ -133,7 +133,7 @@ class LetterboxResize(A.DualTransform):
 
         Args:
             img: The input image of shape
-                :math:`\left(\rightH, W, \ldots\right)` to which the
+                :math:`\left(\right H, W, \ldots \right)` to which the
                 letterbox resize will be applied.
 
             pad_top: The number of pixels to pad at the top of the image.
@@ -204,11 +204,13 @@ class LetterboxResize(A.DualTransform):
         r"""Apply letterbox augmentation to the bounding box.
 
         Args:
-            bbox: The input bounding boxes of shape :math:`\left(N, 4\right)`
+            bbox: The input bounding boxes of shape :math:`\left(N, 4+\right)`
                 to which the letterbox resize will be applied.
                 Individual bounding boxes should be in the format
-                :math:`\left(x_{min}, y_{min}, x_{max}, y_{max}\right)`
+                :math:`\left(x_{min}, y_{min}, x_{max}, y_{max}\right, \ldots)`
                 and normalized to the range :math:`\left[0, 1\right]`.
+                The trailing dimensions (if any) are not modified
+                by the augmentation.
 
             pad_top: The number of pixels to pad at the top of the image.
             pad_bottom: The number of pixels to pad at the bottom of the image.
@@ -221,14 +223,13 @@ class LetterboxResize(A.DualTransform):
             as the input.
 
         """
-
         if bbox.size == 0:
             return bbox
 
-        pad_left_norm = pad_left / self._width
-        pad_right_norm = pad_right / self._width
-        pad_top_norm = pad_top / self._height
-        pad_bottom_norm = pad_bottom / self._height
+        pad_left_norm = pad_left / self.width
+        pad_right_norm = pad_right / self.width
+        pad_top_norm = pad_top / self.height
+        pad_bottom_norm = pad_bottom / self.height
 
         bbox[:, [0, 2]] *= 1 - pad_left_norm - pad_right_norm
         bbox[:, [0, 2]] += pad_left_norm
@@ -287,12 +288,11 @@ class LetterboxResize(A.DualTransform):
             after transformation will have their coordinates set to :math:`-1`.
 
         """
-
         if keypoint.size == 0:
             return keypoint
 
-        scale_x = (self._width - pad_left - pad_right) / orig_width
-        scale_y = (self._height - pad_top - pad_bottom) / orig_height
+        scale_x = (self.width - pad_left - pad_right) / orig_width
+        scale_y = (self.height - pad_top - pad_bottom) / orig_height
         keypoint[:, 0] *= scale_x
         keypoint[:, 0] += pad_left
 
@@ -300,11 +300,11 @@ class LetterboxResize(A.DualTransform):
         keypoint[:, 1] += pad_top
 
         out_of_bounds_x = np.logical_or(
-            keypoint[:, 0] < pad_left, keypoint[:, 0] > self._width - pad_right
+            keypoint[:, 0] < pad_left, keypoint[:, 0] > self.width - pad_right
         )
         out_of_bounds_y = np.logical_or(
             keypoint[:, 1] < pad_top,
-            keypoint[:, 1] > self._height - pad_bottom,
+            keypoint[:, 1] > self.height - pad_bottom,
         )
         keypoint[out_of_bounds_x | out_of_bounds_y, :2] = -1
 
@@ -323,8 +323,8 @@ class LetterboxResize(A.DualTransform):
         resized_img = cv2.resize(
             img,
             (
-                self._width - pad_left - pad_right,
-                self._height - pad_top - pad_bottom,
+                self.width - pad_left - pad_right,
+                self.height - pad_top - pad_bottom,
             ),
             interpolation=interpolation,
         )

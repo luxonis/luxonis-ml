@@ -506,7 +506,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 wrapped_spatial_ops.append(op)
                 wrapped_spatial_ops.append(
                     A.Lambda(
-                        image=lambda img, **kw: img,
+                        image=lambda img, **_: img,
                         keypoints=self._mark_invisible_keypoints,
                         p=1.0,
                     )
@@ -784,13 +784,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
     @staticmethod
     def _mark_invisible_keypoints(
-        keypoints: np.ndarray, **kwargs
+        keypoints: np.ndarray, shape: tuple[int, int], **_
     ) -> np.ndarray:
-        shape = kwargs.get("shape")
-        if shape is None:
-            raise ValueError(
-                "Shape must be provided in kwargs to mark invisible keypoints."
-            )
         h, w = shape[:2]
         kps = keypoints.copy()
         xs, ys = kps[:, 0], kps[:, 1]

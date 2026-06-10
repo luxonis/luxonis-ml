@@ -65,15 +65,18 @@ class MixUp(BatchTransform):
         alpha: float,
         **_,
     ) -> np.ndarray:
-        """Apply MixUp to a batch of images.
+        r"""Apply MixUp to a batch of images.
 
         Args:
-            image_batch: Images to transform.
-            image_shapes: Original image shapes.
+            image_batch: Images to transform. Each image should be of shape
+                :math:`\left(H, W, C\right)` or :math:`\left(H, W\right)`.
+            image_shapes: Shapes of the original images.
             alpha: Mixing coefficient.
 
         Returns:
-            Mixed image.
+            A single image of shape :math:`\left(H_{out}, W_{out}, C\right)` or
+            :math:`\left(H_{out}, W_{out}\right)` resulting from blending
+            the input images.
 
         """
         image1 = image_batch[0]
@@ -87,7 +90,7 @@ class MixUp(BatchTransform):
     @override
     def apply_to_mask(
         self,
-        mask_batch: list[np.ndarray],
+        masks_batch: list[np.ndarray],
         image_shapes: list[tuple[int, int]],
         alpha: float,
         **_,
@@ -98,15 +101,18 @@ class MixUp(BatchTransform):
         mask associated with the higher :math:`\alpha` is chosen.
 
         Args:
-            mask_batch: Masks to transform.
-            image_shapes: Original image shapes.
+            masks_batch: Masks to transform. Each mask should be of shape
+                :math:`\left(H, W, C\right)` or :math:`\left(H, W\right)`.
+            image_shapes: Shapes of the original images.
             alpha: Mixing coefficient.
 
         Returns:
-            Mixed mask.
+            A single segmentation mask of shape
+            :math:`\left(H_{out}, W_{out}, C\right)` or
+            :math:`\left(H_{out}, W_{out}\right)`.
 
         """
-        mask1, mask2 = mask_batch
+        mask1, mask2 = masks_batch
         if mask2.size > 0:
             mask2 = self._resize(mask2, image_shapes, "mask")
             if mask2.ndim == 2:
@@ -129,32 +135,35 @@ class MixUp(BatchTransform):
     @override
     def apply_to_instance_mask(
         self,
-        mask_batch: list[np.ndarray],
+        masks_batch: list[np.ndarray],
         image_shapes: list[tuple[int, int]],
         **_,
     ) -> np.ndarray:
-        """Apply MixUp to a batch of instance segmentation masks.
+        r"""Apply MixUp to a batch of instance segmentation masks.
 
         Args:
-            mask_batch: Instance masks to transform.
-            image_shapes: Original image shapes.
+            masks_batch: Masks to transform. Each mask should be of shape
+                :math:`\left(H, W, N\right)`, where :math:`N`
+                is the number of instances.
+            image_shapes: Shapes of the original images.
 
         Returns:
-            Transformed instance masks.
+            A single instance masks of shape
+            :math:`\left(H_{out}, W_{out}, N\right)`.
 
         """
-        mask1, mask2 = mask_batch
+        mask1, mask2 = masks_batch
         if mask2.size > 0:
             mask2 = self._resize(mask2, image_shapes, "mask")
             if mask2.ndim == 2:
                 mask2 = mask2[..., None]
-            mask_batch[1] = mask2
+            masks_batch[1] = mask2
         if mask1.size == 0:
             return mask2
         if mask2.size == 0:
             return mask1
 
-        return np.concatenate(mask_batch, axis=-1)
+        return np.concatenate(masks_batch, axis=-1)
 
     @override
     def apply_to_bboxes(
