@@ -8,13 +8,6 @@ repos:
       - id: ruff-format
         types_or: [python, pyi, jupyter]
 
-  - repo: https://github.com/PyCQA/docformatter
-    rev: v1.7.7
-    hooks:
-      - id: docformatter
-        additional_dependencies: [tomli]
-        args: [--in-place, --black, --style=epytext]
-
   - repo: https://github.com/executablebooks/mdformat
     rev: 1.0.0
     hooks:
@@ -38,8 +31,6 @@ repos:
     rev: v6.0.0
     hooks:
       - id: trailing-whitespace
-      - id: check-docstring-first
-        exclude: luxonis_ml/typing.py
       - id: check-executables-have-shebangs
       - id: check-illegal-windows-names
       - id: check-shebang-scripts-are-executable

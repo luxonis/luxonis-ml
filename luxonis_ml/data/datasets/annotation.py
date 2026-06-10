@@ -1,3 +1,9 @@
+"""Annotation schemas as `pydantic models`_ used by Luxonis Data Format
+datasets.
+
+.. _pydantic models: https://pydantic.dev/docs/validation/latest/concepts/models/
+"""
+
 import json
 import warnings
 from abc import ABC, abstractmethod
@@ -12,6 +18,7 @@ import pycocotools.mask
 from loguru import logger
 from PIL import Image, ImageDraw
 from pydantic import (
+    AliasChoices,
     Field,
     GetCoreSchemaHandler,
     field_serializer,
@@ -20,17 +27,32 @@ from pydantic import (
 )
 from pydantic.types import FilePath, PositiveInt
 from pydantic_core import core_schema
-from typing_extensions import Self, override
+from typing_extensions import Self, deprecated, override
 
 from luxonis_ml.data.utils.parquet import ParquetRecord
 from luxonis_ml.typing import BaseModelExtraForbid, PathType, check_type
 from luxonis_ml.utils.logging import log_once
 
 KeypointVisibility: TypeAlias = Literal[0, 1, 2]
+"""Keypoint visibility following the COCO convention.
+
+The values indicate the visibility of a keypoint in an image:
+
+    - :math:`0`: Not visible or not labeled.
+    - :math:`1`: Occluded.
+    - :math:`2`: Visible.
+"""
 NormalizedFloat: TypeAlias = Annotated[float, Field(ge=0, le=1)]
+"""A float value normalized to the range [0, 1]."""
 
 
 class Category(str):
+    """Category label for metadata values.
+
+    This class is used to distinguish categorical metadata values from
+    free-form string values.
+    """
+
     @classmethod
     def __get_pydantic_core_schema__(
         cls, source_type: Any, handler: GetCoreSchemaHandler
@@ -39,7 +61,131 @@ class Category(str):
 
 
 class Detection(BaseModelExtraForbid):
-    class_name: str | None = Field(None, alias="class")
+    """Detection record containing annotations and metadata for one
+    object.
+
+    It describes a single detected object in an image and can contain various
+    types of annotations and metadata as well as nested sub-detections for
+    hierarchical annotations.
+
+    When ``scale_to_boxes`` is enabled, keypoints and segmentation data are
+    interpreted relative to the bounding box and rescaled to image-normalized
+    coordinates.
+
+    Example:
+        >>> detection = Detection(
+        ...     class_name="person",
+        ...     instance_id=1,
+        ...     metadata={
+        ...         "category": Category("adult"),
+        ...     },
+        ...     boundingbox={
+        ...         "x": 0.1,
+        ...         "y": 0.2,
+        ...         "w": 0.3,
+        ...         "h": 0.4,
+        ...     },
+        ...     instance_segmentation={
+        ...         "mask": np.array([[0, 1], [1, 0]]),
+        ...     },
+        ...     sub_detections={
+        ...         "face": {
+        ...             "class_name": "face",
+        ...             "boundingbox": {
+        ...                 "x": 0.2,
+        ...                 "y": 0.3,
+        ...                 "w": 0.1,
+        ...                 "h": 0.1,
+        ...             },
+        ...             "keypoints": {
+        ...                 "keypoints": [
+        ...                     (0.25, 0.35, 2),  # left eye
+        ...                     (0.3, 0.35, 2),  # right eye
+        ...                 ],
+        ...             },
+        ...             "metadata": {
+        ...                 "expression": Category("happy"),
+        ...                 "eye_color": Category("blue"),
+        ...             },
+        ...         },
+        ...     },
+        ... )
+
+    Attributes:
+        class_name: optional class name for the detection. Input data may use
+            the ``"class"`` alias.
+        instance_id: Instance identifier. If not provided, the
+            instance IDs will correspond to the order in which
+            the detections were added to the dataset.
+            Note that this might lead to incorrect pairing of instance
+            annotations if individual detection types are added separately
+            and in an inconsistent order across records:
+
+            .. code-block:: python
+
+                # Without specifying `instance_id`, the
+                # bounding box and keypoint annotation will
+                # not be correctly paired as they are added in separate
+                # detections and in a different order.
+                def generator():
+                    yield {
+                        "file": ...,
+                        "annotation": {"boundingbox": bbox1},
+                    }
+                    yield {
+                        "file": ...,
+                        "annotation": {"keypoints": kpts2},
+                    }
+                    yield {
+                        "file": ...,
+                        "annotation": {"boundingbox": bbox2},
+                    }
+                    yield {
+                        "file": ...,
+                        "annotation": {"keypoints": kpts1},
+                    }
+
+
+            It is recommended to provide instance IDs if possible
+            and to avoid generating annotations individually in separate
+            detections:
+
+            .. code-block:: python
+
+                # This is the correct way
+                def generator():
+                    yield {
+                        "file": ...,
+                        "annotation": {
+                            "instance_id": 1,
+                            "boundingbox": bbox1
+                            "keypoints": kpts1,
+                        },
+                    }
+                    yield {
+                        "file": ...,
+                        "annotation": {
+                            "instance_id": 2,
+                            "boundingbox": bbox2
+                            "keypoints": kpts2,
+                        },
+                    }
+
+        metadata: Metadata values keyed by metadata name.
+        boundingbox: Optional bounding box annotation.
+        keypoints: Optional keypoint annotation.
+        instance_segmentation: Optional instance segmentation annotation.
+        segmentation: Optional semantic segmentation annotation.
+        array: Optional array annotation.
+        scale_to_boxes: Whether annotation coordinates should be rescaled from
+            bounding-box-relative coordinates.
+        sub_detections: Nested detections keyed by sub-detection name.
+
+    """
+
+    class_name: str | None = Field(
+        None, validation_alias=AliasChoices("class", "class_name")
+    )
     instance_id: int = -1
 
     metadata: dict[str, int | float | str | Category] = {}
@@ -54,16 +200,50 @@ class Detection(BaseModelExtraForbid):
 
     sub_detections: dict[str, "Detection"] = {}
 
+    def get_task_types(self) -> set[str]:
+        """Get all the task type associated with this detection.
+
+        Example:
+            >>> detection = Detection(
+            ...     class_name="cat",
+            ...     boundingbox=BBoxAnnotation(x=0.1, y=0.2, w=0.3, h=0.4),
+            ...     metadata={"color": "black"},
+            ... )
+            >>> sorted(detection.get_task_types())
+            ['boundingbox', 'classification', 'metadata/color']
+
+        Returns:
+            Annotation task types and metadata keys.
+
+        """
+        task_types = {
+            task_type
+            for task_type in [
+                "boundingbox",
+                "keypoints",
+                "segmentation",
+                "instance_segmentation",
+                "array",
+            ]
+            if getattr(self, task_type) is not None
+        }
+        if self.class_name is not None:
+            task_types.add("classification")
+        for metadata_key in self.metadata:
+            task_types.add(f"metadata/{metadata_key}")
+
+        return task_types
+
     @model_validator(mode="after")
-    def validate_names(self) -> Self:
+    def _validate_names(self) -> Self:
         for name in self.sub_detections:
-            check_valid_identifier(name, label="Sub-detection name")
+            self._check_valid_identifier(name, label="Sub-detection name")
         for key in self.metadata:
-            check_valid_identifier(key, label="Metadata key")
+            self._check_valid_identifier(key, label="Metadata key")
         return self
 
     @model_validator(mode="after")
-    def rescale_values(self) -> Self:
+    def _rescale_values(self) -> Self:
         if not self.scale_to_boxes:
             return self
         if self.boundingbox is None:
@@ -87,24 +267,15 @@ class Detection(BaseModelExtraForbid):
             )
         return self
 
-    def get_task_types(self) -> set[str]:
-        task_types = {
-            task_type
-            for task_type in [
-                "boundingbox",
-                "keypoints",
-                "segmentation",
-                "instance_segmentation",
-                "array",
-            ]
-            if getattr(self, task_type) is not None
-        }
-        if self.class_name is not None:
-            task_types.add("classification")
-        for metadata_key in self.metadata:
-            task_types.add(f"metadata/{metadata_key}")
-
-        return task_types
+    @staticmethod
+    def _check_valid_identifier(name: str, *, label: str) -> None:
+        name = name.replace("-", "_")
+        if name and not name.isidentifier():
+            raise ValueError(
+                f"{label} can only contain alphanumeric characters, "
+                "underscores, and dashes. Additionally, the first character "
+                f"must be a letter or underscore. Got {name}"
+            )
 
 
 class Annotation(ABC, BaseModelExtraForbid):
@@ -114,10 +285,32 @@ class Annotation(ABC, BaseModelExtraForbid):
     @abstractmethod
     def combine_to_numpy(
         annotations: list["Annotation"], classes: list[int], n_classes: int
-    ) -> np.ndarray: ...
+    ) -> np.ndarray:
+        """Combine multiple annotations into a single numpy array.
+
+        Args:
+            annotations: Annotations to combine.
+            classes: Class IDs corresponding to each annotation.
+            n_classes: Total number of classes.
+
+        Returns:
+            Combined annotation representation.
+
+        """
+        ...
 
 
 class ClassificationAnnotation(Annotation):
+    """Dummy wrapper annotation for classification tasks.
+
+    There is no explicit annotation field for classification tasks,
+    instead the class name of a detection is interpreted as the class
+    label and interpreted as belonging to the entire image.
+
+    Multiple classification annotations are multi-hot encoded into a
+    single vector with length equal to the total number of classes.
+    """
+
     @staticmethod
     @override
     def combine_to_numpy(
@@ -125,6 +318,19 @@ class ClassificationAnnotation(Annotation):
         classes: list[int],
         n_classes: int,
     ) -> np.ndarray:
+        r"""Combine classification annotations into a multi-hot label
+        vector.
+
+        Args:
+            annotations: Classification annotations to combine.
+            classes: Class IDs associated with the annotations.
+            n_classes: Total number of known classes.
+
+        Returns:
+            Multi-hot class label vector of shape :math:`\left(N\right,)`
+            where :math:`N` is the total number of classes.
+
+        """
         classify_vector = np.zeros(n_classes)
         for i in range(len(annotations)):
             classify_vector[classes[i]] = 1
@@ -136,16 +342,12 @@ class BBoxAnnotation(Annotation):
 
     Values are normalized based on the image size.
 
-    @type x: float
-    @ivar x: The top-left x coordinate of the bounding box. Normalized
-        to M{[0, 1]}.
-    @type y: float
-    @ivar y: The top-left y coordinate of the bounding box. Normalized
-        to M{[0, 1]}.
-    @type w: float
-    @ivar w: The width of the bounding box. Normalized to M{[0, 1]}.
-    @type h: float
-    @ivar h: The height of the bounding box. Normalized to M{[0, 1]}.
+    Attributes:
+        x: Normalized top-left x coordinate.
+        y: Normalized top-left y coordinate.
+        w: Normalized bounding box width.
+        h: Normalized bounding box height.
+
     """
 
     x: NormalizedFloat
@@ -154,6 +356,16 @@ class BBoxAnnotation(Annotation):
     h: NormalizedFloat
 
     def to_numpy(self, class_id: int) -> np.ndarray:
+        r"""Convert the bounding box annotation to row format.
+
+        Args:
+            class_id: The numeric class ID of the annotation.
+
+        Returns:
+            An array of shape :math:`\left(5\right,)`
+            in the format ``[class_id, x, y, w, h]``.
+
+        """
         return np.array([class_id, self.x, self.y, self.w, self.h])
 
     @staticmethod
@@ -163,6 +375,19 @@ class BBoxAnnotation(Annotation):
         classes: list[int],
         n_classes: int | None = None,
     ) -> np.ndarray:
+        r"""Combine bounding box annotations into rows with class IDs.
+
+        Args:
+            annotations: Bounding box annotations to combine.
+            classes: Class IDs associated with the annotations.
+            n_classes: Unused class count kept for API compatibility.
+
+        Returns:
+            An array of shape :math:`\left(N, 5\right)`
+            where :math:`N` is the number of bounding box annotations
+            and each row is in the format ``[class_id, x, y, w, h]``.
+
+        """
         boxes = np.empty((len(annotations), 5))
         for i, ann in enumerate(annotations):
             boxes[i] = ann.to_numpy(classes[i])
@@ -170,7 +395,7 @@ class BBoxAnnotation(Annotation):
 
     @model_validator(mode="before")
     @classmethod
-    def validate_values(cls, values: dict[str, Any]) -> dict[str, Any]:
+    def _validate_values(cls, values: dict[str, Any]) -> dict[str, Any]:
         warn = False
         for key in ["x", "y", "w", "h"]:
             if values[key] < -2 or values[key] > 2:
@@ -204,16 +429,19 @@ class BBoxAnnotation(Annotation):
 
 
 class KeypointAnnotation(Annotation):
-    """Keypoint annotation.
+    r"""Keypoint annotation.
 
-    Values are normalized to M{[0, 1]} based on the image size.
+    The coordinates are normalized to :math:`\left[0, 1\right]`
+    based on the image size.
 
-    @type keypoints: List[Tuple[float, float, L{KeypointVisibility}]]
-    @ivar keypoints: List of keypoints. Each keypoint is a tuple of (x, y, visibility).
-        x and y are normalized to M{[0, 1]}. visibility is one of M{0}, M{1}, or M{2} where:
-            - 0: Not visible / not labeled
-            - 1: Occluded
-            - 2: Visible
+    Attributes:
+        keypoints: Keypoints in ``(x, y, visibility)`` format.
+            Visibility follows the COCO convention:
+
+                - :math:`0`: Not visible or not labeled.
+                - :math:`1`: Occluded.
+                - :math:`2`: Visible.
+
     """
 
     keypoints: list[
@@ -221,15 +449,43 @@ class KeypointAnnotation(Annotation):
     ]
 
     def to_numpy(self) -> np.ndarray:
+        r"""Convert the keypoint annotation to flattened row format.
+
+        Returns:
+            An array of shape :math:`\left(3K\right,)` where :math:`K`
+            is the number of keypoints. The format of the array is
+            :math:`\left[x_1, y_1, v_1, x_2, y_2, v_2, \ldots \right]`
+            where :math:`\left(x_i, y_i, v_i\right)` are the coordinates and visibility
+            of the :math:`i`-th keypoint.
+
+        """
         return np.array(self.keypoints).reshape((-1, 3)).flatten()
 
     @staticmethod
     @override
     def combine_to_numpy(
         annotations: list["KeypointAnnotation"],
-        classes: list[int] | None = None,
+        classes: list[int] | None = None,  # pyright: ignore[reportUnusedParameter]
         n_classes: int | None = None,
     ) -> np.ndarray:
+        r"""Combine keypoint annotations into flattened keypoint rows.
+
+        Args:
+            annotations: Keypoint annotations to combine.
+            classes: Unused class IDs kept for API compatibility.
+            n_classes: Unused class count kept for API compatibility.
+
+        Returns:
+            An array of shape :math:`\left(N, 3K\right)` where :math:`N`
+            is the number of keypoint annotations and :math:`K` is the number
+            of keypoints per annotation.
+            Flattened keypoint rows. Each row contains keypoint coordinates
+            and visibility in the format
+            :math:`\left[x_1, y_1, v_1, x_2, y_2, v_2, \ldots \right]`
+            where :math:`\left(x_i, y_i, v_i\right)` are the coordinates and visibility
+            of the :math:`i`-th keypoint.
+
+        """
         keypoints = np.empty(
             (len(annotations), len(annotations[0].keypoints) * 3)
         )
@@ -239,7 +495,7 @@ class KeypointAnnotation(Annotation):
 
     @model_validator(mode="before")
     @classmethod
-    def validate_values(cls, values: dict[str, Any]) -> dict[str, Any]:
+    def _validate_values(cls, values: dict[str, Any]) -> dict[str, Any]:
         if "keypoints" not in values:
             return values
 
@@ -271,17 +527,46 @@ class KeypointAnnotation(Annotation):
 class SegmentationAnnotation(Annotation):
     """Run-length encoded segmentation mask.
 
-    @type height: int
-    @ivar height: The height of the segmentation mask.
+    The encoded mask uses COCO-style `run-length encoding`_.
 
-    @type width: int
-    @ivar width: The width of the segmentation mask.
+    This class support parsing segmentation masks from multiple input formats:
 
-    @type counts: Union[List[int], bytes]
-    @ivar counts: The run-length encoded mask.
-        This can be a list of integers or a byte string.
+        - Run-length encoding (RLE) directly as a list of counts or as a byte string.
+        - Binary mask arrays as numpy arrays or saved as ``.npy`` or ``.png`` files.
+        - Polygons as lists of normalized points together with the image width and height.
 
-    @see: U{Run-length encoding<https://en.wikipedia.org/wiki/Run-length_encoding>}
+    Example:
+        >>> rle = SegmentationAnnotation(
+        ...     height=4,
+        ...     width=4,
+        ...     counts=b'11213ON0'
+        ... )
+        >>> mask = SegmentationAnnotation(
+        ...     mask=np.array(
+        ...         [
+        ...            [0, 1, 0, 0],
+        ...            [1, 1, 0, 0],
+        ...            [0, 0, 0, 0],
+        ...            [0, 0, 1, 1],
+        ...         ]
+        ...     )
+        ... )
+        >>> np.array_equal(rle.to_numpy(), mask.to_numpy())
+        True
+
+    Note:
+        When providing the RLE as a list of counts instead of encoded bytes
+        make sure the counts follow FORTRAN (column-major)
+        order as expected by the COCO RLE format.
+
+    Attributes:
+        height: The height of the segmentation mask.
+        width: The width of the segmentation mask.
+        counts: Run-length encoded mask data.
+
+    .. _run-length encoding:
+        https://en.wikipedia.org/wiki/Run-length_encoding
+
     """
 
     height: PositiveInt
@@ -289,6 +574,12 @@ class SegmentationAnnotation(Annotation):
     counts: bytes
 
     def to_numpy(self) -> np.ndarray:
+        r"""Convert the segmentation annotation to a binary mask.
+
+        Returns:
+            Binary mask of shape :math:`\left(H, W\right)`.
+
+        """
         with warnings.catch_warnings(record=True):
             return pycocotools.mask.decode(
                 {"counts": self.counts, "size": [self.height, self.width]}
@@ -301,6 +592,22 @@ class SegmentationAnnotation(Annotation):
         classes: list[int],
         n_classes: int,
     ) -> np.ndarray:
+        r"""Combine segmentation annotations into class masks.
+
+        Args:
+            annotations: Segmentation annotations to combine.
+            classes: Class IDs associated with the annotations.
+            n_classes: Total number of known classes.
+
+        Returns:
+            Combined semantic segmentation masks of shape
+            :math:`\left(C, H, W\right)`.
+
+        Note:
+            In case of overlapping annotations,
+            the **first** mask in the list takes precedence.
+
+        """
         ref = annotations[0]
         width, height = ref.width, ref.height
         masks = np.stack([ann.to_numpy() for ann in annotations])
@@ -318,12 +625,12 @@ class SegmentationAnnotation(Annotation):
         return segmentation
 
     @field_serializer("counts", when_used="json")
-    def serialize_counts(self, counts: bytes) -> str:
+    def _serialize_counts(self, counts: bytes) -> str:
         return counts.decode("utf-8")
 
     @model_validator(mode="before")
     @classmethod
-    def validate_rle(cls, values: dict[str, Any]) -> dict[str, Any]:
+    def _validate_rle(cls, values: dict[str, Any]) -> dict[str, Any]:
         if {"counts", "width", "height"} - set(values.keys()):
             return values
 
@@ -369,7 +676,7 @@ class SegmentationAnnotation(Annotation):
 
     @model_validator(mode="before")
     @classmethod
-    def validate_mask(cls, values: dict[str, Any]) -> dict[str, Any]:
+    def _validate_mask(cls, values: dict[str, Any]) -> dict[str, Any]:
         if "mask" not in values:
             return values
         values = deepcopy(values)
@@ -385,16 +692,13 @@ class SegmentationAnnotation(Annotation):
                         f"Failed to load mask from array at '{mask_path}'"
                     ) from e
             elif mask_path.suffix == ".png":
-                try:
-                    mask = (
-                        cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
-                        .astype(bool)
-                        .astype(np.uint8)
-                    )
-                except Exception as e:
+                mask = cv2.imread(str(mask_path), cv2.IMREAD_UNCHANGED)
+                if mask is None:
                     raise ValueError(
                         f"Failed to load mask from image at '{mask_path}'"
-                    ) from e
+                    )
+
+                mask = mask.astype(bool).astype(np.uint8)
             else:
                 raise ValueError(
                     f"Unsupported mask format: {mask_path.suffix}. "
@@ -413,7 +717,7 @@ class SegmentationAnnotation(Annotation):
 
     @model_validator(mode="before")
     @classmethod
-    def validate_polyline(cls, values: dict[str, Any]) -> dict[str, Any]:
+    def _validate_polyline(cls, values: dict[str, Any]) -> dict[str, Any]:
         if {"points", "width", "height"} - set(values.keys()):
             return values
 
@@ -466,6 +770,19 @@ class SegmentationAnnotation(Annotation):
 
 
 class InstanceSegmentationAnnotation(SegmentationAnnotation):
+    r"""Instance segmentation annotation.
+
+    Subclass of `SegmentationAnnotation` used to distinguish
+    instance segmentation annotations from semantic segmentation annotations.
+
+    The array representation of a single instance segmentation annotation
+    is the same as that of a semantic segmentation annotation,
+    but multiple instance segmentation annotations are combined into
+    an array of shape :math:`\left(N, H, W\right)` where the leading
+    dimension :math:`N` corresponds to the number of instance annotations
+    instead of the number of classes as in semantic segmentation.
+    """
+
     @staticmethod
     @override
     def combine_to_numpy(
@@ -473,22 +790,40 @@ class InstanceSegmentationAnnotation(SegmentationAnnotation):
         classes: list[int] | None = None,
         n_classes: int | None = None,
     ) -> np.ndarray:
+        r"""Combine instance segmentation annotations into instance
+        masks.
+
+        Args:
+            annotations: Instance segmentation annotations to combine.
+            classes: Unused class IDs kept for API compatibility.
+            n_classes: Unused class count kept for API compatibility.
+
+        Returns:
+            Combined instance segmentation masks of shape
+            :math:`\left(N, H, W\right)` where :math:`N`
+            is the number of instances.
+
+        Note:
+            As opposed to semantic segmentation, overlapping annotations
+            are allowed and are not resolved in any way. One pixel
+            can belong to multiple instances and will be marked as
+            :math:`1` in each instance mask it belongs to.
+
+        """
         return np.stack([ann.to_numpy() for ann in annotations])
 
 
 class ArrayAnnotation(Annotation):
-    """A custom unspecified annotation that is an arbitrary numpy array.
+    """Custom annotation backed by an array file.
 
     All instances of this annotation must have the same shape.
 
-    @type path: FilePath
-    @ivar path: The path to the numpy array saved as a C{.npy} file.
+    Attributes:
+        path: Path to the array saved as a ``.npy`` file.
+
     """
 
     path: FilePath
-
-    def to_numpy(self) -> np.ndarray:
-        return np.load(self.path)
 
     @staticmethod
     @override
@@ -497,20 +832,33 @@ class ArrayAnnotation(Annotation):
         classes: list[int],
         n_classes: int,
     ) -> np.ndarray:
+        r"""Combine array annotations into instance-class-indexed arrays.
+
+        Args:
+            annotations: Array annotations to combine.
+            classes: Class IDs associated with the annotations.
+            n_classes: Total number of known classes.
+
+        Returns:
+            Combined arrays of shape :math:`\left(N, C, \ldots\right)`
+            where :math:`C` is the number of classes and
+            :math:`N` is the number of instances.
+
+        """
         out_arr = np.zeros(
             (len(annotations), n_classes, *np.load(annotations[0].path).shape)
         )
         for i, ann in enumerate(annotations):
-            out_arr[i, classes[i]] = ann.to_numpy()
+            out_arr[i, classes[i]] = np.load(ann.path)
         return out_arr
 
     @field_serializer("path", when_used="json")
-    def serialize_path(self, value: FilePath) -> str:
+    def _serialize_path(self, value: FilePath) -> str:
         return str(value)
 
     @field_validator("path")
     @classmethod
-    def validate_path(cls, path: FilePath) -> FilePath:
+    def _validate_path(cls, path: FilePath) -> FilePath:
         if path.suffix != ".npy":
             raise ValueError(
                 f"Array annotation file must be a .npy file. Got {path}"
@@ -525,67 +873,53 @@ class ArrayAnnotation(Annotation):
 
 
 class DatasetRecord(BaseModelExtraForbid):
+    """Dataset record containing file paths and an optional annotation.
+
+    Attributes:
+        files: File paths keyed by source name.
+        annotation: Optional detection associated with the dataset record.
+        task_name: The name of the task to which the record belongs.
+
+    """
+
     files: dict[str, FilePath]
     annotation: Detection | None = None
     task_name: str = ""
 
     @property
     def file(self) -> FilePath:
+        """The file path of the dataset record.
+
+        This property is provided for convenience when the dataset record has
+        exactly one file.
+
+        Raises:
+            ValueError: If the dataset record has zero or multiple files.
+
+        """
         if len(self.files) != 1:
             raise ValueError("DatasetRecord must have exactly one file")
         return next(iter(self.files.values()))
 
     @property
+    @deprecated("Use `list(record.files.values())` instead.")
     def all_file_paths(self) -> list[FilePath]:
+        """All file paths associated with the dataset record."""
         return list(self.files.values())
 
-    @model_validator(mode="after")
-    def validate_task_name_valid_identifier(self) -> Self:
-        check_valid_identifier(self.task_name, label="Task name")
-        return self
-
-    @model_validator(mode="before")
-    @classmethod
-    def validate_task_name(cls, values: dict[str, Any]) -> dict[str, Any]:
-        if "task" in values:
-            log_once(
-                logger.warning,
-                "The 'task' field is deprecated. Use 'task_name' instead.",
-            )
-            values["task_name"] = values.pop("task")
-        return values
-
-    @model_validator(mode="before")
-    @classmethod
-    def validate_files(cls, values: dict[str, Any]) -> dict[str, Any]:
-        values = deepcopy(values)
-        if "file" in values:
-            values["files"] = {"image": values.pop("file")}
-        if "files" in values:
-            files_dict = values["files"]
-            values["files"] = {
-                k: Path(v).absolute() for k, v in files_dict.items()
-            }
-        return values
-
     def to_parquet_rows(self) -> Iterable[ParquetRecord]:
-        """Converts an annotation to a dictionary for writing to a
-        parquet file.
+        """Recursively convert the dataset record and all its
+        annotations and sub-annotations to parquet rows.
 
-        @rtype: L{ParquetDict}
-        @return: A dictionary of annotation data.
+        Yields:
+            Annotation data rows.
+
         """
         yield from self._to_parquet_rows(self.annotation, self.task_name)
 
     def _to_parquet_rows(
         self, annotation: Detection | None, task_name: str
     ) -> Iterable[ParquetRecord]:
-        """Converts an annotation to a dictionary for writing to a
-        parquet file.
-
-        @rtype: L{ParquetDict}
-        @return: A dictionary of annotation data.
-        """
         file_items = sorted(self.files.items(), key=lambda x: str(x[1]))
         for i, (source, file_path) in enumerate(file_items):
             is_main = i == 0
@@ -645,24 +979,55 @@ class DatasetRecord(BaseModelExtraForbid):
                         detection, f"{task_name}/{name}"
                     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _validate_task_name(cls, values: dict[str, Any]) -> dict[str, Any]:
+        if "task" in values:
+            log_once(
+                logger.warning,
+                "The 'task' field is deprecated. Use 'task_name' instead.",
+            )
+            values["task_name"] = values.pop("task")
+        return values
 
-def check_valid_identifier(name: str, *, label: str) -> None:
-    """Check if a name is a valid Python identifier after converting
-    dashes to underscores.
+    @model_validator(mode="before")
+    @classmethod
+    def _validate_files(cls, values: dict[str, Any]) -> dict[str, Any]:
+        values = deepcopy(values)
+        if "file" in values:
+            values["files"] = {"image": values.pop("file")}
+        if "files" in values:
+            files_dict = values["files"]
+            values["files"] = {
+                k: Path(v).absolute() for k, v in files_dict.items()
+            }
+        return values
 
-    Albumentations requires that the names of the targets
-    passed as `additional_targets` are valid Python identifiers.
+
+def load_annotation(
+    task_type: Literal[
+        "classification",
+        "boundingbox",
+        "keypoints",
+        "segmentation",
+        "instance_segmentation",
+        "array",
+    ],
+    data: dict[str, Any],
+) -> "Annotation":
+    """Load an annotation from serialized data.
+
+    Args:
+        task_type: The type of the annotation task.
+        data: Serialized annotation data.
+
+    Returns:
+        An instance of the appropriate `Annotation` subclass based on the task type.
+
+    Raises:
+        ValueError: If the task type is unknown.
+
     """
-    name = name.replace("-", "_")
-    if name and not name.isidentifier():
-        raise ValueError(
-            f"{label} can only contain alphanumeric characters, "
-            "underscores, and dashes. Additionaly, the first character "
-            f"must be a letter or underscore. Got {name}"
-        )
-
-
-def load_annotation(task_type: str, data: dict[str, Any]) -> "Annotation":
     classes = {
         "classification": ClassificationAnnotation,
         "boundingbox": BBoxAnnotation,

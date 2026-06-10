@@ -76,6 +76,20 @@ from .utils import (
 
 
 class LuxonisDataset(BaseDataset):
+    """Luxonis Dataset Format (LDF) dataset handle.
+
+    LDF is a flexible and feature-rich dataset format
+    designed for use within the Luxonis MLOps ecosystem.
+
+    Attributes:
+        dataset_name: Name of the dataset.
+        bucket_storage: Underlying storage backend for the dataset.
+        bucket_type: Whether the dataset uses internal or external buckets.
+        team_id: Optional cloud team identifier.
+        version: The version of the underlying LDF that the dataset adheres to.
+
+    """
+
     def __init__(
         self,
         dataset_name: str,
@@ -88,44 +102,43 @@ class LuxonisDataset(BaseDataset):
         delete_local: bool = False,
         delete_remote: bool = False,
     ) -> None:
-        """Luxonis Dataset Format (LDF) is used to define datasets in
-        the Luxonis MLOps ecosystem.
+        """Create a Luxonis Dataset Format dataset handle.
 
-        @type dataset_name: str
-        @param dataset_name: Name of the dataset
-        @type team_id: Optional[str]
-        @param team_id: Optional unique team identifier for the cloud
-        @type bucket_type: BucketType
-        @param bucket_type: Whether to use external cloud buckets
-        @type bucket_storage: BucketStorage
-        @param bucket_storage: Underlying bucket storage. Can be one of
-            C{local}, C{S3}, or C{GCS}.
-        @type delete_local: bool
-        @param delete_local: Whether to delete a dataset with the same
-            name if it exists
-        @type delete_remote: bool
-        @param delete_remote: Whether to delete the dataset from the
-            cloud as well
+        Args:
+            dataset_name: Dataset name.
+            team_id: Optional cloud team identifier.
+            bucket_type: Whether the dataset uses internal or external
+                buckets.
+            bucket_storage: Underlying storage backend.
+            delete_local: Whether to delete a local dataset with the same
+                name before initialization.
+            delete_remote: Whether to delete the remote dataset as well.
+
+        Raises:
+            ValueError: If the dataset exists and deletion flags are not set.
+            ValueError: If the dataset is remote but no bucket is configured.
+            NotImplementedError: If Azure Blob Storage is selected as the
+                bucket storage.
+
         """
-
         self.dataset_name = dataset_name
-        self.base_path = environ.LUXONISML_BASE_PATH
-        self.base_path.mkdir(exist_ok=True)
-
-        self._credentials = self._init_credentials()
-        self._is_synced = False
-
-        # What is this for?
-        self.bucket_type = BucketType(bucket_type)
-
         self.bucket_storage = BucketStorage(bucket_storage)
 
         if self.bucket_storage == BucketStorage.AZURE_BLOB:
             raise NotImplementedError("Azure Blob Storage not yet supported")
 
-        self.bucket = self._get_credential("LUXONISML_BUCKET")
+        # What is this for?
+        self.bucket_type = BucketType(bucket_type)
 
-        if self.is_remote and self.bucket is None:
+        self._base_path = environ.LUXONISML_BASE_PATH
+        self._base_path.mkdir(exist_ok=True)
+
+        self._credentials = self._init_credentials()
+        self._is_synced = False
+
+        self._bucket = self._get_credential("LUXONISML_BUCKET")
+
+        if self.is_remote and self._bucket is None:
             raise ValueError(
                 "The `LUXONISML_BUCKET` environment variable "
                 "must be set for remote datasets"
@@ -135,14 +148,14 @@ class LuxonisDataset(BaseDataset):
 
         self._init_paths()
 
-        self.fs = LuxonisFileSystem(self.path)
+        self._fs = LuxonisFileSystem(self._path)
 
         if delete_local or delete_remote:
             if self.exists(
                 self.dataset_name,
                 self.team_id,
                 self.bucket_storage,
-                self.bucket,
+                self._bucket,
             ):
                 self.delete_dataset(
                     delete_remote=delete_remote, delete_local=delete_local
@@ -151,7 +164,7 @@ class LuxonisDataset(BaseDataset):
             self._init_paths()
 
         # For DDP GCS training - multiple processes
-        with FileLock(self.base_path / ".metadata.lock"):
+        with FileLock(self._base_path / ".metadata.lock"):
             self._metadata = self._get_metadata()
 
         if self.version != LDF_VERSION:
@@ -166,7 +179,7 @@ class LuxonisDataset(BaseDataset):
             )
 
     @cached_property
-    def progress(self) -> rich.progress.Progress:
+    def _progress(self) -> rich.progress.Progress:
         return rich.progress.Progress(
             rich.progress.TextColumn(
                 "[progress.description]{task.description}"
@@ -179,40 +192,26 @@ class LuxonisDataset(BaseDataset):
 
     @property
     def metadata(self) -> Metadata:
-        """Returns a copy of the dataset metadata.
+        """Get the dataset metadata.
 
-        The metadata is a pydantic model with the following fields:
-            - source: L{LuxonisSource}
-            - ldf_version: str
-            - classes: Dict[task_name, Dict[class_name, class_id]]
-            - tasks: Dict[task_name, List[task_type]]
-            - skeletons: Dict[task_name, Skeletons]
-              - Skeletons is a dictionary with keys 'labels' and 'edges'
-                - labels: List[str]
-                - edges: List[Tuple[int, int]]
-            - categorical_encodings: Dict[task_name, Dict[metadata_name, Dict[metadata_value, int]]]
-              - Encodings for string metadata values
-              - Example::
+        Returns:
+            Deep copy of the dataset metadata.
 
-                    {
-                        "vehicle": {
-                            "color": {"red": 0, "green": 1, "blue": 2},
-                            "brand": {"audi": 0, "bmw": 1, "mercedes": 2},
-                        }
-                    }
-
-        @type: L{Metadata}
         """
         return self._metadata.model_copy(deep=True)
 
     @cached_property
     def version(self) -> Version:
+        """The version of the underlying LDF that the dataset adheres
+        to.
+        """
         return Version.parse(
             self._metadata.ldf_version, optional_minor_and_patch=True
         )
 
     @property
     def source(self) -> LuxonisSource:
+        """Get the source information for the dataset."""
         if self._metadata.source is None:
             raise ValueError("Source not found in metadata")
         return self._metadata.source
@@ -226,69 +225,74 @@ class LuxonisDataset(BaseDataset):
     __hash__ = None  # type: ignore[reportAssignmentType]
 
     def __eq__(self, other: object) -> bool | NotImplementedType:
+        """Compare datasets for equivalence."""
         if not isinstance(other, (LuxonisDataset, str)):
             return NotImplemented
         return ldf_equivalent(self, other)
 
     def __len__(self) -> int:
-        """Returns the number of instances in the dataset."""
+        """Return the number of records in the dataset."""
         if self.is_remote:
-            return len(list(self.fs.walk_dir("media")))
+            return len(list(self._fs.walk_dir("media")))
 
         df = self._load_df_offline()
         return len(df.select("uuid").unique()) if df is not None else 0
 
     def _get_credential(self, key: str) -> str:
-        """Gets secret credentials from credentials file or ENV
-        variables."""
-
+        """Get secret credentials from the credentials file or
+        environment.
+        """
         if key in self._credentials:
             return self._credentials[key]
         if not hasattr(environ, key):
-            raise RuntimeError(f"Must set {key} in ENV variables")
+            raise RuntimeError(f"'{key}' must be set in ENV variables")
         return getattr(environ, key)
 
     def _init_paths(self) -> None:
-        """Configures local path or bucket directory."""
-
-        self.local_path = (
-            self.base_path
+        """Configure local paths or a bucket directory."""
+        self._local_path = (
+            self._base_path
             / "data"
             / self.team_id
             / "datasets"
             / self.dataset_name
         )
-        self.media_path = self.local_path / "media"
-        self.annotations_path = self.local_path / "annotations"
-        self.metadata_path = self.local_path / "metadata"
-        self.arrays_path = self.local_path / "arrays"
+        self._media_path = self._local_path / "media"
+        self._annotations_path = self._local_path / "annotations"
+        self._metadata_path = self._local_path / "metadata"
+        self._arrays_path = self._local_path / "arrays"
 
         for path in [
-            self.media_path,
-            self.annotations_path,
-            self.metadata_path,
+            self._media_path,
+            self._annotations_path,
+            self._metadata_path,
         ]:
             path.mkdir(exist_ok=True, parents=True)
 
         if not self.is_remote:
-            self.path = str(self.local_path)
+            self._path = str(self._local_path)
         else:
-            self.path = self._construct_url(
+            self._path = self._construct_url(
                 self.bucket_storage,
-                self.bucket,
+                self._bucket,
                 self.team_id,
                 self.dataset_name,
             )
 
     def _save_df_offline(self, pl_df: pl.DataFrame) -> None:
-        """Saves the given Polars DataFrame into multiple Parquet files
-        using ParquetFileManager. Ensures the same structure as the
+        """Save annotations DataFrame into parquet files.
+
+        Uses ``ParquetFileManager`` to preserve the same structure as the
         original dataset.
 
-        @type pl_df: pl.DataFrame
-        @param pl_df: The Polars DataFrame to save.
+        Args:
+            pl_df: DataFrame to save.
+
+        Raises:
+            ValueError: If any row in the DataFrame is missing a 'uuid' value.
+
         """
-        annotations_path = Path(self.annotations_path)
+        annotations_path = Path(self._annotations_path)
 
         for old_file in annotations_path.glob("*.parquet"):
             old_file.unlink()
@@ -313,7 +317,7 @@ class LuxonisDataset(BaseDataset):
         )
 
     def _merge_metadata_with(self, other: "LuxonisDataset") -> None:
-        """Merges relevant metadata from `other` into `self`."""
+        """Merge relevant metadata from ``other`` into ``self``."""
         self._metadata = self._metadata.merge_with(other._metadata)
         self._write_metadata()
 
@@ -324,20 +328,27 @@ class LuxonisDataset(BaseDataset):
         splits_to_clone: list[str] | None = None,
         team_id: str | None = None,
     ) -> "LuxonisDataset":
-        """Create a new LuxonisDataset that is a local copy of the
-        current dataset. Cloned dataset will overwrite the existing
-        dataset with the same name.
+        """Create a local copy of the current dataset.
 
-        @type new_dataset_name: str
-        @param new_dataset_name: Name of the newly created dataset.
-        @type push_to_cloud: bool
-        @param push_to_cloud: Whether to push the new dataset to the
-            cloud. Only if the current dataset is remote.
-        @param splits_to_clone: list[str] | None
-        @type splits_to_clone: Optional list of split names to clone. If
-            None, all data will be cloned.
-        @type team_id: str | None
-        @param team_id: Optional team identifier.
+        Warning:
+            The cloned dataset overwrites any existing dataset with the same
+            name.
+
+        Args:
+            new_dataset_name: Name of the cloned dataset.
+            push_to_cloud: Whether to push the cloned dataset to the cloud
+                when the current dataset is remote.
+            splits_to_clone: Optional split names to clone. If omitted, all
+                data is cloned.
+            team_id: Optional team identifier for the cloned dataset.
+
+        Returns:
+            Cloned dataset handle.
+
+        Raises:
+            FileNotFoundError: If the current dataset is empty and
+                ``splits_to_clone`` is specified.
+
         """
         if team_id is None:
             team_id = self.team_id
@@ -354,12 +365,12 @@ class LuxonisDataset(BaseDataset):
         if self.is_remote:
             self.pull_from_cloud(update_mode=UpdateMode.MISSING)
 
-        new_dataset_path = Path(new_dataset.local_path)
+        new_dataset_path = Path(new_dataset._local_path)
         new_dataset_path.mkdir(parents=True, exist_ok=True)
 
         if splits_to_clone is not None:
             df_self = self._load_df_offline(raise_when_empty=True)
-            splits_self = self._load_splits(self.metadata_path)
+            splits_self = self._load_splits(self._metadata_path)
             uuids_to_clone = {
                 uid
                 for split in splits_to_clone
@@ -371,8 +382,8 @@ class LuxonisDataset(BaseDataset):
             }
 
         shutil.copytree(
-            self.local_path,
-            new_dataset.local_path,
+            self._local_path,
+            new_dataset._local_path,
             dirs_exist_ok=True,
             ignore=lambda d, n: self._ignore_files_not_in_uuid_set(
                 d, n, uuids_to_clone if splits_to_clone else set()
@@ -411,21 +422,25 @@ class LuxonisDataset(BaseDataset):
         splits_to_merge: list[str] | None = None,
         team_id: str | None = None,
     ) -> "LuxonisDataset":
-        """Merge all data from `other` LuxonisDataset into the current
-        dataset (in-place or in a new dataset).
+        """Merge another dataset into this or a new dataset.
 
-        @type other: LuxonisDataset
-        @param other: The dataset to merge into the current dataset.
-        @type inplace: bool
-        @param inplace: Whether to merge into the current dataset (True)
-            or create a new dataset (False).
-        @type new_dataset_name: str
-        @param new_dataset_name: The name of the new dataset to create
-            if inplace is False.
-        @type splits_to_merge: list[str] | None
-        @param splits_to_merge: Optional list of split names to merge.
-        @type team_id: str | None
-        @param team_id: Optional team identifier.
+        Args:
+            other: Dataset to merge into this dataset.
+            inplace: Whether to merge into this dataset. If ``False``, a
+                new dataset is created.
+            new_dataset_name: Name of the new dataset when ``inplace`` is
+                ``False``.
+            splits_to_merge: Optional split names to merge.
+            team_id: Optional team identifier for a newly created dataset.
+
+        Returns:
+            Dataset containing the merged data.
+
+        Raises:
+            ValueError: If the datasets have different bucket storage types.
+            ValueError: If ``inplace`` is ``False`` but no name for the new
+                dataset is provided.
+
         """
         if inplace:
             target_dataset = self
@@ -440,7 +455,7 @@ class LuxonisDataset(BaseDataset):
         else:
             raise ValueError(
                 "You must specify a name for the new dataset "
-                "when inplace is False"
+                "when `inplace` is `False`"
             )
 
         if self.is_remote:
@@ -454,15 +469,15 @@ class LuxonisDataset(BaseDataset):
         )
         if duplicate_group_ids:
             logger.warning(
-                f"Found {len(duplicate_group_ids)} duplicate group ID's in the datasets. "
+                f"Found {len(duplicate_group_ids)} duplicate group IDs in the datasets. "
                 "Merging will remove these duplicates from the incoming dataset."
             )
             df_other = df_other.filter(
                 ~df_other["group_id"].is_in(duplicate_group_ids)
             )
 
-        splits_self = self._load_splits(self.metadata_path)
-        splits_other = self._load_splits(other.metadata_path)
+        splits_self = self._load_splits(self._metadata_path)
+        splits_other = self._load_splits(other._metadata_path)
         if splits_to_merge is not None:
             uuids_to_merge = {
                 uuid
@@ -490,8 +505,8 @@ class LuxonisDataset(BaseDataset):
 
         if self.is_remote:
             shutil.copytree(
-                other.media_path,
-                target_dataset.media_path,
+                other._media_path,
+                target_dataset._media_path,
                 dirs_exist_ok=True,
                 ignore=lambda d, n: self._ignore_files_not_in_uuid_set(
                     d, n, uuids_to_merge if splits_to_merge else set()
@@ -508,8 +523,8 @@ class LuxonisDataset(BaseDataset):
             .to_dicts()
         ):
             uid, rel_file = entry["uuid"], entry["file"]
-            src_path = other.media_path / f"{uid}{Path(rel_file).suffix}"
-            dst_path = target_dataset.media_path / src_path.name
+            src_path = other._media_path / f"{uid}{Path(rel_file).suffix}"
+            dst_path = target_dataset._media_path / src_path.name
             if src_path.exists() and not dst_path.exists():
                 dst_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy(src_path, dst_path)
@@ -552,7 +567,7 @@ class LuxonisDataset(BaseDataset):
             splits_self[split_name] = list(combined_group_ids)
 
     def _save_splits(self, splits: dict[str, list[str]]) -> None:
-        splits_path_self = self.metadata_path / "splits.json"
+        splits_path_self = self._metadata_path / "splits.json"
         with open(splits_path_self, "w") as f:
             json.dump(splits, f, indent=4)
 
@@ -594,10 +609,34 @@ class LuxonisDataset(BaseDataset):
         raise_when_empty: bool = False,
         attempt_migration: bool = True,
     ) -> pl.DataFrame | pl.LazyFrame | None:
-        """Loads the dataset DataFrame **always** from the local
-        storage."""
+        """Load the dataset DataFrame from local storage.
+
+        Args:
+            lazy: Whether to return a LazyFrame that can be further processed
+                before collecting.
+            raise_when_empty: Whether to raise an error if the dataset is
+                empty. If ``False``, returns ``None`` when the dataset is
+                empty.
+            attempt_migration: Whether to attempt internal migration of the
+                DataFrame if the LDF version of the dataset does not match
+                the supported LDF version of the current ``luxonis-ml``
+                installation. If ``True``, will perform internal migration
+                using `migrate_dataframe`. If ``False``, will return the
+                DataFrame as-is without migration, which may lead to errors
+                if the LDF versions do not match.
+
+        Returns:
+            The dataset annotations as a Polars DataFrame or LazyFrame, or
+            ``None`` if the dataset is empty and ``raise_when_empty`` is
+            ``False``.
+
+        Raises:
+            FileNotFoundError: If the dataset is empty and ``raise_when_empty``
+                is ``True``.
+
+        """
         path = (
-            self.base_path
+            self._base_path
             / "data"
             / self.team_id
             / "datasets"
@@ -647,12 +686,34 @@ class LuxonisDataset(BaseDataset):
         raise_when_empty: Literal[False] = ...,
     ) -> pl.LazyFrame | None: ...
 
+    @overload
+    def _get_index(
+        self,
+        lazy: Literal[True] = ...,
+        raise_when_empty: Literal[True] = ...,
+    ) -> pl.LazyFrame: ...
+
     def _get_index(
         self,
         lazy: bool = False,
         raise_when_empty: bool = False,
     ) -> pl.DataFrame | pl.LazyFrame | None:
-        """Loads unique file entries from annotation data."""
+        """Load unique file entries from annotation data.
+
+        Args:
+            lazy: Whether to return a LazyFrame that can be further processed
+                before collecting.
+            raise_when_empty: Whether to raise an error if the dataset is
+                empty. If ``False``, returns ``None`` when the dataset is empty.
+
+        Returns:
+            DataFrame or LazyFrame containing the dataset records.
+
+        Raises:
+            FileNotFoundError: If the dataset is empty and ``raise_when_empty``
+                is ``True``.
+
+        """
         df = self._load_df_offline(
             lazy=True, raise_when_empty=raise_when_empty
         )
@@ -694,10 +755,10 @@ class LuxonisDataset(BaseDataset):
         return processed
 
     def _write_metadata(self) -> None:
-        path = self.metadata_path / "metadata.json"
+        path = self._metadata_path / "metadata.json"
         path.write_text(self._metadata.model_dump_json(indent=4))
         with suppress(shutil.SameFileError):
-            self.fs.put_file(path, "metadata/metadata.json")
+            self._fs.put_file(path, "metadata/metadata.json")
 
     @staticmethod
     def _construct_url(
@@ -706,28 +767,26 @@ class LuxonisDataset(BaseDataset):
         team_id: str,
         dataset_name: str,
     ) -> str:
-        """Constructs a URL for a remote dataset."""
         return f"{bucket_storage.value}://{bucket}/{team_id}/datasets/{dataset_name}"
 
     # TODO: Is the cache used anywhere at all?
     def _init_credentials(self) -> dict[str, Any]:
-        credentials_cache_file = self.base_path / "credentials.json"
+        credentials_cache_file = self._base_path / "credentials.json"
         if credentials_cache_file.exists():
             return json.loads(credentials_cache_file.read_text())
         return {}
 
     def _get_metadata(self) -> Metadata:
-        """Loads metadata from local storage or cloud, depending on the
-        BucketStorage type.
+        """Load metadata from local storage or cloud.
 
-        If loads from cloud it always downloads before loading.
+        Cloud metadata is always downloaded before loading.
         """
-        if self.fs.exists("metadata/metadata.json"):
+        if self._fs.exists("metadata/metadata.json"):
             path = get_file(
-                self.fs,
+                self._fs,
                 "metadata/metadata.json",
-                self.metadata_path,
-                default=self.metadata_path / "metadata.json",
+                self._metadata_path,
+                default=self._metadata_path / "metadata.json",
             )
             metadata_json = json.loads(path.read_text())
 
@@ -768,6 +827,9 @@ class LuxonisDataset(BaseDataset):
 
     @property
     def is_remote(self) -> bool:
+        """Whether the dataset is stored remotely (in a cloud bucket) or
+        locally.
+        """
         return self.bucket_storage != BucketStorage.LOCAL
 
     @override
@@ -786,10 +848,7 @@ class LuxonisDataset(BaseDataset):
         task: str | None = None,
         rewrite_metadata: bool = True,
     ) -> None:
-        if task is None:
-            tasks = self.get_task_names()
-        else:
-            tasks = [task]
+        tasks = self.get_task_names() if task is None else [task]
 
         for t in tasks:
             self._metadata.set_classes(classes, t)
@@ -801,17 +860,6 @@ class LuxonisDataset(BaseDataset):
     def get_classes(self) -> dict[str, dict[str, int]]:
         return self._metadata.classes
 
-    def get_n_classes(self) -> dict[str, int]:
-        """Returns a mapping of task names to number of classes.
-
-        @rtype: Dict[str, int]
-        @return: A mapping from task names to number of classes.
-        """
-        return {
-            task_name: len(classes)
-            for task_name, classes in self.get_classes().items()
-        }
-
     @override
     def set_skeletons(
         self,
@@ -822,10 +870,7 @@ class LuxonisDataset(BaseDataset):
         if labels is None and edges is None:
             raise ValueError("Must provide either keypoint names or edges")
 
-        if task is None:
-            tasks = self.get_task_names()
-        else:
-            tasks = [task]
+        tasks = self.get_task_names() if task is None else [task]
         for t in tasks:
             self._metadata.skeletons[t] = {
                 "labels": labels or [],
@@ -859,32 +904,58 @@ class LuxonisDataset(BaseDataset):
     def get_categorical_encodings(
         self,
     ) -> dict[str, dict[str, int]]:
+        """Get the categorical encodings for the dataset grouped by
+        task.
+
+        Example output:
+
+        .. code-block:: python
+
+            {
+                "vehicles": {
+                    "color": {"red": 0, "green": 1, "blue": 2},
+                    "brand": {"audi": 0, "bmw": 1, "mercedes": 2},
+                }
+            }
+        """
         return self._metadata.categorical_encodings
 
     def get_metadata_types(
         self,
     ) -> dict[str, Literal["float", "int", "str", "Category"]]:
+        """Get the metadata types for each metadata annotation in the
+        dataset.
+
+        Example output:
+
+        .. code-block:: python
+
+            {
+                "id": "int",
+                "time_of_day": "Category",
+                "temperature": "float",
+            }
+        """
         return self._metadata.metadata_types
 
     def pull_from_cloud(
         self, update_mode: UpdateMode = UpdateMode.MISSING
     ) -> None:
-        """Synchronizes the dataset from a remote cloud bucket to the
-        local directory.
+        """Synchronize the dataset from a remote bucket to a local
+        storage.
 
-        This method performs the download only if some local dataset media files are missing, or always downloads
-        depending on the provided update_mode.
+        Annotations and metadata are always pulled. Media files are pulled
+        either when missing locally or always, depending on ``update_mode``.
 
-        @type update_mode: UpdateMode
-        @param update_mode: Specifies the update behavior.
-            - UpdateMode.MISSING: Downloads only the missing media files for the dataset.
-            - UpdateMode.ALL: Always downloads and overwrites all media files in the local dataset.
+        Args:
+            update_mode: Media synchronization mode.
+
         """
         if not self.is_remote:
             logger.warning("This is a local dataset! Cannot sync from cloud.")
             return
 
-        local_dir = self.base_path / "data" / self.team_id / "datasets"
+        local_dir = self._base_path / "data" / self.team_id / "datasets"
         local_dir.mkdir(exist_ok=True, parents=True)
 
         lock_path = local_dir / ".sync.lock"
@@ -894,7 +965,7 @@ class LuxonisDataset(BaseDataset):
                 "Pulling remote's dataset annotations and metadata to local dataset ..."
             )
             for dir_name in ["annotations", "metadata"]:
-                _ = get_dir(self.fs, dir_name, self.local_path)
+                _ = get_dir(self._fs, dir_name, self._local_path)
 
             index = self._get_index(lazy=False)
             missing_media_paths = []
@@ -913,12 +984,12 @@ class LuxonisDataset(BaseDataset):
 
             if update_mode == UpdateMode.ALL:
                 logger.info("Force-pulling all media files...")
-                self.fs.get_dir(remote_paths="", local_dir=local_dir)
+                self._fs.get_dir(remote_paths="", local_dir=local_dir)
             elif update_mode == UpdateMode.MISSING and missing_media_paths:
                 logger.info(
                     f"Pulling {len(missing_media_paths)} missing files..."
                 )
-                self.fs.get_dir(
+                self._fs.get_dir(
                     remote_paths=missing_media_paths,
                     local_dir=local_dir / f"{self.dataset_name}" / "media",
                 )
@@ -927,18 +998,24 @@ class LuxonisDataset(BaseDataset):
 
     def push_to_cloud(
         self,
-        bucket_storage: BucketStorage,
+        bucket_storage: BucketStorage | None,
         update_mode: UpdateMode = UpdateMode.MISSING,
     ) -> None:
-        """Pushes the local dataset to a remote cloud bucket.
+        """Push the local dataset to a remote bucket.
 
-        This method performs the pushing only for missing cloud media files or always pushes
-        depending on the provided update_mode.
+        Annotations and metadata are always pushed. Media files are pushed
+        either when missing remotely or always, depending on ``update_mode``.
 
-        @type update_mode: UpdateMode
-        @param update_mode: Specifies the update behavior. Annotations and metadata are always pushed.
-            - UpdateMode.MISSING: Pushes only the missing media files for the dataset.
-            - UpdateMode.ALL:  Always pushes and overwrites all media files in the cloud dataset.
+        Args:
+            bucket_storage: Remote storage backend to push to.
+                If unset, uses the dataset's current bucket storage type.
+            update_mode: Media synchronization mode.
+
+        Raises:
+            ValueError: If the dataset is empty or not initialized.
+            FileNotFoundError: If any media files are missing locally when attempting
+                to push.
+
         """
         index = self._get_index(lazy=False)
 
@@ -951,7 +1028,7 @@ class LuxonisDataset(BaseDataset):
             dataset_name=self.dataset_name,
             team_id=self.team_id,
             bucket_type=self.bucket_type,
-            bucket_storage=bucket_storage,
+            bucket_storage=bucket_storage or self.bucket_storage,
             delete_local=False,
             delete_remote=False,
         )
@@ -959,11 +1036,11 @@ class LuxonisDataset(BaseDataset):
         bucket_uuids = (
             [
                 PurePosixPath(path).stem
-                for path in dataset.fs.walk_dir(
+                for path in dataset._fs.walk_dir(
                     "media", recursive=False, typ="file"
                 )
             ]
-            if dataset.fs.exists("media")
+            if dataset._fs.exists("media")
             else []
         )
 
@@ -977,7 +1054,7 @@ class LuxonisDataset(BaseDataset):
         ):
             if not Path(original_path).exists():
                 suffix = Path(original_path).suffix
-                fallback_path = self.local_path / "media" / f"{uuid}{suffix}"
+                fallback_path = self._local_path / "media" / f"{uuid}{suffix}"
                 if fallback_path.exists():
                     missing_uuid_dict[str(fallback_path)] = uuid
                 else:
@@ -988,22 +1065,22 @@ class LuxonisDataset(BaseDataset):
                 missing_uuid_dict[original_path] = uuid
 
         for dir_name in ["annotations", "metadata"]:
-            dataset.fs.put_dir(
-                local_paths=self.local_path / dir_name,
+            dataset._fs.put_dir(
+                local_paths=self._local_path / dir_name,
                 remote_dir=dir_name,
                 copy_contents=True,
             )
 
         if update_mode == UpdateMode.ALL:
             logger.info("Force-pushing all media files...")
-            dataset.fs.put_dir(
-                local_paths=self.local_path / "media", remote_dir="media"
+            dataset._fs.put_dir(
+                local_paths=self._local_path / "media", remote_dir="media"
             )
         elif update_mode == UpdateMode.MISSING and missing_uuid_dict:
             logger.info(
                 f"Pushing {len(missing_uuid_dict)} missing files to cloud..."
             )
-            dataset.fs.put_dir(
+            dataset._fs.put_dir(
                 local_paths=missing_uuid_dict.keys(),
                 remote_dir="media",
                 uuid_dict=missing_uuid_dict,
@@ -1015,15 +1092,16 @@ class LuxonisDataset(BaseDataset):
     def delete_dataset(
         self, *, delete_remote: bool = False, delete_local: bool = False
     ) -> None:
-        """Deletes the dataset from local storage and optionally from
-        the cloud.
+        """Delete the dataset from local storage and optionally the
+        cloud.
 
-        @type delete_remote: bool
-        @param delete_remote: Whether to delete the dataset from the
-            cloud.
-        @type delete_local: bool
-        @param delete_local: Whether to delete the dataset from local
-            storage.
+        Args:
+            delete_remote: Whether to delete the remote dataset.
+            delete_local: Whether to delete the local dataset files.
+
+        Raises:
+            ValueError: If neither ``delete_remote`` nor ``delete_local`` is set to ``True``.
+
         """
         if not (delete_remote or delete_local):
             raise ValueError(
@@ -1034,47 +1112,47 @@ class LuxonisDataset(BaseDataset):
             logger.info(
                 f"Deleting local dataset '{self.dataset_name}' from local storage"
             )
-            shutil.rmtree(self.path)
+            shutil.rmtree(self._path)
 
         if self.is_remote and delete_remote:
             logger.info(
                 f"Deleting remote dataset '{self.dataset_name}' from cloud storage"
             )
-            assert self.path
+            assert self._path
             assert self.dataset_name
-            assert self.local_path
-            self.fs.delete_dir(allow_delete_parent=True)
+            assert self._local_path
+            self._fs.delete_dir(allow_delete_parent=True)
 
         if self.is_remote and delete_local:
             logger.info(
                 f"Deleting remote dataset '{self.dataset_name}' from local storage"
             )
-            if self.local_path.exists():
-                shutil.rmtree(self.local_path)
+            if self._local_path.exists():
+                shutil.rmtree(self._local_path)
 
     def _process_arrays(self, data_batch: list[DatasetRecord]) -> None:
         logger.info("Checking arrays...")
-        task = self.progress.add_task(
+        task = self._progress.add_task(
             "[magenta]Processing arrays...", total=len(data_batch)
         )
-        self.progress.start()
+        self._progress.start()
         uuid_dict = {}
         for record in data_batch:
-            self.progress.update(task, advance=1)
+            self._progress.update(task, advance=1)
             if record.annotation is None or record.annotation.array is None:
                 continue
             ann = record.annotation.array
             if self.is_remote:
-                uuid = self.fs.get_file_uuid(ann.path, local=True)
+                uuid = self._fs.get_file_uuid(ann.path, local=True)
                 uuid_dict[str(ann.path)] = uuid
                 ann.path = Path(uuid).with_suffix(ann.path.suffix)
             else:
                 ann.path = ann.path.absolute().resolve()
-        self.progress.stop()
-        self.progress.remove_task(task)
+        self._progress.stop()
+        self._progress.remove_task(task)
         if self.is_remote:
             logger.info("Uploading arrays...")
-            self.fs.put_dir(
+            self._fs.put_dir(
                 local_paths=uuid_dict.keys(),
                 remote_dir="arrays",
                 uuid_dict=uuid_dict,
@@ -1088,7 +1166,7 @@ class LuxonisDataset(BaseDataset):
     ) -> None:
         paths = {path for data in data_batch for path in data.all_file_paths}
         logger.info("Generating UUIDs...")
-        uuid_dict = self.fs.get_file_uuids(paths, local=True)
+        uuid_dict = self._fs.get_file_uuids(paths, local=True)
 
         overwrite_uuids = set()
         for file_path in paths:
@@ -1106,7 +1184,7 @@ class LuxonisDataset(BaseDataset):
         if self.is_remote:
             logger.info("Uploading media...")
 
-            self.fs.put_dir(
+            self._fs.put_dir(
                 local_paths=paths,
                 remote_dir="media",
                 uuid_dict=dict(uuid_dict),
@@ -1115,12 +1193,12 @@ class LuxonisDataset(BaseDataset):
 
         self._process_arrays(data_batch)
 
-        task = self.progress.add_task(
+        task = self._progress.add_task(
             "[magenta]Processing data...", total=len(data_batch)
         )
 
         logger.info("Saving annotations...")
-        with self.progress:
+        with self._progress:
             for record in data_batch:
                 file_paths = record.all_file_paths
                 uuid_list = [
@@ -1133,12 +1211,61 @@ class LuxonisDataset(BaseDataset):
                 )
                 for row in record.to_parquet_rows():
                     pfm.write(uuid_dict[row["file"]], row, group_id)
-                self.progress.update(task, advance=1)
-        self.progress.remove_task(task)
+                self._progress.update(task, advance=1)
+        self._progress.remove_task(task)
 
     def add(
         self, generator: DatasetIterator, batch_size: int = 1_000_000
     ) -> Self:
+        """Add data to the dataset from a generator of records.
+
+        Args:
+            generator: The generator should yield either
+                dictionaries that can be converted to
+                ``DatasetRecord`` objects or actual ``DatasetRecord``
+                instances. Each record must contain at least a
+                file path and can optionally include an annotation
+                and a task name.
+
+                For example:
+
+                .. code-block:: python
+
+                    def record_generator():
+                        yield {
+                            "file": f"/path/to/image.jpg",
+                            "task_name": "animals",
+                            "annotation": {
+                                "instance_id": 1,
+                                "class_name": "cat",
+                                "boundingbox": {
+                                    "x": 10,
+                                    "y": 20,
+                                    "w": 100,
+                                    "h": 150,
+                                }
+                                "keypoints": {
+                                    "keypoints": [
+                                        (15, 25, 1),
+                                        (50, 60, 1),
+                                        (70, 80, 0),
+                                    ],
+                                },
+                                "instance_segmentation": {
+                                    "mask": "/path/to/mask.png",
+                                }
+                            },
+                        }
+
+            batch_size: The number of records to process in a batch before writing
+                to storage. Larger batch sizes may be more efficient but will
+                use more memory.
+
+        Raises:
+            ValueError: If the records yielded by the generator are not in the expected format.
+            ValueError: If the dataset contains metadata annotations with conflicting types.
+
+        """
         logger.info(f"Adding data to dataset '{self.dataset_name}'...")
 
         data_batch: list[DatasetRecord] = []
@@ -1151,10 +1278,10 @@ class LuxonisDataset(BaseDataset):
         sources: set[str] = set()
 
         annotations_path = get_dir(
-            self.fs,
+            self._fs,
             "annotations",
-            self.local_path,
-            default=self.annotations_path,
+            self._local_path,
+            default=self._annotations_path,
         )
 
         index = self._get_index()
@@ -1225,7 +1352,7 @@ class LuxonisDataset(BaseDataset):
             self._add_process_batch(data_batch, pfm, index)
 
         with suppress(shutil.SameFileError):
-            self.fs.put_dir(annotations_path, "")
+            self._fs.put_dir(annotations_path, "")
 
         curr_classes = self.get_classes()
         for task, classes in classes_per_task.items():
@@ -1270,8 +1397,15 @@ class LuxonisDataset(BaseDataset):
         warn_on_duplicates(df)
 
     def get_splits(self) -> dict[str, list[str]] | None:
+        """Get the dataset splits definitions.
+
+        Returns:
+            A mapping of split names to list of UUIDs,
+            or ``None`` if no splits are defined.
+
+        """
         splits_path = get_file(
-            self.fs, "metadata/splits.json", self.metadata_path
+            self._fs, "metadata/splits.json", self._metadata_path
         )
         if splits_path is None:
             return None
@@ -1296,6 +1430,44 @@ class LuxonisDataset(BaseDataset):
         definitions: dict[str, list[PathType]] | None = None,
         replace_old_splits: bool = False,
     ) -> None:
+        """Create dataset splits for training, validation, and testing.
+
+        Note:
+            Although ``"train"``, ``"val"``, and ``"test"``
+            are the conventional split names, you can use any split names
+            you want by providing a mapping to the ``splits`` argument.
+            This can be useful for combining records from multiple
+            sources (``"train_real"``, ``"train_synth"``) or for
+            creating fully custom splits.
+
+        Args:
+            splits: A mapping defining the splits. Can be one of the following:
+
+                - A mapping of split names to lists of file paths.
+                - A mapping of split names to float ratios.
+                - A tuple of three float ratios for train, val, and test splits.
+
+            ratios: (Deprecated) A mapping of split names to float ratios
+                or a tuple of three float ratios for train, val, and test splits.
+            definitions: (Deprecated) A mapping of split names to lists of file paths.
+            replace_old_splits: Whether to replace old splits with new ones. If ``False`
+                (default), new splits will be added to old splits, and duplicate group IDs will be filtered out. If ``True``, old splits will be replaced with new splits.
+
+        Raises:
+            ValueError: If both ``ratios`` and ``definitions`` are provided.
+            ValueError: If neither ``splits``, ``ratios``, nor ``definitions`` is provided.
+            ValueError: If both ``splits`` and ``ratios``/``definitions`` are provided.
+            ValueError: If ``splits`` is provided but is empty.
+            ValueError: If ``ratios`` is provided but does not sum to 1.
+            ValueError: If ``definitions`` is provided but the total number of files in definitions exceeds
+                the dataset size.
+            ValueError: If ``definitions`` are provided but all of them
+                are already included in old splits, resulting in no new
+                files to add to splits while ``replace_old_splits`` is ``False``.
+            FileNotFoundError: If the dataset is empty.
+            TypeError: If the splits definitions are not in the expected format.
+
+        """
         if ratios is not None and definitions is not None:
             raise ValueError("Cannot provide both ratios and definitions")
 
@@ -1348,10 +1520,10 @@ class LuxonisDataset(BaseDataset):
         old_splits: dict[str, list[str]] = defaultdict(list)
 
         splits_path = get_file(
-            self.fs,
+            self._fs,
             "metadata/splits.json",
-            self.metadata_path,
-            default=self.metadata_path / "splits.json",
+            self._metadata_path,
+            default=self._metadata_path / "splits.json",
         )
         if splits_path.exists():
             with open(splits_path) as file:
@@ -1398,9 +1570,7 @@ class LuxonisDataset(BaseDataset):
                 lower_bound = upper_bound
 
         else:
-            index = self._get_index()
-            if index is None:
-                raise FileNotFoundError("File index not found")
+            index = self._get_index(raise_when_empty=True)
             for split, filepaths in definitions.items():
                 splits_to_update.append(split)
                 if not isinstance(filepaths, list):
@@ -1428,7 +1598,7 @@ class LuxonisDataset(BaseDataset):
         splits_path.write_text(json.dumps(old_splits, indent=4))
 
         with suppress(shutil.SameFileError):
-            self.fs.put_file(splits_path, "metadata/splits.json")
+            self._fs.put_file(splits_path, "metadata/splits.json")
 
     @staticmethod
     @override
@@ -1438,19 +1608,20 @@ class LuxonisDataset(BaseDataset):
         bucket_storage: BucketStorage = BucketStorage.LOCAL,
         bucket: str | None = None,
     ) -> bool:
-        """Checks if a dataset exists.
+        """Check whether a dataset exists.
 
-        @type dataset_name: str
-        @param dataset_name: Name of the dataset to check
-        @type team_id: Optional[str]
-        @param team_id: Optional team identifier
-        @type bucket_storage: BucketStorage
-        @param bucket_storage: Underlying bucket storage from C{local},
-            C{S3}, or C{GCS}. Default is C{local}.
-        @type bucket: Optional[str]
-        @param bucket: Name of the bucket. Default is C{None}.
-        @rtype: bool
-        @return: Whether the dataset exists.
+        Args:
+            dataset_name: Dataset name to check.
+            team_id: Optional team identifier.
+            bucket_storage: Storage backend to inspect.
+            bucket: Optional bucket name for remote storage.
+
+        Returns:
+            ``True`` if the dataset exists, ``False`` otherwise.
+
+        Raises:
+            ValueError: If bucket storage is remote but no bucket name is provided.
+
         """
         return dataset_name in LuxonisDataset.list_datasets(
             team_id, bucket_storage, bucket
@@ -1462,17 +1633,21 @@ class LuxonisDataset(BaseDataset):
         bucket_storage: BucketStorage = BucketStorage.LOCAL,
         bucket: str | None = None,
     ) -> list[str]:
-        """Returns a list of all datasets.
+        """List available datasets.
 
-        @type team_id: Optional[str]
-        @param team_id: Optional team identifier
-        @type bucket_storage: BucketStorage
-        @param bucket_storage: Underlying bucket storage (local, S3, or
-            GCS). Default is local.
-        @type bucket: Optional[str]
-        @param bucket: Name of the bucket. Default is None.
-        @rtype: List[str]
-        @return: List of all dataset names.
+        Args:
+            team_id: Optional team identifier.
+            bucket_storage: Storage backend to inspect.
+            bucket: Optional bucket name for remote storage.
+
+        Returns:
+            List of dataset names.
+
+        Raises:
+            ValueError: If bucket storage is remote but no bucket name is provided.
+            ValueError: If the dataset is stored remotely but no ``bucket``
+                parameter is provided or no ``LUXONISML_BUCKET`` environment variable is set.
+
         """
         base_path = environ.LUXONISML_BASE_PATH
         team_id = team_id or environ.LUXONISML_TEAM_ID
@@ -1517,27 +1692,25 @@ class LuxonisDataset(BaseDataset):
         max_partition_size_gb: float | None = None,
         zip_output: bool = False,
     ) -> Path | list[Path]:
-        """Exports the dataset into one of the supported formats.
+        """Export the dataset into one of the supported formats.
 
-        @type output_path: PathType
-        @param output_path: Path to the directory where the dataset will
-            be exported.
-        @type dataset_type: DatasetType
-        @param dataset_type: To what format to export the dataset.
-        @type max_partition_size_gb: Optional[float]
-        @param max_partition_size_gb: Maximum size of each partition in
-            GB. If the dataset exceeds this size, it will be split into
-            multiple partitions named
-            {dataset_name}_part{partition_number}. Default is None,
-            meaning the dataset will be exported as a single partition
-            named {dataset_name}.
-        @type zip_output: bool
-        @param zip_output: Whether to zip the exported dataset (or each
-            partition) after export. Default is False.
-        @rtype: Union[Path, List[Path]]
-        @return: Path(s) to the ZIP file(s) containing the exported
-            dataset (if zip_output=True). Otherwise, the output
-            directory.
+        Args:
+            output_path: Directory where the dataset should be exported.
+            dataset_type: Export format.
+            max_partition_size_gb: Optional maximum partition size. If the
+                dataset exceeds this size, it is split into partitions named
+                ``{dataset_name}_part{partition_number}``.
+            zip_output: Whether to zip the exported dataset or each
+                partition after export.
+
+        Returns:
+            Export directory, or ZIP archive paths when ``zip_output`` is
+            enabled.
+
+        Raises:
+            NotImplementedError: If the specified export format is not supported.
+            ValueError: If the output path already exists.
+
         """
         EXPORTER_MAP: dict[DatasetType, ExporterSpec] = {
             DatasetType.NATIVE: ExporterSpec(NativeExporter, {}),
@@ -1657,29 +1830,25 @@ class LuxonisDataset(BaseDataset):
     def get_statistics(
         self, sample_size: int | None = None, view: str | None = None
     ) -> dict[str, Any]:
-        """Returns comprehensive dataset statistics as a structured
-        dictionary for the given view or the entire dataset.
+        """Return dataset statistics for a view or the full dataset.
 
-        The returned dictionary contains:
+        The returned statistics include:
 
-            - "duplicates": Analysis of duplicated content
-                - "duplicate_uuids": List of {"uuid": str, "files": List[str]} for images with same UUID
-                - "duplicate_annotations": List of repeated annotations with file_name, task_name, task_type,
-                    annotation content, and count
+            - ``"duplicates"``: Analysis of duplicated content.
+            - ``"class_distributions"``: Class frequencies organized by
+              task name and task type. Classification tasks are excluded.
+            - ``"missing_annotations"``: File paths that lack annotations.
+            - ``"heatmaps"``: Spatial annotation distributions.
 
-            - "class_distributions": Nested dictionary of class frequencies organized by task_name and task_type
-            (excludes classification tasks)
+        Args:
+            sample_size: Optional number of samples used for heatmap
+                generation.
+            view: Optional split name to analyze. If omitted, the entire
+                dataset is analyzed.
 
-            - "missing_annotations": List of file paths that exist in the dataset but lack annotations
+        Returns:
+            Dataset statistics.
 
-            - "heatmaps": Spatial distribution of annotations as 15x15 grid matrices organized by task_name and task_type
-
-        @type sample_size: Optional[int]
-        @param sample_size: Number of samples to use for heatmap generation
-        @type view: Optional[str]
-        @param view: Name of the view to analyze. If None, the entire dataset is analyzed.
-        @rtype: Dict[str, Any]
-        @return: Dataset statistics dictionary as described above
         """
         df = self._load_df_offline(lazy=True)
 
@@ -1687,6 +1856,7 @@ class LuxonisDataset(BaseDataset):
             "duplicates": {},
             "missing_annotations": 0,
             "heatmaps": {},
+            "class_distributions": {},
         }
 
         if df is None:
@@ -1707,12 +1877,13 @@ class LuxonisDataset(BaseDataset):
         return stats
 
     def remove_duplicates(self) -> None:
-        """Removes duplicate files and annotations from the dataset."""
-        df = self._load_df_offline(lazy=True)
-        if df is None:
-            raise ValueError(
-                "Dataset index or dataframe with annotations is not available."
-            )
+        """Remove duplicate files and annotations from the dataset.
+
+        Raises:
+            FileNotFoundError: If the dataset is empty.
+
+        """
+        df = self._load_df_offline(lazy=True, raise_when_empty=True)
         duplicate_info = get_duplicates_info(df)
 
         duplicate_files_to_remove = [
@@ -1727,8 +1898,8 @@ class LuxonisDataset(BaseDataset):
         self._save_df_offline(df.collect())
 
         if self.is_remote:
-            self.fs.put_dir(
-                local_paths=self.local_path / "annotations",
+            self._fs.put_dir(
+                local_paths=self._local_path / "annotations",
                 remote_dir="annotations",
                 copy_contents=True,
             )
@@ -1739,17 +1910,16 @@ class LuxonisDataset(BaseDataset):
     def set_class_order_per_task(
         self, class_order_per_task: dict[str, list[str]]
     ) -> None:
-        """Sets the class order for provided tasks. This method checks
-        if the provided class order matches the dataset's classes and
-        updates the dataset accordingly.
+        """Set class order for specific tasks.
 
-        @type class_order_per_task: dict[str, list[str]]
-        @param class_order_per_task: A dictionary mapping task names to
-            a list of class names. The class names must match the
-            dataset's classes for the respective tasks.
-        @raises ValueError: If the task name is not found in the dataset
-            tasks or if the provided class names do not match the
-            dataset's classes.
+        Args:
+            class_order_per_task: Mapping from task names to class names in
+                the desired order.
+
+        Raises:
+            ValueError: If a task is missing or the provided class names do
+                not match the dataset classes for that task.
+
         """
         for task_name, task_classes in class_order_per_task.items():
             if task_name not in self.get_tasks():
