@@ -69,6 +69,14 @@ def is_acyclic(graph: dict[str, list[str]]) -> bool:
     Returns:
         ``True`` if graph is acyclic, ``False`` otherwise.
 
+    Examples:
+        >>> is_acyclic({"a": ["b"], "b": []})
+        True
+        >>> is_acyclic({"a": ["b"], "b": ["a"]})
+        False
+        >>> is_acyclic({})
+        True
+
     """
     graph = graph.copy()
 

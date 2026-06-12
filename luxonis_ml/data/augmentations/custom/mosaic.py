@@ -92,6 +92,10 @@ class Mosaic4(BatchTransform):
               .. deprecated:: 0.9.0
                     Use ``mask_fill_value`` instead.
 
+        Raises:
+            ValueError: If the resolved output height or width is missing
+                or not greater than :math:`0`.
+
         """
         super().__init__(batch_size=4, p=p)
         height = height if height is not None else out_height

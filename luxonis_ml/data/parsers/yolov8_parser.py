@@ -12,6 +12,14 @@ from .base_parser import BaseParser, ParserOutput
 
 
 class Format(str, Enum):
+    """YOLOv8 directory layout variant.
+
+    Attributes:
+        ROBOFLOW: Roboflow split layout.
+        ULTRALYTICS: Ultralytics ``images``/``labels`` layout.
+
+    """
+
     ROBOFLOW = "roboflow"
     ULTRALYTICS = "ultralytics"
 
@@ -193,6 +201,20 @@ class YOLOv8Parser(BaseParser):
     def from_dir(
         self, dataset_dir: Path
     ) -> tuple[list[Path], list[Path], list[Path]]:
+        """Parse all YOLOv8 splits in a source dataset directory.
+
+        Args:
+            dataset_dir: Source dataset directory containing split
+                folders and one class YAML file.
+
+        Returns:
+            Added images for the train, validation, and test splits.
+
+        Raises:
+            ValueError: If the dataset directory does not contain a class
+                YAML file.
+
+        """
         yaml_file = next(
             (f for ext in ("*.yaml", "*.yml") for f in dataset_dir.glob(ext)),
             None,

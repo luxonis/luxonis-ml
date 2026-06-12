@@ -19,6 +19,14 @@ BBox: TypeAlias = tuple[int, float, float, float, float]
 
 
 class YoloV8Exporter(BaseExporter):
+    """Export bounding-box annotations in YOLOv8 format.
+
+    Attributes:
+        class_to_id: Class-name to class-ID mapping.
+        class_names: Class names ordered by class ID.
+
+    """
+
     def __init__(
         self,
         dataset_identifier: str,

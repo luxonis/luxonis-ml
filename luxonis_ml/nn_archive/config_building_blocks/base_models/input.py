@@ -103,8 +103,21 @@ class Input(BaseModelExtraForbid):
 
     @model_validator(mode="after")
     def validate_layout(self) -> Self:
-        """Validate that the layout is compatible with the input
-        shape.
+        r"""Validate that the layout is compatible with the input shape.
+
+        The layout must be a one-to-one description of the shape, so
+        :math:`|\mathrm{layout}| = |\mathrm{shape}|`. When ``N`` is
+        present it denotes batch size and must be first. Image inputs must
+        include a channel dimension ``C``.
+
+        Returns:
+            The validated input model.
+
+        Raises:
+            ValueError: If the layout contains duplicate letters, its
+                length does not match the shape length, ``N`` is present
+                but not first, or image input has no ``C`` dimension.
+
         """
         self.layout = self.layout.upper()
 
@@ -129,7 +142,23 @@ class Input(BaseModelExtraForbid):
     @model_validator(mode="before")
     @staticmethod
     def infer_layout(data: dict[str, Any]) -> dict[str, Any]:
-        """Infer the layout when a shape is provided without one."""
+        """Infer the layout when a shape is provided without one.
+
+        Args:
+            data: Raw input model data.
+
+        Returns:
+            Raw model data with ``layout`` added when inference succeeds.
+
+        Examples:
+            >>> Input.infer_layout({"shape": [1, 3, 224, 224]})["layout"]
+            'NCHW'
+            >>> Input.infer_layout({"shape": [1, 3, 16, 16, 2]})
+            {'shape': [1, 3, 16, 16, 2], 'layout': 'NCDEF'}
+            >>> "layout" in Input.infer_layout({"shape": [1] * 30})
+            False
+
+        """
         if "shape" in data and "layout" not in data:
             with suppress(Exception):
                 data["layout"] = infer_layout(data["shape"])

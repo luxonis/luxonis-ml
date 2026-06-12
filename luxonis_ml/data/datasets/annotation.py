@@ -1,7 +1,276 @@
-"""Annotation schemas as `pydantic models`_ used by Luxonis Data Format
-datasets.
+r"""Annotation schemas used by Luxonis Data Format datasets.
+
+This module owns the record and annotation payload contracts accepted by
+`LuxonisDataset.add` and produced by format-specific parsers. The schemas are
+implemented as `pydantic models`_, so input dictionaries are validated and
+normalized before they are written to LDF parquet shards.
 
 .. _pydantic models: https://pydantic.dev/docs/validation/latest/concepts/models/
+
+.. contents:: Table of Contents
+   :depth: 2
+
+
+Record Model
+============
+
+Dataset ingestion starts with `DatasetRecord`. A record points to media,
+optionally assigns a task name, and optionally carries an annotation payload
+validated by `Detection`.
+
+Single-source records use ``"file"``:
+
+.. python::
+
+    {
+        "file": "path/to/image.jpg",
+        "task_name": "detection",
+        "annotation": {
+            "class": "car",
+            "boundingbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
+        },
+    }
+
+Multi-source records use ``"files"``:
+
+.. python::
+
+    {
+        "files": {
+            "rgb": "path/to/rgb.png",
+            "depth": "path/to/depth.png",
+        },
+        "task_name": "detection",
+        "annotation": {
+            "class": "person",
+            "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.3, "h": 0.4},
+        },
+    }
+
+Task names group annotations that should be consumed together. If no
+``task_name`` is provided, the empty string ``""`` is used. Loader label keys
+therefore follow ``"task_name/task_type"`` and default-task keys start with
+``"/"``.
+
+
+Coordinates and Instances
+=========================
+
+Spatial annotations use image-normalized coordinates. For an image with width
+:math:`W` and height :math:`H`, an absolute point :math:`(x, y)` is stored as
+:math:`\left(x / W, y / H\right)`.
+
+When multiple annotation types describe the same physical object, use the same
+``instance_id`` so bounding boxes, keypoints, and instance masks can be
+associated even when yielded as separate records.
+
+Warning:
+    If ``instance_id`` is omitted and related annotation types are yielded in
+    separate records, association falls back to insertion order. That is only
+    reliable when every record is emitted consistently.
+
+`Detection.scale_to_boxes` supports box-relative annotations. When enabled,
+keypoints and segmentation values are interpreted relative to the bounding box
+and rescaled to image-normalized coordinates before storage.
+
+
+Classification
+==============
+
+Classification assigns a class to the whole sample or instance:
+
+.. python::
+
+    {"class": "vehicle"}
+
+Classification is represented internally as the ``classification`` task type.
+When loaded, classes are usually returned as one-hot vectors with shape
+:math:`\left(C\right)`.
+
+
+Bounding Boxes
+==============
+
+`BBoxAnnotation` stores normalized ``xywh`` boxes, where ``x`` and ``y`` are
+the top-left corner and ``w`` and ``h`` are width and height:
+
+.. python::
+
+    {
+        "class": "car",
+        "instance_id": 17,
+        "boundingbox": {
+            "x": 0.20,
+            "y": 0.10,
+            "w": 0.35,
+            "h": 0.25,
+        },
+    }
+
+Loader output combines boxes into :math:`\left(N, 5\right)` arrays with rows
+:math:`\left[c, x, y, w, h\right]`, where :math:`c` is the class index.
+
+
+Keypoints
+=========
+
+`KeypointAnnotation` stores keypoints as ``(x, y, visibility)`` triplets.
+Coordinates are normalized and visibility follows the COCO convention:
+
+    - :math:`0`: not visible or not labeled.
+    - :math:`1`: occluded.
+    - :math:`2`: visible.
+
+.. python::
+
+    {
+        "class": "car",
+        "instance_id": 17,
+        "keypoints": {
+            "keypoints": [
+                (0.10, 0.20, 2),
+                (0.30, 0.40, 1),
+            ],
+        },
+    }
+
+For :math:`K` keypoints and :math:`N` instances, loader output uses shape
+:math:`\left(N, 3 \cdot K\right)`.
+
+
+Segmentation
+============
+
+`SegmentationAnnotation` supports polygon, binary-mask, and run-length encoded
+inputs.
+
+Polyline segmentation stores normalized polygon points. The final point is
+implicitly connected to the first one:
+
+.. python::
+
+    {
+        "class": "road",
+        "segmentation": {
+            "height": 720,
+            "width": 1280,
+            "points": [
+                (0.10, 0.10),
+                (0.90, 0.10),
+                (0.80, 0.80),
+                (0.20, 0.80),
+            ],
+        },
+    }
+
+Binary masks are two-dimensional arrays where foreground pixels are
+:math:`1` and background pixels are :math:`0`:
+
+.. python::
+
+    {
+        "class": "road",
+        "segmentation": {
+            "mask": binary_mask,
+        },
+    }
+
+Run-length encoded masks use COCO RLE. The ``counts`` value may be an
+uncompressed list of integers or a compressed byte string:
+
+.. python::
+
+    {
+        "class": "road",
+        "segmentation": {
+            "height": 720,
+            "width": 1280,
+            "counts": [120, 8, 200, 12],
+        },
+    }
+
+Note:
+    Numpy masks are converted to RLE internally. RLE input is primarily for
+    compatibility with datasets that already store masks in that format.
+
+Semantic segmentation loader output uses channel-first masks with shape
+:math:`\left(C, H, W\right)`.
+
+
+Instance Segmentation
+=====================
+
+`InstanceSegmentationAnnotation` uses the same mask encodings as semantic
+segmentation, but stores one mask per instance. A detection may include both a
+bounding box and an instance mask:
+
+.. python::
+
+    {
+        "class": "car",
+        "instance_id": 17,
+        "boundingbox": {"x": 0.20, "y": 0.10, "w": 0.35, "h": 0.25},
+        "instance_segmentation": {
+            "height": 720,
+            "width": 1280,
+            "points": [
+                (0.20, 0.10),
+                (0.55, 0.10),
+                (0.55, 0.35),
+                (0.20, 0.35),
+            ],
+        },
+    }
+
+Instance-mask loader output uses shape :math:`\left(N, H, W\right)`.
+
+
+Arrays
+======
+
+`ArrayAnnotation` references arbitrary ``.npy`` data synchronized with a
+sample:
+
+.. python::
+
+    {
+        "class": "embedding",
+        "array": {
+            "path": "path/to/embedding.npy",
+        },
+    }
+
+Arrays are useful for modality-specific targets or auxiliary data that should
+be stored with the dataset but does not fit standard spatial schemas.
+
+
+Metadata and Categories
+=======================
+
+Metadata stores flexible key-value values. Use `Category` to mark a string as
+categorical metadata rather than free-form text:
+
+.. python::
+
+    from luxonis_ml.data import Category
+
+    {
+        "metadata": {
+            "text": "ABC-123",
+            "text_color": Category("white"),
+            "track_id": 42,
+        },
+    }
+
+Categorical metadata can be encoded as integers by `LuxonisLoader`, or kept as
+strings when loader configuration requests it.
+
+Important:
+    Metadata and arrays have no universal geometric semantics. Built-in
+    augmentations can discard values associated with boxes that leave the
+    image, but arbitrary values are otherwise preserved unless a custom
+    augmentation explicitly handles them.
+
 """
 
 import json

@@ -32,6 +32,14 @@ from .yolov8_parser import YOLOv8Parser
 
 
 class ParserType(Enum):
+    """Recognized parser entry-point type.
+
+    Attributes:
+        DIR: Dataset directory with multiple splits.
+        SPLIT: Directory or file representing one parser input split.
+
+    """
+
     DIR = "dir"
     SPLIT = "split"
 
@@ -40,6 +48,27 @@ T = TypeVar("T", str, None)
 
 
 class LuxonisParser(Generic[T]):
+    """Detect a dataset format and dispatch to the matching parser.
+
+    The parser accepts local paths, remote paths supported by
+    `LuxonisFileSystem`, ZIP archives, and Roboflow dataset URLs in
+    ``roboflow://workspace/project/version/format`` form. If
+    ``dataset_type`` is omitted, parsers are tried until one validates the
+    dataset directory as either a full directory or a single split.
+
+    Attributes:
+        parsers: Dataset types mapped to concrete parser classes.
+        dataset_dir: Local dataset directory used for parsing.
+        dataset_type: Recognized or user-provided dataset type.
+        parser_type: Whether ``dataset_dir`` represents a full directory or
+            a single split.
+        dataset_constructor: Dataset class resolved from the plugin
+            registry, or `LuxonisDataset`.
+        dataset: Dataset instance populated by parsing.
+        parser: Concrete parser instance selected for ``dataset_type``.
+
+    """
+
     parsers: dict[DatasetType, type[BaseParser]] = {
         DatasetType.ULTRALYTICSNDJSON: UltralyticsNDJSONParser,
         DatasetType.ULTRALYTICSNDJSONINSTANCESEGMENTATION: (
@@ -97,6 +126,12 @@ class LuxonisParser(Generic[T]):
                 as values.
             kwargs: Additional arguments passed to the selected dataset
                 constructor.
+
+        Raises:
+            RuntimeError: If a Roboflow URL is used and
+                ``ROBOFLOW_API_KEY`` is not configured.
+            ValueError: If a Roboflow URL is malformed, its version is not
+                an integer, or the dataset format cannot be recognized.
 
         """
         save_dir = Path(save_dir) if save_dir else None
@@ -228,6 +263,10 @@ class LuxonisParser(Generic[T]):
 
         Returns:
             Parsed dataset.
+
+        Raises:
+            ValueError: If the selected parser rejects the dataset
+                structure or split arguments.
 
         """
         if self.parser_type == ParserType.DIR:

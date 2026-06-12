@@ -338,6 +338,43 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         seed: int | None = None,
         bbox_area_threshold: float = 0.0004,
     ):
+        """Create an Albumentations-backed augmentation pipeline.
+
+        Args:
+            height: Target output image height.
+            width: Target output image width.
+            targets: Task names mapped to task types. Supported task
+                types are ``"array"``, ``"classification"``,
+                ``"segmentation"``, ``"instance_segmentation"``,
+                ``"boundingbox"``, ``"keypoints"``, and metadata tasks.
+            n_classes: Number of classes per task.
+            source_names: Source names that should be treated as image
+                targets.
+            config: Iterable of augmentation configuration dictionaries.
+            keep_aspect_ratio: Whether the default resize transform should
+                preserve image aspect ratio.
+            is_validation_pipeline: Optional legacy flag selecting
+                evaluation behavior.
+
+                .. deprecated:: 0.5.0
+                    use ``pipeline_stage`` instead.
+
+            pipeline_stage: Optional explicit pipeline stage. Valid values
+                are ``"train"``, ``"val"``, and ``"test"``.
+            min_bbox_visibility: Minimum visible fraction of a bounding
+                box after augmentation.
+            seed: Optional random seed.
+            bbox_area_threshold: Minimum normalized bounding-box area kept
+                after augmentation.
+
+        Raises:
+            ValueError: If a target task type is unsupported, more than
+                one transform is marked for resizing, or a configured
+                transform is not an Albumentations transform.
+            TypeError: If a resizing transform has a non-numeric
+                probability ``p``.
+
+        """
         self._targets: dict[str, TargetType] = {}
         self._target_names_to_tasks = {}
         self._n_classes = n_classes
@@ -861,6 +898,24 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         is_pixel: bool = False,
         source_names: list[str] | None = None,
     ) -> Callable[..., Data]:
+        """Wrap an Albumentations composition for loader data dictionaries.
+
+        Args:
+            transform: Albumentations composition to wrap.
+            is_pixel: Whether the composition contains pixel-only
+                transforms that should be replayed across image sources.
+            source_names: Image source names replayed for pixel-only
+                transforms.
+
+        Returns:
+            Callable that applies the composition to a data dictionary.
+
+        Raises:
+            ValueError: If ``is_pixel`` is true and ``source_names`` is not
+                provided.
+
+        """
+
         def apply_transform(**data: np.ndarray) -> Data:
             if not transform.transforms:
                 return data

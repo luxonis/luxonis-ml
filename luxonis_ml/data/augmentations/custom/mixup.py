@@ -36,9 +36,14 @@ class MixUp(BatchTransform):
 
         Args:
             alpha: Mixing coefficient or range to uniformly sample from.
+                Must stay in :math:`[0, 1]`.
             keep_aspect_ratio: Whether to preserve the second image's
                 aspect ratio when resizing.
             p: Probability of applying the transform.
+
+        Raises:
+            ValueError: If ``alpha`` falls outside :math:`[0, 1]` or an
+                ``alpha`` range is not in ascending order.
 
         """
         super().__init__(batch_size=2, p=p)

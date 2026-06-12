@@ -132,6 +132,28 @@ class COCOParser(BaseParser):
         keypoint_ann_paths: dict[str, str] | None = None,
         split_val_to_test: bool = True,
     ) -> tuple[list[Path], list[Path], list[Path]]:
+        """Parse all COCO splits in a source dataset directory.
+
+        Args:
+            dataset_dir: Source dataset directory.
+            use_keypoint_ann: Whether to use separate COCO keypoint
+                annotation files for FiftyOne-style datasets.
+            keypoint_ann_paths: Optional paths to keypoint annotation files,
+                relative to ``dataset_dir`` and keyed by ``"train"``,
+                ``"val"``, and ``"test"``.
+            split_val_to_test: Whether to split validation images
+                :math:`50/50` into validation and test when no test
+                annotations are available.
+
+        Returns:
+            Added images for the train, validation, and test splits.
+
+        Raises:
+            ValueError: If the dataset directory, train split, validation
+                split, or present test split is not in a recognized COCO
+                layout.
+
+        """
         dir_format, splits = COCOParser._detect_dataset_dir_format(dataset_dir)
         if dir_format is None:
             raise ValueError("Dataset is not in any expected format.")

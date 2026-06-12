@@ -15,6 +15,14 @@ from luxonis_ml.enums import DatasetType
 
 
 class DarknetExporter(BaseExporter):
+    """Export object detection data in Darknet format.
+
+    Attributes:
+        class_to_id: Class-name to class-ID mapping.
+        class_names: Class names ordered by class ID.
+
+    """
+
     def __init__(
         self,
         dataset_identifier: str,

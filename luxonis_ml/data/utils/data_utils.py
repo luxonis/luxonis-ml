@@ -138,8 +138,16 @@ def find_duplicates(df: pl.LazyFrame) -> dict[str, list[dict[str, Any]]]:
         df: Dataset information.
 
     Returns:
-        Dictionary with ``"duplicate_uuids"`` and
-        ``"duplicate_annotations"`` entries.
+        Dictionary with:
+
+        ``"duplicate_uuids"``
+            List of dictionaries containing a duplicated ``"uuid"`` and
+            all ``"files"`` associated with it.
+
+        ``"duplicate_annotations"``
+            List of dictionaries containing ``"file_name"``,
+            ``"task_type"``, ``"task_name"``, serialized
+            ``"annotation"``, and duplicate ``"count"``.
 
     """
     result = {
@@ -334,7 +342,14 @@ def get_duplicates_info(df: pl.LazyFrame) -> dict[str, Any]:
         df: Dataset information.
 
     Returns:
-        Dictionary with duplicate UUID and annotation details.
+        Dictionary with duplicate UUID and annotation details:
+
+        ``"duplicate_uuids"``
+            List of ``{"uuid": str, "files": list[str]}`` entries.
+
+        ``"duplicate_annotations"``
+            List of entries with ``"file_name"``, ``"task_name"``,
+            ``"task_type"``, ``"annotation"``, and ``"count"``.
 
     """
     duplicates_info = find_duplicates(df)
@@ -361,15 +376,22 @@ def get_heatmaps(
     sample_size: int | None = None,
     downsample_factor: int = 5,
 ) -> dict[str, dict[str, list[list[int]]]]:
-    """Generate heatmaps for boxes, keypoints, and segmentation masks.
+    r"""Generate heatmaps for boxes, keypoints, and segmentation masks.
+
+    Heatmaps are accumulated on a fixed :math:`15 \times 15` grid over
+    normalized image coordinates. Bounding boxes contribute their center
+    points, keypoints contribute visible points, and segmentation masks
+    contribute foreground pixels after optional downsampling.
 
     Args:
         df: Dataset information.
         sample_size: Optional number of samples used to generate heatmaps.
         downsample_factor: Factor used to downsample segmentation masks.
+            A value of :math:`5` keeps every fifth row and column.
 
     Returns:
-        Heatmaps grouped by task name and task type.
+        Heatmaps grouped by task name and task type. Each heatmap is a
+        :math:`15 \times 15` nested list of counts.
 
     """
     task_types = [
@@ -483,6 +505,14 @@ def merge_uuids(uuids: Iterable[str]) -> uuid.UUID:
 
     Returns:
         Deterministic merged UUID.
+
+    Examples:
+        >>> first = "00000000-0000-0000-0000-000000000001"
+        >>> second = "00000000-0000-0000-0000-000000000002"
+        >>> merge_uuids([first, second]) == merge_uuids([second, first])
+        True
+        >>> isinstance(merge_uuids([first]), uuid.UUID)
+        True
 
     """
     sorted_uuids = sorted(str(u) for u in uuids)

@@ -16,6 +16,14 @@ def task_is_metadata(task: str) -> bool:
     Returns:
         Whether the task is a metadata task.
 
+    Examples:
+        >>> task_is_metadata("metadata/weather")
+        True
+        >>> task_is_metadata("camera/metadata/weather")
+        True
+        >>> task_is_metadata("camera/boundingbox")
+        False
+
     """
     return get_task_type(task).startswith("metadata/")
 
@@ -29,6 +37,12 @@ def split_task(task: str) -> tuple[str, str]:
 
     Returns:
         Task name and task type.
+
+    Examples:
+        >>> split_task("detector/boundingbox")
+        ('detector', 'boundingbox')
+        >>> split_task("classification")
+        ('', 'classification')
 
     """
     splits = task.split("/", 1)
@@ -46,6 +60,12 @@ def get_task_name(task: str) -> str:
 
     Returns:
         Task name.
+
+    Examples:
+        >>> get_task_name("detector/boundingbox")
+        'detector'
+        >>> get_task_name("classification")
+        'classification'
 
     """
     return task.split("/", maxsplit=1)[0]
@@ -93,6 +113,14 @@ def task_type_iterator(
 
     Returns:
         Iterator over matching labels.
+
+    Examples:
+        >>> labels = {
+        ...     "detector/boundingbox": np.array([1]),
+        ...     "pose/keypoints": np.array([2]),
+        ... }
+        >>> [(task, arr.tolist()) for task, arr in task_type_iterator(labels, "keypoints")]
+        [('pose/keypoints', [2])]
 
     """
     for task, array in labels.items():

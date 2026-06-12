@@ -86,10 +86,20 @@ class Registry(Generic[T]):
     ) -> T | Callable[[T], T]:
         """Register a module. Deprecated, use `register` instead.
 
+        .. deprecated:: 0.6.0
+            Use `register` instead.
+
         Args:
             name: Name of the module. If ``None``, the class name is used.
             module: Module class to be registered.
             force: Whether to override an existing class with the same name.
+
+        Returns:
+            Registered module or decorator returned by `register`.
+
+        Raises:
+            KeyError: If a module with the same name already exists and
+                ``force`` is ``False``.
 
         """
         warnings.warn(
@@ -233,6 +243,14 @@ class AutoRegisterMeta(ABCMeta):
             registry: The registry to use for registration.
                 Will be saved as the `REGISTRY` attribute
                 of the class if not already set.
+
+        Returns:
+            The newly created class.
+
+        Raises:
+            ValueError: If registration is requested but no registry is
+                available from the class hierarchy or the ``registry``
+                argument.
 
         """
         new_class = super().__new__(cls, name, bases, attrs)

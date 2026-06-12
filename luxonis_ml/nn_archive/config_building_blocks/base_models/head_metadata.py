@@ -192,7 +192,22 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
     def validate_task_specific_fields(
         cls, values: dict[str, Any]
     ) -> dict[str, Any]:
-        """Validate that YOLO metadata fields match a supported task."""
+        """Validate that YOLO metadata fields match a supported task.
+
+        Args:
+            values: Raw YOLO metadata fields.
+
+        Returns:
+            The raw metadata fields when they describe a supported YOLO
+            task and output set.
+
+        Raises:
+            ValueError: If task-specific fields cannot infer a supported
+                task, a field is not supported for the inferred task, a
+                required output field is missing, or an output field is not
+                supported for the inferred task.
+
+        """
         defined_params = {k for k, v in dict(values).items() if v is not None}
 
         common_fields = [

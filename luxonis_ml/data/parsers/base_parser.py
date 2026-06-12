@@ -22,6 +22,19 @@ ParserOutput = tuple[DatasetIterator, dict[str, dict], list[Path]]
 
 
 class BaseParser(ABC):
+    """Base class for dataset-format parsers.
+
+    Attributes:
+        SPLIT_NAMES: Canonical split directory names checked by
+            ``validate``.
+        dataset: Dataset being populated by the parser.
+        dataset_type: Dataset format handled by the parser.
+        task_name: Optional task naming rule. When a string is provided,
+            every parsed record receives that task name. When a mapping is
+            provided, class names are mapped to task names.
+
+    """
+
     SPLIT_NAMES: tuple[str, ...] = ("train", "valid", "test")
 
     def __init__(
@@ -119,9 +132,14 @@ class BaseParser(ABC):
 
         Args:
             kwargs: Parser-specific arguments, usually produced by
-                ``validate_split``:
+                ``validate_split``.
 
-                >>> from_split(**validate_split(split_path))
+        Example:
+            .. python::
+
+                split_kwargs = parser.validate_split(split_path)
+                if split_kwargs is not None:
+                    parser.from_split(**split_kwargs)
 
         Returns:
             LDF generator, skeleton metadata, and added images.
@@ -290,6 +308,10 @@ class BaseParser(ABC):
 
         Returns:
             Dataset with parsed images and annotations.
+
+        Raises:
+            ValueError: If a parser that expects top-level splits cannot
+                find a ``train`` directory.
 
         """
         self.reset_parser_issue_messages()

@@ -39,7 +39,13 @@ PUT_FILE_REGISTRY: Final[Registry[PutFile]] = Registry(  # type: ignore
 
 
 class FSType(Enum):
-    """Enum for the type of filesystem."""
+    """Filesystem backend type.
+
+    Attributes:
+        MLFLOW: MLflow artifact storage.
+        FSSPEC: fsspec-compatible filesystem.
+
+    """
 
     MLFLOW = "mlflow"
     FSSPEC = "fsspec"
@@ -582,6 +588,10 @@ class LuxonisFileSystem:
 
         Yields:
             Relative paths to the files in the remote directory.
+
+        Raises:
+            NotImplementedError: If walking an MLflow artifact directory,
+                which is not supported.
 
         """
 

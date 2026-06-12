@@ -116,18 +116,26 @@ def deprecated(
     """Mark a function or its parameters as deprecated.
 
     Example:
-        >>> @deprecated("old_arg",
-        ...             "another_old_arg",
-        ...             suggest={"old_arg": "new_arg"},
-        ...             additional_message="Usage of 'old_arg' is discouraged.")
-        ... def my_func(old_arg, another_old_arg, new_arg=None):
-        ...     pass
-        >>> my_func("foo")
-        >>> # DeprecationWarning: Argument 'old_arg'
-        ... # in function `my_func` is deprecated and
-        ... # will be removed in future versions.
-        ... # Use 'new_arg' instead.
-        ... # Usage of 'old_arg' is discouraged.
+        .. python::
+
+            decorator = deprecated(
+                "old_arg",
+                "another_old_arg",
+                suggest={"old_arg": "new_arg"},
+                additional_message="Usage of 'old_arg' is discouraged.",
+            )
+
+            def my_func(old_arg, another_old_arg, new_arg=None):
+                pass
+
+            my_func = decorator(my_func)
+            my_func("foo")
+
+            # DeprecationWarning: Argument 'old_arg'
+            # in function `my_func` is deprecated and
+            # will be removed in future versions.
+            # Use 'new_arg' instead.
+            # Usage of 'old_arg' is discouraged.
 
     Args:
         *args: Names of the deprecated parameters.

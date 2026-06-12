@@ -31,6 +31,25 @@ class Config(BaseModelExtraForbid):
     def validate_config_version_format(cls, v: str) -> str:
         """Validate that the schema version uses ``major.minor``
         format.
+
+        Args:
+            v: Schema version string.
+
+        Returns:
+            The validated schema version.
+
+        Raises:
+            ValueError: If ``v`` is not in ``major.minor`` format, where
+                both parts are integers.
+
+        Examples:
+            >>> Config.validate_config_version_format("1.0")
+            '1.0'
+            >>> Config.validate_config_version_format("1")
+            Traceback (most recent call last):
+            ...
+            ValueError: 'config_version' must be in format 'x.y' where x and y are integers
+
         """
         # Regular expression to match 'x.y' where x and y are integers.
         if not re.match(r"^\d+\.\d+$", v):

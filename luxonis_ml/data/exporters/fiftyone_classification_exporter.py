@@ -45,6 +45,13 @@ class FiftyOneClassificationExporter(BaseExporter):
                 ...
             }
         }
+
+    Attributes:
+        class_to_idx: Class-name to index mapping.
+        split_labels: Per-split image-stem to class-index mapping.
+        split_image_counter: Per-split image counter used for exported
+            filenames.
+
     """
 
     def __init__(

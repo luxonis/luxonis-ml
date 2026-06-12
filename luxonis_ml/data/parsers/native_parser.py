@@ -11,7 +11,6 @@ from .base_parser import BaseParser, ParserOutput
 
 
 class NativeParser(BaseParser):
-    SPLIT_NAMES: tuple[str, ...] = ("train", "val", "test")
     """Parse a directory with native LDF annotations.
 
     Expected format::
@@ -25,7 +24,13 @@ class NativeParser(BaseParser):
     The annotations are stored in a single JSON file as a list of dictionaries
     in the same format as the output of the generator function used
     by ``BaseDataset.add``.
+
+    Attributes:
+        SPLIT_NAMES: Native LDF split directory names.
+
     """
+
+    SPLIT_NAMES: tuple[str, ...] = ("train", "val", "test")
 
     @staticmethod
     def validate_split(split_path: Path) -> dict[str, Any] | None:

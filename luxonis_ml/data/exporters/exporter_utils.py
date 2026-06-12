@@ -15,7 +15,16 @@ if TYPE_CHECKING:
 
 
 class PreparedLDF:
-    """Lightweight container for LDF data, ready for export."""
+    """Lightweight container for LDF data ready for export.
+
+    Attributes:
+        splits: Split names mapped to group IDs.
+        processed_df: Annotation dataframe with paths resolved to readable
+            files.
+        grouped_image_sources: Unique mapping of group IDs, source names,
+            and file paths.
+
+    """
 
     def __init__(
         self,
@@ -29,7 +38,21 @@ class PreparedLDF:
 
     @classmethod
     def from_dataset(cls, dataset: "LuxonisDataset") -> "PreparedLDF":
-        """Prepare a dataset for export into the LDF representation."""
+        """Prepare a dataset for export into the LDF representation.
+
+        Args:
+            dataset: Dataset to prepare.
+
+        Returns:
+            Prepared LDF container.
+
+        Raises:
+            ValueError: If the dataset has no splits.
+            FileNotFoundError: If an image path cannot be resolved from
+                either its original location or the dataset media
+                directory.
+
+        """
         splits = dataset.get_splits()
         if splits is None:
             raise ValueError("Cannot export dataset without splits")
@@ -83,6 +106,14 @@ class PreparedLDF:
 
 @dataclass(frozen=True)
 class ExporterSpec:
+    """Exporter class and constructor arguments.
+
+    Attributes:
+        cls: Exporter class to instantiate.
+        kwargs: Keyword arguments passed to the exporter constructor.
+
+    """
+
     cls: type["BaseExporter"]
     kwargs: dict
 

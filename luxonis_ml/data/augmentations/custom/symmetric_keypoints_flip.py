@@ -8,6 +8,15 @@ from typing_extensions import override
 
 
 class HorizontalSymmetricKeypointsFlip(A.DualTransform):
+    """Flip images and symmetric keypoints horizontally.
+
+    Attributes:
+        keypoint_pairs: Pairs of keypoint indices swapped after flipping.
+        n_keypoints: Number of unique keypoints described by
+            ``keypoint_pairs``.
+
+    """
+
     def __init__(self, keypoint_pairs: list[tuple[int, int]], p: float = 0.5):
         """Flip an image and symmetric keypoints horizontally.
 
@@ -112,6 +121,10 @@ class HorizontalSymmetricKeypointsFlip(A.DualTransform):
         Returns:
             Flipped keypoints.
 
+        Raises:
+            ValueError: If the total number of keypoints is not a multiple
+                of ``n_keypoints``.
+
         """
         if keypoints.size == 0:
             return keypoints
@@ -139,6 +152,15 @@ class HorizontalSymmetricKeypointsFlip(A.DualTransform):
 
 
 class VerticalSymmetricKeypointsFlip(A.DualTransform):
+    """Flip images and symmetric keypoints vertically.
+
+    Attributes:
+        keypoint_pairs: Pairs of keypoint indices swapped after flipping.
+        n_keypoints: Number of unique keypoints described by
+            ``keypoint_pairs``.
+
+    """
+
     def __init__(self, keypoint_pairs: list[tuple[int, int]], p: float = 0.5):
         """Flip an image and symmetric keypoints vertically.
 
@@ -242,6 +264,10 @@ class VerticalSymmetricKeypointsFlip(A.DualTransform):
         Returns:
             Flipped keypoints.
 
+        Raises:
+            ValueError: If the total number of keypoints is not a multiple
+                of ``n_keypoints``.
+
         """
         if keypoints.size == 0:
             return keypoints
@@ -269,6 +295,16 @@ class VerticalSymmetricKeypointsFlip(A.DualTransform):
 
 
 class TransposeSymmetricKeypoints(A.DualTransform):
+    """Transpose images and symmetric keypoints.
+
+    Attributes:
+        keypoint_pairs: Pairs of keypoint indices swapped after
+            transposition.
+        n_keypoints: Number of unique keypoints described by
+            ``keypoint_pairs``.
+
+    """
+
     def __init__(
         self,
         keypoint_pairs: list[tuple[int, int]],
@@ -373,6 +409,10 @@ class TransposeSymmetricKeypoints(A.DualTransform):
 
         Returns:
             Transposed keypoints.
+
+        Raises:
+            ValueError: If the total number of keypoints is not a multiple
+                of ``n_keypoints``.
 
         """
         if keypoints.size == 0:

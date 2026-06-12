@@ -43,6 +43,42 @@ from luxonis_ml.typing import (
 
 
 class LuxonisLoader(BaseLoader):
+    r"""Indexed loader for `LuxonisDataset` samples.
+
+    `LuxonisLoader` reads one split or multiple splits, loads image
+    sources, assembles labels by task key, optionally applies
+    augmentations, and returns a tuple of image data and labels.
+
+    For a single-source dataset, ``loader[i]`` returns
+    ``(image, labels)``. For a multi-source dataset it returns
+    ``(images, labels)``, where ``images`` maps source names to arrays.
+
+    Label keys use ``"task_name/task_type"``. If a dataset was created
+    without a task name, the default task name is empty and keys look like
+    ``"/boundingbox"`` or ``"/segmentation"``.
+
+    Attributes:
+        dataset: Dataset being loaded.
+        view: Split names loaded by this loader.
+        df: Dataframe with records used by the loader.
+        classes: Class-name mappings per task.
+        source_names: Source names expected in each sample.
+        instances: Group IDs included in the selected views.
+        idx_to_df_row: Mapping from loader index to dataframe row indices.
+        color_space: Output color space per source.
+        height: Optional output image height.
+        width: Optional output image width.
+        augmentations: Optional augmentation engine.
+        exclude_empty_annotations: Whether empty annotations are omitted.
+        sync_mode: Whether the dataset is remote and pulled before loading.
+        keep_categorical_as_strings: Whether categorical metadata remains
+            as strings.
+        filter_task_names: Optional task-name allowlist.
+        tasks_without_background: Segmentation tasks where unassigned
+            pixels are mapped to background class :math:`0`.
+
+    """
+
     def __init__(
         self,
         dataset: LuxonisDataset,
@@ -73,8 +109,7 @@ class LuxonisLoader(BaseLoader):
             augmentation_engine: Augmentation engine registry name.
             augmentation_config: Optional augmentation configuration or path
                 to a configuration file. Each configuration item contains
-                ``name`` and optional ``params`` keys, such as
-                ``{"name": "HorizontalFlip", "params": {"p": 0.5}}``.
+                ``name`` and optional ``params`` keys.
             height: Optional output image height. Required when
                 augmentations are enabled.
             width: Optional output image width. Required when augmentations
@@ -99,6 +134,43 @@ class LuxonisLoader(BaseLoader):
                 Annotations and metadata are always overwritten.
             filter_task_names: Optional task names to include. If omitted,
                 all tasks are included.
+
+        Raises:
+            ValueError: If `color_space` is neither a string nor a
+                dictionary.
+            ValueError: If `filter_task_names` contains task names not
+                present in the dataset.
+            RuntimeError: If split metadata is missing.
+
+        Example:
+            .. python::
+
+                augmentation_config = [
+                    {
+                        "name": "Defocus",
+                        "params": {"p": 1},
+                    },
+                    {
+                        "name": "RandomCrop",
+                        "params": {"height": 512, "width": 512, "p": 1},
+                    },
+                    {
+                        "name": "Mosaic4",
+                        "params": {
+                            "height": 256,
+                            "width": 256,
+                            "p": 1.0,
+                        },
+                    },
+                ]
+
+                loader = LuxonisLoader(
+                    dataset,
+                    view="train",
+                    augmentation_config=augmentation_config,
+                    height=640,
+                    width=640,
+                )
 
         """
         self.exclude_empty_annotations = exclude_empty_annotations
@@ -239,6 +311,11 @@ class LuxonisLoader(BaseLoader):
 
         Returns:
             Image data and annotation labels.
+
+        Raises:
+            ValueError: If the selected views contain no records or a
+                grayscale source has an unsupported image shape.
+            FileNotFoundError: If an image path cannot be found or read.
 
         """
         if self.augmentations is None:

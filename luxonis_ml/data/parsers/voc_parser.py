@@ -70,6 +70,10 @@ class VOCParser(BaseParser):
             Parser output containing annotation records, skeleton metadata,
             and added images.
 
+        Raises:
+            ValueError: If an annotation XML file cannot be parsed or a
+                required XML tag is missing.
+
         """
         images_annotations = []
         for anno_xml in annotation_dir.glob("*.xml"):

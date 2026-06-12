@@ -211,7 +211,15 @@ class LuxonisDataset(BaseDataset):
 
     @property
     def source(self) -> LuxonisSource:
-        """Get the source information for the dataset."""
+        """Get the source information for the dataset.
+
+        Returns:
+            Dataset source metadata.
+
+        Raises:
+            ValueError: If source metadata is missing.
+
+        """
         if self._metadata.source is None:
             raise ValueError("Source not found in metadata")
         return self._metadata.source
@@ -867,6 +875,18 @@ class LuxonisDataset(BaseDataset):
         edges: list[tuple[int, int]] | None = None,
         task: str | None = None,
     ) -> None:
+        """Set keypoint skeleton metadata.
+
+        Args:
+            labels: Optional keypoint names.
+            edges: Optional keypoint edges as :math:`0`-based index pairs.
+            task: Optional task to update. If omitted, all tasks are
+                updated.
+
+        Raises:
+            ValueError: If neither ``labels`` nor ``edges`` is provided.
+
+        """
         if labels is None and edges is None:
             raise ValueError("Must provide either keypoint names or edges")
 

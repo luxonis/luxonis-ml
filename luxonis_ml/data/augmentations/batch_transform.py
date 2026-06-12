@@ -8,6 +8,14 @@ from typing_extensions import override
 
 
 class BatchTransform(ABC, A.DualTransform):
+    """Base class for transforms that combine multiple samples.
+
+    Attributes:
+        batch_size: Number of samples consumed by one application of the
+            transform.
+
+    """
+
     def __init__(self, batch_size: int, **kwargs):
         """Create a batch transformation.
 

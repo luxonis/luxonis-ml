@@ -8,6 +8,19 @@ from luxonis_ml.typing import PathType
 
 
 class ParquetRecord(TypedDict):
+    """Single annotation row written to parquet.
+
+    Attributes:
+        file: Image or source file path.
+        source_name: Source component name.
+        task_name: Task name.
+        class_name: Optional class name.
+        instance_id: Optional instance identifier.
+        task_type: Optional task type.
+        annotation: Optional serialized annotation JSON.
+
+    """
+
     file: str
     source_name: str
     task_name: str
@@ -18,6 +31,24 @@ class ParquetRecord(TypedDict):
 
 
 class ParquetFileManager:
+    """Manage append-style writes across partitioned parquet files.
+
+    Rows are buffered in memory and flushed to the current parquet file.
+    A new file is selected every ``num_rows`` writes. Filenames are
+    zero-padded numeric counters such as ``0000000000.parquet``.
+
+    Attributes:
+        dir: Directory containing parquet files.
+        parquet_files: Existing parquet files discovered in ``dir``.
+        num_rows: Maximum rows written to one parquet file.
+        num: Current parquet file index.
+        current_file: Path to the current parquet file.
+        buffer: In-memory column buffer for the current file.
+        row_count: Number of rows currently buffered or loaded from the
+            current file.
+
+    """
+
     def __init__(self, directory: PathType, num_rows: int = 100_000) -> None:
         """Manage writing rows into partitioned parquet files.
 
@@ -25,6 +56,20 @@ class ParquetFileManager:
             directory: Local directory where parquet files are stored.
             num_rows: Maximum rows per parquet file before a new file is
                 created.
+
+        Example:
+            >>> record = {
+            ...     "file": "image.jpg",
+            ...     "source_name": "image",
+            ...     "task_name": "detection",
+            ...     "class_name": "car",
+            ...     "instance_id": 0,
+            ...     "task_type": "boundingbox",
+            ...     "annotation": "{}",
+            ... }
+            >>> manager = ParquetFileManager("/tmp/ldf-parquet-example", num_rows=2)
+            >>> manager.num_rows
+            2
 
         """
         self.dir = Path(directory)

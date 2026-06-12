@@ -35,8 +35,20 @@ class Output(BaseModelExtraForbid):
 
     @model_validator(mode="after")
     def validate_layout(self) -> Self:
-        """Validate that the layout is compatible with the output
-        shape.
+        r"""Validate that the layout is compatible with the output shape.
+
+        The output layout describes every shape axis, so
+        :math:`|\mathrm{layout}| = |\mathrm{shape}|` whenever a layout is
+        provided.
+
+        Returns:
+            The validated output model.
+
+        Raises:
+            ValueError: If ``N`` is present but not first, ``layout`` is
+                provided without ``shape``, or layout and shape lengths do
+                not match.
+
         """
         if self.layout is None:
             return self
@@ -58,7 +70,12 @@ class Output(BaseModelExtraForbid):
 
     @model_validator(mode="after")
     def infer_layout(self) -> Self:
-        """Infer the layout when a shape is provided without one."""
+        """Infer the layout when a shape is provided without one.
+
+        Returns:
+            The output model with ``layout`` inferred when possible.
+
+        """
         if self.layout is None and self.shape is not None:
             with suppress(Exception):
                 self.layout = infer_layout(self.shape)

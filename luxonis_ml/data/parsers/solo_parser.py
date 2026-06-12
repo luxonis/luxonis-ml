@@ -100,6 +100,13 @@ class SOLOParser(BaseParser):
             Parser output containing annotation records, skeleton metadata,
             and added images.
 
+        Raises:
+            FileNotFoundError: If the split directory, annotation
+                definitions file, referenced image, or referenced mask does
+                not exist.
+            ValueError: If no bounding-box class names can be identified
+                from ``annotation_definitions.json``.
+
         """
         if not split_path.exists():
             raise FileNotFoundError(f"{split_path} path non-existent.")

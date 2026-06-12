@@ -10,6 +10,15 @@ from .utils import yield_batches
 
 
 class BatchCompose(A.Compose):
+    r"""Compose batch-aware Albumentations transforms.
+
+    Attributes:
+        transforms: Batch transformations in composition order.
+        batch_size: Product of nested transform batch sizes,
+            :math:`\prod_i b_i`.
+
+    """
+
     transforms: list[BatchTransform]
 
     def __init__(self, transforms: TransformsSeqType, **kwargs):
@@ -36,6 +45,20 @@ class BatchCompose(A.Compose):
     def __call__(
         self, data_batch: list[dict[str, np.ndarray]]
     ) -> dict[str, np.ndarray]:
+        """Apply the composed transforms to a batch.
+
+        Args:
+            data_batch: Batch of Albumentations data dictionaries. Its
+                length must equal ``batch_size``.
+
+        Returns:
+            Single transformed data dictionary.
+
+        Raises:
+            ValueError: If ``len(data_batch)`` does not match
+                ``batch_size``.
+
+        """
         if len(data_batch) != self.batch_size:
             raise ValueError(
                 f"Batch size must be equal to {self.batch_size}, "
