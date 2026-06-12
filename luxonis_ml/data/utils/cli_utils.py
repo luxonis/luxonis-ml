@@ -2,7 +2,6 @@ import ast
 from collections.abc import Iterator
 
 import rich.box
-import typer
 from rich import print as rprint
 from rich.console import RenderableType, group
 from rich.panel import Panel
@@ -11,60 +10,97 @@ from rich.table import Table
 
 from luxonis_ml.data import LuxonisDataset
 from luxonis_ml.data.utils.enums import BucketStorage
+from luxonis_ml.typing import check_type
 
 
 def parse_split_ratio(
     value: str | None,
+    train: float | None = None,
+    val: float | None = None,
+    test: float | None = None,
 ) -> dict[str, float | int] | None:
     """Parse split ratio argument.
 
-    Expects a Python list (e.g., C{"[0.8, 0.1, 0.1]"}). If values sum to
-    1.0, treated as ratios. Otherwise, treated as counts.
+    Args:
+        value (str or None): A string representation of a list
+            of 3 values (train, val, test).
+        train (float or None, optional):
+            Optional float or int for training split.
+        val (float or None, optional):
+            Optional float or int for validation split.
+        test (float or None, optional):
+            Optional float or int for test split.
     """
-    if value is None:
+    if value is not None and any(v is not None for v in (train, val, test)):
+        raise ValueError(
+            "Cannot specify split ratio both as a list and as separate "
+            "train/val/test arguments."
+        )
+    if not any(v is not None for v in (value, train, val, test)):
         return None
 
-    try:
-        parsed = ast.literal_eval(value)
-    except (ValueError, SyntaxError) as e:
-        raise typer.BadParameter(f"Invalid list syntax: {e}") from e
+    if value is not None:
+        try:
+            parsed = ast.literal_eval(value)
+        except (ValueError, SyntaxError) as e:
+            raise ValueError(f"Invalid list syntax: {e}") from e
+        if not isinstance(parsed, list) or len(parsed) != 3:
+            raise ValueError(
+                "Split ratio must be a list of 3 values (train, val, test)."
+            )
+        parsed = dict(zip(["train", "val", "test"], parsed, strict=True))
+    else:
+        defined = [v for v in (train, val, test) if v is not None]
+        sum_ = sum(defined)
+        is_count_input = all(float(v).is_integer() for v in defined)
 
-    if not isinstance(parsed, list) or len(parsed) != 3:
-        raise typer.BadParameter(
-            "Split ratio must be a list of 3 values (train, val, test)."
-        )
+        if sum_ > 1 + 1e-6 and not is_count_input:
+            raise ValueError(
+                "Split ratios must sum to 1.0; use whole numbers for counts."
+            )
 
-    if not all(isinstance(v, int | float) for v in parsed):
-        raise typer.BadParameter("Split ratio values must be numbers.")
+        if sum_ > 1 + 1e-6:
+            parsed = {
+                "train": int(train or 0),
+                "val": int(val or 0),
+                "test": int(test or 0),
+            }
+        else:
+            n_defined = sum(v is not None for v in (train, val, test))
+            rem = (1 - sum_) / (3 - n_defined) if n_defined < 3 else 0
+            parsed = {
+                "train": train if train is not None else rem,
+                "val": val if val is not None else rem,
+                "test": test if test is not None else rem,
+            }
 
-    all_ints = all(isinstance(v, int) for v in parsed)
-    all_floats = all(isinstance(v, float) for v in parsed)
+    if not check_type(parsed, dict[str, float | int]):
+        raise ValueError("Split ratio values must be numbers.")
+
+    all_ints = all(isinstance(v, int) for v in parsed.values())
+    all_floats = all(isinstance(v, float) for v in parsed.values())
 
     if not (all_ints or all_floats):
-        raise typer.BadParameter(
+        raise ValueError(
             "Split ratio values must be all integers (counts) "
             "or all floats (ratios), not a mix."
         )
 
-    if all_floats and abs(sum(parsed) - 1.0) >= 1e-6:
-        raise typer.BadParameter(
-            f"Float ratios must sum to 1.0, but got {sum(parsed):.2f}."
+    if all_floats and abs(sum(parsed.values()) - 1.0) >= 1e-6:
+        raise ValueError(
+            f"Float ratios must sum up to 1.0, "
+            f"but got {sum(parsed.values()):.2f}."
         )
 
-    keys = ["train", "val", "test"]
-    return dict(
-        zip(
-            keys,
-            parsed if all_floats else [int(v) for v in parsed],
-            strict=True,
-        )
-    )
+    if all_ints:
+        return {k: int(v) for k, v in parsed.items()}
+    return {k: float(v) for k, v in parsed.items()}
 
 
 def check_exists(name: str, bucket_storage: BucketStorage) -> None:
     if not LuxonisDataset.exists(name, bucket_storage=bucket_storage):
         rprint(f"[red]Dataset [magenta]'{name}'[red] does not exist.")
-        raise typer.Exit
+        raise SystemExit(1)
 
 
 def get_dataset_info(dataset: LuxonisDataset) -> tuple[set[str], list[str]]:

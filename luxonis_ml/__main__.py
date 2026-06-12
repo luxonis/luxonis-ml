@@ -2,58 +2,42 @@ from importlib.metadata import version
 
 import rich
 import rich.box
-import typer
+from cyclopts import App, Group
 from rich.markup import escape
 from rich.table import Table
 
-app = typer.Typer(
-    name="Luxonis ML CLI",
-    add_completion=True,
-    pretty_exceptions_show_locals=False,
+app = App(
+    name="luxonis_ml",
+    version=lambda: f"LuxonisML: {version('luxonis_ml')}",
+    version_flags=["-v", "--version"],
+    help="MLOps tools for training models for Luxonis devices.",
 )
-
-try:
-    from luxonis_ml.data.__main__ import app as data_app
-
-    app.add_typer(data_app, name="data", help="Dataset utilities.")
-except ImportError:
-    pass
-
-try:
-    from luxonis_ml.utils.__main__ import app as utils_app
-
-    app.add_typer(utils_app, name="fs", help="Filesystem utilities.")
-except ImportError:
-    pass
-
-try:
-    from luxonis_ml.nn_archive.__main__ import app as utils_app
-
-    app.add_typer(utils_app, name="archive", help="NN Archive utilities.")
-except ImportError:
-    pass
+global_group = Group("Global Parameters", sort_key=0)
+app["--help"].group = app["--version"].group = global_group
 
 
-def version_callback(value: bool) -> None:
-    if value:
-        typer.echo(f"LuxonisML: {version('luxonis_ml')}")
-        raise typer.Exit
+app.register_install_completion_command(group=global_group)
 
 
-@app.callback()
-def main(
-    _: bool = typer.Option(
-        None,
-        "--version",
-        callback=version_callback,
-        is_eager=True,
-        help="Show version and exit.",
-    ),
-):
-    return
+def _register_subapp(module: str, name: str) -> None:
+    try:
+        imported = __import__(module, fromlist=["app"])
+        subapp = imported.app
+    except ImportError:
+        return
+
+    if not isinstance(subapp, App):
+        return
+
+    app.command(subapp, name=name)
 
 
-@app.command()
+_register_subapp("luxonis_ml.data.__main__", "data")
+_register_subapp("luxonis_ml.utils.__main__", "fs")
+_register_subapp("luxonis_ml.nn_archive.__main__", "archive")
+
+
+@app.command
 def checkhealth():
     """Check the health of the Luxonis ML library."""
     table = Table(
