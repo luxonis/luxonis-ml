@@ -79,10 +79,16 @@ class COCOParser(BaseParser):
                         else (COCOFormat.ROBOFLOW, rf)
                     )
 
-            if "test" in existing:
-                split_info = COCOParser.validate_split(dataset_dir / "test")
+            # Partial layouts like train-only are ambiguous by directory
+            # names alone, so inspect the annotation filename inside any
+            # present split to distinguish Roboflow from FiftyOne.
+            for split_name in fo:
+                split_info = COCOParser.validate_split(
+                    dataset_dir / split_name
+                )
                 if split_info is not None:
                     annotation_name = split_info["annotation_path"].name
+                    # ROBOFLOW has _annotations.coco.json while FIFTYONE has labels.json
                     if annotation_name == "_annotations.coco.json":
                         return COCOFormat.ROBOFLOW, rf
                     return COCOFormat.FIFTYONE, fo

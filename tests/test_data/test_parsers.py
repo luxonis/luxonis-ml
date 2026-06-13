@@ -634,3 +634,54 @@ def test_partial_ultralytics_layout_reports_yolov6_yolov8_ambiguity(
             delete_local=True,
             save_dir=tempdir,
         ).parse()
+
+
+def test_partial_split_train_only_roboflow_coco_keeps_format_detection(
+    dataset_name: str,
+    tempdir: Path,
+):
+    dataset_dir = tempdir / "coco_train_only_roboflow"
+    train_dir = dataset_dir / "train"
+    train_dir.mkdir(parents=True)
+    create_image(16, train_dir)
+    (train_dir / "_annotations.coco.json").write_text(
+        json.dumps(
+            {
+                "images": [
+                    {
+                        "id": 1,
+                        "file_name": "img_16.jpg",
+                        "width": 512,
+                        "height": 512,
+                    }
+                ],
+                "annotations": [
+                    {
+                        "id": 1,
+                        "image_id": 1,
+                        "category_id": 0,
+                        "bbox": [128, 128, 256, 256],
+                        "area": 65536,
+                        "iscrowd": 0,
+                    }
+                ],
+                "categories": [{"id": 0, "name": "budgie"}],
+            }
+        )
+    )
+
+    dataset = LuxonisParser(
+        str(dataset_dir),
+        dataset_name=dataset_name,
+        dataset_type="coco",  # type: ignore[arg-type]
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse(use_keypoint_ann=True)
+
+    splits = dataset.get_splits()
+    assert splits is not None
+    assert set(splits) == {"train", "val", "test"}
+    assert len(splits["train"]) == 1
+    assert len(splits["val"]) == 0
+    assert len(splits["test"]) == 0
+    dataset.delete_dataset(delete_local=True)
