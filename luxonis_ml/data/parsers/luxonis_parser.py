@@ -92,8 +92,8 @@ class LuxonisParser(Generic[T]):
                 - C{roboflow://} for Roboflow datasets.
                   - Expected format: C{roboflow://workspace/project/version/format}.
                 - C{ultralytics://} for Ultralytics Platform datasets.
-                  - Expected format:
-                    - C{ultralytics://username/datasets/slug}
+                    - Expected format: C{ultralytics://username/datasets/slug}
+                    - Optional version: append C{?v=<version>} to export a specific dataset version.
             Can be a remote URL supported by L{LuxonisFileSystem}.
         @type dataset_name: Optional[str]
         @param dataset_name: Name of the dataset. If C{None}, the name
