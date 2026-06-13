@@ -512,3 +512,176 @@ def test_ultralytics_ndjson_remote_urls_parser_rejects_existing_remote_dir(
             delete_local=True,
             save_dir=tempdir,
         ).parse()
+
+
+def test_partial_split_clsdir_is_preserved(
+    dataset_name: str,
+    tempdir: Path,
+):
+    dataset_dir = tempdir / "clsdir_partial"
+    split_dir = dataset_dir / "valid" / "budgie"
+    split_dir.mkdir(parents=True)
+    create_image(16, split_dir)
+
+    dataset = LuxonisParser(
+        str(dataset_dir),
+        dataset_name=dataset_name,
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()
+
+    splits = dataset.get_splits()
+    assert splits is not None
+    assert set(splits) == {"train", "val", "test"}
+    assert len(splits["train"]) == 0
+    assert len(splits["val"]) == 1
+    assert len(splits["test"]) == 0
+    dataset.delete_dataset(delete_local=True)
+
+
+def test_partial_split_clsdir_explicit_type_uses_dir_mode(
+    dataset_name: str,
+    tempdir: Path,
+):
+    dataset_dir = tempdir / "clsdir_partial_explicit"
+    split_dir = dataset_dir / "test" / "finch"
+    split_dir.mkdir(parents=True)
+    create_image(16, split_dir)
+
+    dataset = LuxonisParser(
+        str(dataset_dir),
+        dataset_name=dataset_name,
+        dataset_type="clsdir",  # type: ignore[arg-type]
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()
+
+    splits = dataset.get_splits()
+    assert splits is not None
+    assert set(splits) == {"train", "val", "test"}
+    assert len(splits["train"]) == 0
+    assert len(splits["val"]) == 0
+    assert len(splits["test"]) == 1
+    dataset.delete_dataset(delete_local=True)
+
+
+@pytest.mark.parametrize(
+    ("url", "expected_split_sizes", "loader_view"),
+    [
+        (
+            "coco_valid_only_debug.zip",
+            {"train": 0, "val": 2, "test": 1},
+            "val",
+        ),
+        (
+            "native_val_only_debug.zip",
+            {"train": 0, "val": 3, "test": 0},
+            "val",
+        ),
+    ],
+)
+def test_partial_split_fixture_is_preserved(
+    dataset_name: str,
+    storage_url: str,
+    tempdir: Path,
+    url: str,
+    expected_split_sizes: dict[str, int],
+    loader_view: str,
+):
+    dataset = LuxonisParser(
+        f"{storage_url.rstrip('/')}/{url}",
+        dataset_name=dataset_name,
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()
+
+    splits = dataset.get_splits()
+    assert splits is not None
+    assert set(splits) == {"train", "val", "test"}
+    assert {
+        split_name: len(group_ids) for split_name, group_ids in splits.items()
+    } == expected_split_sizes
+
+    loader = LuxonisLoader(dataset, view=loader_view)
+    _, ann = next(iter(loader))
+    task_types = {get_task_type(task) for task in ann}
+    assert task_types == {"boundingbox", "classification"}
+    dataset.delete_dataset(delete_local=True)
+
+
+def test_partial_ultralytics_layout_reports_yolov6_yolov8_ambiguity(
+    dataset_name: str,
+    tempdir: Path,
+):
+    dataset_dir = tempdir / "yolo_partial"
+    image_dir = dataset_dir / "images" / "test"
+    label_dir = dataset_dir / "labels" / "test"
+    image_dir.mkdir(parents=True)
+    label_dir.mkdir(parents=True)
+    create_image(16, image_dir)
+    (label_dir / "img_16.txt").write_text("0 0.5 0.5 0.4 0.4\n")
+    (dataset_dir / "data.yaml").write_text("names:\n  0: budgie\n")
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            r"ambiguous between YOLOv6 and YOLOv8\. Please specify dataset_type\."
+        ),
+    ):
+        LuxonisParser(
+            str(dataset_dir),
+            dataset_name=dataset_name,
+            delete_local=True,
+            save_dir=tempdir,
+        ).parse()
+
+
+def test_partial_split_train_only_roboflow_coco_keeps_format_detection(
+    dataset_name: str,
+    tempdir: Path,
+):
+    dataset_dir = tempdir / "coco_train_only_roboflow"
+    train_dir = dataset_dir / "train"
+    train_dir.mkdir(parents=True)
+    create_image(16, train_dir)
+    (train_dir / "_annotations.coco.json").write_text(
+        json.dumps(
+            {
+                "images": [
+                    {
+                        "id": 1,
+                        "file_name": "img_16.jpg",
+                        "width": 512,
+                        "height": 512,
+                    }
+                ],
+                "annotations": [
+                    {
+                        "id": 1,
+                        "image_id": 1,
+                        "category_id": 0,
+                        "bbox": [128, 128, 256, 256],
+                        "area": 65536,
+                        "iscrowd": 0,
+                    }
+                ],
+                "categories": [{"id": 0, "name": "budgie"}],
+            }
+        )
+    )
+
+    dataset = LuxonisParser(
+        str(dataset_dir),
+        dataset_name=dataset_name,
+        dataset_type="coco",  # type: ignore[arg-type]
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse(use_keypoint_ann=True)
+
+    splits = dataset.get_splits()
+    assert splits is not None
+    assert set(splits) == {"train", "val", "test"}
+    assert len(splits["train"]) == 1
+    assert len(splits["val"]) == 0
+    assert len(splits["test"]) == 0
+    dataset.delete_dataset(delete_local=True)
