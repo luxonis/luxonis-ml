@@ -501,7 +501,11 @@ class LuxonisParser(Generic[T]):
         file_stem = dataset["slug"]
         dataset_name = dataset["name"]
         local_path = local_path or Path.cwd()
-        destination = local_path / f"{file_stem}.ndjson"
+        destination = (
+            local_path / f"{file_stem}.v{version}.ndjson"
+            if version is not None
+            else local_path / f"{file_stem}.ndjson"
+        )
         download_remote_file(download_url, destination, timeout=120.0)
 
         return destination, dataset_name
