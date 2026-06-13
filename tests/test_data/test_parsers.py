@@ -32,6 +32,10 @@ from .utils import create_image
             {"boundingbox", "classification"},
         ),
         (
+            "ultralytics://ultralytics/datasets/coco8",
+            {"boundingbox", "classification"},
+        ),
+        (
             "Thermal_Dogs_and_People.v1-resize-416x416.voc.zip",
             {"boundingbox", "classification"},
         ),
@@ -103,11 +107,15 @@ def test_dir_parser(
     storage_url: str,
     tempdir: Path,
 ):
-    if not url.startswith("roboflow://"):
+    if not url.startswith(("roboflow://", "ultralytics://")):
         url = f"{storage_url}/{url}"
-
-    elif environ.ROBOFLOW_API_KEY is None:
+    elif url.startswith("roboflow://") and environ.ROBOFLOW_API_KEY is None:
         pytest.skip("Roboflow API key is not set")
+    elif (
+        url.startswith("ultralytics://")
+        and environ.ULTRALYTICS_API_KEY is None
+    ):
+        pytest.skip("Ultralytics API key is not set")
 
     parser = LuxonisParser(
         url,
@@ -146,6 +154,11 @@ def test_dir_parser(
         (
             "roboflow://team-roboflow/coco-128/2/coco",
             "coco",
+            {"boundingbox", "classification"},
+        ),
+        (
+            "ultralytics://ultralytics/datasets/coco8",
+            "ultralytics-ndjson",
             {"boundingbox", "classification"},
         ),
         (
@@ -234,11 +247,15 @@ def test_dir_parser_explicit_type(
     storage_url: str,
     tempdir: Path,
 ):
-    if not url.startswith("roboflow://"):
+    if not url.startswith(("roboflow://", "ultralytics://")):
         url = f"{storage_url}/{url}"
-
-    elif environ.ROBOFLOW_API_KEY is None:
+    elif url.startswith("roboflow://") and environ.ROBOFLOW_API_KEY is None:
         pytest.skip("Roboflow API key is not set")
+    elif (
+        url.startswith("ultralytics://")
+        and environ.ULTRALYTICS_API_KEY is None
+    ):
+        pytest.skip("Ultralytics API key is not set")
 
     parser = LuxonisParser(
         url,
