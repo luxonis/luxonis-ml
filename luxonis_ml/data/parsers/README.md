@@ -28,7 +28,7 @@ The `LuxonisParser` class provides functionality for converting various dataset 
 
 | Parameter        | Type                                   | Default  | Description                                                                                                                     |
 | ---------------- | -------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `dataset_dir`    | `str`                                  | Required | Path or URL to dataset directory (local path, `gcs://`, `s3://` or `roboflow://`)                                               |
+| `dataset_dir`    | `str`                                  | Required | Path or URL to dataset directory (local path, `gcs://`, `s3://`, `roboflow://` or `ultralytics://`)                             |
 | `dataset_name`   | `Optional[str]`                        | `None`   | Name for the dataset (if None, derived from directory name)                                                                     |
 | `save_dir`       | `Optional[Union[Path, str]]`           | `None`   | Where to save downloaded datasets if remote URL is provided (if None, uses current directory)                                   |
 | `dataset_plugin` | `Optional[str]`                        | `None`   | Dataset plugin to use (if None, uses `LuxonisDataset`)                                                                          |

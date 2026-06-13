@@ -5,11 +5,14 @@ from enum import Enum
 from importlib.util import find_spec
 from pathlib import Path
 from typing import Generic, TypeVar, overload
+from urllib.parse import parse_qs, urlsplit
 
+import requests
 from loguru import logger
 
 from luxonis_ml.data import DATASETS_REGISTRY, BaseDataset, LuxonisDataset
 from luxonis_ml.data.utils.enums import ParserIssueMessage
+from luxonis_ml.data.utils.remote_file_downloader import download_remote_file
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.utils import LuxonisFileSystem, environ
 from luxonis_ml.utils.filesystem import _pip_install
@@ -88,6 +91,9 @@ class LuxonisParser(Generic[T]):
                   - C{s3://} for Amazon S3
                 - C{roboflow://} for Roboflow datasets.
                   - Expected format: C{roboflow://workspace/project/version/format}.
+                - C{ultralytics://} for Ultralytics Platform datasets.
+                    - Expected format: C{ultralytics://username/datasets/slug}
+                    - Optional version: append C{?v=<version>} to export a specific dataset version.
             Can be a remote URL supported by L{LuxonisFileSystem}.
         @type dataset_name: Optional[str]
         @param dataset_name: Name of the dataset. If C{None}, the name
@@ -118,6 +124,10 @@ class LuxonisParser(Generic[T]):
         save_dir = Path(save_dir) if save_dir else None
         if dataset_dir.startswith("roboflow://"):
             self.dataset_dir, name = self._download_roboflow_dataset(
+                dataset_dir, save_dir
+            )
+        elif dataset_dir.startswith("ultralytics://"):
+            self.dataset_dir, name = self._download_ultralytics_dataset(
                 dataset_dir, save_dir
             )
         else:
@@ -335,6 +345,12 @@ class LuxonisParser(Generic[T]):
     def _download_roboflow_dataset(
         self, dataset_dir: str, local_path: Path | None
     ) -> tuple[Path, str]:
+        if environ.ROBOFLOW_API_KEY is None:
+            raise RuntimeError(
+                "ROBOFLOW_API_KEY environment variable is not set. "
+                "Please set it to your Roboflow API key."
+            )
+
         if find_spec("roboflow") is None:  # pragma: no cover
             _pip_install("roboflow", "roboflow~=1.1.0")
             subprocess.run(
@@ -362,12 +378,6 @@ class LuxonisParser(Generic[T]):
 
         from roboflow import Roboflow
 
-        if environ.ROBOFLOW_API_KEY is None:
-            raise RuntimeError(
-                "ROBOFLOW_API_KEY environment variable is not set. "
-                "Please set it to your Roboflow API key."
-            )
-
         rf = Roboflow(api_key=environ.ROBOFLOW_API_KEY.get_secret_value())
         parts = dataset_dir.split("roboflow://")[1].split("/")
         if len(parts) != 4:
@@ -393,3 +403,109 @@ class LuxonisParser(Generic[T]):
             .download(format, str(local_path / project))
         )
         return Path(dataset.location), project
+
+    def _download_ultralytics_dataset(
+        self,
+        dataset_dir: str,
+        local_path: Path | None,
+    ) -> tuple[Path, str]:
+        if environ.ULTRALYTICS_API_KEY is None:
+            raise RuntimeError(
+                "ULTRALYTICS_API_KEY environment variable is not set. "
+                "Please set it to your Ultralytics API key."
+            )
+
+        ultralytics_api_base_url = "https://platform.ultralytics.com/api"
+        headers = {
+            "Authorization": (
+                f"Bearer {environ.ULTRALYTICS_API_KEY.get_secret_value()}"
+            ),
+            "User-Agent": "luxonis-ml",
+        }
+
+        parsed = urlsplit(dataset_dir)
+        raw_version = parse_qs(parsed.query).get("v", [None])[0]
+        version: int | None = None
+        if raw_version is not None:
+            try:
+                version = int(raw_version)
+            except ValueError as e:
+                raise ValueError(
+                    "Ultralytics dataset export version must be an integer, "
+                    f"got `{raw_version}`."
+                ) from e
+            if version < 1:
+                raise ValueError(
+                    "Ultralytics dataset export version must be >= 1, "
+                    f"got `{version}`."
+                )
+
+        path_parts = [part for part in parsed.path.split("/") if part]
+        if not (
+            parsed.scheme == "ultralytics"
+            and parsed.netloc
+            and len(path_parts) == 2
+            and path_parts[0] == "datasets"
+        ):
+            raise ValueError(
+                f"Incorrect Ultralytics dataset reference: `{dataset_dir}`. "
+                "Expected `ultralytics://username/datasets/slug`."
+            )
+
+        dataset_response = requests.get(
+            f"{ultralytics_api_base_url}/datasets",
+            headers=headers,
+            params={
+                "username": parsed.netloc,
+                "slug": path_parts[1],
+            },
+            timeout=30.0,
+        )
+        if not dataset_response.ok:
+            try:
+                error = dataset_response.json().get("error")
+            except ValueError:
+                error = dataset_response.text
+
+            raise RuntimeError(
+                f"Ultralytics API request failed "
+                f"({dataset_response.status_code}): {error}"
+            )
+
+        dataset = dataset_response.json()["dataset"]
+
+        dataset_id = dataset["_id"]
+
+        export_params = {"v": version} if version is not None else None
+        export_response = requests.get(
+            f"{ultralytics_api_base_url}/datasets/{dataset_id}/export",
+            headers=headers,
+            params=export_params,
+            timeout=120.0,
+        )
+        if not export_response.ok:
+            error = None
+            try:
+                payload = export_response.json()
+                error = payload.get("error")
+            except ValueError:
+                error = export_response.text.strip() or export_response.reason
+
+            detail = f"{export_response.status_code} {export_response.reason}"
+            if error:
+                detail = f"{detail}: {error}"
+            raise RuntimeError(f"Ultralytics API request failed: {detail}")
+
+        download_url = export_response.json()["downloadUrl"]
+
+        file_stem = dataset["slug"]
+        dataset_name = dataset["name"]
+        local_path = local_path or Path.cwd()
+        destination = (
+            local_path / f"{file_stem}.v{version}.ndjson"
+            if version is not None
+            else local_path / f"{file_stem}.ndjson"
+        )
+        download_remote_file(download_url, destination, timeout=120.0)
+
+        return destination, dataset_name
