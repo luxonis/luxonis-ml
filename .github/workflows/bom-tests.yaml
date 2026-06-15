@@ -63,7 +63,7 @@ jobs:
       (github.event_name == 'pull_request' &&
        startsWith(github.head_ref, 'release/') &&
        github.event.pull_request.base.ref == 'main')
-    uses: Luxonis/luxonis-train/.github/workflows/tests.yaml@main
+    uses: Luxonis/luxonis-train/.github/workflows/tests.yaml@08558bdadc7e00d56ad3763faec31b6ecb431c4d
     with:
       ml_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ml_ref   || github.head_ref }}
       train_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.train_ref || 'main' }}
@@ -79,7 +79,7 @@ jobs:
       (github.event_name == 'pull_request' &&
        startsWith(github.head_ref, 'release/') &&
        github.event.pull_request.base.ref == 'main')
-    uses: Luxonis/modelconverter/.github/workflows/unittests.yaml@main
+    uses: Luxonis/modelconverter/.github/workflows/unittests.yaml@db10f113f2303c2c9adf7f494d9bd2e8cf6c2f91
     with:
       ml_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ml_ref        || github.head_ref }}
       modelconv_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.modelconv_ref || 'main' }}
@@ -97,7 +97,7 @@ jobs:
       (github.event_name == 'pull_request' &&
        startsWith(github.head_ref, 'release/') &&
        github.event.pull_request.base.ref == 'main')
-    uses: Luxonis/tools/.github/workflows/unittests.yaml@main
+    uses: Luxonis/tools/.github/workflows/unittests.yaml@edbe7da1a7f75833a71d65caf1028036faa81061
     with:
       ml_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ml_ref   || github.head_ref }}
       tools_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tools_ref || 'main' }}
@@ -109,7 +109,7 @@ jobs:
       (github.event_name == 'pull_request' &&
        startsWith(github.head_ref, 'release/') &&
        github.event.pull_request.base.ref == 'main')
-    uses: Luxonis/datadreamer/.github/workflows/unit-tests.yaml@main
+    uses: Luxonis/datadreamer/.github/workflows/unit-tests.yaml@2156d0d899eda304c8746c5394a70a1af8584e0f
     with:
       ml_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ml_ref           || github.head_ref }}
       datadreamer_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.datadreamer_ref || 'main' }}
