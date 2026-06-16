@@ -14,7 +14,7 @@ from luxonis_ml.typing import check_type
 
 
 def parse_split_ratio(
-    value: str | None,
+    value: str | None = None,
     train: float | None = None,
     val: float | None = None,
     test: float | None = None,
@@ -22,14 +22,40 @@ def parse_split_ratio(
     """Parse split ratio argument.
 
     Args:
-        value (str or None): A string representation of a list
+        value: A string representation of a list
             of 3 values (train, val, test).
-        train (float or None, optional):
+        train:
             Optional float or int for training split.
-        val (float or None, optional):
+        val:
             Optional float or int for validation split.
-        test (float or None, optional):
+        test:
             Optional float or int for test split.
+
+    Returns:
+        A dictionary with keys "train", "val", and "test" mapping to their
+        respective ratios or counts, or None if no values were provided.
+
+    Raises:
+        ValueError: If the input format is invalid, if ratios don't sum to 1.0,
+        or if there's a mix of counts and ratios.
+
+    Example:
+        >>> parse_split_ratio("[0.7, 0.2, 0.1]")
+        {'train': 0.7, 'val': 0.2, 'test': 0.1}
+        >>> parse_split_ratio(train=70, val=20, test=10)
+        {'train': 70, 'val': 20, 'test': 10}
+        >>> parse_split_ratio(train=0.7, val=0.2)
+        {'train': 0.7, 'val': 0.2, 'test': 0.1}
+        >>> parse_split_ratio(train=0.7, val=0.2, test=0.1)
+        {'train': 0.7, 'val': 0.2, 'test': 0.1}
+        >>> parse_split_ratio([10, 27])
+        Traceback (most recent call last):
+        ...
+        ValueError: Split ratio must be a list of 3 values (train, val, test).
+        >>> parse_split_ratio(train=0.7, val=0.2, test=0.2)
+        Traceback (most recent call last):
+        ...
+        ValueError: Split ratios must sum to 1.0; use whole numbers for counts.
     """
     if value is not None and any(v is not None for v in (train, val, test)):
         raise ValueError(
