@@ -46,19 +46,17 @@ Typical mutation flow:
             "task_name": "detection",
             "annotation": {
                 "class": "car",
-                "boundingbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
+                "boundingbox": {
+                    "x": 0.1,
+                    "y": 0.2,
+                    "w": 0.3,
+                    "h": 0.4,
+                },
             },
         }
 
     dataset.add(records())
     dataset.make_splits({"train": 0.8, "val": 0.1, "test": 0.1})
-
-Example:
-    Split ratios are probabilities and should sum to :math:`1`.
-
-    >>> ratios = {"train": 0.8, "val": 0.1, "test": 0.1}
-    >>> round(sum(ratios.values()), 6)
-    1.0
 
 Note:
     Although ``"train"``, ``"val"``, and ``"test"`` are conventional split
