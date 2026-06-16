@@ -192,7 +192,7 @@ class UltralyticsNDJSONParser(BaseParser):
                                     f"Remote NDJSON image directory "
                                     f"'{remote_image_dir}' already exists."
                                 )
-                            logger.info(
+                            logger.warning(
                                 f"Reusing existing remote NDJSON image "
                                 f"directory '{remote_image_dir}'."
                             )
