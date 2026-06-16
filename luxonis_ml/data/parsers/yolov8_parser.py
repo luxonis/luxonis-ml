@@ -5,6 +5,7 @@ from typing import Any
 import cv2
 import numpy as np
 import yaml
+from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 
@@ -103,13 +104,16 @@ class YOLOv8Parser(BaseParser):
         """Detect whether a dataset uses Ultralytics or Roboflow
         layout.
         """
-        roboflow_folders = ["train", "valid"]  # test folder is optional
+        roboflow_splits = ("train", "valid", "test")
         ultralytics_folders = ["images", "labels"]
 
         existing = [d.name for d in dataset_dir.iterdir() if d.is_dir()]
 
-        if all(folder in existing for folder in roboflow_folders):
-            return Format.ROBOFLOW, existing
+        present_roboflow_splits = [
+            split for split in roboflow_splits if split in existing
+        ]
+        if present_roboflow_splits:
+            return Format.ROBOFLOW, present_roboflow_splits
         if all(folder in existing for folder in ultralytics_folders):
             return Format.ULTRALYTICS, existing
         return None, []
@@ -191,12 +195,45 @@ class YOLOv8Parser(BaseParser):
                 for d in (dataset_dir / "images").iterdir()
                 if d.is_dir()
             ]
+            if "train" not in subfolders or len(subfolders) < 2:
+                return False
             return all(
                 cls.validate_split(dataset_dir / "images" / split)
                 for split in subfolders
             )
 
         return False
+
+    @classmethod
+    @override
+    def discover_dir_splits(
+        cls, dataset_dir: Path
+    ) -> dict[str, dict[str, Any]]:
+        # Split roots may live under images/<split> instead of <split>/.
+        dir_format, _splits = cls._detect_dataset_dir_format(dataset_dir)
+        if dir_format is None:
+            return {}
+
+        discovered: dict[str, dict[str, Any]] = {}
+        if dir_format is Format.ROBOFLOW:
+            split_paths = [
+                dataset_dir / split_name
+                for split_name in ("train", "valid", "test")
+            ]
+        else:
+            split_paths = [
+                dataset_dir / "images" / split_name
+                for split_name in ("train", "val", "test")
+            ]
+
+        for split_path in split_paths:
+            split_kwargs = cls.validate_split(split_path)
+            if split_kwargs is None:
+                continue
+            discovered[cls._canonicalize_split_name(split_path.name)] = (
+                split_kwargs
+            )
+        return discovered
 
     def from_dir(
         self, dataset_dir: Path
@@ -356,6 +393,10 @@ class YOLOv8Parser(BaseParser):
 
                     elif task_type == "segmentation":
                         img = cv2.imread(str(img_path))
+                        if img is None:  # pragma: no cover
+                            raise ValueError(
+                                f"Failed to read image: {img_path}"
+                            )
                         height, width = img.shape[:2]
 
                         class_id, *points = annotation_elements

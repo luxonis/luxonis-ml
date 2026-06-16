@@ -156,13 +156,8 @@ class LuxonisParser(Generic[T]):
 
         if dataset_type:
             self.dataset_type = dataset_type
-            self.parser_type = (
-                ParserType.DIR
-                if Path(self.dataset_dir / "train").exists()
-                or Path(
-                    self.dataset_dir / "images" / "train"
-                ).exists()  # temporary fix for yolov6
-                else ParserType.SPLIT
+            self.parser_type = self._infer_parser_type_for_explicit_type(
+                self.dataset_type
             )
         else:
             self.dataset_type, self.parser_type = self._recognize_dataset()
@@ -290,20 +285,67 @@ class LuxonisParser(Generic[T]):
             Dataset type and parser type.
 
         """
-        for typ, parser in self.parsers.items():
+        for dataset_type, parser in self.parsers.items():
             if parser.validate(self.dataset_dir):
-                logger.info(f"Recognized dataset format as <{typ.name}>")
-                return typ, ParserType.DIR
+                logger.info(
+                    f"Recognized dataset format as <{dataset_type.name}>"
+                )
+                return dataset_type, ParserType.DIR
 
-        for typ, parser in self.parsers.items():
+        subset_matches: dict[type[BaseParser], DatasetType] = {}
+        for dataset_type, parser in self.parsers.items():
+            # The same YoloV8 or UltralyticsNDJSON parser can correspond to multiple dataset types.
+            if parser in subset_matches:
+                continue
+            if parser.discover_dir_splits(self.dataset_dir):
+                subset_matches[parser] = dataset_type
+
+        if len(subset_matches) == 1:
+            dataset_type = next(iter(subset_matches.values()))
+            logger.info(
+                f"Recognized dataset format as <{dataset_type.name}> from partial splits"
+            )
+            return dataset_type, ParserType.DIR
+
+        if len(subset_matches) > 1:
+            matched_parsers = set(subset_matches)
+            if matched_parsers == {YoloV6Parser, YOLOv8Parser}:
+                raise ValueError(
+                    "Dataset layout is compatible with multiple parsers when "
+                    "only a subset of splits is present. This layout is "
+                    "ambiguous between YOLOv6 and YOLOv8. Please specify "
+                    "dataset_type."
+                )
+            raise ValueError(
+                "Dataset layout is compatible with multiple parsers when "
+                "only a subset of splits is present. Please specify "
+                "dataset_type."
+            )
+
+        for dataset_type, parser in self.parsers.items():
             if parser.validate_split(self.dataset_dir):
                 logger.info(
-                    f"Recognized dataset format as a split of <{typ.name}>"
+                    f"Recognized dataset format as a split of <{dataset_type.name}>"
                 )
-                return typ, ParserType.SPLIT
+                return dataset_type, ParserType.SPLIT
 
         raise ValueError(
             f"Dataset {self.dataset_dir} is not in expected format for any of the parsers."
+        )
+
+    def _infer_parser_type_for_explicit_type(
+        self, dataset_type: DatasetType
+    ) -> ParserType:
+        parser = self.parsers[dataset_type]
+        if parser.validate(self.dataset_dir) or parser.discover_dir_splits(
+            self.dataset_dir
+        ):
+            return ParserType.DIR
+        if parser.validate_split(self.dataset_dir):
+            return ParserType.SPLIT
+        raise ValueError(
+            f"Dataset {self.dataset_dir} is not in expected format for the "
+            f"{dataset_type.name} parser."
         )
 
     def _parse_dir(self, **kwargs) -> BaseDataset:
