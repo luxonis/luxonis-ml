@@ -121,9 +121,15 @@ def extract(
     def safe_members(tar: tarfile.TarFile) -> list[tarfile.TarInfo]:
         """Filter members to prevent path traversal attacks."""
         safe_files = []
+        root = extract_path.resolve()
         for member in tar.getmembers():
             # Normalize path and ensure it's within the extraction folder
-            if not member.name.startswith("/") and ".." not in member.name:
+            if member.issym() or member.islnk():
+                print(f"Skipping unsafe link: {member.name}")
+                continue
+
+            target = (root / member.name).resolve()
+            if target == root or root in target.parents:
                 safe_files.append(member)
             else:
                 print(f"Skipping unsafe file: {member.name}")
