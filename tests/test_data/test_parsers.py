@@ -572,7 +572,7 @@ def test_ultralytics_ndjson_remote_urls_parser_rejects_existing_remote_dir_when_
             dataset_name=dataset_name,
             delete_local=True,
             save_dir=tempdir,
-        ).parse(use_cached=False)
+        ).parse(reuse_cached=False)
 
 
 def test_partial_split_clsdir_is_preserved(

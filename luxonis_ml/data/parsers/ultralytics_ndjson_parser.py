@@ -40,7 +40,7 @@ class UltralyticsNDJSONParser(BaseParser):
         return cls._load_header(dataset_dir) is not None
 
     def from_dir(
-        self, dataset_dir: Path, reuse_cached: bool = True
+        self, dataset_dir: Path, reuse_cached: bool = True, **kwargs
     ) -> tuple[list[Path], list[Path], list[Path]]:
         ndjson_path = self._resolve_ndjson_path(dataset_dir)
         if ndjson_path is None:
