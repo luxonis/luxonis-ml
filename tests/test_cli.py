@@ -8,7 +8,7 @@ import pytest
 def test_cli_commands(cmd: str):
     subprocess.run(
         [
-            shutil.which("python"),  # type: ignore
+            sys.executable,
             "-m",
             "luxonis_ml",
             cmd,
