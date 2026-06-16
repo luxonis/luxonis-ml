@@ -32,6 +32,10 @@ from .utils import create_image
             {"boundingbox", "classification"},
         ),
         (
+            "ultralytics://ultralytics/datasets/coco8",
+            {"boundingbox", "classification"},
+        ),
+        (
             "Thermal_Dogs_and_People.v1-resize-416x416.voc.zip",
             {"boundingbox", "classification"},
         ),
@@ -103,11 +107,15 @@ def test_dir_parser(
     storage_url: str,
     tempdir: Path,
 ):
-    if not url.startswith("roboflow://"):
+    if not url.startswith(("roboflow://", "ultralytics://")):
         url = f"{storage_url}/{url}"
-
-    elif environ.ROBOFLOW_API_KEY is None:
+    elif url.startswith("roboflow://") and environ.ROBOFLOW_API_KEY is None:
         pytest.skip("Roboflow API key is not set")
+    elif (
+        url.startswith("ultralytics://")
+        and environ.ULTRALYTICS_API_KEY is None
+    ):
+        pytest.skip("Ultralytics API key is not set")
 
     parser = LuxonisParser(
         url,
@@ -146,6 +154,11 @@ def test_dir_parser(
         (
             "roboflow://team-roboflow/coco-128/2/coco",
             "coco",
+            {"boundingbox", "classification"},
+        ),
+        (
+            "ultralytics://ultralytics/datasets/coco8",
+            "ultralytics-ndjson",
             {"boundingbox", "classification"},
         ),
         (
@@ -234,11 +247,15 @@ def test_dir_parser_explicit_type(
     storage_url: str,
     tempdir: Path,
 ):
-    if not url.startswith("roboflow://"):
+    if not url.startswith(("roboflow://", "ultralytics://")):
         url = f"{storage_url}/{url}"
-
-    elif environ.ROBOFLOW_API_KEY is None:
+    elif url.startswith("roboflow://") and environ.ROBOFLOW_API_KEY is None:
         pytest.skip("Roboflow API key is not set")
+    elif (
+        url.startswith("ultralytics://")
+        and environ.ULTRALYTICS_API_KEY is None
+    ):
+        pytest.skip("Ultralytics API key is not set")
 
     parser = LuxonisParser(
         url,
@@ -470,7 +487,51 @@ def test_ultralytics_ndjson_remote_urls_parser(
     dataset.delete_dataset(delete_local=True)
 
 
-def test_ultralytics_ndjson_remote_urls_parser_rejects_existing_remote_dir(
+def test_ultralytics_ndjson_remote_urls_parser_reuses_existing_remote_dir(
+    dataset_name: str,
+    tempdir: Path,
+):
+    source = create_image(10, tempdir)
+    ndjson_path = tempdir / "budgie.ndjson"
+    ndjson_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "dataset",
+                        "class_names": {"0": "budgie"},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "image",
+                        "file": "train/img1.jpg",
+                        "url": source.resolve().as_uri(),
+                        "split": "train",
+                        "width": 512,
+                        "height": 512,
+                        "annotations": {"boxes": [[0, 0.5, 0.5, 0.4, 0.4]]},
+                    }
+                ),
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (tempdir / "budgie").mkdir()
+
+    dataset = LuxonisParser(
+        str(ndjson_path),
+        dataset_name=dataset_name,
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()
+    try:
+        assert len(dataset) == 1
+    finally:
+        dataset.delete_dataset(delete_local=True)
+
+
+def test_ultralytics_ndjson_remote_urls_parser_rejects_existing_remote_dir_when_cache_disabled(
     dataset_name: str,
     tempdir: Path,
 ):
@@ -511,7 +572,7 @@ def test_ultralytics_ndjson_remote_urls_parser_rejects_existing_remote_dir(
             dataset_name=dataset_name,
             delete_local=True,
             save_dir=tempdir,
-        ).parse()
+        ).parse(reuse_cached=False)
 
 
 def test_partial_split_clsdir_is_preserved(
