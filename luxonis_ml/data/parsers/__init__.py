@@ -144,6 +144,49 @@ See:
     produced by these parsers.
 
 
+Format Layout Notes
+===================
+
+The dispatcher can parse full dataset directories, individual split
+directories for parser types that support it, ZIP archives whose extracted
+root contains a supported layout, remote paths handled by ``LuxonisFileSystem``,
+and Roboflow URLs in ``roboflow://workspace/project/version/format`` form.
+Parser implementations do not follow symbolic links.
+
+Common layout markers:
+
+    - COCO JSON supports FiftyOne-style splits with ``train/data`` plus
+      ``labels.json`` and Roboflow-style splits with images beside
+      ``_annotations.coco.json``.
+    - YOLOv8-v12 Roboflow layouts use split directories containing
+      ``images/`` and ``labels/``; Ultralytics layouts use top-level
+      ``images/<split>``, ``labels/<split>``, and a YAML file.
+    - Ultralytics NDJSON uses a single ``.ndjson`` manifest. Records may
+      reference local image paths or remote image URLs.
+    - Pascal VOC XML places images and matching ``.xml`` annotations in each
+      split directory.
+    - YOLO Darknet uses split directories with image/``.txt`` pairs and
+      ``_darknet.labels``.
+    - YOLOv4 PyTorch uses ``_annotations.txt`` and ``_classes.txt`` in each
+      split directory.
+    - MT YOLOv6 uses top-level ``images/<split>``, ``labels/<split>``, and
+      ``data.yaml``.
+    - CreateML JSON uses ``_annotations.createml.json`` in each split
+      directory.
+    - TensorFlow Object Detection CSV uses ``_annotations.csv`` in each split
+      directory.
+    - SOLO expects Unity Perception metadata, sensor, annotation, metric, and
+      sequence files per split.
+    - Classification directory data may be split-based
+      (``train/class_name/*.jpg``) or flat (``class_name/*.jpg``), with
+      random splits applied to flat layouts.
+    - FiftyOne classification data uses ``data/`` images and ``labels.json``.
+      ``labels.json`` contains a ``classes`` list and a mapping from image stem
+      to class index.
+    - Segmentation mask directories pair images with ``*_mask`` images and
+      define pixel-value classes in ``_classes.csv``.
+
+
 Split Ratio Modes
 =================
 
@@ -187,6 +230,52 @@ with the Python API:
 
 Parser issues that are skipped or recovered during parsing are reported as
 `ParserIssueMessage` instances and categorized by `ParserIssue`.
+
+
+Evaluation Dataset Notes
+========================
+
+COCO-2017
+---------
+
+COCO parsing handles both FiftyOne and Roboflow layouts. Bounding boxes are
+normalized relative to image dimensions; polygon or RLE segmentations are
+stored as RLE; instance segmentation is emitted from the same segmentation
+source; keypoints are normalized and clipped; category identifiers are mapped
+to class names.
+
+For FiftyOne COCO exports, the standard ``labels.json`` usually contains
+instance annotations for the 80 COCO categories but not person keypoints. Use
+``use_keypoint_ann=True`` with the Python API to read dedicated
+``raw/person_keypoints_train2017.json`` and
+``raw/person_keypoints_val2017.json`` files. If test keypoints are missing,
+``split_val_to_test=True`` splits validation samples into validation and test
+sets. Roboflow COCO layouts ignore the keypoint-specific options.
+
+The COCO parser also filters known corrupted COCO-2017 train images and can
+write cleaned annotation files when source metadata requires repair.
+
+ImageNet Sample
+---------------
+
+The ImageNet-sample parser handles FiftyOne image classification exports in
+flat ``data/`` plus ``labels.json`` form or in split-based
+``train/validation/test`` directories. Flat layouts are split randomly at parse
+time. ``labels.json`` contains ``classes`` and ``labels`` keys, where
+``labels`` maps image stems to class indices.
+
+Known ImageNet-sample label issues are cleaned automatically: duplicate
+``"crane"`` and ``"maillot"`` class names are disambiguated, and known
+misindexed labels for images ``006742`` and ``031933`` are corrected. A
+``labels_fixed.json`` file is saved next to the original labels.
+
+ImageNet-2012
+-------------
+
+The original ImageNet-2012 archive layout is not directly parsed. Extract the
+train and validation archives, group training images by class, use the devkit
+metadata to map validation images to class labels, move validation images into
+class folders, and parse the result as ``DatasetType.CLSDIR``.
 
 """
 

@@ -78,6 +78,32 @@ Note:
     models such as annotation schemas, parser classes, or loader base classes.
 
 
+Tutorial Dataset
+================
+
+Most examples in the data package use a small ``parking_lot`` dataset with
+cars and motorcycles. It contains object-detection boxes, instance keypoints,
+semantic segmentation masks for color/type/brand/binary vehicle classes, and
+metadata suitable for trying the full LDF workflow.
+
+The dataset can be used to exercise task naming conventions:
+
+    - keypoint annotations for classes with different skeletons should be
+      separated into task groups such as ``"instance_keypoints_car"`` and
+      ``"instance_keypoints_motorbike"``;
+    - semantic segmentation is usually placed in its own task group, such as
+      ``"segmentation"``, because loaders add a background class for
+      segmentation tasks.
+
+Hands-on notebooks and scripts for preparing and interacting with LuxonisML
+datasets are maintained in the Luxonis AI tutorials repository:
+``https://github.com/luxonis/ai-tutorials/tree/main/training``.
+
+The original ``parking_lot`` sample archive used by these examples is
+available at
+``https://drive.google.com/uc?export=download&id=1OAuLlL_4wRSzZ33BuxM6Uw2QYYgv_19N``.
+
+
 Records, Tasks, and Labels
 ==========================
 
@@ -122,6 +148,20 @@ sanitizing, exporting, synchronizing, cloning, merging, and deleting datasets.
 
     luxonis_ml data --help
     luxonis_ml data parse --help
+    luxonis_ml data parse <data_directory>
+    luxonis_ml data ls
+    luxonis_ml data info <dataset_name>
+    luxonis_ml data inspect <dataset_name>
+    luxonis_ml data health <dataset_name>
+    luxonis_ml data sanitize <dataset_name>
+    luxonis_ml data export <dataset_name> --type ultralytics-ndjson
+    luxonis_ml data export <dataset_name> --type ultralytics-ndjson-instancesegmentation
+    luxonis_ml data export <dataset_name> --type ultralytics-ndjson-keypoints
+    luxonis_ml data push <dataset_name>
+    luxonis_ml data pull <dataset_name>
+    luxonis_ml data clone <dataset_name> <new_name>
+    luxonis_ml data merge <source_name> <target_name>
+    luxonis_ml data delete <dataset_name>
 
 See:
     `luxonis_ml.data.__main__` for command implementation details.

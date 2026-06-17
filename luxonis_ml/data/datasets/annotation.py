@@ -84,6 +84,9 @@ Classification assigns a class to the whole sample or instance:
     {"class": "vehicle"}
 
 Classification is represented internally as the ``classification`` task type.
+Any detection that provides a class name contributes a classification target,
+even when the same detection also contains boxes, masks, keypoints, arrays, or
+metadata.
 When loaded, classes are usually returned as one-hot vectors with shape
 :math:`\left(C\right)`.
 
@@ -264,6 +267,30 @@ categorical metadata rather than free-form text:
 
 Categorical metadata can be encoded as integers by `LuxonisLoader`, or kept as
 strings when loader configuration requests it.
+
+OCR annotations commonly store recognized text and categorical visual
+properties:
+
+.. python::
+
+    {
+        "metadata": {
+            "text": "ABC-123",
+            "color": Category("red"),
+        },
+    }
+
+Embedding and re-identification datasets commonly store identifiers or other
+lookup keys:
+
+.. python::
+
+    {
+        "metadata": {
+            "id": 42,
+            "color": Category("red"),
+        },
+    }
 
 Important:
     Metadata and arrays have no universal geometric semantics. Built-in

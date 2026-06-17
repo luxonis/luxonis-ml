@@ -29,6 +29,30 @@ multi-source datasets, ``inputs`` is a dictionary mapping source names to
 arrays.
 
 
+Constructor Options
+===================
+
+`LuxonisLoader` is configured at runtime and does not mutate stored dataset
+state. Common options include:
+
+    - ``view`` to load one split or a list of splits.
+    - ``augmentation_engine`` and ``augmentation_config`` to enable
+      augmentations.
+    - ``height``, ``width``, and ``keep_aspect_ratio`` to define the resize
+      behavior expected by the augmentation engine.
+    - ``color_space`` to request ``"RGB"``, ``"BGR"``, or ``"GRAY"`` output
+      globally or per source name.
+    - ``seed`` for reproducible random augmentations.
+    - ``exclude_empty_annotations`` to omit empty labels.
+    - ``keep_categorical_as_strings`` to preserve categorical metadata values.
+    - ``update_mode`` to control media synchronization for remote datasets.
+    - ``filter_task_names`` to load only selected task groups.
+
+When a remote dataset is loaded, annotations and metadata are refreshed. Media
+files are downloaded according to `UpdateMode`: ``ALL`` overwrites local media
+and ``MISSING`` downloads only media that cannot be resolved locally.
+
+
 Label Keys
 ==========
 

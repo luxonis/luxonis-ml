@@ -64,6 +64,41 @@ Note:
     project needs custom views.
 
 
+Creation and Append Modes
+=========================
+
+`LuxonisDataset` creates local datasets by default. Pass
+``bucket_storage=BucketStorage.GCS``, ``BucketStorage.S3``, or another
+supported storage backend to create a remote-backed dataset. Remote datasets
+keep the same local metadata structure as local datasets, while media files
+are synchronized with object storage.
+
+Opening an existing dataset with the same name reuses it. To force a clean
+local dataset, pass ``delete_local=True``. To force a clean remote dataset,
+delete both sides with ``delete_local=True`` and ``delete_remote=True`` before
+adding records.
+
+.. python::
+
+    dataset = LuxonisDataset(
+        "parking_lot",
+        bucket_storage=BucketStorage.LOCAL,
+        delete_local=True,
+    )
+    dataset.add(records(), batch_size=100_000_000)
+    dataset.make_splits((0.8, 0.1, 0.1))
+
+To append new data, open the dataset with ``delete_local=False`` and call
+`LuxonisDataset.add` again. New annotation records are appended, while records
+for media with the same informational UUID replace previous annotations for
+that media item.
+
+The `LuxonisDataset.add` ``batch_size`` controls how many annotation records
+are buffered before writing a Parquet shard. For remote datasets, the same
+batch boundary also controls when media and annotation shards are pushed to
+cloud storage.
+
+
 Dataset Records
 ===============
 
@@ -164,6 +199,28 @@ Important:
     Annotation shards and metadata are always synchronized. Media update mode
     controls whether all media files or only missing media files are
     transferred.
+
+
+Class Ordering
+==============
+
+`LuxonisDataset.set_class_order_per_task` applies a view-time class order per
+task without rewriting stored metadata. The provided mapping must use exact
+task names and exact class names already present in the dataset.
+
+.. python::
+
+    dataset.set_class_order_per_task(
+        {
+            "vehicle_detection": ["car", "motorcycle"],
+            "color_segmentation": ["background", "red", "green", "blue"],
+        }
+    )
+
+Call this before constructing `LuxonisLoader`, because loader initialization
+uses the dataset's active class ordering. If later additions introduce new
+classes, call `set_class_order_per_task` again with the complete desired
+order.
 
 """
 
