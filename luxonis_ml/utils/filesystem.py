@@ -198,7 +198,7 @@ class LuxonisFileSystem:
         @param mlflow_instance: MLFlow instance if uploading to active
             run. Defaults to C{None}.
         @rtype: str
-        @return: The full remote path of the uploded file.
+        @return: The full remote path of the uploaded file.
         """
         local_path = str(local_path)
         if self.is_mlflow:

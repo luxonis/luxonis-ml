@@ -68,7 +68,7 @@ class LuxonisConfig(BaseModelExtraForbid):
         return self.__str__()
 
     def get_json_schema(self) -> Params:
-        """Retuns dict representation of the config json schema.
+        """Returns dict representation of the config json schema.
 
         @rtype: dict
         @return: Dictionary with config json schema.

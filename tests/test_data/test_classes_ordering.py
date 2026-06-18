@@ -84,7 +84,7 @@ def test_ordering_loader_background(tempdir: Path, subtests: SubTests):
         }
 
 
-def test_ordering_loader_no_backgroun(tempdir: Path):
+def test_ordering_loader_no_background(tempdir: Path):
     width, height = 512, 512
     left_seg = build_segmentation(
         [[0, 0, width / 2, 0, width / 2, height, 0, height]], width, height

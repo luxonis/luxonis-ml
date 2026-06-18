@@ -67,22 +67,24 @@ class COCOParser(BaseParser):
         if "val" in existing:
             return None, []
 
-        fo = [s for s in fiftyone_splits if s in existing]
-        rf = [s for s in roboflow_splits if s in existing]
+        fiftyone_splits = [s for s in fiftyone_splits if s in existing]
+        roboflow_splits = [s for s in roboflow_splits if s in existing]
 
-        if len(fo) != 0 and len(fo) == len(rf):
+        if len(fiftyone_splits) != 0 and len(fiftyone_splits) == len(
+            roboflow_splits
+        ):
             for split_name in ("validation", "valid"):
                 if split_name in existing:
                     return (
-                        (COCOFormat.FIFTYONE, fo)
+                        (COCOFormat.FIFTYONE, fiftyone_splits)
                         if split_name == "validation"
-                        else (COCOFormat.ROBOFLOW, rf)
+                        else (COCOFormat.ROBOFLOW, roboflow_splits)
                     )
 
             # Partial layouts like train-only are ambiguous by directory
             # names alone, so inspect the annotation filename inside any
             # present split to distinguish Roboflow from FiftyOne.
-            for split_name in fo:
+            for split_name in fiftyone_splits:
                 split_info = COCOParser.validate_split(
                     dataset_dir / split_name
                 )
@@ -90,13 +92,15 @@ class COCOParser(BaseParser):
                     annotation_name = split_info["annotation_path"].name
                     # ROBOFLOW has _annotations.coco.json while FIFTYONE has labels.json
                     if annotation_name == "_annotations.coco.json":
-                        return COCOFormat.ROBOFLOW, rf
-                    return COCOFormat.FIFTYONE, fo
+                        return COCOFormat.ROBOFLOW, roboflow_splits
+                    return COCOFormat.FIFTYONE, fiftyone_splits
 
-        if len(fo) != 0 and len(fo) >= len(rf):
-            return COCOFormat.FIFTYONE, fo
-        if len(rf) != 0:
-            return COCOFormat.ROBOFLOW, rf
+        if len(fiftyone_splits) != 0 and len(fiftyone_splits) >= len(
+            roboflow_splits
+        ):
+            return COCOFormat.FIFTYONE, fiftyone_splits
+        if len(roboflow_splits) != 0:
+            return COCOFormat.ROBOFLOW, roboflow_splits
         return None, []
 
     @staticmethod

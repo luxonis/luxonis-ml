@@ -26,7 +26,7 @@ class HeadObjectDetectionMetadata(HeadMetadata):
     @type n_classes: int
     @ivar n_classes: Number of object classes detected by the model.
     @type iou_threshold: float
-    @ivar iou_threshold: Non-max supression threshold limiting boxes
+    @ivar iou_threshold: Non-max suppression threshold limiting boxes
         intersection.
     @type conf_threshold: float
     @ivar conf_threshold: Confidence score threshold above which a
@@ -47,7 +47,7 @@ class HeadObjectDetectionMetadata(HeadMetadata):
         description="Number of object classes recognized by the model."
     )
     iou_threshold: float = Field(
-        description="Non-max supression threshold limiting boxes intersection."
+        description="Non-max suppression threshold limiting boxes intersection."
     )
     conf_threshold: float = Field(
         description="Confidence score threshold above which a detected object is considered valid."
@@ -141,7 +141,7 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
         yolov7 etc.)
     @type n_prototypes: int | None
     @ivar n_prototypes: Number of prototypes per bbox in YOLO instance
-        segmnetation.
+        segmentation.
     @type n_keypoints: int | None
     @ivar n_keypoints: Number of keypoints per bbox in YOLO keypoint
         detection.
@@ -177,7 +177,7 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
     )
     n_prototypes: int | None = Field(
         None,
-        description="Number of prototypes per bbox in YOLO instance segmnetation.",
+        description="Number of prototypes per bbox in YOLO instance segmentation.",
     )
     n_keypoints: int | None = Field(
         None,

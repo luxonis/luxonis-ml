@@ -657,7 +657,7 @@ def check_valid_identifier(name: str, *, label: str) -> None:
     if name and not name.isidentifier():
         raise ValueError(
             f"{label} can only contain alphanumeric characters, "
-            "underscores, and dashes. Additionaly, the first character "
+            "underscores, and dashes. Additionally, the first character "
             f"must be a letter or underscore. Got {name}"
         )
 

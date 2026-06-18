@@ -131,7 +131,7 @@ def test_directory(
         assert fs.is_directory(uploaded_dir)
 
         dir_path = fs.get_dir(
-            uploaded_dir, protocol_tempdir / f"dowload_{local_dir.name}_name"
+            uploaded_dir, protocol_tempdir / f"download_{local_dir.name}_name"
         )
         compare_directories(dir_path, local_dir)
 
@@ -147,7 +147,7 @@ def test_directory(
         dir_path = fs.get_dir(
             [f"{uploaded_dir}/file_{i}.txt" for i in range(5)]
             + [f"{uploaded_dir}/nested_file.txt"],
-            protocol_tempdir / f"dowload_{local_dir.name}_list",
+            protocol_tempdir / f"download_{local_dir.name}_list",
         )
         compare_directories(dir_path, local_dir, flat=True)
 
