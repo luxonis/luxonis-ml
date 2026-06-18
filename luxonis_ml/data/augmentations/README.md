@@ -58,7 +58,7 @@ for data in loader:
 ### Examples of Custom Augmentations
 
 - [`letterbox_resize.py`](./custom/letterbox_resize.py)
-- [`symetric_keypoints_flip.py`](./custom/symetric_keypoints_flip.py)
+- [`symmetric_keypoints_flip.py`](./custom/symmetric_keypoints_flip.py)
 
 ### Batch-Level Augmentations
 

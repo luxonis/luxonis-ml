@@ -265,8 +265,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             logger.warning(
                 f"Using '{augmentation_name}' with keypoints."
                 "If your dataset contains symmetric keypoints (e.g. left/right arms),"
-                "you should use our custom HorizontalSymetricKeypointsFlip,"
-                "VerticalSymetricKeypointsFlip, or TransposeSymmetricKeypoints"
+                "you should use our custom HorizontalSymmetricKeypointsFlip,"
+                "VerticalSymmetricKeypointsFlip, or TransposeSymmetricKeypoints"
                 "to ensure keypoints are correctly reordered."
             )
 
