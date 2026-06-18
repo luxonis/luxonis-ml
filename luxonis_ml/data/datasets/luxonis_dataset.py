@@ -123,9 +123,9 @@ class LuxonisDataset(BaseDataset):
         if self._bucket_storage == BucketStorage.AZURE_BLOB:
             raise NotImplementedError("Azure Blob Storage not yet supported")
 
-        self._path = self._get_credential("LUXONISML_BUCKET")
+        self._bucket = self._get_credential("LUXONISML_BUCKET")
 
-        if self.is_remote and self._path is None:
+        if self.is_remote and self._bucket is None:
             raise ValueError(
                 "The `LUXONISML_BUCKET` environment variable "
                 "must be set for remote datasets"
@@ -142,7 +142,7 @@ class LuxonisDataset(BaseDataset):
                 self._dataset_name,
                 self._team_id,
                 self._bucket_storage,
-                self._path,
+                self._bucket,
             ):
                 self.delete_dataset(
                     delete_remote=delete_remote, delete_local=delete_local
@@ -275,7 +275,7 @@ class LuxonisDataset(BaseDataset):
         else:
             self._path = self._construct_url(
                 self._bucket_storage,
-                self._path,
+                self._bucket,
                 self._team_id,
                 self._dataset_name,
             )
