@@ -39,7 +39,7 @@ def _load_loader_plugins() -> None:  # pragma: no cover
     """Registers any external dataset BaseLoader class plugins."""
     for entry_point in _get_entry_points_subset("loader_plugins"):
         plugin_class = entry_point.load()
-        DATASETS_REGISTRY.register(module=plugin_class)
+        LOADERS_REGISTRY.register(module=plugin_class)
 
 
 def _get_entry_points_subset(key: str) -> list:

@@ -131,7 +131,7 @@ def test_horizontal_flip_image_and_mask(
     t = HorizontalSymmetricKeypointsFlip(keypoint_pairs=[(0, 0)], p=1.0)
     params = get_params(t, img.shape)
     assert np.array_equal(t.apply(img, **params), cv2.flip(img, 1))
-    assert np.array_equal(t.apply_to_mask(mask, **params), cv2.flip(img, 1))
+    assert np.array_equal(t.apply_to_mask(mask, **params), cv2.flip(mask, 1))
 
 
 def test_horizontal_flip_bboxes(bboxes: np.ndarray) -> None:
