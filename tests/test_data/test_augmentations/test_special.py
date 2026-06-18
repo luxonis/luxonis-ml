@@ -89,11 +89,11 @@ def test_skip_augmentations():
     )
 
     spatial_transform_names = _get_transform_names(
-        augmentations.spatial_transform
+        augmentations._spatial_transform
     )
 
     batched_transform_names = [
-        t.__class__.__name__ for t in augmentations.batch_transform.transforms
+        t.__class__.__name__ for t in augmentations._batch_transform.transforms
     ]
     assert spatial_transform_names == [
         "Perspective",
@@ -133,8 +133,8 @@ def test_apply_on_stages_filters_eval_pipeline():
         pipeline_stage="val",
     )
 
-    assert _get_transform_names(augmentations.spatial_transform) == []
-    assert _get_transform_names(augmentations.pixel_transform) == [
+    assert _get_transform_names(augmentations._spatial_transform) == []
+    assert _get_transform_names(augmentations._pixel_transform) == [
         "Defocus",
         "Normalize",
     ]
@@ -160,7 +160,7 @@ def test_is_validation_pipeline_backwards_compatibility_uses_eval_stage():
             is_validation_pipeline=True,
         )
 
-    assert _get_transform_names(augmentations.pixel_transform) == ["Defocus"]
+    assert _get_transform_names(augmentations._pixel_transform) == ["Defocus"]
 
 
 def test_use_for_resizing_wraps_probabilistic_resize_in_oneof():
@@ -188,7 +188,7 @@ def test_use_for_resizing_wraps_probabilistic_resize_in_oneof():
     resize_ops = next(
         (
             cell.cell_contents.transforms
-            for cell in augmentations.resize_transform.__closure__  # type: ignore
+            for cell in augmentations._resize_transform.__closure__  # type: ignore
             if hasattr(cell.cell_contents, "transforms")
         ),
         [],
@@ -232,7 +232,7 @@ def test_use_for_resizing_uses_letterbox_fallback_when_keeping_aspect_ratio():
     resize_ops = next(
         (
             cell.cell_contents.transforms
-            for cell in augmentations.resize_transform.__closure__  # type: ignore
+            for cell in augmentations._resize_transform.__closure__  # type: ignore
             if hasattr(cell.cell_contents, "transforms")
         ),
         [],

@@ -53,7 +53,7 @@ class PreparedLDF:
             pl.struct(["file", "uuid"])
             .map_elements(
                 lambda r: resolve_path(
-                    r["file"], r["uuid"], str(dataset.media_path)
+                    r["file"], r["uuid"], str(dataset._media_path)
                 ),
                 return_dtype=pl.Utf8,
             )

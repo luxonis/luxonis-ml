@@ -178,6 +178,10 @@ class SOLOParser(BaseParser):
                                         f"{mask_path} not existent."
                                     )
                                 mask = cv2.imread(str(mask_path))
+                                if mask is None:
+                                    raise ValueError(
+                                        f"Failed to read mask image from {mask_path}."
+                                    )
 
                                 mask_int = (
                                     (mask[..., 0].astype(np.uint32) << 16)
@@ -260,6 +264,10 @@ class SOLOParser(BaseParser):
                                         f"{mask_path} not existent."
                                     )
                                 mask = cv2.imread(str(mask_path))
+                                if mask is None:
+                                    raise ValueError(
+                                        f"Failed to read mask image from {mask_path}."
+                                    )
 
                                 mask_int = (
                                     (mask[..., 0].astype(np.uint32) << 16)

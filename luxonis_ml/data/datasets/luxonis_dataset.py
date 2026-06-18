@@ -108,41 +108,41 @@ class LuxonisDataset(BaseDataset):
             cloud as well
         """
 
-        self.dataset_name = dataset_name
-        self.base_path = environ.LUXONISML_BASE_PATH
-        self.base_path.mkdir(exist_ok=True)
+        self._dataset_name = dataset_name
+        self._base_path = environ.LUXONISML_BASE_PATH
+        self._base_path.mkdir(exist_ok=True)
 
         self._credentials = self._init_credentials()
         self._is_synced = False
 
         # What is this for?
-        self.bucket_type = BucketType(bucket_type)
+        self._bucket_type = BucketType(bucket_type)
 
-        self.bucket_storage = BucketStorage(bucket_storage)
+        self._bucket_storage = BucketStorage(bucket_storage)
 
-        if self.bucket_storage == BucketStorage.AZURE_BLOB:
+        if self._bucket_storage == BucketStorage.AZURE_BLOB:
             raise NotImplementedError("Azure Blob Storage not yet supported")
 
-        self.bucket = self._get_credential("LUXONISML_BUCKET")
+        self._path = self._get_credential("LUXONISML_BUCKET")
 
-        if self.is_remote and self.bucket is None:
+        if self.is_remote and self._path is None:
             raise ValueError(
                 "The `LUXONISML_BUCKET` environment variable "
                 "must be set for remote datasets"
             )
 
-        self.team_id = team_id or self._get_credential("LUXONISML_TEAM_ID")
+        self._team_id = team_id or self._get_credential("LUXONISML_TEAM_ID")
 
         self._init_paths()
 
-        self.fs = LuxonisFileSystem(self.path)
+        self._fs = LuxonisFileSystem(self._path)
 
         if delete_local or delete_remote:
             if self.exists(
-                self.dataset_name,
-                self.team_id,
-                self.bucket_storage,
-                self.bucket,
+                self._dataset_name,
+                self._team_id,
+                self._bucket_storage,
+                self._path,
             ):
                 self.delete_dataset(
                     delete_remote=delete_remote, delete_local=delete_local
@@ -151,7 +151,7 @@ class LuxonisDataset(BaseDataset):
             self._init_paths()
 
         # For DDP GCS training - multiple processes
-        with FileLock(self.base_path / ".metadata.lock"):
+        with FileLock(self._base_path / ".metadata.lock"):
             self._metadata = self._get_metadata()
 
         if self.version != LDF_VERSION:
@@ -164,18 +164,6 @@ class LuxonisDataset(BaseDataset):
                 "manually re-create the dataset using the latest version "
                 "of `luxonis-ml`."
             )
-
-    @cached_property
-    def progress(self) -> rich.progress.Progress:
-        return rich.progress.Progress(
-            rich.progress.TextColumn(
-                "[progress.description]{task.description}"
-            ),
-            rich.progress.BarColumn(),
-            rich.progress.TaskProgressColumn(),
-            rich.progress.MofNCompleteColumn(),
-            rich.progress.TimeRemainingColumn(),
-        )
 
     @property
     def metadata(self) -> Metadata:
@@ -220,7 +208,7 @@ class LuxonisDataset(BaseDataset):
     @property
     @override
     def identifier(self) -> str:
-        return self.dataset_name
+        return self._dataset_name
 
     # Needed to complement __eq__.
     __hash__ = None  # type: ignore[reportAssignmentType]
@@ -233,10 +221,22 @@ class LuxonisDataset(BaseDataset):
     def __len__(self) -> int:
         """Returns the number of instances in the dataset."""
         if self.is_remote:
-            return len(list(self.fs.walk_dir("media")))
+            return len(list(self._fs.walk_dir("media")))
 
         df = self._load_df_offline()
         return len(df.select("uuid").unique()) if df is not None else 0
+
+    @cached_property
+    def _progress(self) -> rich.progress.Progress:
+        return rich.progress.Progress(
+            rich.progress.TextColumn(
+                "[progress.description]{task.description}"
+            ),
+            rich.progress.BarColumn(),
+            rich.progress.TaskProgressColumn(),
+            rich.progress.MofNCompleteColumn(),
+            rich.progress.TimeRemainingColumn(),
+        )
 
     def _get_credential(self, key: str) -> str:
         """Gets secret credentials from credentials file or ENV
@@ -251,33 +251,33 @@ class LuxonisDataset(BaseDataset):
     def _init_paths(self) -> None:
         """Configures local path or bucket directory."""
 
-        self.local_path = (
-            self.base_path
+        self._local_path = (
+            self._base_path
             / "data"
-            / self.team_id
+            / self._team_id
             / "datasets"
-            / self.dataset_name
+            / self._dataset_name
         )
-        self.media_path = self.local_path / "media"
-        self.annotations_path = self.local_path / "annotations"
-        self.metadata_path = self.local_path / "metadata"
-        self.arrays_path = self.local_path / "arrays"
+        self._media_path = self._local_path / "media"
+        self._annotations_path = self._local_path / "annotations"
+        self._metadata_path = self._local_path / "metadata"
+        self._arrays_path = self._local_path / "arrays"
 
         for path in [
-            self.media_path,
-            self.annotations_path,
-            self.metadata_path,
+            self._media_path,
+            self._annotations_path,
+            self._metadata_path,
         ]:
             path.mkdir(exist_ok=True, parents=True)
 
         if not self.is_remote:
-            self.path = str(self.local_path)
+            self._path = str(self._local_path)
         else:
-            self.path = self._construct_url(
-                self.bucket_storage,
-                self.bucket,
-                self.team_id,
-                self.dataset_name,
+            self._path = self._construct_url(
+                self._bucket_storage,
+                self._path,
+                self._team_id,
+                self._dataset_name,
             )
 
     def _save_df_offline(self, pl_df: pl.DataFrame) -> None:
@@ -288,7 +288,7 @@ class LuxonisDataset(BaseDataset):
         @type pl_df: pl.DataFrame
         @param pl_df: The Polars DataFrame to save.
         """
-        annotations_path = Path(self.annotations_path)
+        annotations_path = Path(self._annotations_path)
 
         for old_file in annotations_path.glob("*.parquet"):
             old_file.unlink()
@@ -340,13 +340,13 @@ class LuxonisDataset(BaseDataset):
         @param team_id: Optional team identifier.
         """
         if team_id is None:
-            team_id = self.team_id
+            team_id = self._team_id
 
         new_dataset = LuxonisDataset(
             dataset_name=new_dataset_name,
             team_id=team_id,
-            bucket_type=self.bucket_type,
-            bucket_storage=self.bucket_storage,
+            bucket_type=self._bucket_type,
+            bucket_storage=self._bucket_storage,
             delete_local=True,
             delete_remote=True,
         )
@@ -354,12 +354,12 @@ class LuxonisDataset(BaseDataset):
         if self.is_remote:
             self.pull_from_cloud(update_mode=UpdateMode.MISSING)
 
-        new_dataset_path = Path(new_dataset.local_path)
+        new_dataset_path = Path(new_dataset._local_path)
         new_dataset_path.mkdir(parents=True, exist_ok=True)
 
         if splits_to_clone is not None:
             df_self = self._load_df_offline(raise_when_empty=True)
-            splits_self = self._load_splits(self.metadata_path)
+            splits_self = self._load_splits(self._metadata_path)
             uuids_to_clone = {
                 uid
                 for split in splits_to_clone
@@ -371,8 +371,8 @@ class LuxonisDataset(BaseDataset):
             }
 
         shutil.copytree(
-            self.local_path,
-            new_dataset.local_path,
+            self._local_path,
+            new_dataset._local_path,
             dirs_exist_ok=True,
             ignore=lambda d, n: self._ignore_files_not_in_uuid_set(
                 d, n, uuids_to_clone if splits_to_clone else set()
@@ -386,17 +386,17 @@ class LuxonisDataset(BaseDataset):
         new_dataset._init_paths()
         new_dataset._metadata = self._get_metadata()
 
-        new_dataset._metadata.parent_dataset = self.dataset_name
+        new_dataset._metadata.parent_dataset = self._dataset_name
 
         if push_to_cloud:
             if self.is_remote:
                 new_dataset.push_to_cloud(
                     update_mode=UpdateMode.MISSING,
-                    bucket_storage=self.bucket_storage,
+                    bucket_storage=self._bucket_storage,
                 )
             else:
                 logger.warning(
-                    f"Cannot push to cloud. The cloned dataset '{new_dataset.dataset_name}' is local. "
+                    f"Cannot push to cloud. The cloned dataset '{new_dataset._dataset_name}' is local. "
                 )
 
         new_dataset._write_metadata()
@@ -430,7 +430,7 @@ class LuxonisDataset(BaseDataset):
         if inplace:
             target_dataset = self
         elif new_dataset_name:
-            if self.bucket_storage != other.bucket_storage:
+            if self._bucket_storage != other._bucket_storage:
                 raise ValueError(
                     "Cannot merge datasets with different bucket storage types."
                 )
@@ -461,8 +461,8 @@ class LuxonisDataset(BaseDataset):
                 ~df_other["group_id"].is_in(duplicate_group_ids)
             )
 
-        splits_self = self._load_splits(self.metadata_path)
-        splits_other = self._load_splits(other.metadata_path)
+        splits_self = self._load_splits(self._metadata_path)
+        splits_other = self._load_splits(other._metadata_path)
         if splits_to_merge is not None:
             uuids_to_merge = {
                 uuid
@@ -490,15 +490,15 @@ class LuxonisDataset(BaseDataset):
 
         if self.is_remote:
             shutil.copytree(
-                other.media_path,
-                target_dataset.media_path,
+                other._media_path,
+                target_dataset._media_path,
                 dirs_exist_ok=True,
                 ignore=lambda d, n: self._ignore_files_not_in_uuid_set(
                     d, n, uuids_to_merge if splits_to_merge else set()
                 ),
             )
             target_dataset.push_to_cloud(
-                bucket_storage=target_dataset.bucket_storage,
+                bucket_storage=target_dataset._bucket_storage,
                 update_mode=UpdateMode.MISSING,
             )
 
@@ -508,8 +508,8 @@ class LuxonisDataset(BaseDataset):
             .to_dicts()
         ):
             uid, rel_file = entry["uuid"], entry["file"]
-            src_path = other.media_path / f"{uid}{Path(rel_file).suffix}"
-            dst_path = target_dataset.media_path / src_path.name
+            src_path = other._media_path / f"{uid}{Path(rel_file).suffix}"
+            dst_path = target_dataset._media_path / src_path.name
             if src_path.exists() and not dst_path.exists():
                 dst_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy(src_path, dst_path)
@@ -552,7 +552,7 @@ class LuxonisDataset(BaseDataset):
             splits_self[split_name] = list(combined_group_ids)
 
     def _save_splits(self, splits: dict[str, list[str]]) -> None:
-        splits_path_self = self.metadata_path / "splits.json"
+        splits_path_self = self._metadata_path / "splits.json"
         with open(splits_path_self, "w") as f:
             json.dump(splits, f, indent=4)
 
@@ -597,18 +597,18 @@ class LuxonisDataset(BaseDataset):
         """Loads the dataset DataFrame **always** from the local
         storage."""
         path = (
-            self.base_path
+            self._base_path
             / "data"
-            / self.team_id
+            / self._team_id
             / "datasets"
-            / self.dataset_name
+            / self._dataset_name
             / "annotations"
         )
         files = list(path.glob("*.parquet"))
         if not files:
             if raise_when_empty:
                 raise FileNotFoundError(
-                    f"Dataset '{self.dataset_name}' is empty."
+                    f"Dataset '{self._dataset_name}' is empty."
                 )
             return None
 
@@ -619,7 +619,9 @@ class LuxonisDataset(BaseDataset):
 
         df = lazy_df.collect()
         if df.is_empty() and raise_when_empty:
-            raise FileNotFoundError(f"Dataset '{self.dataset_name}' is empty.")
+            raise FileNotFoundError(
+                f"Dataset '{self._dataset_name}' is empty."
+            )
 
         if attempt_migration and self.version != LDF_VERSION:
             df = migrate_dataframe(df)
@@ -694,10 +696,10 @@ class LuxonisDataset(BaseDataset):
         return processed
 
     def _write_metadata(self) -> None:
-        path = self.metadata_path / "metadata.json"
+        path = self._metadata_path / "metadata.json"
         path.write_text(self._metadata.model_dump_json(indent=4))
         with suppress(shutil.SameFileError):
-            self.fs.put_file(path, "metadata/metadata.json")
+            self._fs.put_file(path, "metadata/metadata.json")
 
     @staticmethod
     def _construct_url(
@@ -711,7 +713,7 @@ class LuxonisDataset(BaseDataset):
 
     # TODO: Is the cache used anywhere at all?
     def _init_credentials(self) -> dict[str, Any]:
-        credentials_cache_file = self.base_path / "credentials.json"
+        credentials_cache_file = self._base_path / "credentials.json"
         if credentials_cache_file.exists():
             return json.loads(credentials_cache_file.read_text())
         return {}
@@ -722,12 +724,12 @@ class LuxonisDataset(BaseDataset):
 
         If loads from cloud it always downloads before loading.
         """
-        if self.fs.exists("metadata/metadata.json"):
+        if self._fs.exists("metadata/metadata.json"):
             path = get_file(
-                self.fs,
+                self._fs,
                 "metadata/metadata.json",
-                self.metadata_path,
-                default=self.metadata_path / "metadata.json",
+                self._metadata_path,
+                default=self._metadata_path / "metadata.json",
             )
             metadata_json = json.loads(path.read_text())
 
@@ -768,7 +770,7 @@ class LuxonisDataset(BaseDataset):
 
     @property
     def is_remote(self) -> bool:
-        return self.bucket_storage != BucketStorage.LOCAL
+        return self._bucket_storage != BucketStorage.LOCAL
 
     @override
     def update_source(self, source: LuxonisSource) -> None:
@@ -884,7 +886,7 @@ class LuxonisDataset(BaseDataset):
             logger.warning("This is a local dataset! Cannot sync from cloud.")
             return
 
-        local_dir = self.base_path / "data" / self.team_id / "datasets"
+        local_dir = self._base_path / "data" / self._team_id / "datasets"
         local_dir.mkdir(exist_ok=True, parents=True)
 
         lock_path = local_dir / ".sync.lock"
@@ -894,7 +896,7 @@ class LuxonisDataset(BaseDataset):
                 "Pulling remote's dataset annotations and metadata to local dataset ..."
             )
             for dir_name in ["annotations", "metadata"]:
-                _ = get_dir(self.fs, dir_name, self.local_path)
+                _ = get_dir(self._fs, dir_name, self._local_path)
 
             index = self._get_index(lazy=False)
             missing_media_paths = []
@@ -902,7 +904,7 @@ class LuxonisDataset(BaseDataset):
                 uuids = index["uuid"].to_list()
                 origps = index["original_filepath"].to_list()
 
-                media_root = Path(local_dir) / self.dataset_name / "media"
+                media_root = Path(local_dir) / self._dataset_name / "media"
 
                 missing_media_paths = [
                     f"media/{uid}{Path(orig).suffix}"
@@ -913,14 +915,14 @@ class LuxonisDataset(BaseDataset):
 
             if update_mode == UpdateMode.ALL:
                 logger.info("Force-pulling all media files...")
-                self.fs.get_dir(remote_paths="", local_dir=local_dir)
+                self._fs.get_dir(remote_paths="", local_dir=local_dir)
             elif update_mode == UpdateMode.MISSING and missing_media_paths:
                 logger.info(
                     f"Pulling {len(missing_media_paths)} missing files..."
                 )
-                self.fs.get_dir(
+                self._fs.get_dir(
                     remote_paths=missing_media_paths,
-                    local_dir=local_dir / f"{self.dataset_name}" / "media",
+                    local_dir=local_dir / f"{self._dataset_name}" / "media",
                 )
             else:
                 logger.info("Media already synced")
@@ -948,9 +950,9 @@ class LuxonisDataset(BaseDataset):
             )
 
         dataset = LuxonisDataset(
-            dataset_name=self.dataset_name,
-            team_id=self.team_id,
-            bucket_type=self.bucket_type,
+            dataset_name=self._dataset_name,
+            team_id=self._team_id,
+            bucket_type=self._bucket_type,
             bucket_storage=bucket_storage,
             delete_local=False,
             delete_remote=False,
@@ -959,11 +961,11 @@ class LuxonisDataset(BaseDataset):
         bucket_uuids = (
             [
                 PurePosixPath(path).stem
-                for path in dataset.fs.walk_dir(
+                for path in dataset._fs.walk_dir(
                     "media", recursive=False, typ="file"
                 )
             ]
-            if dataset.fs.exists("media")
+            if dataset._fs.exists("media")
             else []
         )
 
@@ -977,7 +979,7 @@ class LuxonisDataset(BaseDataset):
         ):
             if not Path(original_path).exists():
                 suffix = Path(original_path).suffix
-                fallback_path = self.local_path / "media" / f"{uuid}{suffix}"
+                fallback_path = self._local_path / "media" / f"{uuid}{suffix}"
                 if fallback_path.exists():
                     missing_uuid_dict[str(fallback_path)] = uuid
                 else:
@@ -988,22 +990,22 @@ class LuxonisDataset(BaseDataset):
                 missing_uuid_dict[original_path] = uuid
 
         for dir_name in ["annotations", "metadata"]:
-            dataset.fs.put_dir(
-                local_paths=self.local_path / dir_name,
+            dataset._fs.put_dir(
+                local_paths=self._local_path / dir_name,
                 remote_dir=dir_name,
                 copy_contents=True,
             )
 
         if update_mode == UpdateMode.ALL:
             logger.info("Force-pushing all media files...")
-            dataset.fs.put_dir(
-                local_paths=self.local_path / "media", remote_dir="media"
+            dataset._fs.put_dir(
+                local_paths=self._local_path / "media", remote_dir="media"
             )
         elif update_mode == UpdateMode.MISSING and missing_uuid_dict:
             logger.info(
                 f"Pushing {len(missing_uuid_dict)} missing files to cloud..."
             )
-            dataset.fs.put_dir(
+            dataset._fs.put_dir(
                 local_paths=missing_uuid_dict.keys(),
                 remote_dir="media",
                 uuid_dict=missing_uuid_dict,
@@ -1032,49 +1034,49 @@ class LuxonisDataset(BaseDataset):
 
         if not self.is_remote and delete_local:
             logger.info(
-                f"Deleting local dataset '{self.dataset_name}' from local storage"
+                f"Deleting local dataset '{self._dataset_name}' from local storage"
             )
-            shutil.rmtree(self.path)
+            shutil.rmtree(self._path)
 
         if self.is_remote and delete_remote:
             logger.info(
-                f"Deleting remote dataset '{self.dataset_name}' from cloud storage"
+                f"Deleting remote dataset '{self._dataset_name}' from cloud storage"
             )
-            assert self.path
-            assert self.dataset_name
-            assert self.local_path
-            self.fs.delete_dir(allow_delete_parent=True)
+            assert self._path
+            assert self._dataset_name
+            assert self._local_path
+            self._fs.delete_dir(allow_delete_parent=True)
 
         if self.is_remote and delete_local:
             logger.info(
-                f"Deleting remote dataset '{self.dataset_name}' from local storage"
+                f"Deleting remote dataset '{self._dataset_name}' from local storage"
             )
-            if self.local_path.exists():
-                shutil.rmtree(self.local_path)
+            if self._local_path.exists():
+                shutil.rmtree(self._local_path)
 
     def _process_arrays(self, data_batch: list[DatasetRecord]) -> None:
         logger.info("Checking arrays...")
-        task = self.progress.add_task(
+        task = self._progress.add_task(
             "[magenta]Processing arrays...", total=len(data_batch)
         )
-        self.progress.start()
+        self._progress.start()
         uuid_dict = {}
         for record in data_batch:
-            self.progress.update(task, advance=1)
+            self._progress.update(task, advance=1)
             if record.annotation is None or record.annotation.array is None:
                 continue
             ann = record.annotation.array
             if self.is_remote:
-                uuid = self.fs.get_file_uuid(ann.path, local=True)
+                uuid = self._fs.get_file_uuid(ann.path, local=True)
                 uuid_dict[str(ann.path)] = uuid
                 ann.path = Path(uuid).with_suffix(ann.path.suffix)
             else:
                 ann.path = ann.path.absolute().resolve()
-        self.progress.stop()
-        self.progress.remove_task(task)
+        self._progress.stop()
+        self._progress.remove_task(task)
         if self.is_remote:
             logger.info("Uploading arrays...")
-            self.fs.put_dir(
+            self._fs.put_dir(
                 local_paths=uuid_dict.keys(),
                 remote_dir="arrays",
                 uuid_dict=uuid_dict,
@@ -1088,7 +1090,7 @@ class LuxonisDataset(BaseDataset):
     ) -> None:
         paths = {path for data in data_batch for path in data.all_file_paths}
         logger.info("Generating UUIDs...")
-        uuid_dict = self.fs.get_file_uuids(paths, local=True)
+        uuid_dict = self._fs.get_file_uuids(paths, local=True)
 
         overwrite_uuids = set()
         for file_path in paths:
@@ -1106,7 +1108,7 @@ class LuxonisDataset(BaseDataset):
         if self.is_remote:
             logger.info("Uploading media...")
 
-            self.fs.put_dir(
+            self._fs.put_dir(
                 local_paths=paths,
                 remote_dir="media",
                 uuid_dict=dict(uuid_dict),
@@ -1115,12 +1117,12 @@ class LuxonisDataset(BaseDataset):
 
         self._process_arrays(data_batch)
 
-        task = self.progress.add_task(
+        task = self._progress.add_task(
             "[magenta]Processing data...", total=len(data_batch)
         )
 
         logger.info("Saving annotations...")
-        with self.progress:
+        with self._progress:
             for record in data_batch:
                 file_paths = record.all_file_paths
                 uuid_list = [
@@ -1133,13 +1135,13 @@ class LuxonisDataset(BaseDataset):
                 )
                 for row in record.to_parquet_rows():
                     pfm.write(uuid_dict[row["file"]], row, group_id)
-                self.progress.update(task, advance=1)
-        self.progress.remove_task(task)
+                self._progress.update(task, advance=1)
+        self._progress.remove_task(task)
 
     def add(
         self, generator: DatasetIterator, batch_size: int = 1_000_000
     ) -> Self:
-        logger.info(f"Adding data to dataset '{self.dataset_name}'...")
+        logger.info(f"Adding data to dataset '{self._dataset_name}'...")
 
         data_batch: list[DatasetRecord] = []
 
@@ -1151,10 +1153,10 @@ class LuxonisDataset(BaseDataset):
         sources: set[str] = set()
 
         annotations_path = get_dir(
-            self.fs,
+            self._fs,
             "annotations",
-            self.local_path,
-            default=self.annotations_path,
+            self._local_path,
+            default=self._annotations_path,
         )
 
         index = self._get_index()
@@ -1225,7 +1227,7 @@ class LuxonisDataset(BaseDataset):
             self._add_process_batch(data_batch, pfm, index)
 
         with suppress(shutil.SameFileError):
-            self.fs.put_dir(annotations_path, "")
+            self._fs.put_dir(annotations_path, "")
 
         curr_classes = self.get_classes()
         for task, classes in classes_per_task.items():
@@ -1271,7 +1273,7 @@ class LuxonisDataset(BaseDataset):
 
     def get_splits(self) -> dict[str, list[str]] | None:
         splits_path = get_file(
-            self.fs, "metadata/splits.json", self.metadata_path
+            self._fs, "metadata/splits.json", self._metadata_path
         )
         if splits_path is None:
             return None
@@ -1348,10 +1350,10 @@ class LuxonisDataset(BaseDataset):
         old_splits: dict[str, list[str]] = defaultdict(list)
 
         splits_path = get_file(
-            self.fs,
+            self._fs,
             "metadata/splits.json",
-            self.metadata_path,
-            default=self.metadata_path / "splits.json",
+            self._metadata_path,
+            default=self._metadata_path / "splits.json",
         )
         if splits_path.exists():
             with open(splits_path) as file:
@@ -1428,7 +1430,7 @@ class LuxonisDataset(BaseDataset):
         splits_path.write_text(json.dumps(old_splits, indent=4))
 
         with suppress(shutil.SameFileError):
-            self.fs.put_file(splits_path, "metadata/splits.json")
+            self._fs.put_file(splits_path, "metadata/splits.json")
 
     @staticmethod
     @override
@@ -1727,8 +1729,8 @@ class LuxonisDataset(BaseDataset):
         self._save_df_offline(df.collect())
 
         if self.is_remote:
-            self.fs.put_dir(
-                local_paths=self.local_path / "annotations",
+            self._fs.put_dir(
+                local_paths=self._local_path / "annotations",
                 remote_dir="annotations",
                 copy_contents=True,
             )

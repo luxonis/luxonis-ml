@@ -28,14 +28,14 @@ with guard_missing_extra("data"):
     from .utils.ldf_equivalence import LDFEquivalence, ldf_equivalent
 
 
-def load_dataset_plugins() -> None:  # pragma: no cover
+def _load_dataset_plugins() -> None:  # pragma: no cover
     """Registers any external dataset BaseDataset class plugins."""
     for entry_point in _get_entry_points_subset("dataset_plugins"):
         plugin_class = entry_point.load()
         DATASETS_REGISTRY.register(module=plugin_class)
 
 
-def load_loader_plugins() -> None:  # pragma: no cover
+def _load_loader_plugins() -> None:  # pragma: no cover
     """Registers any external dataset BaseLoader class plugins."""
     for entry_point in _get_entry_points_subset("loader_plugins"):
         plugin_class = entry_point.load()
@@ -56,8 +56,8 @@ def _get_entry_points_subset(key: str) -> list:
     return selected_entry_points
 
 
-load_dataset_plugins()
-load_loader_plugins()
+_load_dataset_plugins()
+_load_loader_plugins()
 
 __all__ = [
     "DATASETS_REGISTRY",

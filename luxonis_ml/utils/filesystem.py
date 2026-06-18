@@ -92,13 +92,13 @@ class LuxonisFileSystem:
             self.fs_type = FSType.MLFLOW
 
             self.allow_active_mlflow_run = allow_active_mlflow_run
-            self.is_mlflow_active_run = False
+            self._is_mlflow_active_run = False
             if _path is not None:
                 (self.experiment_id, self.run_id, self.artifact_path) = (
                     self._split_mlflow_path(_path)
                 )
             elif _path is None and self.allow_active_mlflow_run:
-                self.is_mlflow_active_run = True
+                self._is_mlflow_active_run = True
                 _path = ""
             else:
                 raise ValueError(
@@ -107,7 +107,7 @@ class LuxonisFileSystem:
             self.tracking_uri = environ.MLFLOW_TRACKING_URI
 
             if self.tracking_uri is None:
-                raise KeyError(
+                raise ValueError(
                     "There is no 'MLFLOW_TRACKING_URI' in environment variables"
                 )
         else:
@@ -162,7 +162,7 @@ class LuxonisFileSystem:
             )
         elif self.protocol == "gcs":
             if environ.GOOGLE_APPLICATION_CREDENTIALS is None:
-                raise KeyError(
+                raise RuntimeError(
                     "There is no 'GOOGLE_APPLICATION_CREDENTIALS' in environment variables"
                 )
             # NOTE: This should automatically read from GOOGLE_APPLICATION_CREDENTIALS
@@ -203,11 +203,11 @@ class LuxonisFileSystem:
         local_path = str(local_path)
         if self.is_mlflow:
             # NOTE: remote_path not used in mlflow since it creates new folder each time
-            if self.is_mlflow_active_run:
+            if self._is_mlflow_active_run:
                 if mlflow_instance is not None:
                     mlflow_instance.log_artifact(local_path)
                 else:
-                    raise KeyError("No active mlflow_instance provided.")
+                    raise ValueError("No active mlflow_instance provided.")
             else:
                 import mlflow
 
@@ -510,7 +510,7 @@ class LuxonisFileSystem:
         """
 
         if self.is_mlflow:
-            if self.is_mlflow_active_run:
+            if self._is_mlflow_active_run:
                 raise ValueError(
                     "Reading to byte buffer not available for active mlflow runs."
                 )
@@ -520,7 +520,7 @@ class LuxonisFileSystem:
 
             client = mlflow.MlflowClient(tracking_uri=self.tracking_uri)
             if self.run_id is None:
-                raise RuntimeError(
+                raise ValueError(
                     "`run_id` cannot be `None` when using `mlflow`"
                 )
             download_path = Path(

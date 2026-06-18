@@ -185,7 +185,7 @@ class LuxonisLoader(BaseLoader):
 
         self.classes = self.dataset.get_classes()
         self.instances: list[str] = []
-        splits_path = self.dataset.metadata_path / "splits.json"
+        splits_path = self.dataset._metadata_path / "splits.json"
         if not splits_path.exists():
             raise RuntimeError(
                 "Cannot find splits! Ensure you call dataset.make_splits()"
@@ -356,6 +356,11 @@ class LuxonisLoader(BaseLoader):
             color_space = self.color_space.get(source_name, "RGB")
             if color_space == "GRAY":
                 img = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+            else:
+                img = cv2.imread(str(path), cv2.IMREAD_COLOR)
+            if img is None:
+                raise FileNotFoundError(f"Cannot read image at path: {path}")
+            if color_space == "GRAY":
                 if img.ndim == 2:
                     img_gray = img[..., np.newaxis]
                 elif img.ndim == 3 and img.shape[2] == 3:
@@ -367,9 +372,7 @@ class LuxonisLoader(BaseLoader):
 
                 img_dict[source_name] = img_gray
             else:
-                img_dict[source_name] = cv2.cvtColor(
-                    cv2.imread(str(path), cv2.IMREAD_COLOR), cv2.COLOR_BGR2RGB
-                )
+                img_dict[source_name] = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
         labels_by_task: dict[str, list[Annotation]] = defaultdict(list)
         class_ids_by_task: dict[str, list[int]] = defaultdict(list)
@@ -392,7 +395,7 @@ class LuxonisLoader(BaseLoader):
             full_task_name = f"{task_name}/{task_type}"
             task_type = get_task_type(full_task_name)
             if task_type == "array" and self.dataset.is_remote:
-                data["path"] = self.dataset.arrays_path / data["path"]
+                data["path"] = self.dataset._arrays_path / data["path"]
 
             if task_type.startswith("metadata/"):
                 metadata_by_task[full_task_name].append(data)
@@ -577,7 +580,9 @@ class LuxonisLoader(BaseLoader):
                 path = Path(img_path)
                 if not path.exists():
                     file_extension = img_path.rsplit(".", 1)[-1]
-                    path = self.dataset.media_path / f"{uuid}.{file_extension}"
+                    path = (
+                        self.dataset._media_path / f"{uuid}.{file_extension}"
+                    )
                     if not path.exists():
                         raise FileNotFoundError(
                             f"Cannot find image for uuid {uuid} and source '{source_name}'"
