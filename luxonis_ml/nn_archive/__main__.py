@@ -48,12 +48,12 @@ def inspect(
     If no options are provided, all info is printed.
 
     Args:
-        path (Path): Path to the NN Archive.
-        inputs (bool, optional): Print inputs info.
-        metadata (bool, optional): Print metadata.
-        outputs (bool, optional): Print outputs info.
-        heads (bool, optional): Print heads info.
-        buildinfo (bool, optional): Print build info if available.
+        path: Path to the NN Archive.
+        inputs: Print inputs info.
+        metadata: Print metadata.
+        outputs: Print outputs info.
+        heads: Print heads info.
+        buildinfo: Print build info if available.
     """
 
     if not any([inputs, metadata, outputs, heads, buildinfo]):
@@ -108,8 +108,8 @@ def extract(
     Archive is extracted to the current working directory.
 
     Args:
-        path (Path): Path to the NN Archive.
-        destination (Path or None, optional): Path where to extract the Archive.
+        path: Path to the NN Archive.
+        destination: Path where to extract the Archive.
             If not provided, the Archive is extracted to the current
             working directory.
     """

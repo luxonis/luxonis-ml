@@ -17,8 +17,8 @@ def get(
     """Download a file from remote storage.
 
     Args:
-        url (str): URL of the file to download.
-        save_dir (Path, optional): Directory to save the file.
+        url: URL of the file to download.
+        save_dir: Directory to save the file.
             Defaults to current working directory.
     """
     LuxonisFileSystem.download(url, save_dir or Path.cwd())
@@ -32,8 +32,8 @@ def put(
     """Upload a file to remote storage.
 
     Args:
-        file (Path): Path to the file to upload.
-        url (str): URL of the file.
+        file: Path to the file to upload.
+        url: URL of the file.
     """
     LuxonisFileSystem.upload(file, url)
 
@@ -43,7 +43,7 @@ def delete(url: str):
     """Delete a file from remote storage.
 
     Args:
-        url (str): URL of the file to delete.
+        url: URL of the file to delete.
     """
     LuxonisFileSystem(url).delete_file("")
 
@@ -66,9 +66,9 @@ def ls(
     """List files in the remote directory.
 
     Args:
-        url (str): URL of the directory to list.
-        recursive (bool): Whether to list files recursively.
-        typ (str): Type of files to list.
+        url: URL of the directory to list.
+        recursive: Whether to list files recursively.
+        typ: Type of files to list.
     """
     fs = LuxonisFileSystem(url.rstrip("/"))
     for file in fs.walk_dir("", recursive=recursive, typ=typ):

@@ -55,8 +55,8 @@ def info(
     """Print information about a dataset.
 
     Args:
-        name (str): Name of the dataset.
-        bucket_storage (BucketStorage): Storage type of the dataset.
+        name: Name of the dataset.
+        bucket_storage: Storage type of the dataset.
     """
     check_exists(name, bucket_storage)
     print_info(LuxonisDataset(name, bucket_storage=bucket_storage))
@@ -79,11 +79,11 @@ def delete(
     """Delete a dataset from local storage, remote storage, or both.
 
     Args:
-        names (str): Name(s) of the dataset to delete.
-        bucket_storage (BucketStorage): Storage type of the dataset.
-        local (bool): If True, delete the dataset from local storage.
-        remote (bool): If True, delete the dataset from remote storage.
-        yes (bool): If True, skip confirmation prompt and delete immediately.
+        names: Name(s) of the dataset to delete.
+        bucket_storage: Storage type of the dataset.
+        local: If True, delete the dataset from local storage.
+        remote: If True, delete the dataset from remote storage.
+        yes: If True, skip confirmation prompt and delete immediately.
     """
     if not local and not remote:
         print(
@@ -146,9 +146,9 @@ def ls(
     """List datasets.
 
     Args:
-        full (bool): If True, show full information about each dataset,
+        full: If True, show full information about each dataset,
             including classes and tasks.
-        bucket_storage (BucketStorage): Storage type of the dataset.
+        bucket_storage: Storage type of the dataset.
     """
     datasets = LuxonisDataset.list_datasets(bucket_storage=bucket_storage)
     table = Table(
@@ -229,23 +229,23 @@ def inspect(
     """Inspect images and annotations in a dataset.
 
     Args:
-        name (str): Name of the dataset to inspect.
-        view (list of str, optional): Which splits of the dataset to inspect.
+        name: Name of the dataset to inspect.
+        view: Which splits of the dataset to inspect.
             If not provided, the "train" split will be inspected by default.
-        aug_config (str, optional): Path to a JSON or YAML config defining
+        aug_config: Path to a JSON or YAML config defining
             augmentations to apply when inspecting the dataset.
             If not provided, no augmentations will be applied.
-        size_multiplier (float, optional): Multiplier for the displayed image size.
-        ignore_aspect_ratio (bool, optional): Do not keep the aspect ratio when
+        size_multiplier: Multiplier for the displayed image size.
+        ignore_aspect_ratio: Do not keep the aspect ratio when
             resizing images.
-        deterministic (bool, optional): Use deterministic augmentation mode.
-        force_update (bool, optional): Force synchronization with remote storage first.
-        blend_all (bool, optional): Draw labels belonging to different tasks on the
+        deterministic: Use deterministic augmentation mode.
+        force_update: Force synchronization with remote storage first.
+        blend_all: Draw labels belonging to different tasks on the
             same image.
-        per_instance (bool, optional): Show each label instance in a separate window.
-        list_augmentations (bool, optional): Show the augmentations applied to each
-            displayed image. Requires --aug-config to be set.
-        bucket_storage (BucketStorage, optional): Storage type of the dataset.
+        per_instance: Show each label instance in a separate window.
+        list_augmentations: Show the augmentations applied to each
+            displayed image. Requires '--aug-config' to be set.
+        bucket_storage: Storage type of the dataset.
     """
     check_exists(name, bucket_storage)
 
@@ -424,19 +424,19 @@ def export(
     """Export a Luxonis dataset to disk.
 
     Args:
-        dataset_name (str): Name of the dataset to export.
-        save_dir (str, optional): Directory where the exported dataset will be
+        name: Name of the dataset to export.
+        save_dir: Directory where the exported dataset will be
             saved. If not provided, a directory with the same name as the
             dataset will be created in the current working directory.
-        dataset_type (DatasetType): Format of the exported dataset.
-        delete_existing (bool): If True, delete any existing directory at
+        dataset_type: Format of the exported dataset.
+        delete_existing: If True, delete any existing directory at
             the save location before exporting.
-        max_partition_size_gb (float, optional): Maximum size of each
+        max_partition_size_gb: Maximum size of each
             partition in GB. If not provided, no partitioning will be done.
-        zip (bool): If True, the exported dataset will be zipped into a
-            single archive. If False, the dataset will be exported as a
+        zip: If ``True``, the exported dataset will be zipped into a
+            single archive. If ``False``, the dataset will be exported as a
             directory with the specified structure.
-        bucket_storage (BucketStorage): Storage type of the dataset.
+        bucket_storage: Storage type of the dataset.
     """
     save_dir = save_dir or name
     if delete_existing and Path(save_dir).exists():
@@ -491,31 +491,30 @@ def parse(
     """Parse a directory with data and create a Luxonis dataset.
 
     Args:
-        dataset (str): Path or URL to the dataset.
-        name (str, optional): Name of the dataset.
+        dataset: Path or URL to the dataset.
+        name: Name of the dataset.
             If not provided, the directory name will be used.
-        dataset_type (DatasetType, optional): Type of the dataset.
+        dataset_type: Type of the dataset.
             If not provided, the parser will attempt to detect it.
-        delete_local (bool): If True, delete any existing local
+        delete_local: If True, delete any existing local
             dataset with the same name before parsing.
-        save_dir (str, optional): If dataset_dir is a remote URL,
+        save_dir: If dataset_dir is a remote URL,
             this is the local directory where the dataset will
             be downloaded before parsing. If not provided,
             the dataset will be downloaded to the current working directory.
-        task_name (str, optional): Task name to use for all records
+        task_name: Task name to use for all records
             parsed from this dataset.
-        split_ratio (str, optional): A string representation of a Python list
+        split_ratio: A string representation of a Python list
             specifying the split ratios for train, val, and test sets.
-            Deprecated in favor of ``--train``,
-            ``--val``, and ``--test`` options.
-        train (float, optional): Ratio or count of records to assign
+            Deprecated in favor of ``--train``, ``--val``, and ``--test``.
+        train: Ratio or count of records to assign
             to the training set. Can be used together with
             ``--val`` and ``--test``. If only some of these options
             are provided, the remaining split(s) receive an equal share
             of the leftover records (only supported for ratios, not counts).
-        val (float, optional): Ratio or count of records to assign
+        val: Ratio or count of records to assign
             to the validation set.
-        test (float, optional): Ratio or count of records to assign
+        test: Ratio or count of records to assign
             to the test set.
     """
     parser = LuxonisParser(
@@ -563,16 +562,16 @@ def health(
     same UUIDs, and files with duplicate annotations.
 
     Args:
-        name (str): Name of the dataset to inspect.
-        view (str, optional): Which split of the dataset to inspect.
+        name: Name of the dataset to inspect.
+        view: Which split of the dataset to inspect.
             If not provided, all splits will be inspected.
-        sample_size (int, optional): Number of annotation rows to sample
+        sample_size: Number of annotation rows to sample
             from the dataset for calculating statistics and plots.
             If not provided, all annotations will be used.
-        save_dir (str, optional): Directory where the generated plots
+        save_dir: Directory where the generated plots
             will be saved. If not provided, the plots will be displayed
             interactively instead of being saved.
-        bucket_storage (BucketStorage): Storage type of the dataset.
+        bucket_storage: Storage type of the dataset.
     """
     check_exists(name, bucket_storage)
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
@@ -726,10 +725,10 @@ def push(
     """Push a local dataset to cloud storage.
 
     Args:
-        name (str): Name of the dataset to push.
-        bucket_storage (BucketStorage): Cloud storage type to push to.
+        name: Name of the dataset to push.
+        bucket_storage: Cloud storage type to push to.
             Cannot be LOCAL.
-        force (bool): If True, push all media files even
+        force: If True, push all media files even
             if they already exist in the target cloud storage.
     """
     check_exists(name, BucketStorage.LOCAL)
@@ -775,10 +774,10 @@ def pull(
     """Pull a remote dataset to local storage.
 
     Args:
-        name (str): Name of the dataset to pull.
-        force (bool): If True, pull all media files even
+        name: Name of the dataset to pull.
+        force: If True, pull all media files even
             if they already exist locally.
-        bucket_storage (BucketStorage): Cloud storage type to pull from.
+        bucket_storage: Cloud storage type to pull from.
             Cannot be LOCAL.
     """
     if bucket_storage == BucketStorage.LOCAL:
@@ -828,13 +827,13 @@ def clone(
     Optionally push it to cloud storage if it is a remote dataset.
 
     Args:
-        name (str): Name of the source dataset to clone.
-        new_name (str): Name of the new cloned dataset.
-        push (bool): If True, upload the newly cloned dataset to cloud storage.
-        bucket_storage (BucketStorage): Storage type of the source dataset.
+        name: Name of the source dataset to clone.
+        new_name: Name of the new cloned dataset.
+        push: If True, upload the newly cloned dataset to cloud storage.
+        bucket_storage: Storage type of the source dataset.
         split: List of split names to clone.
             If not provided, all splits will be cloned.
-        team_id (str, optional): Team ID to use for the new dataset.
+        team_id: Team ID to use for the new dataset.
     """
 
     check_exists(name, bucket_storage)
@@ -881,16 +880,15 @@ def merge(
     """Merge two datasets stored in the same type of bucket.
 
     Args:
-        source_name (str): Name of the source dataset to merge from.
-        target_name (str): Name of the target dataset to merge into.
-        new_name (str, optional): If
-            provided, the name of the new merged dataset.
+        source_name: Name of the source dataset to merge from.
+        target_name: Name of the target dataset to merge into.
+        new_name: If provided, the name of the new merged dataset.
             If not provided, the source dataset will be
             merged into the target dataset in place.
-        splits_to_merge (str, optional): Comma-separated list of split
+        splits_to_merge: Comma-separated list of split
             names to merge. If not provided, all splits will be merged.
-        bucket_storage (BucketStorage): Storage type for both datasets.
-        team_id (str, optional): Team ID to use for the new dataset.
+        bucket_storage: Storage type for both datasets.
+        team_id: Team ID to use for the new dataset.
             If not provided, the team ID of the target dataset will be used.
     """
     check_exists(source_name, bucket_storage)
@@ -955,8 +953,8 @@ def sanitize(
     dataset.
 
     Args:
-        name (str): Name of the dataset to sanitize.
-        bucket_storage (BucketStorage): Storage type of the dataset.
+        name: Name of the dataset to sanitize.
+        bucket_storage: Storage type of the dataset.
     """
     check_exists(name, bucket_storage)
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
