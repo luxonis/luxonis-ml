@@ -831,6 +831,7 @@ def clone(
         bucket_storage: Storage type of the source dataset.
         split: List of split names to clone.
             If not provided, all splits will be cloned.
+            Example: ``--split train --split val`` to clone only the "train" and "val" splits.
         team_id: Team ID to use for the new dataset.
     """
 
