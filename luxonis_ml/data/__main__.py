@@ -85,12 +85,16 @@ def delete(
         remote: If True, delete the dataset from remote storage.
         yes: If True, skip confirmation prompt and delete immediately.
     """
+    if not names:
+        print("[red]At least one dataset name must be provided.[/red]")
+        raise SystemExit(1)
+
     if not local and not remote:
         print(
             "[red]No deletion target specified (local or remote). "
             "Nothing to delete.[/red]"
         )
-        raise SystemExit(1)
+        raise SystemExit(2)
 
     for name in names:
         check_exists(name, bucket_storage)
@@ -116,18 +120,12 @@ def delete(
         ):
             continue
 
-        dataset = LuxonisDataset(
+        LuxonisDataset(
             name,
             bucket_storage=bucket_storage,
             delete_local=local,
             delete_remote=remote,
-        )
-        if not local and not remote:
-            print(
-                "[red]No valid deletion target remains for this dataset.[/red]"
-            )
-            raise SystemExit(1)
-        dataset.delete_dataset(
+        ).delete_dataset(
             delete_local=local,
             delete_remote=remote,
         )
