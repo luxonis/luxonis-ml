@@ -814,7 +814,7 @@ def clone(
         Parameter(alias="-p", negative=""),
     ] = True,
     bucket_storage: BucketStorageT = BucketStorage.LOCAL,
-    splits: Annotated[
+    split: Annotated[
         list[str] | None,
         Parameter(alias="-s"),
     ] = None,
@@ -832,7 +832,7 @@ def clone(
         new_name (str): Name of the new cloned dataset.
         push (bool): If True, upload the newly cloned dataset to cloud storage.
         bucket_storage (BucketStorage): Storage type of the source dataset.
-        splits (str, optional): List of split names to clone.
+        split: List of split names to clone.
             If not provided, all splits will be cloned.
         team_id (str, optional): Team ID to use for the new dataset.
     """
@@ -851,7 +851,7 @@ def clone(
     dataset.clone(
         new_dataset_name=new_name,
         push_to_cloud=push,
-        splits_to_clone=splits,
+        splits_to_clone=split,
         team_id=team_id,
     )
     print(f"[green]Dataset '{name}' successfully cloned to '{new_name}'.")
