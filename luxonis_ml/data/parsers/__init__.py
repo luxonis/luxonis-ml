@@ -150,7 +150,8 @@ Format Layout Notes
 The dispatcher can parse full dataset directories, individual split
 directories for parser types that support it, ZIP archives whose extracted
 root contains a supported layout, remote paths handled by ``LuxonisFileSystem``,
-and Roboflow URLs in ``roboflow://workspace/project/version/format`` form.
+Roboflow URLs in ``roboflow://workspace/project/version/format`` form, and
+Ultralytics format URLs in ``ultralytics://username/datasets/slug``.
 Parser implementations do not follow symbolic links.
 
 Common layout markers:

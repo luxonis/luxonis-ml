@@ -45,13 +45,15 @@ class UltralyticsNDJSONParser(BaseParser):
         return cls._load_header(dataset_dir) is not None
 
     def from_dir(
-        self, dataset_dir: Path
+        self, dataset_dir: Path, reuse_cached: bool = True, **kwargs
     ) -> tuple[list[Path], list[Path], list[Path]]:
         """Parse an Ultralytics NDJSON file into dataset records.
 
         Args:
             dataset_dir: Directory containing exactly one ``.ndjson`` file,
                 or a direct path to an ``.ndjson`` file.
+            reuse_cached: Whether to reuse cached remote images if they already exist.
+            **kwargs: Parser-specific arguments.
 
         Returns:
             Added images for the train, validation, and test splits.
@@ -70,7 +72,7 @@ class UltralyticsNDJSONParser(BaseParser):
             )
 
         generator, added_by_split, _added_images = self._build_record_stream(
-            ndjson_path
+            ndjson_path, reuse_cached=reuse_cached
         )
         self.dataset.add(self._wrap_generator(generator))
         return (
@@ -79,12 +81,18 @@ class UltralyticsNDJSONParser(BaseParser):
             added_by_split["test"],
         )
 
-    def parse_dir(self, dataset_dir: Path, **kwargs) -> BaseDataset:
+    def parse_dir(
+        self,
+        dataset_dir: Path,
+        reuse_cached: bool = True,
+        **kwargs,
+    ) -> BaseDataset:
         """Parse a full NDJSON dataset and preserve record-level splits.
 
         Args:
             dataset_dir: Directory containing exactly one ``.ndjson`` file,
                 or a direct path to an ``.ndjson`` file.
+            reuse_cached: Whether to reuse cached remote images if they already exist.
             kwargs: Parser-specific arguments. ``split_ratios`` may be
                 supplied to resample split assignments.
 
@@ -102,7 +110,11 @@ class UltralyticsNDJSONParser(BaseParser):
             isinstance(v, int) for v in split_ratios.values()
         )
 
-        train, val, test = self.from_dir(dataset_dir, **kwargs)
+        train, val, test = self.from_dir(
+            dataset_dir,
+            reuse_cached=reuse_cached,
+            **kwargs,
+        )
         original_splits: dict[str, Sequence[PathType]] = {
             "train": train,
             "val": val,
@@ -128,11 +140,16 @@ class UltralyticsNDJSONParser(BaseParser):
 
         return self.dataset
 
-    def from_split(self, ndjson_path: Path) -> ParserOutput:
+    def from_split(
+        self,
+        ndjson_path: Path,
+        reuse_cached: bool = True,
+    ) -> ParserOutput:
         """Parse a single Ultralytics NDJSON file.
 
         Args:
             ndjson_path: Path to an Ultralytics NDJSON file.
+            reuse_cached: Whether to reuse cached remote images if they already exist.
 
         Returns:
             Parser output containing annotation records, empty skeleton
@@ -145,7 +162,7 @@ class UltralyticsNDJSONParser(BaseParser):
 
         """
         generator, _added_by_split, added_images = self._build_record_stream(
-            ndjson_path
+            ndjson_path, reuse_cached=reuse_cached
         )
         return generator, {}, added_images
 
@@ -155,6 +172,7 @@ class UltralyticsNDJSONParser(BaseParser):
         split: str | None = None,
         random_split: bool = True,
         split_ratios: dict[str, float | int] | None = None,
+        reuse_cached: bool = True,
         **kwargs,
     ) -> BaseDataset:
         """Parse an NDJSON file that represents a single parser input.
@@ -165,6 +183,7 @@ class UltralyticsNDJSONParser(BaseParser):
                 resample all images.
             split_ratios: Optional ratios or counts. Float values are
                 treated as ratios; integer values are treated as counts.
+            reuse_cached: Whether to reuse cached remote images if they already exist.
             kwargs: Parser-specific arguments. Must include
                 ``ndjson_path``.
 
@@ -184,7 +203,7 @@ class UltralyticsNDJSONParser(BaseParser):
             raise ValueError("`ndjson_path` is required for NDJSON parsing.")
 
         generator, added_by_split, added_images = self._build_record_stream(
-            ndjson_path
+            ndjson_path, reuse_cached=reuse_cached
         )
         self.dataset.add(self._wrap_generator(generator))
         split_definitions: dict[str, Sequence[PathType]] = dict(added_by_split)
@@ -215,7 +234,7 @@ class UltralyticsNDJSONParser(BaseParser):
         return self.dataset
 
     def _build_record_stream(
-        self, ndjson_path: Path
+        self, ndjson_path: Path, reuse_cached: bool = True
     ) -> tuple[DatasetIterator, dict[str, list[Path]], list[Path]]:
         header = self._load_header(ndjson_path)
         if header is None:
@@ -246,9 +265,14 @@ class UltralyticsNDJSONParser(BaseParser):
 
                     if record.get("url") and not remote_image_dir_checked:
                         if remote_image_dir.exists():
-                            raise ValueError(
-                                f"Remote NDJSON image directory "
-                                f"'{remote_image_dir}' already exists."
+                            if not reuse_cached:
+                                raise ValueError(
+                                    f"Remote NDJSON image directory "
+                                    f"'{remote_image_dir}' already exists."
+                                )
+                            logger.warning(
+                                f"Reusing existing remote NDJSON image "
+                                f"directory '{remote_image_dir}'."
                             )
                         remote_image_dir_checked = True
 

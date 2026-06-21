@@ -154,6 +154,7 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_S3_ENDPOINT_URL: ${{ secrets.AWS_S3_ENDPOINT_URL }}
       ROBOFLOW_API_KEY: ${{ secrets.ROBOFLOW_API_KEY }}
+      ULTRALYTICS_API_KEY: ${{ secrets.ULTRALYTICS_API_KEY }}
       LUXONISML_BUCKET: luxonis-test-bucket
       GHC_ENABLED: ${{ secrets.GCP_CREDENTIALS != null }}
 

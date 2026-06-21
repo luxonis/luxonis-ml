@@ -79,6 +79,7 @@ class Environ(BaseSettings):
     LUXONISML_DISABLE_SETUP_LOGGING: bool = False
 
     ROBOFLOW_API_KEY: SecretStr | None = None
+    ULTRALYTICS_API_KEY: SecretStr | None = None
 
     GOOGLE_APPLICATION_CREDENTIALS: SecretStr | None = None
 
