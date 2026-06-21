@@ -18,42 +18,37 @@ DatasetIterator: TypeAlias = Iterator[dict | DatasetRecord]
 class BaseDataset(
     ABC, metaclass=AutoRegisterMeta, registry=DATASETS_REGISTRY, register=False
 ):
-    """Base abstract dataset class for managing datasets in the Luxonis
-    MLOps ecosystem."""
+    """Base class for datasets in the Luxonis MLOps ecosystem."""
 
     @property
     @abstractmethod
     def identifier(self) -> str:
-        """The unique identifier for the dataset.
-
-        @type: str
-        """
+        """The unique identifier for the dataset."""
         ...
 
     @property
     @abstractmethod
     def version(self) -> Version:
-        """The version of the underlying LDF.
-
-        @type: L{Version}
-        """
+        """The version of the underlying LDF."""
         ...
 
     @abstractmethod
     def set_tasks(self, tasks: dict[str, list[str]]) -> None:
-        """Sets the tasks for the dataset.
+        """Set dataset tasks.
 
-        @type tasks: Dict[str, List[str]]
-        @param tasks: A dictionary mapping task names to task types.
+        Args:
+            tasks: Mapping from task names to task types.
+
         """
         ...
 
     @abstractmethod
     def get_tasks(self) -> dict[str, str]:
-        """Returns a dictionary mapping task names to task types.
+        """Return task names and task types.
 
-        @rtype: Dict[str, str]
-        @return: A dictionary mapping task names to task types.
+        Returns:
+            Task types keyed by task name.
+
         """
         ...
 
@@ -63,49 +58,55 @@ class BaseDataset(
         classes: list[str] | dict[str, int],
         task: str | None = None,
     ) -> None:
-        """Sets the classes for the dataset. This can be across all CV
-        tasks or certain tasks.
+        """Set classes for one or more tasks.
 
-        @type classes: Union[List[str], Dict[str, int]]
-        @param classes: Either a list of class names or a dictionary
-            mapping class names to class IDs. If list is provided, the
-            class IDs will be assigned I{alphabetically} starting from
-            C{0}. If the class names contain the class C{"background"},
-            it will be assigned the class ID C{0}.
-        @type task: Optional[str]
-        @param task: Optionally specify the task where these classes
-            apply.
+        Args:
+            classes: Class names, or class IDs keyed by class name. If
+                class names are provided, IDs are assigned
+                alphabetically starting from :math:`0`. A class named
+                ``"background"`` is always assigned ID :math:`0`.
+            task: Optional task to update. If omitted, all tasks are
+                updated.
+
+        """
+        ...
+
+    @abstractmethod
+    def get_classes(self) -> dict[str, dict[str, int]]:
+        """Get class names and IDs per task.
+
+        Returns:
+            Mapping from class names to class IDs grouped by task name:
+
+            .. python::
+
+                {
+                    "vehicles": {
+                        "color": {"red": 0, "green": 1, "blue": 2},
+                        "brand": {"audi": 0, "bmw": 1, "mercedes": 2},
+                    }
+                }
+
         """
         ...
 
     @abstractmethod
     def get_source_names(self) -> list[str]:
-        """Get the source of the input data for the dataset.
+        """Return input source names for the dataset.
 
-        @rtype: List[str]
-        @return: A list of source names, such as "image_left",
-            "image_right", "image_middle", etc. This is used to identify
-            the input data
+        Returns:
+            Source names used to identify input data.
+
         """
         ...
 
     @abstractmethod
     def update_source(self, source: LuxonisSource) -> None:
-        """Updates underlying source of the dataset with a new
-        LuxonisSource.
+        """Update the dataset source definition.
 
-        @type source: L{LuxonisSource}
-        @param source: The new C{LuxonisSource} to replace the old one.
-        """
-        ...
+        Args:
+            source: Source definition to store.
 
-    @abstractmethod
-    def get_classes(self) -> dict[str, list[str]]:
-        """Get classes according to computer vision tasks.
-
-        @rtype: Dict[str, List[str]]
-        @return: A dictionary mapping tasks to the classes used in each
-            task.
         """
         ...
 
@@ -116,23 +117,26 @@ class BaseDataset(
         edges: list[tuple[int, int]] | None = None,
         task: str | None = None,
     ) -> None:
-        """Sets the semantic structure of keypoint skeletons for the
-        classes that use keypoints.
+        """Set keypoint skeleton semantics for tasks that use keypoints.
 
-        Example::
+        For example:
+
+        .. python::
 
             dataset.set_skeletons(
                 labels=["right hand", "right shoulder", ...],
                 edges=[[0, 1], [4, 5], ...]
             )
 
-        @type labels: Optional[List[str]]
-        @param labels: List of keypoint names.
-        @type edges: Optional[List[Tuple[int, int]]]
-        @param edges: List of edges between keypoints.
-        @type task: Optional[str]
-        @param task: Optionally specify the task where these skeletons apply.
-            If not specified, the skeletons are set for all tasks that use keypoints.
+        Args:
+            labels: Optional keypoint names.
+            edges: Optional edges between keypoints.
+            task: Optional task to update. If omitted, all keypoint tasks
+                are updated.
+
+        Raises:
+            ValueError: If neither ``labels`` nor ``edges`` are provided.
+
         """
         ...
 
@@ -140,12 +144,11 @@ class BaseDataset(
     def get_skeletons(
         self,
     ) -> dict[str, tuple[list[str], list[tuple[int, int]]]]:
-        """Returns the dictionary defining the semantic skeleton for
-        each class using keypoints.
+        """Return keypoint skeletons for each task.
 
-        @rtype: Dict[str, Tuple[List[str], List[Tuple[int, int]]]]
-        @return: For each task, a tuple containing a list of keypoint
-            names and a list of edges between the keypoints.
+        Returns:
+            Keypoint labels and edges keyed by task name.
+
         """
         ...
 
@@ -155,14 +158,12 @@ class BaseDataset(
     ) -> None:
         """Write annotations to parquet files.
 
-        @type generator: L{DatasetIterator}
-        @param generator: A Python iterator that yields either instances
-            of C{DatasetRecord} or a dictionary that can be converted to
-            C{DatasetRecord}.
-        @type batch_size: int
-        @param batch_size: The number of annotations generated before
-            processing. This can be set to a lower value to reduce
-            memory usage.
+        Args:
+            generator: Iterator yielding ``DatasetRecord`` instances or
+                dictionaries that can be converted to ``DatasetRecord``.
+            batch_size: Number of records to buffer before processing.
+                Lower values reduce peak memory usage.
+
         """
         ...
 
@@ -178,51 +179,89 @@ class BaseDataset(
         definitions: dict[str, list[PathType]] | None = None,
         replace_old_splits: bool = False,
     ) -> None:
-        """Generates splits for the dataset.
+        """Generate dataset splits.
 
-        @type splits: Optional[Union[Dict[str, Sequence[PathType]], Dict[str, float], Tuple[float, float, float]]]
-        @param splits: A dictionary of splits or a tuple of ratios for train, val, and test splits. Can be one of:
-            - A dictionary of splits with keys as split names and values as lists of filepaths
-            - A dictionary of splits with keys as split names and values as ratios
-            - A 3-tuple of ratios for train, val, and test splits
-        @type ratios: Optional[Union[Dict[str, float], Tuple[float, float, float]]]
-        @param ratios: Deprecated! A dictionary of splits with keys as split names and values as ratios.
-        @type definitions: Optional[Dict[str, List[PathType]]]
-        @param definitions: Deprecated! A dictionary of splits with keys as split names and values as lists of filepaths.
-        @type replace_old_splits: bool
-        @param replace_old_splits: Whether to remove old splits and generate new ones. If set to False, only new files will be added to the splits. Default is False.
+        Args:
+            splits: Split definitions or ratios. Accepts explicit
+                filepath lists, split ratios keyed by split name, or a
+                ``(train, val, test)`` ratio tuple.
+            ratios: Optional deprecated split ratios. Use ``splits``
+                instead.
+            definitions: Optional deprecated filepath split definitions.
+                Use ``splits`` instead.
+            replace_old_splits: Whether to replace existing split
+                assignments instead of adding only new files.
+
         """
         ...
 
     @abstractmethod
     def delete_dataset(self) -> None:
-        """Deletes all local files belonging to the dataset."""
+        """Delete local files belonging to the dataset."""
         ...
 
     @staticmethod
     @abstractmethod
     def exists(dataset_name: str) -> bool:
-        """Checks whether a dataset exists.
+        """Check whether a dataset exists.
 
-        @warning: For offline mode only.
-        @type dataset_name: str
-        @param dataset_name: Name of the dataset
-        @rtype: bool
-        @return: Whether the dataset exists
+        Args:
+            dataset_name: Dataset name to check.
+
+        Returns:
+            ``True`` if the dataset exists, ``False`` otherwise.
+
         """
         ...
 
+    def get_n_classes(self) -> dict[str, int]:
+        """Return number of classes per task.
+
+        Returns:
+            Mapping from task names to class counts.
+
+        """
+        return {
+            task_name: len(classes)
+            for task_name, classes in self.get_classes().items()
+        }
+
+    def get_class_names(self) -> dict[str, list[str]]:
+        """Return class names per task.
+
+        Returns:
+            Class names keyed by task name:
+
+            .. python::
+
+                {
+                    "vehicles": ["red", "green", "blue"],
+                    "brands": ["audi", "bmw", "mercedes"],
+                }
+
+        """
+        return {
+            task_name: list(classes.keys())
+            for task_name, classes in self.get_classes().items()
+        }
+
     def get_task_names(self) -> list[str]:
-        """Get the task names for the dataset.
+        """Return task names for the dataset.
 
-        Like `get_tasks`, but returns only the task names
-        instead of the entire names.
+        This is equivalent to `get_tasks` but returns only the task names.
 
-        @rtype: List[str]
-        @return: List of task names.
+        Returns:
+            Task names.
+
         """
         return list(self.get_tasks().keys())
 
     def get_n_keypoints(self) -> dict[str, int]:
+        """Return the number of keypoints for each task.
+
+        Returns:
+            Number of keypoints keyed by task name.
+
+        """
         skeletons = self.get_skeletons()
         return {task: len(skeletons[task][0]) for task in skeletons}

@@ -82,6 +82,7 @@ select = [
   "ANN",
   "B",
   "C4",
+  "D",
   "DTZ",
   "E",
   "ERA",
@@ -89,7 +90,6 @@ select = [
   "FLY",
   "FURB",
   "I",
-  "ICN",
   "ICN",
   "INP",
   "INT",
@@ -115,6 +115,7 @@ select = [
   "TRY",
   "UP",
   "W",
+  "YTT",
 ]
 ignore = [
   "ANN002",
@@ -122,8 +123,18 @@ ignore = [
   "ANN204",
   "ANN401",
   "D1",
+  "D100",
+  "D101",
+  "D102",
+  "D103",
+  "D105",
+  "D107",
+  "D202",
+  "D203",
+  "D205",
+  "D212",
+  "D213",
   "E501",
-  "F403",
   "ICN002",
   "NPY002",
   "PLC0415",
@@ -144,7 +155,7 @@ ignore = [
   "TRY003",
   "W191",
 ]
-unfixable = ["B905", "PLC0208"]
+unfixable = ["B905"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["ANN201"]
@@ -153,7 +164,7 @@ unfixable = ["B905", "PLC0208"]
 
 [tool.docformatter]
 black = true
-style = "epytext"
+style = "google"
 wrap-summaries = 72
 wrap-descriptions = 72
 
@@ -172,9 +183,13 @@ paths = ["luxonis_train"]
 exclude = ["luxonis_ml/tracker", "examples", "__main__.py"]
 
 [tool.pytest]
-doctest_optionflags = "NORMALIZE_WHITESPACE IGNORE_EXCEPTION_DETAIL NUMBER"
-testpaths = ["tests"]
-addopts = ["--disable-warnings"]
+doctest_optionflags = [
+  "NORMALIZE_WHITESPACE",
+  "IGNORE_EXCEPTION_DETAIL",
+  "NUMBER",
+]
+testpaths = ["tests", "luxonis_ml"]
+addopts = ["--disable-warnings", "--doctest-modules"]
 
 
 [tool.coverage.run]

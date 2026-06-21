@@ -8,6 +8,18 @@ import yaml
 
 
 class AugmentationsLike(Protocol):
+    """Protocol for augmentation engines inspected by the collector.
+
+    Attributes:
+        apply: Callable used to apply augmentations.
+        batch_transform: Batch transform callable.
+        spatial_transform: Spatial transform callable.
+        custom_transform: Custom transform callable.
+        pixel_transform: Pixel transform callable.
+        resize_transform: Resize transform callable.
+
+    """
+
     apply: Callable[..., object]
     batch_transform: Any
     spatial_transform: Callable[..., object]
@@ -17,6 +29,15 @@ class AugmentationsLike(Protocol):
 
 
 class AugmentationsCollector:
+    """Collect augmentation names that were applied to a sample.
+
+    Attributes:
+        augmentations: Augmentation engine being instrumented.
+        configured_paths: Set of configured augmentation paths, including
+            nested transform paths.
+
+    """
+
     def __init__(
         self,
         augmentations: object,

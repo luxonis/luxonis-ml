@@ -10,20 +10,20 @@ from .config import Config
 
 
 class ArchiveGenerator:
-    """Generator of abstracted NN archive (.tar) files containing config
-    and model files (executables).
+    """Build NN Archive files from configuration and model executables.
 
-    @type archive_name: str
-    @ivar archive_name: Desired archive file name.
-    @type save_path: str
-    @ivar save_path: Path to where we want to save the archive file.
-    @type cfg_dict: dict
-    @ivar cfg_dict: Archive configuration dict.
-    @type executables_paths: list
-    @ivar executables_paths: Paths to relevant model executables.
-    @type compression: str
-    @ivar compression: Type of archive file compression ("xz" for LZMA,
-        "gz" for gzip, or "bz2" for bzip2 compression).
+    The generated archive is a compressed tar file that contains
+    ``config.json`` and the provided executable files.
+
+    Attributes:
+        archive_name: Archive file name, including the ``.tar`` and
+            compression suffix.
+        save_path: Directory where the archive is written.
+        executables_paths: Paths to executable files included in the
+            archive.
+        compression: Compression algorithm used for the tar archive.
+        cfg: Validated archive configuration.
+
     """
 
     def __init__(
@@ -34,6 +34,21 @@ class ArchiveGenerator:
         executables_paths: list[PathType],
         compression: Literal["xz", "gz", "bz2"] = "xz",
     ):
+        """Create a generator for an NN Archive.
+
+        Args:
+            archive_name: Desired archive file name. The ``.tar`` and
+                compression suffix are added if missing.
+            save_path: Directory where the archive should be written.
+            cfg_dict: Archive configuration used to build ``config.json``.
+            executables_paths: Paths to model executable files to include.
+            compression: Compression algorithm for the tar archive.
+
+        Raises:
+            ValueError: If ``compression`` is not one of ``"xz"``,
+                ``"gz"``, or ``"bz2"``.
+
+        """
         self.save_path = Path(save_path)
         self.executables_paths = executables_paths
 
@@ -54,7 +69,12 @@ class ArchiveGenerator:
         )
 
     def make_archive(self) -> Path:
-        """Run NN archive (.tar) file generation."""
+        """Generate the NN Archive file.
+
+        Returns:
+            Path to the generated archive.
+
+        """
 
         # create an in-memory file-like config object
         json_data, json_buffer = self._make_json()
@@ -77,7 +97,12 @@ class ArchiveGenerator:
         return archive_path
 
     def _make_json(self) -> tuple[bytes, BytesIO]:
-        """Create an in-memory config data file-like object."""
+        """Create an in-memory ``config.json`` file.
+
+        Returns:
+            Encoded JSON data and a file-like buffer containing it.
+
+        """
 
         # read-in config data as dict
         data = json.loads(self.cfg.model_dump_json())

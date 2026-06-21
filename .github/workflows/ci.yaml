@@ -59,7 +59,7 @@ jobs:
         run: pip install pydoctor
 
       - name: Build docs
-        run: pydoctor --docformat=epytext luxonis_ml
+        run: pydoctor --docformat=google luxonis_ml
 
   type-check:
     needs: pre-commit
@@ -94,7 +94,6 @@ jobs:
           project: pyproject.toml
 
   semgrep:
-    if: ${{ github.actor != 'dependabot[bot]' }})
     needs: pre-commit
     runs-on: ubuntu-latest
     container:
@@ -147,7 +146,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
 
-    needs: [type-check, semgrep]
+    needs: [type-check, semgrep, docs]
     runs-on: ${{ matrix.os }}
 
     env:

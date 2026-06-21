@@ -11,7 +11,47 @@ __all__ = ["Environ", "environ"]
 
 
 class Environ(BaseSettings):
-    """A L{BaseSettings} subclass for storing environment variables."""
+    """Environment-backed configuration for Luxonis ML.
+
+    Values are read from ``.env`` and the process environment. Secret
+    values are represented as `pydantic.SecretStr`_ so they are not exposed by
+    default string conversion.
+
+    Attributes:
+        AWS_ACCESS_KEY_ID: AWS access key used by S3-compatible storage.
+        AWS_SECRET_ACCESS_KEY: AWS secret key used by S3-compatible
+            storage.
+        AWS_S3_ENDPOINT_URL: Optional custom S3 endpoint.
+        MLFLOW_CLOUDFLARE_ID: Optional Cloudflare access client ID for
+            MLflow.
+        MLFLOW_CLOUDFLARE_SECRET: Optional Cloudflare access client
+            secret for MLflow.
+        MLFLOW_S3_BUCKET: Optional S3 bucket used by MLflow artifacts.
+        MLFLOW_S3_ENDPOINT_URL: Optional S3 endpoint used by MLflow
+            artifacts.
+        MLFLOW_TRACKING_URI: Optional MLflow tracking URI.
+        POSTGRES_USER: Optional PostgreSQL user.
+        POSTGRES_PASSWORD: Optional PostgreSQL password.
+        POSTGRES_HOST: Optional PostgreSQL host.
+        POSTGRES_PORT: Optional PostgreSQL port. Must be
+            non-negative when provided.
+        POSTGRES_DB: Optional PostgreSQL database name.
+        LUXONISML_BUCKET: Optional cloud bucket for datasets.
+        LUXONISML_BASE_PATH: Local base path for offline datasets and
+            cache files.
+        LUXONISML_TEAM_ID: Team identifier used by dataset storage.
+        LUXONISML_DISABLE_SETUP_LOGGING: Whether automatic logging setup
+            is disabled.
+        ROBOFLOW_API_KEY: Optional Roboflow API key used by
+            `LuxonisParser`.
+        GOOGLE_APPLICATION_CREDENTIALS: Optional Google credentials path.
+        LOG_LEVEL: Logging level. One of ``"DEBUG"``, ``"INFO"``,
+            ``"WARNING"``, ``"ERROR"``, or ``"CRITICAL"``.
+
+    .. _pydantic.SecretStr:
+        https://pydantic.dev/docs/validation/2.0/usage/types/secrets/
+
+    """
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
@@ -55,7 +95,8 @@ class Environ(BaseSettings):
 @lru_cache(maxsize=1)
 def _load_environ() -> Environ:
     """Return a cached Environ instance, reading .env and os.environ
-    once."""
+    once.
+    """
     return Environ()
 
 

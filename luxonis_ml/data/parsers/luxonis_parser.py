@@ -35,6 +35,14 @@ from .yolov8_parser import YOLOv8Parser
 
 
 class ParserType(Enum):
+    """Recognized parser entry-point type.
+
+    Attributes:
+        DIR: Dataset directory with multiple splits.
+        SPLIT: Directory or file representing one parser input split.
+
+    """
+
     DIR = "dir"
     SPLIT = "split"
 
@@ -43,6 +51,27 @@ T = TypeVar("T", str, None)
 
 
 class LuxonisParser(Generic[T]):
+    """Detect a dataset format and dispatch to the matching parser.
+
+    The parser accepts local paths, remote paths supported by
+    `LuxonisFileSystem`, ZIP archives, and Roboflow dataset URLs in
+    ``roboflow://workspace/project/version/format`` form. If
+    ``dataset_type`` is omitted, parsers are tried until one validates the
+    dataset directory as either a full directory or a single split.
+
+    Attributes:
+        parsers: Dataset types mapped to concrete parser classes.
+        dataset_dir: Local dataset directory used for parsing.
+        dataset_type: Recognized or user-provided dataset type.
+        parser_type: Whether ``dataset_dir`` represents a full directory or
+            a single split.
+        dataset_constructor: Dataset class resolved from the plugin
+            registry, or `LuxonisDataset`.
+        dataset: Dataset instance populated by parsing.
+        parser: Concrete parser instance selected for ``dataset_type``.
+
+    """
+
     parsers: dict[DatasetType, type[BaseParser]] = {
         DatasetType.ULTRALYTICSNDJSON: UltralyticsNDJSONParser,
         DatasetType.ULTRALYTICSNDJSONINSTANCESEGMENTATION: (
@@ -82,44 +111,43 @@ class LuxonisParser(Generic[T]):
         Automatically recognizes the dataset format and uses the
         appropriate parser.
 
-        @type dataset_dir: str
-        @param dataset_dir: Identifier of the dataset directory.
-            Can be one of:
-                - Local path to the dataset directory.
-                - Remote URL supported by L{LuxonisFileSystem}.
-                  - C{gcs://} for Google Cloud Storage
-                  - C{s3://} for Amazon S3
-                - C{roboflow://} for Roboflow datasets.
-                  - Expected format: C{roboflow://workspace/project/version/format}.
-                - C{ultralytics://} for Ultralytics Platform datasets.
-                    - Expected format: C{ultralytics://username/datasets/slug}
-                    - Optional version: append C{?v=<version>} to export a specific dataset version.
-            Can be a remote URL supported by L{LuxonisFileSystem}.
-        @type dataset_name: Optional[str]
-        @param dataset_name: Name of the dataset. If C{None}, the name
-            is derived from the name of the dataset directory.
-        @type save_dir: Optional[Union[Path, str]]
-        @param save_dir: If a remote URL is provided in C{dataset_dir},
-            the dataset will be downloaded to this directory. If
-            C{None}, the dataset will be downloaded to the current
-            working directory.
-        @type dataset_plugin: Optional[str]
-        @param dataset_plugin: Name of the dataset plugin to use. If
-            C{None}, C{LuxonisDataset} is used.
-        @type dataset_type: Optional[DatasetType]
-        @param dataset_type: If provided, the parser will use this
-            dataset type instead of trying to recognize it
-            automatically.
-        @type task_name: Optional[Union[str, Dict[str, str]]]
-        @param task_name: Optional task name(s) for the dataset.
-            Can be either a single string, in which case all the records
-            added to the dataset will use this value as `task_name`, or
-            a dictionary with class names as keys and task names as values.
-            In the latter case, the task name for a record with a given
-            class name will be taken from the dictionary.
-        @type kwargs: Dict[str, Any]
-        @param kwargs: Additional C{kwargs} to be passed to the
-            constructor of specific L{BaseDataset} implementation.
+        Args:
+            dataset_dir: Dataset directory identifier.
+                Can be one of:
+
+                    - Local path to the dataset directory.
+
+                    - Remote URL supported by L{LuxonisFileSystem}.
+                        - ``gcs://`` for Google Cloud Storage
+                        - ``s3://`` for Amazon S3
+
+                    - ``roboflow://`` for Roboflow datasets.
+                        - Expected format: ``roboflow://workspace/project/version/format``.
+
+                    - ``ultralytics://`` for Ultralytics Platform datasets.
+                        - Expected format: ``ultralytics://username/datasets/slug``
+                        - Optional version: append ``?v=<version>`` to export a specific dataset version.
+
+            dataset_name: Optional output dataset name. If omitted, the
+                name is derived from ``dataset_dir``.
+            save_dir: Optional directory used when downloading remote
+                datasets. If omitted, the current working directory is used.
+            dataset_plugin: Optional dataset plugin registry name. If
+                omitted, ``LuxonisDataset`` is used.
+            dataset_type: Optional dataset type. If provided, automatic
+                format recognition is skipped.
+            task_name: Optional task naming rule. A string is used for all
+                records. A mapping uses class names as keys and task names
+                as values.
+            kwargs: Additional arguments passed to the selected dataset
+                constructor.
+
+        Raises:
+            RuntimeError: If a Roboflow URL is used and
+                ``ROBOFLOW_API_KEY`` is not configured.
+            ValueError: If a Roboflow URL is malformed, its version is not
+                an integer, or the dataset format cannot be recognized.
+
         """
         save_dir = Path(save_dir) if save_dir else None
         if dataset_dir.startswith("roboflow://"):
@@ -239,16 +267,21 @@ class LuxonisParser(Generic[T]):
     def parse(self: "LuxonisParser[None]", **kwargs) -> LuxonisDataset: ...
 
     def parse(self, **kwargs) -> BaseDataset:
-        """Parses the dataset and returns it in LuxonisDataset format.
+        """Parse the dataset and return it in LDF format.
 
         If the dataset already exists, parsing will be skipped and the
         existing dataset will be returned instead.
 
-        @type kwargs: Dict[str, Any]
-        @param kwargs: Additional C{kwargs} for specific parser
-            implementation.
-        @rtype: LuxonisDataset
-        @return: Parsed dataset in L{LuxonisDataset} format.
+        Args:
+            kwargs: Parser-specific arguments.
+
+        Returns:
+            Parsed dataset.
+
+        Raises:
+            ValueError: If the selected parser rejects the dataset
+                structure or split arguments.
+
         """
         if self.parser_type == ParserType.DIR:
             dataset = self._parse_dir(**kwargs)
@@ -259,15 +292,17 @@ class LuxonisParser(Generic[T]):
         return dataset
 
     def get_parser_issue_messages(self) -> list[ParserIssueMessage]:
-        """Returns collected parser issue messages from the last
-        parse."""
+        """Return parser issue messages collected during the last
+        parse.
+        """
         return self.parser.get_parser_issue_messages()
 
     def _recognize_dataset(self) -> tuple[DatasetType, ParserType]:
-        """Recognizes the dataset format and parser type.
+        """Recognize the dataset format and parser type.
 
-        @rtype: Tuple[DatasetType, ParserType]
-        @return: Tuple of dataset type and parser type.
+        Returns:
+            Dataset type and parser type.
+
         """
         for dataset_type, parser in self.parsers.items():
             if parser.validate(self.dataset_dir):
@@ -333,17 +368,17 @@ class LuxonisParser(Generic[T]):
         )
 
     def _parse_dir(self, **kwargs) -> BaseDataset:
-        """Parses all present data in LuxonisDataset format.
+        """Parse all data in the recognized dataset directory.
 
         Check under each parser for the expected directory structure.
 
-        @type kwargs: Dict[str, Any]
-        @param kwargs: Additional C{kwargs} for specific parser
-            function.
-        @rtype: LuxonisDataset
-        @return: C{LDF} with all the images and annotations parsed.
-        """
+        Args:
+            kwargs: Parser-specific arguments.
 
+        Returns:
+            Parsed dataset.
+
+        """
         return self.parser.parse_dir(self.dataset_dir, **kwargs)
 
     def _parse_split(
@@ -353,27 +388,22 @@ class LuxonisParser(Generic[T]):
         split_ratios: dict[str, float | int] | None = None,
         **kwargs,
     ) -> BaseDataset:
-        """Parses data from a subdirectory representing a single split.
+        """Parse data from a directory representing a single split.
 
         Should be used if adding/changing only specific split. Check
         under each parser for expected directory structure.
 
-        @type split: Optional[Literal["train", "val", "test"]]
-        @param split: As what split the data will be added to LDF. If
-            set, C{split_ratios} and C{random_split} are ignored.
-        @type random_split: bool
-        @param random_split: If random splits should be made. If
-            C{True}, C{split_ratios} are used.
-        @type split_ratios: Optional[Dict[str, Union[float, int]]]
-        @param split_ratios: Ratios or counts for splits. Only used if
-            C{random_split} is C{True}. If floats, treated as ratios. If
-            ints, treated as counts. Defaults to C{{"train": 0.8, "val":
-            0.1, "test": 0.1}}.
-        @type kwargs: Dict[str, Any]
-        @param kwargs: Additional kwargs for specific parser
-            implementation.
-        @rtype: LuxonisDataset
-        @return: C{LDF} with all the images and annotations parsed.
+        Args:
+            split: Optional split name to assign to parsed data. When set,
+                ``split_ratios`` and ``random_split`` are ignored.
+            random_split: Whether to create random splits using
+                ``split_ratios``.
+            split_ratios: Optional split ratios or counts.
+            kwargs: Parser-specific arguments.
+
+        Returns:
+            Parsed dataset.
+
         """
         parsed_kwargs = self.parser.validate_split(self.dataset_dir)
         if parsed_kwargs is None:

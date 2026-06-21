@@ -10,15 +10,27 @@ from .utils import yield_batches
 
 
 class BatchCompose(A.Compose):
+    r"""Compose batch-aware Albumentations transforms.
+
+    Attributes:
+        transforms: Batch transformations in composition order.
+        batch_size: Product of nested transform batch sizes,
+            :math:`\prod_i b_i`.
+
+    """
+
     transforms: list[BatchTransform]
 
     def __init__(self, transforms: TransformsSeqType, **kwargs):
-        """Compose transforms and handle all transformations regarding
-        bounding boxes.
+        """Compose batch transforms.
 
-        @param transforms: List of transformations to compose
-        @type transforms: TransformsSeqType
-        @param kwargs: Additional arguments to pass to A.Compose
+        Args:
+            transforms: Transformations to compose.
+            **kwargs: Additional arguments passed to `A.Compose`_.
+
+        .. _A.Compose:
+            https://github.com/albumentations-team/albumentations/blob/66212d77a44927a29d6a0e81621d3c27afbd929c/albumentations/core/composition.py#L609
+
         """
         super().__init__(transforms, is_check_shapes=False, **kwargs)
 
@@ -33,6 +45,20 @@ class BatchCompose(A.Compose):
     def __call__(
         self, data_batch: list[dict[str, np.ndarray]]
     ) -> dict[str, np.ndarray]:
+        """Apply the composed transforms to a batch.
+
+        Args:
+            data_batch: Batch of Albumentations data dictionaries. Its
+                length must equal ``batch_size``.
+
+        Returns:
+            Single transformed data dictionary.
+
+        Raises:
+            ValueError: If ``len(data_batch)`` does not match
+                ``batch_size``.
+
+        """
         if len(data_batch) != self.batch_size:
             raise ValueError(
                 f"Batch size must be equal to {self.batch_size}, "
@@ -61,7 +87,7 @@ class BatchCompose(A.Compose):
         assert len(data_batch) == 1
         data = data_batch[0]
 
-        data = self.make_contiguous(data)
+        data = self._make_contiguous(data)
 
         data = self.postprocess(data)
 
@@ -70,7 +96,7 @@ class BatchCompose(A.Compose):
         return data
 
     @staticmethod
-    def make_contiguous(data: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+    def _make_contiguous(data: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
         for key, value in data.items():
             if isinstance(value, np.ndarray):
                 value = np.ascontiguousarray(value)

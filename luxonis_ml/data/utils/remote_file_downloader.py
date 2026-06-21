@@ -65,7 +65,21 @@ class RequestsRemoteFileAPIClient:
 
 
 class RemoteFileDownloader:
+    """Download remote files with optional image validation.
+
+    Attributes:
+        api_client: Client used for HTTP and HTTPS downloads.
+
+    """
+
     def __init__(self, api_client: RemoteFileAPIClient | None = None) -> None:
+        """Create a remote file downloader.
+
+        Args:
+            api_client: Optional client used for HTTP and HTTPS downloads.
+                If omitted, `RequestsRemoteFileAPIClient` is used.
+
+        """
         self.api_client = api_client or RequestsRemoteFileAPIClient()
 
     def download(
@@ -76,6 +90,29 @@ class RemoteFileDownloader:
         timeout: float = 30.0,
         validate_image: bool = False,
     ) -> Path:
+        """Download a file to ``destination``.
+
+        Existing destination files are reused. When ``validate_image`` is
+        true, both reused and newly downloaded files are checked with
+        Pillow and the destination suffix.
+
+        Args:
+            url: Source URL. Supported schemes are ``file``, ``http``,
+                ``https``, ``gcs``, ``gs``, and ``s3``.
+            destination: Local destination path.
+            timeout: HTTP request timeout in seconds.
+            validate_image: Whether to validate image content and format
+                compatibility after download.
+
+        Returns:
+            Local destination path.
+
+        Raises:
+            ValueError: If the URL scheme is unsupported, the destination
+                image suffix is unsupported, the downloaded file is not a
+                valid image, or the image format does not match the suffix.
+
+        """
         destination.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = destination.with_suffix(f"{destination.suffix}.tmp")
 
@@ -214,8 +251,23 @@ def download_remote_file(
     timeout: float = 30.0,
     validate_image: bool = False,
 ) -> Path:
-    """Downloads a remote file to the requested destination."""
+    """Download a remote file to the requested destination.
 
+    Args:
+        url: Source URL.
+        destination: Local destination path.
+        timeout: HTTP request timeout in seconds.
+        validate_image: Whether to validate image content and format
+            compatibility after download.
+
+    Returns:
+        Local destination path.
+
+    Raises:
+        ValueError: If the URL scheme is unsupported or image validation
+            fails.
+
+    """
     return RemoteFileDownloader().download(
         url,
         destination,

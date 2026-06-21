@@ -15,7 +15,16 @@ if TYPE_CHECKING:
 
 
 class PreparedLDF:
-    """Lightweight container for LDF data, ready for export."""
+    """Lightweight container for LDF data ready for export.
+
+    Attributes:
+        splits: Split names mapped to group IDs.
+        processed_df: Annotation dataframe with paths resolved to readable
+            files.
+        grouped_image_sources: Unique mapping of group IDs, source names,
+            and file paths.
+
+    """
 
     def __init__(
         self,
@@ -29,7 +38,21 @@ class PreparedLDF:
 
     @classmethod
     def from_dataset(cls, dataset: "LuxonisDataset") -> "PreparedLDF":
-        """Prepare a dataset for export into the LDF representation."""
+        """Prepare a dataset for export into the LDF representation.
+
+        Args:
+            dataset: Dataset to prepare.
+
+        Returns:
+            Prepared LDF container.
+
+        Raises:
+            ValueError: If the dataset has no splits.
+            FileNotFoundError: If an image path cannot be resolved from
+                either its original location or the dataset media
+                directory.
+
+        """
         splits = dataset.get_splits()
         if splits is None:
             raise ValueError("Cannot export dataset without splits")
@@ -53,7 +76,7 @@ class PreparedLDF:
             pl.struct(["file", "uuid"])
             .map_elements(
                 lambda r: resolve_path(
-                    r["file"], r["uuid"], str(dataset.media_path)
+                    r["file"], r["uuid"], str(dataset._media_path)
                 ),
                 return_dtype=pl.Utf8,
             )
@@ -83,6 +106,14 @@ class PreparedLDF:
 
 @dataclass(frozen=True)
 class ExporterSpec:
+    """Exporter class and constructor arguments.
+
+    Attributes:
+        cls: Exporter class to instantiate.
+        kwargs: Keyword arguments passed to the exporter constructor.
+
+    """
+
     cls: type["BaseExporter"]
     kwargs: dict
 
@@ -160,7 +191,7 @@ def create_zip_output(
 def get_single_skeleton(
     allow_keypoints: bool, skeletons: dict[str, Any] | None = None
 ) -> tuple[list[str], list[list[int]]]:
-    """Returns (labels, skeleton_edges_1_based) for the single skeleton.
+    """Return labels and COCO-style edges for the single skeleton.
 
     Edges are converted to 1-based indices per COCO spec.
     """

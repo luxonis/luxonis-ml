@@ -10,30 +10,48 @@ CONFIG_VERSION = "1.0"
 
 
 class Config(BaseModelExtraForbid):
-    """The main class of the multi/single-stage model config scheme
-    (multi- stage models consists of interconnected single-stage
-    models).
+    """Configuration schema for an NN Archive.
 
-    @type config_version: str
-    @ivar config_version: String representing config schema version in
-        format 'x.y' where x is major version and y is minor version
-    @type model: Model
-    @ivar model: A Model object representing the neural network used in
-        the archive.
+    Attributes:
+        config_version: Schema version in ``major.minor`` format.
+        model: Neural network configuration stored in the archive.
+
     """
 
     config_version: str = Field(
         CONFIG_VERSION,
-        description="String representing config schema version in format 'x.y' where x is major version and y is minor version.",
+        description="Schema version in 'major.minor' format.",
     )
     model: Model = Field(
-        description="A Model object representing the neural network used in the archive."
+        description="Neural network configuration stored in the archive."
     )
 
     @field_validator("config_version")
     @classmethod
     def validate_config_version_format(cls, v: str) -> str:
-        # Regular expression to match 'x.y' where x and y are integers
+        """Validate that the schema version uses ``major.minor``
+        format.
+
+        Args:
+            v: Schema version string.
+
+        Returns:
+            The validated schema version.
+
+        Raises:
+            ValueError: If ``v`` is not in ``major.minor`` format, where
+                both parts are integers.
+
+        Examples:
+            >>> Config.validate_config_version_format("1.0")
+            '1.0'
+            >>> Config.validate_config_version_format("1")
+            Traceback (most recent call last):
+            ...
+            ValueError: 'config_version' must be in format 'x.y' where x and y are integers
+
+        """
+        # Regular expression to match 'x.y' where x and y are integers.
         if not re.match(r"^\d+\.\d+$", v):
             raise ValueError(
                 "'config_version' must be in format 'x.y' where x and y are integers"

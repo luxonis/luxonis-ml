@@ -16,10 +16,36 @@ from luxonis_ml.data.utils.enums import BucketStorage
 def parse_split_ratio(
     value: str | None,
 ) -> dict[str, float | int] | None:
-    """Parse split ratio argument.
+    r"""Parse a CLI split-ratio argument.
 
-    Expects a Python list (e.g., C{"[0.8, 0.1, 0.1]"}). If values sum to
-    1.0, treated as ratios. Otherwise, treated as counts.
+    Float lists represent ratios and must sum to :math:`1.0`. Integer
+    lists represent absolute counts.
+
+    Args:
+        value: String representation of a Python list in
+            ``[train, val, test]`` order, or ``None``.
+
+    Returns:
+        Mapping from ``"train"``, ``"val"``, and ``"test"`` to parsed
+        ratios or counts. Returns ``None`` when ``value`` is ``None``.
+
+    Raises:
+        typer.BadParameter: If the value is not a length-:math:`3` list,
+            contains non-numeric values, mixes integers and floats, or
+            provides float ratios that do not sum to :math:`1.0`.
+
+    Examples:
+        >>> parse_split_ratio("[0.8, 0.1, 0.1]")
+        {'train': 0.8, 'val': 0.1, 'test': 0.1}
+        >>> parse_split_ratio("[8, 1, 1]")
+        {'train': 8, 'val': 1, 'test': 1}
+        >>> parse_split_ratio(None) is None
+        True
+        >>> parse_split_ratio("[0.8, 0.2]")
+        Traceback (most recent call last):
+        ...
+        click.exceptions.BadParameter: Split ratio must be a list of 3 values (train, val, test).
+
     """
     if value is None:
         return None
@@ -62,6 +88,16 @@ def parse_split_ratio(
 
 
 def check_exists(name: str, bucket_storage: BucketStorage) -> None:
+    """Ensure that a dataset exists in the selected storage.
+
+    Args:
+        name: Dataset name.
+        bucket_storage: Storage backend to query.
+
+    Raises:
+        typer.Exit: If the dataset does not exist.
+
+    """
     if not LuxonisDataset.exists(name, bucket_storage=bucket_storage):
         rprint(f"[red]Dataset [magenta]'{name}'[red] does not exist.")
         raise typer.Exit

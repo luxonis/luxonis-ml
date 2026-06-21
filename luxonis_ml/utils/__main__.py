@@ -25,7 +25,7 @@ def get(
         Path | None, typer.Argument(help="Directory to save the file.")
     ] = None,
 ):
-    """Downloads file from remote storage."""
+    """Download file from remote storage."""
     LuxonisFileSystem.download(url, save_dir or Path.cwd())
 
 
@@ -34,13 +34,13 @@ def put(
     file: Annotated[Path, typer.Argument(help="Path to the file to upload.")],
     url: UrlArgument,
 ):
-    """Uploads file to remote storage."""
+    """Upload file to remote storage."""
     LuxonisFileSystem.upload(file, url)
 
 
 @app.command()
 def delete(url: UrlArgument):
-    """Deletes file from remote storage."""
+    """Delete file from remote storage."""
     fs = LuxonisFileSystem(url)
     fs.delete_file("")
 
@@ -62,7 +62,7 @@ def ls(
         ),
     ] = TypeEnum.ALL,
 ):
-    """Lists files in the remote directory."""
+    """List files in the remote directory."""
     fs = LuxonisFileSystem(url.rstrip("/"))
     for file in fs.walk_dir("", recursive=recursive, typ=typ.value):
         print(file)

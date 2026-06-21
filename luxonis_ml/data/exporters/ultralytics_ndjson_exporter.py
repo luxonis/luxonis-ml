@@ -22,6 +22,18 @@ UltralyticsTask = Literal["detect", "segment", "pose"]
 
 
 class UltralyticsNDJSONExporter(BaseExporter):
+    """Export datasets in Ultralytics NDJSON format.
+
+    Attributes:
+        dataset_type: Source dataset type being exported.
+        ndjson_task: Ultralytics task name, one of ``"detect"``,
+            ``"segment"``, or ``"pose"``.
+        class_to_id: Class-name to class-ID mapping.
+        class_names: Class names ordered by class ID.
+        keypoint_counts: Set of keypoint counts observed while exporting.
+
+    """
+
     def __init__(
         self,
         dataset_identifier: str,

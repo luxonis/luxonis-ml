@@ -22,7 +22,12 @@ from .base_parser import BaseParser, ParserOutput
 
 
 class UltralyticsNDJSONParser(BaseParser):
-    """Parses Ultralytics NDJSON datasets into LDF."""
+    """Parse Ultralytics NDJSON datasets into LDF.
+
+    NDJSON records may carry their own split names. When no split is
+    present on an image record, the image is assigned to ``"train"``.
+    ``"valid"`` and ``"validation"`` are normalized to ``"val"``.
+    """
 
     _remote_file_downloader = RemoteFileDownloader()
 
@@ -42,6 +47,24 @@ class UltralyticsNDJSONParser(BaseParser):
     def from_dir(
         self, dataset_dir: Path, reuse_cached: bool = True, **kwargs
     ) -> tuple[list[Path], list[Path], list[Path]]:
+        """Parse an Ultralytics NDJSON file into dataset records.
+
+        Args:
+            dataset_dir: Directory containing exactly one ``.ndjson`` file,
+                or a direct path to an ``.ndjson`` file.
+            reuse_cached: Whether to reuse cached remote images if they already exist.
+            **kwargs: Parser-specific arguments.
+
+        Returns:
+            Added images for the train, validation, and test splits.
+
+        Raises:
+            ValueError: If no NDJSON dataset file can be resolved, the
+                resolved file has an invalid header, a remote image
+                download directory already exists, or pose annotations
+                cannot infer keypoint dimensionality.
+
+        """
         ndjson_path = self._resolve_ndjson_path(dataset_dir)
         if ndjson_path is None:
             raise ValueError(
@@ -64,6 +87,23 @@ class UltralyticsNDJSONParser(BaseParser):
         reuse_cached: bool = True,
         **kwargs,
     ) -> BaseDataset:
+        """Parse a full NDJSON dataset and preserve record-level splits.
+
+        Args:
+            dataset_dir: Directory containing exactly one ``.ndjson`` file,
+                or a direct path to an ``.ndjson`` file.
+            reuse_cached: Whether to reuse cached remote images if they already exist.
+            kwargs: Parser-specific arguments. ``split_ratios`` may be
+                supplied to resample split assignments.
+
+        Returns:
+            Dataset with parsed images and annotations.
+
+        Raises:
+            ValueError: If the NDJSON file cannot be resolved or parsed as
+                a valid Ultralytics dataset.
+
+        """
         self.reset_parser_issue_messages()
         split_ratios = kwargs.pop("split_ratios", None)
         is_counts = split_ratios is not None and all(
@@ -105,6 +145,22 @@ class UltralyticsNDJSONParser(BaseParser):
         ndjson_path: Path,
         reuse_cached: bool = True,
     ) -> ParserOutput:
+        """Parse a single Ultralytics NDJSON file.
+
+        Args:
+            ndjson_path: Path to an Ultralytics NDJSON file.
+            reuse_cached: Whether to reuse cached remote images if they already exist.
+
+        Returns:
+            Parser output containing annotation records, empty skeleton
+            metadata, and added images.
+
+        Raises:
+            ValueError: If the file has an invalid header, a remote image
+                download directory already exists, or pose annotations
+                cannot infer keypoint dimensionality.
+
+        """
         generator, _added_by_split, added_images = self._build_record_stream(
             ndjson_path, reuse_cached=reuse_cached
         )
@@ -119,6 +175,28 @@ class UltralyticsNDJSONParser(BaseParser):
         reuse_cached: bool = True,
         **kwargs,
     ) -> BaseDataset:
+        """Parse an NDJSON file that represents a single parser input.
+
+        Args:
+            split: Optional split name to assign to all parsed images.
+            random_split: Whether percentage ``split_ratios`` should
+                resample all images.
+            split_ratios: Optional ratios or counts. Float values are
+                treated as ratios; integer values are treated as counts.
+            reuse_cached: Whether to reuse cached remote images if they already exist.
+            kwargs: Parser-specific arguments. Must include
+                ``ndjson_path``.
+
+        Returns:
+            Dataset with parsed images and annotations.
+
+        Raises:
+            ValueError: If ``ndjson_path`` is missing, the file has an
+                invalid header, a remote image download directory already
+                exists, or pose annotations cannot infer keypoint
+                dimensionality.
+
+        """
         self.reset_parser_issue_messages()
         ndjson_path = kwargs.get("ndjson_path")
         if ndjson_path is None:

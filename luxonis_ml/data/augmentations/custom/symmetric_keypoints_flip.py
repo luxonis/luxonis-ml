@@ -7,14 +7,26 @@ import numpy as np
 from typing_extensions import override
 
 
-class HorizontalSymetricKeypointsFlip(A.DualTransform):
-    def __init__(self, keypoint_pairs: list[tuple[int, int]], p: float = 0.5):
-        """Augmentation to horizontally flip an image along with bboxes,
-        segmentation masks and symmetric keypoints.
+class HorizontalSymmetricKeypointsFlip(A.DualTransform):
+    """Flip images and symmetric keypoints horizontally.
 
-        @param keypoint_pairs: List of tuples with indices to swap after
-            flipping.
-        @param p: Probability of applying the augmentation.
+    Attributes:
+        keypoint_pairs: Pairs of keypoint indices swapped after flipping.
+        n_keypoints: Number of unique keypoints described by
+            ``keypoint_pairs``.
+
+    """
+
+    def __init__(self, keypoint_pairs: list[tuple[int, int]], p: float = 0.5):
+        """Flip an image and symmetric keypoints horizontally.
+
+        Bounding boxes and segmentation masks are flipped as well.
+
+        Args:
+            keypoint_pairs: Pairs of keypoint indices to swap after the
+                flip.
+            p: Probability of applying the augmentation.
+
         """
         super().__init__(p=p)
         self.keypoint_pairs = keypoint_pairs
@@ -34,10 +46,13 @@ class HorizontalSymetricKeypointsFlip(A.DualTransform):
     ) -> dict[str, Any]:
         """Get parameters dependent on the targets.
 
-        @param params: Dictionary containing parameters.
-        @type params: dict[str, Any]
-        @param data: Dictionary containing data.
-        @type data: dict[str, Any]
+        Args:
+            params: Existing augmentation parameters.
+            data: Input data.
+
+        Returns:
+            Parameters derived from the input targets.
+
         """
         orig_height, orig_width, _ = params["shape"]
         return {
@@ -47,32 +62,43 @@ class HorizontalSymetricKeypointsFlip(A.DualTransform):
 
     @override
     def apply(self, img: np.ndarray, **params) -> np.ndarray:
-        """Flips the image horizontally.
+        """Flip an image horizontally.
 
-        @param img: Image to be flipped.
-        @type img: np.ndarray
-        @param params: Parameters for the transformation.
-        @type params: Dict[str, Any]
+        Args:
+            img: Image to flip.
+            params: Additional transform parameters.
+
+        Returns:
+            Flipped image.
+
         """
         return cv2.flip(img, 1)
 
     @override
     def apply_to_mask(self, img: np.ndarray, **params) -> np.ndarray:
-        """Flips segmentation masks horizontally.
+        """Flip a segmentation mask horizontally.
 
-        @param img: Segmentation mask to be flipped.
-        @param params: Parameters for the transformation.
+        Args:
+            img: Segmentation mask to flip.
+            params: Additional transform parameters.
+
+        Returns:
+            Flipped segmentation mask.
+
         """
         return cv2.flip(img, 1)
 
     @override
     def apply_to_bboxes(self, bboxes: np.ndarray, **params) -> np.ndarray:
-        """Flips bounding boxes horizontally.
+        """Flip bounding boxes horizontally.
 
-        @param bboxes: Bounding boxes to be flipped.
-        @type bboxes: np.ndarray
-        @param params: Parameters for the transformation.
-        @type params: Dict[str, Any]
+        Args:
+            bboxes: Bounding boxes to flip.
+            params: Additional transform parameters.
+
+        Returns:
+            Flipped bounding boxes.
+
         """
         if bboxes.size == 0:
             return bboxes
@@ -85,14 +111,20 @@ class HorizontalSymetricKeypointsFlip(A.DualTransform):
     def apply_to_keypoints(
         self, keypoints: np.ndarray, orig_width: int, **params
     ) -> np.ndarray:
-        """Flips keypoints horizontally and then swaps symmetric ones.
+        """Flip keypoints horizontally and swap symmetric pairs.
 
-        @param keypoints: Keypoints to be flipped.
-        @type keypoints: np.ndarray
-        @param orig_width: Width of the original image.
-        @type orig_width: int
-        @param params: Parameters for the transformation.
-        @type params: Dict[str, Any]
+        Args:
+            keypoints: Keypoints to flip.
+            orig_width: Original image width.
+            params: Additional transform parameters.
+
+        Returns:
+            Flipped keypoints.
+
+        Raises:
+            ValueError: If the total number of keypoints is not a multiple
+                of ``n_keypoints``.
+
         """
         if keypoints.size == 0:
             return keypoints
@@ -119,16 +151,26 @@ class HorizontalSymetricKeypointsFlip(A.DualTransform):
         return keypoints
 
 
-class VerticalSymetricKeypointsFlip(A.DualTransform):
-    def __init__(self, keypoint_pairs: list[tuple[int, int]], p: float = 0.5):
-        """Augmentation to vertically flip an image along with bboxes,
-        segmentation masks and symmetric keypoints.
+class VerticalSymmetricKeypointsFlip(A.DualTransform):
+    """Flip images and symmetric keypoints vertically.
 
-        @param keypoint_pairs: List of tuples with indices to swap after
-            vertical flip.
-        @type keypoint_pairs: list[tuple[int, int]]
-        @param p: Probability of applying the augmentation.
-        @type p: float
+    Attributes:
+        keypoint_pairs: Pairs of keypoint indices swapped after flipping.
+        n_keypoints: Number of unique keypoints described by
+            ``keypoint_pairs``.
+
+    """
+
+    def __init__(self, keypoint_pairs: list[tuple[int, int]], p: float = 0.5):
+        """Flip an image and symmetric keypoints vertically.
+
+        Bounding boxes and segmentation masks are flipped as well.
+
+        Args:
+            keypoint_pairs: Pairs of keypoint indices to swap after the
+                flip.
+            p: Probability of applying the augmentation.
+
         """
         super().__init__(p=p)
         self.keypoint_pairs = keypoint_pairs
@@ -148,10 +190,13 @@ class VerticalSymetricKeypointsFlip(A.DualTransform):
     ) -> dict[str, Any]:
         """Get parameters dependent on the targets.
 
-        @param params: Dictionary containing parameters.
-        @type params: dict[str, Any]
-        @param data: Dictionary containing data.
-        @type data: dict[str, Any]
+        Args:
+            params: Existing augmentation parameters.
+            data: Input data.
+
+        Returns:
+            Parameters derived from the input targets.
+
         """
         orig_width, orig_height, _ = params["shape"]
         return {
@@ -161,34 +206,43 @@ class VerticalSymetricKeypointsFlip(A.DualTransform):
 
     @override
     def apply(self, img: np.ndarray, **params) -> np.ndarray:
-        """Flips the image vertically.
+        """Flip an image vertically.
 
-        @param img: Image to be flipped.
-        @type img: np.ndarray
-        @param params: Parameters for the transformation.
-        @type params: Dict[str, Any]
+        Args:
+            img: Image to flip.
+            params: Additional transform parameters.
+
+        Returns:
+            Flipped image.
+
         """
         return cv2.flip(img, 0)
 
     @override
     def apply_to_mask(self, img: np.ndarray, **params) -> np.ndarray:
-        """Flips segmentation masks vertically.
+        """Flip a segmentation mask vertically.
 
-        @param img: Segmentation mask to be flipped.
-        @type img: np.ndarray
-        @param params: Parameters for the transformation.
-        @type params: Dict[str, Any]
+        Args:
+            img: Segmentation mask to flip.
+            params: Additional transform parameters.
+
+        Returns:
+            Flipped segmentation mask.
+
         """
         return cv2.flip(img, 0)
 
     @override
     def apply_to_bboxes(self, bboxes: np.ndarray, **params) -> np.ndarray:
-        """Flips bounding boxes vertically.
+        """Flip bounding boxes vertically.
 
-        @param bboxes: Bounding boxes to be flipped.
-        @type bboxes: np.ndarray
-        @param params: Parameters for the transformation.
-        @type params: Dict[str, Any]
+        Args:
+            bboxes: Bounding boxes to flip.
+            params: Additional transform parameters.
+
+        Returns:
+            Flipped bounding boxes.
+
         """
         if bboxes.size == 0:
             return bboxes
@@ -200,14 +254,20 @@ class VerticalSymetricKeypointsFlip(A.DualTransform):
     def apply_to_keypoints(
         self, keypoints: np.ndarray, orig_height: int, **params
     ) -> np.ndarray:
-        """Flips keypoints vertically and then swaps symmetric ones.
+        """Flip keypoints vertically and swap symmetric pairs.
 
-        @param keypoints: Keypoints to be flipped.
-        @type keypoints: np.ndarray
-        @param orig_height: Original height in the image.
-        @type orig_height: int
-        @param params: Parameters for the transformation.
-        @type params: Dict[str, Any]
+        Args:
+            keypoints: Keypoints to flip.
+            orig_height: Original image height.
+            params: Additional transform parameters.
+
+        Returns:
+            Flipped keypoints.
+
+        Raises:
+            ValueError: If the total number of keypoints is not a multiple
+                of ``n_keypoints``.
+
         """
         if keypoints.size == 0:
             return keypoints
@@ -235,19 +295,30 @@ class VerticalSymetricKeypointsFlip(A.DualTransform):
 
 
 class TransposeSymmetricKeypoints(A.DualTransform):
+    """Transpose images and symmetric keypoints.
+
+    Attributes:
+        keypoint_pairs: Pairs of keypoint indices swapped after
+            transposition.
+        n_keypoints: Number of unique keypoints described by
+            ``keypoint_pairs``.
+
+    """
+
     def __init__(
         self,
         keypoint_pairs: list[tuple[int, int]],
         p: float = 0.5,
     ):
-        """Augmentation to transpose an image along with bboxes,
-        segmentation masks and symmetric keypoints.
+        """Transpose an image and symmetric keypoints.
 
         Equivalent to 90 degree rotation followed by horizontal flip.
 
-        @param keypoint_pairs: List of tuples with indices to swap after
-            transposing.
-        @param p: Probability of applying the augmentation.
+        Args:
+            keypoint_pairs: Pairs of keypoint indices to swap after the
+                transpose.
+            p: Probability of applying the augmentation.
+
         """
         super().__init__(p=p)
         self.keypoint_pairs = keypoint_pairs
@@ -267,44 +338,58 @@ class TransposeSymmetricKeypoints(A.DualTransform):
     ) -> dict[str, Any]:
         """Get parameters dependent on the targets.
 
-        @param params: Dictionary containing parameters.
-        @type params: dict[str, Any]
-        @param data: Dictionary containing data.
-        @type data: dict[str, Any]
+        Args:
+            params: Existing augmentation parameters.
+            data: Input data.
+
+        Returns:
+            Parameters derived from the input targets.
+
         """
         orig_width, orig_height, _ = params["shape"]
         return {"orig_width": orig_width, "orig_height": orig_height}
 
     @override
     def apply(self, img: np.ndarray, **params) -> np.ndarray:
-        """Flips the image horizontally.
+        """Transpose an image.
 
-        @param img: Image to be flipped.
-        @type img: np.ndarray
-        @param params: Parameters for the transformation.
-        @type params: Dict[str, Any]
+        Args:
+            img: Image to transpose.
+            params: Additional transform parameters.
+
+        Returns:
+            Transposed image.
+
         """
         axes = (1, 0, *tuple(range(2, img.ndim)))
         return img.transpose(axes)
 
     @override
     def apply_to_mask(self, mask: np.ndarray, **params) -> np.ndarray:
-        """Flips segmentation masks horizontally.
+        """Transpose a segmentation mask.
 
-        @param img: Segmentation mask to be flipped.
-        @param params: Parameters for the transformation.
+        Args:
+            mask: Segmentation mask to transpose.
+            params: Additional transform parameters.
+
+        Returns:
+            Transposed segmentation mask.
+
         """
         axes = (1, 0, *tuple(range(2, mask.ndim)))
         return mask.transpose(axes)
 
     @override
     def apply_to_bboxes(self, bboxes: np.ndarray, **params) -> np.ndarray:
-        """Flips bounding boxes horizontally.
+        """Transpose bounding boxes.
 
-        @param bboxes: Bounding boxes to be flipped.
-        @type bboxes: np.ndarray
-        @param params: Parameters for the transformation.
-        @type params: Dict[str, Any]
+        Args:
+            bboxes: Bounding boxes to transpose.
+            params: Additional transform parameters.
+
+        Returns:
+            Transposed bounding boxes.
+
         """
         if bboxes.size == 0:
             return bboxes
@@ -316,14 +401,19 @@ class TransposeSymmetricKeypoints(A.DualTransform):
     def apply_to_keypoints(
         self, keypoints: np.ndarray, **params
     ) -> np.ndarray:
-        """Flips keypoints horizontally and then swaps symmetric ones.
+        """Transpose keypoints and swap symmetric pairs.
 
-        @param keypoints: Keypoints to be flipped.
-        @type keypoints: np.ndarray
-        @param orig_width: Original width of the image.
-        @type orig_width: int
-        @param params: Parameters for the transformation.
-        @type params: Dict[str, Any]
+        Args:
+            keypoints: Keypoints to transpose.
+            params: Additional transform parameters.
+
+        Returns:
+            Transposed keypoints.
+
+        Raises:
+            ValueError: If the total number of keypoints is not a multiple
+                of ``n_keypoints``.
+
         """
         if keypoints.size == 0:
             return keypoints

@@ -11,10 +11,18 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 PathType: TypeAlias = str | Path
-"""A string or a `pathlib.Path` object."""
+"""A string or a `pathlib.Path`_ object.
+
+.. _pathlib.Path:
+    https://docs.python.org/3/library/pathlib.html#pathlib.Path
+"""
 
 PosixPathType: TypeAlias = str | PurePosixPath
-"""A string or a `pathlib.PurePosixPath` object."""
+"""A string or a `pathlib.PurePosixPath`_ object.
+
+.. _pathlib.PurePosixPath:
+    https://docs.python.org/3/library/pathlib.html#pathlib.PurePosixPath
+"""
 
 
 TaskType: TypeAlias = Literal[
@@ -28,29 +36,36 @@ TaskType: TypeAlias = Literal[
 
 
 Labels: TypeAlias = dict[str, "np.ndarray"]
-"""Dictionary mappping task names to the annotations as C{np.ndarray}"""
+"""Dictionary mapping task names to annotations as ``np.ndarray`` values."""
 
 
 LoaderSingleOutput: TypeAlias = tuple["np.ndarray", Labels]
-"""C{LoaderSingleOutput} is a tuple containing a single image as a
-C{np.ndarray} and a dictionary of task group names and their annotations
-as L{Labels}."""
+"""Loader output for a single image source.
+
+The tuple contains one image array and a label dictionary.
+"""
 
 LoaderMultiOutput: TypeAlias = tuple[dict[str, "np.ndarray"], Labels]
-"""C{LoaderMultiOutput} is a tuple containing a dictionary mapping image
-names to C{np.ndarray} and a dictionary of task group names and their
-annotations as L{Labels}."""
+"""Loader output for one or more named image sources.
+
+The first tuple item maps source names to image arrays, and the second
+contains task labels.
+"""
 
 LoaderOutput: TypeAlias = LoaderSingleOutput | LoaderMultiOutput
-"""C{LoaderOutput} is a tuple containing either a single image as a
-C{np.ndarray} or a dictionary mapping image names to C{np.ndarray},
-along with a dictionary of task group names and their annotations as
-L{Annotations}."""
+"""Loader output containing image data and labels.
+
+Single-source datasets return `LoaderSingleOutput`; multi-source datasets
+return `LoaderMultiOutput`.
+"""
 
 
 RGB: TypeAlias = tuple[int, int, int]
+r"""RGB color represented as a tuple of three integers
+in the range :math:`\left[0, 255\right]`"""
 
 HSV: TypeAlias = tuple[float, float, float]
+"""HSV color represented as a tuple of three floats"""
 
 Color: TypeAlias = str | int | RGB
 """Color type alias.
@@ -84,7 +99,13 @@ Kwargs: TypeAlias = dict[str, Any]
 
 
 class BaseModelExtraForbid(BaseModel):
-    """BaseModel with extra fields forbidden."""
+    """Base model with extra fields forbidden.
+
+    Attributes:
+        model_config: Pydantic model configuration with ``extra`` set to
+            ``"forbid"``.
+
+    """
 
     model_config: ConfigDict = ConfigDict(extra="forbid")
 
@@ -95,12 +116,16 @@ class ConfigItem(BaseModelExtraForbid):
 
     A dictionary with a name and a dictionary of parameters.
 
-    @type name: str
-    @ivar name: The name of the object this configuration applies to.
-        Required.
-    @type params: Dict[str, JsonDict]
-    @ivar params: Additional parameters for instantiating the object.
-        Not required.
+    Attributes:
+        name: Name of the object this configuration applies to.
+        params: Additional parameters for instantiating the object.
+
+    Example:
+        >>> ConfigItem(name="Resize", params={"height": 256}).name
+        'Resize'
+        >>> ConfigItem(name="Normalize").params
+        {}
+
     """
 
     name: str
@@ -111,42 +136,76 @@ class ConfigItem(BaseModelExtraForbid):
 T = TypeVar("T")
 
 
-def check_type(value: Any, type_: type[T]) -> TypeGuard[T]:
-    """Checks if the value has the correct type.
+def check_type(value: Any, typ: type[T]) -> TypeGuard[T]:
+    """Check whether a value has the expected type.
 
-    @type value: Any
-    @param value: The value to check.
-    @type type_: Type[K]
-    @param type_: The type to check against.
-    @rtype: bool
-    @return: C{True} if the value has the correct type, C{False}
-        otherwise.
+    Note:
+        This function acts as a `type guard`_, allowing type checkers
+        to narrow the type of a variable when the function returns ``True``.
+
+    Examples:
+        >>> check_type("oak", str)
+        True
+        >>> check_type("oak", int)
+        False
+        >>> check_type([1, 2, 3], list)
+        True
+
+    Args:
+        value: Value to check.
+        typ: Type to check against.
+
+    Returns:
+        ``True`` if ``value`` conforms to ``typ``, otherwise ``False``.
+
+    .. _type guard:
+        https://typing.python.org/en/latest/spec/narrowing.html#typeguard
+
     """
     try:
-        typeguard.check_type(value, type_)
+        typeguard.check_type(value, typ)
     except (typeguard.TypeCheckError, TypeError):
         return False
     return True
 
 
 def all_not_none(values: Iterable[Any]) -> bool:
-    """Checks if none of the values in the iterable is C{None}
+    """Check whether all values in a collection are not ``None``.
 
-    @type values: Iterable[Any]
-    @param values: An iterable of values
-    @rtype: bool
-    @return: C{True} if all values are not C{None}, C{False} otherwise
+    Args:
+        values: Iterable of values to check.
+
+    Returns:
+        ``True`` if all values are not ``None``, otherwise ``False``.
+
+    Examples:
+        >>> all_not_none([1, "x", 0])
+        True
+        >>> all_not_none([1, None, 0])
+        False
+        >>> all_not_none([])
+        True
+
     """
     return all(v is not None for v in values)
 
 
 def any_not_none(values: Iterable[Any]) -> bool:
-    """Checks if at least one value in the iterable is not C{None}
+    """Check whether at least one value in a collection is not ``None``.
 
-    @type values: Iterable[Any]
-    @param values: An iterable of values
-    @rtype: bool
-    @return: C{True} if at least one value is not C{None}, C{False}
-        otherwise
+    Args:
+        values: Iterable of values to check.
+
+    Returns:
+        ``True`` if at least one value is not ``None``, otherwise ``False``.
+
+    Examples:
+        >>> any_not_none([None, "x"])
+        True
+        >>> any_not_none([None, None])
+        False
+        >>> any_not_none([])
+        False
+
     """
     return any(v is not None for v in values)

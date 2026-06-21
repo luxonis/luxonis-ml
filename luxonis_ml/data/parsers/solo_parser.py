@@ -13,7 +13,7 @@ from .base_parser import BaseParser, ParserOutput
 
 
 class SOLOParser(BaseParser):
-    """Parses directory with SOLO annotations to LDF.
+    """Parse a directory with SOLO annotations into LDF.
 
     Expected format::
 
@@ -35,13 +35,16 @@ class SOLOParser(BaseParser):
 
     @staticmethod
     def validate_split(split_path: Path) -> dict[str, Any] | None:
-        """Validates if a split subdirectory is in an expected format.
+        """Validate whether a split directory has the expected SOLO
+        format.
 
-        @type split_path: Path
-        @param split_path: Path to split directory.
-        @rtype: Optional[Dict[str, Any]]
-        @return: Dictionary with kwargs to pass to L{from_split} method
-            or C{None} if the split is not in the expected format.
+        Args:
+            split_path: Path to a split directory.
+
+        Returns:
+            Keyword arguments for ``from_split``, or ``None`` if the split
+            is not in the expected format.
+
         """
         if not split_path.exists():
             return None
@@ -72,15 +75,15 @@ class SOLOParser(BaseParser):
     def from_dir(
         self, dataset_dir: Path
     ) -> tuple[list[Path], list[Path], list[Path]]:
-        """Parses all present data to L{LuxonisDataset} format.
+        """Parse all SOLO data in a source dataset directory.
 
-        @type dataset_dir: str
-        @param dataset_dir: Path to source dataset directory.
-        @rtype: Tuple[List[Path], List[Path], List[Path]]
-        @return: Tuple with added images for train, valid and test
-            splits.
+        Args:
+            dataset_dir: Source dataset directory.
+
+        Returns:
+            Added images for the train, validation, and test splits.
+
         """
-
         added_train_imgs = self._parse_split(split_path=dataset_dir / "train")
         added_valid_imgs = self._parse_split(split_path=dataset_dir / "valid")
         added_test_imgs = self._parse_split(split_path=dataset_dir / "test")
@@ -88,17 +91,23 @@ class SOLOParser(BaseParser):
         return added_train_imgs, added_valid_imgs, added_test_imgs
 
     def from_split(self, split_path: Path) -> ParserOutput:
-        """Parses data in a split subdirectory from SOLO format to
-        L{LuxonisDataset} format.
+        """Parse one SOLO split into LDF records.
 
-        @type split_path: Path
-        @param split_path: Path to directory with sequences of images
-            and annotations.
-        @rtype: L{ParserOutput}
-        @return: C{LuxonisDataset} generator, list of class names,
-            skeleton dictionary for keypoints and list of added images.
+        Args:
+            split_path: Directory with SOLO sequences and annotations.
+
+        Returns:
+            Parser output containing annotation records, skeleton metadata,
+            and added images.
+
+        Raises:
+            FileNotFoundError: If the split directory, annotation
+                definitions file, referenced image, or referenced mask does
+                not exist.
+            ValueError: If no bounding-box class names can be identified
+                from ``annotation_definitions.json``.
+
         """
-
         if not split_path.exists():
             raise FileNotFoundError(f"{split_path} path non-existent.")
 
@@ -133,13 +142,13 @@ class SOLOParser(BaseParser):
             for sequence_path in split_path.glob("sequence*"):
                 processed_annotations_per_step: dict[
                     str, set
-                ] = {}  # Seperate json files can have the same annotations in them
+                ] = {}  # Separate JSON files can have the same annotations.
                 for frame_path in sequence_path.glob("*.frame_data*.json"):
                     frame = json.loads(frame_path.read_text())
 
-                    curent_step = frame["step"]
-                    if curent_step not in processed_annotations_per_step:
-                        processed_annotations_per_step[curent_step] = set()
+                    current_step = frame["step"]
+                    if current_step not in processed_annotations_per_step:
+                        processed_annotations_per_step[current_step] = set()
 
                     for capture in frame.get("captures", []):
                         img_fname = capture["filename"]
@@ -159,14 +168,14 @@ class SOLOParser(BaseParser):
                             if (
                                 "SemanticSegmentationAnnotation"
                                 not in processed_annotations_per_step[
-                                    curent_step
+                                    current_step
                                 ]
                                 and anno["@type"].endswith(
                                     "SemanticSegmentationAnnotation"
                                 )
                             ):
                                 processed_annotations_per_step[
-                                    curent_step
+                                    current_step
                                 ].add("SemanticSegmentationAnnotation")
 
                                 mask_fname = anno["filename"]
@@ -205,14 +214,14 @@ class SOLOParser(BaseParser):
                             elif (
                                 "BoundingBox2DAnnotation"
                                 not in processed_annotations_per_step[
-                                    curent_step
+                                    current_step
                                 ]
                                 and anno["@type"].endswith(
                                     "BoundingBox2DAnnotation"
                                 )
                             ):
                                 processed_annotations_per_step[
-                                    curent_step
+                                    current_step
                                 ].add("BoundingBox2DAnnotation")
                                 bbox_annotations = anno.get("values", [])
 
@@ -241,14 +250,14 @@ class SOLOParser(BaseParser):
                             elif (
                                 "InstanceSegmentationAnnotation"
                                 not in processed_annotations_per_step[
-                                    curent_step
+                                    current_step
                                 ]
                                 and anno["@type"].endswith(
                                     "InstanceSegmentationAnnotation"
                                 )
                             ):
                                 processed_annotations_per_step[
-                                    curent_step
+                                    current_step
                                 ].add("InstanceSegmentationAnnotation")
 
                                 mask_fname = anno["filename"]
@@ -288,14 +297,14 @@ class SOLOParser(BaseParser):
                             elif (
                                 "KeypointAnnotation"
                                 not in processed_annotations_per_step[
-                                    curent_step
+                                    current_step
                                 ]
                                 and anno["@type"].endswith(
                                     "KeypointAnnotation"
                                 )
                             ):
                                 processed_annotations_per_step[
-                                    curent_step
+                                    current_step
                                 ].add("KeypointAnnotation")
                                 keypoint_annotations = anno.get("values", [])
 
@@ -381,12 +390,13 @@ class SOLOParser(BaseParser):
     ) -> list[str]:
         """List all annotation types present in the dataset.
 
-        @type annotation_definitions_dict: dict
-        @param annotation_definitions_dict: annotation_definitions.json read as dict.
-        @rtype: List[str]
-        @return: List of annotation types (e.g. ["BoundingBox2DAnnotation", "SemanticSegmentationAnnotation", ...]).
-        """
+        Args:
+            annotation_definitions_dict: Parsed ``annotation_definitions.json``.
 
+        Returns:
+            Annotation type names.
+
+        """
         annotation_types = []
         for definition in annotation_definitions_dict["annotationDefinitions"]:
             annotation_types.append(
@@ -399,12 +409,13 @@ class SOLOParser(BaseParser):
     ) -> list[str]:
         """List class names for BoundingBox2DAnnotation type.
 
-        @type annotation_definitions_dict: dict
-        @param annotation_definitions_dict: annotation_definitions.json read as dict.
-        @rtype: List[str]
-        @return: List of class names (e.g. ["car", "motorbike", ...]).
-        """
+        Args:
+            annotation_definitions_dict: Parsed ``annotation_definitions.json``.
 
+        Returns:
+            Bounding box class names.
+
+        """
         class_names = []
         for definition in annotation_definitions_dict["annotationDefinitions"]:
             annotation_type = definition["@type"].replace(
@@ -423,12 +434,13 @@ class SOLOParser(BaseParser):
     ) -> list[str]:
         """List keypoint labels for all classes.
 
-        @type annotation_definitions_dict: dict
-        @param annotation_definitions_dict: annotation_definitions.json read as dict.
-        @rtype: List[str]
-        @return: List of keypoint labels (e.g. ["wheel_front_motorbike", "wheel_back_motorbike", ...]).
-        """
+        Args:
+            annotation_definitions_dict: Parsed ``annotation_definitions.json``.
 
+        Returns:
+            Keypoint labels.
+
+        """
         keypoint_labels = []
         for definition in annotation_definitions_dict["annotationDefinitions"]:
             annotation_type = definition["@type"].replace(

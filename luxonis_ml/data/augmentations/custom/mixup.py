@@ -11,40 +11,55 @@ from luxonis_ml.data.augmentations.custom import LetterboxResize
 
 
 class MixUp(BatchTransform):
+    r"""Batch-based augmentation that blends two images together.
+
+    Blending is performed by a convex combination of the two images
+    based on a mixing coefficient :math:`\alpha` sampled from a specified
+    distribution. The resulting image is computed as:
+
+        .. math:: \tilde{x} = \alpha x_i + \left(1 - \alpha\right) x_j
+
+    If the images have different sizes, the second image is resized to
+    match the first one.
+
+    See:
+        `mixup: Beyond Empirical Risk Minimization <https://arxiv.org/abs/1710.09412>`_.
+    """
+
     def __init__(
         self,
         alpha: float | tuple[float, float] = 0.5,
         keep_aspect_ratio: bool = True,
         p: float = 0.5,
     ):
-        """MixUp augmentation that merges two images and their
-        annotations into one. If images are not of same size then second
-        one is first resized to match the first one.
+        r"""Create a MixUp augmentation.
 
-        @type alpha: Union[float, Tuple[float, float]]
-        @param alpha: Mixing coefficient, either a single float or a
-            tuple representing the range. Defaults to C{0.5}.
-        @type keep_aspect_ratio: bool
-        @param keep_aspect_ratio: Whether to keep the aspect ratio of
-            the second image when resizing. Defaults to C{True}.
-        @type p: float, optional
-        @param p: Probability of applying the transform. Defaults to
-            C{0.5}.
+        Args:
+            alpha: Mixing coefficient or range to uniformly sample from.
+                Must stay in :math:`[0, 1]`.
+            keep_aspect_ratio: Whether to preserve the second image's
+                aspect ratio when resizing.
+            p: Probability of applying the transform.
+
+        Raises:
+            ValueError: If ``alpha`` falls outside :math:`[0, 1]` or an
+                ``alpha`` range is not in ascending order.
+
         """
         super().__init__(batch_size=2, p=p)
 
-        self.alpha = (
+        self._alpha = (
             alpha if isinstance(alpha, list | tuple) else (alpha, alpha)
         )
         if keep_aspect_ratio:
-            self.resize_transform = LetterboxResize(1, 1)
+            self._resize_transform = LetterboxResize(1, 1)
         else:
-            self.resize_transform = A.Resize(1, 1)
+            self._resize_transform = A.Resize(1, 1)
 
-        if not 0 <= self.alpha[0] <= 1 or not 0 <= self.alpha[1] <= 1:
+        if not 0 <= self._alpha[0] <= 1 or not 0 <= self._alpha[1] <= 1:
             raise ValueError("Alpha must be in range [0, 1].")
 
-        if self.alpha[0] > self.alpha[1]:
+        if self._alpha[0] > self._alpha[1]:
             raise ValueError("Alpha range must be in ascending order.")
 
     @override
@@ -55,19 +70,22 @@ class MixUp(BatchTransform):
         alpha: float,
         **_,
     ) -> np.ndarray:
-        """Applies the transformation to a batch of images.
+        r"""Apply MixUp to a batch of images.
 
-        @type image_batch: List[np.ndarray]
-        @param image_batch: Batch of input images to which the
-            transformation is applied.
-        @type image_shapes: List[Tuple[int, int]]
-        @param image_shapes: Shapes of the input images in the batch.
-        @rtype: List[np.ndarray]
-        @return: List of transformed images.
+        Args:
+            image_batch: Images to transform. Each image should be of shape
+                :math:`\left(H, W, C\right)` or :math:`\left(H, W\right)`.
+            image_shapes: Shapes of the original images.
+            alpha: Mixing coefficient.
+
+        Returns:
+            A single image of shape :math:`\left(H_{out}, W_{out}, C\right)` or
+            :math:`\left(H_{out}, W_{out}\right)` resulting from blending
+            the input images.
+
         """
-
         image1 = image_batch[0]
-        image2 = self.resize(image_batch[1], image_shapes, "image", alpha)
+        image2 = self._resize(image_batch[1], image_shapes, "image", alpha)
 
         mixup_img = cv2.addWeighted(image1, alpha, image2, 1 - alpha, 0.0)
         if mixup_img.ndim == 2:
@@ -77,29 +95,31 @@ class MixUp(BatchTransform):
     @override
     def apply_to_mask(
         self,
-        mask_batch: list[np.ndarray],
+        masks_batch: list[np.ndarray],
         image_shapes: list[tuple[int, int]],
         alpha: float,
         **_,
     ) -> np.ndarray:
-        """Applies the transformation to a batch of masks.
+        r"""Apply MixUp to a batch of semantic segmentation masks.
 
         Blends masks together. In case of a conflict, the class from the
-        mask associated with higher alpha is chosen.
+        mask associated with the higher :math:`\alpha` is chosen.
 
-        @type mask_batch: List[np.ndarray]
-        @param mask_batch: Batch of input masks to which the
-            transformation is applied.
-        @type image_shapes: List[Tuple[int, int]]
-        @param image_shapes: Shapes of the input images in the batch.
-        @type alpha: float
-        @param alpha: Mixing coefficient.
-        @rtype: List[np.ndarray]
-        @return: List of transformed masks.
+        Args:
+            masks_batch: Masks to transform. Each mask should be of shape
+                :math:`\left(H, W, C\right)` or :math:`\left(H, W\right)`.
+            image_shapes: Shapes of the original images.
+            alpha: Mixing coefficient.
+
+        Returns:
+            A single segmentation mask of shape
+            :math:`\left(H_{out}, W_{out}, C\right)` or
+            :math:`\left(H_{out}, W_{out}\right)`.
+
         """
-        mask1, mask2 = mask_batch
+        mask1, mask2 = masks_batch
         if mask2.size > 0:
-            mask2 = self.resize(mask2, image_shapes, "mask")
+            mask2 = self._resize(mask2, image_shapes, "mask")
             if mask2.ndim == 2:
                 mask2 = mask2[..., None]
 
@@ -120,30 +140,35 @@ class MixUp(BatchTransform):
     @override
     def apply_to_instance_mask(
         self,
-        mask_batch: list[np.ndarray],
+        masks_batch: list[np.ndarray],
         image_shapes: list[tuple[int, int]],
         **_,
     ) -> np.ndarray:
-        """Applies the transformation to a batch of instance masks.
+        r"""Apply MixUp to a batch of instance segmentation masks.
 
-        @type masks_batch: List[np.ndarray]
-        @param masks_batch: Batch of input instance masks to which the
-            transformation is applied.
-        @rtype: np.ndarray
-        @return: Transformed instance masks.
+        Args:
+            masks_batch: Masks to transform. Each mask should be of shape
+                :math:`\left(H, W, N\right)`, where :math:`N`
+                is the number of instances.
+            image_shapes: Shapes of the original images.
+
+        Returns:
+            A single instance masks of shape
+            :math:`\left(H_{out}, W_{out}, N\right)`.
+
         """
-        mask1, mask2 = mask_batch
+        mask1, mask2 = masks_batch
         if mask2.size > 0:
-            mask2 = self.resize(mask2, image_shapes, "mask")
+            mask2 = self._resize(mask2, image_shapes, "mask")
             if mask2.ndim == 2:
                 mask2 = mask2[..., None]
-            mask_batch[1] = mask2
+            masks_batch[1] = mask2
         if mask1.size == 0:
             return mask2
         if mask2.size == 0:
             return mask1
 
-        return np.concatenate(mask_batch, axis=-1)
+        return np.concatenate(masks_batch, axis=-1)
 
     @override
     def apply_to_bboxes(
@@ -152,20 +177,22 @@ class MixUp(BatchTransform):
         image_shapes: list[tuple[int, int]],
         **_,
     ) -> np.ndarray:
-        """Applies the transformation to a batch of bboxes.
+        """Apply MixUp to a batch of bounding boxes.
 
-        @type bboxes_batch: List[np.ndarray]
-        @param bboxes_batch: Batch of input bboxes to which the
-            transformation is applied.
-        @rtype: np.ndarray
-        @return: Transformed bboxes.
+        Args:
+            bboxes_batch: Bounding boxes to transform.
+            image_shapes: Original image shapes.
+
+        Returns:
+            Transformed bounding boxes.
+
         """
         for i in range(len(bboxes_batch)):
             bbox = bboxes_batch[i]
             if bbox.size == 0:  # pragma: no cover
                 bboxes_batch[i] = np.zeros((0, 6), dtype=bbox.dtype)
 
-        bboxes_batch[1] = self.resize(
+        bboxes_batch[1] = self._resize(
             bboxes_batch[1],
             image_shapes,
             "bboxes",
@@ -182,13 +209,15 @@ class MixUp(BatchTransform):
         image_shapes: list[tuple[int, int]],
         **_,
     ) -> np.ndarray:
-        """Applies the transformation to a batch of keypoints.
+        """Apply MixUp to a batch of keypoints.
 
-        @type keypoints_batch: List[np.ndarray]
-        @param keypoints_batch: Batch of input keypoints to which the
-            transformation is applied.
-        @rtype: np.ndarray
-        @return: Transformed keypoints.
+        Args:
+            keypoints_batch: Keypoints to transform.
+            image_shapes: Original image shapes.
+
+        Returns:
+            Transformed keypoints.
+
         """
         for i in range(len(keypoints_batch)):
             if keypoints_batch[i].size == 0:  # pragma: no cover
@@ -196,7 +225,7 @@ class MixUp(BatchTransform):
                     (0, 5), dtype=keypoints_batch[i].dtype
                 )
 
-        keypoints_batch[1] = self.resize(
+        keypoints_batch[1] = self._resize(
             keypoints_batch[1],
             image_shapes,
             "keypoints",
@@ -208,17 +237,17 @@ class MixUp(BatchTransform):
 
     @override
     def get_params(self) -> dict[str, Any]:
-        """Update parameters.
+        """Sample a mixing coefficient from the specified distribution.
 
-        @param params: Dictionary containing parameters.
-        @type params: Dict[str, Any]
-        @return: Dictionary containing updated parameters.
-        @rtype: Dict[str, Any]
+        Returns:
+            Dictionary containing ``"alpha"``
+            key with the sampled mixing coefficient.
+
         """
-        alpha = random.uniform(*self.alpha)
+        alpha = random.uniform(*self._alpha)
         return {"alpha": alpha}
 
-    def resize(
+    def _resize(
         self,
         data: np.ndarray,
         shapes: list[tuple[int, int]],
@@ -228,12 +257,12 @@ class MixUp(BatchTransform):
     ) -> np.ndarray:
         out_height, out_width = shapes[0]
         orig_height, orig_width = shapes[1]
-        self.resize_transform.height = out_height
-        self.resize_transform.width = out_width
+        self._resize_transform.height = out_height
+        self._resize_transform.width = out_width
         padding = []
-        if isinstance(self.resize_transform, LetterboxResize):
+        if isinstance(self._resize_transform, LetterboxResize):
             if alpha is not None:
-                self.resize_transform.image_fill_value = (
+                self._resize_transform._image_fill_value = (
                     int(255 * alpha),
                     int(255 * alpha),
                     int(255 * alpha),
@@ -244,16 +273,16 @@ class MixUp(BatchTransform):
             )
 
         if target_type == "image":
-            return self.resize_transform.apply(data, *padding, **kwargs)
+            return self._resize_transform.apply(data, *padding, **kwargs)
         if target_type == "mask":
-            return self.resize_transform.apply_to_mask(
+            return self._resize_transform.apply_to_mask(
                 data, *padding, **kwargs
             )
         if target_type == "bboxes":
-            return self.resize_transform.apply_to_bboxes(
+            return self._resize_transform.apply_to_bboxes(
                 data, *padding, **kwargs
             )
         if target_type == "keypoints":
-            return self.resize_transform.apply_to_keypoints(
+            return self._resize_transform.apply_to_keypoints(
                 data, *padding, **kwargs
             )

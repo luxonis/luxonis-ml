@@ -43,6 +43,42 @@ from luxonis_ml.typing import (
 
 
 class LuxonisLoader(BaseLoader):
+    r"""Indexed loader for `LuxonisDataset` samples.
+
+    `LuxonisLoader` reads one split or multiple splits, loads image
+    sources, assembles labels by task key, optionally applies
+    augmentations, and returns a tuple of image data and labels.
+
+    For a single-source dataset, ``loader[i]`` returns
+    ``(image, labels)``. For a multi-source dataset it returns
+    ``(images, labels)``, where ``images`` maps source names to arrays.
+
+    Label keys use ``"task_name/task_type"``. If a dataset was created
+    without a task name, the default task name is empty and keys look like
+    ``"/boundingbox"`` or ``"/segmentation"``.
+
+    Attributes:
+        dataset: Dataset being loaded.
+        view: Split names loaded by this loader.
+        df: Dataframe with records used by the loader.
+        classes: Class-name mappings per task.
+        source_names: Source names expected in each sample.
+        instances: Group IDs included in the selected views.
+        idx_to_df_row: Mapping from loader index to dataframe row indices.
+        color_space: Output color space per source.
+        height: Optional output image height.
+        width: Optional output image width.
+        augmentations: Optional augmentation engine.
+        exclude_empty_annotations: Whether empty annotations are omitted.
+        sync_mode: Whether the dataset is remote and pulled before loading.
+        keep_categorical_as_strings: Whether categorical metadata remains
+            as strings.
+        filter_task_names: Optional task-name allowlist.
+        tasks_without_background: Segmentation tasks where unassigned
+            pixels are mapped to background class :math:`0`.
+
+    """
+
     def __init__(
         self,
         dataset: LuxonisDataset,
@@ -65,74 +101,78 @@ class LuxonisLoader(BaseLoader):
         update_mode: UpdateMode | Literal["all", "missing"] = UpdateMode.ALL,
         filter_task_names: list[str] | None = None,
     ) -> None:
-        """A loader class used for loading data from L{LuxonisDataset}.
+        """Create a loader for a Luxonis dataset.
 
-        @type dataset: LuxonisDataset
-        @param dataset: Instance of C{LuxonisDataset} to use.
-        @type view: Union[str, List[str]]
-        @param view: What splits to use. Can be either a single split or
-            a list of splits. Defaults to C{"train"}.
-        @type augmentation_engine: Union[Literal["albumentations"], str]
-        @param augmentation_engine: The augmentation engine to use.
-            Defaults to C{"albumentations"}.
-        @type augmentation_config: Optional[Union[List[Params],
-            PathType]]
-        @param augmentation_config: The configuration for the
-            augmentations. This can be either a list of C{Dict[str, JsonValue]} or
-            a path to a configuration file.
-            The config member is a dictionary with two keys: C{name} and
-            C{params}. C{name} is the name of the augmentation to
-            instantiate and C{params} is an optional dictionary
-            of parameters to pass to the augmentation.
+        Args:
+            dataset: Dataset to load from.
+            view: Split name or split names to load.
+            augmentation_engine: Augmentation engine registry name.
+            augmentation_config: Optional augmentation configuration or path
+                to a configuration file. Each configuration item contains
+                ``name`` and optional ``params`` keys.
+            height: Optional output image height. Required when
+                augmentations are enabled.
+            width: Optional output image width. Required when augmentations
+                are enabled.
+            keep_aspect_ratio: Whether resizing should preserve image aspect
+                ratio.
+            exclude_empty_annotations: Whether to omit empty annotations
+                from the returned label dictionary.
+            color_space: Optional color space for each source. A single
+                value applies to all sources; if omitted, all sources use
+                ``"RGB"``.
+            seed: Optional random seed for augmentations.
+            min_bbox_visibility: Minimum fraction of the original bounding
+                box that must remain visible after augmentation.
+            bbox_area_threshold: Minimum normalized area for bounding boxes
+                to remain valid. The default removes very small boxes and
+                their associated keypoints.
+            keep_categorical_as_strings: Whether to keep categorical
+                metadata labels as strings instead of converting them to
+                integers.
+            update_mode: Sync mode for media files in remote datasets.
+                Annotations and metadata are always overwritten.
+            filter_task_names: Optional task names to include. If omitted,
+                all tasks are included.
 
-            Example::
+        Raises:
+            ValueError: If `color_space` is neither a string nor a
+                dictionary.
+            ValueError: If `filter_task_names` contains task names not
+                present in the dataset.
+            RuntimeError: If split metadata is missing.
 
-                [
-                    {"name": "HorizontalFlip", "params": {"p": 0.5}},
-                    {"name": "RandomBrightnessContrast", "params": {"p": 0.1}},
-                    {"name": "Defocus"}
+        Example:
+            .. python::
+
+                augmentation_config = [
+                    {
+                        "name": "Defocus",
+                        "params": {"p": 1},
+                    },
+                    {
+                        "name": "RandomCrop",
+                        "params": {"height": 512, "width": 512, "p": 1},
+                    },
+                    {
+                        "name": "Mosaic4",
+                        "params": {
+                            "height": 256,
+                            "width": 256,
+                            "p": 1.0,
+                        },
+                    },
                 ]
 
-        @type height: Optional[int]
-        @param height: The height of the output images. Defaults to
-            C{None}.
-        @type width: Optional[int]
-        @param width: The width of the output images. Defaults to
-            C{None}.
-        @type keep_aspect_ratio: bool
-        @param keep_aspect_ratio: Whether to keep the aspect ratio of the
-            images. Defaults to C{True}.
-        @type color_space: Optional[Union[dict[str, Literal["RGB", "BGR", "GRAY"]], Literal["RGB", "BGR", "GRAY"]]]
-        @param color_space: The color space to use for the images.
-            If a string is provided, it will be used for all sources. If not provided, the default is C{"RGB"} for all sources.
-        @type seed: Optional[int]
-        @param seed: The random seed to use for the augmentations.
-        @type min_bbox_visibility: float
-        @param min_bbox_visibility: Minimum fraction of the original bounding box that must remain visible after augmentation.
-        @type bbox_area_threshold: float
-        @param bbox_area_threshold: Minimum area threshold for bounding boxes to be considered valid. In the range [0, 1].
-            Default is 0.0004, which corresponds to a small area threshold to remove invalid bboxes and respective keypoints.
-        @type exclude_empty_annotations: bool
-        @param exclude_empty_annotations: Whether to exclude
-            empty annotations from the final label dictionary.
-            Defaults to C{False} (i.e. include empty annotations).
+                loader = LuxonisLoader(
+                    dataset,
+                    view="train",
+                    augmentation_config=augmentation_config,
+                    height=640,
+                    width=640,
+                )
 
-        @type keep_categorical_as_strings: bool
-        @param keep_categorical_as_strings: Whether to keep categorical
-            metadata labels as strings.
-            Defaults to C{False} (i.e. convert categorical labels to integers).
-
-        @type update_mode: UpdateMode
-        @param update_mode: Enum that determines the sync mode for media files of the remote dataset (annotations and metadata are always overwritten):
-            - UpdateMode.MISSING: Downloads only the missing media files for the dataset.
-            - UpdateMode.ALL: Always downloads and overwrites all media files in the local dataset.
-
-        @type filter_task_names: Optional[List[str]]
-        @param filter_task_names: List of task names to filter the dataset by.
-            If C{None}, all task names are included. Defaults to C{None}.
-            This is useful for filtering out tasks that are not needed for a specific use case.
         """
-
         self.exclude_empty_annotations = exclude_empty_annotations
         self.height = height
         self.width = width
@@ -185,7 +225,7 @@ class LuxonisLoader(BaseLoader):
 
         self.classes = self.dataset.get_classes()
         self.instances: list[str] = []
-        splits_path = self.dataset.metadata_path / "splits.json"
+        splits_path = self.dataset._metadata_path / "splits.json"
         if not splits_path.exists():
             raise RuntimeError(
                 "Cannot find splits! Ensure you call dataset.make_splits()"
@@ -254,25 +294,30 @@ class LuxonisLoader(BaseLoader):
 
     @override
     def __len__(self) -> int:
-        """Returns length of the dataset.
+        """Return the number of samples in the loader.
 
-        @rtype: int
-        @return: Length of the loader.
+        Returns:
+            Number of samples.
+
         """
         return len(self.instances)
 
     @override
     def __getitem__(self, idx: int) -> LoaderOutput:
-        """Function to load a sample consisting of an image and its
-        annotations.
+        """Load a sample and its annotations.
 
-        @type idx: int
-        @param idx: The integer index of the sample to retrieve.
-        @rtype: L{LuxonisLoaderOutput}
-        @return: The loader ouput consisting of the image and a
-            dictionary defining its annotations.
+        Args:
+            idx: Index of the sample to retrieve.
+
+        Returns:
+            Image data and annotation labels.
+
+        Raises:
+            ValueError: If the selected views contain no records or a
+                grayscale source has an unsupported image shape.
+            FileNotFoundError: If an image path cannot be found or read.
+
         """
-
         if self.augmentations is None:
             img_dict, labels = self._load_data(idx)
         else:
@@ -331,15 +376,15 @@ class LuxonisLoader(BaseLoader):
         return img_dict, labels
 
     def _load_data(self, idx: int) -> LoaderMultiOutput:
-        """Loads image and its annotations based on index.
+        """Load image data and annotations by index.
 
-        @type idx: int
-        @param idx: Index of the image
-        @rtype: Tuple[np.ndarray, Labels]
-        @return: Image as C{np.ndarray} in RGB format and a dictionary
-            with all the present annotations
+        Args:
+            idx: Index of the image.
+
+        Returns:
+            Images and labels present for the sample.
+
         """
-
         if not self.idx_to_df_row:
             raise ValueError(
                 f"No data found in dataset '{self.dataset.identifier}' "
@@ -356,6 +401,11 @@ class LuxonisLoader(BaseLoader):
             color_space = self.color_space.get(source_name, "RGB")
             if color_space == "GRAY":
                 img = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+            else:
+                img = cv2.imread(str(path), cv2.IMREAD_COLOR)
+            if img is None:
+                raise FileNotFoundError(f"Cannot read image at path: {path}")
+            if color_space == "GRAY":
                 if img.ndim == 2:
                     img_gray = img[..., np.newaxis]
                 elif img.ndim == 3 and img.shape[2] == 3:
@@ -367,9 +417,7 @@ class LuxonisLoader(BaseLoader):
 
                 img_dict[source_name] = img_gray
             else:
-                img_dict[source_name] = cv2.cvtColor(
-                    cv2.imread(str(path), cv2.IMREAD_COLOR), cv2.COLOR_BGR2RGB
-                )
+                img_dict[source_name] = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
         labels_by_task: dict[str, list[Annotation]] = defaultdict(list)
         class_ids_by_task: dict[str, list[int]] = defaultdict(list)
@@ -392,7 +440,7 @@ class LuxonisLoader(BaseLoader):
             full_task_name = f"{task_name}/{task_type}"
             task_type = get_task_type(full_task_name)
             if task_type == "array" and self.dataset.is_remote:
-                data["path"] = self.dataset.arrays_path / data["path"]
+                data["path"] = self.dataset._arrays_path / data["path"]
 
             if task_type.startswith("metadata/"):
                 metadata_by_task[full_task_name].append(data)
@@ -404,7 +452,7 @@ class LuxonisLoader(BaseLoader):
                     data["height"] = sample_img.shape[0]
                     data["points"] = [tuple(p) for p in data["points"]]
 
-                annotation = load_annotation(task_type, data)
+                annotation = load_annotation(task_type, data)  # type: ignore
                 labels_by_task[full_task_name].append(annotation)
                 if class_name is not None:
                     class_ids_by_task[full_task_name].append(
@@ -577,7 +625,9 @@ class LuxonisLoader(BaseLoader):
                 path = Path(img_path)
                 if not path.exists():
                     file_extension = img_path.rsplit(".", 1)[-1]
-                    path = self.dataset.media_path / f"{uuid}.{file_extension}"
+                    path = (
+                        self.dataset._media_path / f"{uuid}.{file_extension}"
+                    )
                     if not path.exists():
                         raise FileNotFoundError(
                             f"Cannot find image for uuid {uuid} and source '{source_name}'"

@@ -8,6 +8,19 @@ from luxonis_ml.typing import PathType
 
 
 class ParquetRecord(TypedDict):
+    """Single annotation row written to parquet.
+
+    Attributes:
+        file: Image or source file path.
+        source_name: Source component name.
+        task_name: Task name.
+        class_name: Optional class name.
+        instance_id: Optional instance identifier.
+        task_type: Optional task type.
+        annotation: Optional serialized annotation JSON.
+
+    """
+
     file: str
     source_name: str
     task_name: str
@@ -18,17 +31,47 @@ class ParquetRecord(TypedDict):
 
 
 class ParquetFileManager:
+    """Manage append-style writes across partitioned parquet files.
+
+    Rows are buffered in memory and flushed to the current parquet file.
+    A new file is selected every ``num_rows`` writes. Filenames are
+    zero-padded numeric counters such as ``0000000000.parquet``.
+
+    Attributes:
+        dir: Directory containing parquet files.
+        parquet_files: Existing parquet files discovered in ``dir``.
+        num_rows: Maximum rows written to one parquet file.
+        num: Current parquet file index.
+        current_file: Path to the current parquet file.
+        buffer: In-memory column buffer for the current file.
+        row_count: Number of rows currently buffered or loaded from the
+            current file.
+
+    """
+
     def __init__(self, directory: PathType, num_rows: int = 100_000) -> None:
-        """Manages the insertion of data into parquet files.
+        """Manage writing rows into partitioned parquet files.
 
-        @type directory: str
-        @param directory: The local directory in which parquet files are
-            stored.
-        @type num_rows: int
-        @param num_rows: The maximum number of rows permitted in a
-            parquet file before another file is created.
+        Args:
+            directory: Local directory where parquet files are stored.
+            num_rows: Maximum rows per parquet file before a new file is
+                created.
+
+        Example:
+            >>> record = {
+            ...     "file": "image.jpg",
+            ...     "source_name": "image",
+            ...     "task_name": "detection",
+            ...     "class_name": "car",
+            ...     "instance_id": 0,
+            ...     "task_type": "boundingbox",
+            ...     "annotation": "{}",
+            ... }
+            >>> manager = ParquetFileManager("/tmp/ldf-parquet-example", num_rows=2)
+            >>> manager.num_rows
+            2
+
         """
-
         self.dir = Path(directory)
         self.parquet_files = list(self.dir.glob("*.parquet"))
         self.num_rows = num_rows
@@ -60,18 +103,14 @@ class ParquetFileManager:
         self.buffer["group_id"] = []
 
     def write(self, uuid: str, data: ParquetRecord, group_id: str) -> None:
-        """Writes a row to the current working parquet file.
+        """Write a row to the current parquet file.
 
-        @type uuid: str
-        @param uuid: A unique identifier for the row, typically a UUID.
-        @type data: Dict
-        @param data: A dictionary representing annotations, mapping
-            annotation types to values.
-        @type group_id: str
-        @param group_id: An unique identifier for the group to which the
-            row belongs.
+        Args:
+            uuid: Unique row identifier.
+            data: Annotation row data.
+            group_id: Unique identifier for the sample group.
+
         """
-
         if not self.buffer:
             self._initialize_data(data)
 
@@ -101,8 +140,7 @@ class ParquetFileManager:
         self._read()
 
     def _flush(self) -> None:
-        """Writes buffered data to parquet."""
-
+        """Write buffered data to parquet."""
         if self.buffer:
             df = pl.DataFrame(self.buffer)
             df.write_parquet(self.current_file)

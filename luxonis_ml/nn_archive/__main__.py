@@ -34,9 +34,15 @@ def inspect(
         bool, typer.Option(..., "-h", "--heads", help="Print heads info.")
     ] = False,
 ):
-    """Prints NN Archive configuration.
+    """Print NN Archive configuration.
 
-    If no options are provided, all info is printed.
+    Args:
+        path: Path to the NN Archive.
+        inputs: Print inputs info.
+        metadata: Print metadata.
+        outputs: Print outputs info.
+        heads: Print heads info.
+
     """
 
     with tarfile.open(path) as tar:
@@ -72,17 +78,24 @@ def extract(
         ),
     ] = ".",
 ):
-    """Extracts NN Archive.
+    """Extract an NN Archive.
 
-    Extracts the NN Archive to the destination path. By default, the
-    Archive is extracted to the current working directory.
+    By default, the archive is extracted to the current working
+    direct
+
+    Args:
+        path: Path to the NN Archive.
+        destination: Path where to extract the Archive.
+            If not provided, the Archive is extracted to the current
+            working directory.ory.
+
     """
 
     extract_path = Path(destination) / (Path(path).name.split(".")[0])
     extract_path.mkdir(exist_ok=True, parents=True)
 
     def safe_members(tar: tarfile.TarFile) -> list[tarfile.TarInfo]:
-        """Filter members to prevent path traversal attacks."""
+        """Filter archive members to prevent path traversal attacks."""
         safe_files = []
         for member in tar.getmembers():
             # Normalize path and ensure it's within the extraction folder

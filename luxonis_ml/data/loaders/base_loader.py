@@ -12,34 +12,39 @@ class BaseLoader(
 ):
     """Base abstract loader class.
 
-    Enforces the L{LuxonisLoaderOutput} output label structure.
+    Implementations return samples in the loader output format used by
+    Luxonis datasets.
     """
 
     @abstractmethod
     def __len__(self) -> int:
-        """Returns the length of the dataset.
+        """Return the number of samples in the dataset.
 
-        @rtype: int
-        @return: Length of the dataset.
+        Returns:
+            Number of samples.
+
         """
         ...
 
     @abstractmethod
     def __getitem__(self, idx: int) -> LoaderOutput:
-        """Loads sample from dataset.
+        """Load a sample from the dataset.
 
-        @type idx: int
-        @param idx: Index of the sample to load.
-        @rtype: L{LuxonisLoaderOutput}
-        @return: Sample's data in C{LuxonisLoaderOutput} format.
+        Args:
+            idx: Index of the sample to load.
+
+        Returns:
+            Sample data in loader output format.
+
         """
         ...
 
     def __iter__(self) -> Iterator[LoaderOutput]:
-        """Iterates over the dataset.
+        """Iterate over the dataset.
 
-        @rtype: Iterator[L{LuxonisLoaderOutput}]
-        @return: Iterator over the dataset.
+        Returns:
+            Iterator over loader outputs.
+
         """
         for i in range(len(self)):
             yield self[i]

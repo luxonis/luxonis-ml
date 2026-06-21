@@ -22,19 +22,20 @@ def setup_logging(
     use_rich: bool = True,
     **kwargs,
 ) -> None:  # pragma: no cover
-    """Sets up global logging using loguru and rich.
+    """Set up global logging using loguru and rich.
 
-    @type level: Optional[str]
-    @param level: Logging level. If not set, reads from the environment
-        variable C{LOG_LEVEL}. Defaults to "INFO".
-    @type file: Optional[str]
-    @param file: Path to the log file. If provided, logs will be saved
-        to this file.
-    @type use_rich: bool
-    @param use_rich: If True, uses rich for logging. Defaults to True.
-    @type kwargs: Any
-    @param kwargs: Additional keyword arguments to pass to
-        C{RichHandler}.
+    Args:
+        level: Logging level. If not set, reads from the environment
+            variable ``LOG_LEVEL``.
+        file: Path to the log file. If provided, logs will be saved to
+            this file.
+        use_rich: If True, uses rich for logging.
+        **kwargs: Additional keyword arguments to pass to
+            ``RichHandler``.
+
+    Raises:
+        ValueError: If the logging level is invalid.
+
     """
     from loguru import logger
 
@@ -95,7 +96,7 @@ def setup_logging(
         category: type[Warning],
         filename: str,
         lineno: int,
-        _file: str | None = None,
+        file: str | None = None,
         line: str | None = None,
     ) -> None:
         text = warnings.formatwarning(
@@ -112,33 +113,40 @@ def deprecated(
     additional_message: str | None = None,
     altogether: bool = False,
 ) -> Callable[[Callable], Callable]:
-    """Decorator to mark a function or its parameters as deprecated.
+    """Mark a function or its parameters as deprecated.
 
     Example:
+        .. python::
 
-        >>> @deprecated("old_arg",
-        ...             "another_old_arg",
-        ...             suggest={"old_arg": "new_arg"},
-        ...             additional_message="Usage of 'old_arg' is discouraged.")
-        ...def my_func(old_arg, another_old_arg, new_arg=None):
-        ...   pass
-        >>> my_func("foo")
-        >>> # DeprecationWarning: Argument 'old_arg'
-        ... # in function `my_func` is deprecated and
-        ... # will be removed in future versions.
-        ... # Use 'new_arg' instead.
-        ... # Usage of 'old_arg' is discouraged.
+            decorator = deprecated(
+                "old_arg",
+                "another_old_arg",
+                suggest={"old_arg": "new_arg"},
+                additional_message="Usage of 'old_arg' is discouraged.",
+            )
 
-    @type args: str
-    @param args: The names of the deprecated parameters.
-    @type suggest: Dict[str, str]
-    @param suggest: Suggested replacement parameters.
-    @type additional_message: str
-    @param additional_message: Additional message to display.
-        If provided, it will be appended to the warning message.
-    @type altogether: bool
-    @param altogether: If True, the whole function is
-        marked as deprecated. Defaults to False.
+            def my_func(old_arg, another_old_arg, new_arg=None):
+                pass
+
+            my_func = decorator(my_func)
+            my_func("foo")
+
+            # DeprecationWarning: Argument 'old_arg'
+            # in function `my_func` is deprecated and
+            # will be removed in future versions.
+            # Use 'new_arg' instead.
+            # Usage of 'old_arg' is discouraged.
+
+    Args:
+        *args: Names of the deprecated parameters.
+        suggest: Suggested replacement parameters.
+        additional_message: Additional message to append to the warning
+            message.
+        altogether: If True, marks the whole function as deprecated.
+
+    Returns:
+        Decorator that emits deprecation warnings.
+
     """
 
     def decorator(func: Callable) -> Callable:
@@ -176,12 +184,12 @@ def deprecated(
 
 
 def log_once(logger: Callable[[str], None], message: str) -> None:
-    """Logs a message only once.
+    """Log a message only once.
 
-    @type logger: Logger
-    @param logger: The logger to use.
-    @type message: str
-    @param message: The message to log.
+    Args:
+        logger: The logger to use.
+        message: The message to log.
+
     """
     _cache: set[str]
 

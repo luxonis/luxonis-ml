@@ -69,6 +69,38 @@ def find_filepath_uuid(
     *,
     raise_on_missing: bool = False,
 ) -> str | None:
+    """Find the UUID assigned to an original file path.
+
+    Args:
+        filepath: Original file path to look up.
+        index: Optional dataframe containing ``original_filepath`` and
+            ``uuid`` columns.
+        raise_on_missing: Whether to raise when the path is not in the
+            index.
+
+    Returns:
+        Matching UUID, or ``None`` when ``index`` is ``None`` or the path
+        is missing and ``raise_on_missing`` is ``False``.
+
+    Raises:
+        ValueError: If ``raise_on_missing`` is ``True`` and the path is
+            not in the index.
+
+    Examples:
+        >>> import polars as pl
+        >>> path = Path("image.jpg").absolute().resolve()
+        >>> index = pl.DataFrame({
+        ...     "original_filepath": [str(path)],
+        ...     "uuid": ["abc"],
+        ... })
+        >>> find_filepath_uuid(path, index)
+        'abc'
+        >>> find_filepath_uuid("missing.jpg", index, raise_on_missing=True)
+        Traceback (most recent call last):
+        ...
+        ValueError: File ...missing.jpg not found in index
+
+    """
     if index is None:
         return None
 
@@ -106,6 +138,36 @@ def find_filepath_group_id(
     *,
     raise_on_missing: bool = False,
 ) -> str | None:
+    """Find the group ID assigned to an original file path.
+
+    Args:
+        filepath: Original file path to look up.
+        index: Optional dataframe containing ``original_filepath`` and
+            ``group_id`` columns.
+        raise_on_missing: Whether to raise when the path is not in the
+            index.
+
+    Returns:
+        Matching group ID, or ``None`` when ``index`` is ``None`` or the
+        path is missing and ``raise_on_missing`` is ``False``.
+
+    Raises:
+        ValueError: If ``raise_on_missing`` is ``True`` and the path is
+            not in the index.
+
+    Examples:
+        >>> import polars as pl
+        >>> path = Path("image.jpg").absolute().resolve()
+        >>> index = pl.DataFrame({
+        ...     "original_filepath": [str(path)],
+        ...     "group_id": ["group-1"],
+        ... })
+        >>> find_filepath_group_id(path, index)
+        'group-1'
+        >>> find_filepath_group_id(None, None) is None
+        True
+
+    """
     if index is None:
         return None
 

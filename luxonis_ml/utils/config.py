@@ -3,7 +3,7 @@ from pathlib import Path, PurePath
 from typing import Any, TypeVar
 
 import yaml
-from typing_extensions import Self
+from typing_extensions import Self, deprecated
 
 from luxonis_ml.typing import BaseModelExtraForbid, Params, PathType
 
@@ -19,18 +19,28 @@ class LuxonisConfig(BaseModelExtraForbid):
     def get_config(
         cls,
         cfg: PathType | Params | None = None,
-        overrides: Params | list[str] | tuple[str, ...] | None = None,
+        overrides: Params
+        | dict[str, Any]
+        | list[str]
+        | tuple[str, ...]
+        | None = None,
     ) -> Self:
-        """Loads config from a yaml file or a dictionary.
+        """Load config from a yaml file or a dictionary.
 
-        @type cfg: Optional[Union[str, dict]]
-        @param cfg: Path to config file or a dictionary.
-        @type overrides: Optional[Union[dict, list[str], tuple[str, ...]]]
-        @param overrides: List of CLI overrides in a form of a dictionary mapping
-            "dotted" keys to unparsed string or python values.
-        @rtype: LuxonisConfig
-        @return: Instance of the config class.
-        @raise ValueError: If neither C{cfg} nor C{overrides} are provided.
+        Args:
+            cfg: Path to a config file or a dictionary.
+            overrides: CLI overrides. Can be a dictionary mapping
+                "dotted" keys to unparsed string or Python values, or a
+                list or a tuple of alternating key-value pairs.
+
+        Returns:
+            Instance of the config class.
+
+        Raises:
+            ValueError: If neither ``cfg`` nor ``overrides`` is provided,
+                or if ``overrides`` is a list or a tuple with an odd number
+                of items.
+
         """
         if cfg is None and overrides is None:
             raise ValueError(
@@ -67,19 +77,25 @@ class LuxonisConfig(BaseModelExtraForbid):
     def __repr__(self) -> str:
         return self.__str__()
 
+    @deprecated("Use `model_json_schema(mode='validation')` instead.")
     def get_json_schema(self) -> Params:
-        """Retuns dict representation of the config json schema.
+        """Return the JSON schema of the config.
 
-        @rtype: dict
-        @return: Dictionary with config json schema.
+        .. deprecated:: 0.9.0
+           Use ``model_json_schema(mode='validation')`` instead.
+
+        Returns:
+            Dictionary with the JSON schema.
+
         """
         return self.model_json_schema(mode="validation")
 
     def save_data(self, path: PathType) -> None:
-        """Saves config to a yaml file.
+        """Save the config to a YAML file.
 
-        @type path: str
-        @param path: Path to output yaml file.
+        Args:
+            path: Path to the file where the config should be saved.
+
         """
 
         def path_representer(
@@ -93,18 +109,20 @@ class LuxonisConfig(BaseModelExtraForbid):
             yaml.safe_dump(self.model_dump(), f, default_flow_style=False)
 
     def get(self, key_merged: str, default: Any = None) -> Any:
-        """Returns a value from L{Config} based on the given key.
+        """Return a value from the config based on the given key.
 
         If the key doesn't exist, the default value is returned.
 
-        @type key_merged: str
-        @param key_merged: Key in a form of a string with levels
-            separated by dots.
-        @type default: Any
-        @param default: Default value to return if the key doesn't
-            exist.
-        @rtype: Any
-        @return: Value of the key or default value.
+        Args:
+            key_merged: Key as a string with levels separated by dots.
+            default: Default value to return if the key doesn't exist.
+
+        Returns:
+            Value of the key, or the default value.
+
+        Raises:
+            ValueError: If a list is accessed with a non-integer key.
+
         """
         value = self
         for key in key_merged.split("."):
@@ -130,16 +148,18 @@ class LuxonisConfig(BaseModelExtraForbid):
 
     @staticmethod
     def _merge_overrides(data: Params, overrides: Params) -> None:
-        """Merges the config dictionary with the CLI overrides.
+        """Merge the config dictionary with the CLI overrides.
 
         The overrides are a dictionary mapping "dotted" keys to either
         final or unparsed values.
 
-        @type data: dict
-        @param data: Dictionary with config data.
-        @type overrides: dict
-        @param overrides: Dictionary with CLI overrides.
-        @raise ValueError: If the overrides contain an invalid option.
+        Args:
+            data: Dictionary with config data.
+            overrides: Dictionary with CLI overrides.
+
+        Raises:
+            ValueError: If the overrides contain an invalid option.
+
         """
 
         def _parse_value(value: Any) -> Any:

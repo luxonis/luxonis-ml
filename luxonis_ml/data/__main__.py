@@ -66,7 +66,7 @@ def info(
     name: DatasetNameArgument,
     bucket_storage: BucketStorage = bucket_option,
 ):
-    """Prints information about a dataset."""
+    """Print information about a dataset."""
     check_exists(name, bucket_storage)
     print_info(LuxonisDataset(name, bucket_storage=bucket_storage))
 
@@ -86,8 +86,7 @@ def delete(
         help="Delete the dataset from remote storage.",
     ),
 ):
-    """Deletes a dataset from local storage or remote storage (or both),
-    based on which options are passed."""
+    """Delete a dataset from the selected storage locations."""
     check_exists(name, bucket_storage)
 
     if bucket_storage is BucketStorage.LOCAL and remote:
@@ -135,7 +134,7 @@ def ls(
     ),
     bucket_storage: BucketStorage = bucket_option,
 ):
-    """Lists all datasets."""
+    """List all datasets."""
     datasets = LuxonisDataset.list_datasets(bucket_storage=bucket_storage)
     table = Table(
         title="Datasets" + (" - Full Table" if full else ""),
@@ -268,7 +267,7 @@ def inspect(
     ] = False,
     bucket_storage: BucketStorage = bucket_option,
 ):
-    """Inspects images and annotations in a dataset."""
+    """Inspect images and annotations in a dataset."""
     if aug_config is not None:
         aug_config_path = Path(aug_config)
         if aug_config_path.suffix.lower() not in {".yaml", ".yml", ".json"}:
@@ -335,10 +334,7 @@ def inspect(
     prev_windows = set()
 
     for img, labels in loader:
-        if isinstance(img, dict):
-            images_dict = img
-        else:
-            images_dict = {"image": img}
+        images_dict = img if isinstance(img, dict) else {"image": img}
 
         current_windows = set(images_dict.keys())
         for stale_window in prev_windows - current_windows:
@@ -483,7 +479,8 @@ def export(
     bucket_storage: BucketStorage = bucket_option,
 ):
     """Export a Luxonis dataset to disk in native format, with optional
-    partitioning and zip compression for flexible storage."""
+    partitioning and zip compression for flexible storage.
+    """
     save_dir = save_dir or dataset_name
     if delete_existing and Path(save_dir).exists():
         shutil.rmtree(save_dir)
@@ -567,7 +564,7 @@ def parse(
         ),
     ] = None,
 ):
-    """Parses a directory with data and creates Luxonis dataset."""
+    """Parse a data directory and create a Luxonis dataset."""
     split_ratios = parse_split_ratio(split_ratio)
 
     parser = LuxonisParser(
@@ -613,7 +610,7 @@ def health(
     ),
     bucket_storage: BucketStorage = bucket_option,
 ):
-    """Plots class distributions and heatmaps for every task type and
+    """Plot class distributions and heatmaps for every task type and
     corresponding task name in the dataset.
 
     Also checks for files with missing annotations, files that share the
@@ -885,7 +882,6 @@ def clone(
 
     Optionally push it to cloud storage if it is a remote dataset.
     """
-
     check_exists(name, bucket_storage)
 
     if LuxonisDataset.exists(
@@ -1023,7 +1019,8 @@ def sanitize(
     bucket_storage: BucketStorage = bucket_option,
 ):
     """Remove duplicate annotations and duplicate files from the
-    dataset."""
+    dataset.
+    """
     check_exists(name, bucket_storage)
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
     dataset.remove_duplicates()
