@@ -116,11 +116,14 @@ class LuxonisParser(Generic[T]):
                 Can be one of:
 
                     - Local path to the dataset directory.
+
                     - Remote URL supported by L{LuxonisFileSystem}.
-                      - ``gcs://`` for Google Cloud Storage
-                      - ``s3://`` for Amazon S3
+                        - ``gcs://`` for Google Cloud Storage
+                        - ``s3://`` for Amazon S3
+
                     - ``roboflow://`` for Roboflow datasets.
-                      - Expected format: ``roboflow://workspace/project/version/format``.
+                        - Expected format: ``roboflow://workspace/project/version/format``.
+
                     - ``ultralytics://`` for Ultralytics Platform datasets.
                         - Expected format: ``ultralytics://username/datasets/slug``
                         - Optional version: append ``?v=<version>`` to export a specific dataset version.
