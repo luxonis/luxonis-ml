@@ -289,6 +289,7 @@ from .create_ml_parser import CreateMLParser
 from .darknet_parser import DarknetParser
 from .fiftyone_classification_parser import FiftyOneClassificationParser
 from .luxonis_parser import LuxonisParser
+from .native_parser import NativeParser
 from .segmentation_mask_directory_parser import SegmentationMaskDirectoryParser
 from .solo_parser import SOLOParser
 from .tensorflow_csv_parser import TensorflowCSVParser
@@ -306,6 +307,7 @@ __all__ = [
     "DarknetParser",
     "FiftyOneClassificationParser",
     "LuxonisParser",
+    "NativeParser",
     "ParserIssue",
     "ParserIssueMessage",
     "SOLOParser",
