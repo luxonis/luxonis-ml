@@ -71,6 +71,7 @@ def test_dataset_record(tempdir: Path):
                 "file": left,  # type: ignore
                 "source_name": "image",
                 "task_name": "",
+                "metadata": {},
                 "class_name": None,
                 "instance_id": None,
                 "task_type": None,
@@ -93,6 +94,7 @@ def test_dataset_record(tempdir: Path):
                 "file": left,  # type: ignore
                 "source_name": "image",
                 "task_name": "",
+                "metadata": {},
                 "class_name": "person",
                 "instance_id": -1,
                 "task_type": "boundingbox",
@@ -102,6 +104,7 @@ def test_dataset_record(tempdir: Path):
                 "file": left,  # type: ignore
                 "source_name": "image",
                 "task_name": "",
+                "metadata": {},
                 "class_name": "person",
                 "instance_id": -1,
                 "task_type": "classification",
@@ -118,6 +121,71 @@ def test_dataset_record(tempdir: Path):
     )
     with pytest.raises(ValueError, match="must have exactly one file"):
         _ = record.file
+
+    record = DatasetRecord(
+        file=left,  # type: ignore
+        metadata={"file_name": "left.jpg", "tags": ["night", "synthetic"]},
+    )
+    compare_parquet_rows(
+        record,
+        [
+            {
+                "file": left,  # type: ignore
+                "source_name": "image",
+                "task_name": "",
+                "metadata": {
+                    "file_name": "left.jpg",
+                    "tags": ["night", "synthetic"],
+                },
+                "class_name": None,
+                "instance_id": None,
+                "task_type": None,
+                "annotation": None,
+            }
+        ],
+    )
+
+    record = DatasetRecord(
+        files={"left": left, "right": right},
+        metadata={"group": "stereo"},
+    )
+    compare_parquet_rows(
+        record,
+        [
+            {
+                "file": left,  # type: ignore
+                "source_name": "left",
+                "task_name": "",
+                "metadata": {"group": "stereo"},
+                "class_name": None,
+                "instance_id": None,
+                "task_type": None,
+                "annotation": None,
+            },
+            {
+                "file": right,  # type: ignore
+                "source_name": "right",
+                "task_name": "",
+                "metadata": {},
+                "class_name": None,
+                "instance_id": None,
+                "task_type": None,
+                "annotation": None,
+            },
+        ],
+    )
+
+
+def test_detection_metadata_deprecation():
+    with pytest.warns(DeprecationWarning, match="Use the 'labels' field"):
+        detection = Detection(metadata={"age": 25})  # type: ignore
+    assert detection.labels == {"age": 25}
+
+    with (
+        pytest.warns(DeprecationWarning, match="Use the 'labels' field"),
+        pytest.raises(pydantic.ValidationError, match="Both 'metadata'"),
+    ):
+        Detection(metadata={"age": 25}, labels={"age": 26})  # type: ignore
 
 
 def test_bbox_annotation(subtests: SubTests):
@@ -596,6 +664,7 @@ def test_record(tempdir: Path):
     common = {
         "file": filename,
         "source_name": "image",
+        "metadata": {},
         "instance_id": -1,
     }
     expected_rows = [
@@ -631,7 +700,7 @@ def test_record(tempdir: Path):
             **common,
             "task_name": "test",
             "class_name": "person",
-            "task_type": "metadata/age",
+            "task_type": "labels/age",
             "annotation": "25",
         },
         {

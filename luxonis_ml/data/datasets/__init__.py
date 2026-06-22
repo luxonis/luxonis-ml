@@ -149,7 +149,7 @@ LUXONISML_TEAM_ID / datasets / dataset_name``. The default base path is
      - Local copies of remote media. Local-only datasets may keep this
        directory empty and continue referencing the original files.
    * - ``metadata/metadata.json``
-     - Dataset metadata, source descriptors, class mappings, task metadata,
+     - Dataset metadata, source descriptors, class mappings, custom task labels,
        categorical encodings, skeleton definitions, and LDF version metadata.
    * - ``metadata/splits.json``
      - Mapping from split names to dataset sample identifiers.

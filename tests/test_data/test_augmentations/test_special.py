@@ -19,7 +19,7 @@ def _get_transform_names(wrapped_transform: Any) -> list[str]:
     )
 
 
-def test_metadata_no_boxes():
+def test_labels_no_boxes():
     config = [
         {
             "name": "Defocus",
@@ -33,21 +33,21 @@ def test_metadata_no_boxes():
     augmentations = AlbumentationsEngine(
         256,
         256,
-        {"/metadata/id": "metadata/id"},
-        {"/metadata/id": 0},
+        {"/labels/id": "labels/id"},
+        {"/labels/id": 0},
         ["image"],
         config,
     )
-    _, labels = augmentations.apply(
+    _, labels, _ = augmentations.apply(
         [
             (
                 {"image": np.zeros((3, 256, 256))},
-                {"/metadata/id": np.array([i])},
+                {"/labels/id": np.array([i])},
             )
             for i in range(4)
         ]
     )
-    assert labels["/metadata/id"].tolist() == [0, 1, 2, 3]
+    assert labels["/labels/id"].tolist() == [0, 1, 2, 3]
 
 
 def test_skip_augmentations():
@@ -276,7 +276,7 @@ def test_use_for_resizing_falls_back_to_default_resize():
         seed=42,
     )
 
-    images, _ = augmentations.apply(
+    images, _, _ = augmentations.apply(
         [
             (
                 {"image": np.full((100, 200, 3), 255, dtype=np.uint8)},

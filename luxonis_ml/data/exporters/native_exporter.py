@@ -119,6 +119,8 @@ class NativeExporter(BaseExporter):
             ),
             "task_name": task_name,
         }
+        if metadata := self._decode_metadata(row.get("metadata")):
+            record["metadata"] = metadata
 
         if ann_str is not None:
             data = json.loads(ann_str)
@@ -133,11 +135,19 @@ class NativeExporter(BaseExporter):
                 "keypoints",
             ):
                 ann[task_type] = data
-            elif task_type.startswith("metadata/"):
-                ann["metadata"] = {task_type[9:]: data}
+            elif task_type.startswith("labels/"):
+                ann["labels"] = {task_type[9:]: data}
             record["annotation"] = ann
 
         return record
+
+    @staticmethod
+    def _decode_metadata(value: Any) -> dict[str, Any]:
+        if value in (None, ""):
+            return {}
+        if isinstance(value, str):
+            value = json.loads(value)
+        return value if isinstance(value, dict) else {}
 
     def _dump_annotations(
         self,

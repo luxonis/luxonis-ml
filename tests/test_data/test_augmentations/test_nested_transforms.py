@@ -30,6 +30,7 @@ def _make_sample() -> list[LoaderMultiOutput]:
                 )
             },
             {"/classification": np.array([0])},
+            {},
         )
     ]
 
@@ -48,7 +49,7 @@ def test_oneof_in_pipeline():
             },
         },
     ]
-    images, _ = _make_engine(config).apply(_make_sample())
+    images, _, _ = _make_engine(config).apply(_make_sample())
     assert images["image"].shape == (256, 256, 256)
 
 
@@ -67,7 +68,7 @@ def test_someof_in_pipeline():
             },
         },
     ]
-    images, _ = _make_engine(config).apply(_make_sample())
+    images, _, _ = _make_engine(config).apply(_make_sample())
     assert images["image"].shape == (256, 256, 256)
 
 
@@ -86,7 +87,7 @@ def test_mixed_pipeline():
             },
         },
     ]
-    images, _ = _make_engine(config).apply(_make_sample())
+    images, _, _ = _make_engine(config).apply(_make_sample())
     assert images["image"].shape == (256, 256, 256)
 
 
@@ -200,19 +201,19 @@ def _apply_config(
     n_classes: dict[str, int],
     image: np.ndarray,
     labels: Labels,
-) -> tuple[dict[str, np.ndarray], Labels]:
+) -> LoaderMultiOutput:
     engine = AlbumentationsEngine(
         H, W, targets, n_classes, ["image"], config, seed=SEED
     )
-    return engine.apply([({"image": image.copy()}, deepcopy(labels))])
+    return engine.apply([({"image": image.copy()}, deepcopy(labels), {})])
 
 
 def _assert_results_equal(
-    result_a: tuple[dict[str, np.ndarray], Labels],
-    result_b: tuple[dict[str, np.ndarray], Labels],
+    result_a: LoaderMultiOutput,
+    result_b: LoaderMultiOutput,
 ) -> None:
-    images_a, labels_a = result_a
-    images_b, labels_b = result_b
+    images_a, labels_a, _ = result_a
+    images_b, labels_b, _ = result_b
 
     np.testing.assert_array_equal(
         images_a["image"], images_b["image"], err_msg="Images differ"

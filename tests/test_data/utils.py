@@ -30,7 +30,7 @@ def create_image(i: int, dir: Path) -> Path:
 
 def get_loader_output(loader: LuxonisLoader) -> set[str]:
     all_labels = set()
-    for _, labels in loader:
+    for _, labels, _ in loader:
         all_labels.update(labels.keys())
     return all_labels
 

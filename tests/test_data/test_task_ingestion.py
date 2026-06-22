@@ -20,7 +20,7 @@ def compute_histogram(dataset: LuxonisDataset) -> dict[str, int]:
     loader = LuxonisLoader(
         dataset, exclude_empty_annotations=True, update_mode=UpdateMode.ALL
     )
-    for _, record in loader:
+    for _, record, _ in loader:
         for task in record:
             if get_task_type(task) != "classification":
                 classes[get_task_name(task)] += 1

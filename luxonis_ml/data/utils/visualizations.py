@@ -585,9 +585,9 @@ def visualize(
         blend_all: Whether to blend all labels, except semantic
             segmentations, into a single image. This mixes labels that
             belong to different tasks.
-        categorical_encodings: optional mapping for categorical metadata
-            tasks. Keys are full task identifiers such as
-            ``"task_name/metadata/key"`` and values map string labels to
+        categorical_encodings: Optional mapping for categorical labels.
+            Keys are full task identifiers such as
+            ``"{task_name}/labels/{key}"`` and values map string labels to
             encoded integers.
 
     Returns:
@@ -597,7 +597,7 @@ def visualize(
     h, w, _ = image.shape
     images = {source_name: image}
     mappings = {task: bidict(c) for task, c in classes.items()}
-    metadata_mappings = {
+    custom_labels_mappings = {
         task: bidict(encoding)
         for task, encoding in (categorical_encodings or {}).items()
     }
@@ -638,17 +638,17 @@ def visualize(
 
     bbox_classes = defaultdict(list)
     classification_labels: list[tuple[str, list[str]]] = []
-    metadata_labels: list[tuple[str, list[str]]] = []
+    custom_labels: list[tuple[str, list[str]]] = []
 
-    def format_metadata_value(task: str, value: object) -> str:
+    def format_label_value(task: str, value: object) -> str:
         if isinstance(value, np.generic):
             value = value.item()
 
-        if task in metadata_mappings and isinstance(
+        if task in custom_labels_mappings and isinstance(
             value, (int, str, bytes, bytearray)
         ):
             try:
-                return metadata_mappings[task].inverse[int(value)]
+                return custom_labels_mappings[task].inverse[int(value)]
             except (KeyError, ValueError):
                 pass
 
@@ -721,23 +721,21 @@ def visualize(
 
     for task, arr in labels.items():
         task_type = get_task_type(task)
-        if not task_type.startswith("metadata/"):
+        if not task_type.startswith("labels/"):
             continue
 
-        metadata_name = task_type.removeprefix("metadata/")
+        label_name = task_type.removeprefix("labels/")
         task_name = get_task_name(task)
-        label_name = (
-            f"{task_name}/{metadata_name}" if task_name else metadata_name
-        )
+        label_name = f"{task_name}/{label_name}" if task_name else label_name
         values = np.asarray(arr).reshape(-1)
         if len(values) == 0:
             continue
 
         formatted_values = [
-            format_metadata_value(task, value) for value in values
+            format_label_value(task, value) for value in values
         ]
         unique_values = list(dict.fromkeys(formatted_values))
-        metadata_labels.append((label_name, unique_values))
+        custom_labels.append((label_name, unique_values))
 
     for task, arr in task_type_iterator(labels, "keypoints"):
         task_name = get_task_name(task)
@@ -798,12 +796,12 @@ def visualize(
             ]
         )
 
-    if metadata_labels:
+    if custom_labels:
         text_lines.extend(
-            ["Metadata labels:"]
+            ["Custom labels:"]
             + [
                 f"{label_name}: {', '.join(values)}"
-                for label_name, values in metadata_labels
+                for label_name, values in custom_labels
             ]
         )
 

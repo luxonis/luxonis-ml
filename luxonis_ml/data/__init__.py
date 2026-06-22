@@ -69,7 +69,7 @@ Example:
         dataset = LuxonisDataset("parking_lot")
         loader = LuxonisLoader(dataset, view="train")
 
-        for inputs, labels in loader:
+        for inputs, labels, metadata in loader:
             ...
 
 Note:

@@ -6,15 +6,15 @@ from luxonis_ml.data.utils import (
     get_task_name,
     get_task_type,
     split_task,
-    task_is_metadata,
+    task_is_label,
     task_type_iterator,
 )
 
 
-def test_task_is_metadata():
-    assert task_is_metadata("a/b/metadata/c")
-    assert task_is_metadata("metadata/c")
-    assert not task_is_metadata("a/b/c")
+def test_task_is_label():
+    assert task_is_label("a/b/labels/c")
+    assert task_is_label("labels/c")
+    assert not task_is_label("a/b/c")
 
 
 def test_split_task():
@@ -33,14 +33,14 @@ def test_get_task_type():
     assert get_task_type("a/b") == "b"
     assert get_task_type("a") == "a"
     assert get_task_type("a/b/c") == "c"
-    assert get_task_type("a/b/metadata/c") == "metadata/c"
-    assert get_task_type("metadata/c") == "metadata/c"
+    assert get_task_type("a/b/labels/c") == "labels/c"
+    assert get_task_type("labels/c") == "labels/c"
 
 
 def test_task_type_iterator():
     labels = {
         "task/segmentation": np.array([]),
-        "task/metadata/text": np.array([]),
+        "task/labels/text": np.array([]),
         "task/instance_segmentation": np.array([]),
         "task/subtask/boundingbox": np.array([]),
         "task/subtask/segmentation": np.array([]),

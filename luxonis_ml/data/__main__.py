@@ -333,7 +333,7 @@ def inspect(
     categorical_encodings = dataset.get_categorical_encodings()
     prev_windows = set()
 
-    for img, labels in loader:
+    for img, labels, _ in loader:
         images_dict = img if isinstance(img, dict) else {"image": img}
 
         current_windows = set(images_dict.keys())

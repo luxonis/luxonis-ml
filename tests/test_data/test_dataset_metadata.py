@@ -13,7 +13,7 @@ def basic_metadata() -> Metadata:
         tasks={"task1": ["subtask1", "subtask2"]},
         skeletons={"task1": {"labels": ["head", "tail"], "edges": [(0, 1)]}},
         categorical_encodings={"cat1": {"a": 0, "b": 1}},
-        metadata_types={"field1": "str", "field2": "int"},
+        label_types={"field1": "str", "field2": "int"},
     )
 
 
@@ -28,7 +28,7 @@ def test_merge_with_different_versions():
         tasks={},
         skeletons={},
         categorical_encodings={},
-        metadata_types={},
+        label_types={},
     )
     metadata2 = Metadata(
         ldf_version="2.0",
@@ -37,7 +37,7 @@ def test_merge_with_different_versions():
         tasks={},
         skeletons={},
         categorical_encodings={},
-        metadata_types={},
+        label_types={},
     )
 
     with pytest.raises(
@@ -55,7 +55,7 @@ def test_merge_classes(basic_metadata: Metadata):
         tasks={},
         skeletons={},
         categorical_encodings={},
-        metadata_types={},
+        label_types={},
     )
 
     merged = basic_metadata.merge_with(other_metadata)
@@ -78,7 +78,7 @@ def test_merge_tasks(basic_metadata: Metadata):
         tasks={"task1": ["subtask2", "subtask3"], "task2": ["other_subtask"]},
         skeletons={},
         categorical_encodings={},
-        metadata_types={},
+        label_types={},
     )
 
     merged = basic_metadata.merge_with(other_metadata)
@@ -96,7 +96,7 @@ def test_merge_categorical_encodings(basic_metadata: Metadata):
         tasks={},
         skeletons={},
         categorical_encodings={"cat1": {"b": 1, "c": 2}, "cat2": {"x": 0}},
-        metadata_types={},
+        label_types={},
     )
 
     merged = basic_metadata.merge_with(other_metadata)
@@ -119,7 +119,7 @@ def test_merge_sources():
         tasks={},
         skeletons={},
         categorical_encodings={},
-        metadata_types={},
+        label_types={},
     )
 
     metadata2 = Metadata(
@@ -129,7 +129,7 @@ def test_merge_sources():
         tasks={},
         skeletons={},
         categorical_encodings={},
-        metadata_types={},
+        label_types={},
     )
 
     merged = metadata1.merge_with(metadata2)
@@ -147,7 +147,7 @@ def test_merge_with_none_sources():
         tasks={},
         skeletons={},
         categorical_encodings={},
-        metadata_types={},
+        label_types={},
     )
 
     metadata2 = Metadata(
@@ -157,7 +157,7 @@ def test_merge_with_none_sources():
         tasks={},
         skeletons={},
         categorical_encodings={},
-        metadata_types={},
+        label_types={},
     )
 
     merged = metadata1.merge_with(metadata2)
@@ -176,11 +176,11 @@ def test_merge_metadata_types(basic_metadata: Metadata):
         tasks={},
         skeletons={},
         categorical_encodings={},
-        metadata_types={"field2": "int", "field3": "float"},
+        label_types={"field2": "int", "field3": "float"},
     )
 
     merged = basic_metadata.merge_with(other_metadata)
 
-    assert merged.metadata_types["field1"] == "str"
-    assert merged.metadata_types["field2"] == "int"
-    assert merged.metadata_types["field3"] == "float"
+    assert merged.label_types["field1"] == "str"
+    assert merged.label_types["field2"] == "int"
+    assert merged.label_types["field3"] == "float"

@@ -5,8 +5,10 @@ import polars as pl
 import pytest
 from pytest_subtests import SubTests
 
-from luxonis_ml.data import LuxonisLoader, LuxonisParser
+from luxonis_ml.data import DatasetIterator, LuxonisLoader, LuxonisParser
 from luxonis_ml.enums.enums import DatasetType
+
+from .utils import create_dataset, create_image
 
 # Export formats applicable to COCO_people_subset in this test module.
 # Types that require image-level masks or classification labels are
@@ -103,6 +105,46 @@ def test_dir_parser(
     assert imported_anns == anns
 
 
+def test_native_export_preserves_record_metadata(randint: int, tempdir: Path):
+    dataset_name = f"test_native_export_metadata_{randint}"
+
+    def generator() -> DatasetIterator:
+        yield {
+            "file": create_image(0, tempdir),
+            "metadata": {
+                "file_name": "img_0.jpg",
+                "tags": ["native", "round-trip"],
+            },
+            "annotation": {
+                "class": "person",
+                "boundingbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
+            },
+        }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    export_path = dataset.export(
+        tempdir / "native_export", dataset_type=DatasetType.NATIVE
+    )
+    native_root = export_path / dataset_name
+    if not native_root.exists():
+        native_root = export_path
+    imported_dataset = LuxonisParser(
+        str(native_root),
+        dataset_type=DatasetType.NATIVE,
+        dataset_name=f"{dataset_name}_imported",
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()
+
+    _, labels, metadata = next(iter(LuxonisLoader(imported_dataset)))
+
+    assert "/boundingbox" in labels
+    assert metadata == {
+        "file_name": "img_0.jpg",
+        "tags": ["native", "round-trip"],
+    }
+
+
 @pytest.mark.parametrize("url", ["COCO_people_subset.zip"])
 def test_export_edge_cases(
     dataset_name: str,
@@ -122,7 +164,7 @@ def test_export_edge_cases(
     dataset.make_splits(ratios=(1, 0, 0), replace_old_splits=True)
 
     loader = LuxonisLoader(dataset, view="train")
-    original_data = [img for img, _ in loader]
+    original_data = [img for img, _, _ in loader]
 
     with subtests.test("Export with max_zip_size_gb=0.003"):
         dataset.export(
@@ -145,7 +187,7 @@ def test_export_edge_cases(
             ).parse()
         dataset.make_splits(ratios=(1, 0, 0), replace_old_splits=True)
         loader = LuxonisLoader(dataset, view="train")
-        new_data = [img for img, _ in loader]
+        new_data = [img for img, _, _ in loader]
         assert len(new_data) == len(original_data)
 
 

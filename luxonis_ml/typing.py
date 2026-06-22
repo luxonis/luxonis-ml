@@ -5,10 +5,27 @@ from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeGuard, TypeVar
 import typeguard
 from pydantic import BaseModel, ConfigDict
 
-# When used without installed dependencies
 if TYPE_CHECKING:  # pragma: no cover
     import numpy as np
 
+    ParamValue: TypeAlias = (
+        Mapping["PrimitiveType", "ParamValue"]
+        | Sequence["ParamValue"]
+        | "PrimitiveType"
+    )
+
+else:
+    ParamValue: TypeAlias = Any
+
+
+PrimitiveType: TypeAlias = str | int | float | bool | None
+"""Primitive types in Python."""
+
+Params: TypeAlias = dict[str, ParamValue]
+"""A keyword dictionary of additional parameters.
+
+Usually loaded from a YAML file.
+"""
 
 PathType: TypeAlias = str | Path
 """A string or a `pathlib.Path`_ object.
@@ -39,17 +56,18 @@ Labels: TypeAlias = dict[str, "np.ndarray"]
 """Dictionary mapping task names to annotations as ``np.ndarray`` values."""
 
 
-LoaderSingleOutput: TypeAlias = tuple["np.ndarray", Labels]
+LoaderSingleOutput: TypeAlias = tuple["np.ndarray", Labels, Params]
 """Loader output for a single image source.
 
-The tuple contains one image array and a label dictionary.
+The tuple contains one image array, a dictionary of annotations
+and metadata about the record.
 """
 
-LoaderMultiOutput: TypeAlias = tuple[dict[str, "np.ndarray"], Labels]
+LoaderMultiOutput: TypeAlias = tuple[dict[str, "np.ndarray"], Labels, Params]
 """Loader output for one or more named image sources.
 
-The first tuple item maps source names to image arrays, and the second
-contains task labels.
+The tuple contains a dictionary mapping source names to image arrays, a
+dictionary of annotations and metadata about the record.
 """
 
 LoaderOutput: TypeAlias = LoaderSingleOutput | LoaderMultiOutput
@@ -75,24 +93,6 @@ or a single value (in which case it is interpreted as a grayscale
 value).
 """
 
-PrimitiveType: TypeAlias = str | int | float | bool | None
-"""Primitive types in Python."""
-
-# To avoid infinite recursion
-if TYPE_CHECKING:  # pragma: no cover
-    ParamValue: TypeAlias = (
-        Mapping[PrimitiveType, "ParamValue"]
-        | Sequence["ParamValue"]
-        | PrimitiveType
-    )
-else:
-    ParamValue: TypeAlias = Any
-
-Params: TypeAlias = dict[str, ParamValue]
-"""A keyword dictionary of additional parameters.
-
-Usually loaded from a YAML file.
-"""
 
 Kwargs: TypeAlias = dict[str, Any]
 """A keyword dictionary of arbitrary parameters."""

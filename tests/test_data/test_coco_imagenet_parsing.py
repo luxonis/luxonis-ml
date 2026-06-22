@@ -26,7 +26,7 @@ def _split_counts(dataset: LuxonisDataset) -> dict[str, int]:
 
 def _task_types(dataset: LuxonisDataset) -> set[str]:
     loader = LuxonisLoader(dataset)
-    _, ann = next(iter(loader))
+    _, ann, _ = next(iter(loader))
     return {get_task_type(task) for task in ann}
 
 

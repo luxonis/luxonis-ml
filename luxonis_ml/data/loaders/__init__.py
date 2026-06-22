@@ -44,13 +44,13 @@ state. Common options include:
       globally or per source name.
     - ``seed`` for reproducible random augmentations.
     - ``exclude_empty_annotations`` to omit empty labels.
-    - ``keep_categorical_as_strings`` to preserve categorical metadata values.
+    - ``keep_categorical_as_strings`` to preserve categorical labels values.
     - ``update_mode`` to control media synchronization for remote datasets.
     - ``filter_task_names`` to load only selected task groups.
 
-When a remote dataset is loaded, annotations and metadata are refreshed. Media
-files are downloaded according to `UpdateMode`: ``ALL`` overwrites local media
-and ``MISSING`` downloads only media that cannot be resolved locally.
+When a remote dataset is loaded, annotations and custom labels are refreshed.
+Media files are downloaded according to `UpdateMode`: ``ALL`` overwrites local
+media and ``MISSING`` downloads only media that cannot be resolved locally.
 
 
 Label Keys
@@ -65,10 +65,10 @@ Example:
     >>> task_type = "boundingbox"
     >>> f"{task_name}/{task_type}"
     'detection/boundingbox'
-    >>> f"{''}/metadata/camera_angle"
-    '/metadata/camera_angle'
+    >>> f"{''}/labels/camera_angle"
+    '/labels/camera_angle'
 
-Metadata labels use ``"task_name/metadata/key"`` so each metadata field can be
+Custom labels use ``"{task_name}/labels/{key}"`` so each label field can be
 consumed independently.
 
 
@@ -96,9 +96,9 @@ Output Layouts
    * - ``keypoints``
      - :math:`\left(N, 3K\right)`
      - Flattened :math:`\left(x, y, v\right)` keypoint triplets.
-   * - ``metadata``
+   * - ``labels``
      - Original value structure.
-     - Values keyed by metadata field name.
+     - Values keyed by label field name.
 
 See:
     `luxonis_ml.data.datasets.annotation` for the ingestion schemas that are
@@ -119,7 +119,7 @@ dataset storage:
       ``augmentation_config``;
     - remote media synchronization through ``update_mode``;
     - empty-annotation filtering through ``exclude_empty_annotations``;
-    - metadata category encoding through ``keep_categorical_as_strings``;
+    - custgom labels category encoding through ``keep_categorical_as_strings``;
     - task filtering through ``filter_task_names``.
 
 .. python::

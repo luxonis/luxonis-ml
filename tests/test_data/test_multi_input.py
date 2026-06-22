@@ -63,7 +63,7 @@ def test_multi_input(dataset_name: str, tempdir: Path):
         color_space=color_space,
     )
     assert len(loader) == 4
-    for img_dict, labels in loader:
+    for img_dict, labels, _ in loader:
         assert "image1" in img_dict
         assert "image2" in img_dict
         assert "image3" in img_dict

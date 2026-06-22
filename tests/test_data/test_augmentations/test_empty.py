@@ -61,7 +61,7 @@ def test_empty(dataset_name: str, tempdir: Path, n_samples: int):
     loader = LuxonisLoader(
         dataset, augmentation_config=config, height=256, width=256
     )
-    for _, labels in loader:
+    for _, labels, _ in loader:
         if "/classification" not in labels:
             continue
 

@@ -47,8 +47,8 @@ def test_parking_lot_generate(
         "car/classification",
         "car/instance_segmentation",
         "car/keypoints",
-        "car/metadata/brand",
-        "car/metadata/color",
+        "car/labels/brand",
+        "car/labels/color",
         "color/classification",
         "color/segmentation",
         "motorbike/array",
@@ -56,8 +56,8 @@ def test_parking_lot_generate(
         "motorbike/classification",
         "motorbike/instance_segmentation",
         "motorbike/keypoints",
-        "motorbike/metadata/brand",
-        "motorbike/metadata/color",
+        "motorbike/labels/brand",
+        "motorbike/labels/color",
     }
     accumulated_tasks = set()
     loader = LuxonisLoader(
@@ -68,7 +68,7 @@ def test_parking_lot_generate(
         color_space="BGR",
         keep_aspect_ratio=True,
     )
-    for _, labels in loader:
+    for _, labels, _ in loader:
         accumulated_tasks.update(labels.keys())
 
     assert accumulated_tasks == gather_tasks(dataset)
@@ -208,7 +208,7 @@ def generator(base_path: Path, tempdir: Path):
                     "array": {"path": array_path},
                     "keypoints": {"keypoints": item["keypoints"]},
                     "instance_segmentation": {"mask": adjusted_mask},
-                    "metadata": {
+                    "labels": {
                         "color": item["color"],
                         "brand": item["brand"],
                     },

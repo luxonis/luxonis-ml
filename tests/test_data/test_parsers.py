@@ -78,8 +78,8 @@ from .utils import create_image
                 "instance_segmentation",
                 "classification",
                 "keypoints",
-                "metadata/color",
-                "metadata/brand",
+                "labels/color",
+                "labels/brand",
             },
         ),
         (
@@ -126,7 +126,7 @@ def test_dir_parser(
     dataset = parser.parse()
     assert len(dataset) > 0
     loader = LuxonisLoader(dataset)
-    _, ann = next(iter(loader))
+    _, ann, _ = next(iter(loader))
     task_types = {get_task_type(task) for task in ann}
     assert task_types == expected_task_types
     dataset.delete_dataset(delete_local=True)
@@ -214,8 +214,8 @@ def test_dir_parser(
                 "instance_segmentation",
                 "classification",
                 "keypoints",
-                "metadata/color",
-                "metadata/brand",
+                "labels/color",
+                "labels/brand",
             },
         ),
         (
@@ -267,7 +267,7 @@ def test_dir_parser_explicit_type(
     dataset = parser.parse()
     assert len(dataset) > 0
     loader = LuxonisLoader(dataset)
-    _, ann = next(iter(loader))
+    _, ann, _ = next(iter(loader))
     task_types = {get_task_type(task) for task in ann}
     assert task_types == expected_task_types
     dataset.delete_dataset(delete_local=True)
@@ -423,7 +423,7 @@ def test_ultralytics_ndjson_parser(
     assert splits is not None
     assert set(splits) == {"train", "val", "test"}
     loader = LuxonisLoader(dataset)
-    _, ann = next(iter(loader))
+    _, ann, _ = next(iter(loader))
     task_types = {get_task_type(task) for task in ann}
     assert task_types == {
         "boundingbox",
@@ -451,7 +451,7 @@ def test_ultralytics_ndjson_parser_explicit_type(
     assert splits is not None
     assert set(splits) == {"train", "val", "test"}
     loader = LuxonisLoader(dataset)
-    _, ann = next(iter(loader))
+    _, ann, _ = next(iter(loader))
     task_types = {get_task_type(task) for task in ann}
     assert task_types == {
         "boundingbox",
@@ -478,7 +478,7 @@ def test_ultralytics_ndjson_remote_urls_parser(
     assert splits is not None
     assert set(splits) == {"train", "val", "test"}
     loader = LuxonisLoader(dataset)
-    _, ann = next(iter(loader))
+    _, ann, _ = next(iter(loader))
     task_types = {get_task_type(task) for task in ann}
     assert task_types == {
         "boundingbox",
@@ -664,7 +664,7 @@ def test_partial_split_fixture_is_preserved(
     } == expected_split_sizes
 
     loader = LuxonisLoader(dataset, view=loader_view)
-    _, ann = next(iter(loader))
+    _, ann, _ = next(iter(loader))
     task_types = {get_task_type(task) for task in ann}
     assert task_types == {"boundingbox", "classification"}
     dataset.delete_dataset(delete_local=True)

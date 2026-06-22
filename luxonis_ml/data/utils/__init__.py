@@ -10,7 +10,7 @@ the part of the data workflow they support:
    * - Group
      - Public APIs
    * - Task keys
-     - `task_is_metadata`, `split_task`, `get_task_name`, `get_task_type`,
+     - `task_is_label`, `split_task`, `get_task_name`, `get_task_type`,
        and `task_type_iterator` parse and filter ``"task_name/task_type"``
        labels.
    * - Storage and parser enums
@@ -30,9 +30,9 @@ the part of the data workflow they support:
      - LDF equivalence checks and `AugmentationsCollector` summaries for
        configured augmentation pipelines.
 
-The task-key helpers follow the same convention as `LuxonisLoader`: labels are
-addressed by ``"task_name/task_type"`` and metadata labels use
-``"task_name/metadata/key"`` or ``"metadata/key"`` when no task name is
+The task_is_label follow the same convention as `LuxonisLoader`: labels are
+addressed by ``"task_name/task_type"`` and custom labels use
+``"{task_name}/labels/{key}"`` or ``"labels/{key}"`` when no task name is
 present.
 """
 
@@ -68,7 +68,7 @@ from .task_utils import (
     get_task_name,
     get_task_type,
     split_task,
-    task_is_metadata,
+    task_is_label,
     task_type_iterator,
 )
 from .visualizations import (
@@ -112,7 +112,7 @@ __all__ = [
     "plot_heatmap",
     "rgb_to_bool_masks",
     "split_task",
-    "task_is_metadata",
+    "task_is_label",
     "task_type_iterator",
     "visualize",
     "warn_on_duplicates",

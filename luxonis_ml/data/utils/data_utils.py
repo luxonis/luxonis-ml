@@ -10,7 +10,7 @@ import polars as pl
 from loguru import logger
 from pycocotools import mask as mask_utils
 
-from luxonis_ml.data.utils.task_utils import task_is_metadata
+from luxonis_ml.data.utils.task_utils import task_is_label
 from luxonis_ml.typing import RGB
 
 
@@ -233,7 +233,7 @@ def find_duplicates(df: pl.LazyFrame) -> dict[str, list[dict[str, Any]]]:
     ) in duplicate_annotation.iter_rows():
         if task_type == "segmentation":
             annotation = "<binary mask>"
-        if not task_is_metadata(task_type):
+        if not task_is_label(task_type):
             result["duplicate_annotations"].append(
                 {
                     "file_name": file_name,

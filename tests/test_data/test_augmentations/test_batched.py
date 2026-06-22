@@ -128,7 +128,7 @@ def test_at_least_one_bbox_random_crop() -> None:
         256, 256, targets, n_classes, ["image"], config
     )
     for _ in range(10):
-        _, out_labels = engine.apply([(images_dict, deepcopy(labels))])
+        _, out_labels, _ = engine.apply([(images_dict, deepcopy(labels))])
         bboxes = out_labels.get("task/boundingbox")
         assert bboxes is not None, (
             "AtLeastOneBBoxRandomCrop should produce bounding box output"

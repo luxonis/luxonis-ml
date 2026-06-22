@@ -7,25 +7,25 @@ from luxonis_ml.typing import Labels, TaskType
 
 
 @lru_cache
-def task_is_metadata(task: str) -> bool:
-    """Check whether a task is a metadata task.
+def task_is_label(task: str) -> bool:
+    """Check whether a task is a label task.
 
     Args:
         task: Task to check.
 
     Returns:
-        Whether the task is a metadata task.
+        Whether the task is a label task.
 
     Examples:
-        >>> task_is_metadata("metadata/weather")
+        >>> task_is_label("labels/weather")
         True
-        >>> task_is_metadata("camera/metadata/weather")
+        >>> task_is_label("camera/labels/weather")
         True
-        >>> task_is_metadata("camera/boundingbox")
+        >>> task_is_label("camera/boundingbox")
         False
 
     """
-    return get_task_type(task).startswith("metadata/")
+    return get_task_type(task).startswith("labels/")
 
 
 @lru_cache
@@ -78,27 +78,27 @@ def get_task_type(task: str) -> str:
     Example:
         >>> get_task_type("task_name/type")
         'type'
-        >>> get_task_type("metadata/name")
-        'metadata/name'
-        >>> get_task_type("task_name/metadata/name")
-        'metadata/name'
+        >>> get_task_type("labels/name")
+        'labels/name'
+        >>> get_task_type("task_name/labels/name")
+        'labels/name'
 
     Args:
-        task: Task string, such as ``"task_name/type"``.
+        task: Task string, such as ``"task_name/{type}"``.
 
     Returns:
-        Task type. Metadata tasks are returned as ``"metadata/type"``.
+        Task type. Csutom label tasks are returned as ``"label/{type}"``.
 
     """
     parts = task.split("/")
     if len(parts) == 1:
         return parts[0]
     if len(parts) == 2:
-        if parts[0] == "metadata":
+        if parts[0] == "labels":
             return task
         return parts[1]
-    if parts[-2] == "metadata":
-        return f"metadata/{parts[-1]}"
+    if parts[-2] == "labels":
+        return f"labels/{parts[-1]}"
     return task.rsplit("/", maxsplit=1)[-1]
 
 

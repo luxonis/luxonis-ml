@@ -168,15 +168,19 @@ class LuxonisDataset(BaseDataset):
             self._metadata = self._get_metadata()
 
         if self.version != LDF_VERSION:
-            logger.warning(
+            logger.info(
                 f"LDF versions do not match. The current `luxonis-ml` "
-                f"installation supports LDF v{LDF_VERSION}, but the "
-                f"`{self.identifier}` dataset is in v{self._metadata.ldf_version}. "
-                "Internal migration will be performed. Note that some parts "
-                "and new features might not work correctly unless you "
-                "manually re-create the dataset using the latest version "
-                "of `luxonis-ml`."
+                f"installation supports LDF 'v{LDF_VERSION}', but the "
+                f"'{self.identifier}' dataset is in "
+                f"'v{self._metadata.ldf_version}'. "
+                "Internal migration will be performed. "
             )
+            if self.version < Version(2):
+                logger.warning(
+                    "Note that some parts and new features might not work "
+                    "correctly unless you manually re-create the dataset "
+                    "using the latest version of `luxonis-ml`."
+                )
 
     @cached_property
     def _progress(self) -> rich.progress.Progress:
@@ -669,7 +673,7 @@ class LuxonisDataset(BaseDataset):
             raise FileNotFoundError(f"Dataset '{self.dataset_name}' is empty.")
 
         if attempt_migration and self.version != LDF_VERSION:
-            df = migrate_dataframe(df)
+            df = migrate_dataframe(df, self.version)
 
         return df
 
@@ -820,6 +824,7 @@ class LuxonisDataset(BaseDataset):
             if version != LDF_VERSION:  # pragma: no cover
                 return migrate_metadata(
                     metadata_json,
+                    version,
                     self._load_df_offline(lazy=True, attempt_migration=False),
                 )
             return Metadata(**metadata_json)
@@ -830,7 +835,7 @@ class LuxonisDataset(BaseDataset):
             tasks={},
             skeletons={},
             categorical_encodings={},
-            metadata_types={},
+            label_types={},
         )
 
     @property
@@ -940,11 +945,10 @@ class LuxonisDataset(BaseDataset):
         """
         return self._metadata.categorical_encodings
 
-    def get_metadata_types(
+    def get_label_types(
         self,
     ) -> dict[str, Literal["float", "int", "str", "Category"]]:
-        """Get the metadata types for each metadata annotation in the
-        dataset.
+        """Get the types for each custom label annotation in the dataset.
 
         Example output:
 
@@ -956,7 +960,7 @@ class LuxonisDataset(BaseDataset):
                 "temperature": "float",
             }
         """
-        return self._metadata.metadata_types
+        return self._metadata.label_types
 
     def pull_from_cloud(
         self, update_mode: UpdateMode = UpdateMode.MISSING
@@ -982,7 +986,8 @@ class LuxonisDataset(BaseDataset):
 
         with FileLock(str(lock_path)):  # DDP GCS training - multiple processes
             logger.info(
-                "Pulling remote's dataset annotations and metadata to local dataset ..."
+                "Pulling remote's dataset annotations and metadata "
+                "to local dataset ..."
             )
             for dir_name in ["annotations", "metadata"]:
                 _ = get_dir(self._fs, dir_name, self._local_path)
@@ -1277,13 +1282,15 @@ class LuxonisDataset(BaseDataset):
                             },
                         }
 
-            batch_size: The number of records to process in a batch before writing
-                to storage. Larger batch sizes may be more efficient but will
-                use more memory.
+            batch_size: The number of records to process in a batch before
+                writing to storage. Larger batch sizes may be more efficient
+                but will use more memory.
 
         Raises:
-            ValueError: If the records yielded by the generator are not in the expected format.
-            ValueError: If the dataset contains metadata annotations with conflicting types.
+            ValueError: If the records yielded by the generator are
+                not in the expected format.
+            ValueError: If the dataset contains custom label annotations
+                with conflicting types.
 
         """
         logger.info(f"Adding data to dataset '{self.dataset_name}'...")
@@ -1293,7 +1300,7 @@ class LuxonisDataset(BaseDataset):
         classes_per_task: dict[str, set[str]] = defaultdict(set)
         tasks: dict[str, set[str]] = defaultdict(set)
         categorical_encodings = defaultdict(dict)
-        metadata_types = {}
+        custom_labels_types = {}
         num_kpts_per_task: dict[str, int] = {}
         sources: set[str] = set()
 
@@ -1334,24 +1341,25 @@ class LuxonisDataset(BaseDataset):
                             num_kpts_per_task[task_name] = len(
                                 ann.keypoints.keypoints
                             )
-                        for name, value in ann.metadata.items():
-                            task = f"{task_name}/metadata/{name}"
+                        for name, value in ann.labels.items():
+                            task = f"{task_name}/labels/{name}"
                             typ = type(value).__name__
                             if (
-                                task in metadata_types
-                                and metadata_types[task] != typ
+                                task in custom_labels_types
+                                and custom_labels_types[task] != typ
                             ):
-                                if {typ, metadata_types[task]} == {
+                                if {typ, custom_labels_types[task]} == {
                                     "int",
                                     "float",
                                 }:
-                                    metadata_types[task] = "float"
+                                    custom_labels_types[task] = "float"
                                 else:
                                     raise ValueError(
-                                        f"Metadata type mismatch for {task}: {metadata_types[task]} and {typ}"
+                                        f"Label type mismatch for '{task}': "
+                                        f"{custom_labels_types[task]} and {typ}"
                                     )
                             else:
-                                metadata_types[task] = typ
+                                custom_labels_types[task] = typ
 
                             if not isinstance(value, Category):
                                 continue
@@ -1393,7 +1401,7 @@ class LuxonisDataset(BaseDataset):
             )
 
         self._metadata.categorical_encodings = dict(categorical_encodings)
-        self._metadata.metadata_types = metadata_types
+        self._metadata.label_types = custom_labels_types
         self.set_tasks(tasks)
         if sources:
             components = {

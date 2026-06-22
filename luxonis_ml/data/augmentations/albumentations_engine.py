@@ -11,7 +11,7 @@ from loguru import logger
 from pydantic import Field
 from typing_extensions import override
 
-from luxonis_ml.data.utils.task_utils import get_task_name, task_is_metadata
+from luxonis_ml.data.utils.task_utils import get_task_name, task_is_label
 from luxonis_ml.typing import ConfigItem, LoaderMultiOutput, Params
 from luxonis_ml.utils import deprecated
 
@@ -405,7 +405,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                     "the annotation is kept as is."
                 )
 
-            elif task_is_metadata(task):
+            elif task_is_label(task):
                 target_type = "metadata"
                 logger.warning(
                     "Metadata labels detected. Metadata labels can contain "
@@ -603,6 +603,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
     @override
     def apply(self, input_batch: list[LoaderMultiOutput]) -> LoaderMultiOutput:
+        metadata = input_batch[0][2] if len(input_batch[0]) > 2 else {}
         data_batch, n_keypoints = self._preprocess_batch(input_batch)
 
         data = self._batch_transform(data_batch)
@@ -630,7 +631,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         else:
             data = self._pixel_transform(**data)
 
-        return self._postprocess(data, n_keypoints)
+        image_dict, labels, _ = self._postprocess(data, n_keypoints)
+        return image_dict, labels, metadata
 
     @staticmethod
     def _resolve_pipeline_stage(
@@ -657,7 +659,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         bbox_counters = defaultdict(int)
         n_keypoints = {}
 
-        for image_dict, labels in labels_batch:
+        for batch_item in labels_batch:
+            image_dict, labels = batch_item[:2]
             data = {}
 
             key = next(iter(image_dict))
@@ -817,7 +820,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             elif target_type == "classification":
                 out_labels[task] = array
 
-        return out_image_dict, out_labels
+        return out_image_dict, out_labels, {}
 
     @staticmethod
     def _mark_invisible_keypoints(

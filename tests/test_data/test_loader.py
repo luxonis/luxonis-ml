@@ -540,12 +540,12 @@ def test_dataset_reproducibility(storage_url: str, tempdir: Path):
     loader1 = create_loader(
         storage_url, tempdir, augmentation_config=AUGMENTATIONS_CONFIG
     )
-    run1 = [ann for _, ann in loader1]
+    run1 = [ann for _, ann, _ in loader1]
 
     loader2 = create_loader(
         storage_url, tempdir, augmentation_config=AUGMENTATIONS_CONFIG
     )
-    run2 = [ann for _, ann in loader2]
+    run2 = [ann for _, ann, _ in loader2]
 
     assert all(
         a1.keys() == a2.keys()
@@ -615,7 +615,7 @@ def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
     loader_aug = create_loader(
         storage_url, tempdir, augmentation_config=AUGMENTATIONS_CONFIG
     )
-    new_aug_annotations = [convert_annotation(ann) for _, ann in loader_aug]
+    new_aug_annotations = [convert_annotation(ann) for _, ann, _ in loader_aug]
 
     original_aug_annotations = load_annotations(
         "test_augmentation_reproducibility_annotations.json"
@@ -655,19 +655,19 @@ def test_colorspace(storage_url: str, tempdir: Path):
         },
     ]
     loader = create_loader(storage_url, tempdir, augmentation_config=norm_3d)
-    rgb_img, _ = cast(LoaderSingleOutput, next(iter(loader)))
+    rgb_img, _, _ = cast(LoaderSingleOutput, next(iter(loader)))
     assert len(rgb_img.shape) == 3
     assert rgb_img.shape[2] == 3
     loader = create_loader(
         storage_url, tempdir, color_space="BGR", augmentation_config=norm_3d
     )
-    bgr_img, _ = cast(LoaderSingleOutput, next(iter(loader)))
+    bgr_img, _, _ = cast(LoaderSingleOutput, next(iter(loader)))
     assert len(bgr_img.shape) == 3
     assert bgr_img.shape[2] == 3
     assert np.array_equal(rgb_img, bgr_img[:, :, ::-1])
     loader = create_loader(
         storage_url, tempdir, color_space="GRAY", augmentation_config=norm_1d
     )
-    gray_img, _ = cast(LoaderSingleOutput, next(iter(loader)))
+    gray_img, _, _ = cast(LoaderSingleOutput, next(iter(loader)))
     assert len(gray_img.shape) == 3
     assert gray_img.shape[2] == 1

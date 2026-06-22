@@ -32,7 +32,7 @@ class Metadata(BaseModelExtraForbid):
         tasks: Task types per task name.
         skeletons: Keypoint skeleton definitions per task.
         categorical_encodings: Integer encodings for categorical metadata.
-        metadata_types: Metadata value types per metadata task.
+        label_types: Value types per custom label task.
         parent_dataset: Optional identifier of the source dataset this
             dataset was derived from.
 
@@ -44,7 +44,7 @@ class Metadata(BaseModelExtraForbid):
     tasks: dict[str, list[str]] = {}
     skeletons: dict[str, Skeletons] = {}
     categorical_encodings: dict[str, dict[str, int]] = {}
-    metadata_types: dict[str, Literal["float", "int", "str", "Category"]] = {}
+    label_types: dict[str, Literal["float", "int", "str", "Category"]] = {}
     parent_dataset: str | None = None
 
     def set_classes(
@@ -126,7 +126,7 @@ class Metadata(BaseModelExtraForbid):
                     other.categorical_encodings[key]
                 )
 
-        merged_metadata_types = {**self.metadata_types, **other.metadata_types}
+        merged_metadata_types = {**self.label_types, **other.label_types}
         if self.source is None and other.source is not None:
             merged_source = other.source
         elif self.source is not None and other.source is None:
@@ -143,7 +143,7 @@ class Metadata(BaseModelExtraForbid):
             tasks=merged_tasks,
             skeletons=merged_skeletons,
             categorical_encodings=merged_categorical_encodings,
-            metadata_types=merged_metadata_types,  # type: ignore
+            label_types=merged_metadata_types,  # type: ignore
         )
 
     def _sort_classes(self, classes: Iterable[str]) -> list[str]:

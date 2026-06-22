@@ -1,10 +1,11 @@
+import json
 from pathlib import Path
 from typing import TypedDict
 
 import polars as pl
 from typing_extensions import Self
 
-from luxonis_ml.typing import PathType
+from luxonis_ml.typing import Params, PathType
 
 
 class ParquetRecord(TypedDict):
@@ -28,6 +29,7 @@ class ParquetRecord(TypedDict):
     instance_id: int | None
     task_type: str | None
     annotation: str | None
+    metadata: Params | None
 
 
 class ParquetFileManager:
@@ -142,7 +144,13 @@ class ParquetFileManager:
     def _flush(self) -> None:
         """Write buffered data to parquet."""
         if self.buffer:
-            df = pl.DataFrame(self.buffer)
+            buffer = self.buffer.copy()
+            if "metadata" in buffer:
+                buffer["metadata"] = [
+                    json.dumps(value) if isinstance(value, dict) else value
+                    for value in buffer["metadata"]
+                ]
+            df = pl.DataFrame(buffer)
             df.write_parquet(self.current_file)
 
     def __enter__(self) -> Self:

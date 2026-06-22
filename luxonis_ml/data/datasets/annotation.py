@@ -86,7 +86,7 @@ Classification assigns a class to the whole sample or instance:
 Classification is represented internally as the ``classification`` task type.
 Any detection that provides a class name contributes a classification target,
 even when the same detection also contains boxes, masks, keypoints, arrays, or
-metadata.
+custom labels.
 When loaded, classes are usually returned as one-hot vectors with shape
 :math:`\left(C\right)`.
 
@@ -247,25 +247,25 @@ Arrays are useful for modality-specific targets or auxiliary data that should
 be stored with the dataset but does not fit standard spatial schemas.
 
 
-Metadata and Categories
+Custom labels and Categories
 =======================
 
-Metadata stores flexible key-value values. Use `Category` to mark a string as
-categorical metadata rather than free-form text:
+Custom labels store flexible key-value values. Use `Category` to mark a string as
+a categorical label rather than an arbitrary string.
 
 .. python::
 
     from luxonis_ml.data import Category
 
     {
-        "metadata": {
+        "labels": {
             "text": "ABC-123",
             "text_color": Category("white"),
             "track_id": 42,
         },
     }
 
-Categorical metadata can be encoded as integers by `LuxonisLoader`, or kept as
+Categorical labels can be encoded as integers by `LuxonisLoader`, or kept as
 strings when loader configuration requests it.
 
 OCR annotations commonly store recognized text and categorical visual
@@ -274,7 +274,7 @@ properties:
 .. python::
 
     {
-        "metadata": {
+        "labels": {
             "text": "ABC-123",
             "color": Category("red"),
         },
@@ -286,15 +286,15 @@ lookup keys:
 .. python::
 
     {
-        "metadata": {
+        "labels": {
             "id": 42,
             "color": Category("red"),
         },
     }
 
 Important:
-    Metadata and arrays have no universal geometric semantics. Built-in
-    augmentations can discard values associated with boxes that leave the
+    Labels and arrays have no universal geometric semantics. Built-in
+    augmentations can discard values associated with bboxes that leave the
     image, but arbitrary values are otherwise preserved unless a custom
     augmentation explicitly handles them.
 
@@ -326,7 +326,12 @@ from pydantic_core import core_schema
 from typing_extensions import Self, deprecated, override
 
 from luxonis_ml.data.utils.parquet import ParquetRecord
-from luxonis_ml.typing import BaseModelExtraForbid, PathType, check_type
+from luxonis_ml.typing import (
+    BaseModelExtraForbid,
+    Params,
+    PathType,
+    check_type,
+)
 from luxonis_ml.utils.logging import log_once
 
 KeypointVisibility: TypeAlias = Literal[0, 1, 2]
@@ -343,10 +348,10 @@ NormalizedFloat: TypeAlias = Annotated[float, Field(ge=0, le=1)]
 
 
 class Category(str):
-    """Category label for metadata values.
+    """Marker for categorical labels.
 
-    This class is used to distinguish categorical metadata values from
-    free-form string values.
+    This class is used to distinguish categorical labels from
+    arbitrary string values.
     """
 
     @classmethod
@@ -357,12 +362,12 @@ class Category(str):
 
 
 class Detection(BaseModelExtraForbid):
-    """Detection record containing annotations and metadata for one
+    """Detection record containing annotations and custom labels for one
     object.
 
-    It describes a single detected object in an image and can contain various
-    types of annotations and metadata as well as nested sub-detections for
-    hierarchical annotations.
+    The model describes a single detected object in an image and can contain
+    various types of annotations and labels as well as nested sub-detections
+    for hierarchical annotations.
 
     When ``scale_to_boxes`` is enabled, keypoints and segmentation data are
     interpreted relative to the bounding box and rescaled to image-normalized
@@ -372,7 +377,7 @@ class Detection(BaseModelExtraForbid):
         >>> detection = Detection(
         ...     class_name="person",
         ...     instance_id=1,
-        ...     metadata={
+        ...     labels={
         ...         "category": Category("adult"),
         ...     },
         ...     boundingbox={
@@ -399,7 +404,7 @@ class Detection(BaseModelExtraForbid):
         ...                     (0.3, 0.35, 2),  # right eye
         ...                 ],
         ...             },
-        ...             "metadata": {
+        ...             "labels": {
         ...                 "expression": Category("happy"),
         ...                 "eye_color": Category("blue"),
         ...             },
@@ -467,7 +472,9 @@ class Detection(BaseModelExtraForbid):
                         },
                     }
 
-        metadata: Metadata values keyed by metadata name.
+        labels: Custom labels as flexible key-value pairs.
+            Use `Category` to mark a string as a categorical label rather than
+            an arbitrary string.
         boundingbox: Optional bounding box annotation.
         keypoints: Optional keypoint annotation.
         instance_segmentation: Optional instance segmentation annotation.
@@ -484,7 +491,7 @@ class Detection(BaseModelExtraForbid):
     )
     instance_id: int = -1
 
-    metadata: dict[str, int | float | str | Category] = {}
+    labels: dict[str, int | float | str | Category] = {}
 
     boundingbox: Optional["BBoxAnnotation"] = None
     keypoints: Optional["KeypointAnnotation"] = None
@@ -503,13 +510,13 @@ class Detection(BaseModelExtraForbid):
             >>> detection = Detection(
             ...     class_name="cat",
             ...     boundingbox=BBoxAnnotation(x=0.1, y=0.2, w=0.3, h=0.4),
-            ...     metadata={"color": "black"},
+            ...     labels={"color": "black"},
             ... )
             >>> sorted(detection.get_task_types())
-            ['boundingbox', 'classification', 'metadata/color']
+            ['boundingbox', 'classification', 'labels/color']
 
         Returns:
-            Annotation task types and metadata keys.
+            Annotation task types and labels keys.
 
         """
         task_types = {
@@ -525,17 +532,38 @@ class Detection(BaseModelExtraForbid):
         }
         if self.class_name is not None:
             task_types.add("classification")
-        for metadata_key in self.metadata:
-            task_types.add(f"metadata/{metadata_key}")
+        for label in self.labels:
+            task_types.add(f"labels/{label}")
 
         return task_types
+
+    @model_validator(mode="before")
+    @classmethod
+    def _validate_labels(cls, values: dict[str, Any]) -> dict[str, Any]:
+        if "metadata" in values:
+            warnings.warn(
+                "The 'metadata' field is deprecated and will be removed "
+                "in the future. Use the 'labels' field to store custom "
+                "labels instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            if "labels" not in values:
+                values["labels"] = values.pop("metadata")
+            else:
+                raise ValueError(
+                    "Both 'metadata' and 'labels' fields are provided. "
+                    "Please remove the 'metadata' field and use 'labels' "
+                    "exclusively."
+                )
+        return values
 
     @model_validator(mode="after")
     def _validate_names(self) -> Self:
         for name in self.sub_detections:
             self._check_valid_identifier(name, label="Sub-detection name")
-        for key in self.metadata:
-            self._check_valid_identifier(key, label="Metadata key")
+        for key in self.labels:
+            self._check_valid_identifier(key, label="Labels key")
         return self
 
     @model_validator(mode="after")
@@ -1180,6 +1208,7 @@ class DatasetRecord(BaseModelExtraForbid):
 
     files: dict[str, FilePath]
     annotation: Detection | None = None
+    metadata: Params = {}
     task_name: str = ""
 
     @property
@@ -1229,6 +1258,7 @@ class DatasetRecord(BaseModelExtraForbid):
                     "file": str(file_path),
                     "source_name": source,
                     "task_name": task_name,
+                    "metadata": self.metadata if is_main else {},
                     "class_name": None,
                     "instance_id": None,
                     "task_type": None,
@@ -1249,19 +1279,21 @@ class DatasetRecord(BaseModelExtraForbid):
                             "file": str(file_path),
                             "source_name": source,
                             "task_name": task_name,
+                            "metadata": self.metadata,
                             "class_name": annotation.class_name,
                             "instance_id": annotation.instance_id,
                             "task_type": task_type,
                             "annotation": label.model_dump_json(),
                         }
-                for key, data in annotation.metadata.items():
+                for key, data in annotation.labels.items():
                     yield {
                         "file": str(file_path),
                         "source_name": source,
                         "task_name": task_name,
+                        "metadata": self.metadata,
                         "class_name": annotation.class_name,
                         "instance_id": annotation.instance_id,
-                        "task_type": f"metadata/{key}",
+                        "task_type": f"labels/{key}",
                         "annotation": json.dumps(data),
                     }
                 if annotation.class_name is not None:
@@ -1269,6 +1301,7 @@ class DatasetRecord(BaseModelExtraForbid):
                         "file": str(file_path),
                         "source_name": source,
                         "task_name": task_name,
+                        "metadata": self.metadata,
                         "class_name": annotation.class_name,
                         "instance_id": annotation.instance_id,
                         "task_type": "classification",
