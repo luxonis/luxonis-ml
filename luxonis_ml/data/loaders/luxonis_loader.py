@@ -74,6 +74,8 @@ class LuxonisLoader(BaseLoader):
         sync_mode: Whether the dataset is remote and pulled before loading.
         keep_categorical_as_strings: Whether categorical labels remains
             as strings.
+        add_filepaths_to_metadata: Whether returned metadata includes a
+            ``"filepaths"`` mapping from source name to loaded image path.
         filter_task_names: Optional task-name allowlist.
         tasks_without_background: Segmentation tasks where unassigned
             pixels are mapped to background class :math:`0`.
@@ -100,6 +102,7 @@ class LuxonisLoader(BaseLoader):
         bbox_area_threshold: float = 0.0004,
         *,
         keep_categorical_as_strings: bool = False,
+        add_filepaths_to_metadata: bool = False,
         update_mode: UpdateMode | Literal["all", "missing"] = UpdateMode.ALL,
         filter_task_names: list[str] | None = None,
     ) -> None:
@@ -132,6 +135,9 @@ class LuxonisLoader(BaseLoader):
             keep_categorical_as_strings: Whether to keep categorical
                  labels as strings instead of converting them to
                 integers.
+            add_filepaths_to_metadata: Whether returned metadata includes a
+                ``"filepaths"`` mapping from source name to loaded image
+                path.
             update_mode: Sync mode for media files in remote datasets.
                 Annotations and custom labels are always overwritten.
             filter_task_names: Optional task names to include. If omitted,
@@ -183,6 +189,7 @@ class LuxonisLoader(BaseLoader):
 
         self.sync_mode = self.dataset.is_remote
         self.keep_categorical_as_strings = keep_categorical_as_strings
+        self.add_filepaths_to_metadata = add_filepaths_to_metadata
         self.filter_task_names = filter_task_names
 
         if self.sync_mode:
@@ -407,6 +414,14 @@ class LuxonisLoader(BaseLoader):
 
         img_dict: dict[str, np.ndarray] = {}
         source_to_path = self.idx_to_img_paths[idx]
+        if self.add_filepaths_to_metadata:
+            metadata = {
+                **metadata,
+                "filepaths": {
+                    source_name: str(path)
+                    for source_name, path in source_to_path.items()
+                },
+            }
 
         for source_name, path in source_to_path.items():
             color_space = self.color_space.get(source_name, "RGB")

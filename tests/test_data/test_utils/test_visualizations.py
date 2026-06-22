@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import pytest
 
+from luxonis_ml.data.utils import visualizations
 from luxonis_ml.data.utils.visualizations import (
     ColorMap,
     concat_images,
@@ -254,3 +255,33 @@ def test_visualize():
         .astype(np.uint8)
     )
     assert np.array_equal(expected_image, image)
+
+
+def test_visualize_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_lines: list[str] = []
+
+    def fake_append_text_block(
+        image: np.ndarray, text_lines: list[str], font_scale: float
+    ) -> np.ndarray:
+        captured_lines.extend(text_lines)
+        return image
+
+    monkeypatch.setattr(
+        visualizations, "append_text_block", fake_append_text_block
+    )
+
+    image = np.zeros((20, 20, 3), dtype=np.uint8)
+    metadata = {
+        "weather": "rain",
+        "filepaths": {"image": "dataset/img_0.jpg"},
+        "scores": [np.float32(0.5), 1],
+    }
+
+    visualizations.visualize(image, "image", {}, {}, metadata=metadata)
+
+    assert captured_lines == [
+        "Metadata:",
+        "weather: rain",
+        "filepaths: image: dataset/img_0.jpg",
+        "scores: 0.5, 1",
+    ]

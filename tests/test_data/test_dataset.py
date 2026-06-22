@@ -408,6 +408,30 @@ def test_record_metadata(randint: int, tempdir: Path):
         "img_1.jpg",
     }
 
+    loader_with_paths = LuxonisLoader(dataset, add_filepaths_to_metadata=True)
+    filepaths_by_file = {
+        metadata["file_name"]: metadata["filepaths"]
+        for _, _, metadata in loader_with_paths
+    }
+    assert set(filepaths_by_file) == {"img_0.jpg", "img_1.jpg"}
+    assert Path(filepaths_by_file["img_0.jpg"]["image"]).name == "img_0.jpg"
+    assert Path(filepaths_by_file["img_1.jpg"]["image"]).name == "img_1.jpg"
+
+    augmented_loader_with_paths = LuxonisLoader(
+        dataset,
+        width=512,
+        height=512,
+        augmentation_config=[{"name": "Affine", "params": {}}],
+        add_filepaths_to_metadata=True,
+    )
+    assert {
+        metadata["filepaths"]["image"]
+        for _, _, metadata in augmented_loader_with_paths
+    } == {
+        filepaths_by_file["img_0.jpg"]["image"],
+        filepaths_by_file["img_1.jpg"]["image"],
+    }
+
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_record_metadata_multi_source(randint: int, tempdir: Path):
@@ -432,6 +456,14 @@ def test_record_metadata_multi_source(randint: int, tempdir: Path):
     assert set(images) == {"left", "right"}
     assert "/boundingbox" in labels
     assert metadata == {"pair_id": "stereo-0"}
+
+    _, _, metadata = next(
+        iter(LuxonisLoader(dataset, add_filepaths_to_metadata=True))
+    )
+    assert metadata["pair_id"] == "stereo-0"
+    assert set(metadata["filepaths"]) == {"left", "right"}
+    assert Path(metadata["filepaths"]["left"]).name == "img_0.jpg"
+    assert Path(metadata["filepaths"]["right"]).name == "img_1.jpg"
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")

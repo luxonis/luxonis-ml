@@ -574,6 +574,7 @@ def visualize(
     classes: dict[str, dict[str, int]],
     blend_all: bool = False,
     categorical_encodings: dict[str, dict[str, int]] | None = None,
+    metadata: Mapping[str, object] | None = None,
 ) -> np.ndarray:
     """Visualize labels on the image.
 
@@ -589,6 +590,8 @@ def visualize(
             Keys are full task identifiers such as
             ``"{task_name}/labels/{key}"`` and values map string labels to
             encoded integers.
+        metadata: Optional record metadata to append under the rendered
+            labels.
 
     Returns:
         The visualized image.
@@ -651,6 +654,23 @@ def visualize(
                 return custom_labels_mappings[task].inverse[int(value)]
             except (KeyError, ValueError):
                 pass
+
+        if isinstance(value, float):
+            return f"{value:g}"
+        return str(value)
+
+    def format_metadata_value(value: object) -> str:
+        if isinstance(value, np.generic):
+            value = value.item()
+
+        if isinstance(value, Mapping):
+            return ", ".join(
+                f"{key}: {format_metadata_value(nested_value)}"
+                for key, nested_value in value.items()
+            )
+
+        if isinstance(value, (list, tuple, set)):
+            return ", ".join(format_metadata_value(item) for item in value)
 
         if isinstance(value, float):
             return f"{value:g}"
@@ -802,6 +822,15 @@ def visualize(
             + [
                 f"{label_name}: {', '.join(values)}"
                 for label_name, values in custom_labels
+            ]
+        )
+
+    if metadata:
+        text_lines.extend(
+            ["Metadata:"]
+            + [
+                f"{key}: {format_metadata_value(value)}"
+                for key, value in metadata.items()
             ]
         )
 

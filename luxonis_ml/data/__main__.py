@@ -288,6 +288,7 @@ def inspect(
     loader = LuxonisLoader(
         dataset,
         view=view,
+        add_filepaths_to_metadata=True,
         update_mode="all" if force_update else "missing",
     )
 
@@ -333,7 +334,7 @@ def inspect(
     categorical_encodings = dataset.get_categorical_encodings()
     prev_windows = set()
 
-    for img, labels, _ in loader:
+    for img, labels, metadata in loader:
         images_dict = img if isinstance(img, dict) else {"image": img}
 
         current_windows = set(images_dict.keys())
@@ -379,6 +380,7 @@ def inspect(
                         classes,
                         blend_all=blend_all,
                         categorical_encodings=categorical_encodings,
+                        metadata=metadata,
                     )
                     if list_augmentations:
                         instance_image = add_augmentation_footer(
@@ -405,6 +407,7 @@ def inspect(
                     classes,
                     blend_all=blend_all,
                     categorical_encodings=categorical_encodings,
+                    metadata=metadata,
                 )
                 if list_augmentations:
                     labeled_image = add_augmentation_footer(
