@@ -1,68 +1,75 @@
-from enum import Enum
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
-import typer
+from cyclopts import App, Parameter
 from rich import print
 
 from luxonis_ml.utils import LuxonisFileSystem
 
-app = typer.Typer()
-
-UrlArgument = Annotated[str, typer.Argument(..., help="URL of the file.")]
+app = App(help="Filesystem utilities.")
 
 
-class TypeEnum(str, Enum):
-    FILE = "file"
-    DIR = "directory"
-    ALL = "all"
-
-
-@app.command()
+@app.command(alias="pull")
 def get(
-    url: UrlArgument,
-    save_dir: Annotated[
-        Path | None, typer.Argument(help="Directory to save the file.")
-    ] = None,
+    url: str,
+    save_dir: Path | None = None,
 ):
-    """Downloads file from remote storage."""
+    """Download a file from remote storage.
+
+    Args:
+        url: URL of the file to download.
+        save_dir: Directory to save the file.
+            Defaults to current working directory.
+    """
     LuxonisFileSystem.download(url, save_dir or Path.cwd())
 
 
-@app.command()
+@app.command(alias="push")
 def put(
-    file: Annotated[Path, typer.Argument(help="Path to the file to upload.")],
-    url: UrlArgument,
+    file: Path,
+    url: str,
 ):
-    """Uploads file to remote storage."""
+    """Upload a file to remote storage.
+
+    Args:
+        file: Path to the file to upload.
+        url: URL of the file.
+    """
     LuxonisFileSystem.upload(file, url)
 
 
-@app.command()
-def delete(url: UrlArgument):
-    """Deletes file from remote storage."""
-    fs = LuxonisFileSystem(url)
-    fs.delete_file("")
+@app.command(alias=["rm", "remove"])
+def delete(url: str):
+    """Delete a file from remote storage.
+
+    Args:
+        url: URL of the file to delete.
+    """
+    LuxonisFileSystem(url).delete_file("")
 
 
-@app.command()
+@app.command
 def ls(
-    url: UrlArgument,
+    url: str,
+    *,
     recursive: Annotated[
         bool,
-        typer.Option(..., "--recursive", "-r", help="List files recursively."),
+        Parameter(alias="-r", negative=""),
     ] = False,
     typ: Annotated[
-        TypeEnum,
-        typer.Option(
-            ...,
-            "--type",
-            "-t",
-            help="Type of the files to list. If not provided, all files will be listed.",
+        Literal["file", "directory", "all"],
+        Parameter(
+            name=["--type", "-t"],
         ),
-    ] = TypeEnum.ALL,
+    ] = "all",
 ):
-    """Lists files in the remote directory."""
+    """List files in the remote directory.
+
+    Args:
+        url: URL of the directory to list.
+        recursive: Whether to list files recursively.
+        typ: Type of files to list.
+    """
     fs = LuxonisFileSystem(url.rstrip("/"))
-    for file in fs.walk_dir("", recursive=recursive, typ=typ.value):
+    for file in fs.walk_dir("", recursive=recursive, typ=typ):
         print(file)
