@@ -24,12 +24,14 @@ ParserOutput = tuple[DatasetIterator, dict[str, dict], list[Path]]
 class BaseParser(ABC):
     SPLIT_NAMES: tuple[str, ...] = ("train", "valid", "test")
     CANONICAL_SPLIT_NAMES: tuple[str, ...] = ("train", "val", "test")
+    SKIPPED_WARNING_LIMIT = 50
 
     def __init__(
         self,
         dataset: BaseDataset,
         dataset_type: DatasetType,
         task_name: str | dict[str, str] | None,
+        full_warnings: bool = False,
     ):
         """
         @type dataset: BaseDataset
@@ -50,13 +52,22 @@ class BaseParser(ABC):
             self.task_name = defaultdict(lambda: task_name)
         else:
             self.task_name = task_name
+        self.full_warnings = full_warnings
         self._parser_issue_messages: list[ParserIssueMessage] = []
         self._seen_parser_issue_messages: set[ParserIssueMessage] = set()
+        self._logged_skipped_annotation_warnings = 0
+        self._suppressed_skipped_annotation_warnings = 0
+        self._skipped_annotation_counts_by_reason: dict[str, int] = (
+            defaultdict(int)
+        )
 
     def reset_parser_issue_messages(self) -> None:
         """Clears collected parser issue messages."""
         self._parser_issue_messages.clear()
         self._seen_parser_issue_messages.clear()
+        self._logged_skipped_annotation_warnings = 0
+        self._suppressed_skipped_annotation_warnings = 0
+        self._skipped_annotation_counts_by_reason.clear()
 
     def get_parser_issue_messages(self) -> list[ParserIssueMessage]:
         """Returns collected parser issue messages from the last
@@ -291,24 +302,27 @@ class BaseParser(ABC):
         @return: C{LDF} with all the images and annotations parsed.
         """
         self.reset_parser_issue_messages()
-        added_images = self._parse_split(**kwargs)
+        try:
+            added_images = self._parse_split(**kwargs)
 
-        if split is not None:
-            self.dataset.make_splits({split: added_images})
-        elif random_split:
-            is_counts = split_ratios is not None and all(
-                isinstance(v, int) for v in split_ratios.values()
-            )
-            if is_counts:
-                sampled = self._apply_counts_to_pool(
-                    added_images,
-                    split_ratios,  # type: ignore[arg-type]
+            if split is not None:
+                self.dataset.make_splits({split: added_images})
+            elif random_split:
+                is_counts = split_ratios is not None and all(
+                    isinstance(v, int) for v in split_ratios.values()
                 )
-                self.dataset.make_splits(sampled)
-                self._remove_unsplit_records()
-            else:
-                self.dataset.make_splits(split_ratios)
-        return self.dataset
+                if is_counts:
+                    sampled = self._apply_counts_to_pool(
+                        added_images,
+                        split_ratios,  # type: ignore[arg-type]
+                    )
+                    self.dataset.make_splits(sampled)
+                    self._remove_unsplit_records()
+                else:
+                    self.dataset.make_splits(split_ratios)
+            return self.dataset
+        finally:
+            self._log_skipped_annotation_summary()
 
     def parse_dir(self, dataset_dir: Path, **kwargs) -> BaseDataset:
         """Parses entire dataset directory to L{LuxonisDataset} format.
@@ -322,57 +336,62 @@ class BaseParser(ABC):
         @return: C{LDF} with all the images and annotations parsed.
         """
         self.reset_parser_issue_messages()
-        split_ratios = kwargs.pop("split_ratios", None)
-        is_counts = split_ratios is not None and all(
-            isinstance(v, int) for v in split_ratios.values()
-        )
-
-        # Disable automatic val-to-test splitting when using explicit counts
-        if is_counts and "split_val_to_test" not in kwargs:
-            sig = inspect.signature(self._parse_available_splits)
-            if "split_val_to_test" in sig.parameters:
-                kwargs["split_val_to_test"] = False
-
-        split_definitions = self._parse_available_splits(dataset_dir, **kwargs)
-        if not split_definitions:
-            existing_dirs = [
-                d.name for d in dataset_dir.iterdir() if d.is_dir()
-            ]
-            raise ValueError(
-                "No valid split directories found in dataset. "
-                f"Found directories: {existing_dirs}."
-            )
-        if all(
-            len(split_images) == 0
-            for split_images in split_definitions.values()
-        ):
-            raise ValueError(
-                "No samples were parsed from the discovered split directories."
+        try:
+            split_ratios = kwargs.pop("split_ratios", None)
+            is_counts = split_ratios is not None and all(
+                isinstance(v, int) for v in split_ratios.values()
             )
 
-        original_splits: dict[str, Sequence[PathType]] = {
-            split_name: split_definitions.get(split_name, [])
-            for split_name in self.CANONICAL_SPLIT_NAMES
-        }
+            # Disable automatic val-to-test splitting when using explicit counts
+            if is_counts and "split_val_to_test" not in kwargs:
+                sig = inspect.signature(self._parse_available_splits)
+                if "split_val_to_test" in sig.parameters:
+                    kwargs["split_val_to_test"] = False
 
-        if split_ratios is None:
-            self.dataset.make_splits(original_splits)
-        elif is_counts:
-            sampled = self._apply_counts_to_splits(
-                original_splits,
-                split_ratios,  # type: ignore[arg-type]
+            split_definitions = self._parse_available_splits(
+                dataset_dir, **kwargs
             )
-            self.dataset.make_splits(sampled)
-            self._remove_unsplit_records()
-        else:
-            logger.warning(
-                "Using percentage-based split ratios will redistribute "
-                "and shuffle all samples across splits. Original split "
-                "boundaries will not be preserved."
-            )
-            self.dataset.make_splits(split_ratios)
+            if not split_definitions:
+                existing_dirs = [
+                    d.name for d in dataset_dir.iterdir() if d.is_dir()
+                ]
+                raise ValueError(
+                    "No valid split directories found in dataset. "
+                    f"Found directories: {existing_dirs}."
+                )
+            if all(
+                len(split_images) == 0
+                for split_images in split_definitions.values()
+            ):
+                raise ValueError(
+                    "No samples were parsed from the discovered split directories."
+                )
 
-        return self.dataset
+            original_splits: dict[str, Sequence[PathType]] = {
+                split_name: split_definitions.get(split_name, [])
+                for split_name in self.CANONICAL_SPLIT_NAMES
+            }
+
+            if split_ratios is None:
+                self.dataset.make_splits(original_splits)
+            elif is_counts:
+                sampled = self._apply_counts_to_splits(
+                    original_splits,
+                    split_ratios,  # type: ignore[arg-type]
+                )
+                self.dataset.make_splits(sampled)
+                self._remove_unsplit_records()
+            else:
+                logger.warning(
+                    "Using percentage-based split ratios will redistribute "
+                    "and shuffle all samples across splits. Original split "
+                    "boundaries will not be preserved."
+                )
+                self.dataset.make_splits(split_ratios)
+
+            return self.dataset
+        finally:
+            self._log_skipped_annotation_summary()
 
     def _parse_available_splits(
         self, dataset_dir: Path, **kwargs
@@ -479,6 +498,7 @@ class BaseParser(ABC):
 
         self._seen_parser_issue_messages.add(message)
         self._parser_issue_messages.append(message)
+        self._skipped_annotation_counts_by_reason[reason] += 1
 
         details = []
         if annotation_id is not None:
@@ -489,7 +509,36 @@ class BaseParser(ABC):
             details.append(f"image={image}")
 
         suffix = f" ({', '.join(details)})" if details else ""
-        logger.warning(f"Skipping annotation: {reason}{suffix}")
+        if (
+            self.full_warnings
+            or self._logged_skipped_annotation_warnings
+            < self.SKIPPED_WARNING_LIMIT
+        ):
+            logger.warning(f"Skipping annotation: {reason}{suffix}")
+            self._logged_skipped_annotation_warnings += 1
+        else:
+            self._suppressed_skipped_annotation_warnings += 1
+
+    def _log_skipped_annotation_summary(self) -> None:
+        if (
+            self.full_warnings
+            or self._suppressed_skipped_annotation_warnings == 0
+        ):
+            return
+
+        logger.warning(
+            "Skipped logging "
+            f"{self._suppressed_skipped_annotation_warnings} additional warnings, "
+            "enable the --log-all-warnings flag to see the full list."
+        )
+        reason_summary = ", ".join(
+            f"{reason} ({count} records)"
+            for reason, count in sorted(
+                self._skipped_annotation_counts_by_reason.items(),
+                key=lambda item: (-item[1], item[0]),
+            )
+        )
+        logger.warning(f"Skipped annotations by reason: {reason_summary}")
 
     @staticmethod
     def _compare_stem_files(

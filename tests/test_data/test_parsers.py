@@ -1,10 +1,15 @@
 import json
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
+from loguru import logger
 
 from luxonis_ml.data import LuxonisLoader, LuxonisParser, ParserIssue
+from luxonis_ml.data.parsers.base_parser import BaseParser, ParserOutput
 from luxonis_ml.data.utils import get_task_type
+from luxonis_ml.enums import DatasetType
 from luxonis_ml.utils import environ
 
 from .utils import create_image
@@ -430,6 +435,109 @@ def test_ultralytics_ndjson_parser(
         "classification",
     }
     dataset.delete_dataset(delete_local=True)
+
+
+class _DummyDataset:
+    def add(self, _generator: Iterator[object]) -> None:
+        return None
+
+    def make_splits(self, _splits: object) -> None:
+        return None
+
+
+class _WarningParser(BaseParser):
+    def __init__(
+        self,
+        warning_count: int,
+        *,
+        reason: str = "dummy skipped annotation",
+        full_warnings: bool = False,
+    ):
+        super().__init__(
+            _DummyDataset(),
+            DatasetType.COCO,
+            None,
+            full_warnings=full_warnings,
+        )
+        self.warning_count = warning_count
+        self.reason = reason
+
+    @staticmethod
+    def validate_split(_split_path: Path) -> dict[str, Any]:
+        return {}
+
+    def from_dir(
+        self, dataset_dir: Path, **kwargs: Any
+    ) -> tuple[list[Path], list[Path], list[Path]]:
+        return [], [], []
+
+    def from_split(self, **kwargs: Any) -> ParserOutput:
+        for annotation_id in range(self.warning_count):
+            self._warn_skipped_annotation(
+                ParserIssue.NON_NUMERIC_ANNOTATION,
+                self.reason,
+                annotation_id=annotation_id,
+            )
+        return iter(()), {}, []
+
+
+def test_skipped_annotation_warnings_are_capped():
+    parser = _WarningParser(BaseParser.SKIPPED_WARNING_LIMIT + 5)
+    messages: list[str] = []
+    sink_id = logger.add(
+        lambda message: messages.append(str(message).strip()),
+        format="{message}",
+        level="WARNING",
+    )
+
+    try:
+        parser.parse_split()
+    finally:
+        logger.remove(sink_id)
+
+    assert len(parser.get_parser_issue_messages()) == (
+        BaseParser.SKIPPED_WARNING_LIMIT + 5
+    )
+    assert (
+        sum(message.startswith("Skipping annotation:") for message in messages)
+        == BaseParser.SKIPPED_WARNING_LIMIT
+    )
+    assert (
+        "Skipped logging 5 additional warnings, enable the "
+        "--log-all-warnings flag to see the full list."
+    ) in messages
+    assert (
+        "Skipped annotations by reason: dummy skipped annotation (55 records)"
+        in messages
+    )
+
+
+def test_full_warnings_logs_all_skipped_annotation_warnings():
+    parser = _WarningParser(
+        BaseParser.SKIPPED_WARNING_LIMIT + 5, full_warnings=True
+    )
+    messages: list[str] = []
+    sink_id = logger.add(
+        lambda message: messages.append(str(message).strip()),
+        format="{message}",
+        level="WARNING",
+    )
+
+    try:
+        parser.parse_split()
+    finally:
+        logger.remove(sink_id)
+
+    assert len(parser.get_parser_issue_messages()) == (
+        BaseParser.SKIPPED_WARNING_LIMIT + 5
+    )
+    assert (
+        sum(message.startswith("Skipping annotation:") for message in messages)
+        == BaseParser.SKIPPED_WARNING_LIMIT + 5
+    )
+    assert not any(
+        message.startswith("Skipped logging ") for message in messages
+    )
 
 
 def test_ultralytics_ndjson_parser_explicit_type(

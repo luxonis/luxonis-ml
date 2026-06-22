@@ -566,6 +566,14 @@ def parse(
             show_default=False,
         ),
     ] = None,
+    full_warnings: Annotated[
+        bool,
+        typer.Option(
+            ...,
+            "--log-all-warnings",
+            help="Log all skipped annotation warnings instead of capping the output at 50.",
+        ),
+    ] = False,
 ):
     """Parses a directory with data and creates Luxonis dataset."""
     split_ratios = parse_split_ratio(split_ratio)
@@ -577,6 +585,7 @@ def parse(
         delete_local=delete_local,
         save_dir=save_dir,
         task_name=task_name,
+        full_warnings=full_warnings,
     )
     dataset = parser.parse(split_ratios=split_ratios)
 

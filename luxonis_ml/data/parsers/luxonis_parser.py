@@ -75,6 +75,7 @@ class LuxonisParser(Generic[T]):
         dataset_plugin: T = None,
         dataset_type: DatasetType | None = None,
         task_name: str | dict[str, str] | None = None,
+        full_warnings: bool = False,
         **kwargs,
     ):
         """High-level abstraction over various parsers.
@@ -117,6 +118,9 @@ class LuxonisParser(Generic[T]):
             a dictionary with class names as keys and task names as values.
             In the latter case, the task name for a record with a given
             class name will be taken from the dictionary.
+        @type full_warnings: bool
+        @param full_warnings: Whether all skipped annotation warnings
+            should be logged without truncation.
         @type kwargs: Dict[str, Any]
         @param kwargs: Additional C{kwargs} to be passed to the
             constructor of specific L{BaseDataset} implementation.
@@ -165,7 +169,10 @@ class LuxonisParser(Generic[T]):
             **kwargs,
         )
         self.parser = self.parsers[self.dataset_type](
-            self.dataset, self.dataset_type, task_name
+            self.dataset,
+            self.dataset_type,
+            task_name,
+            full_warnings=full_warnings,
         )
 
     @staticmethod
