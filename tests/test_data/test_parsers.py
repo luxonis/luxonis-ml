@@ -1,12 +1,17 @@
 import json
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from loguru import logger
 
-from luxonis_ml.data import LuxonisLoader, LuxonisParser, ParserIssue
+from luxonis_ml.data import (
+    BaseDataset,
+    LuxonisLoader,
+    LuxonisParser,
+    ParserIssue,
+)
 from luxonis_ml.data.parsers.base_parser import BaseParser, ParserOutput
 from luxonis_ml.data.utils import get_task_type
 from luxonis_ml.enums import DatasetType
@@ -454,7 +459,7 @@ class _WarningParser(BaseParser):
         full_warnings: bool = False,
     ):
         super().__init__(
-            _DummyDataset(),
+            cast(BaseDataset, _DummyDataset()),
             DatasetType.COCO,
             None,
             full_warnings=full_warnings,
