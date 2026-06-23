@@ -914,7 +914,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     def _create_transformation(
         config: AlbumentationConfigItem,
     ) -> A.BasicTransform:
-        params = config.params.copy()
+        params = deepcopy(config.params)
 
         # Recursively handle nested transform compositions
         # (for example: OneOf, SomeOf, Sequential)

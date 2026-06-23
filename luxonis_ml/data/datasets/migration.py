@@ -48,7 +48,6 @@ class _LDF_2_0_0_MetadataDict(TypedDict):
 
 
 T = TypeVar("T", pl.LazyFrame, pl.DataFrame)
-TValue = TypeVar("TValue")
 
 
 def _rename_metadata_key(key: str) -> str:
@@ -57,7 +56,7 @@ def _rename_metadata_key(key: str) -> str:
     return key.replace("/metadata/", "/labels/")
 
 
-def _rename_metadata_keys(mapping: dict[str, TValue]) -> dict[str, TValue]:
+def _rename_metadata_keys(mapping: dict[str, Any]) -> dict[str, Any]:
     return {_rename_metadata_key(key): value for key, value in mapping.items()}
 
 
