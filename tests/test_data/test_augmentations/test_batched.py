@@ -7,7 +7,7 @@ from luxonis_ml.data import AlbumentationsEngine
 from luxonis_ml.data.augmentations.batch_compose import (
     CONTRIBUTOR_INDICES_KEY,
 )
-from luxonis_ml.typing import Annotations
+from luxonis_ml.typing import Annotations, Params
 
 
 @pytest.fixture(
@@ -127,7 +127,7 @@ def test_mixup_record_metadata(
         [
             (images_dict, deepcopy(annotations), metadata_batch[0]),
             (images_dict, deepcopy(annotations), metadata_batch[1]),
-        ]
+        ]  # type: ignore
     )
 
     assert metadata["file_name"] == "anchor.jpg"
@@ -160,7 +160,7 @@ def test_batch_record_metadata_deep_copied(
         "file_name": "anchor.jpg",
         "nested": {"value": "original"},
     }
-    support_metadata = {"file_name": "support.jpg"}
+    support_metadata: Params = {"file_name": "support.jpg"}
 
     _, _, metadata = augmentations.apply(
         [
@@ -170,11 +170,11 @@ def test_batch_record_metadata_deep_copied(
     )
 
     anchor_metadata["nested"]["value"] = "input-mutated"
-    metadata["augmentation_sources"][0]["metadata"]["nested"]["value"] = (
+    metadata["augmentation_sources"][0]["metadata"]["nested"]["value"] = (  # type: ignore
         "source-mutated"
     )
 
-    assert metadata["nested"]["value"] == "original"
+    assert metadata["nested"]["value"] == "original"  # type: ignore
 
 
 def test_augmentation_sources_metadata_key_collision_warns(
@@ -209,7 +209,7 @@ def test_augmentation_sources_metadata_key_collision_warns(
         )
 
     assert (
-        metadata["augmentation_sources"][0]["metadata"]["augmentation_sources"]
+        metadata["augmentation_sources"][0]["metadata"]["augmentation_sources"]  # type: ignore
         == "user-value"
     )
 
@@ -249,15 +249,16 @@ def test_nested_batched_record_metadata_applies_after_skip(
         [
             (images_dict, annotations_batch[i], metadata)
             for i, metadata in enumerate(metadata_batch)
-        ]
+        ]  # type: ignore
     )
 
     assert [
         source["metadata"]["file_name"]
-        for source in metadata["augmentation_sources"]
+        for source in metadata["augmentation_sources"]  # type: ignore
     ] == ["image_0.jpg", "image_4.jpg"]
     assert [
-        source["input_index"] for source in metadata["augmentation_sources"]
+        source["input_index"]
+        for source in metadata["augmentation_sources"]  # type: ignore
     ] == [0, 4]
     np.testing.assert_allclose(
         out_annotations["task/keypoints"][:2],
@@ -297,16 +298,17 @@ def test_duplicate_batch_record_metadata_preserved(
     _, _, metadata = augmentations.apply(
         [
             (images_dict, deepcopy(annotations), metadata)
-            for metadata in metadata_batch
+            for metadata in metadata_batch  # type: ignore
         ]
     )
 
     assert [
         source["metadata"]["file_name"]
-        for source in metadata["augmentation_sources"]
+        for source in metadata["augmentation_sources"]  # type: ignore
     ] == ["anchor.jpg", "support.jpg", "support.jpg", "support.jpg"]
     assert [
-        source["input_index"] for source in metadata["augmentation_sources"]
+        source["input_index"]
+        for source in metadata["augmentation_sources"]  # type: ignore
     ] == [0, 1, 2, 3]
 
 
@@ -380,7 +382,7 @@ def test_batched_p_0(
     _, _, metadata = augmentations.apply(
         [
             (images_dict, deepcopy(annotations), metadata)
-            for metadata in metadata_batch
+            for metadata in metadata_batch  # type: ignore
         ]
     )
     assert metadata == {"file_name": "image_0.jpg"}
@@ -411,7 +413,7 @@ def test_nested_batched_record_metadata_uses_actual_contributors(
     _, _, metadata = augmentations.apply(
         [
             (images_dict, deepcopy(annotations), metadata)
-            for metadata in metadata_batch
+            for metadata in metadata_batch  # type: ignore
         ]
     )
 

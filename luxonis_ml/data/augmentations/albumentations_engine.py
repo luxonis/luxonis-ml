@@ -686,7 +686,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 stacklevel=2,
             )
 
-        metadata["augmentation_sources"] = [
+        metadata["augmentation_sources"] = [  # type: ignore
             {
                 "role": "anchor" if index == 0 else "support",
                 "input_index": index,

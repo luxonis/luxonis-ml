@@ -749,9 +749,7 @@ class LuxonisDataset(BaseDataset):
             df.with_columns(
                 [
                     pl.col("uuid"),
-                    pl.col("file")
-                    .map_dict(mapping, default=None)
-                    .alias("original_filepath"),
+                    pl.col("file").replace(mapping).alias("original_filepath"),
                 ]
             )
             .unique(

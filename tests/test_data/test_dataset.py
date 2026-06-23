@@ -21,7 +21,7 @@ from luxonis_ml.data import (
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.data.utils.task_utils import get_task_type
 from luxonis_ml.enums import DatasetType
-from luxonis_ml.typing import Params
+from luxonis_ml.typing import Params, check_type
 
 from .utils import create_dataset, create_image, get_loader_output
 
@@ -405,7 +405,10 @@ def test_record_metadata(randint: int, tempdir: Path):
         height=512,
         augmentation_config=[{"name": "Affine", "params": {}}],
     )
-    assert {metadata["file_name"] for _, _, metadata in augmented_loader} == {
+    assert {
+        metadata["file_name"]  # type: ignore
+        for _, _, metadata in augmented_loader
+    } == {
         "img_0.jpg",
         "img_1.jpg",
     }
@@ -416,6 +419,7 @@ def test_record_metadata(randint: int, tempdir: Path):
         for _, _, metadata in loader_with_paths
     }
     assert set(filepaths_by_file) == {"img_0.jpg", "img_1.jpg"}
+    assert check_type(filepaths_by_file, dict[str, dict[str, str]])
     assert Path(filepaths_by_file["img_0.jpg"]["image"]).name == "img_0.jpg"
     assert Path(filepaths_by_file["img_1.jpg"]["image"]).name == "img_1.jpg"
 
@@ -427,7 +431,7 @@ def test_record_metadata(randint: int, tempdir: Path):
         add_filepaths_to_metadata=True,
     )
     assert {
-        metadata["filepaths"]["image"]
+        metadata["filepaths"]["image"]  # type: ignore
         for _, _, metadata in augmented_loader_with_paths
     } == {
         filepaths_by_file["img_0.jpg"]["image"],
@@ -488,6 +492,7 @@ def test_filepaths_metadata_key_collision_warns(
     _, _, metadata = output
 
     assert metadata["filepaths"] != "user-value"
+    assert check_type(metadata["filepaths"], dict[str, str])
     assert Path(metadata["filepaths"]["image"]).name == "img_0.jpg"
 
 
@@ -536,18 +541,19 @@ def test_batch_augmentation_record_metadata(
 
     assert "vehicle/boundingbox" in annotations
     sources = metadata["augmentation_sources"]
-    anchor_file_name = sources[0]["metadata"]["file_name"]
+
+    anchor_file_name = sources[0]["metadata"]["file_name"]  # type: ignore
     assert metadata["file_name"] == anchor_file_name
-    assert len(sources) == 4
-    assert sources[0]["role"] == "anchor"
-    assert sources[0]["input_index"] == 0
-    assert {source["metadata"]["file_name"] for source in sources} == {
+    assert len(sources) == 4  # type: ignore
+    assert sources[0]["role"] == "anchor"  # type: ignore
+    assert sources[0]["input_index"] == 0  # type: ignore
+    assert {source["metadata"]["file_name"] for source in sources} == {  # type: ignore
         "img_0.jpg",
         "img_1.jpg",
         "img_2.jpg",
         "img_3.jpg",
     }
-    assert all("filepaths" in source["metadata"] for source in sources)
+    assert all("filepaths" in source["metadata"] for source in sources)  # type: ignore
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
@@ -599,6 +605,7 @@ def test_batch_augmentation_duplicate_support_metadata(
         _, _, metadata = next(iter(loader))
 
     sources = metadata["augmentation_sources"]
+    assert check_type(sources, list[dict[str, dict[str, str]]])
     file_names = [source["metadata"]["file_name"] for source in sources]
     assert len(file_names) == 4
     assert len(set(file_names)) == 2

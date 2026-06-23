@@ -101,7 +101,7 @@ def main(
                 augmentation_config=aug_config,
             )
             t = time.time()
-            for _, _ in loader:
+            for _ in loader:
                 pass
 
             avg += time.time() - t

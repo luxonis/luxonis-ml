@@ -1,11 +1,10 @@
 from collections import defaultdict
-from typing import Any, Final, Literal, TypeVar
+from typing import Any, Final, TypeVar
 
 import polars as pl
 from semver.version import Version
-from typing_extensions import TypedDict
 
-from .metadata import Metadata, Skeletons
+from .metadata import Metadata
 
 LDF_1_0_0_TASKS: Final[set[str]] = {
     "classification",
@@ -24,27 +23,6 @@ LDF_1_0_0_TASK_TYPES: Final[dict[str, str]] = {
     "KeypointAnnotation": "keypoints",
     "ArrayAnnotation": "array",
 }
-
-
-class _LDF_1_0_0_MetadataDict(TypedDict):
-    source: dict[str, Any]
-    ldf_version: str
-    classes: dict[str, list[str]]
-    tasks: dict[str, list[str]]
-    skeletons: dict[str, Skeletons]
-    categorical_encodings: dict[str, dict[str, int]]
-    metadata_types: dict[str, Literal["float", "int", "str", "Category"]]
-
-
-class _LDF_2_0_0_MetadataDict(TypedDict):
-    source: dict[str, Any]
-    ldf_version: str
-    classes: dict[str, list[str]]
-    tasks: dict[str, list[str]]
-    skeletons: dict[str, Skeletons]
-    categorical_encodings: dict[str, dict[str, int]]
-    metadata_types: dict[str, Literal["float", "int", "str", "Category"]]
-    parent_dataset: str | None
 
 
 T = TypeVar("T", pl.LazyFrame, pl.DataFrame)
@@ -148,7 +126,7 @@ def migrate_dataframe(df: T, version: Version) -> T:  # pragma: no cover
 
 
 def migrate_metadata(
-    metadata: _LDF_1_0_0_MetadataDict | _LDF_2_0_0_MetadataDict,
+    metadata: dict[str, Any],
     version: Version,
     df: pl.LazyFrame | None,
 ) -> Metadata:  # pragma: no cover
