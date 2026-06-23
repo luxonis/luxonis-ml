@@ -40,8 +40,8 @@ class Config(BaseModelExtraForbid):
             )
         return v
 
-    def __str__(self) -> str:
+    def __str__(self) -> str:  # pragma: no cover
         return self.model_dump_json(indent=4)
 
-    def __repr__(self) -> str:
+    def __repr__(self) -> str:  # pragma: no cover
         return self.__str__()
