@@ -53,7 +53,8 @@ Most data pipelines follow the same sequence:
      - Convert a supported external dataset layout into LDF.
      - `luxonis_ml.data.parsers`
    * - `LuxonisLoader`
-     - Iterate image-like inputs and labels from one or more dataset splits.
+     - Iterate image-like inputs, labels, and record metadata from one or more
+       dataset splits.
      - `luxonis_ml.data.loaders`
    * - `AlbumentationsEngine`
      - Apply runtime image and label augmentation while loading samples.
@@ -71,6 +72,10 @@ Example:
 
         for inputs, labels, metadata in loader:
             ...
+
+    ``metadata`` is record-level sample metadata. It is separate from custom
+    labels, which are returned in ``labels`` under task keys such as
+    ``"/labels/weather"``.
 
 Note:
     Importing from `luxonis_ml.data` is the recommended public API for common
@@ -133,8 +138,8 @@ Example:
 
 See:
     `luxonis_ml.data.datasets.annotation` for the exact record model,
-    annotation payload schemas, normalized coordinate conventions, metadata
-    categories, and instance-association rules.
+    annotation payload schemas, normalized coordinate conventions, record
+    metadata, custom labels, and instance-association rules.
 
 
 Command Line Interface
@@ -165,6 +170,10 @@ sanitizing, exporting, synchronizing, cloning, merging, and deleting datasets.
 
 See:
     `luxonis_ml.data.__main__` for command implementation details.
+
+Note:
+    ``luxonis_ml data inspect`` displays record metadata alongside rendered
+    labels. It also includes resolved media paths in the displayed metadata.
 
 
 Extension Points

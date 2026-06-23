@@ -37,7 +37,7 @@ TargetType: TypeAlias = Literal[
     "instance_mask",
     "bboxes",
     "keypoints",
-    "metadata",
+    "labels",
 ]
 
 
@@ -169,18 +169,18 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     the classes belonging to bboxes falling outside the image are removed.
     In other cases, the classification annotation is kept as is.
 
-    Metadata
+    Custom Labels
     --------
 
-    Metadata labels can contain arbitrary data and their semantics are
+    Custom labels can contain arbitrary data and their semantics are
     unknown to the augmentation engine. Therefore, the only transformation
-    applied to metadata is discarding metadata associated with boxes
+    applied to custom labels is discarding labels associated with boxes
     falling outside the image.
 
     Arrays
     ------
 
-    Arrays are dealt with in the same way as metadata.
+    Arrays are dealt with in the same way as custom labels.
     The only transformation applied to arrays is discarding
     arrays associated with bboxes falling outside the image.
 
@@ -250,9 +250,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 augmentations by implementing their own logic and adding
                 the ``"array"`` target to the ``targets`` property.
 
-        - ``"metadata"``:
+        - ``"labels"``:
 
-                Metadata labels.
+                Custom labels.
                 Same situation as with the ``"array"`` type.
 
         - ``"classification"``:
@@ -408,7 +408,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             elif task_is_label(task):
                 target_type = "metadata"
                 logger.warning(
-                    "Metadata labels detected. Metadata labels can contain "
+                    "Custom labels detected. Custom labels can contain "
                     "arbitrary data so they cannot be properly augmented. "
                     "The only applied transformation is discarding metadata "
                     "associated with bboxes falling outside the image."
@@ -631,8 +631,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         else:
             data = self._pixel_transform(**data)
 
-        image_dict, labels, _ = self._postprocess(data, n_keypoints)
-        return image_dict, labels, metadata
+        image_dict, annotations, _ = self._postprocess(data, n_keypoints)
+        return image_dict, annotations, metadata
 
     @staticmethod
     def _resolve_pipeline_stage(
@@ -644,12 +644,12 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         return "val" if is_validation_pipeline else "train"
 
     def _preprocess_batch(
-        self, labels_batch: list[LoaderMultiOutput]
+        self, annotations_batch: list[LoaderMultiOutput]
     ) -> tuple[list[Data], dict[str, int]]:
-        """Preprocess a batch of labels.
+        """Preprocess a batch of annotations.
 
         Args:
-            labels_batch: Loader outputs to preprocess.
+            annotations_batch: Loader outputs to preprocess.
 
         Returns:
             Preprocessed data and keypoint counts for each task.
@@ -659,8 +659,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         bbox_counters = defaultdict(int)
         n_keypoints = {}
 
-        for batch_item in labels_batch:
-            image_dict, labels = batch_item[:2]
+        for batch_item in annotations_batch:
+            image_dict, annotations = batch_item[:2]
             data = {}
 
             key = next(iter(image_dict))
@@ -680,7 +680,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
                 task = self._target_names_to_tasks[target_name]
 
-                if task not in labels:
+                if task not in annotations:
                     if target_type == "mask":
                         data[target_name] = np.empty(
                             (
@@ -701,7 +701,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                         data[target_name] = np.array([])
                     continue
 
-                array = labels[task]
+                array = annotations[task]
 
                 if target_type in {"mask", "instance_mask"}:
                     data[target_name] = preprocess_mask(array)
@@ -729,18 +729,18 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     ) -> LoaderMultiOutput:
         """Postprocess the augmented data back to LDF format.
 
-        Discards labels associated with bounding boxes that are outside the
-        image.
+        Discards annotations associated with bounding boxes that are outside
+        the image.
 
         Args:
             data: Augmented data keyed by target name.
             n_keypoints: Mapping from task names to keypoint counts.
 
         Returns:
-            Augmented images and labels.
+            Augmented images and annotations.
 
         """
-        out_labels = {}
+        out_annotations = {}
         out_image_dict = {}
 
         image_keys = [k for k in data if k in ["image", *self._source_names]]
@@ -771,7 +771,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             task_name = get_task_name(task)
 
             if target_type == "bboxes":
-                out_labels[task], index = postprocess_bboxes(
+                out_annotations[task], index = postprocess_bboxes(
                     array, self._bbox_area_threshold
                 )
                 bboxes_indices[task_name] = index
@@ -800,14 +800,14 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 bbox_ordering = bboxes_indices[task_name]
 
             if target_type == "mask":
-                out_labels[task] = postprocess_mask(array)
+                out_annotations[task] = postprocess_mask(array)
 
             elif target_type == "instance_mask":
                 masks = postprocess_mask(array)
-                out_labels[task] = masks[bbox_ordering]
+                out_annotations[task] = masks[bbox_ordering]
 
             elif target_type == "keypoints":
-                out_labels[task] = postprocess_keypoints(
+                out_annotations[task] = postprocess_keypoints(
                     array,
                     bbox_ordering,
                     image_height,
@@ -815,12 +815,12 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                     n_keypoints[target_name],
                 )
             elif target_type in {"array", "metadata"}:
-                out_labels[task] = array[bbox_ordering]
+                out_annotations[task] = array[bbox_ordering]
 
             elif target_type == "classification":
-                out_labels[task] = array
+                out_annotations[task] = array
 
-        return out_image_dict, out_labels, {}
+        return out_image_dict, out_annotations, {}
 
     @staticmethod
     def _mark_invisible_keypoints(

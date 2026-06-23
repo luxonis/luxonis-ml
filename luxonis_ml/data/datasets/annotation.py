@@ -15,8 +15,8 @@ Record Model
 ============
 
 Dataset ingestion starts with `DatasetRecord`. A record points to media,
-optionally assigns a task name, and optionally carries an annotation payload
-validated by `Detection`.
+optionally assigns a task name, optionally carries record-level metadata, and
+optionally carries an annotation payload validated by `Detection`.
 
 Single-source records use ``"file"``:
 
@@ -25,6 +25,10 @@ Single-source records use ``"file"``:
     {
         "file": "path/to/image.jpg",
         "task_name": "detection",
+        "metadata": {
+            "capture_id": "frame-0001",
+            "weather": "rain",
+        },
         "annotation": {
             "class": "car",
             "boundingbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
@@ -51,6 +55,16 @@ Task names group annotations that should be consumed together. If no
 ``task_name`` is provided, the empty string ``""`` is used. Loader label keys
 therefore follow ``"task_name/task_type"`` and default-task keys start with
 ``"/"``.
+
+Record metadata describes the sample itself, such as capture context, tags,
+external IDs, or grouping information. It is persisted with the record and
+returned by `LuxonisLoader` as the third item in ``(inputs, labels,
+metadata)``. For multi-source records, metadata belongs to the synchronized
+record rather than to each individual file.
+
+Custom model-target values belong in `Detection.labels`, not
+`DatasetRecord.metadata`. Custom labels are loaded in the ``labels``
+dictionary under task keys such as ``"/labels/weather"``.
 
 
 Coordinates and Instances
@@ -1197,11 +1211,14 @@ class ArrayAnnotation(Annotation):
 
 
 class DatasetRecord(BaseModelExtraForbid):
-    """Dataset record containing file paths and an optional annotation.
+    """Dataset record containing file paths, metadata, and an optional
+    annotation.
 
     Attributes:
         files: File paths keyed by source name.
         annotation: Optional detection associated with the dataset record.
+        metadata: Record-level metadata returned by loaders as sample
+            metadata. Use `Detection.labels` for custom model-target labels.
         task_name: The name of the task to which the record belongs.
 
     """

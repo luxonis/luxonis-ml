@@ -117,11 +117,16 @@ multiple synchronized sources.
      - Mapping from source names to synchronized media paths.
    * - ``task_name``
      - Optional group name used by loaders and metadata.
+   * - ``metadata``
+     - Optional sample metadata, such as tags, capture context, or external
+       IDs.
    * - ``annotation``
      - Optional annotation payload validated by `Detection`.
 
 Multi-source records preserve source names for `LuxonisLoader`, allowing
 training code to receive dictionaries such as ``{"rgb": ..., "depth": ...}``.
+Record metadata is returned by loaders as sample metadata. Custom model-target
+labels should be stored in ``annotation.labels`` instead.
 
 See:
     `DatasetRecord` for record validation, `Detection` for payload grouping,

@@ -19,14 +19,14 @@ Basic Usage
     dataset = LuxonisDataset("parking_lot")
     loader = LuxonisLoader(dataset, view="train")
 
-    inputs, labels = loader[0]
+    inputs, labels, metadata = loader[0]
 
 `LuxonisLoader` implements indexed access and iteration. The returned value is
-always ``(inputs, labels)``.
+always ``(inputs, labels, metadata)``.
 
 For single-source datasets, ``inputs`` is a single image-like array. For
 multi-source datasets, ``inputs`` is a dictionary mapping source names to
-arrays.
+arrays. ``metadata`` contains record-level metadata from `DatasetRecord`.
 
 
 Constructor Options
@@ -45,6 +45,8 @@ state. Common options include:
     - ``seed`` for reproducible random augmentations.
     - ``exclude_empty_annotations`` to omit empty labels.
     - ``keep_categorical_as_strings`` to preserve categorical labels values.
+    - ``add_filepaths_to_metadata`` to include resolved media paths in the
+      returned metadata.
     - ``update_mode`` to control media synchronization for remote datasets.
     - ``filter_task_names`` to load only selected task groups.
 
@@ -70,6 +72,38 @@ Example:
 
 Custom labels use ``"{task_name}/labels/{key}"`` so each label field can be
 consumed independently.
+
+
+Record Metadata
+===============
+
+The third loader output item is the record metadata stored on
+`DatasetRecord.metadata`. This dictionary describes the sample itself and is
+separate from custom labels. Custom labels remain in the ``labels`` output
+under task keys such as ``"/labels/weather"``.
+
+Set ``add_filepaths_to_metadata=True`` to include the resolved media paths
+used by the loader:
+
+.. python::
+
+    loader = LuxonisLoader(dataset, add_filepaths_to_metadata=True)
+    inputs, labels, metadata = loader[0]
+
+    metadata["filepaths"]
+    # {"image": "/path/to/image.jpg"}
+
+For multi-source datasets, ``"filepaths"`` is keyed by source name:
+
+.. python::
+
+    {
+        "rgb": "/path/to/rgb.png",
+        "depth": "/path/to/depth.png",
+    }
+
+The ``"filepaths"`` entry is runtime metadata. It is not written back to the
+stored dataset.
 
 
 Output Layouts
@@ -120,6 +154,7 @@ dataset storage:
     - remote media synchronization through ``update_mode``;
     - empty-annotation filtering through ``exclude_empty_annotations``;
     - custgom labels category encoding through ``keep_categorical_as_strings``;
+    - resolved media path metadata through ``add_filepaths_to_metadata``;
     - task filtering through ``filter_task_names``.
 
 .. python::

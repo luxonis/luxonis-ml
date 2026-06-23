@@ -71,7 +71,7 @@ dictionary of annotations and metadata about the record.
 """
 
 LoaderOutput: TypeAlias = LoaderSingleOutput | LoaderMultiOutput
-"""Loader output containing image data and labels.
+"""Loader output containing image data, labels, and metadata.
 
 Single-source datasets return `LoaderSingleOutput`; multi-source datasets
 return `LoaderMultiOutput`.
