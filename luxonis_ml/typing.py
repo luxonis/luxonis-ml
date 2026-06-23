@@ -52,18 +52,20 @@ TaskType: TypeAlias = Literal[
 ]
 
 
-Labels: TypeAlias = dict[str, "np.ndarray"]
+Annotations: TypeAlias = dict[str, "np.ndarray"]
 """Dictionary mapping task names to annotations as ``np.ndarray`` values."""
 
 
-LoaderSingleOutput: TypeAlias = tuple["np.ndarray", Labels, Params]
+LoaderSingleOutput: TypeAlias = tuple["np.ndarray", Annotations, Params]
 """Loader output for a single image source.
 
 The tuple contains one image array, a dictionary of annotations
 and metadata about the record.
 """
 
-LoaderMultiOutput: TypeAlias = tuple[dict[str, "np.ndarray"], Labels, Params]
+LoaderMultiOutput: TypeAlias = tuple[
+    dict[str, "np.ndarray"], Annotations, Params
+]
 """Loader output for one or more named image sources.
 
 The tuple contains a dictionary mapping source names to image arrays, a
@@ -71,7 +73,7 @@ dictionary of annotations and metadata about the record.
 """
 
 LoaderOutput: TypeAlias = LoaderSingleOutput | LoaderMultiOutput
-"""Loader output containing image data, labels, and metadata.
+"""Loader output containing images, annotations, and metadata.
 
 Single-source datasets return `LoaderSingleOutput`; multi-source datasets
 return `LoaderMultiOutput`.

@@ -49,8 +49,8 @@ def test_ordering_loader_background(tempdir: Path, subtests: SubTests):
         )
 
         loader = LuxonisLoader(dataset, height=height, width=width)
-        for _, labels, _ in loader:
-            classification = labels["/classification"]
+        for _, annotations, _ in loader:
+            classification = annotations["/classification"]
             assert len(classification) == len(classes_list) + 1
             assert not np.array_equal(
                 classification, [1.0] + [0.0] * len(classes_list)
@@ -72,8 +72,8 @@ def test_ordering_loader_background(tempdir: Path, subtests: SubTests):
         loader = LuxonisLoader(
             dataset, view="train", height=height, width=width
         )
-        for _, labels, _ in loader:
-            classification = labels["/classification"]
+        for _, annotations, _ in loader:
+            classification = annotations["/classification"]
             assert len(classification) == len(classes_list)
 
         assert loader.classes[""] == {
@@ -108,8 +108,8 @@ def test_ordering_loader_no_backgroun(tempdir: Path):
     dataset = create_dataset("test_dual_class_segmentation", generator())
 
     loader = LuxonisLoader(dataset, view="train", height=height, width=width)
-    for _, labels, _ in loader:
-        classification = labels["/classification"]
+    for _, annotations, _ in loader:
+        classification = annotations["/classification"]
         assert len(classification) == 2
 
     assert loader.classes == {"": {"cat": 0, "dog": 1}}

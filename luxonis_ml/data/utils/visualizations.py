@@ -14,16 +14,16 @@ from luxonis_ml.data.utils import (
     get_task_type,
     task_type_iterator,
 )
-from luxonis_ml.typing import HSV, RGB, Color, Labels
+from luxonis_ml.typing import HSV, RGB, Annotations, Color
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 
 
 class ColorMap(Mapping[Hashable, RGB]):
-    """A mapping that assigns distinct RGB colors to hashable labels.
+    """A mapping that assigns distinct RGB colors to hashable keys.
 
     `ColorMap` generates and stores distinct colors for arbitrary
-    hashable labels. Colors are lazily assigned on request using
+    hashable keys. Colors are lazily assigned on request using
     `distinct_color_generator`.
     """
 
@@ -570,23 +570,23 @@ def draw_keypoint_label(
 def visualize(
     image: np.ndarray,
     source_name: str,
-    labels: Labels,
+    annotations: Annotations,
     classes: dict[str, dict[str, int]],
     blend_all: bool = False,
     categorical_encodings: dict[str, dict[str, int]] | None = None,
     metadata: Mapping[str, object] | None = None,
 ) -> np.ndarray:
-    """Visualize labels on the image.
+    """Visualize annotations on an image.
 
     Args:
         image: Image to visualize.
         source_name: Name of the image source.
-        labels: Labels to visualize.
+        annotations: Annotations to visualize.
         classes: Mapping from task names to class ID mappings.
-        blend_all: Whether to blend all labels, except semantic
-            segmentations, into a single image. This mixes labels that
+        blend_all: Whether to blend all annotations, except semantic
+            segmentations, into a single image. This mixes annotations that
             belong to different tasks.
-        categorical_encodings: Optional mapping for categorical labels.
+        categorical_encodings: Optional mapping for categorical custom labels.
             Keys are full task identifiers such as
             ``"{task_name}/labels/{key}"`` and values map string labels to
             encoded integers.
@@ -640,7 +640,7 @@ def visualize(
         )
 
     bbox_classes = defaultdict(list)
-    classification_labels: list[tuple[str, list[str]]] = []
+    classification_annotations: list[tuple[str, list[str]]] = []
     custom_labels: list[tuple[str, list[str]]] = []
 
     def format_label_value(task: str, value: object) -> str:
@@ -676,16 +676,20 @@ def visualize(
             return f"{value:g}"
         return str(value)
 
-    for task, arr in task_type_iterator(labels, "segmentation"):
+    for task, arr in task_type_iterator(annotations, "segmentation"):
         task_name = get_task_name(task)
-        image_name = task_name if task_name and not blend_all else "labels"
+        image_name = (
+            task_name if task_name and not blend_all else "annotations"
+        )
         images[image_name] = create_mask(
             image, arr, task_name, is_instance=False
         )
 
-    for task, arr in task_type_iterator(labels, "boundingbox"):
+    for task, arr in task_type_iterator(annotations, "boundingbox"):
         task_name = get_task_name(task)
-        image_name = task_name if task_name and not blend_all else "labels"
+        image_name = (
+            task_name if task_name and not blend_all else "annotations"
+        )
         curr_image = images.get(image_name, image.copy())
 
         draw_function = cv2.rectangle
@@ -716,15 +720,17 @@ def visualize(
             draw_bbox_label(curr_image, class_name, box, color, font_scale)
         images[image_name] = curr_image
 
-    for task, arr in task_type_iterator(labels, "instance_segmentation"):
+    for task, arr in task_type_iterator(annotations, "instance_segmentation"):
         task_name = get_task_name(task)
-        image_name = task_name if task_name and not blend_all else "labels"
+        image_name = (
+            task_name if task_name and not blend_all else "annotations"
+        )
         curr_image = images.get(image_name, image.copy())
         images[image_name] = create_mask(
             curr_image, arr, task_name, is_instance=True
         )
 
-    for task, arr in task_type_iterator(labels, "classification"):
+    for task, arr in task_type_iterator(annotations, "classification"):
         task_name = get_task_name(task)
         task_classes = mappings.get(task_name)
         if task_classes is None:
@@ -737,9 +743,9 @@ def visualize(
         class_names = [
             task_classes.inverse[int(class_id)] for class_id in class_ids
         ]
-        classification_labels.append((task_name, class_names))
+        classification_annotations.append((task_name, class_names))
 
-    for task, arr in labels.items():
+    for task, arr in annotations.items():
         task_type = get_task_type(task)
         if not task_type.startswith("labels/"):
             continue
@@ -757,9 +763,11 @@ def visualize(
         unique_values = list(dict.fromkeys(formatted_values))
         custom_labels.append((label_name, unique_values))
 
-    for task, arr in task_type_iterator(labels, "keypoints"):
+    for task, arr in task_type_iterator(annotations, "keypoints"):
         task_name = get_task_name(task)
-        image_name = task_name if task_name and not blend_all else "labels"
+        image_name = (
+            task_name if task_name and not blend_all else "annotations"
+        )
         curr_image = images.get(image_name, image.copy())
 
         task_classes = mappings[task_name]
@@ -804,15 +812,15 @@ def visualize(
     output = concat_images(images)
 
     text_lines: list[str] = []
-    if len(classification_labels) == 1:
-        _, class_names = classification_labels[0]
+    if len(classification_annotations) == 1:
+        _, class_names = classification_annotations[0]
         text_lines.extend(["Classes:", ", ".join(class_names)])
-    elif classification_labels:
+    elif classification_annotations:
         text_lines.extend(
-            ["Classification labels:"]
+            ["Classification annotations:"]
             + [
                 f"{task_name}: {', '.join(class_names)}"
-                for task_name, class_names in classification_labels
+                for task_name, class_names in classification_annotations
             ]
         )
 

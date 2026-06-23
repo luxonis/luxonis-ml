@@ -125,6 +125,7 @@ def test_native_export_preserves_record_metadata(randint: int, tempdir: Path):
     export_path = dataset.export(
         tempdir / "native_export", dataset_type=DatasetType.NATIVE
     )
+    assert isinstance(export_path, Path)
     native_root = export_path / dataset_name
     if not native_root.exists():
         native_root = export_path
@@ -136,9 +137,9 @@ def test_native_export_preserves_record_metadata(randint: int, tempdir: Path):
         save_dir=tempdir,
     ).parse()
 
-    _, labels, metadata = next(iter(LuxonisLoader(imported_dataset)))
+    _, annotations, metadata = next(iter(LuxonisLoader(imported_dataset)))
 
-    assert "/boundingbox" in labels
+    assert "/boundingbox" in annotations
     assert metadata == {
         "file_name": "img_0.jpg",
         "tags": ["native", "round-trip"],

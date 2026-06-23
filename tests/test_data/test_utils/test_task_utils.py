@@ -38,7 +38,7 @@ def test_get_task_type():
 
 
 def test_task_type_iterator():
-    labels = {
+    annotations = {
         "task/segmentation": np.array([]),
         "task/labels/text": np.array([]),
         "task/instance_segmentation": np.array([]),
@@ -55,14 +55,15 @@ def test_task_type_iterator():
         assert tasks == expected
 
     compare(
-        task_type_iterator(labels, "segmentation"),
+        task_type_iterator(annotations, "segmentation"),
         {"task/segmentation", "task/subtask/segmentation"},
     )
     compare(
-        task_type_iterator(labels, "boundingbox"), {"task/subtask/boundingbox"}
+        task_type_iterator(annotations, "boundingbox"),
+        {"task/subtask/boundingbox"},
     )
     compare(
-        task_type_iterator(labels, "instance_segmentation"),
+        task_type_iterator(annotations, "instance_segmentation"),
         {"task/instance_segmentation"},
     )
-    compare(task_type_iterator(labels, "keypoints"), set())
+    compare(task_type_iterator(annotations, "keypoints"), set())

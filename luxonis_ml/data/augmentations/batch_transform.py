@@ -19,8 +19,8 @@ class BatchTransform(ABC, A.DualTransform):
     def __init__(self, batch_size: int, **kwargs):
         """Create a batch transformation.
 
-        Batch transformations combine multiple images and their labels into
-        one sample.
+        Batch transformations combine multiple images and their annotations
+        into one sample.
 
         Args:
             batch_size: Number of samples required by the augmentation.
@@ -153,15 +153,15 @@ class BatchTransform(ABC, A.DualTransform):
     def apply_to_classification(
         self, classification_batch: list[np.ndarray], **kwargs
     ) -> np.ndarray:
-        """Apply the transformation to a batch of classification labels.
+        """Apply the transformation to a batch of classification annotations.
 
         Note:
-            The default implementation treats classification labels as binary
+            The default implementation treats classification annotations as binary
             and returns their logical OR. Override this method if a different
             behavior is desired.
 
         Args:
-            classification_batch: A batch of classification labels to transform.
+            classification_batch: A batch of classification annotations to transform.
             **kwargs: Additional implementation-specific arguments.
 
         """

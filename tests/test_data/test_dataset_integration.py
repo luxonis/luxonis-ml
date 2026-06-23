@@ -68,8 +68,8 @@ def test_parking_lot_generate(
         color_space="BGR",
         keep_aspect_ratio=True,
     )
-    for _, labels, _ in loader:
-        accumulated_tasks.update(labels.keys())
+    for _, annotations, _ in loader:
+        accumulated_tasks.update(annotations.keys())
 
     assert accumulated_tasks == gather_tasks(dataset)
 

@@ -3,7 +3,7 @@ from functools import lru_cache
 
 import numpy as np
 
-from luxonis_ml.typing import Labels, TaskType
+from luxonis_ml.typing import Annotations, TaskType
 
 
 @lru_cache
@@ -103,26 +103,26 @@ def get_task_type(task: str) -> str:
 
 
 def task_type_iterator(
-    labels: Labels, task_type: TaskType
+    annotations: Annotations, task_type: TaskType
 ) -> Iterator[tuple[str, np.ndarray]]:
-    """Iterate over labels of a specific task type.
+    """Iterate over annotations of a specific task type.
 
     Args:
-        labels: Labels to iterate over.
+        annotations: Annotations to iterate over.
         task_type: Label type to yield.
 
     Returns:
-        Iterator over matching labels.
+        Iterator over matching annotations.
 
     Examples:
-        >>> labels = {
+        >>> annotations = {
         ...     "detector/boundingbox": np.array([1]),
         ...     "pose/keypoints": np.array([2]),
         ... }
-        >>> [(task, arr.tolist()) for task, arr in task_type_iterator(labels, "keypoints")]
+        >>> [(task, arr.tolist()) for task, arr in task_type_iterator(annotations, "keypoints")]
         [('pose/keypoints', [2])]
 
     """
-    for task, array in labels.items():
+    for task, array in annotations.items():
         if get_task_type(task) == task_type:
             yield task, array

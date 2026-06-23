@@ -34,7 +34,7 @@ from luxonis_ml.data.utils import (
 )
 from luxonis_ml.data.utils.task_utils import task_is_label
 from luxonis_ml.typing import (
-    Labels,
+    Annotations,
     LoaderMultiOutput,
     LoaderOutput,
     Params,
@@ -46,15 +46,15 @@ class LuxonisLoader(BaseLoader):
     r"""Indexed loader for `LuxonisDataset` samples.
 
     `LuxonisLoader` reads one split or multiple splits, loads image
-    sources, assembles labels by task key, optionally applies
-    augmentations, and returns image data, labels, and record metadata.
+    sources, assembles annotations by task key, optionally applies
+    augmentations, and returns imagesm, annotations, and record metadata.
 
     For a single-source dataset, ``loader[i]`` returns
-    ``(image, labels, metadata)``. For a multi-source dataset it returns
-    ``(images, labels, metadata)``, where ``images`` maps source names to
+    ``(image, annotations, metadata)``. For a multi-source dataset it returns
+    ``(images, annotations, metadata)``, where ``images`` maps source names to
     arrays.
 
-    Label keys use ``"task_name/task_type"``. If a dataset was created
+    Annotation keys use ``"task_name/task_type"``. If a dataset was created
     without a task name, the default task name is empty and keys look like
     ``"/boundingbox"`` or ``"/segmentation"``.
 
@@ -122,7 +122,7 @@ class LuxonisLoader(BaseLoader):
             keep_aspect_ratio: Whether resizing should preserve image aspect
                 ratio.
             exclude_empty_annotations: Whether to omit empty annotations
-                from the returned label dictionary.
+                from the returned annotations dictionary.
             color_space: Optional color space for each source. A single
                 value applies to all sources; if omitted, all sources use
                 ``"RGB"``.
@@ -132,7 +132,7 @@ class LuxonisLoader(BaseLoader):
             bbox_area_threshold: Minimum normalized area for bounding boxes
                 to remain valid. The default removes very small boxes and
                 their associated keypoints.
-            keep_categorical_as_strings: Whether to keep categorical
+            keep_categorical_as_strings: Whether to keep categorical custom
                  labels as strings instead of converting them to
                 integers.
             add_filepaths_to_metadata: Whether returned metadata includes a
@@ -148,7 +148,8 @@ class LuxonisLoader(BaseLoader):
                 dictionary.
             ValueError: If `filter_task_names` contains task names not
                 present in the dataset.
-            RuntimeError: If split labels are missing.
+            RuntimeError: If the dataset has no splits.
+                Call ``dataset.make_splits()`` first.
 
         Example:
             .. python::
@@ -258,8 +259,10 @@ class LuxonisLoader(BaseLoader):
 
         self._precompute_image_paths()
 
-        _, test_labels, _ = self._load_data(0)
-        for task, seg_masks in task_type_iterator(test_labels, "segmentation"):
+        _, test_annotations, _ = self._load_data(0)
+        for task, seg_masks in task_type_iterator(
+            test_annotations, "segmentation"
+        ):
             task_name = get_task_name(task)
             if seg_masks.shape[0] > 1 and (
                 "background" not in self.classes[task_name]
@@ -315,7 +318,7 @@ class LuxonisLoader(BaseLoader):
             idx: Index of the sample to retrieve.
 
         Returns:
-            Image data and annotation labels.
+            Image data and annotations.
 
         Raises:
             ValueError: If the selected views contain no records or a
@@ -324,12 +327,16 @@ class LuxonisLoader(BaseLoader):
 
         """
         if self.augmentations is None:
-            img_dict, labels, metadata = self._load_data(idx)
+            img_dict, annotations, metadata = self._load_data(idx)
         else:
-            img_dict, labels, metadata = self._load_with_augmentations(idx)
+            img_dict, annotations, metadata = self._load_with_augmentations(
+                idx
+            )
 
         if not self.exclude_empty_annotations:
-            img_dict, labels = self._add_empty_annotations(img_dict, labels)
+            img_dict, annotations = self._add_empty_annotations(
+                img_dict, annotations
+            )
 
         # Albumentations needs RGB
         bgr_sources = [k for k, v in self.color_space.items() if v == "BGR"]
@@ -340,12 +347,12 @@ class LuxonisLoader(BaseLoader):
 
         if len(self.source_names) == 1:
             img = next(iter(img_dict.values()))
-            return img, labels, metadata
-        return img_dict, labels, metadata
+            return img, annotations, metadata
+        return img_dict, annotations, metadata
 
     def _add_empty_annotations(
-        self, img_dict: dict[str, np.ndarray], labels: Labels
-    ) -> tuple[dict[str, np.ndarray], Labels]:
+        self, img_dict: dict[str, np.ndarray], annotations: Annotations
+    ) -> tuple[dict[str, np.ndarray], Annotations]:
         image_height, image_width = next(iter(img_dict.values())).shape[:2]
         for task_name, task_types in self.dataset.get_tasks().items():
             if (
@@ -355,16 +362,18 @@ class LuxonisLoader(BaseLoader):
                 continue
             for task_type in task_types:
                 task = f"{task_name}/{task_type}"
-                if task not in labels:
+                if task not in annotations:
                     if task_type == "boundingbox":
-                        labels[task] = np.zeros((0, 5))
+                        annotations[task] = np.zeros((0, 5))
                     elif task_type == "keypoints":
                         n_keypoints = self.dataset.get_n_keypoints()[task_name]
-                        labels[task] = np.zeros((0, n_keypoints * 3))
+                        annotations[task] = np.zeros((0, n_keypoints * 3))
                     elif task_type == "instance_segmentation":
-                        labels[task] = np.zeros((0, image_height, image_width))
+                        annotations[task] = np.zeros(
+                            (0, image_height, image_width)
+                        )
                     elif task_type == "segmentation":
-                        labels[task] = np.zeros(
+                        annotations[task] = np.zeros(
                             (
                                 len(self.classes[task_name]),
                                 image_height,
@@ -372,11 +381,11 @@ class LuxonisLoader(BaseLoader):
                             )
                         )
                     elif task_type == "classification" or task_is_label(task):
-                        labels[task] = np.zeros(
+                        annotations[task] = np.zeros(
                             (len(self.classes[task_name]),)
                         )
 
-        return img_dict, labels
+        return img_dict, annotations
 
     @staticmethod
     def _decode_metadata(value: Any) -> Params:
@@ -395,7 +404,7 @@ class LuxonisLoader(BaseLoader):
             idx: Index of the image.
 
         Returns:
-            Images and labels present for the sample.
+            Images and annotations present for the sample.
 
         """
         if not self.idx_to_df_row:
@@ -488,7 +497,7 @@ class LuxonisLoader(BaseLoader):
                     class_ids_by_task[full_task_name].append(0)
                 instance_ids_by_task[full_task_name].append(instance_id)
 
-        annotations: Labels = {}
+        annotations: Annotations = {}
         encodings = self.dataset.get_categorical_encodings()
         for task, labels in labels_by_task.items():
             if not self.keep_categorical_as_strings and task in encodings:
@@ -548,10 +557,10 @@ class LuxonisLoader(BaseLoader):
             indices.extend(picked_indices)
 
         loaded_anns = [self._load_data(i) for i in indices]
-        augmented_images, augmented_labels, _ = self.augmentations.apply(
+        augmented_images, augmented_annotations, _ = self.augmentations.apply(
             loaded_anns
         )
-        return augmented_images, augmented_labels, loaded_anns[0][2]
+        return augmented_images, augmented_annotations, loaded_anns[0][2]
 
     def _init_augmentations(
         self,

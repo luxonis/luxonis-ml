@@ -334,7 +334,7 @@ def inspect(
     categorical_encodings = dataset.get_categorical_encodings()
     prev_windows = set()
 
-    for img, labels, metadata in loader:
+    for img, annotations, metadata in loader:
         images_dict = img if isinstance(img, dict) else {"image": img}
 
         current_windows = set(images_dict.keys())
@@ -347,7 +347,9 @@ def inspect(
             "/instance_segmentation",
         ]
         matched_instance_keys = [
-            k for k in labels if any(k.endswith(ik) for ik in instance_keys)
+            k
+            for k in annotations
+            if any(k.endswith(ik) for ik in instance_keys)
         ]
 
         for source_name, image in images_dict.items():
@@ -360,17 +362,17 @@ def inspect(
             cv2.namedWindow(source_name, cv2.WINDOW_NORMAL)
             if per_instance and matched_instance_keys:
                 extra_keys = [
-                    k for k in labels if k not in matched_instance_keys
+                    k for k in annotations if k not in matched_instance_keys
                 ]
                 if extra_keys:
                     print(
                         f"[yellow]Warning: Ignoring non-instance keys in labels: {extra_keys}[/yellow]"
                     )
-                n_instances = len(labels[matched_instance_keys[0]])
+                n_instances = len(annotations[matched_instance_keys[0]])
                 for i in range(n_instances):
                     instance_labels = {
                         k: np.expand_dims(v[i], axis=0)
-                        for k, v in labels.items()
+                        for k, v in annotations.items()
                         if k in matched_instance_keys and len(v) > i
                     }
                     instance_image = visualize(
@@ -403,7 +405,7 @@ def inspect(
                 labeled_image = visualize(
                     image,
                     source_name,
-                    labels,
+                    annotations,
                     classes,
                     blend_all=blend_all,
                     categorical_encodings=categorical_encodings,

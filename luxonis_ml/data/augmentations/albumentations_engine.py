@@ -346,7 +346,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             targets: Task names mapped to task types. Supported task
                 types are ``"array"``, ``"classification"``,
                 ``"segmentation"``, ``"instance_segmentation"``,
-                ``"boundingbox"``, ``"keypoints"``, and metadata tasks.
+                ``"boundingbox"``, ``"keypoints"``, and custom tasks.
             n_classes: Number of classes per task.
             source_names: Source names that should be treated as image
                 targets.
@@ -406,11 +406,11 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 )
 
             elif task_is_label(task):
-                target_type = "metadata"
+                target_type = "labels"
                 logger.warning(
                     "Custom labels detected. Custom labels can contain "
                     "arbitrary data so they cannot be properly augmented. "
-                    "The only applied transformation is discarding metadata "
+                    "The only applied transformation is discarding labels "
                     "associated with bboxes falling outside the image."
                 )
 
@@ -434,7 +434,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                     f"Unsupported task type: '{task_type}'. "
                     f"Only 'array', 'classification', 'segmentation', "
                     f"'instance_segmentation', 'boundingbox', "
-                    f"'keypoints', and 'metadata' are supported."
+                    f"'keypoints', and 'labels' are supported."
                 )
 
             self._targets[target_name] = target_type
@@ -814,7 +814,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                     image_width,
                     n_keypoints[target_name],
                 )
-            elif target_type in {"array", "metadata"}:
+            elif target_type in {"array", "labels"}:
                 out_annotations[task] = array[bbox_ordering]
 
             elif target_type == "classification":

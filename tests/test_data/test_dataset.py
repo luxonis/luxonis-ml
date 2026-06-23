@@ -125,10 +125,10 @@ def test_dataset(
 
     with subtests.test("test_load"):
         loader = LuxonisLoader(dataset)
-        for img, labels, _ in loader:
+        for img, annotations, _ in loader:
             assert img is not None
             for task in ["segmentation", "keypoints", "boundingbox"]:
-                assert f"coco/{task}" in labels
+                assert f"coco/{task}" in annotations
 
     with subtests.test("test_load_aug"):
         loader = LuxonisLoader(
@@ -138,10 +138,10 @@ def test_dataset(
             augmentation_config=augmentation_config,
             augmentation_engine="albumentations",
         )
-        for img, labels, _ in loader:
+        for img, annotations, _ in loader:
             assert img is not None
             for task in ["segmentation", "keypoints", "boundingbox"]:
-                assert f"coco/{task}" in labels
+                assert f"coco/{task}" in annotations
 
     with subtests.test("test_delete"):
         dataset.delete_dataset(delete_remote=True, delete_local=True)
@@ -293,7 +293,7 @@ def test_make_splits(
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
-def test_labels(
+def test_custom_labels(
     bucket_storage: BucketStorage, dataset_name: str, tempdir: Path
 ):
     def generator() -> DatasetIterator:
@@ -314,25 +314,25 @@ def test_labels(
 
     dataset = create_dataset(dataset_name, generator(), bucket_storage)
     loader = LuxonisLoader(dataset)
-    for _, labels, _ in loader:
-        labels = {get_task_type(k): v for k, v in labels.items()}
+    for _, annotations, _ in loader:
+        annotations = {get_task_type(k): v for k, v in annotations.items()}
         assert {
             "labels/color",
             "labels/distance",
             "labels/id",
             "labels/license_plate",
             "classification",
-        } == set(labels.keys())
+        } == set(annotations.keys())
 
-        assert labels["labels/color"].tolist() == [0, 1] * 5
-        assert labels["labels/distance"].tolist() == [5.0] * 10
-        assert labels["labels/id"].tolist() == list(range(127, 137))
-        assert labels["labels/license_plate"].tolist() == ["xyz"] * 10
+        assert annotations["labels/color"].tolist() == [0, 1] * 5
+        assert annotations["labels/distance"].tolist() == [5.0] * 10
+        assert annotations["labels/id"].tolist() == list(range(127, 137))
+        assert annotations["labels/license_plate"].tolist() == ["xyz"] * 10
 
     loader = LuxonisLoader(dataset, keep_categorical_as_strings=True)
-    for _, labels, _ in loader:
-        labels = {get_task_type(k): v for k, v in labels.items()}
-        assert labels["labels/color"].tolist() == ["red", "blue"] * 5
+    for _, annotations, _ in loader:
+        annotations = {get_task_type(k): v for k, v in annotations.items()}
+        assert annotations["labels/color"].tolist() == ["red", "blue"] * 5
 
     assert dataset.get_categorical_encodings() == {
         "/labels/color": {"red": 0, "blue": 1}
@@ -384,7 +384,7 @@ def test_record_metadata(randint: int, tempdir: Path):
     }
 
     filtered_loader = LuxonisLoader(dataset, filter_task_names=["vehicle"])
-    assert {metadata["file_name"] for _, _, metadata in filtered_loader} == {
+    assert {metadata["file_name"] for _, _, metadata in filtered_loader} == {  # type: ignore
         "img_0.jpg",
         "img_1.jpg",
     }
@@ -393,7 +393,8 @@ def test_record_metadata(randint: int, tempdir: Path):
         dataset, exclude_empty_annotations=True, filter_task_names=["vehicle"]
     )
     sparse = {
-        metadata["file_name"]: labels for _, labels, metadata in sparse_loader
+        metadata["file_name"]: annotations
+        for _, annotations, metadata in sparse_loader
     }
     assert sparse["img_1.jpg"] == {}
 
@@ -451,19 +452,19 @@ def test_record_metadata_multi_source(randint: int, tempdir: Path):
         }
 
     dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
-    images, labels, metadata = next(iter(LuxonisLoader(dataset)))
+    images, annotations, metadata = next(iter(LuxonisLoader(dataset)))
 
     assert set(images) == {"left", "right"}
-    assert "/boundingbox" in labels
+    assert "/boundingbox" in annotations
     assert metadata == {"pair_id": "stereo-0"}
 
     _, _, metadata = next(
         iter(LuxonisLoader(dataset, add_filepaths_to_metadata=True))
     )
     assert metadata["pair_id"] == "stereo-0"
-    assert set(metadata["filepaths"]) == {"left", "right"}
-    assert Path(metadata["filepaths"]["left"]).name == "img_0.jpg"
-    assert Path(metadata["filepaths"]["right"]).name == "img_1.jpg"
+    assert set(metadata["filepaths"]) == {"left", "right"}  # type: ignore
+    assert Path(metadata["filepaths"]["left"]).name == "img_0.jpg"  # type: ignore
+    assert Path(metadata["filepaths"]["right"]).name == "img_1.jpg"  # type: ignore
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
@@ -529,8 +530,8 @@ def test_no_labels(dataset_name: str, tempdir: Path, subtests: SubTests):
                     "/head/boundingbox",
                 }
 
-            for _, labels, _ in LuxonisLoader(dataset):
-                assert set(labels.keys()) == expected_tasks
+            for _, annotations, _ in LuxonisLoader(dataset):
+                assert set(annotations.keys()) == expected_tasks
 
             augmented_loader = LuxonisLoader(
                 dataset,
@@ -538,22 +539,22 @@ def test_no_labels(dataset_name: str, tempdir: Path, subtests: SubTests):
                 height=512,
                 augmentation_config=[{"name": "Affine", "params": {}}],
             )
-            for _, labels, _ in augmented_loader:
-                assert set(labels.keys()) == expected_tasks
+            for _, annotations, _ in augmented_loader:
+                assert set(annotations.keys()) == expected_tasks
 
         if total is False:
             with subtests.test("test_almost_empty_exclude_empty"):
-                for i, (_, labels, _) in enumerate(
+                for i, (_, annotations, _) in enumerate(
                     LuxonisLoader(dataset, exclude_empty_annotations=True)
                 ):
                     if i == 0:
-                        assert set(labels.keys()) == expected_tasks
+                        assert set(annotations.keys()) == expected_tasks
                     else:
-                        assert not labels
+                        assert not annotations
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
-def test_deep_nested_labels(
+def test_deep_nested_annotations(
     dataset_name: str, augmentation_config: list[Params], tempdir: Path
 ):
     def generator() -> DatasetIterator:
@@ -643,7 +644,7 @@ def test_deep_nested_labels(
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
-def test_partial_labels(dataset_name: str, tempdir: Path):
+def test_partial_annotations(dataset_name: str, tempdir: Path):
     def generator() -> DatasetIterator:
         for i in range(8):
             img = create_image(i, tempdir)

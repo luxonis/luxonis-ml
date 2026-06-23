@@ -46,7 +46,7 @@ def test_inspect_displays_loader_metadata(
     def fake_visualize(
         image: np.ndarray,
         source_name: str,
-        labels: dict[str, np.ndarray],
+        annotations: dict[str, np.ndarray],
         classes: dict[str, dict[str, int]],
         blend_all: bool = False,
         categorical_encodings: dict[str, dict[str, int]] | None = None,

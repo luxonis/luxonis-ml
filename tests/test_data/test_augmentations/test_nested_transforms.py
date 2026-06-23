@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from luxonis_ml.data import AlbumentationsEngine
-from luxonis_ml.typing import Labels, LoaderMultiOutput, Params
+from luxonis_ml.typing import Annotations, LoaderMultiOutput, Params
 
 H, W = 320, 320
 SEED = 42
@@ -158,7 +158,7 @@ def coco_n_classes() -> dict[str, int]:
 
 
 @pytest.fixture
-def coco_labels() -> Labels:
+def coco_annotations() -> Annotations:
     mask = np.zeros((1, H, W), dtype=np.uint8)
     mask[0, 50:200, 50:200] = 1
 
@@ -200,12 +200,12 @@ def _apply_config(
     targets: dict[str, str],
     n_classes: dict[str, int],
     image: np.ndarray,
-    labels: Labels,
+    annotations: Annotations,
 ) -> LoaderMultiOutput:
     engine = AlbumentationsEngine(
         H, W, targets, n_classes, ["image"], config, seed=SEED
     )
-    return engine.apply([({"image": image.copy()}, deepcopy(labels), {})])
+    return engine.apply([({"image": image.copy()}, deepcopy(annotations), {})])
 
 
 def _assert_results_equal(
@@ -287,7 +287,7 @@ def test_nested_equivalent_to_direct(
     coco_targets: dict[str, str],
     coco_n_classes: dict[str, int],
     coco_image: np.ndarray,
-    coco_labels: Labels,
+    coco_annotations: Annotations,
 ):
     """Wrapping a p=1 augmentation inside Sequential, OneOf, or SomeOf
     must produce exactly the same result as using the augmentation
@@ -311,14 +311,14 @@ def test_nested_equivalent_to_direct(
         coco_targets,
         coco_n_classes,
         coco_image,
-        coco_labels,
+        coco_annotations,
     )
     nested_result = _apply_config(
         nested_config,
         coco_targets,
         coco_n_classes,
         coco_image,
-        coco_labels,
+        coco_annotations,
     )
 
     _assert_results_equal(direct_result, nested_result)

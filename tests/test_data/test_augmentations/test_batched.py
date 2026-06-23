@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from luxonis_ml.data import AlbumentationsEngine
-from luxonis_ml.typing import Labels
+from luxonis_ml.typing import Annotations
 
 
 @pytest.fixture(
@@ -26,7 +26,7 @@ def images_dict(request: pytest.FixtureRequest) -> dict[str, np.ndarray]:
 
 
 @pytest.fixture
-def labels() -> Labels:
+def annotations() -> Annotations:
     return {
         "task/classification": np.array([1.0]),
         "task/boundingbox": np.array(
@@ -65,7 +65,7 @@ def n_classes() -> dict[str, int]:
 
 def test_mosaic4(
     images_dict: dict[str, np.ndarray],
-    labels: Labels,
+    annotations: Annotations,
     targets: dict[str, str],
     n_classes: dict[str, int],
 ) -> None:
@@ -79,12 +79,14 @@ def test_mosaic4(
     augmentations = AlbumentationsEngine(
         256, 256, targets, n_classes, source_names, config
     )
-    augmentations.apply([(images_dict, deepcopy(labels)) for _ in range(4)])
+    augmentations.apply(
+        [(images_dict, deepcopy(annotations), {}) for _ in range(4)]
+    )
 
 
 def test_mixup(
     images_dict: dict[str, np.ndarray],
-    labels: Labels,
+    annotations: Annotations,
     targets: dict[str, str],
     n_classes: dict[str, int],
 ) -> None:
@@ -93,7 +95,9 @@ def test_mixup(
     augmentations = AlbumentationsEngine(
         256, 256, targets, n_classes, source_names, config
     )
-    augmentations.apply([(images_dict, deepcopy(labels)) for _ in range(2)])
+    augmentations.apply(
+        [(images_dict, deepcopy(annotations), {}) for _ in range(2)]
+    )
 
 
 def test_at_least_one_bbox_random_crop() -> None:
@@ -104,7 +108,7 @@ def test_at_least_one_bbox_random_crop() -> None:
     """
     image = np.random.randint(0, 255, (320, 320, 3), dtype=np.uint8)
     images_dict = {"image": image}
-    labels: Labels = {
+    annotations: Annotations = {
         "task/boundingbox": np.array(
             [
                 [0.0, 0.5, 0.5, 0.1, 0.1],
@@ -128,8 +132,10 @@ def test_at_least_one_bbox_random_crop() -> None:
         256, 256, targets, n_classes, ["image"], config
     )
     for _ in range(10):
-        _, out_labels, _ = engine.apply([(images_dict, deepcopy(labels))])
-        bboxes = out_labels.get("task/boundingbox")
+        _, out_annotations, _ = engine.apply(
+            [(images_dict, deepcopy(annotations), {})]
+        )
+        bboxes = out_annotations.get("task/boundingbox")
         assert bboxes is not None, (
             "AtLeastOneBBoxRandomCrop should produce bounding box output"
         )
@@ -141,7 +147,7 @@ def test_at_least_one_bbox_random_crop() -> None:
 
 def test_batched_p_0(
     images_dict: dict[str, np.ndarray],
-    labels: Labels,
+    annotations: Annotations,
     targets: dict[str, str],
     n_classes: dict[str, int],
 ) -> None:
@@ -156,4 +162,6 @@ def test_batched_p_0(
     augmentations = AlbumentationsEngine(
         256, 256, targets, n_classes, source_names, config
     )
-    augmentations.apply([(images_dict, deepcopy(labels)) for _ in range(8)])
+    augmentations.apply(
+        [(images_dict, deepcopy(annotations), {}) for _ in range(8)]
+    )

@@ -19,7 +19,7 @@ def _get_transform_names(wrapped_transform: Any) -> list[str]:
     )
 
 
-def test_labels_no_boxes():
+def test_custom_labels_no_boxes():
     config = [
         {
             "name": "Defocus",
@@ -38,16 +38,17 @@ def test_labels_no_boxes():
         ["image"],
         config,
     )
-    _, labels, _ = augmentations.apply(
+    _, annotations, _ = augmentations.apply(
         [
             (
                 {"image": np.zeros((3, 256, 256))},
                 {"/labels/id": np.array([i])},
+                {},
             )
             for i in range(4)
         ]
     )
-    assert labels["/labels/id"].tolist() == [0, 1, 2, 3]
+    assert annotations["/labels/id"].tolist() == [0, 1, 2, 3]
 
 
 def test_skip_augmentations():
@@ -281,6 +282,7 @@ def test_use_for_resizing_falls_back_to_default_resize():
             (
                 {"image": np.full((100, 200, 3), 255, dtype=np.uint8)},
                 {"task/boundingbox": np.array([[0.0, 0.5, 0.5, 0.1, 0.1]])},
+                {},
             )
         ]
     )

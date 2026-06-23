@@ -63,7 +63,7 @@ def test_multi_input(dataset_name: str, tempdir: Path):
         color_space=color_space,
     )
     assert len(loader) == 4
-    for img_dict, labels, _ in loader:
+    for img_dict, annotations, _ in loader:
         assert "image1" in img_dict
         assert "image2" in img_dict
         assert "image3" in img_dict
@@ -72,5 +72,5 @@ def test_multi_input(dataset_name: str, tempdir: Path):
         assert img_dict["image2"].shape == (512, 512, 3)
         assert img_dict["image3"].shape == (512, 512, 1)
 
-        assert "/keypoints" in labels
-        assert "/boundingbox" in labels
+        assert "/keypoints" in annotations
+        assert "/boundingbox" in annotations

@@ -178,7 +178,7 @@ def test_visualize():
         3, 3 * height // 5 : 4 * height // 5, 3 * height // 5 : 4 * height // 5
     ] = 1
     semantic_mask[0, ...] = 1 - np.sum(semantic_mask[1:], axis=0)
-    labels = {
+    annotations = {
         "task/boundingbox": np.array([[0.0, 0.2, 0.2, 0.65, 0.65]]),
         "task/keypoints": np.array([[0, 0, 0], [0.9, 0.1, 1], [0.5, 0.5, 2]]),
         "task/instance_segmentation": instance_mask,
@@ -186,7 +186,7 @@ def test_visualize():
         "semantic/segmentation": semantic_mask,
     }
 
-    expected_labels = np.array(
+    expected_annotations = np.array(
         [
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
@@ -210,7 +210,7 @@ def test_visualize():
             [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         ]
     )
-    expected_labels = np.stack([expected_labels] * 3, axis=-1)
+    expected_annotations = np.stack([expected_annotations] * 3, axis=-1)
     expected_semantic = np.array(
         [
             [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -238,14 +238,14 @@ def test_visualize():
     expected_semantic = np.stack([expected_semantic] * 3, axis=-1)
     expected_images = {
         "image": image.copy(),
-        "labels": expected_semantic + expected_labels,
+        "annotations": expected_semantic + expected_annotations,
     }
     classes = {
         "task": {"class_name": 0},
         "semantic": {"background": 0, "red": 1, "green": 2, "blue": 3},
         "task2": {"class_name2": 0},
     }
-    image = visualize(image, "image", labels, classes, blend_all=True)
+    image = visualize(image, "image", annotations, classes, blend_all=True)
     image = (
         cv2.cvtColor(image, cv2.COLOR_RGB2GRAY).astype(bool).astype(np.uint8)
     )
