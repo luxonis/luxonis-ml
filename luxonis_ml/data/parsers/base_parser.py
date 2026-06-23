@@ -528,17 +528,14 @@ class BaseParser(ABC):
 
         logger.warning(
             "Skipped logging "
-            f"{self._suppressed_skipped_annotation_warnings} additional warnings, "
-            "enable the --log-all-warnings flag to see the full list."
+            f"{self._suppressed_skipped_annotation_warnings} additional warnings. "
+            "Enable the `--log-all-warnings` flag to see the full list."
         )
-        reason_summary = ", ".join(
-            f"{reason} ({count} records)"
-            for reason, count in sorted(
-                self._skipped_annotation_counts_by_reason.items(),
-                key=lambda item: (-item[1], item[0]),
-            )
-        )
-        logger.warning(f"Skipped annotations by reason: {reason_summary}")
+        for reason, count in sorted(
+            self._skipped_annotation_counts_by_reason.items(),
+            key=lambda item: (-item[1], item[0]),
+        ):
+            logger.warning(f"Skipped annotations: {reason} ({count} records)")
 
     @staticmethod
     def _compare_stem_files(

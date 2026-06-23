@@ -4,7 +4,8 @@ from typing import Annotated
 
 import cv2
 import numpy as np
-import typer
+from cyclopts import App, Parameter
+from rich import print
 
 from luxonis_ml.data import BucketStorage, LuxonisDataset, LuxonisLoader
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
@@ -52,7 +53,7 @@ def generator(size: int) -> DatasetIterator:
             }
 
 
-app = typer.Typer()
+app = App()
 
 normal_config: list[Params] = [
     {"name": "Defocus", "params": {"p": 1}},
@@ -67,14 +68,17 @@ batched_config: list[Params] = [
 ]
 
 
+@app.default
 def main(
-    repeat: Annotated[int, typer.Option(..., "-r", "--repeat")] = 1,
-    size: Annotated[int, typer.Option(..., "-s", "--size")] = 10_000,
-    no_write: Annotated[bool, typer.Option(..., "-nw", "--no-write")] = False,
-    no_read: Annotated[bool, typer.Option(..., "-nr", "--no-read")] = False,
-    augment: Annotated[bool, typer.Option(..., "-a", "--augment")] = False,
-    batched: Annotated[bool, typer.Option(..., "-b", "--batched")] = False,
+    repeat: Annotated[int, Parameter(alias="-r")] = 1,
+    size: Annotated[int, Parameter(alias="-s")] = 10_000,
+    no_write: Annotated[bool, Parameter(alias="-nw")] = False,
+    no_read: Annotated[bool, Parameter(alias="-nr")] = False,
+    augment: Annotated[bool, Parameter(alias="-a")] = False,
+    batched: Annotated[bool, Parameter(alias="-b")] = False,
 ) -> None:
+    """Benchmark the time taken to write and read a dataset with the
+    given parameters."""
     if not no_write:
         avg = 0
         for _ in range(repeat):
@@ -85,7 +89,7 @@ def main(
             dataset.add(generator(size))
             dataset.make_splits()
             avg += time.time() - t
-        typer.echo(f"Time to write: {avg / repeat:.2f}s")
+        print(f"Time to write: {avg / repeat:.2f}s")
 
     if not no_read:
         avg = 0
@@ -105,8 +109,8 @@ def main(
                 pass
 
             avg += time.time() - t
-        typer.echo(f"Time to read: {avg / repeat:.2f}s")
+        print(f"Time to read: {avg / repeat:.2f}s")
 
 
 if __name__ == "__main__":
-    typer.run(main)
+    app()
