@@ -39,3 +39,9 @@ class Config(BaseModelExtraForbid):
                 "'config_version' must be in format 'x.y' where x and y are integers"
             )
         return v
+
+    def __str__(self) -> str:
+        return self.model_dump_json(indent=4)
+
+    def __repr__(self) -> str:
+        return self.__str__()
