@@ -508,11 +508,11 @@ def test_skipped_annotation_warnings_are_capped():
         == BaseParser.SKIPPED_WARNING_LIMIT
     )
     assert (
-        "Skipped logging 5 additional warnings, enable the "
-        "--log-all-warnings flag to see the full list."
+        "Skipped logging 5 additional warnings. Enable the "
+        "`--log-all-warnings` flag to see the full list."
     ) in messages
     assert (
-        "Skipped annotations by reason: dummy skipped annotation (55 records)"
+        "Skipped annotations: dummy skipped annotation (55 records)"
         in messages
     )
 
