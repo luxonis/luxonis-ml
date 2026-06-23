@@ -557,10 +557,10 @@ class LuxonisLoader(BaseLoader):
             indices.extend(picked_indices)
 
         loaded_anns = [self._load_data(i) for i in indices]
-        augmented_images, augmented_annotations, _ = self.augmentations.apply(
-            loaded_anns
+        augmented_images, augmented_annotations, metadata = (
+            self.augmentations.apply(loaded_anns)
         )
-        return augmented_images, augmented_annotations, loaded_anns[0][2]
+        return augmented_images, augmented_annotations, metadata
 
     def _init_augmentations(
         self,

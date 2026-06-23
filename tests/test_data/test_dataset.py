@@ -468,6 +468,65 @@ def test_record_metadata_multi_source(randint: int, tempdir: Path):
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
+def test_batch_augmentation_record_metadata(
+    randint: int, tempdir: Path
+) -> None:
+    dataset_name = f"test_batch_augmentation_record_metadata_{randint}"
+
+    def generator() -> DatasetIterator:
+        for i in range(4):
+            yield {
+                "file": create_image(i, tempdir),
+                "task_name": "vehicle",
+                "metadata": {"file_name": f"img_{i}.jpg"},
+                "annotation": {
+                    "class": "car",
+                    "boundingbox": {
+                        "x": 0.1,
+                        "y": 0.2,
+                        "w": 0.3,
+                        "h": 0.4,
+                    },
+                },
+            }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    loader = LuxonisLoader(
+        dataset,
+        width=512,
+        height=512,
+        augmentation_config=[
+            {
+                "name": "Mosaic4",
+                "params": {
+                    "p": 1.0,
+                    "out_width": 512,
+                    "out_height": 512,
+                },
+            }
+        ],
+        add_filepaths_to_metadata=True,
+    )
+
+    _, annotations, metadata = next(iter(loader))
+
+    assert "vehicle/boundingbox" in annotations
+    sources = metadata["augmentation_sources"]
+    anchor_file_name = sources[0]["metadata"]["file_name"]
+    assert metadata["file_name"] == anchor_file_name
+    assert len(sources) == 4
+    assert sources[0]["role"] == "anchor"
+    assert sources[0]["input_index"] == 0
+    assert {source["metadata"]["file_name"] for source in sources} == {
+        "img_0.jpg",
+        "img_1.jpg",
+        "img_2.jpg",
+        "img_3.jpg",
+    }
+    assert all("filepaths" in source["metadata"] for source in sources)
+
+
+@pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_no_labels(dataset_name: str, tempdir: Path, subtests: SubTests):
     def generator(total: bool) -> DatasetIterator:
         for i in range(10):

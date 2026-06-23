@@ -100,6 +100,44 @@ def test_mixup(
     )
 
 
+def test_mixup_record_metadata(
+    images_dict: dict[str, np.ndarray],
+    annotations: Annotations,
+    targets: dict[str, str],
+    n_classes: dict[str, int],
+) -> None:
+    config = [{"name": "MixUp", "params": {"p": 1.0}}]
+    source_names = list(images_dict.keys())
+    augmentations = AlbumentationsEngine(
+        256, 256, targets, n_classes, source_names, config
+    )
+    metadata_batch = [
+        {"file_name": "anchor.jpg"},
+        {"file_name": "support.jpg"},
+    ]
+
+    _, _, metadata = augmentations.apply(
+        [
+            (images_dict, deepcopy(annotations), metadata_batch[0]),
+            (images_dict, deepcopy(annotations), metadata_batch[1]),
+        ]
+    )
+
+    assert metadata["file_name"] == "anchor.jpg"
+    assert metadata["augmentation_sources"] == [
+        {
+            "role": "anchor",
+            "input_index": 0,
+            "metadata": {"file_name": "anchor.jpg"},
+        },
+        {
+            "role": "support",
+            "input_index": 1,
+            "metadata": {"file_name": "support.jpg"},
+        },
+    ]
+
+
 def test_at_least_one_bbox_random_crop() -> None:
     """Test that AtLeastOneBBoxRandomCrop guarantees at least one bbox.
 
@@ -162,6 +200,69 @@ def test_batched_p_0(
     augmentations = AlbumentationsEngine(
         256, 256, targets, n_classes, source_names, config
     )
-    augmentations.apply(
-        [(images_dict, deepcopy(annotations), {}) for _ in range(8)]
+    metadata_batch = [
+        {"file_name": f"image_{i}.jpg"}
+        for i in range(augmentations.batch_size)
+    ]
+
+    _, _, metadata = augmentations.apply(
+        [
+            (images_dict, deepcopy(annotations), metadata)
+            for metadata in metadata_batch
+        ]
     )
+    assert metadata == {"file_name": "image_0.jpg"}
+
+
+def test_nested_batched_record_metadata_uses_actual_contributors(
+    images_dict: dict[str, np.ndarray],
+    annotations: Annotations,
+    targets: dict[str, str],
+    n_classes: dict[str, int],
+) -> None:
+    config = [
+        {
+            "name": "Mosaic4",
+            "params": {"p": 1.0, "out_width": 640, "out_height": 640},
+        },
+        {"name": "MixUp", "params": {"p": 0}},
+    ]
+    source_names = list(images_dict.keys())
+    augmentations = AlbumentationsEngine(
+        256, 256, targets, n_classes, source_names, config
+    )
+    metadata_batch = [
+        {"file_name": f"image_{i}.jpg"}
+        for i in range(augmentations.batch_size)
+    ]
+
+    _, _, metadata = augmentations.apply(
+        [
+            (images_dict, deepcopy(annotations), metadata)
+            for metadata in metadata_batch
+        ]
+    )
+
+    assert metadata["file_name"] == "image_0.jpg"
+    assert metadata["augmentation_sources"] == [
+        {
+            "role": "anchor",
+            "input_index": 0,
+            "metadata": {"file_name": "image_0.jpg"},
+        },
+        {
+            "role": "support",
+            "input_index": 1,
+            "metadata": {"file_name": "image_1.jpg"},
+        },
+        {
+            "role": "support",
+            "input_index": 2,
+            "metadata": {"file_name": "image_2.jpg"},
+        },
+        {
+            "role": "support",
+            "input_index": 3,
+            "metadata": {"file_name": "image_3.jpg"},
+        },
+    ]

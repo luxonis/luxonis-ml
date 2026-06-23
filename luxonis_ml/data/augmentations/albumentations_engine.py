@@ -16,7 +16,7 @@ from luxonis_ml.typing import ConfigItem, LoaderMultiOutput, Params
 from luxonis_ml.utils import deprecated
 
 from .base_engine import AugmentationEngine
-from .batch_compose import BatchCompose
+from .batch_compose import CONTRIBUTOR_INDICES_KEY, BatchCompose
 from .batch_transform import BatchTransform
 from .custom import TRANSFORMATIONS, LetterboxResize
 from .utils import (
@@ -28,7 +28,7 @@ from .utils import (
     preprocess_mask,
 )
 
-Data: TypeAlias = dict[str, np.ndarray]
+Data: TypeAlias = dict[str, Any]
 TargetType: TypeAlias = Literal[
     "image",
     "array",
@@ -603,13 +603,19 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
     @override
     def apply(self, input_batch: list[LoaderMultiOutput]) -> LoaderMultiOutput:
-        metadata = input_batch[0][2] if len(input_batch[0]) > 2 else {}
         data_batch, n_keypoints = self._preprocess_batch(input_batch)
 
         data = self._batch_transform(data_batch)
+        contributor_indices = data.pop(CONTRIBUTOR_INDICES_KEY, [0])
 
         for target_name in list(data.keys()):
             value = data[target_name]
+            if isinstance(value, list):
+                value = self._collapse_batch_list(
+                    value,
+                    concatenate=target_name in self._target_names_to_tasks,
+                )
+                data[target_name] = value
             if isinstance(value, np.ndarray) and value.size == 0:
                 del data[target_name]
 
@@ -632,7 +638,52 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             data = self._pixel_transform(**data)
 
         image_dict, annotations, _ = self._postprocess(data, n_keypoints)
+        metadata = self._merge_metadata(input_batch, contributor_indices)
         return image_dict, annotations, metadata
+
+    @staticmethod
+    def _collapse_batch_list(value: list[Any], concatenate: bool) -> Any:
+        if not value:
+            return np.array([])
+
+        if concatenate and all(isinstance(item, np.ndarray) for item in value):
+            arrays = [item for item in value if item.size > 0]
+            if not arrays:
+                return np.array([])
+            return np.concatenate(arrays)
+
+        return value[0]
+
+    @staticmethod
+    def _merge_metadata(
+        input_batch: list[LoaderMultiOutput],
+        contributor_indices: list[int],
+    ) -> Params:
+        metadata_batch = [
+            cast(Params, batch_item[2]).copy() if len(batch_item) > 2 else {}
+            for batch_item in input_batch
+        ]
+        contributor_indices = [
+            index
+            for index in contributor_indices
+            if 0 <= index < len(metadata_batch)
+        ]
+        if not contributor_indices:
+            contributor_indices = [0]
+
+        metadata = metadata_batch[0].copy()
+        if len(contributor_indices) <= 1:
+            return metadata
+
+        metadata["augmentation_sources"] = [
+            {
+                "role": "anchor" if index == 0 else "support",
+                "input_index": index,
+                "metadata": metadata_batch[index].copy(),
+            }
+            for index in contributor_indices
+        ]
+        return metadata
 
     @staticmethod
     def _resolve_pipeline_stage(
@@ -947,9 +998,12 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 return data
 
             original_key = data.pop("_original_image_key", None)
+            contributor_indices = data.pop(CONTRIBUTOR_INDICES_KEY, None)
             transformed = transform(**data)
             if original_key is not None:
                 transformed["_original_image_key"] = original_key
+            if contributor_indices is not None:
+                transformed[CONTRIBUTOR_INDICES_KEY] = contributor_indices
 
             return transformed
 

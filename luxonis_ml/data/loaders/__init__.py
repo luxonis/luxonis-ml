@@ -105,6 +105,32 @@ For multi-source datasets, ``"filepaths"`` is keyed by source name:
 The ``"filepaths"`` entry is runtime metadata. It is not written back to the
 stored dataset.
 
+Batch augmentations such as `MixUp` and `Mosaic4` can combine multiple input
+records into one output. In that case, the top-level metadata remains the
+anchor record metadata for compatibility, and the loader adds
+``"augmentation_sources"`` with the actual contributing input metadata:
+
+.. python::
+
+    {
+        "file_name": "anchor.jpg",
+        "augmentation_sources": [
+            {
+                "role": "anchor",
+                "input_index": 0,
+                "metadata": {"file_name": "anchor.jpg"},
+            },
+            {
+                "role": "support",
+                "input_index": 1,
+                "metadata": {"file_name": "support.jpg"},
+            },
+        ],
+    }
+
+Like ``"filepaths"``, ``"augmentation_sources"`` is runtime metadata and is
+not persisted to the dataset.
+
 
 Output Layouts
 ==============

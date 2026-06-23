@@ -1,4 +1,5 @@
 import random
+from typing import Any
 
 import albumentations as A
 import numpy as np
@@ -42,9 +43,7 @@ class BatchCompose(A.Compose):
             self.batch_size *= transform.batch_size
 
     @override
-    def __call__(
-        self, data_batch: list[dict[str, np.ndarray]]
-    ) -> dict[str, np.ndarray]:
+    def __call__(self, data_batch: list[dict[str, Any]]) -> dict[str, Any]:
         """Apply the composed transforms to a batch.
 
         Args:
@@ -66,23 +65,46 @@ class BatchCompose(A.Compose):
             )
 
         if not self.transforms:
-            return data_batch[0]
+            data = data_batch[0]
+            data["_luxonis_contributor_indices"] = [0]
+            return data
+
+        original_image_key = data_batch[0].pop("_original_image_key", None)
+        for data in data_batch[1:]:
+            data.pop("_original_image_key", None)
+
+        contributor_batches = [[i] for i in range(len(data_batch))]
 
         for data in data_batch:
-            original_image_key = data.pop("_original_image_key", None)
             self.preprocess(data)
 
         for transform in self.transforms:
             new_batch = []
-            for batch in yield_batches(data_batch, transform.batch_size):
+            new_contributor_batches = []
+            for batch_idx, batch in enumerate(
+                yield_batches(data_batch, transform.batch_size)
+            ):
+                i = batch_idx * transform.batch_size
+                contributor_batch = contributor_batches[
+                    i : i + transform.batch_size
+                ]
                 data = transform(**batch)  # type: ignore
 
                 if isinstance(next(iter(data.values())), list):
                     data = {key: value[0] for key, value in batch.items()}
+                    contributor_indices = contributor_batch[0]
+                else:
+                    contributor_indices = [
+                        index
+                        for contributors in contributor_batch
+                        for index in contributors
+                    ]
 
                 data = self.check_data_post_transform(data)
                 new_batch.append(data)
+                new_contributor_batches.append(contributor_indices)
             data_batch = new_batch
+            contributor_batches = new_contributor_batches
 
         assert len(data_batch) == 1
         data = data_batch[0]
@@ -92,11 +114,12 @@ class BatchCompose(A.Compose):
         data = self.postprocess(data)
 
         data["_original_image_key"] = original_image_key
+        data["_luxonis_contributor_indices"] = contributor_batches[0]
 
         return data
 
     @staticmethod
-    def _make_contiguous(data: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+    def _make_contiguous(data: dict[str, Any]) -> dict[str, Any]:
         for key, value in data.items():
             if isinstance(value, np.ndarray):
                 value = np.ascontiguousarray(value)
