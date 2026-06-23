@@ -285,3 +285,48 @@ def test_visualize_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
         "filepaths: image: dataset/img_0.jpg",
         "scores: 0.5, 1",
     ]
+
+
+def test_visualize_augmentation_sources_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_lines: list[str] = []
+
+    def fake_append_text_block(
+        image: np.ndarray, text_lines: list[str], font_scale: float
+    ) -> np.ndarray:
+        captured_lines.extend(text_lines)
+        return image
+
+    monkeypatch.setattr(
+        visualizations, "append_text_block", fake_append_text_block
+    )
+
+    image = np.zeros((20, 20, 3), dtype=np.uint8)
+    metadata = {
+        "augmentation_sources": [
+            {
+                "role": "anchor",
+                "input_index": 0,
+                "metadata": {
+                    "file_name": "anchor.jpg",
+                    "filepaths": {"image": "dataset/" + "a" * 140},
+                },
+            },
+            {
+                "role": "support",
+                "input_index": 1,
+                "metadata": {"file_name": "support.jpg"},
+            },
+        ]
+    }
+
+    visualizations.visualize(image, "image", {}, {}, metadata=metadata)
+
+    assert captured_lines[0:2] == ["Metadata:", "augmentation_sources:"]
+    assert captured_lines[2].startswith(
+        "anchor[0]: file_name: anchor.jpg, filepaths: image: dataset/"
+    )
+    assert captured_lines[2].endswith("...")
+    assert len(captured_lines[2]) == 120
+    assert captured_lines[3] == "support[1]: file_name: support.jpg"

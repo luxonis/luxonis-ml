@@ -17,6 +17,7 @@ from luxonis_ml.data.utils import (
 from luxonis_ml.typing import HSV, RGB, Annotations, Color
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX
+MAX_METADATA_VALUE_LENGTH = 120
 
 
 class ColorMap(Mapping[Hashable, RGB]):
@@ -659,22 +660,57 @@ def visualize(
             return f"{value:g}"
         return str(value)
 
+    def truncate_metadata_value(value: str) -> str:
+        if len(value) <= MAX_METADATA_VALUE_LENGTH:
+            return value
+        return f"{value[: MAX_METADATA_VALUE_LENGTH - 3]}..."
+
     def format_metadata_value(value: object) -> str:
         if isinstance(value, np.generic):
             value = value.item()
 
         if isinstance(value, Mapping):
-            return ", ".join(
-                f"{key}: {format_metadata_value(nested_value)}"
-                for key, nested_value in value.items()
+            return truncate_metadata_value(
+                ", ".join(
+                    f"{key}: {format_metadata_value(nested_value)}"
+                    for key, nested_value in value.items()
+                )
             )
 
         if isinstance(value, (list, tuple, set)):
-            return ", ".join(format_metadata_value(item) for item in value)
+            return truncate_metadata_value(
+                ", ".join(format_metadata_value(item) for item in value)
+            )
 
         if isinstance(value, float):
             return f"{value:g}"
-        return str(value)
+        return truncate_metadata_value(str(value))
+
+    def format_augmentation_source(source: object) -> str:
+        if not isinstance(source, Mapping):
+            return format_metadata_value(source)
+
+        role = source.get("role", "source")
+        input_index = source.get("input_index", "?")
+        source_metadata = source.get("metadata", {})
+        return truncate_metadata_value(
+            f"{role}[{input_index}]: {format_metadata_value(source_metadata)}"
+        )
+
+    def format_metadata_lines(metadata: Mapping[str, object]) -> list[str]:
+        lines = ["Metadata:"]
+        for key, value in metadata.items():
+            if key == "augmentation_sources" and isinstance(
+                value, (list, tuple)
+            ):
+                lines.append("augmentation_sources:")
+                lines.extend(
+                    format_augmentation_source(source) for source in value
+                )
+                continue
+
+            lines.append(f"{key}: {format_metadata_value(value)}")
+        return lines
 
     for task, arr in task_type_iterator(annotations, "segmentation"):
         task_name = get_task_name(task)
@@ -834,13 +870,7 @@ def visualize(
         )
 
     if metadata:
-        text_lines.extend(
-            ["Metadata:"]
-            + [
-                f"{key}: {format_metadata_value(value)}"
-                for key, value in metadata.items()
-            ]
-        )
+        text_lines.extend(format_metadata_lines(metadata))
 
     if text_lines:
         output = append_text_block(output, text_lines, font_scale)

@@ -1,6 +1,7 @@
 import warnings
 from collections import defaultdict
 from collections.abc import Callable, Iterable
+from copy import deepcopy
 from math import prod
 from typing import Any, Literal, TypeAlias, cast
 
@@ -660,7 +661,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         contributor_indices: list[int],
     ) -> Params:
         metadata_batch = [
-            cast(Params, batch_item[2]).copy() if len(batch_item) > 2 else {}
+            deepcopy(cast(Params, batch_item[2]))
+            if len(batch_item) > 2
+            else {}
             for batch_item in input_batch
         ]
         contributor_indices = [
@@ -671,15 +674,23 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         if not contributor_indices:
             contributor_indices = [0]
 
-        metadata = metadata_batch[0].copy()
+        metadata = deepcopy(metadata_batch[0])
         if len(contributor_indices) <= 1:
             return metadata
+
+        if "augmentation_sources" in metadata:
+            warnings.warn(
+                "Record metadata contains reserved key "
+                "'augmentation_sources'; it will be overwritten for "
+                "batch augmentation provenance.",
+                stacklevel=2,
+            )
 
         metadata["augmentation_sources"] = [
             {
                 "role": "anchor" if index == 0 else "support",
                 "input_index": index,
-                "metadata": metadata_batch[index].copy(),
+                "metadata": deepcopy(metadata_batch[index]),
             }
             for index in contributor_indices
         ]

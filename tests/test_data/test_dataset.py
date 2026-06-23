@@ -1,3 +1,4 @@
+import random
 import shutil
 from collections import defaultdict
 from pathlib import Path
@@ -468,6 +469,29 @@ def test_record_metadata_multi_source(randint: int, tempdir: Path):
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
+def test_filepaths_metadata_key_collision_warns(
+    randint: int, tempdir: Path
+) -> None:
+    dataset_name = f"test_filepaths_metadata_key_collision_{randint}"
+
+    def generator() -> DatasetIterator:
+        yield {
+            "file": create_image(0, tempdir),
+            "metadata": {"filepaths": "user-value"},
+        }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+
+    loader = LuxonisLoader(dataset, add_filepaths_to_metadata=True)
+    with pytest.warns(UserWarning, match="filepaths"):
+        output = next(iter(loader))
+    _, _, metadata = output
+
+    assert metadata["filepaths"] != "user-value"
+    assert Path(metadata["filepaths"]["image"]).name == "img_0.jpg"
+
+
+@pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_batch_augmentation_record_metadata(
     randint: int, tempdir: Path
 ) -> None:
@@ -524,6 +548,62 @@ def test_batch_augmentation_record_metadata(
         "img_3.jpg",
     }
     assert all("filepaths" in source["metadata"] for source in sources)
+
+
+@pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
+def test_batch_augmentation_duplicate_support_metadata(
+    randint: int, tempdir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dataset_name = (
+        f"test_batch_augmentation_duplicate_support_metadata_{randint}"
+    )
+
+    def generator() -> DatasetIterator:
+        for i in range(2):
+            yield {
+                "file": create_image(i, tempdir),
+                "metadata": {"file_name": f"img_{i}.jpg"},
+                "annotation": {
+                    "class": "car",
+                    "boundingbox": {
+                        "x": 0.1,
+                        "y": 0.2,
+                        "w": 0.3,
+                        "h": 0.4,
+                    },
+                },
+            }
+
+    def pick_same_support(population: list[int], k: int) -> list[int]:
+        return [population[0]] * k
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    monkeypatch.setattr(random, "choices", pick_same_support)
+    loader = LuxonisLoader(
+        dataset,
+        width=512,
+        height=512,
+        augmentation_config=[
+            {
+                "name": "Mosaic4",
+                "params": {
+                    "p": 1.0,
+                    "out_width": 512,
+                    "out_height": 512,
+                },
+            }
+        ],
+    )
+
+    with pytest.warns(UserWarning, match="batch_size"):
+        _, _, metadata = next(iter(loader))
+
+    sources = metadata["augmentation_sources"]
+    file_names = [source["metadata"]["file_name"] for source in sources]
+    assert len(file_names) == 4
+    assert len(set(file_names)) == 2
+    assert file_names[1:] == [file_names[1]] * 3
+    assert file_names[0] != file_names[1]
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")

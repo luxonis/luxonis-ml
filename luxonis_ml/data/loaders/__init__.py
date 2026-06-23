@@ -103,7 +103,8 @@ For multi-source datasets, ``"filepaths"`` is keyed by source name:
     }
 
 The ``"filepaths"`` entry is runtime metadata. It is not written back to the
-stored dataset.
+stored dataset. If record metadata already contains ``"filepaths"``, the
+runtime value replaces it and a warning is emitted.
 
 Batch augmentations such as `MixUp` and `Mosaic4` can combine multiple input
 records into one output. In that case, the top-level metadata remains the
@@ -129,7 +130,9 @@ anchor record metadata for compatibility, and the loader adds
     }
 
 Like ``"filepaths"``, ``"augmentation_sources"`` is runtime metadata and is
-not persisted to the dataset.
+not persisted to the dataset. If anchor metadata already contains
+``"augmentation_sources"``, the runtime provenance value replaces it and a
+warning is emitted.
 
 
 Output Layouts

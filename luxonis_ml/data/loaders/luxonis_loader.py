@@ -424,6 +424,12 @@ class LuxonisLoader(BaseLoader):
         img_dict: dict[str, np.ndarray] = {}
         source_to_path = self.idx_to_img_paths[idx]
         if self.add_filepaths_to_metadata:
+            if "filepaths" in metadata:
+                warnings.warn(
+                    "Record metadata contains reserved key 'filepaths'; "
+                    "it will be overwritten with resolved loader paths.",
+                    stacklevel=2,
+                )
             metadata = {
                 **metadata,
                 "filepaths": {

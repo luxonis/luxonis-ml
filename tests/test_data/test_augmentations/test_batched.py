@@ -4,6 +4,9 @@ import numpy as np
 import pytest
 
 from luxonis_ml.data import AlbumentationsEngine
+from luxonis_ml.data.augmentations.batch_compose import (
+    CONTRIBUTOR_INDICES_KEY,
+)
 from luxonis_ml.typing import Annotations
 
 
@@ -61,6 +64,10 @@ def n_classes() -> dict[str, int]:
         "task/keypoints": 1,
         "task/segmentation": 1,
     }
+
+
+def test_contributor_indices_key_exported() -> None:
+    assert CONTRIBUTOR_INDICES_KEY == "_luxonis_contributor_indices"
 
 
 def test_mosaic4(
@@ -136,6 +143,171 @@ def test_mixup_record_metadata(
             "metadata": {"file_name": "support.jpg"},
         },
     ]
+
+
+def test_batch_record_metadata_deep_copied(
+    images_dict: dict[str, np.ndarray],
+    annotations: Annotations,
+    targets: dict[str, str],
+    n_classes: dict[str, int],
+) -> None:
+    config = [{"name": "MixUp", "params": {"p": 1.0}}]
+    source_names = list(images_dict.keys())
+    augmentations = AlbumentationsEngine(
+        256, 256, targets, n_classes, source_names, config
+    )
+    anchor_metadata = {
+        "file_name": "anchor.jpg",
+        "nested": {"value": "original"},
+    }
+    support_metadata = {"file_name": "support.jpg"}
+
+    _, _, metadata = augmentations.apply(
+        [
+            (images_dict, deepcopy(annotations), anchor_metadata),
+            (images_dict, deepcopy(annotations), support_metadata),
+        ]
+    )
+
+    anchor_metadata["nested"]["value"] = "input-mutated"
+    metadata["augmentation_sources"][0]["metadata"]["nested"]["value"] = (
+        "source-mutated"
+    )
+
+    assert metadata["nested"]["value"] == "original"
+
+
+def test_augmentation_sources_metadata_key_collision_warns(
+    images_dict: dict[str, np.ndarray],
+    annotations: Annotations,
+    targets: dict[str, str],
+    n_classes: dict[str, int],
+) -> None:
+    config = [{"name": "MixUp", "params": {"p": 1.0}}]
+    source_names = list(images_dict.keys())
+    augmentations = AlbumentationsEngine(
+        256, 256, targets, n_classes, source_names, config
+    )
+
+    with pytest.warns(UserWarning, match="augmentation_sources"):
+        _, _, metadata = augmentations.apply(
+            [
+                (
+                    images_dict,
+                    deepcopy(annotations),
+                    {
+                        "file_name": "anchor.jpg",
+                        "augmentation_sources": "user-value",
+                    },
+                ),
+                (
+                    images_dict,
+                    deepcopy(annotations),
+                    {"file_name": "support.jpg"},
+                ),
+            ]
+        )
+
+    assert (
+        metadata["augmentation_sources"][0]["metadata"]["augmentation_sources"]
+        == "user-value"
+    )
+
+
+def test_nested_batched_record_metadata_applies_after_skip(
+    images_dict: dict[str, np.ndarray],
+    annotations: Annotations,
+    targets: dict[str, str],
+    n_classes: dict[str, int],
+) -> None:
+    config = [
+        {
+            "name": "Mosaic4",
+            "params": {"p": 0, "out_width": 640, "out_height": 640},
+        },
+        {"name": "MixUp", "params": {"p": 1.0}},
+    ]
+    source_names = list(images_dict.keys())
+    augmentations = AlbumentationsEngine(
+        256, 256, targets, n_classes, source_names, config
+    )
+    metadata_batch = [
+        {"file_name": f"image_{i}.jpg"}
+        for i in range(augmentations.batch_size)
+    ]
+    annotations_batch = []
+    expected_keypoints = []
+    for i in range(augmentations.batch_size):
+        sample_annotations = deepcopy(annotations)
+        keypoints = sample_annotations["task/keypoints"].copy()
+        keypoints[:, 0::3] += i * 0.01
+        sample_annotations["task/keypoints"] = keypoints
+        expected_keypoints.append(keypoints.copy())
+        annotations_batch.append(sample_annotations)
+
+    _, out_annotations, metadata = augmentations.apply(
+        [
+            (images_dict, annotations_batch[i], metadata)
+            for i, metadata in enumerate(metadata_batch)
+        ]
+    )
+
+    assert [
+        source["metadata"]["file_name"]
+        for source in metadata["augmentation_sources"]
+    ] == ["image_0.jpg", "image_4.jpg"]
+    assert [
+        source["input_index"] for source in metadata["augmentation_sources"]
+    ] == [0, 4]
+    np.testing.assert_allclose(
+        out_annotations["task/keypoints"][:2],
+        expected_keypoints[0],
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(
+        out_annotations["task/keypoints"][2:],
+        expected_keypoints[4],
+        atol=1e-6,
+    )
+
+
+def test_duplicate_batch_record_metadata_preserved(
+    images_dict: dict[str, np.ndarray],
+    annotations: Annotations,
+    targets: dict[str, str],
+    n_classes: dict[str, int],
+) -> None:
+    config = [
+        {
+            "name": "Mosaic4",
+            "params": {"p": 1.0, "out_width": 640, "out_height": 640},
+        }
+    ]
+    source_names = list(images_dict.keys())
+    augmentations = AlbumentationsEngine(
+        256, 256, targets, n_classes, source_names, config
+    )
+    metadata_batch = [
+        {"file_name": "anchor.jpg"},
+        {"file_name": "support.jpg"},
+        {"file_name": "support.jpg"},
+        {"file_name": "support.jpg"},
+    ]
+
+    _, _, metadata = augmentations.apply(
+        [
+            (images_dict, deepcopy(annotations), metadata)
+            for metadata in metadata_batch
+        ]
+    )
+
+    assert [
+        source["metadata"]["file_name"]
+        for source in metadata["augmentation_sources"]
+    ] == ["anchor.jpg", "support.jpg", "support.jpg", "support.jpg"]
+    assert [
+        source["input_index"] for source in metadata["augmentation_sources"]
+    ] == [0, 1, 2, 3]
 
 
 def test_at_least_one_bbox_random_crop() -> None:
