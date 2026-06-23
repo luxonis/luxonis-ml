@@ -171,7 +171,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     In other cases, the classification annotation is kept as is.
 
     Custom Labels
-    --------
+    -------------
 
     Custom labels can contain arbitrary data and their semantics are
     unknown to the augmentation engine. Therefore, the only transformation

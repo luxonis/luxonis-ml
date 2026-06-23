@@ -133,11 +133,9 @@ class LuxonisLoader(BaseLoader):
                 to remain valid. The default removes very small boxes and
                 their associated keypoints.
             keep_categorical_as_strings: Whether to keep categorical custom
-                 labels as strings instead of converting them to
-                integers.
+                labels as strings instead of converting them to integers.
             add_filepaths_to_metadata: Whether returned metadata includes a
-                ``"filepaths"`` mapping from source name to loaded image
-                path.
+                ``"filepaths"`` mapping from source name to loaded image path.
             update_mode: Sync mode for media files in remote datasets.
                 Annotations and custom labels are always overwritten.
             filter_task_names: Optional task names to include. If omitted,

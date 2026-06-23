@@ -262,7 +262,7 @@ be stored with the dataset but does not fit standard spatial schemas.
 
 
 Custom labels and Categories
-=======================
+============================
 
 Custom labels store flexible key-value values. Use `Category` to mark a string as
 a categorical label rather than an arbitrary string.
