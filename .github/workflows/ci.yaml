@@ -205,6 +205,7 @@ jobs:
         run: pytest --dead-fixtures
 
       - name: Run pytest
+        shell: bash
         run: |
           junit_xml="junit-${{ matrix.os }}-${{ matrix.group }}.xml"
           mkdir -p .pytest-durations
