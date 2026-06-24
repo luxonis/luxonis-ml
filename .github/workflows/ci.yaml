@@ -201,8 +201,10 @@ jobs:
           export_environment_variables: true
           token_format: access_token
 
+      - name: Check dead fixtures
+        run: pytest --dead-fixtures
+
       - name: Run pytest
-        shell: bash
         run: |
           junit_xml="junit-${{ matrix.os }}-${{ matrix.group }}.xml"
           mkdir -p .pytest-durations
@@ -221,9 +223,9 @@ jobs:
 
           if [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
             coverage_xml="coverage-${{ matrix.os }}-${{ matrix.group }}.xml"
-            python -m pytest --cov --cov-report "xml:$coverage_xml" "${pytest_args[@]}"
+            pytest --cov --cov-report "xml:$coverage_xml" "${pytest_args[@]}"
           else
-            python -m pytest "${pytest_args[@]}"
+            pytest "${pytest_args[@]}"
           fi
 
       - name: Upload test result artifact
