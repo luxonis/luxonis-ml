@@ -25,11 +25,12 @@ jobs:
       ROBOFLOW_API_KEY: ${{ secrets.ROBOFLOW_API_KEY }}
       ULTRALYTICS_API_KEY: ${{ secrets.ULTRALYTICS_API_KEY }}
       LUXONISML_BUCKET: luxonis-test-bucket
-      GHC_ENABLED: ${{ secrets.GCP_CREDENTIALS != null }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
@@ -50,7 +51,7 @@ jobs:
           grep -q -- '--store-durations' "${RUNNER_TEMP:-.}/pytest-help.txt"
 
       - name: Authenticate to Google Cloud
-        if: ${{ env.GHC_ENABLED }}
+        if: ${{ secrets.GCP_CREDENTIALS != '' }}
         id: google-auth
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
         with:
