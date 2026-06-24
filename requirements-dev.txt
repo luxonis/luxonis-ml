@@ -5,3 +5,4 @@ pytest-subtests~=0.15
 pytest-xdist~=3.8
 pytest-clarity~=1.0
 pytest-deadfixtures~=3.0
+onnx<1.17.0
