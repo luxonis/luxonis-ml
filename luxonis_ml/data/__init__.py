@@ -22,8 +22,6 @@ with guard_missing_extra("data"):
         BucketType,
         ImageType,
         MediaType,
-        ParserIssue,
-        ParserIssueMessage,
     )
     from .utils.ldf_equivalence import LDFEquivalence, ldf_equivalent
 
@@ -78,8 +76,6 @@ __all__ = [
     "LuxonisSource",
     "MediaType",
     "Metadata",
-    "ParserIssue",
-    "ParserIssueMessage",
     "UpdateMode",
     "ldf_equivalent",
 ]

@@ -1,16 +1,16 @@
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
-from loguru import logger
+from logot import Capturer, Logot, logged
+from logot.loguru import LoguruCapturer
 
 from luxonis_ml.data import (
     BaseDataset,
     LuxonisLoader,
     LuxonisParser,
-    ParserIssue,
 )
 from luxonis_ml.data.parsers.base_parser import BaseParser, ParserOutput
 from luxonis_ml.data.utils import get_task_type
@@ -18,6 +18,11 @@ from luxonis_ml.enums import DatasetType
 from luxonis_ml.utils import environ
 
 from .utils import create_image
+
+
+@pytest.fixture
+def logot_capturer() -> Callable[[], Capturer]:
+    return LoguruCapturer
 
 
 @pytest.mark.parametrize(
@@ -283,8 +288,8 @@ def test_dir_parser_explicit_type(
     dataset.delete_dataset(delete_local=True)
 
 
-def test_parser_issue_messages_collect_skipped_annotations(
-    dataset_name: str, tempdir: Path
+def test_skipped_annotation_warnings_include_context(
+    dataset_name: str, tempdir: Path, logot: Logot
 ):
     dataset_dir = tempdir / "coco_issues"
     split_dir = dataset_dir / "train"
@@ -363,54 +368,28 @@ def test_parser_issue_messages_collect_skipped_annotations(
     try:
         assert len(dataset) == 1
 
-        issues = parser.get_parser_issue_messages()
-        assert len(issues) == 3
-        assert {issue.parser_issue for issue in issues} == {
-            ParserIssue.COCO_ISCROWD,
-            ParserIssue.MISSING_IMAGE,
-            ParserIssue.NON_NUMERIC_ANNOTATION,
-        }
-
-        crowd_issue = next(
-            issue
-            for issue in issues
-            if issue.parser_issue is ParserIssue.COCO_ISCROWD
+        logot.assert_logged(
+            logged.warning(
+                "Skipping annotation: Annotation contains non-numeric "
+                "bbox values "
+                f"(annotation_id=13, source={labels_path}, "
+                f"image={valid_image.resolve()})"
+            )
         )
-        assert crowd_issue.reason == "COCO annotation has iscrowd=1"
-        assert crowd_issue.source == labels_path
-        assert crowd_issue.image == crowd_image.resolve()
-        assert crowd_issue.annotation_id == 11
-
-        non_numeric_issue = next(
-            issue
-            for issue in issues
-            if issue.parser_issue is ParserIssue.NON_NUMERIC_ANNOTATION
+        logot.assert_logged(
+            logged.warning(
+                "Skipping annotation: COCO annotation has iscrowd=1 "
+                f"(annotation_id=11, source={labels_path}, "
+                f"image={crowd_image.resolve()})"
+            )
         )
-        assert (
-            non_numeric_issue.reason
-            == "Annotation contains non-numeric bbox values"
+        logot.assert_logged(
+            logged.warning(
+                "Skipping annotation: referenced image file does not exist "
+                f"(source={labels_path}, "
+                f"image={(image_dir / 'missing.jpg').resolve()})"
+            )
         )
-        assert non_numeric_issue.source == labels_path
-        assert non_numeric_issue.image == valid_image.resolve()
-        assert non_numeric_issue.annotation_id == 13
-
-        missing_image_issue = next(
-            issue
-            for issue in issues
-            if issue.parser_issue is ParserIssue.MISSING_IMAGE
-        )
-        assert (
-            missing_image_issue.reason
-            == "referenced image file does not exist"
-        )
-        assert missing_image_issue.source == labels_path
-        assert (
-            missing_image_issue.image == (image_dir / "missing.jpg").resolve()
-        )
-        assert missing_image_issue.annotation_id is None
-
-        issues.pop()
-        assert len(parser.get_parser_issue_messages()) == 3
     finally:
         dataset.delete_dataset(delete_local=True)
 
@@ -479,69 +458,64 @@ class _WarningParser(BaseParser):
     def from_split(self, **kwargs: Any) -> ParserOutput:
         for annotation_id in range(self.warning_count):
             self._warn_skipped_annotation(
-                ParserIssue.NON_NUMERIC_ANNOTATION,
                 self.reason,
                 annotation_id=annotation_id,
             )
         return iter(()), {}, []
 
 
-def test_skipped_annotation_warnings_are_capped():
+def _assert_skipped_annotation_warning(
+    logot: Logot, reason: str, annotation_id: int
+) -> None:
+    logot.assert_logged(
+        logged.warning(
+            f"Skipping annotation: {reason} (annotation_id={annotation_id})"
+        )
+    )
+
+
+def test_skipped_annotation_warnings_are_capped(logot: Logot):
     parser = _WarningParser(BaseParser.SKIPPED_WARNING_LIMIT + 5)
-    messages: list[str] = []
-    sink_id = logger.add(
-        lambda message: messages.append(str(message).strip()),
-        format="{message}",
-        level="WARNING",
+    parser.parse_split()
+
+    for annotation_id in range(BaseParser.SKIPPED_WARNING_LIMIT):
+        _assert_skipped_annotation_warning(logot, parser.reason, annotation_id)
+    logot.assert_not_logged(
+        logged.warning(
+            f"Skipping annotation: {parser.reason} "
+            f"(annotation_id={BaseParser.SKIPPED_WARNING_LIMIT})"
+        )
     )
 
-    try:
-        parser.parse_split()
-    finally:
-        logger.remove(sink_id)
-
-    assert len(parser.get_parser_issue_messages()) == (
-        BaseParser.SKIPPED_WARNING_LIMIT + 5
+    logot.clear()
+    parser = _WarningParser(BaseParser.SKIPPED_WARNING_LIMIT + 5)
+    parser.parse_split()
+    logot.assert_logged(
+        logged.warning(
+            "Skipped logging 5 additional warnings. Enable the "
+            "`--log-all-warnings` flag to see the full list."
+        )
     )
-    assert (
-        sum(message.startswith("Skipping annotation:") for message in messages)
-        == BaseParser.SKIPPED_WARNING_LIMIT
-    )
-    assert (
-        "Skipped logging 5 additional warnings. Enable the "
-        "`--log-all-warnings` flag to see the full list."
-    ) in messages
-    assert (
-        "Skipped annotations: dummy skipped annotation (55 records)"
-        in messages
+    logot.assert_logged(
+        logged.warning(
+            "Skipped annotations: dummy skipped annotation (55 records)"
+        )
     )
 
 
-def test_full_warnings_logs_all_skipped_annotation_warnings():
+def test_full_warnings_logs_all_skipped_annotation_warnings(logot: Logot):
     parser = _WarningParser(
         BaseParser.SKIPPED_WARNING_LIMIT + 5, full_warnings=True
     )
-    messages: list[str] = []
-    sink_id = logger.add(
-        lambda message: messages.append(str(message).strip()),
-        format="{message}",
-        level="WARNING",
-    )
+    parser.parse_split()
 
-    try:
-        parser.parse_split()
-    finally:
-        logger.remove(sink_id)
-
-    assert len(parser.get_parser_issue_messages()) == (
-        BaseParser.SKIPPED_WARNING_LIMIT + 5
-    )
-    assert (
-        sum(message.startswith("Skipping annotation:") for message in messages)
-        == BaseParser.SKIPPED_WARNING_LIMIT + 5
-    )
-    assert not any(
-        message.startswith("Skipped logging ") for message in messages
+    for annotation_id in range(BaseParser.SKIPPED_WARNING_LIMIT + 5):
+        _assert_skipped_annotation_warning(logot, parser.reason, annotation_id)
+    logot.assert_not_logged(
+        logged.warning(
+            "Skipped logging %d additional warnings. Enable the "
+            "`--log-all-warnings` flag to see the full list."
+        )
     )
 
 

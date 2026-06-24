@@ -10,7 +10,6 @@ from typing_extensions import override
 
 from luxonis_ml.data import DatasetIterator
 from luxonis_ml.data.utils import COCOFormat
-from luxonis_ml.data.utils.enums import ParserIssue
 from luxonis_ml.utils.path import resolve_manifest_path
 
 from .base_parser import BaseParser, ParserOutput
@@ -290,7 +289,6 @@ class COCOParser(BaseParser):
                 )
                 if not file.exists():
                     self._warn_skipped_annotation(
-                        ParserIssue.MISSING_IMAGE,
                         "referenced image file does not exist",
                         source=annotation_path,
                         image=file,
@@ -312,7 +310,6 @@ class COCOParser(BaseParser):
                 for ann in img_anns:
                     if ann.get("iscrowd"):
                         self._warn_skipped_annotation(
-                            ParserIssue.COCO_ISCROWD,
                             "COCO annotation has iscrowd=1",
                             source=annotation_path,
                             image=file,
@@ -350,7 +347,6 @@ class COCOParser(BaseParser):
 
                     if not valid_bbox:
                         self._warn_skipped_annotation(
-                            ParserIssue.NON_NUMERIC_ANNOTATION,
                             "Annotation contains non-numeric bbox values",
                             source=annotation_path,
                             image=file,

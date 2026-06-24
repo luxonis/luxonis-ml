@@ -11,7 +11,6 @@ import requests
 from loguru import logger
 
 from luxonis_ml.data import DATASETS_REGISTRY, BaseDataset, LuxonisDataset
-from luxonis_ml.data.utils.enums import ParserIssueMessage
 from luxonis_ml.data.utils.remote_file_downloader import download_remote_file
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.utils import LuxonisFileSystem, environ
@@ -264,11 +263,6 @@ class LuxonisParser(Generic[T]):
 
         logger.info("Dataset parsed successfully.")
         return dataset
-
-    def get_parser_issue_messages(self) -> list[ParserIssueMessage]:
-        """Returns collected parser issue messages from the last
-        parse."""
-        return self.parser.get_parser_issue_messages()
 
     def _recognize_dataset(self) -> tuple[DatasetType, ParserType]:
         """Recognizes the dataset format and parser type.
