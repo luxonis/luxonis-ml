@@ -166,6 +166,18 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 "of `luxonis-ml`."
             )
 
+    @cached_property
+    def _progress(self) -> Progress:
+        return Progress(
+            rich.progress.TextColumn(
+                "[progress.description]{task.description}"
+            ),
+            rich.progress.BarColumn(),
+            rich.progress.TaskProgressColumn(),
+            rich.progress.MofNCompleteColumn(),
+            rich.progress.TimeRemainingColumn(),
+        )
+
     @property
     def metadata(self) -> Metadata:
         """Returns a copy of the dataset metadata.
@@ -223,18 +235,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
         df = self._load_df_offline()
         return len(df.select("uuid").unique()) if df is not None else 0
-
-    @cached_property
-    def _progress(self) -> Progress:
-        return Progress(
-            rich.progress.TextColumn(
-                "[progress.description]{task.description}"
-            ),
-            rich.progress.BarColumn(),
-            rich.progress.TaskProgressColumn(),
-            rich.progress.MofNCompleteColumn(),
-            rich.progress.TimeRemainingColumn(),
-        )
 
     def _get_credential(self, key: str) -> str:
         """Gets secret credentials from credentials file or ENV
