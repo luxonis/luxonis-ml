@@ -313,15 +313,15 @@ class BaseParser(ABC):
                 is_counts = split_ratios is not None and all(
                     isinstance(v, int) for v in split_ratios.values()
                 )
-            if is_counts:
-                sampled = self._apply_counts_to_pool(
-                    added_images,
-                    split_ratios,  # type: ignore[arg-type]
-                )
-                self._dataset.make_splits(sampled)
-                self._remove_unsplit_records()
-            else:
-                self._dataset.make_splits(split_ratios)
+                if is_counts:
+                    sampled = self._apply_counts_to_pool(
+                        added_images,
+                        split_ratios,  # type: ignore[arg-type]
+                    )
+                    self._dataset.make_splits(sampled)
+                    self._remove_unsplit_records()
+                else:
+                    self._dataset.make_splits(split_ratios)
             return self._dataset
         finally:
             self._log_skipped_annotation_summary()
