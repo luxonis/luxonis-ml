@@ -1,18 +1,17 @@
 import json
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from logot import Capturer, Logot, logged
 from logot.loguru import LoguruCapturer
 
 from luxonis_ml.data import (
-    BaseDataset,
     LuxonisLoader,
     LuxonisParser,
 )
-from luxonis_ml.data.parsers.base_parser import BaseParser, ParserOutput
+from luxonis_ml.data.parsers.base_parser import BaseParser
 from luxonis_ml.data.utils import get_task_type
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.utils import environ
@@ -421,47 +420,29 @@ def test_ultralytics_ndjson_parser(
     dataset.delete_dataset(delete_local=True)
 
 
-class _DummyDataset:
-    def add(self, _generator: Iterator[object]) -> None:
-        return None
-
-    def make_splits(self, _splits: object) -> None:
-        return None
-
-
-class _WarningParser(BaseParser):
-    def __init__(
-        self,
-        warning_count: int,
-        *,
-        reason: str = "dummy skipped annotation",
-        full_warnings: bool = False,
-    ):
-        super().__init__(
-            cast(BaseDataset, _DummyDataset()),
-            DatasetType.COCO,
-            None,
-            full_warnings=full_warnings,
-        )
-        self.warning_count = warning_count
-        self.reason = reason
-
-    @staticmethod
-    def validate_split(_split_path: Path) -> dict[str, Any]:
-        return {}
-
-    def from_dir(
-        self, dataset_dir: Path, **kwargs: Any
-    ) -> tuple[list[Path], list[Path], list[Path]]:
-        return [], [], []
-
-    def from_split(self, **kwargs: Any) -> ParserOutput:
-        for annotation_id in range(self.warning_count):
+def _skipped_warning_parser(
+    monkeypatch: pytest.MonkeyPatch,
+    warning_count: int,
+    *,
+    reason: str = "dummy skipped annotation",
+    full_warnings: bool = False,
+) -> BaseParser:
+    def _parse_split(self: BaseParser, **kwargs: Any) -> list[Path]:
+        for annotation_id in range(warning_count):
             self._warn_skipped_annotation(
-                self.reason,
+                reason,
                 annotation_id=annotation_id,
             )
-        return iter(()), {}, []
+        return []
+
+    monkeypatch.setattr(BaseParser, "__abstractmethods__", frozenset())
+    monkeypatch.setattr(BaseParser, "_parse_split", _parse_split)
+    return BaseParser(
+        object(),  # type: ignore[arg-type]
+        DatasetType.COCO,
+        None,
+        full_warnings=full_warnings,
+    )
 
 
 def _assert_skipped_annotation_warning(
@@ -474,21 +455,28 @@ def _assert_skipped_annotation_warning(
     )
 
 
-def test_skipped_annotation_warnings_are_capped(logot: Logot):
-    parser = _WarningParser(BaseParser.SKIPPED_WARNING_LIMIT + 5)
+def test_skipped_annotation_warnings_are_capped(
+    logot: Logot, monkeypatch: pytest.MonkeyPatch
+):
+    reason = "dummy skipped annotation"
+    parser = _skipped_warning_parser(
+        monkeypatch, BaseParser.SKIPPED_WARNING_LIMIT + 5, reason=reason
+    )
     parser.parse_split()
 
     for annotation_id in range(BaseParser.SKIPPED_WARNING_LIMIT):
-        _assert_skipped_annotation_warning(logot, parser.reason, annotation_id)
+        _assert_skipped_annotation_warning(logot, reason, annotation_id)
     logot.assert_not_logged(
         logged.warning(
-            f"Skipping annotation: {parser.reason} "
+            f"Skipping annotation: {reason} "
             f"(annotation_id={BaseParser.SKIPPED_WARNING_LIMIT})"
         )
     )
 
     logot.clear()
-    parser = _WarningParser(BaseParser.SKIPPED_WARNING_LIMIT + 5)
+    parser = _skipped_warning_parser(
+        monkeypatch, BaseParser.SKIPPED_WARNING_LIMIT + 5, reason=reason
+    )
     parser.parse_split()
     logot.assert_logged(
         logged.warning(
@@ -503,14 +491,20 @@ def test_skipped_annotation_warnings_are_capped(logot: Logot):
     )
 
 
-def test_full_warnings_logs_all_skipped_annotation_warnings(logot: Logot):
-    parser = _WarningParser(
-        BaseParser.SKIPPED_WARNING_LIMIT + 5, full_warnings=True
+def test_full_warnings_logs_all_skipped_annotation_warnings(
+    logot: Logot, monkeypatch: pytest.MonkeyPatch
+):
+    reason = "dummy skipped annotation"
+    parser = _skipped_warning_parser(
+        monkeypatch,
+        BaseParser.SKIPPED_WARNING_LIMIT + 5,
+        reason=reason,
+        full_warnings=True,
     )
     parser.parse_split()
 
     for annotation_id in range(BaseParser.SKIPPED_WARNING_LIMIT + 5):
-        _assert_skipped_annotation_warning(logot, parser.reason, annotation_id)
+        _assert_skipped_annotation_warning(logot, reason, annotation_id)
     logot.assert_not_logged(
         logged.warning(
             "Skipped logging %d additional warnings. Enable the "
