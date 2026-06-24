@@ -74,8 +74,6 @@ jobs:
             --junitxml "$junit_xml"
             -o junit_family=legacy
             -vv
-            -n auto
-            -x
           )
 
           if [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
