@@ -477,6 +477,7 @@ def parse(
         str | None,
         Parameter(alias="-tn"),
     ] = None,
+    log_all_warnings: bool = False,
     split_ratio: Annotated[
         str | None,
         Parameter(alias="-sr"),
@@ -502,6 +503,8 @@ def parse(
             the dataset will be downloaded to the current working directory.
         task_name: Task name to use for all records
             parsed from this dataset.
+        log_all_warnings: Log all skipped annotation warnings
+            instead of capping the output at 50.
         split_ratio: A string representation of a Python list
             specifying the split ratios for train, val, and test sets.
             Deprecated in favor of ``--train``, ``--val``, and ``--test``.
@@ -522,6 +525,7 @@ def parse(
         delete_local=delete_local,
         save_dir=save_dir,
         task_name=task_name,
+        full_warnings=log_all_warnings,
         bucket_storage=bucket_storage,
     )
 
