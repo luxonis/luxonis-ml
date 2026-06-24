@@ -43,7 +43,7 @@ T = TypeVar("T", str, None)
 
 
 class LuxonisParser(Generic[T]):
-    parsers: dict[DatasetType, type[BaseParser]] = {
+    _parsers: dict[DatasetType, type[BaseParser]] = {
         DatasetType.ULTRALYTICSNDJSON: UltralyticsNDJSONParser,
         DatasetType.ULTRALYTICSNDJSONINSTANCESEGMENTATION: (
             UltralyticsNDJSONParser
@@ -75,6 +75,7 @@ class LuxonisParser(Generic[T]):
         dataset_plugin: T = None,
         dataset_type: DatasetType | None = None,
         task_name: str | dict[str, str] | None = None,
+        full_warnings: bool = False,
         **kwargs,
     ):
         """High-level abstraction over various parsers.
@@ -117,55 +118,61 @@ class LuxonisParser(Generic[T]):
             a dictionary with class names as keys and task names as values.
             In the latter case, the task name for a record with a given
             class name will be taken from the dictionary.
+        @type full_warnings: bool
+        @param full_warnings: Whether all skipped annotation warnings
+            should be logged without truncation.
         @type kwargs: Dict[str, Any]
         @param kwargs: Additional C{kwargs} to be passed to the
             constructor of specific L{BaseDataset} implementation.
         """
         save_dir = Path(save_dir) if save_dir else None
         if dataset_dir.startswith("roboflow://"):
-            self.dataset_dir, name = self._download_roboflow_dataset(
+            self._dataset_dir, name = self._download_roboflow_dataset(
                 dataset_dir, save_dir
             )
         elif dataset_dir.startswith("ultralytics://"):
-            self.dataset_dir, name = self._download_ultralytics_dataset(
+            self._dataset_dir, name = self._download_ultralytics_dataset(
                 dataset_dir, save_dir
             )
         else:
             name = dataset_dir.rsplit("/", maxsplit=1)[-1]
             local_path = (save_dir or Path.cwd()) / name
-            self.dataset_dir = LuxonisFileSystem.download(
+            self._dataset_dir = LuxonisFileSystem.download(
                 dataset_dir, local_path
             )
-        if self.dataset_dir.suffix == ".zip":
-            with zipfile.ZipFile(self.dataset_dir, "r") as zip_ref:
-                unzip_dir = self.dataset_dir.parent / self.dataset_dir.stem
+        if self._dataset_dir.suffix == ".zip":
+            with zipfile.ZipFile(self._dataset_dir, "r") as zip_ref:
+                unzip_dir = self._dataset_dir.parent / self._dataset_dir.stem
                 logger.info(
-                    f"Extracting '{self.dataset_dir.name}' to '{unzip_dir}'"
+                    f"Extracting '{self._dataset_dir.name}' to '{unzip_dir}'"
                 )
                 zip_ref.extractall(unzip_dir)
-                self.dataset_dir = self._resolve_extracted_zip_root(unzip_dir)
+                self._dataset_dir = self._resolve_extracted_zip_root(unzip_dir)
 
         if dataset_type:
-            self.dataset_type = dataset_type
-            self.parser_type = self._infer_parser_type_for_explicit_type(
-                self.dataset_type
+            self._dataset_type = dataset_type
+            self._parser_type = self._infer_parser_type_for_explicit_type(
+                self._dataset_type
             )
         else:
-            self.dataset_type, self.parser_type = self._recognize_dataset()
+            self._dataset_type, self._parser_type = self._recognize_dataset()
 
         if dataset_plugin is not None:
-            self.dataset_constructor = DATASETS_REGISTRY.get(dataset_plugin)
+            self._dataset_constructor = DATASETS_REGISTRY.get(dataset_plugin)
         else:
-            self.dataset_constructor = LuxonisDataset
+            self._dataset_constructor = LuxonisDataset
 
         dataset_name = dataset_name or name.replace(" ", "_").split(".")[0]
 
-        self.dataset = self.dataset_constructor(
+        self._dataset = self._dataset_constructor(
             dataset_name=dataset_name,  # type: ignore
             **kwargs,
         )
-        self.parser = self.parsers[self.dataset_type](
-            self.dataset, self.dataset_type, task_name
+        self._parser = self._parsers[self._dataset_type](
+            self._dataset,
+            self._dataset_type,
+            task_name,
+            full_warnings=full_warnings,
         )
 
     @staticmethod
@@ -221,7 +228,7 @@ class LuxonisParser(Generic[T]):
                         or parser.validate_split(only_entry)
                     )
                 )
-                for typ, parser in LuxonisParser.parsers.items()
+                for typ, parser in LuxonisParser._parsers.items()
             )
             if not recognized_by_non_clsdir:
                 return unzip_dir
@@ -250,18 +257,24 @@ class LuxonisParser(Generic[T]):
         @rtype: LuxonisDataset
         @return: Parsed dataset in L{LuxonisDataset} format.
         """
-        if self.parser_type == ParserType.DIR:
-            dataset = self._parse_dir(**kwargs)
+        if self._parser_type == ParserType.DIR:
+            dataset = self._parser.parse_dir(self._dataset_dir, **kwargs)
         else:
-            dataset = self._parse_split(**kwargs)
+            parsed_kwargs = self._parser.validate_split(self._dataset_dir)
+            if parsed_kwargs is None:
+                raise ValueError(
+                    f"Dataset {self._dataset_dir} is not in the expected "
+                    f"format for {self._dataset_type} parser."
+                )
+            return self._parser.parse_split(**parsed_kwargs, **kwargs)
 
         logger.info("Dataset parsed successfully.")
         return dataset
 
-    def get_parser_issue_messages(self) -> list[ParserIssueMessage]:
+    def _get_parser_issue_messages(self) -> list[ParserIssueMessage]:
         """Returns collected parser issue messages from the last
         parse."""
-        return self.parser.get_parser_issue_messages()
+        return self._parser._get_parser_issue_messages()
 
     def _recognize_dataset(self) -> tuple[DatasetType, ParserType]:
         """Recognizes the dataset format and parser type.
@@ -269,19 +282,19 @@ class LuxonisParser(Generic[T]):
         @rtype: Tuple[DatasetType, ParserType]
         @return: Tuple of dataset type and parser type.
         """
-        for dataset_type, parser in self.parsers.items():
-            if parser.validate(self.dataset_dir):
+        for dataset_type, parser in self._parsers.items():
+            if parser.validate(self._dataset_dir):
                 logger.info(
                     f"Recognized dataset format as <{dataset_type.name}>"
                 )
                 return dataset_type, ParserType.DIR
 
         subset_matches: dict[type[BaseParser], DatasetType] = {}
-        for dataset_type, parser in self.parsers.items():
+        for dataset_type, parser in self._parsers.items():
             # The same YoloV8 or UltralyticsNDJSON parser can correspond to multiple dataset types.
             if parser in subset_matches:
                 continue
-            if parser.discover_dir_splits(self.dataset_dir):
+            if parser.discover_dir_splits(self._dataset_dir):
                 subset_matches[parser] = dataset_type
 
         if len(subset_matches) == 1:
@@ -306,86 +319,35 @@ class LuxonisParser(Generic[T]):
                 "dataset_type."
             )
 
-        for dataset_type, parser in self.parsers.items():
-            if parser.validate_split(self.dataset_dir):
+        for dataset_type, parser in self._parsers.items():
+            if parser.validate_split(self._dataset_dir):
                 logger.info(
                     f"Recognized dataset format as a split of <{dataset_type.name}>"
                 )
                 return dataset_type, ParserType.SPLIT
 
         raise ValueError(
-            f"Dataset {self.dataset_dir} is not in expected format for any of the parsers."
+            f"Dataset {self._dataset_dir} is not in expected format for any of the parsers."
         )
 
     def _infer_parser_type_for_explicit_type(
         self, dataset_type: DatasetType
     ) -> ParserType:
-        parser = self.parsers[dataset_type]
-        if parser.validate(self.dataset_dir) or parser.discover_dir_splits(
-            self.dataset_dir
+        parser = self._parsers[dataset_type]
+        if parser.validate(self._dataset_dir) or parser.discover_dir_splits(
+            self._dataset_dir
         ):
             return ParserType.DIR
-        if parser.validate_split(self.dataset_dir):
+        if parser.validate_split(self._dataset_dir):
             return ParserType.SPLIT
         raise ValueError(
-            f"Dataset {self.dataset_dir} is not in expected format for the "
+            f"Dataset {self._dataset_dir} is not in expected format for the "
             f"{dataset_type.name} parser."
         )
 
-    def _parse_dir(self, **kwargs) -> BaseDataset:
-        """Parses all present data in LuxonisDataset format.
-
-        Check under each parser for the expected directory structure.
-
-        @type kwargs: Dict[str, Any]
-        @param kwargs: Additional C{kwargs} for specific parser
-            function.
-        @rtype: LuxonisDataset
-        @return: C{LDF} with all the images and annotations parsed.
-        """
-
-        return self.parser.parse_dir(self.dataset_dir, **kwargs)
-
-    def _parse_split(
-        self,
-        split: str | None = None,
-        random_split: bool = True,
-        split_ratios: dict[str, float | int] | None = None,
-        **kwargs,
-    ) -> BaseDataset:
-        """Parses data from a subdirectory representing a single split.
-
-        Should be used if adding/changing only specific split. Check
-        under each parser for expected directory structure.
-
-        @type split: Optional[Literal["train", "val", "test"]]
-        @param split: As what split the data will be added to LDF. If
-            set, C{split_ratios} and C{random_split} are ignored.
-        @type random_split: bool
-        @param random_split: If random splits should be made. If
-            C{True}, C{split_ratios} are used.
-        @type split_ratios: Optional[Dict[str, Union[float, int]]]
-        @param split_ratios: Ratios or counts for splits. Only used if
-            C{random_split} is C{True}. If floats, treated as ratios. If
-            ints, treated as counts. Defaults to C{{"train": 0.8, "val":
-            0.1, "test": 0.1}}.
-        @type kwargs: Dict[str, Any]
-        @param kwargs: Additional kwargs for specific parser
-            implementation.
-        @rtype: LuxonisDataset
-        @return: C{LDF} with all the images and annotations parsed.
-        """
-        parsed_kwargs = self.parser.validate_split(self.dataset_dir)
-        if parsed_kwargs is None:
-            raise ValueError(
-                f"Dataset {self.dataset_dir} is not in the expected format for {self.dataset_type} parser."
-            )
-        return self.parser.parse_split(
-            split, random_split, split_ratios, **parsed_kwargs, **kwargs
-        )
-
+    @staticmethod
     def _download_roboflow_dataset(
-        self, dataset_dir: str, local_path: Path | None
+        dataset_dir: str, local_path: Path | None
     ) -> tuple[Path, str]:
         if environ.ROBOFLOW_API_KEY is None:
             raise RuntimeError(
@@ -446,10 +408,9 @@ class LuxonisParser(Generic[T]):
         )
         return Path(dataset.location), project
 
+    @staticmethod
     def _download_ultralytics_dataset(
-        self,
-        dataset_dir: str,
-        local_path: Path | None,
+        dataset_dir: str, local_path: Path | None
     ) -> tuple[Path, str]:
         if environ.ULTRALYTICS_API_KEY is None:
             raise RuntimeError(

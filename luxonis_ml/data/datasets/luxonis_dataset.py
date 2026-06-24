@@ -16,6 +16,7 @@ import polars as pl
 import rich.progress
 from filelock import FileLock
 from loguru import logger
+from rich.progress import Progress
 from semver.version import Version
 from typing_extensions import Self, override
 
@@ -75,7 +76,7 @@ from .utils import (
 )
 
 
-class LuxonisDataset(BaseDataset):
+class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     def __init__(
         self,
         dataset_name: str,
@@ -210,9 +211,6 @@ class LuxonisDataset(BaseDataset):
     def identifier(self) -> str:
         return self._dataset_name
 
-    # Needed to complement __eq__.
-    __hash__ = None  # type: ignore[reportAssignmentType]
-
     def __eq__(self, other: object) -> bool | NotImplementedType:
         if not isinstance(other, (LuxonisDataset, str)):
             return NotImplemented
@@ -227,8 +225,8 @@ class LuxonisDataset(BaseDataset):
         return len(df.select("uuid").unique()) if df is not None else 0
 
     @cached_property
-    def _progress(self) -> rich.progress.Progress:
-        return rich.progress.Progress(
+    def _progress(self) -> Progress:
+        return Progress(
             rich.progress.TextColumn(
                 "[progress.description]{task.description}"
             ),
@@ -678,9 +676,7 @@ class LuxonisDataset(BaseDataset):
             df.with_columns(
                 [
                     pl.col("uuid"),
-                    pl.col("file")
-                    .map_dict(mapping, default=None)
-                    .alias("original_filepath"),
+                    pl.col("file").replace(mapping).alias("original_filepath"),
                 ]
             )
             .unique(
@@ -1138,6 +1134,7 @@ class LuxonisDataset(BaseDataset):
                 self._progress.update(task, advance=1)
         self._progress.remove_task(task)
 
+    @override
     def add(
         self, generator: DatasetIterator, batch_size: int = 1_000_000
     ) -> Self:
