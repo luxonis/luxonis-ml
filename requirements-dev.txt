@@ -6,3 +6,4 @@ pytest-xdist~=3.8
 pytest-clarity~=1.0
 pytest-deadfixtures~=3.0
 onnx<1.17.0
+pre-commit<4.0.0
