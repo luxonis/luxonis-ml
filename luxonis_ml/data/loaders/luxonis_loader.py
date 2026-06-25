@@ -3,7 +3,6 @@ import json
 import random
 import warnings
 from collections import defaultdict
-from itertools import chain
 from pathlib import Path
 from typing import Literal, cast
 
@@ -176,7 +175,8 @@ class LuxonisLoader(BaseLoader):
                 for task_name in self._filter_task_names
                 if task_name in self._classes
             }
-
+        self.classes = self.dataset.get_classes()
+        self._instances: list[str] = []
         splits_path = self.dataset._metadata_path / "splits.json"
         if not splits_path.exists():
             raise RuntimeError(
@@ -186,17 +186,21 @@ class LuxonisLoader(BaseLoader):
         with open(splits_path) as file:
             splits = json.load(file)
 
-        group_ids = set(self._df["group_id"].to_list())
+        for v in self._view:
+            self._instances.extend(splits[v])
 
+        self.idx_to_df_row: list[list[int]] = []
+        group_id_list = self._df["group_id"].to_list()
+        group_id_set = set(group_id_list)
         self._instances = [
-            gid
-            for gid in chain.from_iterable(splits[view])
-            if gid in group_ids
+            group_id
+            for group_id in self._instances
+            if group_id in group_id_set
         ]
 
         idx_map: dict[str, list[int]] = defaultdict(list)
-        for i, gid in enumerate(self._df["group_id"]):
-            idx_map[gid].append(i)
+        for i, group_id in enumerate(group_id_list):
+            idx_map[group_id].append(i)
 
         self._idx_to_df_row = [idx_map[uuid] for uuid in self._instances]
 
