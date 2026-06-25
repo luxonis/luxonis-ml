@@ -7,3 +7,4 @@ pytest-clarity~=1.0
 pytest-deadfixtures~=3.0
 logot[loguru,pytest]~=1.7
 onnx<1.17.0
+pre-commit<4.0.0
