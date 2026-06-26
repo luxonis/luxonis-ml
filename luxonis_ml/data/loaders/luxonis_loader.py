@@ -149,9 +149,15 @@ class LuxonisLoader(BaseLoader):
         self._filter_task_names = filter_task_names
 
         self._source_names = self.dataset.get_source_names()
-        self._color_space = dict.fromkeys(
-            self._source_names, color_space or "RGB"
-        )
+        if isinstance(color_space, dict):
+            self._color_space = {
+                source_name: color_space.get(source_name, "RGB")
+                for source_name in self._source_names
+            }
+        else:
+            self._color_space = dict.fromkeys(
+                self._source_names, color_space or "RGB"
+            )
 
         if self._filter_task_names is None:
             self._df = self.dataset._load_df_offline(raise_when_empty=True)

@@ -266,7 +266,8 @@ class LuxonisParser(Generic[T]):
                     f"Dataset {self._dataset_dir} is not in the expected "
                     f"format for {self._dataset_type} parser."
                 )
-            return self._parser.parse_split(**parsed_kwargs, **kwargs)
+            kwargs.setdefault("random_split", True)
+            dataset = self._parser.parse_split(**parsed_kwargs, **kwargs)
 
         logger.info("Dataset parsed successfully.")
         return dataset
