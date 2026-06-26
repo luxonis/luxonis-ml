@@ -224,7 +224,7 @@ jobs:
 
           if [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
             coverage_xml="coverage-${{ matrix.os }}-${{ matrix.group }}.xml"
-            pytest --cov --cov-report "xml:$coverage_xml" "${pytest_args[@]}"
+            pytest --cov --cov-report term-missing --cov-report "xml:$coverage_xml" "${pytest_args[@]}"
           else
             pytest "${pytest_args[@]}"
           fi

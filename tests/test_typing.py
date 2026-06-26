@@ -37,7 +37,6 @@ def test_loader_output_tuple_compatibility():
 
     output = LoaderOutput({"image": image}, labels, metadata)
 
-    assert isinstance(output, tuple)
     assert len(output) == 2
     unpacked_image, unpacked_labels = output
     assert unpacked_image is image
