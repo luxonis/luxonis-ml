@@ -533,7 +533,7 @@ class DatasetRecord(BaseModelExtraForbid):
     files: dict[str, FilePath]
     annotation: Detection | None = None
     task_name: str = ""
-    sample_metadata: Params = {}
+    sample_metadata: Params = Field(default_factory=dict)
 
     @property
     def file(self) -> FilePath:
