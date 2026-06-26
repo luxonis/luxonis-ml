@@ -62,7 +62,6 @@ file = [
 file = [
   "luxonis_ml/data/requirements.txt",
   "luxonis_ml/utils/requirements.txt",
-  "luxonis_ml/utils/requirements-fsspec.txt",
   "luxonis_ml/tracker/requirements.txt",
   "luxonis_ml/nn_archive/requirements.txt",
   "extra_requirements/roboflow.txt",

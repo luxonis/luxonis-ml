@@ -712,9 +712,9 @@ class LuxonisFileSystem:
 
 def _check_package_installed(protocol: str) -> None:  # pragma: no cover
     if protocol in {"gs", "gcs"} and find_spec("gcsfs") is None:
-        _pip_install(protocol, "gcsfs>=2023.3.0")
+        _pip_install(protocol, "gcsfs==2024.6.1")
     elif protocol == "s3" and find_spec("s3fs") is None:
-        _pip_install(protocol, "s3fs>=2023.3.0")
+        _pip_install(protocol, "s3fs==2024.6.1")
     elif protocol == "mlflow" and find_spec("mlflow") is None:
         _pip_install(protocol, "mlflow~=2.10.0")
 
