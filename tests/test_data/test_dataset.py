@@ -2,7 +2,7 @@ import json
 import shutil
 from collections import defaultdict
 from pathlib import Path
-from typing import NoReturn
+from typing import NoReturn, cast
 
 import numpy as np
 import pytest
@@ -1077,10 +1077,10 @@ def test_dataset_push_pull(
     def assert_loader_metadata(dataset: LuxonisDataset) -> None:
         metadata = sorted(
             (data.metadata for data in LuxonisLoader(dataset)),
-            key=lambda item: item["record_id"],
+            key=lambda item: cast(int, item["record_id"]),
         )
         assert [item["record_id"] for item in metadata] == [0, 1, 2]
-        assert {item["origin"] for item in metadata} == {"push-pull"}
+        assert {item["origin"] for item in metadata} == {"push-pull"}  # type: ignore
 
     with subtests.test("create_initial_dataset"):
         original_dataset = create_dataset(
@@ -1171,8 +1171,8 @@ def test_dataset_push_pull(
 
         loader = LuxonisLoader(cloud_dataset)
         metadata = sorted(
-            (data.metadata for data in loader),
-            key=lambda item: item["record_id"],
+            (data.metadata for data in loader),  # type: ignore
+            key=lambda item: item["record_id"],  # type: ignore
         )
         assert [item["record_id"] for item in metadata] == [0, 1, 2]
         assert {item["origin"] for item in metadata} == {"push-pull"}

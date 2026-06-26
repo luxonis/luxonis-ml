@@ -129,6 +129,7 @@ def test_native_export_import_preserves_record_metadata(
     export_path = dataset.export(
         tempdir / "exported", dataset_type=DatasetType.NATIVE
     )
+    assert isinstance(export_path, Path)
     exported_dataset_path = Path(export_path) / dataset.identifier
     imported_dataset = LuxonisParser(
         str(exported_dataset_path),
@@ -141,7 +142,7 @@ def test_native_export_import_preserves_record_metadata(
 
     metadata = sorted(
         (data.metadata for data in LuxonisLoader(imported_dataset)),
-        key=lambda item: item["record_id"],
+        key=lambda item: item["record_id"],  # type: ignore
     )
     assert [item["record_id"] for item in metadata] == [0, 1]
     assert {item["origin"] for item in metadata} == {"native-roundtrip"}
