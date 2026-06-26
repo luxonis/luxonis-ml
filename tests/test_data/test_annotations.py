@@ -68,7 +68,7 @@ def test_dataset_record(tempdir: Path):
 
     cv2.imwrite(str(left), np.zeros((100, 100, 3)))
     cv2.imwrite(str(right), np.zeros((100, 100, 3)))
-    empty_metadata = {"metadata": DEFAULT_METADATA}
+    empty_metadata = {"sample_metadata": DEFAULT_METADATA}
     record = DatasetRecord(file=left)  # type: ignore
     assert record.file == left
 
@@ -90,7 +90,7 @@ def test_dataset_record(tempdir: Path):
 
     record = DatasetRecord(
         file=left,  # type: ignore
-        metadata={"source": "camera-a"},
+        sample_metadata={"source": "camera-a"},
     )
     compare_parquet_rows(
         record,
@@ -103,7 +103,7 @@ def test_dataset_record(tempdir: Path):
                 "instance_id": None,
                 "task_type": None,
                 "annotation": None,
-                "metadata": json.dumps({"source": "camera-a"}),
+                "sample_metadata": json.dumps({"source": "camera-a"}),
             }
         ],
     )
@@ -622,7 +622,7 @@ def test_record(tempdir: Path):
         "file": filename,
         "source_name": "image",
         "instance_id": -1,
-        "metadata": DEFAULT_METADATA,
+        "sample_metadata": DEFAULT_METADATA,
     }
     expected_rows = [
         {
@@ -709,11 +709,11 @@ def test_parquet_file_manager_adds_missing_metadata_column(
         "instance_id": None,
         "task_type": None,
         "annotation": None,
-        "metadata": new_metadata,
+        "sample_metadata": new_metadata,
     }
 
     with ParquetFileManager(annotations_path) as manager:
         manager.write("new", new_row, "new-group")
 
     df = pl.read_parquet(parquet_path)
-    assert df["metadata"].to_list() == [DEFAULT_METADATA, new_metadata]
+    assert df["sample_metadata"].to_list() == [DEFAULT_METADATA, new_metadata]

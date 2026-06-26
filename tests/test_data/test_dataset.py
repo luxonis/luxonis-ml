@@ -962,7 +962,7 @@ def test_loader_uses_columns_after_metadata_column_reorder(
     def generator() -> DatasetIterator:
         yield {
             "file": create_image(0, tempdir),
-            "metadata": {"record_id": 0, "origin": "column-order"},
+            "sample_metadata": {"record_id": 0, "origin": "column-order"},
         }
 
     dataset = create_dataset(
@@ -972,8 +972,8 @@ def test_loader_uses_columns_after_metadata_column_reorder(
         splits=(1, 0, 0),
     )
     df = dataset._load_df_offline(raise_when_empty=True)
-    reordered_cols = ["metadata"] + [
-        col for col in df.columns if col != "metadata"
+    reordered_cols = ["sample_metadata"] + [
+        col for col in df.columns if col != "sample_metadata"
     ]
     dataset._save_df_offline(df.select(reordered_cols))
 
@@ -990,7 +990,7 @@ def test_load_df_offline_mixed_old_and_new_metadata_schemas(
         for i in range(2):
             yield {
                 "file": create_image(i, tempdir),
-                "metadata": {"record_id": i},
+                "sample_metadata": {"record_id": i},
             }
 
     dataset = create_dataset(
@@ -1003,7 +1003,7 @@ def test_load_df_offline_mixed_old_and_new_metadata_schemas(
     for parquet_file in dataset.annotations_path.glob("*.parquet"):
         parquet_file.unlink()
 
-    df.slice(0, 1).drop("metadata").write_parquet(
+    df.slice(0, 1).drop("sample_metadata").write_parquet(
         dataset.annotations_path / "0000000000.parquet"
     )
     df.slice(1, 1).write_parquet(
@@ -1011,8 +1011,8 @@ def test_load_df_offline_mixed_old_and_new_metadata_schemas(
     )
 
     loaded_df = dataset._load_df_offline(raise_when_empty=True)
-    assert "metadata" in loaded_df.columns
-    metadata_values = loaded_df["metadata"].to_list()
+    assert "sample_metadata" in loaded_df.columns
+    metadata_values = loaded_df["sample_metadata"].to_list()
     assert DEFAULT_METADATA in metadata_values
     assert {"record_id": 1} in [
         json.loads(value)
@@ -1030,7 +1030,7 @@ def test_add_to_old_schema_dataset_populates_metadata_column(
         for i in range(start, end):
             yield {
                 "file": create_image(i, tempdir),
-                "metadata": {"record_id": i},
+                "sample_metadata": {"record_id": i},
             }
 
     dataset = create_dataset(
@@ -1039,7 +1039,9 @@ def test_add_to_old_schema_dataset_populates_metadata_column(
         bucket_storage=BucketStorage.LOCAL,
         splits=(1, 0, 0),
     )
-    old_df = dataset._load_df_offline(raise_when_empty=True).drop("metadata")
+    old_df = dataset._load_df_offline(raise_when_empty=True).drop(
+        "sample_metadata"
+    )
     for parquet_file in dataset.annotations_path.glob("*.parquet"):
         parquet_file.unlink()
     old_df.write_parquet(dataset.annotations_path / "0000000000.parquet")
@@ -1047,7 +1049,7 @@ def test_add_to_old_schema_dataset_populates_metadata_column(
     dataset.add(generator(1, 2))
 
     loaded_df = dataset._load_df_offline(raise_when_empty=True)
-    metadata_values = loaded_df["metadata"].to_list()
+    metadata_values = loaded_df["sample_metadata"].to_list()
     assert DEFAULT_METADATA in metadata_values
     assert {"record_id": 1} in [
         json.loads(value)
@@ -1071,7 +1073,7 @@ def test_dataset_push_pull(
                     "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
                     "instance_id": i,
                 },
-                "metadata": {"record_id": i, "origin": "push-pull"},
+                "sample_metadata": {"record_id": i, "origin": "push-pull"},
             }
 
     def assert_loader_metadata(dataset: LuxonisDataset) -> None:

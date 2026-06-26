@@ -533,7 +533,7 @@ class DatasetRecord(BaseModelExtraForbid):
     files: dict[str, FilePath]
     annotation: Detection | None = None
     task_name: str = ""
-    metadata: Params = {}
+    sample_metadata: Params = {}
 
     @property
     def file(self) -> FilePath:
@@ -605,7 +605,7 @@ class DatasetRecord(BaseModelExtraForbid):
                     "instance_id": None,
                     "task_type": None,
                     "annotation": None,
-                    "metadata": json.dumps(self.metadata),
+                    "sample_metadata": json.dumps(self.sample_metadata),
                 }
             else:
                 for task_type in [
@@ -626,7 +626,9 @@ class DatasetRecord(BaseModelExtraForbid):
                             "instance_id": annotation.instance_id,
                             "task_type": task_type,
                             "annotation": label.model_dump_json(),
-                            "metadata": json.dumps(self.metadata),
+                            "sample_metadata": json.dumps(
+                                self.sample_metadata
+                            ),
                         }
                 for key, data in annotation.metadata.items():
                     yield {
@@ -637,7 +639,7 @@ class DatasetRecord(BaseModelExtraForbid):
                         "instance_id": annotation.instance_id,
                         "task_type": f"metadata/{key}",
                         "annotation": json.dumps(data),
-                        "metadata": json.dumps(self.metadata),
+                        "sample_metadata": json.dumps(self.sample_metadata),
                     }
                 if annotation.class_name is not None:
                     yield {
@@ -648,7 +650,7 @@ class DatasetRecord(BaseModelExtraForbid):
                         "instance_id": annotation.instance_id,
                         "task_type": "classification",
                         "annotation": "{}",
-                        "metadata": json.dumps(self.metadata),
+                        "sample_metadata": json.dumps(self.sample_metadata),
                     }
                 for name, detection in annotation.sub_detections.items():
                     yield from self._to_parquet_rows(

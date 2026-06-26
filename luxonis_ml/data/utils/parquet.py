@@ -17,7 +17,7 @@ class ParquetRecord(TypedDict):
     instance_id: int | None
     task_type: str | None
     annotation: str | None
-    metadata: str
+    sample_metadata: str
 
 
 class ParquetFileManager:
@@ -60,13 +60,15 @@ class ParquetFileManager:
 
     @staticmethod
     def _ensure_metadata_column(df: pl.DataFrame) -> pl.DataFrame:
-        if "metadata" not in df.columns:
-            return df.with_columns(pl.lit(DEFAULT_METADATA).alias("metadata"))
+        if "sample_metadata" not in df.columns:
+            return df.with_columns(
+                pl.lit(DEFAULT_METADATA).alias("sample_metadata")
+            )
         return df.with_columns(
-            pl.when(pl.col("metadata").is_null())
+            pl.when(pl.col("sample_metadata").is_null())
             .then(pl.lit(DEFAULT_METADATA))
-            .otherwise(pl.col("metadata"))
-            .alias("metadata")
+            .otherwise(pl.col("sample_metadata"))
+            .alias("sample_metadata")
         )
 
     def _initialize_data(self, data: ParquetRecord) -> None:
@@ -88,15 +90,17 @@ class ParquetFileManager:
             row belongs.
         """
 
-        if "metadata" not in data:
-            data = {**data, "metadata": DEFAULT_METADATA}  # type: ignore
+        if "sample_metadata" not in data:
+            data = {**data, "sample_metadata": DEFAULT_METADATA}  # type: ignore
 
         if not self.buffer:
             self._initialize_data(data)
 
         for key in data:
             if key not in self.buffer:
-                default: Any = DEFAULT_METADATA if key == "metadata" else None
+                default: Any = (
+                    DEFAULT_METADATA if key == "sample_metadata" else None
+                )
                 self.buffer[key] = [default] * self.row_count
             self.buffer[key].append(data[key])
 

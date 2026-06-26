@@ -119,7 +119,7 @@ def test_native_export_import_preserves_record_metadata(
                     "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
                     "instance_id": i,
                 },
-                "metadata": {
+                "sample_metadata": {
                     "record_id": i,
                     "origin": "native-roundtrip",
                 },

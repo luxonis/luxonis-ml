@@ -632,9 +632,9 @@ class LuxonisDataset(BaseDataset):
         lazy_frames = []
         for file in files:
             lazy_frame = pl.scan_parquet(str(file))
-            if "metadata" not in lazy_frame.schema:
+            if "sample_metadata" not in lazy_frame.schema:
                 lazy_frame = lazy_frame.with_columns(
-                    pl.lit(DEFAULT_METADATA).alias("metadata")
+                    pl.lit(DEFAULT_METADATA).alias("sample_metadata")
                 )
             lazy_frames.append(lazy_frame)
 

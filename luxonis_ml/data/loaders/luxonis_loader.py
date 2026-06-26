@@ -358,22 +358,22 @@ class LuxonisLoader(BaseLoader):
         ann_rows = [self.df.row(row) for row in ann_indices]
         col = self._df_col_indices
 
-        record_metadata: Params = {}
-        metadata_idx = col.get("metadata")
+        sample_metadata: Params = {}
+        metadata_idx = col.get("sample_metadata")
         for row in ann_rows:
-            record_metadata = DatasetRecord.decode_metadata(
+            sample_metadata = DatasetRecord.decode_metadata(
                 row[metadata_idx] if metadata_idx is not None else None
             )
 
         source_to_path = self.idx_to_img_paths[idx]
 
         if self.autopopulate_metadata:
-            record_metadata = {
+            sample_metadata = {
                 "filenames": {
                     source_name: path.name
                     for source_name, path in source_to_path.items()
                 },
-                **record_metadata,
+                **sample_metadata,
             }
 
         img_dict: dict[str, np.ndarray] = {}
@@ -471,7 +471,7 @@ class LuxonisLoader(BaseLoader):
 
             labels[task] = array
 
-        return img_dict, labels, record_metadata
+        return img_dict, labels, sample_metadata
 
     def _load_with_augmentations(
         self, idx: int
@@ -522,7 +522,7 @@ class LuxonisLoader(BaseLoader):
         metadata["batch_augmentation_metadata"] = [  # type: ignore
             {
                 "input_index": i,
-                "metadata": deepcopy(m),
+                "sample_metadata": deepcopy(m),
             }
             for i, m in enumerate(metadata_batch)
         ]

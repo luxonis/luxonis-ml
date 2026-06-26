@@ -79,7 +79,7 @@ def migrate_dataframe(
             .alias("task_type")
         )
         .with_columns(pl.lit("image").alias("source_name"))
-        .with_columns(pl.lit(DEFAULT_METADATA).alias("metadata"))
+        .with_columns(pl.lit(DEFAULT_METADATA).alias("sample_metadata"))
         .select(
             [
                 "file",
@@ -89,7 +89,7 @@ def migrate_dataframe(
                 "instance_id",
                 "task_type",
                 "annotation",
-                "metadata",
+                "sample_metadata",
                 "uuid",
             ]
         )

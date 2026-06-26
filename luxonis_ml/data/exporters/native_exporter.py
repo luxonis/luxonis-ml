@@ -119,7 +119,9 @@ class NativeExporter(BaseExporter):
                 else source_to_file[group_source_names[0]]
             ),
             "task_name": task_name,
-            "metadata": DatasetRecord.decode_metadata(row.get("metadata")),
+            "sample_metadata": DatasetRecord.decode_metadata(
+                row.get("sample_metadata")
+            ),
         }
 
         if ann_str is not None:
