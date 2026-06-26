@@ -1,7 +1,9 @@
+import json
 from pathlib import Path
 
 import cv2
 import numpy as np
+import polars as pl
 import pydantic
 import pytest
 from pytest_subtests import SubTests
@@ -18,7 +20,11 @@ from luxonis_ml.data.datasets.annotation import (
     check_valid_identifier,
     load_annotation,
 )
-from luxonis_ml.data.utils.parquet import ParquetRecord
+from luxonis_ml.data.utils.parquet import (
+    DEFAULT_METADATA,
+    ParquetFileManager,
+    ParquetRecord,
+)
 
 
 def test_valid_identifier():
@@ -62,6 +68,7 @@ def test_dataset_record(tempdir: Path):
 
     cv2.imwrite(str(left), np.zeros((100, 100, 3)))
     cv2.imwrite(str(right), np.zeros((100, 100, 3)))
+    empty_metadata = {"metadata": DEFAULT_METADATA}
     record = DatasetRecord(file=left)  # type: ignore
     assert record.file == left
 
@@ -76,6 +83,27 @@ def test_dataset_record(tempdir: Path):
                 "instance_id": None,
                 "task_type": None,
                 "annotation": None,
+                **empty_metadata,
+            }
+        ],
+    )
+
+    record = DatasetRecord(
+        file=left,  # type: ignore
+        metadata={"source": "camera-a"},
+    )
+    compare_parquet_rows(
+        record,
+        [
+            {
+                "file": left,  # type: ignore
+                "source_name": "image",
+                "task_name": "",
+                "class_name": None,
+                "instance_id": None,
+                "task_type": None,
+                "annotation": None,
+                "metadata": json.dumps({"source": "camera-a"}),
             }
         ],
     )
@@ -98,6 +126,7 @@ def test_dataset_record(tempdir: Path):
                 "instance_id": -1,
                 "task_type": "boundingbox",
                 "annotation": '{"x":0.1,"y":0.2,"w":0.3,"h":0.4}',
+                **empty_metadata,
             },
             {
                 "file": left,  # type: ignore
@@ -107,6 +136,7 @@ def test_dataset_record(tempdir: Path):
                 "instance_id": -1,
                 "task_type": "classification",
                 "annotation": "{}",
+                **empty_metadata,
             },
         ],
     )
@@ -592,6 +622,7 @@ def test_record(tempdir: Path):
         "file": filename,
         "source_name": "image",
         "instance_id": -1,
+        "metadata": DEFAULT_METADATA,
     }
     expected_rows = [
         {
@@ -645,3 +676,44 @@ def test_record(tempdir: Path):
         },
     ]
     assert list(record.to_parquet_rows()) == expected_rows
+
+
+def test_parquet_file_manager_adds_missing_metadata_column(
+    tempdir: Path,
+) -> None:
+    annotations_path = tempdir / "annotations"
+    annotations_path.mkdir()
+    parquet_path = annotations_path / "0000000000.parquet"
+    pl.DataFrame(
+        [
+            {
+                "file": "old.jpg",
+                "source_name": "image",
+                "task_name": "",
+                "class_name": None,
+                "instance_id": None,
+                "task_type": None,
+                "annotation": None,
+                "uuid": "old",
+                "group_id": "old-group",
+            }
+        ]
+    ).write_parquet(parquet_path)
+
+    new_metadata = json.dumps({"source": "new"})
+    new_row: ParquetRecord = {
+        "file": "new.jpg",
+        "source_name": "image",
+        "task_name": "",
+        "class_name": None,
+        "instance_id": None,
+        "task_type": None,
+        "annotation": None,
+        "metadata": new_metadata,
+    }
+
+    with ParquetFileManager(annotations_path) as manager:
+        manager.write("new", new_row, "new-group")
+
+    df = pl.read_parquet(parquet_path)
+    assert df["metadata"].to_list() == [DEFAULT_METADATA, new_metadata]

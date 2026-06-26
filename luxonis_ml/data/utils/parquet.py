@@ -1,10 +1,12 @@
 from pathlib import Path
-from typing import TypedDict
+from typing import Any, TypedDict
 
 import polars as pl
 from typing_extensions import Self
 
 from luxonis_ml.typing import PathType
+
+DEFAULT_METADATA = "{}"
 
 
 class ParquetRecord(TypedDict):
@@ -15,6 +17,7 @@ class ParquetRecord(TypedDict):
     instance_id: int | None
     task_type: str | None
     annotation: str | None
+    metadata: str
 
 
 class ParquetFileManager:
@@ -46,12 +49,25 @@ class ParquetFileManager:
 
     def _read(self) -> None:
         if self.current_file.exists():
-            df = pl.read_parquet(self.current_file)
+            df = self._ensure_metadata_column(
+                pl.read_parquet(self.current_file)
+            )
             self.buffer = df.to_dict(as_series=False)
             self.row_count = len(df)
         else:
             self.row_count = 0
             self.buffer = {}
+
+    @staticmethod
+    def _ensure_metadata_column(df: pl.DataFrame) -> pl.DataFrame:
+        if "metadata" not in df.columns:
+            return df.with_columns(pl.lit(DEFAULT_METADATA).alias("metadata"))
+        return df.with_columns(
+            pl.when(pl.col("metadata").is_null())
+            .then(pl.lit(DEFAULT_METADATA))
+            .otherwise(pl.col("metadata"))
+            .alias("metadata")
+        )
 
     def _initialize_data(self, data: ParquetRecord) -> None:
         for key in data:
@@ -72,10 +88,16 @@ class ParquetFileManager:
             row belongs.
         """
 
+        if "metadata" not in data:
+            data = {**data, "metadata": DEFAULT_METADATA}  # type: ignore
+
         if not self.buffer:
             self._initialize_data(data)
 
         for key in data:
+            if key not in self.buffer:
+                default: Any = DEFAULT_METADATA if key == "metadata" else None
+                self.buffer[key] = [default] * self.row_count
             self.buffer[key].append(data[key])
 
         self.buffer["uuid"].append(uuid)
@@ -93,7 +115,9 @@ class ParquetFileManager:
 
         for parquet_file in self.dir.glob("*.parquet"):
             if parquet_file.is_file():
-                df = pl.read_parquet(parquet_file)
+                df = self._ensure_metadata_column(
+                    pl.read_parquet(parquet_file)
+                )
                 df = df.filter(~pl.col("uuid").is_in(list(overwrite_uuids)))
                 parquet_file.unlink()
                 df.write_parquet(parquet_file)

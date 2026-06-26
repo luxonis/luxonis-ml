@@ -58,6 +58,7 @@ from luxonis_ml.data.utils import (
 )
 from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.data.utils.ldf_equivalence import ldf_equivalent
+from luxonis_ml.data.utils.parquet import DEFAULT_METADATA
 from luxonis_ml.enums.enums import DatasetType
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import LuxonisFileSystem, deprecated, environ
@@ -154,7 +155,7 @@ class LuxonisDataset(BaseDataset):
         with FileLock(self.base_path / ".metadata.lock"):
             self._metadata = self._get_metadata()
 
-        if self.version != LDF_VERSION:
+        if self.version.major != LDF_VERSION.major:
             logger.warning(
                 f"LDF versions do not match. The current `luxonis-ml` "
                 f"installation supports LDF v{LDF_VERSION}, but the "
@@ -612,7 +613,7 @@ class LuxonisDataset(BaseDataset):
                 )
             return None
 
-        lazy_df = pl.scan_parquet([str(f) for f in files])
+        lazy_df = self._scan_annotation_files(files)
 
         if lazy:
             return lazy_df
@@ -621,10 +622,25 @@ class LuxonisDataset(BaseDataset):
         if df.is_empty() and raise_when_empty:
             raise FileNotFoundError(f"Dataset '{self.dataset_name}' is empty.")
 
-        if attempt_migration and self.version != LDF_VERSION:
+        if attempt_migration and self.version.major != LDF_VERSION.major:
             df = migrate_dataframe(df)
 
         return df
+
+    @staticmethod
+    def _scan_annotation_files(files: list[Path]) -> pl.LazyFrame:
+        lazy_frames = []
+        for file in files:
+            lazy_frame = pl.scan_parquet(str(file))
+            if "metadata" not in lazy_frame.schema:
+                lazy_frame = lazy_frame.with_columns(
+                    pl.lit(DEFAULT_METADATA).alias("metadata")
+                )
+            lazy_frames.append(lazy_frame)
+
+        if len(lazy_frames) == 1:
+            return lazy_frames[0]
+        return pl.concat(lazy_frames, how="diagonal_relaxed")
 
     @overload
     def _get_index(
@@ -750,7 +766,7 @@ class LuxonisDataset(BaseDataset):
                 self._save_df_offline(df)
 
             version = Version.parse(metadata_json.get("ldf_version", "1.0.0"))
-            if version != LDF_VERSION:  # pragma: no cover
+            if version.major != LDF_VERSION.major:  # pragma: no cover
                 return migrate_metadata(
                     metadata_json,
                     self._load_df_offline(lazy=True, attempt_migration=False),

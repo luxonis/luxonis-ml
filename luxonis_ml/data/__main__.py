@@ -222,6 +222,10 @@ def inspect(
         bool,
         Parameter(negative=""),
     ] = False,
+    show_metadata: Annotated[
+        bool,
+        Parameter(negative=""),
+    ] = True,
     bucket_storage: BucketStorageT = BucketStorage.LOCAL,
 ):
     """Inspect images and annotations in a dataset.
@@ -243,6 +247,7 @@ def inspect(
         per_instance: Show each label instance in a separate window.
         list_augmentations: Show the augmentations applied to each
             displayed image. Requires '--aug-config' to be set.
+        show_metadata: Print record metadata for each displayed sample.
         bucket_storage: Storage type of the dataset.
     """
     check_exists(name, bucket_storage)
@@ -298,11 +303,12 @@ def inspect(
     categorical_encodings = dataset.get_categorical_encodings()
     prev_windows = set()
 
-    for img, labels in loader:
-        if isinstance(img, dict):
-            images_dict = img
-        else:
-            images_dict = {"image": img}
+    for data in loader:
+        images_dict = data.images
+        labels = data.labels
+
+        if show_metadata:
+            print(data.metadata)
 
         current_windows = set(images_dict.keys())
         for stale_window in prev_windows - current_windows:
