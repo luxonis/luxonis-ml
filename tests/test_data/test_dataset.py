@@ -1,3 +1,4 @@
+import json
 import shutil
 from collections import defaultdict
 from pathlib import Path
@@ -18,6 +19,7 @@ from luxonis_ml.data import (
     UpdateMode,
 )
 from luxonis_ml.data.datasets.base_dataset import DatasetIterator
+from luxonis_ml.data.utils.parquet import DEFAULT_METADATA
 from luxonis_ml.data.utils.task_utils import get_task_type
 from luxonis_ml.enums import DatasetType
 from luxonis_ml.typing import Params
@@ -954,6 +956,107 @@ def test_keypoints_solo(dataset_name: str, tempdir: Path):
 
 
 @pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
+def test_loader_uses_columns_after_metadata_column_reorder(
+    dataset_name: str, tempdir: Path
+):
+    def generator() -> DatasetIterator:
+        yield {
+            "file": create_image(0, tempdir),
+            "metadata": {"record_id": 0, "origin": "column-order"},
+        }
+
+    dataset = create_dataset(
+        dataset_name,
+        generator(),
+        bucket_storage=BucketStorage.LOCAL,
+        splits=(1, 0, 0),
+    )
+    df = dataset._load_df_offline(raise_when_empty=True)
+    reordered_cols = ["metadata"] + [
+        col for col in df.columns if col != "metadata"
+    ]
+    dataset._save_df_offline(df.select(reordered_cols))
+
+    sample = LuxonisLoader(dataset)[0]
+    assert sample.metadata["record_id"] == 0
+    assert sample.metadata["origin"] == "column-order"
+
+
+@pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
+def test_load_df_offline_mixed_old_and_new_metadata_schemas(
+    dataset_name: str, tempdir: Path
+):
+    def generator() -> DatasetIterator:
+        for i in range(2):
+            yield {
+                "file": create_image(i, tempdir),
+                "metadata": {"record_id": i},
+            }
+
+    dataset = create_dataset(
+        dataset_name,
+        generator(),
+        bucket_storage=BucketStorage.LOCAL,
+        splits=(1, 0, 0),
+    )
+    df = dataset._load_df_offline(raise_when_empty=True)
+    for parquet_file in dataset.annotations_path.glob("*.parquet"):
+        parquet_file.unlink()
+
+    df.slice(0, 1).drop("metadata").write_parquet(
+        dataset.annotations_path / "0000000000.parquet"
+    )
+    df.slice(1, 1).write_parquet(
+        dataset.annotations_path / "0000000001.parquet"
+    )
+
+    loaded_df = dataset._load_df_offline(raise_when_empty=True)
+    assert "metadata" in loaded_df.columns
+    metadata_values = loaded_df["metadata"].to_list()
+    assert DEFAULT_METADATA in metadata_values
+    assert {"record_id": 1} in [
+        json.loads(value)
+        for value in metadata_values
+        if value != DEFAULT_METADATA
+    ]
+    assert len(list(LuxonisLoader(dataset))) == 2
+
+
+@pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
+def test_add_to_old_schema_dataset_populates_metadata_column(
+    dataset_name: str, tempdir: Path
+):
+    def generator(start: int, end: int) -> DatasetIterator:
+        for i in range(start, end):
+            yield {
+                "file": create_image(i, tempdir),
+                "metadata": {"record_id": i},
+            }
+
+    dataset = create_dataset(
+        dataset_name,
+        generator(0, 1),
+        bucket_storage=BucketStorage.LOCAL,
+        splits=(1, 0, 0),
+    )
+    old_df = dataset._load_df_offline(raise_when_empty=True).drop("metadata")
+    for parquet_file in dataset.annotations_path.glob("*.parquet"):
+        parquet_file.unlink()
+    old_df.write_parquet(dataset.annotations_path / "0000000000.parquet")
+
+    dataset.add(generator(1, 2))
+
+    loaded_df = dataset._load_df_offline(raise_when_empty=True)
+    metadata_values = loaded_df["metadata"].to_list()
+    assert DEFAULT_METADATA in metadata_values
+    assert {"record_id": 1} in [
+        json.loads(value)
+        for value in metadata_values
+        if value != DEFAULT_METADATA
+    ]
+
+
+@pytest.mark.dependency(name="test_dataset[BucketStorage.LOCAL]")
 def test_dataset_push_pull(
     dataset_name: str, tempdir: Path, subtests: SubTests
 ):
@@ -968,7 +1071,16 @@ def test_dataset_push_pull(
                     "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
                     "instance_id": i,
                 },
+                "metadata": {"record_id": i, "origin": "push-pull"},
             }
+
+    def assert_loader_metadata(dataset: LuxonisDataset) -> None:
+        metadata = sorted(
+            (data.metadata for data in LuxonisLoader(dataset)),
+            key=lambda item: item["record_id"],
+        )
+        assert [item["record_id"] for item in metadata] == [0, 1, 2]
+        assert {item["origin"] for item in metadata} == {"push-pull"}
 
     with subtests.test("create_initial_dataset"):
         original_dataset = create_dataset(
@@ -1018,7 +1130,7 @@ def test_dataset_push_pull(
         cloud_dataset.pull_from_cloud(update_mode=UpdateMode.MISSING)
 
         assert cloud_dataset.get_statistics() == original_stats
-        assert sum(1 for _ in LuxonisLoader(cloud_dataset)) == 3
+        assert_loader_metadata(cloud_dataset)
 
     with subtests.test("pull_from_cloud_local_media_full"):
         cloud_dataset.delete_dataset(delete_local=True, delete_remote=False)
@@ -1035,7 +1147,7 @@ def test_dataset_push_pull(
         cloud_dataset_again.pull_from_cloud(update_mode=UpdateMode.MISSING)
 
         assert cloud_dataset_again.get_statistics() == original_stats
-        assert sum(1 for _ in LuxonisLoader(cloud_dataset_again)) == 3
+        assert_loader_metadata(cloud_dataset_again)
 
         cloud_dataset_again.delete_dataset(
             delete_local=False, delete_remote=True
@@ -1058,7 +1170,12 @@ def test_dataset_push_pull(
         )
 
         loader = LuxonisLoader(cloud_dataset)
-        assert sum(1 for _ in loader) == 3
+        metadata = sorted(
+            (data.metadata for data in loader),
+            key=lambda item: item["record_id"],
+        )
+        assert [item["record_id"] for item in metadata] == [0, 1, 2]
+        assert {item["origin"] for item in metadata} == {"push-pull"}
         assert cloud_dataset.get_statistics() == original_stats
 
 
