@@ -1,5 +1,8 @@
+import numpy as np
+
 from luxonis_ml.typing import (
     LoaderOutput,
+    Params,
     all_not_none,
     any_not_none,
     check_type,
@@ -28,9 +31,9 @@ def test_check_type():
 
 
 def test_loader_output_tuple_compatibility():
-    image = object()
-    labels = {"task/boundingbox": object()}  # type: ignore
-    metadata = {"source": "camera-a"}
+    image = np.empty((100, 100, 3), dtype=np.uint8)
+    labels = {"task/boundingbox": np.empty((5, 4), dtype=np.float32)}
+    metadata: Params = {"source": "camera-a"}
 
     output = LoaderOutput({"image": image}, labels, metadata)
 
@@ -46,7 +49,7 @@ def test_loader_output_tuple_compatibility():
     assert output.metadata is metadata
     assert output.image is image
 
-    right = object()
+    right = np.empty((10, 10, 3), dtype=np.uint8)
     multi_output = LoaderOutput({"left": image, "right": right}, labels, {})
     assert multi_output[0] == multi_output.images
     assert multi_output.image is image
