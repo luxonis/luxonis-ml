@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any
 
 import polars as pl
 from loguru import logger
@@ -22,9 +22,9 @@ ParserOutput = tuple[DatasetIterator, dict[str, dict], list[Path]]
 
 
 class BaseParser(ABC):
-    _SPLIT_NAMES: Final[tuple[str, ...]] = ("train", "valid", "test")
-    _CANONICAL_SPLIT_NAMES: Final[tuple[str, ...]] = ("train", "val", "test")
-    _SKIPPED_WARNING_LIMIT: Final[int] = 50
+    _SPLIT_NAMES: tuple[str, ...] = ("train", "valid", "test")
+    _CANONICAL_SPLIT_NAMES: tuple[str, ...] = ("train", "val", "test")
+    _SKIPPED_WARNING_LIMIT: int = 50
 
     def __init__(
         self,
