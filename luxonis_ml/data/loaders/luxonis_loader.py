@@ -189,6 +189,10 @@ class LuxonisLoader(BaseLoader):
                 if task_name in self.classes
             }
 
+        self._df_col_indices = {
+            column: i for i, column in enumerate(self.df.columns)
+        }
+
         self.classes = self.dataset.get_classes()
         self.instances: list[str] = []
         splits_path = self.dataset.metadata_path / "splits.json"
@@ -352,13 +356,14 @@ class LuxonisLoader(BaseLoader):
 
         ann_indices = self.idx_to_df_row[idx]
         ann_rows = [self.df.row(row) for row in ann_indices]
+        col = self._df_col_indices
 
         record_metadata: Params = {}
+        metadata_idx = col.get("metadata")
         for row in ann_rows:
-            if "metadata" in self.df.columns:
-                record_metadata = DatasetRecord.decode_metadata(
-                    row[self.df.columns.index("metadata")]
-                )
+            record_metadata = DatasetRecord.decode_metadata(
+                row[metadata_idx] if metadata_idx is not None else None
+            )
 
         source_to_path = self.idx_to_img_paths[idx]
 
@@ -400,11 +405,11 @@ class LuxonisLoader(BaseLoader):
         )
 
         for annotation_data in ann_rows:
-            task_name: str = annotation_data[2]
-            class_name: str | None = annotation_data[3]
-            instance_id: int = annotation_data[4]
-            task_type: str = annotation_data[5]
-            ann_str: str | None = annotation_data[6]
+            task_name: str = annotation_data[col["task_name"]]
+            class_name: str | None = annotation_data[col["class_name"]]
+            instance_id: int = annotation_data[col["instance_id"]]
+            task_type: str = annotation_data[col["task_type"]]
+            ann_str: str | None = annotation_data[col["annotation"]]
 
             if ann_str is None:
                 continue
@@ -607,6 +612,7 @@ class LuxonisLoader(BaseLoader):
 
     def _precompute_image_paths(self) -> None:
         self.idx_to_img_paths: dict[int, dict[str, Path]] = {}
+        col = self._df_col_indices
 
         for idx, ann_indices in enumerate(self.idx_to_df_row):
             ann_rows = [self.df.row(row) for row in ann_indices]
@@ -614,9 +620,9 @@ class LuxonisLoader(BaseLoader):
             source_to_path = {}
 
             for row in ann_rows:
-                img_path = row[0]
-                source_name = row[1]
-                uuid = row[7]
+                img_path = row[col["file"]]
+                source_name = row[col["source_name"]]
+                uuid = row[col["uuid"]]
 
                 if source_name in source_to_path:
                     continue
