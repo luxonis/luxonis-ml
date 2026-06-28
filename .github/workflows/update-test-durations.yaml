@@ -34,7 +34,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version: "3.10"
           cache: pip
@@ -83,7 +83,7 @@ jobs:
           fi
 
       - name: Save pytest durations cache
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: .pytest-durations
           key: pytest-durations-${{ matrix.os }}-${{ github.run_id }}-${{ github.run_attempt }}
