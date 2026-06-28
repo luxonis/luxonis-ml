@@ -103,7 +103,7 @@ def test_static_file(
     randint: int,
 ):
     file_name = f"static_file_upload_{randint}.txt"
-    url = f"{fs.url}/{file_name}"
+    url = f"{fs._url}/{file_name}"
     with subtests.test("upload"):
         assert not fs.exists(file_name)
         LuxonisFileSystem.upload(local_file, url)
@@ -160,7 +160,7 @@ def test_static_directory(
     randint: int,
 ):
     dir_name = f"static_dir_upload_{randint}"
-    url = f"{fs.url}/{dir_name}"
+    url = f"{fs._url}/{dir_name}"
     with subtests.test("upload"):
         assert not fs.exists(dir_name)
         LuxonisFileSystem.upload(local_dir, url)

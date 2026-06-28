@@ -71,33 +71,33 @@ class LuxonisFileSystem:
         @param put_file_plugin: The name of a registered function under
             the PUT_FILE_REGISTRY to override C{self.put_file}.
         """
-        self.cache_storage = cache_storage
-        self.url = path
+        self._cache_storage = cache_storage
+        self._url = path
 
-        self.protocol, _path = _get_protocol_and_path(path)
-        supported_protocols = ["s3", "gcs", "file", "mlflow"]
-        if self.protocol not in supported_protocols:
+        self._protocol, _path = _get_protocol_and_path(path)
+        supported_protocols = ("s3", "gcs", "file", "mlflow")
+        if self._protocol not in supported_protocols:
             raise ValueError(
-                f"Protocol '{self.protocol}://' not supported. "
+                f"Protocol '{self._protocol}://' not supported. "
                 f"Choose from {supported_protocols}."
             )
 
-        _check_package_installed(self.protocol)
+        _check_package_installed(self._protocol)
 
-        self.allow_local = allow_local
-        if self.protocol == "file" and not self.allow_local:
+        self._allow_local = allow_local
+        if self._protocol == "file" and not self._allow_local:
             raise ValueError("Local filesystem is not allowed.")
 
-        if self.protocol == "mlflow":
-            self.fs_type = FSType.MLFLOW
+        if self._protocol == "mlflow":
+            self._fs_type = FSType.MLFLOW
 
-            self.allow_active_mlflow_run = allow_active_mlflow_run
+            self._allow_active_mlflow_run = allow_active_mlflow_run
             self._is_mlflow_active_run = False
             if _path is not None:
                 (self.experiment_id, self.run_id, self.artifact_path) = (
                     self._split_mlflow_path(_path)
                 )
-            elif _path is None and self.allow_active_mlflow_run:
+            elif _path is None and self._allow_active_mlflow_run:
                 self._is_mlflow_active_run = True
                 _path = ""
             else:
@@ -111,12 +111,20 @@ class LuxonisFileSystem:
                     "There is no 'MLFLOW_TRACKING_URI' in environment variables"
                 )
         else:
-            self.fs_type = FSType.FSSPEC
-            self.fs = self.init_fsspec_filesystem()
-        self.path = PurePosixPath(cast(str, _path))
+            self._fs_type = FSType.FSSPEC
+            self._fs = self.init_fsspec_filesystem()
+        self._path = PurePosixPath(cast(str, _path))
 
         if put_file_plugin:
             self.put_file = PUT_FILE_REGISTRY.get(put_file_plugin)
+
+    @property
+    def protocol(self) -> str:
+        """Returns the protocol of the filesystem.
+
+        @type: str
+        """
+        return self._protocol
 
     @property
     def is_mlflow(self) -> bool:
@@ -124,7 +132,7 @@ class LuxonisFileSystem:
 
         @type: bool
         """
-        return self.fs_type == FSType.MLFLOW
+        return self._fs_type == FSType.MLFLOW
 
     @property
     def is_fsspec(self) -> bool:
@@ -132,7 +140,7 @@ class LuxonisFileSystem:
 
         @type: bool
         """
-        return self.fs_type == FSType.FSSPEC
+        return self._fs_type == FSType.FSSPEC
 
     @property
     def full_path(self) -> str:
@@ -140,7 +148,7 @@ class LuxonisFileSystem:
 
         @type: str
         """
-        return f"{self.protocol}://{self.path}"
+        return f"{self._protocol}://{self._path}"
 
     def init_fsspec_filesystem(self) -> fsspec.AbstractFileSystem:
         """Initializes L{fsspec} filesystem based on the used protocol.
@@ -148,10 +156,10 @@ class LuxonisFileSystem:
         @rtype: L{fsspec.AbstractFileSystem}
         @return: Initialized fsspec filesystem.
         """
-        if self.protocol == "s3":
+        if self._protocol == "s3":
             # NOTE: In theory boto3 should look in environment variables automatically but it doesn't seem to work
             fs = fsspec.filesystem(
-                self.protocol,
+                self._protocol,
                 key=environ.AWS_ACCESS_KEY_ID.get_secret_value()
                 if environ.AWS_ACCESS_KEY_ID is not None
                 else None,
@@ -160,26 +168,26 @@ class LuxonisFileSystem:
                 else None,
                 endpoint_url=environ.AWS_S3_ENDPOINT_URL,
             )
-        elif self.protocol == "gcs":
+        elif self._protocol == "gcs":
             if environ.GOOGLE_APPLICATION_CREDENTIALS is None:
                 raise RuntimeError(
                     "There is no 'GOOGLE_APPLICATION_CREDENTIALS' in environment variables"
                 )
             # NOTE: This should automatically read from GOOGLE_APPLICATION_CREDENTIALS
-            fs = fsspec.filesystem(self.protocol)
-        elif self.protocol == "file":
-            fs = fsspec.filesystem(self.protocol)
+            fs = fsspec.filesystem(self._protocol)
+        elif self._protocol == "file":
+            fs = fsspec.filesystem(self._protocol)
         else:
             raise NotImplementedError
-        if self.cache_storage is None:
+        if self._cache_storage is None:
             return fs
 
-        if self.protocol == "file":
+        if self._protocol == "file":
             logger.warning("Ignoring cache storage for local filesystem.")
             return fs
 
         return fsspec.filesystem(
-            "filecache", fs=fs, cache_storage=self.cache_storage
+            "filecache", fs=fs, cache_storage=self._cache_storage
         )
 
     def put_file(
@@ -215,13 +223,13 @@ class LuxonisFileSystem:
                 client.log_artifact(run_id=self.run_id, local_path=local_path)
 
         elif self.is_fsspec:
-            if self.protocol == "file":
-                Path(self.path / remote_path).parent.mkdir(
+            if self._protocol == "file":
+                Path(self._path / remote_path).parent.mkdir(
                     parents=True, exist_ok=True
                 )
 
-            self.fs.put_file(local_path, str(self.path / remote_path))
-        return self.protocol + "://" + str(self.path / remote_path)
+            self._fs.put_file(local_path, str(self._path / remote_path))
+        return self._protocol + "://" + str(self._path / remote_path)
 
     def put_dir(
         self,
@@ -264,9 +272,9 @@ class LuxonisFileSystem:
                     if copy_contents
                     else str(local_paths)
                 )
-                self.fs.put(
+                self._fs.put(
                     source_path,
-                    str(self.path / remote_dir),
+                    str(self._path / remote_dir),
                     recursive=True,
                 )
             else:
@@ -315,8 +323,8 @@ class LuxonisFileSystem:
         if self.is_mlflow:
             raise NotImplementedError
         if self.is_fsspec:
-            full_path = str(self.path / remote_path)
-            with self.fs.open(full_path, "wb") as file:
+            full_path = str(self._path / remote_path)
+            with self._fs.open(full_path, "wb") as file:
                 file.write(file_bytes)  # type: ignore
 
     def get_file(
@@ -341,8 +349,8 @@ class LuxonisFileSystem:
         if self.is_mlflow:
             raise NotImplementedError
         if self.is_fsspec:
-            self.fs.get(
-                str(self.path / remote_path), str(local_path), recursive=False
+            self._fs.get(
+                str(self._path / remote_path), str(local_path), recursive=False
             )
 
         if local_path.is_file():
@@ -357,8 +365,8 @@ class LuxonisFileSystem:
         @param remote_path: Relative path to remote file
         """
         if self.is_fsspec:
-            full_remote_path = str(self.path / remote_path)
-            self.fs.rm(full_remote_path)
+            full_remote_path = str(self._path / remote_path)
+            self._fs.rm(full_remote_path)
         else:
             raise NotImplementedError
 
@@ -370,9 +378,9 @@ class LuxonisFileSystem:
         """
         if self.is_fsspec:
             full_remote_paths = [
-                str(self.path / remote_path) for remote_path in remote_paths
+                str(self._path / remote_path) for remote_path in remote_paths
             ]
-            self.fs.rm(full_remote_paths)
+            self._fs.rm(full_remote_paths)
         else:
             raise NotImplementedError
 
@@ -403,8 +411,8 @@ class LuxonisFileSystem:
         if self.is_fsspec:
             if isinstance(remote_paths, PurePosixPath | str):
                 existed = local_dir.exists()
-                self.fs.get(
-                    str(self.path / remote_paths),
+                self._fs.get(
+                    str(self._path / remote_paths),
                     str(local_dir),
                     recursive=True,
                 )
@@ -436,13 +444,13 @@ class LuxonisFileSystem:
         """
         if not remote_dir and not allow_delete_parent:
             raise ValueError(
-                f"No directory specified, this would the parent directory at `{self.path}`."
+                f"No directory specified, this would the parent directory at `{self._path}`."
                 "If this is your intention, you must pass `allow_delete_parent=True`."
             )
 
         if self.is_fsspec:
-            full_remote_dir = str(self.path / remote_dir)
-            self.fs.rm(full_remote_dir, recursive=True)
+            full_remote_dir = str(self._path / remote_dir)
+            self._fs.rm(full_remote_dir, recursive=True)
         else:
             raise NotImplementedError
 
@@ -469,17 +477,17 @@ class LuxonisFileSystem:
         if self.is_mlflow:
             raise NotImplementedError
         elif self.is_fsspec:
-            full_path = str(self.path / remote_dir)
-            for file in self.fs.ls(full_path, detail=True):
-                if self.protocol == "file":
+            full_path = str(self._path / remote_dir)
+            for file in self._fs.ls(full_path, detail=True):
+                if self._protocol == "file":
                     name = str(
                         Path(file["name"])
                         .resolve()
-                        .relative_to(Path(self.path).resolve())
+                        .relative_to(Path(self._path).resolve())
                     )
                 else:
                     name = str(
-                        PurePosixPath(file["name"]).relative_to(self.path)
+                        PurePosixPath(file["name"]).relative_to(self._path)
                     )
                 if typ == "all" or file["type"] == typ:
                     yield name
@@ -496,7 +504,7 @@ class LuxonisFileSystem:
         """
         if self.is_mlflow:
             raise NotImplementedError
-        return self.fs.read_text(str(self.path / remote_path))
+        return self._fs.read_text(str(self._path / remote_path))
 
     def read_to_byte_buffer(
         self, remote_path: PosixPathType | None = None
@@ -534,10 +542,10 @@ class LuxonisFileSystem:
 
         else:
             if remote_path is not None:
-                download_path = str(self.path / remote_path)
+                download_path = str(self._path / remote_path)
             else:
-                download_path = str(self.path)
-            with self.fs.open(download_path, "rb") as f:
+                download_path = str(self._path)
+            with self._fs.open(download_path, "rb") as f:
                 buffer = BytesIO(cast(bytes, f.read()))
 
         return buffer
@@ -561,8 +569,8 @@ class LuxonisFileSystem:
         elif self.is_mlflow:
             raise NotImplementedError
         else:
-            download_path = str(self.path / path)
-            with self.fs.open(download_path, "rb") as f:
+            download_path = str(self._path / path)
+            with self._fs.open(download_path, "rb") as f:
                 file_contents = cast(bytes, f.read())
 
         return str(uuid.uuid5(uuid.NAMESPACE_URL, file_contents.hex()))
@@ -614,8 +622,8 @@ class LuxonisFileSystem:
         @return: True if the path is a directory.
         """
 
-        full_path = str(self.path / remote_path)
-        file_info = self.fs.info(full_path)
+        full_path = str(self._path / remote_path)
+        file_info = self._fs.info(full_path)
         return file_info["type"] == "directory"
 
     def exists(self, remote_path: PosixPathType = "") -> bool:
@@ -627,8 +635,8 @@ class LuxonisFileSystem:
         @rtype: bool
         @return: True if the path exists.
         """
-        full_path = str(self.path / remote_path)
-        return self.fs.exists(full_path)
+        full_path = str(self._path / remote_path)
+        return self._fs.exists(full_path)
 
     @staticmethod
     def split_full_path(path: PathType) -> tuple[str, str]:
