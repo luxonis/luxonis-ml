@@ -138,6 +138,7 @@ class Telemetry:
         *,
         allowlist: set[str] | None = None,
         include_system_metadata: bool | None = None,
+        distinct_id: str | None = None,
     ) -> None:
         """Capture a telemetry event.
 
@@ -149,6 +150,8 @@ class Telemetry:
             include_system_metadata: Whether to add extended system
                 metadata for this event. If omitted, the config default
                 is used.
+            distinct_id: Optional backend identity override. When
+                omitted, backends may fall back to `$session_id`.
         """
         if not self.is_enabled:
             return
@@ -164,6 +167,7 @@ class Telemetry:
                 name=event,
                 properties=sanitized,
                 context=context,
+                distinct_id=distinct_id,
             )
             self._backend.capture(payload)
         except Exception as exc:

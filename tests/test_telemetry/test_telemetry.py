@@ -20,6 +20,7 @@ from luxonis_ml.telemetry.backends.base import (
     TelemetryBackend,
 )
 from luxonis_ml.telemetry.cli import skip_telemetry
+from luxonis_ml.telemetry.events import TelemetryEvent
 from luxonis_ml.telemetry.redaction import sanitize_properties
 from luxonis_ml.telemetry.singleton import _telemetry_by_name
 
@@ -132,6 +133,26 @@ def test_capture_includes_context(
     assert event.context["source_product"] == "luxonis_ml"
     assert event.context["source_component"] == "luxonis_ml"
     assert event.context["is_luxonis_cloud"] is True
+    assert event.distinct_id is None
+
+
+def test_capture_supports_distinct_id_override(
+    dummy_backend: DummyBackend,
+) -> None:
+    config = TelemetryConfig(enabled=True, backend="dummy")
+    telemetry = Telemetry("luxonis_ml", config=config)
+
+    telemetry.capture(
+        "event_test",
+        {"foo": "bar"},
+        distinct_id="conversion-run-123",
+    )
+
+    event = dummy_backend.events[-1]
+    assert event.distinct_id == "conversion-run-123"
+    assert (
+        event.context["$session_id"] == telemetry._base_context["$session_id"]
+    )
 
 
 def test_include_system_metadata_flag(dummy_backend: DummyBackend) -> None:
@@ -279,6 +300,17 @@ def test_default_telemetry_uses_ephemeral_session_id(
     telemetry = Telemetry("luxonis_ml", config=config)
     assert "install_id" not in telemetry._base_context
     assert telemetry._base_context["$session_id"] == telemetry._session_id
+
+
+def test_telemetry_event_payload_includes_distinct_id_field() -> None:
+    payload = TelemetryEvent.create(
+        name="event_test",
+        properties={"foo": "bar"},
+        context={"$session_id": "session-1"},
+        distinct_id="distinct-1",
+    ).to_payload()
+
+    assert payload["distinct_id"] == "distinct-1"
 
 
 def test_source_component_can_be_overridden(

@@ -11,6 +11,7 @@ class TelemetryEvent:
     timestamp: datetime
     properties: dict[str, Any]
     context: dict[str, Any]
+    distinct_id: str | None = None
     schema_version: int = 1
 
     @classmethod
@@ -20,6 +21,7 @@ class TelemetryEvent:
         name: str,
         properties: dict[str, Any],
         context: dict[str, Any],
+        distinct_id: str | None = None,
         schema_version: int = 1,
     ) -> "TelemetryEvent":
         """Create a telemetry event with a UTC timestamp.
@@ -28,6 +30,7 @@ class TelemetryEvent:
             name: Event name.
             properties: Event properties after sanitization.
             context: Merged context to attach to the event.
+            distinct_id: Optional backend identity override.
             schema_version: Event schema version.
 
         Returns:
@@ -38,6 +41,7 @@ class TelemetryEvent:
             timestamp=datetime.now(timezone.utc),
             properties=properties,
             context=context,
+            distinct_id=distinct_id,
             schema_version=schema_version,
         )
 
@@ -46,6 +50,7 @@ class TelemetryEvent:
         return {
             "event": self.name,
             "timestamp": self.timestamp.isoformat(),
+            "distinct_id": self.distinct_id,
             "properties": self.properties,
             "context": self.context,
             "schema_version": self.schema_version,

@@ -48,7 +48,10 @@ pip install luxonis-ml[telemetry]
 from luxonis_ml.telemetry import Telemetry
 
 telemetry = Telemetry("luxonis_ml")
-telemetry.capture("train_started", {"epochs": 20})
+telemetry.capture(
+    "dataset_export_started",
+    {"dataset_type": "yolov8", "bucket_storage": "local"},
+)
 ```
 
 ## Configuration
@@ -67,7 +70,7 @@ config = TelemetryConfig(
 )
 
 telemetry = Telemetry("luxonis_ml", config=config)
-telemetry.capture("train_started", {"epochs": 20})
+telemetry.capture("dataset_parse_started", {"dataset_format": "coco"})
 ```
 
 Set `include_base_context=False` if a consuming library wants to build
@@ -87,8 +90,8 @@ telemetry = Telemetry("luxonis_ml")
 instrument_typer(app, telemetry)
 
 @app.command()
-def train(epochs: int = 10):
-    telemetry.capture("train_invoked", {"epochs": epochs})
+def dataset_info(name: str):
+    telemetry.capture("dataset_info_invoked", {"dataset_name": name})
 ```
 
 By default, CLI telemetry logs only the command name, success flag, and
@@ -96,7 +99,7 @@ duration. Command arguments are omitted unless you explicitly pass an
 `allowlist`:
 
 ```python
-instrument_typer(app, telemetry, allowlist={"epochs"})
+instrument_typer(app, telemetry, allowlist={"name"})
 ```
 
 Use the Cyclopts adapter for Cyclopts apps:
@@ -112,8 +115,8 @@ telemetry = Telemetry("luxonis_ml")
 instrument_cyclopts(app, telemetry)
 
 @app.command
-def train(epochs: int = 10):
-    return epochs
+def dataset_delete(name: str, remote: bool = False):
+    return name, remote
 ```
 
 ## Custom Backends
@@ -151,6 +154,28 @@ Each event includes a base context with:
 - `source_component`
 - `sdk_version`
 
+`$session_id` is stable for the lifetime of a `Telemetry` instance.
+For the PostHog backend, `distinct_id` defaults to that same value, but
+you can override it per event when needed.
+
+Example:
+
+```python
+from luxonis_ml.telemetry import Telemetry
+
+telemetry = Telemetry("luxonis_ml")
+
+telemetry.capture("dataset_info_requested", {"name": "beans"})
+telemetry.capture(
+    "dataset_export_finished",
+    {"format": "coco"},
+    distinct_id="export-run-123",
+)
+```
+
+Here, both events share the same `$session_id`, while the second event
+uses a different `distinct_id`.
+
 Host and runtime metadata are available through utility functions and
 ready-to-use context providers:
 
@@ -165,7 +190,7 @@ telemetry = Telemetry(
     system_context_providers=[system_context_provider],
 )
 
-telemetry.capture("train_started", include_system_metadata=True)
+telemetry.capture("dataset_export_finished", include_system_metadata=True)
 ```
 
 `system_context_provider` adds:
@@ -197,7 +222,7 @@ You can add custom context providers:
 from luxonis_ml.telemetry import Telemetry
 
 def my_context(_telemetry):
-    return {"team": "vision"}
+    return {"dataset_plugin": "internal"}
 
 telemetry = Telemetry("luxonis_ml", context_providers=[my_context])
 ```
@@ -212,7 +237,7 @@ from luxonis_ml.telemetry import get_or_init, get_telemetry
 get_or_init(library_name="luxonis_ml")
 telemetry = get_telemetry("luxonis_ml")
 if telemetry:
-    telemetry.capture("init")
+    telemetry.capture("dataset_ls_invoked")
 ```
 
 Use different library names to keep multiple singleton instances.

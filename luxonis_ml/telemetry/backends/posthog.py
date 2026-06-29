@@ -43,7 +43,7 @@ class PostHogBackend(TelemetryBackend):
         """Capture an event using the PostHog client."""
         properties = _merge_properties(event)
         self._client.capture(
-            distinct_id=event.context["$session_id"],
+            distinct_id=event.distinct_id or event.context["$session_id"],
             event=event.name,
             properties=properties,
             timestamp=event.timestamp,
