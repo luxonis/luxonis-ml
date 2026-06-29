@@ -159,11 +159,10 @@ class LuxonisLoader(BaseLoader):
                 self._source_names, color_space or "RGB"
             )
 
-        if self._filter_task_names is None:
-            self._df = self.dataset._load_df_offline(raise_when_empty=True)
-            self._classes = self.dataset.get_classes()
+        self._df = self.dataset._load_df_offline(raise_when_empty=True)
+        self._classes = self.dataset.get_classes()
 
-        else:
+        if self._filter_task_names is not None:
             if self.dataset.metadata.tasks:
                 df_task_names = set(self.dataset.metadata.tasks)
             else:
@@ -181,7 +180,7 @@ class LuxonisLoader(BaseLoader):
                 for task_name in self._filter_task_names
                 if task_name in self._classes
             }
-        self.classes = self.dataset.get_classes()
+        self.classes = self._classes
         self._instances: list[str] = []
         splits_path = self.dataset._metadata_path / "splits.json"
         if not splits_path.exists():

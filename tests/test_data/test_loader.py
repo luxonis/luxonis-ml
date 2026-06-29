@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
+import pytest
 
 from luxonis_ml.data import (
     BucketStorage,
@@ -192,6 +193,82 @@ def create_loader(
         seed=42,
         **kwargs,
     )
+
+
+def _create_filter_task_names_dataset(
+    dataset_name: str, tempdir: Path
+) -> LuxonisDataset:
+    def generator() -> DatasetIterator:
+        img = create_image(0, tempdir)
+        yield {
+            "file": img,
+            "task_name": "animals",
+            "annotation": {"class": "cat"},
+        }
+        yield {
+            "file": img,
+            "task_name": "vehicles",
+            "annotation": {
+                "class": "car",
+                "boundingbox": {"x": 0.2, "y": 0.2, "w": 0.3, "h": 0.3},
+            },
+        }
+
+        img = create_image(1, tempdir)
+        yield {
+            "file": img,
+            "task_name": "animals",
+            "annotation": {
+                "class": "dog",
+                "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2},
+            },
+        }
+        yield {
+            "file": img,
+            "task_name": "vehicles",
+            "annotation": {
+                "class": "truck",
+                "boundingbox": {"x": 0.4, "y": 0.4, "w": 0.2, "h": 0.2},
+            },
+        }
+
+    return create_dataset(dataset_name, generator(), splits={"train": 1.0})
+
+
+def test_filter_task_names(randint: int, tempdir: Path):
+    dataset = _create_filter_task_names_dataset(
+        f"test_filter_task_names_{randint}", tempdir
+    )
+
+    loader = LuxonisLoader(dataset, filter_task_names=["animals"])
+
+    assert len(loader) == 2
+    assert loader.classes == {"animals": {"cat": 0, "dog": 1}}
+
+    labels_by_sample = [labels for _, labels in loader]
+    for labels in labels_by_sample:
+        assert set(labels) == {
+            "animals/classification",
+            "animals/boundingbox",
+        }
+
+    assert any(
+        labels["animals/boundingbox"].shape == (0, 5)
+        for labels in labels_by_sample
+    )
+    assert sorted(
+        labels["animals/classification"].tolist()
+        for labels in labels_by_sample
+    ) == [[0.0, 1.0], [1.0, 0.0]]
+
+
+def test_filter_task_names_rejects_unknown_task(randint: int, tempdir: Path):
+    dataset = _create_filter_task_names_dataset(
+        f"test_filter_task_names_rejects_unknown_task_{randint}", tempdir
+    )
+
+    with pytest.raises(ValueError, match="not in the dataset"):
+        LuxonisLoader(dataset, filter_task_names=["missing"])
 
 
 def test_loader_passes_is_validation_pipeline_to_legacy_engines(
