@@ -143,8 +143,10 @@ the same backend.
 
 Each event includes a base context with:
 
-- `$process_person_profile`
-- `$session_id`
+- `$process_person_profile` set to `False` to keep PostHog captures anonymous and
+  avoid person profile creation.
+- `$session_id` for PostHog session correlation using an ephemeral
+  per-process ID
 - `source_product`
 - `source_component`
 - `sdk_version`
