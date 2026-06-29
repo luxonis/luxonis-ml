@@ -1000,14 +1000,14 @@ def test_load_df_offline_mixed_old_and_new_metadata_schemas(
         splits=(1, 0, 0),
     )
     df = dataset._load_df_offline(raise_when_empty=True)
-    for parquet_file in dataset.annotations_path.glob("*.parquet"):
+    for parquet_file in dataset._annotations_path.glob("*.parquet"):
         parquet_file.unlink()
 
     df.slice(0, 1).drop("sample_metadata").write_parquet(
-        dataset.annotations_path / "0000000000.parquet"
+        dataset._annotations_path / "0000000000.parquet"
     )
     df.slice(1, 1).write_parquet(
-        dataset.annotations_path / "0000000001.parquet"
+        dataset._annotations_path / "0000000001.parquet"
     )
 
     loaded_df = dataset._load_df_offline(raise_when_empty=True)
@@ -1042,9 +1042,9 @@ def test_add_to_old_schema_dataset_populates_metadata_column(
     old_df = dataset._load_df_offline(raise_when_empty=True).drop(
         "sample_metadata"
     )
-    for parquet_file in dataset.annotations_path.glob("*.parquet"):
+    for parquet_file in dataset._annotations_path.glob("*.parquet"):
         parquet_file.unlink()
-    old_df.write_parquet(dataset.annotations_path / "0000000000.parquet")
+    old_df.write_parquet(dataset._annotations_path / "0000000000.parquet")
 
     dataset.add(generator(1, 2))
 
