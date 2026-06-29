@@ -152,7 +152,7 @@ class Registry(Generic[T]):
         if not force and module_name in self._module_dict:
             existed_module = self._module_dict[module_name]
             raise KeyError(
-                f"`{module_name}` already registred in `{self.name}` "
+                f"`{module_name}` already registered in `{self.name}` "
                 f"registry at `{existed_module.__module__}`."
             )
 

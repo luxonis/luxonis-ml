@@ -96,6 +96,8 @@ class SegmentationMaskDirectoryParser(BaseParser):
                 image_path = next(image_dir.glob(f"{mask_path.stem[:-5]}.*"))
                 file = str(image_path.absolute().resolve())
                 mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
+                if mask is None:
+                    raise ValueError(f"Failed to read mask image: {mask_path}")
 
                 ids = np.unique(mask)
                 for id in ids:

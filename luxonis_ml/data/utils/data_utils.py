@@ -89,33 +89,33 @@ def infer_task(
     class_name: str | None,
     current_classes: dict[str, dict[str, int]],
 ) -> str:
-    if not hasattr(infer_task, "_logged_infered_classes"):
-        infer_task._logged_infered_classes = defaultdict(bool)
+    if not hasattr(infer_task, "_logged_inferred_classes"):
+        infer_task._logged_inferred_classes = defaultdict(bool)
 
     def _log_once(
         cls_: str | None, task: str, message: str, level: str = "info"
     ) -> None:
-        if not infer_task._logged_infered_classes[(cls_, task)]:
-            infer_task._logged_infered_classes[(cls_, task)] = True
+        if not infer_task._logged_inferred_classes[(cls_, task)]:
+            infer_task._logged_inferred_classes[(cls_, task)] = True
             getattr(logger, level)(message)
 
-    infered_task = None
+    inferred_task = None
 
     for task, classes in current_classes.items():
         if class_name in classes:
-            if infered_task is not None:
+            if inferred_task is not None:
                 _log_once(
                     class_name,
-                    infered_task,
+                    inferred_task,
                     f"Class '{class_name}' is ambiguous between "
-                    f"tasks '{infered_task}' and '{task}'. "
+                    f"tasks '{inferred_task}' and '{task}'. "
                     "Task inference failed.",
                     "warning",
                 )
-                infered_task = None
+                inferred_task = None
                 break
-            infered_task = task
-    if infered_task is None:
+            inferred_task = task
+    if inferred_task is None:
         _log_once(
             class_name,
             old_task,
@@ -126,10 +126,10 @@ def infer_task(
     else:
         _log_once(
             class_name,
-            infered_task,
-            f"Class '{class_name}' infered to belong to task '{infered_task}'",
+            inferred_task,
+            f"Class '{class_name}' inferred to belong to task '{inferred_task}'",
         )
-        return infered_task
+        return inferred_task
 
     return old_task
 

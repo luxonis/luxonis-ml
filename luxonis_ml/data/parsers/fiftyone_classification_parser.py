@@ -51,7 +51,7 @@ class FiftyOneClassificationParser(BaseParser):
     U{FiftyOneImageClassificationDataset <https://docs.voxel51.com/user_guide/export_datasets.html#fiftyone-image-classification-dataset>}.
     """
 
-    SPLIT_NAMES: tuple[str, ...] = ("train", "validation", "test")
+    _SPLIT_NAMES: tuple[str, ...] = ("train", "validation", "test")
 
     @staticmethod
     def validate_split(split_path: Path) -> dict[str, Any] | None:
@@ -105,7 +105,7 @@ class FiftyOneClassificationParser(BaseParser):
         labels_path = split_path / "labels.json"
         data_path = split_path / "data"
 
-        is_flat_structure = split_path.name not in self.SPLIT_NAMES
+        is_flat_structure = split_path.name not in self._SPLIT_NAMES
         if is_flat_structure:
             labels_path = clean_imagenet_annotations(labels_path)
 

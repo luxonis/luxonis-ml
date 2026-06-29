@@ -61,7 +61,7 @@ class BatchCompose(A.Compose):
         assert len(data_batch) == 1
         data = data_batch[0]
 
-        data = self.make_contiguous(data)
+        data = self._make_contiguous(data)
 
         data = self.postprocess(data)
 
@@ -70,7 +70,7 @@ class BatchCompose(A.Compose):
         return data
 
     @staticmethod
-    def make_contiguous(data: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+    def _make_contiguous(data: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
         for key, value in data.items():
             if isinstance(value, np.ndarray):
                 value = np.ascontiguousarray(value)

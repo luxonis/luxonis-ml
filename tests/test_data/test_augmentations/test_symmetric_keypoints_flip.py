@@ -5,10 +5,10 @@ import cv2
 import numpy as np
 import pytest
 
-from luxonis_ml.data.augmentations.custom.symetric_keypoints_flip import (
-    HorizontalSymetricKeypointsFlip,
+from luxonis_ml.data.augmentations.custom.symmetric_keypoints_flip import (
+    HorizontalSymmetricKeypointsFlip,
     TransposeSymmetricKeypoints,
-    VerticalSymetricKeypointsFlip,
+    VerticalSymmetricKeypointsFlip,
 )
 
 
@@ -54,7 +54,7 @@ def test_horizontal_flip_keypoints_single(
     keypoints_single: np.ndarray,
     img: np.ndarray,
 ) -> None:
-    t = HorizontalSymetricKeypointsFlip(keypoint_pairs=[(0, 0)], p=1.0)
+    t = HorizontalSymmetricKeypointsFlip(keypoint_pairs=[(0, 0)], p=1.0)
     params = get_params(t, img.shape)
     out = t.apply_to_keypoints(keypoints_single, **params)
     orig_width = params["orig_width"]
@@ -66,7 +66,7 @@ def test_vertical_flip_keypoints_single(
     keypoints_single: np.ndarray,
     img: np.ndarray,
 ) -> None:
-    t = VerticalSymetricKeypointsFlip(keypoint_pairs=[(0, 0)], p=1.0)
+    t = VerticalSymmetricKeypointsFlip(keypoint_pairs=[(0, 0)], p=1.0)
     params = get_params(t, img.shape)
     out = t.apply_to_keypoints(keypoints_single, **params)
     orig_height = params["orig_height"]
@@ -89,8 +89,8 @@ def test_transpose_keypoints_single(
 @pytest.mark.parametrize(
     ("Transform", "flip_axis"),
     [
-        (HorizontalSymetricKeypointsFlip, "horizontal"),
-        (VerticalSymetricKeypointsFlip, "vertical"),
+        (HorizontalSymmetricKeypointsFlip, "horizontal"),
+        (VerticalSymmetricKeypointsFlip, "vertical"),
         (TransposeSymmetricKeypoints, "transpose"),
     ],
 )
@@ -128,14 +128,14 @@ def test_horizontal_flip_image_and_mask(
     img: np.ndarray,
     mask: np.ndarray,
 ) -> None:
-    t = HorizontalSymetricKeypointsFlip(keypoint_pairs=[(0, 0)], p=1.0)
+    t = HorizontalSymmetricKeypointsFlip(keypoint_pairs=[(0, 0)], p=1.0)
     params = get_params(t, img.shape)
     assert np.array_equal(t.apply(img, **params), cv2.flip(img, 1))
-    assert np.array_equal(t.apply_to_mask(mask, **params), cv2.flip(img, 1))
+    assert np.array_equal(t.apply_to_mask(mask, **params), cv2.flip(mask, 1))
 
 
 def test_horizontal_flip_bboxes(bboxes: np.ndarray) -> None:
-    t = HorizontalSymetricKeypointsFlip(keypoint_pairs=[(0, 0)], p=1.0)
+    t = HorizontalSymmetricKeypointsFlip(keypoint_pairs=[(0, 0)], p=1.0)
     params = get_params(t, (2, 3, 1))
     out = t.apply_to_bboxes(bboxes, **params)
     expected = np.array([[1 - 0.6, 0.3, 1 - 0.2, 0.8]])
@@ -146,14 +146,14 @@ def test_vertical_flip_image_and_mask(
     img: np.ndarray,
     mask: np.ndarray,
 ) -> None:
-    t = VerticalSymetricKeypointsFlip(keypoint_pairs=[(0, 0)], p=1.0)
+    t = VerticalSymmetricKeypointsFlip(keypoint_pairs=[(0, 0)], p=1.0)
     params = get_params(t, img.shape)
     assert np.array_equal(t.apply(img, **params), cv2.flip(img, 0))
     assert np.array_equal(t.apply_to_mask(mask, **params), cv2.flip(img, 0))
 
 
 def test_vertical_flip_bboxes(bboxes: np.ndarray) -> None:
-    t = VerticalSymetricKeypointsFlip(keypoint_pairs=[(0, 0)], p=1.0)
+    t = VerticalSymmetricKeypointsFlip(keypoint_pairs=[(0, 0)], p=1.0)
     params = get_params(t, (2, 3, 1))
     out = t.apply_to_bboxes(bboxes, **params)
     expected = np.array([[0.2, 1 - 0.8, 0.6, 1 - 0.3]])

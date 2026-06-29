@@ -5,7 +5,7 @@
 LuxonisML Data is a library for creating and interacting with datasets in the LuxonisDataFormat (LDF).
 
 > [!NOTE]
-> For hands-on examples of how to prepare and iteract with `LuxonisML` datasets, check out [this guide](https://github.com/luxonis/ai-tutorials/tree/main/training#%EF%B8%8F-prepare-data-using-luxonis-ml).
+> For hands-on examples of how to prepare and interact with `LuxonisML` datasets, check out [this guide](https://github.com/luxonis/ai-tutorials/tree/main/training#%EF%B8%8F-prepare-data-using-luxonis-ml).
 
 The lifecycle of an LDF dataset is as follows:
 
@@ -1030,8 +1030,8 @@ By default, we support most augmentations from the `albumentations` library. You
 > will flip images and keypoints but **do not** swap symmetric keypoints\
 > (e.g., left/right joints in human poses). For tasks with symmetric keypoint structures, use our custom augmentations:
 >
-> - `HorizontalSymetricKeypointsFlip`
-> - `VerticalSymetricKeypointsFlip`
+> - `HorizontalSymmetricKeypointsFlip`
+> - `VerticalSymmetricKeypointsFlip`
 > - `TransposeSymmetricKeypoints`
 
 On top of that, we provide a handful of custom batch augmentations:

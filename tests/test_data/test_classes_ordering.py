@@ -56,7 +56,7 @@ def test_ordering_loader_background(tempdir: Path, subtests: SubTests):
                 classification, [1.0] + [0.0] * len(classes_list)
             )
 
-        assert loader.classes[""] == {
+        assert loader._classes[""] == {
             "background": 0,
             "airplane": 1,
             "cat": 2,
@@ -76,7 +76,7 @@ def test_ordering_loader_background(tempdir: Path, subtests: SubTests):
             classification = labels["/classification"]
             assert len(classification) == len(classes_list)
 
-        assert loader.classes[""] == {
+        assert loader._classes[""] == {
             "background": 0,
             "airplane": 1,
             "cat": 2,
@@ -84,7 +84,7 @@ def test_ordering_loader_background(tempdir: Path, subtests: SubTests):
         }
 
 
-def test_ordering_loader_no_backgroun(tempdir: Path):
+def test_ordering_loader_no_background(tempdir: Path):
     width, height = 512, 512
     left_seg = build_segmentation(
         [[0, 0, width / 2, 0, width / 2, height, 0, height]], width, height
@@ -112,7 +112,7 @@ def test_ordering_loader_no_backgroun(tempdir: Path):
         classification = labels["/classification"]
         assert len(classification) == 2
 
-    assert loader.classes == {"": {"cat": 0, "dog": 1}}
+    assert loader._classes == {"": {"cat": 0, "dog": 1}}
 
 
 def test_ordering_dataset(

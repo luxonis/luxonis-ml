@@ -75,7 +75,7 @@ AUGMENTATIONS_CONFIG: list[Params] = [  # type: ignore[reportAssignmentType]
         },
     },
     {
-        "name": "VerticalSymetricKeypointsFlip",
+        "name": "VerticalSymmetricKeypointsFlip",
         "params": {
             "p": 0.3,
             "keypoint_pairs": [
@@ -100,7 +100,7 @@ AUGMENTATIONS_CONFIG: list[Params] = [  # type: ignore[reportAssignmentType]
         },
     },
     {
-        "name": "HorizontalSymetricKeypointsFlip",
+        "name": "HorizontalSymmetricKeypointsFlip",
         "params": {
             "p": 0.4,
             "keypoint_pairs": [

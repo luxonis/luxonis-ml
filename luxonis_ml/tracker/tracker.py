@@ -57,19 +57,19 @@ class LuxonisTracker:
             Defaults to "output".
 
         @type is_tensorboard: bool
-        @param is_tensorboard: Wheter use TensorBoard logging.
+        @param is_tensorboard: Whether to use TensorBoard logging.
             Defaults to False.
 
         @type is_wandb: bool
-        @param is_wandb: Wheter use WandB logging.
+        @param is_wandb: Whether to use WandB logging.
             Defaults to False.
 
         @type is_mlflow: bool
-        @param is_mlflow: Wheter use MLFlow logging.
+        @param is_mlflow: Whether to use MLFlow logging.
             Defaults to False.
 
         @type is_sweep: bool
-        @param is_sweep: Wheter current run is part of a sweep.
+        @param is_sweep: Whether the current run is part of a sweep.
             Defaults to False.
 
         @type wandb_entity: Optional[str]
@@ -427,7 +427,7 @@ class LuxonisTracker:
     def log_metric(self, name: str, value: float, step: int) -> None:
         """Logs metric value with name and step.
 
-        @note: step is ommited when logging with wandb to avoid problems
+        @note: step is omitted when logging with wandb to avoid problems
             with inconsistent incrementation.
         @type name: str
         @param name: Metric name

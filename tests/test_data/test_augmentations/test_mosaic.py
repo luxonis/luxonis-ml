@@ -5,12 +5,7 @@ import pytest
 from albumentations.core.bbox_utils import normalize_bboxes
 from pytest_subtests.plugin import SubTests
 
-from luxonis_ml.data.augmentations.custom.mosaic import (
-    Mosaic4,
-    apply_mosaic4_to_bboxes,
-    apply_mosaic4_to_images,
-    apply_mosaic4_to_keypoints,
-)
+from luxonis_ml.data.augmentations.custom.mosaic import Mosaic4
 
 WIDTH: Final[int] = 640
 HEIGHT: Final[int] = 480
@@ -19,7 +14,7 @@ HEIGHT: Final[int] = 480
 def test_mosaic4_helpers(subtests: SubTests):
     with subtests.test("image"):
         img = (np.random.rand(HEIGHT, WIDTH, 3) * 255).astype(np.uint8)
-        mosaic = apply_mosaic4_to_images(
+        mosaic = Mosaic4._apply_mosaic4_to_images(
             [img, img, img, img], HEIGHT, WIDTH, 0, 0, 0
         )
         assert mosaic.shape == (HEIGHT, WIDTH, 3)
@@ -34,7 +29,7 @@ def test_mosaic4_helpers(subtests: SubTests):
         ]
         for i in range(4):
             normalized_bbox = normalize_bboxes(bbox, (HEIGHT, WIDTH))
-            mosaic_bbox = apply_mosaic4_to_bboxes(
+            mosaic_bbox = Mosaic4._apply_mosaic4_to_bboxes(
                 normalized_bbox,
                 HEIGHT // 2,
                 WIDTH // 2,
@@ -61,7 +56,7 @@ def test_mosaic4_helpers(subtests: SubTests):
                 (WIDTH, HEIGHT),
             ]
         ):
-            mosaic_keypoint = apply_mosaic4_to_keypoints(
+            mosaic_keypoint = Mosaic4._apply_mosaic4_to_keypoints(
                 np.array([w, h, 0, 2])[None, ...],
                 HEIGHT // 2,
                 WIDTH // 2,

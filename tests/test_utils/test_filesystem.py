@@ -103,7 +103,7 @@ def test_static_file(
     randint: int,
 ):
     file_name = f"static_file_upload_{randint}.txt"
-    url = f"{fs.url}/{file_name}"
+    url = f"{fs._url}/{file_name}"
     with subtests.test("upload"):
         assert not fs.exists(file_name)
         LuxonisFileSystem.upload(local_file, url)
@@ -131,7 +131,7 @@ def test_directory(
         assert fs.is_directory(uploaded_dir)
 
         dir_path = fs.get_dir(
-            uploaded_dir, protocol_tempdir / f"dowload_{local_dir.name}_name"
+            uploaded_dir, protocol_tempdir / f"download_{local_dir.name}_name"
         )
         compare_directories(dir_path, local_dir)
 
@@ -147,7 +147,7 @@ def test_directory(
         dir_path = fs.get_dir(
             [f"{uploaded_dir}/file_{i}.txt" for i in range(5)]
             + [f"{uploaded_dir}/nested_file.txt"],
-            protocol_tempdir / f"dowload_{local_dir.name}_list",
+            protocol_tempdir / f"download_{local_dir.name}_list",
         )
         compare_directories(dir_path, local_dir, flat=True)
 
@@ -160,7 +160,7 @@ def test_static_directory(
     randint: int,
 ):
     dir_name = f"static_dir_upload_{randint}"
-    url = f"{fs.url}/{dir_name}"
+    url = f"{fs._url}/{dir_name}"
     with subtests.test("upload"):
         assert not fs.exists(dir_name)
         LuxonisFileSystem.upload(local_dir, url)

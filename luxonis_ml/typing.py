@@ -28,7 +28,7 @@ TaskType: TypeAlias = Literal[
 
 
 Labels: TypeAlias = dict[str, "np.ndarray"]
-"""Dictionary mappping task names to the annotations as C{np.ndarray}"""
+"""Dictionary mapping task names to the annotations as C{np.ndarray}"""
 
 
 LoaderSingleOutput: TypeAlias = tuple["np.ndarray", Labels]

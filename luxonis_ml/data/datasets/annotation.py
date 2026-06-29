@@ -57,9 +57,9 @@ class Detection(BaseModelExtraForbid):
     @model_validator(mode="after")
     def validate_names(self) -> Self:
         for name in self.sub_detections:
-            check_valid_identifier(name, label="Sub-detection name")
+            self._check_valid_identifier(name, label="Sub-detection name")
         for key in self.metadata:
-            check_valid_identifier(key, label="Metadata key")
+            self._check_valid_identifier(key, label="Metadata key")
         return self
 
     @model_validator(mode="after")
@@ -105,6 +105,22 @@ class Detection(BaseModelExtraForbid):
             task_types.add(f"metadata/{metadata_key}")
 
         return task_types
+
+    @staticmethod
+    def _check_valid_identifier(name: str, *, label: str) -> None:
+        """Check if a name is a valid Python identifier after converting
+        dashes to underscores.
+
+        Albumentations requires that the names of the targets
+        passed as `additional_targets` are valid Python identifiers.
+        """
+        name = name.replace("-", "_")
+        if name and not name.isidentifier():
+            raise ValueError(
+                f"{label} can only contain alphanumeric characters, "
+                "underscores, and dashes. Additionally, the first character "
+                f"must be a letter or underscore. Got {name}"
+            )
 
 
 class Annotation(ABC, BaseModelExtraForbid):
@@ -388,7 +404,7 @@ class SegmentationAnnotation(Annotation):
                 try:
                     mask = (
                         cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
-                        .astype(bool)
+                        .astype(bool)  # type: ignore
                         .astype(np.uint8)
                     )
                 except Exception as e:
@@ -541,7 +557,7 @@ class DatasetRecord(BaseModelExtraForbid):
 
     @model_validator(mode="after")
     def validate_task_name_valid_identifier(self) -> Self:
-        check_valid_identifier(self.task_name, label="Task name")
+        Detection._check_valid_identifier(self.task_name, label="Task name")
         return self
 
     @model_validator(mode="before")
@@ -644,22 +660,6 @@ class DatasetRecord(BaseModelExtraForbid):
                     yield from self._to_parquet_rows(
                         detection, f"{task_name}/{name}"
                     )
-
-
-def check_valid_identifier(name: str, *, label: str) -> None:
-    """Check if a name is a valid Python identifier after converting
-    dashes to underscores.
-
-    Albumentations requires that the names of the targets
-    passed as `additional_targets` are valid Python identifiers.
-    """
-    name = name.replace("-", "_")
-    if name and not name.isidentifier():
-        raise ValueError(
-            f"{label} can only contain alphanumeric characters, "
-            "underscores, and dashes. Additionaly, the first character "
-            f"must be a letter or underscore. Got {name}"
-        )
 
 
 def load_annotation(task_type: str, data: dict[str, Any]) -> "Annotation":

@@ -133,13 +133,13 @@ class SOLOParser(BaseParser):
             for sequence_path in split_path.glob("sequence*"):
                 processed_annotations_per_step: dict[
                     str, set
-                ] = {}  # Seperate json files can have the same annotations in them
+                ] = {}  # Separate json files can have the same annotations in them
                 for frame_path in sequence_path.glob("*.frame_data*.json"):
                     frame = json.loads(frame_path.read_text())
 
-                    curent_step = frame["step"]
-                    if curent_step not in processed_annotations_per_step:
-                        processed_annotations_per_step[curent_step] = set()
+                    current_step = frame["step"]
+                    if current_step not in processed_annotations_per_step:
+                        processed_annotations_per_step[current_step] = set()
 
                     for capture in frame.get("captures", []):
                         img_fname = capture["filename"]
@@ -159,14 +159,14 @@ class SOLOParser(BaseParser):
                             if (
                                 "SemanticSegmentationAnnotation"
                                 not in processed_annotations_per_step[
-                                    curent_step
+                                    current_step
                                 ]
                                 and anno["@type"].endswith(
                                     "SemanticSegmentationAnnotation"
                                 )
                             ):
                                 processed_annotations_per_step[
-                                    curent_step
+                                    current_step
                                 ].add("SemanticSegmentationAnnotation")
 
                                 mask_fname = anno["filename"]
@@ -178,6 +178,10 @@ class SOLOParser(BaseParser):
                                         f"{mask_path} not existent."
                                     )
                                 mask = cv2.imread(str(mask_path))
+                                if mask is None:
+                                    raise ValueError(
+                                        f"Failed to read mask image from {mask_path}."
+                                    )
 
                                 mask_int = (
                                     (mask[..., 0].astype(np.uint32) << 16)
@@ -205,14 +209,14 @@ class SOLOParser(BaseParser):
                             elif (
                                 "BoundingBox2DAnnotation"
                                 not in processed_annotations_per_step[
-                                    curent_step
+                                    current_step
                                 ]
                                 and anno["@type"].endswith(
                                     "BoundingBox2DAnnotation"
                                 )
                             ):
                                 processed_annotations_per_step[
-                                    curent_step
+                                    current_step
                                 ].add("BoundingBox2DAnnotation")
                                 bbox_annotations = anno.get("values", [])
 
@@ -241,14 +245,14 @@ class SOLOParser(BaseParser):
                             elif (
                                 "InstanceSegmentationAnnotation"
                                 not in processed_annotations_per_step[
-                                    curent_step
+                                    current_step
                                 ]
                                 and anno["@type"].endswith(
                                     "InstanceSegmentationAnnotation"
                                 )
                             ):
                                 processed_annotations_per_step[
-                                    curent_step
+                                    current_step
                                 ].add("InstanceSegmentationAnnotation")
 
                                 mask_fname = anno["filename"]
@@ -260,6 +264,10 @@ class SOLOParser(BaseParser):
                                         f"{mask_path} not existent."
                                     )
                                 mask = cv2.imread(str(mask_path))
+                                if mask is None:
+                                    raise ValueError(
+                                        f"Failed to read mask image from {mask_path}."
+                                    )
 
                                 mask_int = (
                                     (mask[..., 0].astype(np.uint32) << 16)
@@ -288,14 +296,14 @@ class SOLOParser(BaseParser):
                             elif (
                                 "KeypointAnnotation"
                                 not in processed_annotations_per_step[
-                                    curent_step
+                                    current_step
                                 ]
                                 and anno["@type"].endswith(
                                     "KeypointAnnotation"
                                 )
                             ):
                                 processed_annotations_per_step[
-                                    curent_step
+                                    current_step
                                 ].add("KeypointAnnotation")
                                 keypoint_annotations = anno.get("values", [])
 
