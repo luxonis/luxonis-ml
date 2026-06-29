@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from collections.abc import Callable, Mapping
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any
@@ -7,28 +5,24 @@ from uuid import uuid4
 
 from loguru import logger
 
-from luxonis_ml.telemetry.backends.base import TelemetryBackend
-from luxonis_ml.telemetry.backends.noop import NoopBackend
-from luxonis_ml.telemetry.backends.posthog import PostHogBackend
-from luxonis_ml.telemetry.backends.stdout import StdoutBackend
-from luxonis_ml.telemetry.config import TelemetryConfig
-from luxonis_ml.telemetry.context import (
-    base_context,
-    system_context,
+from luxonis_ml.telemetry.backends.base import (
+    TELEMETRY_BACKENDS,
+    TelemetryBackend,
 )
+from luxonis_ml.telemetry.backends.noop import NoopBackend
+from luxonis_ml.telemetry.config import TelemetryConfig
+from luxonis_ml.telemetry.context import base_context
 from luxonis_ml.telemetry.events import TelemetryEvent
 from luxonis_ml.telemetry.redaction import sanitize_properties
 from luxonis_ml.telemetry.suppression import is_suppressed
 
 ContextProvider = Callable[["Telemetry"], dict[str, Any]]
 SystemContextProvider = Callable[["Telemetry"], dict[str, Any]]
-BackendFactory = Callable[[TelemetryConfig], TelemetryBackend]
 
 
 class Telemetry:
     """Telemetry client for emitting events via pluggable backends."""
 
-    _backend_factories: dict[str, BackendFactory] = {}
     _logged_enabled_notice: bool = False
 
     def __init__(
@@ -68,11 +62,11 @@ class Telemetry:
         self._library_name = library_name
         self._library_version = library_version or _safe_version(library_name)
         self._session_id = str(uuid4())
-        self._distinct_id = self._config.distinct_id
         self._base_context = base_context(
             library_name=self._library_name,
             library_version=self._library_version,
             session_id=self._session_id,
+            source_component=self._config.source_component,
         )
         self._context_providers: list[ContextProvider] = []
         self._system_context_providers: list[SystemContextProvider] = []
@@ -122,36 +116,40 @@ class Telemetry:
             self.add_system_context_provider(provider)
 
     @classmethod
-    def register_backend(cls, name: str, factory: BackendFactory) -> None:
-        """Register a custom backend factory.
+    def register_backend(
+        cls,
+        name: str,
+        backend_cls: type[TelemetryBackend],
+    ) -> None:
+        """Register a custom backend class.
 
         @type name: str
         @param name: Backend name used in C{TelemetryConfig.backend}.
-        @type factory: Callable
-        @param factory: Callable that builds a backend from a
+        @type backend_cls: type
+        @param backend_cls: Backend class instantiated with
             L{TelemetryConfig}.
         """
-        cls._backend_factories[name.lower()] = factory
+        TELEMETRY_BACKENDS.register(
+            name=name.lower(),
+            module=backend_cls,
+            force=True,
+        )
 
     def capture(
         self,
         event: str,
         properties: dict[str, Any] | None = None,
         *,
-        user_id: str | None = None,
         allowlist: set[str] | None = None,
         include_system_metadata: bool | None = None,
     ) -> None:
         """Capture a telemetry event.
 
         @type event: str
-        @param event: Event name (e.g. C{"train.start"}).
+        @param event: Event name (e.g. C{"train_started"}).
         @type properties: Optional[dict]
         @param properties: Optional event properties. Values are
             sanitized and redacted before sending.
-        @type user_id: Optional[str]
-        @param user_id: Optional authenticated user id; overrides
-            anonymous id.
         @type allowlist: Optional[set]
         @param allowlist: If set, only these property keys are included.
         @type include_system_metadata: Optional[bool]
@@ -173,42 +171,12 @@ class Telemetry:
                 name=event,
                 properties=sanitized,
                 context=context,
-                library=self._library_name,
-                library_version=self._library_version,
-                distinct_id=self._distinct_id,
-                user_id=user_id,
             )
             self._backend.capture(payload)
         except Exception as exc:
             logger.debug(
                 "Telemetry capture failed for event '{}': {}",
                 event,
-                type(exc).__name__,
-            )
-            return
-
-    def identify(
-        self, user_id: str, traits: dict[str, Any] | None = None
-    ) -> None:
-        """Identify a user with optional traits.
-
-        @type user_id: str
-        @param user_id: Stable user identifier.
-        @type traits: Optional[dict]
-        @param traits: Optional metadata for the user. Values are
-            sanitized.
-        """
-        if not self.is_enabled:
-            return
-        if is_suppressed():
-            return
-        sanitized = sanitize_properties(traits)
-        try:
-            self._backend.identify(user_id, sanitized)
-        except Exception as exc:
-            logger.debug(
-                "Telemetry identify failed for user '{}': {}",
-                user_id,
                 type(exc).__name__,
             )
             return
@@ -243,24 +211,24 @@ class Telemetry:
         """Initialize the configured backend or fall back to
         NoopBackend."""
         if not self.is_enabled:
-            return NoopBackend()
+            return NoopBackend(self._config)
         name = self._config.backend.lower()
-        self._ensure_default_backends()
-        factory = self._backend_factories.get(name)
-        if factory is None:
+        try:
+            backend_cls = TELEMETRY_BACKENDS.get(name)
+        except KeyError:
             logger.debug(
                 "Telemetry backend '{}' is not registered; using noop.",
                 name,
             )
-            return NoopBackend()
+            return NoopBackend(self._config)
         try:
-            return factory(self._config)
+            return backend_cls(self._config)
         except Exception:
             logger.debug(
                 "Telemetry backend '{}' failed to initialize; using noop.",
                 name,
             )
-            return NoopBackend()
+            return NoopBackend(self._config)
 
     def _build_context(
         self, include_system_metadata: bool | None
@@ -274,7 +242,6 @@ class Telemetry:
         if include_system_metadata is None:
             include_system_metadata = self._config.include_system_metadata
         if include_system_metadata:
-            context.update(system_context())
             self._merge_context_providers(
                 context,
                 self._system_context_providers,
@@ -304,8 +271,7 @@ class Telemetry:
                 continue
             if not isinstance(extra, Mapping):
                 logger.debug(
-                    "Telemetry context provider returned a non-mapping; "
-                    "skipping."
+                    "Telemetry context provider returned a non-mapping; skipping."
                 )
                 continue
             if extra:
@@ -319,22 +285,6 @@ class Telemetry:
         """Register a provider once while preserving call order."""
         if provider not in providers:
             providers.append(provider)
-
-    @classmethod
-    def _ensure_default_backends(cls) -> None:
-        """Register built-in backend factories once."""
-        if "noop" not in cls._backend_factories:
-            cls.register_backend("noop", lambda _: NoopBackend())
-        if "stdout" not in cls._backend_factories:
-            cls.register_backend("stdout", lambda _: StdoutBackend())
-        if "posthog" not in cls._backend_factories:
-            cls.register_backend(
-                "posthog",
-                lambda cfg: PostHogBackend(
-                    api_key=cfg.api_key or "",
-                    host=cfg.endpoint,
-                ),
-            )
 
 
 def _safe_version(dist_name: str) -> str | None:

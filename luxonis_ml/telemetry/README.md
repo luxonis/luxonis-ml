@@ -40,7 +40,7 @@ pip install luxonis-ml[telemetry]
 - **Backends**
   - `PostHogBackend`, `StdoutBackend`, `NoopBackend` (and custom backends).
 - **CLI Instrumentation**
-  - `instrument_typer(...)` to automatically log Typer commands.
+  - `instrument_typer(...)` and `instrument_cyclopts(...)` to log CLI commands.
 
 ## Quickstart
 
@@ -48,7 +48,7 @@ pip install luxonis-ml[telemetry]
 from luxonis_ml.telemetry import Telemetry
 
 telemetry = Telemetry("luxonis_ml")
-telemetry.capture("train.start", {"epochs": 20})
+telemetry.capture("train_started", {"epochs": 20})
 ```
 
 ## Configuration
@@ -56,8 +56,7 @@ telemetry.capture("train.start", {"epochs": 20})
 You can configure telemetry explicitly via `TelemetryConfig`:
 
 ```python
-from luxonis_ml.telemetry import Telemetry
-from luxonis_ml.telemetry.config import TelemetryConfig
+from luxonis_ml.telemetry import Telemetry, TelemetryConfig
 
 config = TelemetryConfig(
     enabled=True,
@@ -68,7 +67,7 @@ config = TelemetryConfig(
 )
 
 telemetry = Telemetry("luxonis_ml", config=config)
-telemetry.capture("train.start", {"epochs": 20})
+telemetry.capture("train_started", {"epochs": 20})
 ```
 
 Set `include_base_context=False` if a consuming library wants to build
@@ -79,7 +78,8 @@ LuxonisML base metadata.
 
 ```python
 import typer
-from luxonis_ml.telemetry import Telemetry, instrument_typer
+from luxonis_ml.telemetry import Telemetry
+from luxonis_ml.telemetry.cli import instrument_typer
 
 app = typer.Typer()
 telemetry = Telemetry("luxonis_ml")
@@ -88,7 +88,7 @@ instrument_typer(app, telemetry)
 
 @app.command()
 def train(epochs: int = 10):
-    telemetry.capture("train.invoked", {"epochs": epochs})
+    telemetry.capture("train_invoked", {"epochs": epochs})
 ```
 
 By default, CLI telemetry logs only the command name, success flag, and
@@ -99,27 +99,40 @@ duration. Command arguments are omitted unless you explicitly pass an
 instrument_typer(app, telemetry, allowlist={"epochs"})
 ```
 
+Use the Cyclopts adapter for Cyclopts apps:
+
+```python
+from cyclopts import App
+from luxonis_ml.telemetry import Telemetry
+from luxonis_ml.telemetry.cli import instrument_cyclopts
+
+app = App(name="demo")
+telemetry = Telemetry("luxonis_ml")
+
+instrument_cyclopts(app, telemetry)
+
+@app.command
+def train(epochs: int = 10):
+    return epochs
+```
+
 ## Custom Backends
 
 ```python
-from luxonis_ml.telemetry import Telemetry
-from luxonis_ml.telemetry.config import TelemetryConfig
+from luxonis_ml.telemetry import Telemetry, TelemetryConfig
+from luxonis_ml.telemetry.backends.base import TelemetryBackend
 
-class MyBackend:
+class MyBackend(TelemetryBackend):
+    def __init__(self, config):
+        super().__init__(config)
     def capture(self, event):
         print("event", event)
-    def identify(self, user_id, traits):
-        pass
-    def flush(self):
-        pass
-    def shutdown(self):
-        pass
 
-Telemetry.register_backend("my_backend", lambda cfg: MyBackend())
+Telemetry.register_backend("my_backend", MyBackend)
 
 config = TelemetryConfig(enabled=True, backend="my_backend")
 telemetry = Telemetry("luxonis_ml", config=config)
-telemetry.capture("custom.event")
+telemetry.capture("custom_event")
 ```
 
 Backend names are matched case-insensitively, so registering
@@ -130,29 +143,53 @@ the same backend.
 
 Each event includes a base context with:
 
+- `$process_person_profile`
+- `$session_id`
+- `source_product`
+- `source_component`
+- `sdk_version`
+
+Host and runtime metadata are available through utility functions and
+ready-to-use context providers:
+
+```python
+from luxonis_ml.telemetry import (
+    Telemetry,
+    system_context_provider,
+)
+
+telemetry = Telemetry(
+    "luxonis_ml",
+    system_context_providers=[system_context_provider],
+)
+
+telemetry.capture("train_started", include_system_metadata=True)
+```
+
+`system_context_provider` adds:
+
 - `os`
 - `os_version`
 - `arch`
 - `python_version`
-- `library`
-- `library_version`
-- `session_id`
-- `is_luxonis_cloud`
 - `ci`
-
-You can optionally include extended system metadata per event:
-
-```python
-telemetry.capture("train.start", include_system_metadata=True)
-```
-
-System metadata currently includes:
-
+- `is_luxonis_cloud`
 - normalized `processor` family (`x86_64`, `x86`, `arm64`, `arm`, etc.)
 - `cpu_count`
 - `is_docker`
 
-You can also add custom context providers:
+If you only want the coarse host metadata, use `host_context_provider`.
+
+You can also call the utility functions directly:
+
+```python
+from luxonis_ml.telemetry import host_context, system_context
+
+host = host_context()
+system = system_context()
+```
+
+You can add custom context providers:
 
 ```python
 from luxonis_ml.telemetry import Telemetry
@@ -161,21 +198,6 @@ def my_context(_telemetry):
     return {"team": "vision"}
 
 telemetry = Telemetry("luxonis_ml", context_providers=[my_context])
-```
-
-If a library needs extra metadata only on events that explicitly opt
-into system metadata, use `system_context_providers`:
-
-```python
-def runtime_context(_telemetry):
-    return {"cli": True, "install": "pip"}
-
-telemetry = Telemetry(
-    "luxonis_ml",
-    system_context_providers=[runtime_context],
-)
-
-telemetry.capture("init", include_system_metadata=True)
 ```
 
 ## Singleton Usage
@@ -191,11 +213,11 @@ if telemetry:
     telemetry.capture("init")
 ```
 
-Multiple singletons are supported by using different library names.
+Use different library names to keep multiple singleton instances.
 
-If `get_or_init(...)` is called again for the same library name, the
-existing telemetry instance is reused. Conflicting config or version
-arguments are ignored with a warning, while new `context_providers` and
+For the same library name, `get_or_init(...)` reuses the existing
+telemetry instance. Conflicting config or version arguments are ignored
+with a warning, while new `context_providers` and
 `system_context_providers` are merged into the existing instance. This
 lets multiple integration points contribute telemetry context without
 rebuilding the singleton.
@@ -206,7 +228,7 @@ Telemetry is designed to fail open inside consuming libraries:
 
 - If the configured backend is unavailable or misconfigured, telemetry
   falls back to `NoopBackend`.
-- Capture, identify, flush, and shutdown failures are swallowed so they
+- Capture, flush, and shutdown failures are swallowed so they
   do not break the host application.
 
 ## Environment Variables
@@ -223,5 +245,3 @@ The telemetry module reads the following environment variables:
   Backend endpoint/host URL (e.g., PostHog host).
 - `LUXONIS_TELEMETRY_DEBUG`\
   When truthy, defaults backend to `stdout` unless explicitly overridden.
-- `LUXONIS_TELEMETRY_ID`\
-  Override the anonymous distinct ID.

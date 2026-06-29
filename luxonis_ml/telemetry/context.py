@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import os
 import platform
 from pathlib import Path
@@ -52,6 +50,7 @@ def base_context(
     library_name: str,
     library_version: str | None,
     session_id: str,
+    source_component: str | None,
 ) -> dict[str, Any]:
     """Create base context for all events.
 
@@ -61,24 +60,46 @@ def base_context(
     @param library_version: Version string for the library.
     @type session_id: str
     @param session_id: Random per-process session id.
+    @type source_component: Optional[str]
+    @param source_component: Optional component name for the emitter. If
+        C{None}, the library name is reused.
     """
+    return {
+        "$process_person_profile": False,
+        "$session_id": session_id,
+        "source_product": library_name,
+        "source_component": source_component or library_name,
+        "sdk_version": library_version,
+    }
+
+
+def host_context() -> dict[str, Any]:
+    """Return coarse host metadata for optional event context."""
     return {
         "os": platform.system(),
         "os_version": platform.release(),
         "arch": platform.machine(),
         "python_version": platform.python_version(),
-        "library": library_name,
-        "library_version": library_version,
-        "session_id": session_id,
-        "is_luxonis_cloud": is_luxonis_cloud(),
-        "ci": is_ci(),
     }
 
 
 def system_context() -> dict[str, Any]:
-    """Extended system metadata for telemetry events."""
+    """Return extended runtime metadata for optional event context."""
     return {
+        **host_context(),
+        "ci": is_ci(),
+        "is_luxonis_cloud": is_luxonis_cloud(),
         "processor": normalized_processor(),
         "cpu_count": os.cpu_count(),
         "is_docker": Path("/.dockerenv").exists(),
     }
+
+
+def host_context_provider(_telemetry: object) -> dict[str, Any]:
+    """Context provider that exposes coarse host metadata."""
+    return host_context()
+
+
+def system_context_provider(_telemetry: object) -> dict[str, Any]:
+    """Context provider that exposes extended runtime metadata."""
+    return system_context()

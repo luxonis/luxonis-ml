@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import atexit
 from contextlib import suppress
 
@@ -14,21 +12,6 @@ from luxonis_ml.telemetry.config import TelemetryConfig
 
 _telemetry_by_name: dict[str, Telemetry] = {}
 _singleton_state = {"exit_handler_registered": False}
-
-
-def get_telemetry(library_name: str | None = None) -> Telemetry | None:
-    """Return a telemetry instance by library name, if initialized.
-
-    @type library_name: Optional[str]
-    @param library_name: Name used to initialize the telemetry instance.
-        If C{None} and only one instance exists, that instance is
-        returned.
-    """
-    if library_name is None:
-        if len(_telemetry_by_name) == 1:
-            return next(iter(_telemetry_by_name.values()))
-        return None
-    return _telemetry_by_name.get(library_name)
 
 
 def get_or_init(
@@ -81,6 +64,21 @@ def get_or_init(
         system_context_providers=system_context_providers,
         register_exit_handler=register_exit_handler,
     )
+
+
+def get_telemetry(library_name: str | None = None) -> Telemetry | None:
+    """Return a telemetry instance by library name, if initialized.
+
+    @type library_name: Optional[str]
+    @param library_name: Name used to initialize the telemetry instance.
+        If C{None} and only one instance exists, that instance is
+        returned.
+    """
+    if library_name is None:
+        if len(_telemetry_by_name) == 1:
+            return next(iter(_telemetry_by_name.values()))
+        return None
+    return _telemetry_by_name.get(library_name)
 
 
 def initialize_telemetry(
@@ -154,8 +152,7 @@ def _reconcile_existing_telemetry(
     ignored."""
     if config is not None and config != existing.config:
         logger.warning(
-            "Telemetry for '{}' is already initialized; the new config "
-            "was ignored.",
+            "Telemetry for '{}' is already initialized; the new config was ignored.",
             library_name,
         )
     if (

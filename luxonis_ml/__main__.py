@@ -35,7 +35,8 @@ except ImportError:
     pass
 
 try:
-    from luxonis_ml.telemetry import get_or_init, instrument_typer
+    from luxonis_ml.telemetry import get_or_init
+    from luxonis_ml.telemetry.cli import instrument_typer
     from luxonis_ml.utils import get_telemetry_config
 
     _telemetry = get_or_init(

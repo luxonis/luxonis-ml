@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
 
 from luxonis_ml.utils.environ import environ
@@ -23,8 +21,9 @@ class TelemetryConfig:
         backend).
     @type allowlist: Optional[Set[str]]
     @param allowlist: If set, only these CLI params are logged.
-    @type distinct_id: Optional[str]
-    @param distinct_id: Override for the anonymous distinct id.
+    @type source_component: Optional[str]
+    @param source_component: Optional emitting component name. If
+        C{None}, the library name is reused.
     @type include_system_metadata: bool
     @param include_system_metadata: Include extended system metadata by
         default.
@@ -39,12 +38,12 @@ class TelemetryConfig:
     endpoint: str | None = None
     debug: bool = False
     allowlist: set[str] | None = None
-    distinct_id: str | None = None
+    source_component: str | None = None
     include_base_context: bool = True
     include_system_metadata: bool = False
 
     @classmethod
-    def from_environ(cls) -> TelemetryConfig:
+    def from_environ(cls) -> "TelemetryConfig":
         """Build a config from environment variables.
 
         This reads the C{LUXONIS_TELEMETRY_*} settings and returns a
@@ -61,12 +60,10 @@ class TelemetryConfig:
             else None
         )
         endpoint = environ.LUXONIS_TELEMETRY_ENDPOINT
-        distinct_id = environ.LUXONIS_TELEMETRY_ID
         return cls(
             enabled=enabled,
             backend=backend,
             api_key=api_key,
             endpoint=endpoint,
             debug=debug,
-            distinct_id=distinct_id,
         )

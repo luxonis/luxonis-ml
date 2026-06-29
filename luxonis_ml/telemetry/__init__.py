@@ -1,8 +1,11 @@
-from __future__ import annotations
-
-from luxonis_ml.telemetry.cli import instrument_typer, skip_telemetry
 from luxonis_ml.telemetry.client import Telemetry
 from luxonis_ml.telemetry.config import TelemetryConfig
+from luxonis_ml.telemetry.context import (
+    host_context,
+    host_context_provider,
+    system_context,
+    system_context_provider,
+)
 from luxonis_ml.telemetry.singleton import (
     get_or_init,
     get_telemetry,
@@ -16,9 +19,11 @@ __all__ = [
     "TelemetryConfig",
     "get_or_init",
     "get_telemetry",
+    "host_context",
+    "host_context_provider",
     "initialize_telemetry",
-    "instrument_typer",
     "shutdown_on_exit",
-    "skip_telemetry",
     "suppress_telemetry",
+    "system_context",
+    "system_context_provider",
 ]
