@@ -57,6 +57,8 @@ class BatchTransform(ABC, A.DualTransform):
     ) -> np.ndarray: ...
 
     def apply_to_array(self, array_batch: list[np.ndarray], **_) -> np.ndarray:
+        if all(arr.size == 0 for arr in array_batch):
+            return np.array([])
         return np.concatenate([arr for arr in array_batch if arr.size > 0])
 
     def apply_to_classification(

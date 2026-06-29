@@ -4,8 +4,10 @@ import random
 import shutil
 import sys
 import time
+import zipfile
 from collections.abc import Generator
 from contextlib import suppress
+from enum import Enum
 from pathlib import Path
 
 import numpy as np
@@ -15,6 +17,7 @@ from rich import print as rich_print
 
 from luxonis_ml.data import BucketStorage, LuxonisDataset
 from luxonis_ml.typing import Params
+from luxonis_ml.utils import LuxonisFileSystem
 from luxonis_ml.utils.environ import environ
 
 CREATED_DATASETS = []
@@ -189,3 +192,103 @@ def get_caller_name(request: SubRequest) -> str:  # pragma: no cover
     if isinstance(node, pytest.Function):
         return node.function.__name__
     return node.name
+
+
+class CocoSplitConfig(Enum):
+    ALL_SPLITS = "all_splits"  # train + validation + test
+    TRAIN_VAL = "train_val"  # train + validation only
+    TRAIN_TEST = "train_test"  # train + test only (no validation)
+    TRAIN_ONLY = "train_only"  # train only
+
+
+def _download_and_extract(url: str, dest: Path) -> Path:
+    zip_path = LuxonisFileSystem.download(url, dest)
+    extract_dir = zip_path.parent / zip_path.stem
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        zf.extractall(extract_dir)
+    zip_path.unlink()
+    return extract_dir
+
+
+@pytest.fixture(scope="session")
+def coco_2017_source(storage_url: str, base_tempdir: Path) -> Path:
+    url = f"{storage_url.rstrip('/')}/coco-2017.zip"
+    return _download_and_extract(url, base_tempdir / "coco_2017_source")
+
+
+@pytest.fixture(scope="session")
+def imagenet_sample_source(storage_url: str, base_tempdir: Path) -> Path:
+    url = f"{storage_url.rstrip('/')}/imagenet-sample.zip"
+    return _download_and_extract(url, base_tempdir / "imagenet_sample_source")
+
+
+def _make_coco_variant(
+    source: Path, dest_dir: Path, config: CocoSplitConfig
+) -> Path:
+    """Creates a coco-2017 directory with only the requested splits.
+
+    Always copies the raw/ folder (needed for keypoint annotations) and
+    info.json.
+    """
+    dest = dest_dir / "coco-2017"
+    shutil.copytree(source, dest)
+
+    if config is CocoSplitConfig.TRAIN_ONLY:
+        shutil.rmtree(dest / "validation", ignore_errors=True)
+        shutil.rmtree(dest / "test", ignore_errors=True)
+    elif config is CocoSplitConfig.TRAIN_VAL:
+        shutil.rmtree(dest / "test", ignore_errors=True)
+    elif config is CocoSplitConfig.TRAIN_TEST:
+        shutil.rmtree(dest / "validation", ignore_errors=True)
+
+    return dest
+
+
+@pytest.fixture
+def coco_2017_all_splits(coco_2017_source: Path, tempdir: Path) -> Path:
+    return _make_coco_variant(
+        coco_2017_source, tempdir, CocoSplitConfig.ALL_SPLITS
+    )
+
+
+@pytest.fixture
+def coco_2017_train_val(coco_2017_source: Path, tempdir: Path) -> Path:
+    return _make_coco_variant(
+        coco_2017_source, tempdir, CocoSplitConfig.TRAIN_VAL
+    )
+
+
+@pytest.fixture
+def coco_2017_train_test(coco_2017_source: Path, tempdir: Path) -> Path:
+    return _make_coco_variant(
+        coco_2017_source, tempdir, CocoSplitConfig.TRAIN_TEST
+    )
+
+
+@pytest.fixture
+def coco_2017_train_only(coco_2017_source: Path, tempdir: Path) -> Path:
+    return _make_coco_variant(
+        coco_2017_source, tempdir, CocoSplitConfig.TRAIN_ONLY
+    )
+
+
+@pytest.fixture
+def coco_2017(
+    request: pytest.FixtureRequest,
+    coco_2017_source: Path,
+    tempdir: Path,
+) -> Path:
+    """Parametrisable coco-2017 fixture.
+
+    Use with ``@pytest.mark.parametrize("coco_2017", [...], indirect=True)``
+    where the parameter values are :class:`CocoSplitConfig` members.
+    """
+    config: CocoSplitConfig = request.param
+    return _make_coco_variant(coco_2017_source, tempdir, config)
+
+
+@pytest.fixture
+def imagenet_sample_dir(imagenet_sample_source: Path, tempdir: Path) -> Path:
+    dest = tempdir / "imagenet-sample"
+    shutil.copytree(imagenet_sample_source, dest)
+    return dest

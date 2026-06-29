@@ -11,6 +11,7 @@ from loguru import logger
 
 from luxonis_ml.data import BaseDataset, DatasetIterator
 from luxonis_ml.data.datasets.annotation import DatasetRecord
+from luxonis_ml.data.utils.enums import ParserIssue, ParserIssueMessage
 from luxonis_ml.enums.enums import DatasetType
 from luxonis_ml.typing import PathType
 
@@ -21,13 +22,16 @@ ParserOutput = tuple[DatasetIterator, dict[str, dict], list[Path]]
 
 
 class BaseParser(ABC):
-    SPLIT_NAMES: tuple[str, ...] = ("train", "valid", "test")
+    _SPLIT_NAMES: tuple[str, ...] = ("train", "valid", "test")
+    _CANONICAL_SPLIT_NAMES: tuple[str, ...] = ("train", "val", "test")
+    _SKIPPED_WARNING_LIMIT: int = 50
 
     def __init__(
         self,
         dataset: BaseDataset,
         dataset_type: DatasetType,
         task_name: str | dict[str, str] | None,
+        full_warnings: bool = False,
     ):
         """
         @type dataset: BaseDataset
@@ -41,13 +45,37 @@ class BaseParser(ABC):
             a dictionary with class names as keys and task names as values.
             In the latter case, the task name for a record with a given
             class name will be taken from the dictionary.
+        @type full_warnings: bool
+        @param full_warnings: If C{True}, all warnings will be logged.
+            If C{False}, only the first 50 warnings will be logged.
         """
-        self.dataset = dataset
-        self.dataset_type = dataset_type
+        self._dataset = dataset
+        self._dataset_type = dataset_type
         if isinstance(task_name, str):
-            self.task_name = defaultdict(lambda: task_name)
+            self._task_name = defaultdict(lambda: task_name)
         else:
-            self.task_name = task_name
+            self._task_name = task_name
+        self._parser_issue_messages: list[ParserIssueMessage] = []
+        self._seen_parser_issue_messages: set[ParserIssueMessage] = set()
+        self._full_warnings = full_warnings
+        self._logged_skipped_annotation_warnings = 0
+        self._suppressed_skipped_annotation_warnings = 0
+        self._skipped_annotation_counts_by_reason: dict[str, int] = (
+            defaultdict(int)
+        )
+
+    def _reset_parser_issue_messages(self) -> None:
+        self._logged_skipped_annotation_warnings = 0
+        self._suppressed_skipped_annotation_warnings = 0
+
+        self._parser_issue_messages.clear()
+        self._seen_parser_issue_messages.clear()
+        self._skipped_annotation_counts_by_reason.clear()
+
+    def _get_parser_issue_messages(self) -> list[ParserIssueMessage]:
+        """Returns collected parser issue messages from the last
+        parse."""
+        return list(self._parser_issue_messages)
 
     @staticmethod
     @abstractmethod
@@ -75,12 +103,38 @@ class BaseParser(ABC):
         splits = [
             d.name
             for d in dataset_dir.iterdir()
-            if d.is_dir() and d.name in cls.SPLIT_NAMES
+            if d.is_dir() and d.name in cls._SPLIT_NAMES
         ]
         if len(splits) == 0:
             return False
 
         return all(cls.validate_split(dataset_dir / split) for split in splits)
+
+    @staticmethod
+    def _canonicalize_split_name(split_name: str) -> str:
+        """All current parsers use `train` and `test` split names
+        whereas validation splits can vary in name between `val` `valid`
+        and `validation`.
+
+        This maps `valid` -> `val` and `validation` -> val
+        """
+        if split_name in {"valid", "validation"}:
+            return "val"
+        return split_name
+
+    @classmethod
+    def discover_dir_splits(
+        cls, dataset_dir: Path
+    ) -> dict[str, dict[str, Any]]:
+        """Returns present and valid split directories keyed by their
+        canonical split names."""
+        discovered: dict[str, dict[str, Any]] = {}
+        for split_name in cls._SPLIT_NAMES:
+            split_kwargs = cls.validate_split(dataset_dir / split_name)
+            if split_kwargs is None:
+                continue
+            discovered[cls._canonicalize_split_name(split_name)] = split_kwargs
+        return discovered
 
     @abstractmethod
     def from_dir(
@@ -126,19 +180,18 @@ class BaseParser(ABC):
         @return: List of added images.
         """
         generator, skeletons, added_images = self.from_split(**kwargs)
-        self.dataset.add(self._wrap_generator(generator))
+        self._dataset.add(self._wrap_generator(generator))
         if skeletons:
             for skeleton in skeletons.values():
-                self.dataset.set_skeletons(
+                self._dataset.set_skeletons(
                     skeleton.get("labels"),
                     skeleton.get("edges"),
                 )
         return added_images
 
+    @staticmethod
     def _apply_counts_to_pool(
-        self,
-        images: Sequence[PathType],
-        split_ratios: dict[str, int],
+        images: Sequence[PathType], split_ratios: dict[str, int]
     ) -> dict[str, Sequence[PathType]]:
         """Distributes images across splits based on counts.
 
@@ -190,8 +243,8 @@ class BaseParser(ABC):
             offset += count
         return sampled
 
+    @staticmethod
     def _sample_from_splits(
-        self,
         original_splits: dict[str, Sequence[PathType]],
         split_ratios: dict[str, int],
     ) -> dict[str, Sequence[PathType]]:
@@ -250,24 +303,28 @@ class BaseParser(ABC):
         @rtype: LuxonisDataset
         @return: C{LDF} with all the images and annotations parsed.
         """
-        added_images = self._parse_split(**kwargs)
+        self._reset_parser_issue_messages()
+        try:
+            added_images = self._parse_split(**kwargs)
 
-        if split is not None:
-            self.dataset.make_splits({split: added_images})
-        elif random_split:
-            is_counts = split_ratios is not None and all(
-                isinstance(v, int) for v in split_ratios.values()
-            )
-            if is_counts:
-                sampled = self._apply_counts_to_pool(
-                    added_images,
-                    split_ratios,  # type: ignore[arg-type]
+            if split is not None:
+                self._dataset.make_splits({split: added_images})
+            elif random_split:
+                is_counts = split_ratios is not None and all(
+                    isinstance(v, int) for v in split_ratios.values()
                 )
-                self.dataset.make_splits(sampled)
-                self._remove_unsplit_records()
-            else:
-                self.dataset.make_splits(split_ratios)
-        return self.dataset
+                if is_counts:
+                    sampled = self._apply_counts_to_pool(
+                        added_images,
+                        split_ratios,  # type: ignore[arg-type]
+                    )
+                    self._dataset.make_splits(sampled)
+                    self._remove_unsplit_records()
+                else:
+                    self._dataset.make_splits(split_ratios)
+            return self._dataset
+        finally:
+            self._log_skipped_annotation_summary()
 
     def parse_dir(self, dataset_dir: Path, **kwargs) -> BaseDataset:
         """Parses entire dataset directory to L{LuxonisDataset} format.
@@ -280,63 +337,78 @@ class BaseParser(ABC):
         @rtype: LuxonisDataset
         @return: C{LDF} with all the images and annotations parsed.
         """
-        # Skip train directory check for parsers that use images/labels
-        # subdirectory structure (YoloV6, YOLOv8) instead of train/valid/test
-        # at root level
-        skip_train_check = self.__class__.__name__ in (
-            "YoloV6Parser",
-            "YOLOv8Parser",
-        )
-        if not skip_train_check:
-            train_dir = dataset_dir / "train"
-            if not train_dir.exists() or not train_dir.is_dir():
+        self._reset_parser_issue_messages()
+        try:
+            split_ratios = kwargs.pop("split_ratios", None)
+            is_counts = split_ratios is not None and all(
+                isinstance(v, int) for v in split_ratios.values()
+            )
+
+            # Disable automatic val-to-test splitting when using explicit counts
+            if is_counts and "split_val_to_test" not in kwargs:
+                sig = inspect.signature(self._parse_available_splits)
+                if "split_val_to_test" in sig.parameters:
+                    kwargs["split_val_to_test"] = False
+
+            split_definitions = self._parse_available_splits(
+                dataset_dir, **kwargs
+            )
+            if not split_definitions:
                 existing_dirs = [
                     d.name for d in dataset_dir.iterdir() if d.is_dir()
                 ]
                 raise ValueError(
-                    f"Train split not found in dataset. "
-                    f"Expected a 'train' directory but found: {existing_dirs}."
+                    "No valid split directories found in dataset. "
+                    f"Found directories: {existing_dirs}."
+                )
+            if all(
+                len(split_images) == 0
+                for split_images in split_definitions.values()
+            ):
+                raise ValueError(
+                    "No samples were parsed from the discovered split directories."
                 )
 
-        split_ratios = kwargs.pop("split_ratios", None)
-        is_counts = split_ratios is not None and all(
-            isinstance(v, int) for v in split_ratios.values()
-        )
+            original_splits: dict[str, Sequence[PathType]] = {
+                split_name: split_definitions.get(split_name, [])
+                for split_name in self._CANONICAL_SPLIT_NAMES
+            }
 
-        # Disable automatic val-to-test splitting when using explicit counts
-        if is_counts and "split_val_to_test" not in kwargs:
-            sig = inspect.signature(self.from_dir)
-            if "split_val_to_test" in sig.parameters:
-                kwargs["split_val_to_test"] = False
+            if split_ratios is None:
+                self._dataset.make_splits(original_splits)
+            elif is_counts:
+                sampled = self._apply_counts_to_splits(
+                    original_splits,
+                    split_ratios,  # type: ignore[arg-type]
+                )
+                self._dataset.make_splits(sampled)
+                self._remove_unsplit_records()
+            else:
+                logger.warning(
+                    "Using percentage-based split ratios will redistribute "
+                    "and shuffle all samples across splits. Original split "
+                    "boundaries will not be preserved."
+                )
+                self._dataset.make_splits(split_ratios)
 
-        train, val, test = self.from_dir(dataset_dir, **kwargs)
-        original_splits: dict[str, Sequence[PathType]] = {
-            "train": train,
-            "val": val,
-            "test": test,
-        }
+            return self._dataset
+        finally:
+            self._log_skipped_annotation_summary()
 
-        if split_ratios is None:
-            self.dataset.make_splits(original_splits)
-        elif is_counts:
-            sampled = self._apply_counts_to_splits(
-                original_splits,
-                split_ratios,  # type: ignore[arg-type]
+    def _parse_available_splits(
+        self, dataset_dir: Path, **kwargs
+    ) -> dict[str, list[Path]]:
+        split_definitions: dict[str, list[Path]] = {}
+        for split_name, split_kwargs in self.discover_dir_splits(
+            dataset_dir
+        ).items():
+            split_definitions[split_name] = self._parse_split(
+                **split_kwargs, **kwargs
             )
-            self.dataset.make_splits(sampled)
-            self._remove_unsplit_records()
-        else:
-            logger.warning(
-                "Using percentage-based split ratios will redistribute "
-                "and shuffle all samples across splits. Original split "
-                "boundaries will not be preserved."
-            )
-            self.dataset.make_splits(split_ratios)
+        return split_definitions
 
-        return self.dataset
-
+    @staticmethod
     def _apply_counts_to_splits(
-        self,
         original_splits: dict[str, Sequence[PathType]],
         split_ratios: dict[str, int],
     ) -> dict[str, Sequence[PathType]]:
@@ -353,13 +425,13 @@ class BaseParser(ABC):
         @rtype: Dict[str, Sequence[PathType]]
         @return: Dictionary mapping split names to assigned images.
         """
-        return self._sample_from_splits(original_splits, split_ratios)
+        return BaseParser._sample_from_splits(original_splits, split_ratios)
 
     def _remove_unsplit_records(self) -> None:
         """Removes records from the dataset that are not assigned to any
         split."""
         # Cast to LuxonisDataset to access internal methods
-        dataset: LuxonisDataset = self.dataset  # type: ignore[assignment]
+        dataset: LuxonisDataset = self._dataset  # type: ignore[assignment]
 
         splits = dataset.get_splits()
         if splits is None:
@@ -406,6 +478,66 @@ class BaseParser(ABC):
                 )
             }
         )
+
+    def _warn_skipped_annotation(
+        self,
+        parser_issue: ParserIssue,
+        reason: str,
+        *,
+        source: PathType | None = None,
+        image: PathType | None = None,
+        annotation_id: str | int | None = None,
+    ) -> None:
+        message = ParserIssueMessage(
+            parser_issue=parser_issue,
+            reason=reason,
+            source=source,
+            image=image,
+            annotation_id=annotation_id,
+        )
+        if message in self._seen_parser_issue_messages:
+            return
+
+        self._seen_parser_issue_messages.add(message)
+        self._parser_issue_messages.append(message)
+        self._skipped_annotation_counts_by_reason[reason] += 1
+
+        details = []
+        if annotation_id is not None:
+            details.append(f"annotation_id={annotation_id}")
+        if source is not None:
+            details.append(f"source={source}")
+        if image is not None:
+            details.append(f"image={image}")
+
+        suffix = f" ({', '.join(details)})" if details else ""
+        if (
+            self._full_warnings
+            or self._logged_skipped_annotation_warnings
+            < self._SKIPPED_WARNING_LIMIT
+        ):
+            logger.warning(f"Skipping annotation: {reason}{suffix}")
+            self._logged_skipped_annotation_warnings += 1
+        else:
+            self._suppressed_skipped_annotation_warnings += 1
+
+    def _log_skipped_annotation_summary(self) -> None:
+        if (
+            self._full_warnings
+            or self._suppressed_skipped_annotation_warnings == 0
+        ):
+            return
+
+        logger.warning(
+            "Skipped logging "
+            f"{self._suppressed_skipped_annotation_warnings} additional warnings. "
+            "Enable the `--log-all-warnings` flag to see the full list."
+        )
+        for reason, count in sorted(
+            self._skipped_annotation_counts_by_reason.items(),
+            key=lambda item: (-item[1], item[0]),
+        ):
+            logger.warning(f"Skipped annotations: {reason} ({count} records)")
 
     @staticmethod
     def _compare_stem_files(
@@ -485,9 +617,9 @@ class BaseParser(ABC):
             if isinstance(item, dict):
                 item = DatasetRecord(**item)
 
-            if self.task_name is not None:
+            if self._task_name is not None:
                 if item.annotation is None:
-                    for task_name in set(self.task_name.values()):
+                    for task_name in set(self._task_name.values()):
                         yield item.model_copy(
                             update={"task_name": task_name}, deep=True
                         )
@@ -495,13 +627,13 @@ class BaseParser(ABC):
                     class_name = item.annotation.class_name
                     if class_name is not None:
                         try:
-                            task_name = self.task_name[class_name]
+                            task_name = self._task_name[class_name]
                         except KeyError:
                             raise ValueError(
                                 f"Class '{class_name}' not found in task names."
                             ) from None
 
-                        item.task_name = self.task_name[class_name]
+                        item.task_name = self._task_name[class_name]
                     yield item
             else:
                 yield item

@@ -109,7 +109,7 @@ class Mosaic4(BatchTransform):
         @rtype: np.ndarray
         @return: Transformed images.
         """
-        return apply_mosaic4_to_images(
+        return self._apply_mosaic4_to_images(
             image_batch,
             self.out_height,
             self.out_width,
@@ -152,7 +152,7 @@ class Mosaic4(BatchTransform):
                         (out_width, out_height, mask.shape[-1]),
                         dtype=mask.dtype,
                     )
-        return apply_mosaic4_to_images(
+        return self._apply_mosaic4_to_images(
             mask_batch,
             self.out_height,
             self.out_width,
@@ -177,7 +177,7 @@ class Mosaic4(BatchTransform):
         @rtype: np.ndarray
         @return: Transformed masks.
         """
-        return apply_mosaic4_to_instance_masks(
+        return self._apply_mosaic4_to_instance_masks(
             masks_batch,
             self.out_height,
             self.out_width,
@@ -220,7 +220,7 @@ class Mosaic4(BatchTransform):
             if bboxes.size == 0:  # pragma: no cover
                 bboxes = np.zeros((0, 6), dtype=bboxes.dtype)
 
-            bbox = apply_mosaic4_to_bboxes(
+            bbox = self._apply_mosaic4_to_bboxes(
                 bboxes,
                 orig_height,
                 orig_width,
@@ -268,7 +268,7 @@ class Mosaic4(BatchTransform):
             if keypoints.size == 0:
                 keypoints = np.zeros((0, 6), dtype=keypoints.dtype)
 
-            new_keypoint = apply_mosaic4_to_keypoints(
+            new_keypoint = self._apply_mosaic4_to_keypoints(
                 keypoints,
                 orig_height,
                 orig_width,
@@ -281,290 +281,303 @@ class Mosaic4(BatchTransform):
             new_keypoints.append(new_keypoint)
         return np.concatenate(new_keypoints, axis=0)
 
+    @staticmethod
+    def _compute_mosaic4_corners(
+        quadrant: int,
+        out_height: int,
+        out_width: int,
+        in_height: int,
+        in_width: int,
+    ) -> tuple[tuple[int, int, int, int], tuple[int, int, int, int]]:
+        if quadrant == 0:
+            x1a, y1a, x2a, y2a = (
+                max(out_width - in_width, 0),
+                max(out_height - in_height, 0),
+                out_width,
+                out_height,
+            )
+            x1b, y1b, x2b, y2b = (
+                in_width - (x2a - x1a),
+                in_height - (y2a - y1a),
+                in_width,
+                in_height,
+            )
 
-def compute_mosaic4_corners(
-    quadrant: int,
-    out_height: int,
-    out_width: int,
-    in_height: int,
-    in_width: int,
-) -> tuple[tuple[int, int, int, int], tuple[int, int, int, int]]:
-    if quadrant == 0:
-        x1a, y1a, x2a, y2a = (
-            max(out_width - in_width, 0),
-            max(out_height - in_height, 0),
-            out_width,
-            out_height,
-        )
-        x1b, y1b, x2b, y2b = (
-            in_width - (x2a - x1a),
-            in_height - (y2a - y1a),
-            in_width,
-            in_height,
+        elif quadrant == 1:
+            x1a, y1a, x2a, y2a = (
+                out_width,
+                max(out_height - in_height, 0),
+                min(out_width + in_width, out_width * 2),
+                out_height,
+            )
+            x1b, y1b, x2b, y2b = (
+                0,
+                in_height - (y2a - y1a),
+                min(in_width, x2a - x1a),
+                in_height,
+            )
+        elif quadrant == 2:
+            x1a, y1a, x2a, y2a = (
+                max(out_width - in_width, 0),
+                out_height,
+                out_width,
+                min(out_height * 2, out_height + in_height),
+            )
+            x1b, y1b, x2b, y2b = (
+                in_width - (x2a - x1a),
+                0,
+                in_width,
+                min(y2a - y1a, in_height),
+            )
+        else:
+            x1a, y1a, x2a, y2a = (
+                out_width,
+                out_height,
+                min(out_width + in_width, out_width * 2),
+                min(out_height * 2, out_height + in_height),
+            )
+            x1b, y1b, x2b, y2b = (
+                0,
+                0,
+                min(in_width, x2a - x1a),
+                min(y2a - y1a, in_height),
+            )
+        return (x1a, y1a, x2a, y2a), (x1b, y1b, x2b, y2b)
+
+    @staticmethod
+    def _apply_mosaic4_to_instance_masks(
+        masks_batch: list[np.ndarray],
+        out_height: int,
+        out_width: int,
+        x_crop: int,
+        y_crop: int,
+        value: float | list[int] | list[float] | None = None,
+    ) -> np.ndarray:
+        out_masks = []
+        out_shape = [out_height * 2, out_width * 2]
+
+        if not any(m.size for m in masks_batch):
+            return np.zeros((out_height, out_width, 0), dtype=np.uint8)
+
+        for quadrant, masks in enumerate(masks_batch):
+            if masks.size == 0:
+                continue
+
+            for i in range(masks.shape[-1]):
+                mask = masks[..., i]
+                imgsz = max(out_height, out_width)
+                h, w = mask.shape
+                r = imgsz / max(h, w)
+                if r != 1:
+                    w, h = (
+                        min(math.ceil(w * r), imgsz),
+                        min(math.ceil(h * r), imgsz),
+                    )
+                    mask = cv2.resize(
+                        mask, (w, h), interpolation=cv2.INTER_NEAREST
+                    )
+
+                combined_mask = np.full(
+                    out_shape,
+                    value if value is not None else 0,
+                    dtype=masks.dtype,
+                )
+                (x1a, y1a, x2a, y2a), (x1b, y1b, x2b, y2b) = (
+                    Mosaic4._compute_mosaic4_corners(
+                        quadrant, out_height, out_width, h, w
+                    )
+                )
+
+                combined_region = combined_mask[y1a:y2a, x1a:x2a]
+                mask_region = mask[y1b:y2b, x1b:x2b]
+
+                combined_height, combined_width = combined_region.shape[:2]
+                img_h, img_w = mask_region.shape[:2]
+
+                min_h = min(combined_height, img_h)
+                min_w = min(combined_width, img_w)
+
+                combined_mask[y1a : y1a + min_h, x1a : x1a + min_w] = mask[
+                    y1b : y1b + min_h, x1b : x1b + min_w
+                ]
+
+                combined_mask = combined_mask[
+                    y_crop : y_crop + out_height, x_crop : x_crop + out_width
+                ]
+                out_masks.append(combined_mask)
+
+        if not out_masks:
+            return np.zeros((out_height, out_width, 0), dtype=np.uint8)
+
+        return np.stack(out_masks, axis=-1)
+
+    @staticmethod
+    def _apply_mosaic4_to_images(
+        image_batch: list[np.ndarray],
+        out_height: int,
+        out_width: int,
+        x_crop: int,
+        y_crop: int,
+        padding: float | list[int] | list[float] | None = None,
+    ) -> np.ndarray:
+        """Arrange the images in a 2x2 grid layout.
+
+        The input images should have the same number of channels but can
+        have different widths and heights. The gaps are filled by the
+        padding value.
+        """
+
+        if len(image_batch[0].shape) == 2:
+            out_shape = [out_height * 2, out_width * 2]
+        else:
+            out_shape = [
+                out_height * 2,
+                out_width * 2,
+                image_batch[0].shape[2],
+            ]
+
+        combined_image = np.full(
+            out_shape,
+            padding if padding is not None else 0,
+            dtype=image_batch[0].dtype,
         )
 
-    elif quadrant == 1:
-        x1a, y1a, x2a, y2a = (
-            out_width,
-            max(out_height - in_height, 0),
-            min(out_width + in_width, out_width * 2),
-            out_height,
-        )
-        x1b, y1b, x2b, y2b = (
-            0,
-            in_height - (y2a - y1a),
-            min(in_width, x2a - x1a),
-            in_height,
-        )
-    elif quadrant == 2:
-        x1a, y1a, x2a, y2a = (
-            max(out_width - in_width, 0),
-            out_height,
-            out_width,
-            min(out_height * 2, out_height + in_height),
-        )
-        x1b, y1b, x2b, y2b = (
-            in_width - (x2a - x1a),
-            0,
-            in_width,
-            min(y2a - y1a, in_height),
-        )
-    else:
-        x1a, y1a, x2a, y2a = (
-            out_width,
-            out_height,
-            min(out_width + in_width, out_width * 2),
-            min(out_height * 2, out_height + in_height),
-        )
-        x1b, y1b, x2b, y2b = (
-            0,
-            0,
-            min(in_width, x2a - x1a),
-            min(y2a - y1a, in_height),
-        )
-    return (x1a, y1a, x2a, y2a), (x1b, y1b, x2b, y2b)
-
-
-def apply_mosaic4_to_instance_masks(
-    masks_batch: list[np.ndarray],
-    out_height: int,
-    out_width: int,
-    x_crop: int,
-    y_crop: int,
-    value: float | list[int] | list[float] | None = None,
-) -> np.ndarray:
-    out_masks = []
-    out_shape = [out_height * 2, out_width * 2]
-
-    if not any(m.size for m in masks_batch):
-        return np.zeros((out_height, out_width, 0), dtype=np.uint8)
-
-    for quadrant, masks in enumerate(masks_batch):
-        if masks.size == 0:
-            continue
-
-        for i in range(masks.shape[-1]):
-            mask = masks[..., i]
+        for quadrant, img in enumerate(image_batch):
+            h, w = img.shape[:2]
             imgsz = max(out_height, out_width)
-            h, w = mask.shape
             r = imgsz / max(h, w)
             if r != 1:
                 w, h = (
                     min(math.ceil(w * r), imgsz),
                     min(math.ceil(h * r), imgsz),
                 )
-                mask = cv2.resize(
-                    mask, (w, h), interpolation=cv2.INTER_NEAREST
-                )
+                img = cv2.resize(img, (w, h), interpolation=cv2.INTER_LINEAR)
+                if img.ndim == 2:
+                    img = img.reshape(h, w, 1)
 
-            combined_mask = np.full(
-                out_shape, value if value is not None else 0, dtype=masks.dtype
-            )
             (x1a, y1a, x2a, y2a), (x1b, y1b, x2b, y2b) = (
-                compute_mosaic4_corners(quadrant, out_height, out_width, h, w)
+                Mosaic4._compute_mosaic4_corners(
+                    quadrant, out_height, out_width, h, w
+                )
             )
 
-            combined_region = combined_mask[y1a:y2a, x1a:x2a]
-            mask_region = mask[y1b:y2b, x1b:x2b]
+            combined_region = combined_image[y1a:y2a, x1a:x2a]
+            img_region = img[y1b:y2b, x1b:x2b]
 
             combined_height, combined_width = combined_region.shape[:2]
-            img_h, img_w = mask_region.shape[:2]
+            img_h, img_w = img_region.shape[:2]
 
             min_h = min(combined_height, img_h)
             min_w = min(combined_width, img_w)
 
-            combined_mask[y1a : y1a + min_h, x1a : x1a + min_w] = mask[
+            combined_image[y1a : y1a + min_h, x1a : x1a + min_w] = img[
                 y1b : y1b + min_h, x1b : x1b + min_w
             ]
 
-            combined_mask = combined_mask[
-                y_crop : y_crop + out_height, x_crop : x_crop + out_width
-            ]
-            out_masks.append(combined_mask)
-
-    if not out_masks:
-        return np.zeros((out_height, out_width, 0), dtype=np.uint8)
-
-    return np.stack(out_masks, axis=-1)
-
-
-def apply_mosaic4_to_images(
-    image_batch: list[np.ndarray],
-    out_height: int,
-    out_width: int,
-    x_crop: int,
-    y_crop: int,
-    padding: float | list[int] | list[float] | None = None,
-) -> np.ndarray:
-    """Arrange the images in a 2x2 grid layout.
-
-    The input images should have the same number of channels but can
-    have different widths and heights. The gaps are filled by the
-    padding value.
-    """
-
-    if len(image_batch[0].shape) == 2:
-        out_shape = [out_height * 2, out_width * 2]
-    else:
-        out_shape = [out_height * 2, out_width * 2, image_batch[0].shape[2]]
-
-    combined_image = np.full(
-        out_shape,
-        padding if padding is not None else 0,
-        dtype=image_batch[0].dtype,
-    )
-
-    for quadrant, img in enumerate(image_batch):
-        h, w = img.shape[:2]
-        imgsz = max(out_height, out_width)
-        r = imgsz / max(h, w)
-        if r != 1:
-            w, h = (min(math.ceil(w * r), imgsz), min(math.ceil(h * r), imgsz))
-            img = cv2.resize(img, (w, h), interpolation=cv2.INTER_LINEAR)
-            if img.ndim == 2:
-                img = img.reshape(h, w, 1)
-
-        (x1a, y1a, x2a, y2a), (x1b, y1b, x2b, y2b) = compute_mosaic4_corners(
-            quadrant, out_height, out_width, h, w
-        )
-
-        combined_region = combined_image[y1a:y2a, x1a:x2a]
-        img_region = img[y1b:y2b, x1b:x2b]
-
-        combined_height, combined_width = combined_region.shape[:2]
-        img_h, img_w = img_region.shape[:2]
-
-        min_h = min(combined_height, img_h)
-        min_w = min(combined_width, img_w)
-
-        combined_image[y1a : y1a + min_h, x1a : x1a + min_w] = img[
-            y1b : y1b + min_h, x1b : x1b + min_w
+        return combined_image[
+            y_crop : y_crop + out_height, x_crop : x_crop + out_width
         ]
 
-    return combined_image[
-        y_crop : y_crop + out_height, x_crop : x_crop + out_width
-    ]
+    @staticmethod
+    def _apply_mosaic4_to_bboxes(
+        bbox: np.ndarray,
+        in_height: int,
+        in_width: int,
+        position_index: int,
+        out_height: int,
+        out_width: int,
+        x_crop: int,
+        y_crop: int,
+    ) -> np.ndarray:
+        """Adjust bounding box coordinates to account for mosaic grid
+        position.
 
+        This function modifies bounding boxes according to their
+        placement in a 2x2 grid mosaic, shifting their coordinates based
+        on the tile's relative position within the mosaic.
+        """
 
-def apply_mosaic4_to_bboxes(
-    bbox: np.ndarray,
-    in_height: int,
-    in_width: int,
-    position_index: int,
-    out_height: int,
-    out_width: int,
-    x_crop: int,
-    y_crop: int,
-) -> np.ndarray:
-    """Adjust bounding box coordinates to account for mosaic grid
-    position.
+        bbox = denormalize_bboxes(bbox, (in_height, in_width))
 
-    This function modifies bounding boxes according to their placement
-    in a 2x2 grid mosaic, shifting their coordinates based on the tile's
-    relative position within the mosaic.
-    """
+        imgsz = max(out_height, out_width)
+        r = imgsz / max(in_height, in_width)
+        if r != 1:
+            in_width, in_height = (
+                min(math.ceil(in_width * r), imgsz),
+                min(math.ceil(in_height * r), imgsz),
+            )
+            bbox[:, :4] = bbox[:, :4] * r
 
-    bbox = denormalize_bboxes(bbox, (in_height, in_width))
+        if position_index == 0:
+            shift_x = out_width - in_width
+            shift_y = out_height - in_height
+        elif position_index == 1:
+            shift_x = out_width
+            shift_y = out_height - in_height
+        elif position_index == 2:
+            shift_x = out_width - in_width
+            shift_y = out_height
+        elif position_index == 3:
+            shift_x = out_width
+            shift_y = out_height
 
-    imgsz = max(out_height, out_width)
-    r = imgsz / max(in_height, in_width)
-    if r != 1:
-        in_width, in_height = (
-            min(math.ceil(in_width * r), imgsz),
-            min(math.ceil(in_height * r), imgsz),
+        bbox[:, 0] += shift_x - x_crop
+        bbox[:, 2] += shift_x - x_crop
+
+        bbox[:, 1] += shift_y - y_crop
+        bbox[:, 3] += shift_y - y_crop
+
+        return normalize_bboxes(bbox, (out_height, out_width))
+
+    @staticmethod
+    def _apply_mosaic4_to_keypoints(
+        keypoints: np.ndarray,
+        in_height: int,
+        in_width: int,
+        position_index: int,
+        out_height: int,
+        out_width: int,
+        x_crop: int,
+        y_crop: int,
+    ) -> np.ndarray:
+        """Adjust keypoint coordinates based on mosaic grid position.
+
+        This function adjusts the keypoint coordinates by placing them
+        in one of the 2x2 mosaic grid cells, with shifts relative to the
+        mosaic center.
+        """
+        imgsz = max(out_height, out_width)
+        r = imgsz / max(in_height, in_width)
+        if r != 1:
+            in_width, in_height = (
+                min(math.ceil(in_width * r), imgsz),
+                min(math.ceil(in_height * r), imgsz),
+            )
+            keypoints[:, 0] = keypoints[:, 0] * r
+            keypoints[:, 1] = keypoints[:, 1] * r
+
+        if position_index == 0:
+            shift_x = out_width - in_width
+            shift_y = out_height - in_height
+        elif position_index == 1:
+            shift_x = out_width
+            shift_y = out_height - in_height
+        elif position_index == 2:
+            shift_x = out_width - in_width
+            shift_y = out_height
+        elif position_index == 3:
+            shift_x = out_width
+            shift_y = out_height
+
+        keypoints[:, 0] += shift_x - x_crop
+        keypoints[:, 1] += shift_y - y_crop
+
+        mask_invalid = (
+            (keypoints[:, 0] < 0)
+            | (keypoints[:, 0] > out_width)
+            | (keypoints[:, 1] < 0)
+            | (keypoints[:, 1] > out_height)
         )
-        bbox[:, :4] = bbox[:, :4] * r
 
-    if position_index == 0:
-        shift_x = out_width - in_width
-        shift_y = out_height - in_height
-    elif position_index == 1:
-        shift_x = out_width
-        shift_y = out_height - in_height
-    elif position_index == 2:
-        shift_x = out_width - in_width
-        shift_y = out_height
-    elif position_index == 3:
-        shift_x = out_width
-        shift_y = out_height
-
-    bbox[:, 0] += shift_x - x_crop
-    bbox[:, 2] += shift_x - x_crop
-
-    bbox[:, 1] += shift_y - y_crop
-    bbox[:, 3] += shift_y - y_crop
-
-    return normalize_bboxes(bbox, (out_height, out_width))
-
-
-def apply_mosaic4_to_keypoints(
-    keypoints: np.ndarray,
-    in_height: int,
-    in_width: int,
-    position_index: int,
-    out_height: int,
-    out_width: int,
-    x_crop: int,
-    y_crop: int,
-) -> np.ndarray:
-    """Adjust keypoint coordinates based on mosaic grid position.
-
-    This function adjusts the keypoint coordinates by placing them in
-    one of the 2x2 mosaic grid cells, with shifts relative to the mosaic
-    center.
-    """
-    imgsz = max(out_height, out_width)
-    r = imgsz / max(in_height, in_width)
-    if r != 1:
-        in_width, in_height = (
-            min(math.ceil(in_width * r), imgsz),
-            min(math.ceil(in_height * r), imgsz),
-        )
-        keypoints[:, 0] = keypoints[:, 0] * r
-        keypoints[:, 1] = keypoints[:, 1] * r
-
-    if position_index == 0:
-        shift_x = out_width - in_width
-        shift_y = out_height - in_height
-    elif position_index == 1:
-        shift_x = out_width
-        shift_y = out_height - in_height
-    elif position_index == 2:
-        shift_x = out_width - in_width
-        shift_y = out_height
-    elif position_index == 3:
-        shift_x = out_width
-        shift_y = out_height
-
-    keypoints[:, 0] += shift_x - x_crop
-    keypoints[:, 1] += shift_y - y_crop
-
-    mask_invalid = (
-        (keypoints[:, 0] < 0)
-        | (keypoints[:, 0] > out_width)
-        | (keypoints[:, 1] < 0)
-        | (keypoints[:, 1] > out_height)
-    )
-
-    keypoints[:, -1] = np.where(mask_invalid, 0, keypoints[:, -1])
-    return keypoints
+        keypoints[:, -1] = np.where(mask_invalid, 0, keypoints[:, -1])
+        return keypoints

@@ -5,6 +5,7 @@ import numpy as np
 import polars as pl
 
 from luxonis_ml.data import DatasetIterator
+from luxonis_ml.utils.path import resolve_manifest_path
 
 from .base_parser import BaseParser, ParserOutput
 
@@ -77,7 +78,7 @@ class TensorflowCSVParser(BaseParser):
         images_annotations = {}
 
         for row in df.rows(named=True):
-            path = str(image_dir / str(row["filename"]))
+            path = str(resolve_manifest_path(image_dir, str(row["filename"])))
             if path not in images_annotations:
                 images_annotations[path] = {
                     "classes": [],
@@ -103,7 +104,7 @@ class TensorflowCSVParser(BaseParser):
 
         def generator() -> DatasetIterator:
             for img_path in self._list_images(image_dir):
-                path = str(img_path)
+                path = str(img_path.resolve())
                 curr_annotations = images_annotations.get(path, {"bboxes": []})
                 if not curr_annotations["bboxes"]:
                     yield {"file": path, "annotation": None}

@@ -1,3 +1,4 @@
+from .augmentations_collector import AugmentationsCollector
 from .data_utils import (
     find_duplicates,
     get_class_distributions,
@@ -15,10 +16,16 @@ from .enums import (
     COCOFormat,
     ImageType,
     MediaType,
+    ParserIssue,
+    ParserIssueMessage,
     UpdateMode,
 )
 from .parquet import ParquetFileManager, ParquetRecord
 from .plot_utils import plot_class_distribution, plot_heatmap
+from .remote_file_downloader import (
+    RemoteFileDownloader,
+    download_remote_file,
+)
 from .task_utils import (
     get_task_name,
     get_task_type,
@@ -28,6 +35,7 @@ from .task_utils import (
 )
 from .visualizations import (
     ColorMap,
+    add_augmentation_footer,
     concat_images,
     create_text_image,
     distinct_color_generator,
@@ -35,6 +43,7 @@ from .visualizations import (
 )
 
 __all__ = [
+    "AugmentationsCollector",
     "BucketStorage",
     "BucketType",
     "COCOFormat",
@@ -43,10 +52,15 @@ __all__ = [
     "MediaType",
     "ParquetFileManager",
     "ParquetRecord",
+    "ParserIssue",
+    "ParserIssueMessage",
+    "RemoteFileDownloader",
     "UpdateMode",
+    "add_augmentation_footer",
     "concat_images",
     "create_text_image",
     "distinct_color_generator",
+    "download_remote_file",
     "find_duplicates",
     "get_class_distributions",
     "get_duplicates_info",

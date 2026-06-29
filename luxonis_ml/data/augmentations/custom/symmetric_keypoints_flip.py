@@ -7,7 +7,7 @@ import numpy as np
 from typing_extensions import override
 
 
-class HorizontalSymetricKeypointsFlip(A.DualTransform):
+class HorizontalSymmetricKeypointsFlip(A.DualTransform):
     def __init__(self, keypoint_pairs: list[tuple[int, int]], p: float = 0.5):
         """Augmentation to horizontally flip an image along with bboxes,
         segmentation masks and symmetric keypoints.
@@ -119,7 +119,7 @@ class HorizontalSymetricKeypointsFlip(A.DualTransform):
         return keypoints
 
 
-class VerticalSymetricKeypointsFlip(A.DualTransform):
+class VerticalSymmetricKeypointsFlip(A.DualTransform):
     def __init__(self, keypoint_pairs: list[tuple[int, int]], p: float = 0.5):
         """Augmentation to vertically flip an image along with bboxes,
         segmentation masks and symmetric keypoints.

@@ -1,6 +1,11 @@
 repos:
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.47.2
+    hooks:
+      - id: typos
+
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.5
+    rev: v0.15.2
     hooks:
       - id: ruff
         args: [--fix, --exit-non-zero-on-fix]
@@ -21,6 +26,12 @@ repos:
       - id: mdformat
         additional_dependencies:
           - mdformat-gfm==1.0.0
+
+  - repo: https://github.com/JoC0de/pre-commit-prettier
+    rev: v3.8.1
+    hooks:
+      - id: prettier
+        types_or: [yaml]
 
   - repo: https://github.com/ComPWA/taplo-pre-commit
     rev: v0.9.3

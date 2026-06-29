@@ -1,0 +1,101 @@
+name: Update Test Durations
+
+on:
+  schedule:
+    - cron: "37 3 * * 0"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  update-durations:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_S3_ENDPOINT_URL: ${{ secrets.AWS_S3_ENDPOINT_URL }}
+      ROBOFLOW_API_KEY: ${{ secrets.ROBOFLOW_API_KEY }}
+      ULTRALYTICS_API_KEY: ${{ secrets.ULTRALYTICS_API_KEY }}
+      LUXONISML_BUCKET: luxonis-test-bucket
+      GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install the package
+        shell: bash
+        env:
+          PIP_CONSTRAINT: ${{ github.workspace }}/constraints.txt
+        run: |
+          echo 'setuptools<81' > "$PIP_CONSTRAINT"
+          pip install 'pillow-heif<0.22.0'
+          pip install -e '.[dev]'
+          pip install 'pytest-split>=0.11.0'
+          python -m pytest --help > "${RUNNER_TEMP:-.}/pytest-help.txt"
+          grep -q -- '--store-durations' "${RUNNER_TEMP:-.}/pytest-help.txt"
+
+      - name: Authenticate to Google Cloud
+        if: ${{ env.GCP_CREDENTIALS != '' }}
+        id: google-auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+        with:
+          credentials_json: ${{ env.GCP_CREDENTIALS }}
+          create_credentials_file: true
+          export_environment_variables: true
+          token_format: access_token
+
+      - name: Generate pytest durations
+        shell: bash
+        run: |
+          mkdir -p .pytest-durations
+          durations_path=".pytest-durations/.test_durations.${{ matrix.os }}"
+          junit_xml="junit-durations-${{ matrix.os }}.xml"
+          pytest_args=(
+            --store-durations
+            --clean-durations
+            --durations-path "$durations_path"
+            --junitxml "$junit_xml"
+            -o junit_family=legacy
+            -vv
+          )
+
+          if [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
+            python -m pytest --cov --cov-report "xml:coverage-durations-${{ matrix.os }}.xml" "${pytest_args[@]}"
+          else
+            python -m pytest "${pytest_args[@]}"
+          fi
+
+      - name: Save pytest durations cache
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .pytest-durations
+          key: pytest-durations-${{ matrix.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Upload pytest durations
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: pytest-durations-${{ matrix.os }}
+          path: |
+            .pytest-durations/.test_durations.${{ matrix.os }}
+            junit-durations-${{ matrix.os }}.xml
+            coverage-durations-${{ matrix.os }}.xml
+          if-no-files-found: ignore
+          retention-days: 30

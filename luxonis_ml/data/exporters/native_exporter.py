@@ -8,12 +8,14 @@ from typing import Any
 
 import polars as pl
 
+from luxonis_ml.data.datasets.annotation import DatasetRecord
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
 from luxonis_ml.data.exporters.exporter_utils import (
     PreparedLDF,
-    exporter_specific_annotation_warning,
     split_of_group,
 )
+from luxonis_ml.enums import DatasetType
+from luxonis_ml.utils.path import path_to_posix
 
 
 class NativeExporter(BaseExporter):
@@ -24,18 +26,9 @@ class NativeExporter(BaseExporter):
         return {"train": "train", "val": "val", "test": "test"}
 
     def supported_ann_types(self) -> list[str]:
-        return [
-            "boundingbox",
-            "segmentation",
-            "keypoints",
-            "instance_segmentation",
-        ]
+        return DatasetType.NATIVE.supported_annotation_formats
 
     def export(self, prepared_ldf: PreparedLDF) -> None:
-        exporter_specific_annotation_warning(
-            prepared_ldf, self.supported_ann_types()
-        )
-
         annotation_splits: dict[str, list[dict[str, Any]]] = {
             k: [] for k in self.get_split_names()
         }
@@ -111,7 +104,7 @@ class NativeExporter(BaseExporter):
         ann_str = row["annotation"]
 
         source_to_file = {
-            name: str(
+            name: path_to_posix(
                 Path("images")
                 / f"{self.image_indices.setdefault(Path(f), len(self.image_indices))}{Path(f).suffix}"
             )
@@ -126,6 +119,9 @@ class NativeExporter(BaseExporter):
                 else source_to_file[group_source_names[0]]
             ),
             "task_name": task_name,
+            "sample_metadata": DatasetRecord.decode_metadata(
+                row.get("sample_metadata")
+            ),
         }
 
         if ann_str is not None:
@@ -134,7 +130,12 @@ class NativeExporter(BaseExporter):
                 "instance_id": instance_id,
                 "class": class_name,
             }
-            if task_type in self.supported_ann_types():
+            if task_type in (
+                "boundingbox",
+                "segmentation",
+                "instance_segmentation",
+                "keypoints",
+            ):
                 ann[task_type] = data
             elif task_type.startswith("metadata/"):
                 ann["metadata"] = {task_type[9:]: data}

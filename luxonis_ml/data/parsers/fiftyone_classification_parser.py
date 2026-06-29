@@ -5,6 +5,7 @@ from typing import Any
 from loguru import logger
 
 from luxonis_ml.data import DatasetIterator
+from luxonis_ml.data.utils.enums import ParserIssue
 
 from .base_parser import BaseParser, ParserOutput
 
@@ -50,7 +51,7 @@ class FiftyOneClassificationParser(BaseParser):
     U{FiftyOneImageClassificationDataset <https://docs.voxel51.com/user_guide/export_datasets.html#fiftyone-image-classification-dataset>}.
     """
 
-    SPLIT_NAMES: tuple[str, ...] = ("train", "validation", "test")
+    _SPLIT_NAMES: tuple[str, ...] = ("train", "validation", "test")
 
     @staticmethod
     def validate_split(split_path: Path) -> dict[str, Any] | None:
@@ -104,7 +105,7 @@ class FiftyOneClassificationParser(BaseParser):
         labels_path = split_path / "labels.json"
         data_path = split_path / "data"
 
-        is_flat_structure = split_path.name not in self.SPLIT_NAMES
+        is_flat_structure = split_path.name not in self._SPLIT_NAMES
         if is_flat_structure:
             labels_path = clean_imagenet_annotations(labels_path)
 
@@ -120,6 +121,12 @@ class FiftyOneClassificationParser(BaseParser):
         def generator() -> DatasetIterator:
             for image_stem, class_idx in labels.items():
                 if image_stem not in stem_to_path:
+                    self._warn_skipped_annotation(
+                        ParserIssue.MISSING_IMAGE_STEM,
+                        "label references an image stem that is not present in the split",
+                        source=labels_path,
+                        image=image_stem,
+                    )
                     continue
 
                 img_path = stem_to_path[image_stem]

@@ -64,7 +64,7 @@ class ClassificationDirectoryParser(BaseParser):
         fnames = [
             f
             for f in split_path.iterdir()
-            if f.is_file() and f.name not in ["info.json"]
+            if f.is_file() and f.name != "info.json"
         ]
         if fnames:
             return None

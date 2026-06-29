@@ -10,6 +10,8 @@ from luxonis_ml.data.exporters.exporter_utils import (
     exporter_specific_annotation_warning,
     split_of_group,
 )
+from luxonis_ml.enums import DatasetType
+from luxonis_ml.utils.path import path_to_posix
 
 from .base_exporter import BaseExporter
 
@@ -38,7 +40,7 @@ class YoloV6Exporter(BaseExporter):
         return "data.yaml"
 
     def supported_ann_types(self) -> list[str]:
-        return ["boundingbox"]
+        return DatasetType.YOLOV6.supported_annotation_formats
 
     def export(self, prepared_ldf: PreparedLDF) -> None:
         check_group_file_correspondence(prepared_ldf)
@@ -177,9 +179,9 @@ class YoloV6Exporter(BaseExporter):
         if yaml_filename:
             split_dirs = self.get_split_names()
             yaml_obj = {
-                "train": str(Path("images") / split_dirs["train"]),
-                "val": str(Path("images") / split_dirs["val"]),
-                "test": str(Path("images") / split_dirs["test"]),
+                "train": path_to_posix(Path("images") / split_dirs["train"]),
+                "val": path_to_posix(Path("images") / split_dirs["val"]),
+                "test": path_to_posix(Path("images") / split_dirs["test"]),
                 "nc": len(self.class_names),
                 "names": self.class_names,
             }

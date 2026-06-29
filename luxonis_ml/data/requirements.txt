@@ -12,3 +12,4 @@ gdown~=4.7
 defusedxml~=0.7
 pillow-heif<0.22.0
 matplotlib~=3.10
+requests~=2.32

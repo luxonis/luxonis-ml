@@ -5,10 +5,10 @@ from luxonis_ml.utils import Registry
 from .letterbox_resize import LetterboxResize
 from .mixup import MixUp
 from .mosaic import Mosaic4
-from .symetric_keypoints_flip import (
-    HorizontalSymetricKeypointsFlip,
+from .symmetric_keypoints_flip import (
+    HorizontalSymmetricKeypointsFlip,
     TransposeSymmetricKeypoints,
-    VerticalSymetricKeypointsFlip,
+    VerticalSymmetricKeypointsFlip,
 )
 
 TRANSFORMATIONS: Registry[type[A.BasicTransform]] = Registry(
@@ -18,16 +18,16 @@ TRANSFORMATIONS: Registry[type[A.BasicTransform]] = Registry(
 TRANSFORMATIONS.register(module=LetterboxResize)
 TRANSFORMATIONS.register(module=MixUp)
 TRANSFORMATIONS.register(module=Mosaic4)
-TRANSFORMATIONS.register(module=HorizontalSymetricKeypointsFlip)
-TRANSFORMATIONS.register(module=VerticalSymetricKeypointsFlip)
+TRANSFORMATIONS.register(module=HorizontalSymmetricKeypointsFlip)
+TRANSFORMATIONS.register(module=VerticalSymmetricKeypointsFlip)
 TRANSFORMATIONS.register(module=TransposeSymmetricKeypoints)
 
 __all__ = [
     "TRANSFORMATIONS",
-    "HorizontalSymetricKeypointsFlip",
+    "HorizontalSymmetricKeypointsFlip",
     "LetterboxResize",
     "MixUp",
     "Mosaic4",
     "TransposeSymmetricKeypoints",
-    "VerticalSymetricKeypointsFlip",
+    "VerticalSymmetricKeypointsFlip",
 ]

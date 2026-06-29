@@ -4,47 +4,47 @@ on:
   workflow_dispatch:
     inputs:
       ml_ref:
-        description: 'luxonis-ml version (branch/tag/SHA)'
+        description: "luxonis-ml version (branch/tag/SHA)"
         required: true
         type: string
         default: main
       train_ref:
-        description: 'luxonis-train version (branch/tag/SHA)'
+        description: "luxonis-train version (branch/tag/SHA)"
         required: true
         type: string
         default: main
       modelconv_ref:
-        description: 'modelconverter version (branch/tag/SHA)'
+        description: "modelconverter version (branch/tag/SHA)"
         required: true
         type: string
         default: main
       tools_ref:
-        description: 'luxonis-tools version (branch/tag/SHA)'
+        description: "luxonis-tools version (branch/tag/SHA)"
         required: true
         type: string
         default: main
       datadreamer_ref:
-        description: 'datadreamer version (branch/tag/SHA)'
+        description: "datadreamer version (branch/tag/SHA)"
         required: true
         type: string
         default: main
       run_train:
-        description: 'Run Luxonis Train tests'
+        description: "Run Luxonis Train tests"
         required: false
         type: boolean
         default: true
       run_modelconv:
-        description: 'Run Modelconverter tests'
+        description: "Run Modelconverter tests"
         required: false
         type: boolean
         default: true
       run_tools:
-        description: 'Run Luxonis Tools tests'
+        description: "Run Luxonis Tools tests"
         required: false
         type: boolean
         default: true
       run_datadreamer:
-        description: 'Run Datadreamer tests'
+        description: "Run Datadreamer tests"
         required: false
         type: boolean
         default: true
@@ -63,14 +63,14 @@ jobs:
       (github.event_name == 'pull_request' &&
        startsWith(github.head_ref, 'release/') &&
        github.event.pull_request.base.ref == 'main')
-    uses: Luxonis/luxonis-train/.github/workflows/tests.yaml@main
+    uses: Luxonis/luxonis-train/.github/workflows/tests.yaml@b218fe618f169833efcc6051f635d283ca7d606d
     with:
-      ml_ref:    ${{ github.event_name == 'workflow_dispatch' && inputs.ml_ref   || github.head_ref }}
+      ml_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ml_ref   || github.head_ref }}
       train_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.train_ref || 'main' }}
     secrets:
       GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
-      CODECOV_TOKEN:                  ${{ secrets.CODECOV_TOKEN }}
-      HUBAI_API_KEY:                  ${{ secrets.HUBAI_API_KEY }}
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      HUBAI_API_KEY: ${{ secrets.HUBAI_API_KEY }}
 
   test-modelconverter:
     name: Test Modelconverter
@@ -79,16 +79,16 @@ jobs:
       (github.event_name == 'pull_request' &&
        startsWith(github.head_ref, 'release/') &&
        github.event.pull_request.base.ref == 'main')
-    uses: Luxonis/modelconverter/.github/workflows/unittests.yaml@main
+    uses: Luxonis/modelconverter/.github/workflows/unittests.yaml@d5b6bf4b3f8f9db8f22f61a8bd4910efecf00b73
     with:
-      ml_ref:        ${{ github.event_name == 'workflow_dispatch' && inputs.ml_ref        || github.head_ref }}
+      ml_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ml_ref        || github.head_ref }}
       modelconv_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.modelconv_ref || 'main' }}
     secrets:
-      AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_S3_ENDPOINT_URL:   ${{ secrets.AWS_S3_ENDPOINT_URL }}
-      GCP_CREDENTIALS:       ${{ secrets.GCP_CREDENTIALS }}
-      HUBAI_API_KEY:         ${{ secrets.HUBAI_API_KEY }}
+      AWS_S3_ENDPOINT_URL: ${{ secrets.AWS_S3_ENDPOINT_URL }}
+      GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
+      HUBAI_API_KEY: ${{ secrets.HUBAI_API_KEY }}
 
   test-luxonis-tools:
     name: Test Luxonis Tools
@@ -97,9 +97,9 @@ jobs:
       (github.event_name == 'pull_request' &&
        startsWith(github.head_ref, 'release/') &&
        github.event.pull_request.base.ref == 'main')
-    uses: Luxonis/tools/.github/workflows/unittests.yaml@main
+    uses: Luxonis/tools/.github/workflows/unittests.yaml@e58531f2f2c4bcd6cb1d62a01eb98b94a9b9dda6
     with:
-      ml_ref:    ${{ github.event_name == 'workflow_dispatch' && inputs.ml_ref   || github.head_ref }}
+      ml_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ml_ref   || github.head_ref }}
       tools_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tools_ref || 'main' }}
 
   test-datadreamer:
@@ -109,7 +109,7 @@ jobs:
       (github.event_name == 'pull_request' &&
        startsWith(github.head_ref, 'release/') &&
        github.event.pull_request.base.ref == 'main')
-    uses: Luxonis/datadreamer/.github/workflows/unit-tests.yaml@main
+    uses: Luxonis/datadreamer/.github/workflows/unit-tests.yaml@2156d0d899eda304c8746c5394a70a1af8584e0f
     with:
-      ml_ref:           ${{ github.event_name == 'workflow_dispatch' && inputs.ml_ref           || github.head_ref }}
-      datadreamer_ref:  ${{ github.event_name == 'workflow_dispatch' && inputs.datadreamer_ref || 'main' }}
+      ml_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ml_ref           || github.head_ref }}
+      datadreamer_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.datadreamer_ref || 'main' }}

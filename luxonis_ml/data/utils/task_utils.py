@@ -42,7 +42,7 @@ def get_task_name(task: str) -> str:
     @rtype: str
     @return: The task name.
     """
-    return task.split("/")[0]
+    return task.split("/", maxsplit=1)[0]
 
 
 @lru_cache
@@ -73,7 +73,7 @@ def get_task_type(task: str) -> str:
         return parts[1]
     if parts[-2] == "metadata":
         return f"metadata/{parts[-1]}"
-    return task.split("/")[-1]
+    return task.rsplit("/", maxsplit=1)[-1]
 
 
 def task_type_iterator(

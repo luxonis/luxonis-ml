@@ -65,7 +65,6 @@ file = [
 file = [
   "luxonis_ml/data/requirements.txt",
   "luxonis_ml/utils/requirements.txt",
-  "luxonis_ml/utils/requirements-fsspec.txt",
   "luxonis_ml/tracker/requirements.txt",
   "luxonis_ml/nn_archive/requirements.txt",
   "extra_requirements/roboflow.txt",
@@ -176,7 +175,11 @@ paths = ["luxonis_train"]
 exclude = ["luxonis_ml/tracker", "examples", "__main__.py"]
 
 [tool.pytest]
-doctest_optionflags = "NORMALIZE_WHITESPACE IGNORE_EXCEPTION_DETAIL NUMBER"
+doctest_optionflags = [
+  "NORMALIZE_WHITESPACE",
+  "IGNORE_EXCEPTION_DETAIL",
+  "NUMBER",
+]
 testpaths = ["tests"]
 addopts = ["--disable-warnings"]
 

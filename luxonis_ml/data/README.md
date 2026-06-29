@@ -5,7 +5,7 @@
 LuxonisML Data is a library for creating and interacting with datasets in the LuxonisDataFormat (LDF).
 
 > [!NOTE]
-> For hands-on examples of how to prepare and iteract with `LuxonisML` datasets, check out [this guide](https://github.com/luxonis/ai-tutorials/tree/main/training#%EF%B8%8F-prepare-data-using-luxonis-ml).
+> For hands-on examples of how to prepare and interact with `LuxonisML` datasets, check out [this guide](https://github.com/luxonis/ai-tutorials/tree/main/training#%EF%B8%8F-prepare-data-using-luxonis-ml).
 
 The lifecycle of an LDF dataset is as follows:
 
@@ -349,6 +349,14 @@ The available commands are:
 
 For more information, run `luxonis_ml data --help` or pass the `--help` flag to any of the above commands.
 
+Examples:
+
+```bash
+luxonis_ml data export my_dataset --type ultralytics-ndjson
+luxonis_ml data export my_dataset --type ultralytics-ndjson-instancesegmentation
+luxonis_ml data export my_dataset --type ultralytics-ndjson-keypoints
+```
+
 ## LuxonisLoader
 
 `LuxonisLoader` provides an easy way to load datasets in the Luxonis Data Format. It is designed to work with the `LuxonisDataset` class and provides an abstraction over the dataset, allowing you to iterate over the stored data.
@@ -453,6 +461,54 @@ The supported formats are:
         │   └── test/
         └── *.yaml
     ```
+
+- [**Ultralytics NDJSON**](https://docs.ultralytics.com/datasets/detect/#ultralytics-ndjson-format) - A single `.ndjson` file with per-image records. The parser supports both local file paths and remote image URLs in each record.
+
+  ```plaintext
+      dataset_dir/
+      ├── dataset.ndjson
+      ├── train/
+      ├── val/
+      └── test/
+  ```
+
+  Or a standalone manifest when the file paths are remote:
+
+  ```plaintext
+  dataset.ndjson
+  ```
+
+  Each image record can either:
+
+  - reference a local image path through `file`
+  - reference a remote image through `url` while still using `file` as the local cached filename
+
+  The supported Luxonis dataset type is:
+
+  ```python
+  DatasetType.ULTRALYTICSNDJSON
+  ```
+
+  Task-specific export targets are also available:
+
+  ```python
+  DatasetType.ULTRALYTICSNDJSONINSTANCESEGMENTATION
+  DatasetType.ULTRALYTICSNDJSONKEYPOINTS
+  ```
+
+  These map to task-specific Ultralytics manifests:
+
+  - `DatasetType.ULTRALYTICSNDJSON` writes detection NDJSON with `task="detect"` and only `boxes`
+  - `DatasetType.ULTRALYTICSNDJSONINSTANCESEGMENTATION` writes segmentation NDJSON with `task="segment"` and only `segments`
+  - `DatasetType.ULTRALYTICSNDJSONKEYPOINTS` writes pose NDJSON with `task="pose"` and only `pose`
+
+  CLI `--type` values:
+
+  ```plaintext
+  ultralytics-ndjson
+  ultralytics-ndjson-instancesegmentation
+  ultralytics-ndjson-keypoints
+  ```
 
 - [**Pascal VOC XML**](https://roboflow.com/formats/pascal-voc-xml)
 
@@ -963,6 +1019,7 @@ The augmentations are specified as a list of dictionaries, where each dictionary
 ```python
 {
     "name": str,  # name of the augmentation
+    "apply_on_stages": ["train"],  # optional, defaults to ["train"]
     "params": dict  # parameters of the augmentation
 }
 ```
@@ -973,8 +1030,8 @@ By default, we support most augmentations from the `albumentations` library. You
 > will flip images and keypoints but **do not** swap symmetric keypoints\
 > (e.g., left/right joints in human poses). For tasks with symmetric keypoint structures, use our custom augmentations:
 >
-> - `HorizontalSymetricKeypointsFlip`
-> - `VerticalSymetricKeypointsFlip`
+> - `HorizontalSymmetricKeypointsFlip`
+> - `VerticalSymmetricKeypointsFlip`
 > - `TransposeSymmetricKeypoints`
 
 On top of that, we provide a handful of custom batch augmentations:

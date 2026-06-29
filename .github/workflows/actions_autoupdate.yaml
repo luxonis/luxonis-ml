@@ -1,0 +1,22 @@
+name: GitHub Actions Version Updater
+
+on:
+  schedule:
+    - cron: "0 0 * * 0"
+  workflow_dispatch:
+
+jobs:
+  update-github-actions:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          token: ${{ secrets.WORKFLOW_SECRET }}
+
+      - name: Run GitHub Actions Version Updater
+        uses: saadmk11/github-actions-version-updater@d8781caf11d11168579c8e5e94f62b068038f442
+        with:
+          token: ${{ secrets.WORKFLOW_SECRET }}
+          update_version_with: "release-commit-sha"
+          pull_request_labels: "automated"

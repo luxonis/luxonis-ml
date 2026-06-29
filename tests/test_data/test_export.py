@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import polars as pl
@@ -5,22 +6,29 @@ import pytest
 from pytest_subtests import SubTests
 
 from luxonis_ml.data import LuxonisLoader, LuxonisParser
+from luxonis_ml.data.datasets.base_dataset import DatasetIterator
 from luxonis_ml.enums.enums import DatasetType
 
-# SOLO does not have an associated exporter,
-# SEGMASK, CLSDIR, and FIFTYONECLS return empty directories
-# because COCO_people_subset does not contain
-# image-level masks or classification labels
+from .utils import create_dataset, create_image
+
+# Export formats applicable to COCO_people_subset in this test module.
+# Types that require image-level masks or classification labels are
+# intentionally omitted because this fixture does not contain them.
 EXPORT_DATASET_TYPES = [
-    dt
-    for dt in list(DatasetType)
-    if dt
-    not in {
-        DatasetType.SEGMASK,
-        DatasetType.CLSDIR,
-        DatasetType.SOLO,
-        DatasetType.FIFTYONECLS,
-    }
+    DatasetType.COCO,
+    DatasetType.VOC,
+    DatasetType.DARKNET,
+    DatasetType.YOLOV6,
+    DatasetType.YOLOV4,
+    DatasetType.CREATEML,
+    DatasetType.TFCSV,
+    DatasetType.NATIVE,
+    DatasetType.YOLOV8BOUNDINGBOX,
+    DatasetType.YOLOV8INSTANCESEGMENTATION,
+    DatasetType.YOLOV8KEYPOINTS,
+    DatasetType.ULTRALYTICSNDJSON,
+    DatasetType.ULTRALYTICSNDJSONINSTANCESEGMENTATION,
+    DatasetType.ULTRALYTICSNDJSONKEYPOINTS,
 ]
 
 
@@ -96,6 +104,48 @@ def test_dir_parser(
     del imported_metadata["skeletons"]
     assert imported_metadata == metadata
     assert imported_anns == anns
+
+
+def test_native_export_import_preserves_record_metadata(
+    dataset_name: str,
+    tempdir: Path,
+):
+    def generator() -> DatasetIterator:
+        for i in range(2):
+            yield {
+                "file": create_image(i, tempdir),
+                "annotation": {
+                    "class": "person",
+                    "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1},
+                    "instance_id": i,
+                },
+                "sample_metadata": {
+                    "record_id": i,
+                    "origin": "native-roundtrip",
+                },
+            }
+
+    dataset = create_dataset(dataset_name, generator(), splits=(1, 0, 0))
+    export_path = dataset.export(
+        tempdir / "exported", dataset_type=DatasetType.NATIVE
+    )
+    assert isinstance(export_path, Path)
+    exported_dataset_path = Path(export_path) / dataset.identifier
+    imported_dataset = LuxonisParser(
+        str(exported_dataset_path),
+        dataset_type=DatasetType.NATIVE,
+        dataset_name=f"{dataset_name}_imported",
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()
+    imported_dataset.make_splits((1, 0, 0), replace_old_splits=True)
+
+    metadata = sorted(
+        (data.metadata for data in LuxonisLoader(imported_dataset)),
+        key=lambda item: item["record_id"],  # type: ignore
+    )
+    assert [item["record_id"] for item in metadata] == [0, 1]
+    assert {item["origin"] for item in metadata} == {"native-roundtrip"}
 
 
 @pytest.mark.parametrize("url", ["COCO_people_subset.zip"])
@@ -239,3 +289,87 @@ def test_export_no_partition(
         original_split = sorted(original_splits[split])
         new_split = sorted(new_splits[split])
         assert original_split == new_split
+
+
+@pytest.mark.parametrize(
+    (
+        "url",
+        "source_dataset_type",
+        "export_dataset_type",
+        "expected_task",
+        "expected_annotation_key",
+    ),
+    [
+        (
+            "fruit_ndjson.zip",
+            DatasetType.ULTRALYTICSNDJSON,
+            DatasetType.ULTRALYTICSNDJSON,
+            "detect",
+            "boxes",
+        ),
+        (
+            "COCO_people_subset.zip",
+            None,
+            DatasetType.ULTRALYTICSNDJSONINSTANCESEGMENTATION,
+            "segment",
+            "segments",
+        ),
+        (
+            "COCO_people_subset.zip",
+            None,
+            DatasetType.ULTRALYTICSNDJSONKEYPOINTS,
+            "pose",
+            "pose",
+        ),
+    ],
+)
+def test_ultralytics_ndjson_export_relative_file_paths(
+    dataset_name: str,
+    storage_url: str,
+    tempdir: Path,
+    url: str,
+    source_dataset_type: DatasetType | None,
+    export_dataset_type: DatasetType,
+    expected_task: str,
+    expected_annotation_key: str,
+):
+    url = f"{storage_url.rstrip('/')}/{url}"
+    dataset = LuxonisParser(
+        url,
+        dataset_name=dataset_name,
+        dataset_type=source_dataset_type,
+        delete_local=True,
+        save_dir=tempdir,
+    ).parse()
+
+    export_dir = tempdir / "exported"
+    dataset.export(
+        output_path=export_dir,
+        dataset_type=export_dataset_type,
+    )
+
+    base = export_dir / dataset_name
+    ndjson_path = base / "dataset.ndjson"
+    lines = ndjson_path.read_text(encoding="utf-8").splitlines()
+    records = [json.loads(line) for line in lines]
+
+    assert records[0]["type"] == "dataset"
+    assert records[0]["task"] == expected_task
+    if expected_task == "pose":
+        assert "kpt_shape" in records[0]
+
+    found_expected_annotations = False
+    for record in records[1:]:
+        assert record["type"] == "image"
+        assert "url" not in record
+        relative_path = Path(record["file"])
+        assert not relative_path.is_absolute()
+        assert relative_path.parts[0] in {"train", "val", "test"}
+        assert (base / relative_path).exists()
+
+        annotations = record.get("annotations") or {}
+        if expected_annotation_key in annotations:
+            found_expected_annotations = True
+            assert set(annotations) == {expected_annotation_key}
+
+    assert found_expected_annotations

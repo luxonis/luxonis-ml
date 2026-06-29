@@ -96,6 +96,49 @@ def test_mixup(
     augmentations.apply([(images_dict, deepcopy(labels)) for _ in range(2)])
 
 
+def test_at_least_one_bbox_random_crop() -> None:
+    """Test that AtLeastOneBBoxRandomCrop guarantees at least one bbox.
+
+    This is a test for ensuring that the correct "bboxes" key is passed
+    to Albumentations transforms that read data["bboxes"] directly.
+    """
+    image = np.random.randint(0, 255, (320, 320, 3), dtype=np.uint8)
+    images_dict = {"image": image}
+    labels: Labels = {
+        "task/boundingbox": np.array(
+            [
+                [0.0, 0.5, 0.5, 0.1, 0.1],
+            ]
+        ),
+    }
+    targets = {"task/boundingbox": "boundingbox"}
+    n_classes = {"task/boundingbox": 1}
+    config = [
+        {
+            "name": "AtLeastOneBBoxRandomCrop",
+            "params": {
+                "height": 40,
+                "width": 40,
+                "erosion_factor": 0.0,
+                "p": 1.0,
+            },
+        }
+    ]
+    engine = AlbumentationsEngine(
+        256, 256, targets, n_classes, ["image"], config
+    )
+    for _ in range(10):
+        _, out_labels = engine.apply([(images_dict, deepcopy(labels))])
+        bboxes = out_labels.get("task/boundingbox")
+        assert bboxes is not None, (
+            "AtLeastOneBBoxRandomCrop should produce bounding box output"
+        )
+        assert len(bboxes) > 0, (
+            "AtLeastOneBBoxRandomCrop should guarantee at least one "
+            "bounding box per crop"
+        )
+
+
 def test_batched_p_0(
     images_dict: dict[str, np.ndarray],
     labels: Labels,

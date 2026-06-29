@@ -46,6 +46,7 @@ class Environ(BaseSettings):
     LUXONIS_TELEMETRY_IS_LUXONIS_CLOUD: bool = False
 
     ROBOFLOW_API_KEY: SecretStr | None = None
+    ULTRALYTICS_API_KEY: SecretStr | None = None
 
     GOOGLE_APPLICATION_CREDENTIALS: SecretStr | None = None
 
