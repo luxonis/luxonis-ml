@@ -3,6 +3,7 @@ import json
 import random
 import warnings
 from collections import defaultdict
+from copy import deepcopy
 from pathlib import Path
 from typing import Literal, cast
 
@@ -25,6 +26,7 @@ from luxonis_ml.data.datasets import (
     UpdateMode,
     load_annotation,
 )
+from luxonis_ml.data.datasets.annotation import DatasetRecord
 from luxonis_ml.data.loaders.base_loader import BaseLoader
 from luxonis_ml.data.utils import (
     get_task_name,
@@ -35,9 +37,7 @@ from luxonis_ml.data.utils import (
 from luxonis_ml.data.utils.task_utils import task_is_metadata
 from luxonis_ml.typing import (
     Labels,
-    LoaderMultiOutput,
     LoaderOutput,
-    LoaderSingleOutput,
     Params,
     PathType,
 )
@@ -66,6 +66,7 @@ class LuxonisLoader(BaseLoader):
         keep_categorical_as_strings: bool = False,
         update_mode: UpdateMode | Literal["all", "missing"] = UpdateMode.ALL,
         filter_task_names: list[str] | None = None,
+        autopopulate_metadata: bool = True,
     ) -> None:
         """A loader class used for loading data from L{LuxonisDataset}.
 
@@ -133,6 +134,10 @@ class LuxonisLoader(BaseLoader):
         @param filter_task_names: List of task names to filter the dataset by.
             If C{None}, all task names are included. Defaults to C{None}.
             This is useful for filtering out tasks that are not needed for a specific use case.
+
+        @type autopopulate_metadata: bool
+        @param autopopulate_metadata: Whether to automatically
+            populate metadata for the dataset.
         """
 
         self.dataset = dataset
@@ -144,6 +149,7 @@ class LuxonisLoader(BaseLoader):
         self._width = width
         self._view = [view] if isinstance(view, str) else view
 
+        self._autopopulate_metadata = autopopulate_metadata
         self._exclude_empty_annotations = exclude_empty_annotations
         self._keep_categorical_as_strings = keep_categorical_as_strings
         self._filter_task_names = filter_task_names
@@ -181,6 +187,11 @@ class LuxonisLoader(BaseLoader):
                 for task_name in self._filter_task_names
                 if task_name in self._classes
             }
+
+        self._df_col_indices = {
+            column: i for i, column in enumerate(self._df.columns)
+        }
+
         self.classes = self.dataset.get_classes()
         self._instances: list[str] = []
         splits_path = self.dataset._metadata_path / "splits.json"
@@ -214,7 +225,7 @@ class LuxonisLoader(BaseLoader):
 
         self._idx_to_img_paths = self._precompute_image_paths()
 
-        _, test_labels = self._load_data(0)
+        _, test_labels, _ = self._load_data(0)
         for task, seg_masks in task_type_iterator(test_labels, "segmentation"):
             task_name = get_task_name(task)
             if seg_masks.shape[0] > 1 and (
@@ -269,15 +280,15 @@ class LuxonisLoader(BaseLoader):
 
         @type idx: int
         @param idx: The integer index of the sample to retrieve.
-        @rtype: L{LuxonisLoaderOutput}
+        @rtype: L{LoaderOutput}
         @return: The loader output consisting of the image and a
             dictionary defining its annotations.
         """
 
         if self._augmentations is None:
-            img_dict, labels = self._load_data(idx)
+            img_dict, labels, metadata = self._load_data(idx)
         else:
-            img_dict, labels = self._load_with_augmentations(idx)
+            img_dict, labels, metadata = self._load_with_augmentations(idx)
 
         if not self._exclude_empty_annotations:
             img_dict, labels = self._add_empty_annotations(img_dict, labels)
@@ -288,15 +299,11 @@ class LuxonisLoader(BaseLoader):
             img_dict[source_name] = cv2.cvtColor(
                 img_dict[source_name], cv2.COLOR_RGB2BGR
             )
-
-        if len(self._source_names) == 1:
-            img = next(iter(img_dict.values()))
-            return cast(LoaderSingleOutput, (img, labels))
-        return cast(LoaderMultiOutput, (img_dict, labels))
+        return LoaderOutput(img_dict, labels, metadata)
 
     def _add_empty_annotations(
         self, img_dict: dict[str, np.ndarray], labels: Labels
-    ) -> LoaderMultiOutput:
+    ) -> tuple[dict[str, np.ndarray], Labels]:
         image_height, image_width = next(iter(img_dict.values())).shape[:2]
         for task_name, task_types in self.dataset.get_tasks().items():
             if (
@@ -331,7 +338,9 @@ class LuxonisLoader(BaseLoader):
 
         return img_dict, labels
 
-    def _load_data(self, idx: int) -> LoaderMultiOutput:
+    def _load_data(
+        self, idx: int
+    ) -> tuple[dict[str, np.ndarray], Labels, Params]:
         """Loads image and its annotations based on index.
 
         @type idx: int
@@ -349,9 +358,27 @@ class LuxonisLoader(BaseLoader):
 
         ann_indices = self._idx_to_df_row[idx]
         ann_rows = [self._df.row(row) for row in ann_indices]
+        col = self._df_col_indices
+
+        sample_metadata: Params = {}
+        metadata_idx = col.get("sample_metadata")
+        for row in ann_rows:
+            sample_metadata = DatasetRecord.decode_metadata(
+                row[metadata_idx] if metadata_idx is not None else None
+            )
+
+        source_to_path = self._idx_to_img_paths[idx]
+
+        if self._autopopulate_metadata:
+            sample_metadata = {
+                "filenames": {
+                    source_name: path.name
+                    for source_name, path in source_to_path.items()
+                },
+                **sample_metadata,
+            }
 
         img_dict: dict[str, np.ndarray] = {}
-        source_to_path = self._idx_to_img_paths[idx]
 
         for source_name, path in source_to_path.items():
             color_space = self._color_space.get(source_name, "RGB")
@@ -383,11 +410,11 @@ class LuxonisLoader(BaseLoader):
         )
 
         for annotation_data in ann_rows:
-            task_name: str = annotation_data[2]
-            class_name: str | None = annotation_data[3]
-            instance_id: int = annotation_data[4]
-            task_type: str = annotation_data[5]
-            ann_str: str | None = annotation_data[6]
+            task_name: str = annotation_data[col["task_name"]]
+            class_name: str | None = annotation_data[col["class_name"]]
+            instance_id: int = annotation_data[col["instance_id"]]
+            task_type: str = annotation_data[col["task_type"]]
+            ann_str: str | None = annotation_data[col["annotation"]]
 
             if ann_str is None:
                 continue
@@ -449,9 +476,11 @@ class LuxonisLoader(BaseLoader):
 
             labels[task] = array
 
-        return img_dict, labels
+        return img_dict, labels, sample_metadata
 
-    def _load_with_augmentations(self, idx: int) -> LoaderMultiOutput:
+    def _load_with_augmentations(
+        self, idx: int
+    ) -> tuple[dict[str, np.ndarray], Labels, Params]:
         indices = [idx]
         assert self._augmentations is not None
         if self._augmentations.batch_size > 1:
@@ -477,8 +506,32 @@ class LuxonisLoader(BaseLoader):
 
             indices.extend(picked_indices)
 
-        loaded_anns = [self._load_data(i) for i in indices]
-        return self._augmentations.apply(loaded_anns)
+        loaded_anns: list[tuple[dict[str, np.ndarray], Labels]] = []
+        sample_metadata_list: list[Params] = []
+        for i in indices:
+            img_dict, labels, sample_etadata = self._load_data(i)
+            loaded_anns.append((img_dict, labels))
+            sample_metadata_list.append(sample_etadata)
+
+        img_dict, labels = self._augmentations.apply(loaded_anns)
+        sample_etadata = self._merge_sample_metadata(sample_metadata_list)
+        return img_dict, labels, sample_etadata
+
+    @staticmethod
+    def _merge_sample_metadata(metadata_batch: list[Params]) -> Params:
+        if not metadata_batch:
+            return {}
+
+        metadata = deepcopy(metadata_batch[0])
+
+        metadata["batch_augmentation_metadata"] = [  # type: ignore
+            {
+                "input_index": i,
+                "sample_metadata": deepcopy(m),
+            }
+            for i, m in enumerate(metadata_batch)
+        ]
+        return metadata
 
     def _init_augmentations(
         self,
@@ -564,6 +617,7 @@ class LuxonisLoader(BaseLoader):
 
     def _precompute_image_paths(self) -> dict[int, dict[str, Path]]:
         idx_to_img_paths = {}
+        col = self._df_col_indices
 
         for idx, ann_indices in enumerate(self._idx_to_df_row):
             ann_rows = [self._df.row(row) for row in ann_indices]
@@ -571,9 +625,9 @@ class LuxonisLoader(BaseLoader):
             source_to_path = {}
 
             for row in ann_rows:
-                path = Path(row[0])
-                source_name: str = row[1]
-                uuid: str = row[7]
+                path = Path(row[col["file"]])
+                source_name = row[col["source_name"]]
+                uuid = row[col["uuid"]]
 
                 if source_name in source_to_path:
                     continue

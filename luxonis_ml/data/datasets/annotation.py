@@ -23,7 +23,12 @@ from pydantic_core import core_schema
 from typing_extensions import Self, override
 
 from luxonis_ml.data.utils.parquet import ParquetRecord
-from luxonis_ml.typing import BaseModelExtraForbid, PathType, check_type
+from luxonis_ml.typing import (
+    BaseModelExtraForbid,
+    Params,
+    PathType,
+    check_type,
+)
 from luxonis_ml.utils.logging import log_once
 
 KeypointVisibility: TypeAlias = Literal[0, 1, 2]
@@ -544,6 +549,7 @@ class DatasetRecord(BaseModelExtraForbid):
     files: dict[str, FilePath]
     annotation: Detection | None = None
     task_name: str = ""
+    sample_metadata: Params = Field(default_factory=dict)
 
     @property
     def file(self) -> FilePath:
@@ -615,6 +621,7 @@ class DatasetRecord(BaseModelExtraForbid):
                     "instance_id": None,
                     "task_type": None,
                     "annotation": None,
+                    "sample_metadata": json.dumps(self.sample_metadata),
                 }
             else:
                 for task_type in [
@@ -635,6 +642,9 @@ class DatasetRecord(BaseModelExtraForbid):
                             "instance_id": annotation.instance_id,
                             "task_type": task_type,
                             "annotation": label.model_dump_json(),
+                            "sample_metadata": json.dumps(
+                                self.sample_metadata
+                            ),
                         }
                 for key, data in annotation.metadata.items():
                     yield {
@@ -645,6 +655,7 @@ class DatasetRecord(BaseModelExtraForbid):
                         "instance_id": annotation.instance_id,
                         "task_type": f"metadata/{key}",
                         "annotation": json.dumps(data),
+                        "sample_metadata": json.dumps(self.sample_metadata),
                     }
                 if annotation.class_name is not None:
                     yield {
@@ -655,11 +666,20 @@ class DatasetRecord(BaseModelExtraForbid):
                         "instance_id": annotation.instance_id,
                         "task_type": "classification",
                         "annotation": "{}",
+                        "sample_metadata": json.dumps(self.sample_metadata),
                     }
                 for name, detection in annotation.sub_detections.items():
                     yield from self._to_parquet_rows(
                         detection, f"{task_name}/{name}"
                     )
+
+    @staticmethod
+    def decode_metadata(value: Any) -> Params:
+        if value in (None, ""):
+            return {}
+        if isinstance(value, str):
+            value = json.loads(value)
+        return value if isinstance(value, dict) else {}
 
 
 def load_annotation(task_type: str, data: dict[str, Any]) -> "Annotation":
