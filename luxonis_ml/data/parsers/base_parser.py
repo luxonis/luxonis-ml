@@ -22,9 +22,9 @@ ParserOutput = tuple[DatasetIterator, dict[str, dict], list[Path]]
 
 
 class BaseParser(ABC):
-    SPLIT_NAMES: tuple[str, ...] = ("train", "valid", "test")
-    CANONICAL_SPLIT_NAMES: tuple[str, ...] = ("train", "val", "test")
-    SKIPPED_WARNING_LIMIT = 50
+    _SPLIT_NAMES: tuple[str, ...] = ("train", "valid", "test")
+    _CANONICAL_SPLIT_NAMES: tuple[str, ...] = ("train", "val", "test")
+    _SKIPPED_WARNING_LIMIT: int = 50
 
     def __init__(
         self,
@@ -45,31 +45,34 @@ class BaseParser(ABC):
             a dictionary with class names as keys and task names as values.
             In the latter case, the task name for a record with a given
             class name will be taken from the dictionary.
+        @type full_warnings: bool
+        @param full_warnings: If C{True}, all warnings will be logged.
+            If C{False}, only the first 50 warnings will be logged.
         """
-        self.dataset = dataset
-        self.dataset_type = dataset_type
+        self._dataset = dataset
+        self._dataset_type = dataset_type
         if isinstance(task_name, str):
-            self.task_name = defaultdict(lambda: task_name)
+            self._task_name = defaultdict(lambda: task_name)
         else:
-            self.task_name = task_name
-        self.full_warnings = full_warnings
+            self._task_name = task_name
         self._parser_issue_messages: list[ParserIssueMessage] = []
         self._seen_parser_issue_messages: set[ParserIssueMessage] = set()
+        self._full_warnings = full_warnings
         self._logged_skipped_annotation_warnings = 0
         self._suppressed_skipped_annotation_warnings = 0
         self._skipped_annotation_counts_by_reason: dict[str, int] = (
             defaultdict(int)
         )
 
-    def reset_parser_issue_messages(self) -> None:
-        """Clears collected parser issue messages."""
-        self._parser_issue_messages.clear()
-        self._seen_parser_issue_messages.clear()
+    def _reset_parser_issue_messages(self) -> None:
         self._logged_skipped_annotation_warnings = 0
         self._suppressed_skipped_annotation_warnings = 0
+
+        self._parser_issue_messages.clear()
+        self._seen_parser_issue_messages.clear()
         self._skipped_annotation_counts_by_reason.clear()
 
-    def get_parser_issue_messages(self) -> list[ParserIssueMessage]:
+    def _get_parser_issue_messages(self) -> list[ParserIssueMessage]:
         """Returns collected parser issue messages from the last
         parse."""
         return list(self._parser_issue_messages)
@@ -100,15 +103,15 @@ class BaseParser(ABC):
         splits = [
             d.name
             for d in dataset_dir.iterdir()
-            if d.is_dir() and d.name in cls.SPLIT_NAMES
+            if d.is_dir() and d.name in cls._SPLIT_NAMES
         ]
         if len(splits) == 0:
             return False
 
         return all(cls.validate_split(dataset_dir / split) for split in splits)
 
-    @classmethod
-    def _canonicalize_split_name(cls, split_name: str) -> str:
+    @staticmethod
+    def _canonicalize_split_name(split_name: str) -> str:
         """All current parsers use `train` and `test` split names
         whereas validation splits can vary in name between `val` `valid`
         and `validation`.
@@ -126,7 +129,7 @@ class BaseParser(ABC):
         """Returns present and valid split directories keyed by their
         canonical split names."""
         discovered: dict[str, dict[str, Any]] = {}
-        for split_name in cls.SPLIT_NAMES:
+        for split_name in cls._SPLIT_NAMES:
             split_kwargs = cls.validate_split(dataset_dir / split_name)
             if split_kwargs is None:
                 continue
@@ -177,19 +180,18 @@ class BaseParser(ABC):
         @return: List of added images.
         """
         generator, skeletons, added_images = self.from_split(**kwargs)
-        self.dataset.add(self._wrap_generator(generator))
+        self._dataset.add(self._wrap_generator(generator))
         if skeletons:
             for skeleton in skeletons.values():
-                self.dataset.set_skeletons(
+                self._dataset.set_skeletons(
                     skeleton.get("labels"),
                     skeleton.get("edges"),
                 )
         return added_images
 
+    @staticmethod
     def _apply_counts_to_pool(
-        self,
-        images: Sequence[PathType],
-        split_ratios: dict[str, int],
+        images: Sequence[PathType], split_ratios: dict[str, int]
     ) -> dict[str, Sequence[PathType]]:
         """Distributes images across splits based on counts.
 
@@ -241,8 +243,8 @@ class BaseParser(ABC):
             offset += count
         return sampled
 
+    @staticmethod
     def _sample_from_splits(
-        self,
         original_splits: dict[str, Sequence[PathType]],
         split_ratios: dict[str, int],
     ) -> dict[str, Sequence[PathType]]:
@@ -301,12 +303,12 @@ class BaseParser(ABC):
         @rtype: LuxonisDataset
         @return: C{LDF} with all the images and annotations parsed.
         """
-        self.reset_parser_issue_messages()
+        self._reset_parser_issue_messages()
         try:
             added_images = self._parse_split(**kwargs)
 
             if split is not None:
-                self.dataset.make_splits({split: added_images})
+                self._dataset.make_splits({split: added_images})
             elif random_split:
                 is_counts = split_ratios is not None and all(
                     isinstance(v, int) for v in split_ratios.values()
@@ -316,11 +318,11 @@ class BaseParser(ABC):
                         added_images,
                         split_ratios,  # type: ignore[arg-type]
                     )
-                    self.dataset.make_splits(sampled)
+                    self._dataset.make_splits(sampled)
                     self._remove_unsplit_records()
                 else:
-                    self.dataset.make_splits(split_ratios)
-            return self.dataset
+                    self._dataset.make_splits(split_ratios)
+            return self._dataset
         finally:
             self._log_skipped_annotation_summary()
 
@@ -335,7 +337,7 @@ class BaseParser(ABC):
         @rtype: LuxonisDataset
         @return: C{LDF} with all the images and annotations parsed.
         """
-        self.reset_parser_issue_messages()
+        self._reset_parser_issue_messages()
         try:
             split_ratios = kwargs.pop("split_ratios", None)
             is_counts = split_ratios is not None and all(
@@ -369,17 +371,17 @@ class BaseParser(ABC):
 
             original_splits: dict[str, Sequence[PathType]] = {
                 split_name: split_definitions.get(split_name, [])
-                for split_name in self.CANONICAL_SPLIT_NAMES
+                for split_name in self._CANONICAL_SPLIT_NAMES
             }
 
             if split_ratios is None:
-                self.dataset.make_splits(original_splits)
+                self._dataset.make_splits(original_splits)
             elif is_counts:
                 sampled = self._apply_counts_to_splits(
                     original_splits,
                     split_ratios,  # type: ignore[arg-type]
                 )
-                self.dataset.make_splits(sampled)
+                self._dataset.make_splits(sampled)
                 self._remove_unsplit_records()
             else:
                 logger.warning(
@@ -387,9 +389,9 @@ class BaseParser(ABC):
                     "and shuffle all samples across splits. Original split "
                     "boundaries will not be preserved."
                 )
-                self.dataset.make_splits(split_ratios)
+                self._dataset.make_splits(split_ratios)
 
-            return self.dataset
+            return self._dataset
         finally:
             self._log_skipped_annotation_summary()
 
@@ -405,8 +407,8 @@ class BaseParser(ABC):
             )
         return split_definitions
 
+    @staticmethod
     def _apply_counts_to_splits(
-        self,
         original_splits: dict[str, Sequence[PathType]],
         split_ratios: dict[str, int],
     ) -> dict[str, Sequence[PathType]]:
@@ -423,13 +425,13 @@ class BaseParser(ABC):
         @rtype: Dict[str, Sequence[PathType]]
         @return: Dictionary mapping split names to assigned images.
         """
-        return self._sample_from_splits(original_splits, split_ratios)
+        return BaseParser._sample_from_splits(original_splits, split_ratios)
 
     def _remove_unsplit_records(self) -> None:
         """Removes records from the dataset that are not assigned to any
         split."""
         # Cast to LuxonisDataset to access internal methods
-        dataset: LuxonisDataset = self.dataset  # type: ignore[assignment]
+        dataset: LuxonisDataset = self._dataset  # type: ignore[assignment]
 
         splits = dataset.get_splits()
         if splits is None:
@@ -510,9 +512,9 @@ class BaseParser(ABC):
 
         suffix = f" ({', '.join(details)})" if details else ""
         if (
-            self.full_warnings
+            self._full_warnings
             or self._logged_skipped_annotation_warnings
-            < self.SKIPPED_WARNING_LIMIT
+            < self._SKIPPED_WARNING_LIMIT
         ):
             logger.warning(f"Skipping annotation: {reason}{suffix}")
             self._logged_skipped_annotation_warnings += 1
@@ -521,7 +523,7 @@ class BaseParser(ABC):
 
     def _log_skipped_annotation_summary(self) -> None:
         if (
-            self.full_warnings
+            self._full_warnings
             or self._suppressed_skipped_annotation_warnings == 0
         ):
             return
@@ -615,9 +617,9 @@ class BaseParser(ABC):
             if isinstance(item, dict):
                 item = DatasetRecord(**item)
 
-            if self.task_name is not None:
+            if self._task_name is not None:
                 if item.annotation is None:
-                    for task_name in set(self.task_name.values()):
+                    for task_name in set(self._task_name.values()):
                         yield item.model_copy(
                             update={"task_name": task_name}, deep=True
                         )
@@ -625,13 +627,13 @@ class BaseParser(ABC):
                     class_name = item.annotation.class_name
                     if class_name is not None:
                         try:
-                            task_name = self.task_name[class_name]
+                            task_name = self._task_name[class_name]
                         except KeyError:
                             raise ValueError(
                                 f"Class '{class_name}' not found in task names."
                             ) from None
 
-                        item.task_name = self.task_name[class_name]
+                        item.task_name = self._task_name[class_name]
                     yield item
             else:
                 yield item

@@ -142,6 +142,62 @@ def test_dir_parser(
     dataset.delete_dataset(delete_local=True)
 
 
+def test_split_parser_creates_default_splits(dataset_name: str, tempdir: Path):
+    class_dir = tempdir / "flat_cls"
+    image_dir = class_dir / "class_a"
+    image_dir.mkdir(parents=True)
+    create_image(0, image_dir)
+
+    dataset = LuxonisParser(
+        str(class_dir),
+        dataset_name=dataset_name,
+        dataset_type=DatasetType.CLSDIR,
+        delete_local=True,
+    ).parse()
+    try:
+        splits = dataset.get_splits()
+        assert splits is not None
+        assert set(splits) == {"train", "val", "test"}
+        assert sum(len(group_ids) for group_ids in splits.values()) == 1
+
+        loader = LuxonisLoader(dataset)
+        next(iter(loader))
+    finally:
+        dataset.delete_dataset(delete_local=True)
+
+
+def test_fiftyone_classification_parser_discovers_validation_split(
+    dataset_name: str, tempdir: Path
+):
+    dataset_dir = tempdir / "fiftyone_cls"
+    for i, split in enumerate(["train", "validation", "test"]):
+        data_dir = dataset_dir / split / "data"
+        data_dir.mkdir(parents=True)
+        image_path = create_image(i, data_dir)
+        labels = {
+            "classes": ["daisy", "dandelion"],
+            "labels": {image_path.stem: i % 2},
+        }
+        (dataset_dir / split / "labels.json").write_text(json.dumps(labels))
+
+    dataset = LuxonisParser(
+        str(dataset_dir),
+        dataset_name=dataset_name,
+        dataset_type=DatasetType.FIFTYONECLS,
+        delete_local=True,
+    ).parse()
+    try:
+        splits = dataset.get_splits()
+        assert splits is not None
+        assert {name: len(ids) for name, ids in splits.items()} == {
+            "train": 1,
+            "val": 1,
+            "test": 1,
+        }
+    finally:
+        dataset.delete_dataset(delete_local=True)
+
+
 @pytest.mark.parametrize(
     ("url", "dataset_type", "expected_task_types"),
     [
@@ -363,7 +419,7 @@ def test_parser_issue_messages_collect_skipped_annotations(
     try:
         assert len(dataset) == 1
 
-        issues = parser.get_parser_issue_messages()
+        issues = parser._get_parser_issue_messages()
         assert len(issues) == 3
         assert {issue.parser_issue for issue in issues} == {
             ParserIssue.COCO_ISCROWD,
@@ -410,7 +466,7 @@ def test_parser_issue_messages_collect_skipped_annotations(
         assert missing_image_issue.annotation_id is None
 
         issues.pop()
-        assert len(parser.get_parser_issue_messages()) == 3
+        assert len(parser._get_parser_issue_messages()) == 3
     finally:
         dataset.delete_dataset(delete_local=True)
 
@@ -487,7 +543,7 @@ class _WarningParser(BaseParser):
 
 
 def test_skipped_annotation_warnings_are_capped():
-    parser = _WarningParser(BaseParser.SKIPPED_WARNING_LIMIT + 5)
+    parser = _WarningParser(BaseParser._SKIPPED_WARNING_LIMIT + 5)
     messages: list[str] = []
     sink_id = logger.add(
         lambda message: messages.append(str(message).strip()),
@@ -500,12 +556,12 @@ def test_skipped_annotation_warnings_are_capped():
     finally:
         logger.remove(sink_id)
 
-    assert len(parser.get_parser_issue_messages()) == (
-        BaseParser.SKIPPED_WARNING_LIMIT + 5
+    assert len(parser._get_parser_issue_messages()) == (
+        BaseParser._SKIPPED_WARNING_LIMIT + 5
     )
     assert (
         sum(message.startswith("Skipping annotation:") for message in messages)
-        == BaseParser.SKIPPED_WARNING_LIMIT
+        == BaseParser._SKIPPED_WARNING_LIMIT
     )
     assert (
         "Skipped logging 5 additional warnings. Enable the "
@@ -519,7 +575,7 @@ def test_skipped_annotation_warnings_are_capped():
 
 def test_full_warnings_logs_all_skipped_annotation_warnings():
     parser = _WarningParser(
-        BaseParser.SKIPPED_WARNING_LIMIT + 5, full_warnings=True
+        BaseParser._SKIPPED_WARNING_LIMIT + 5, full_warnings=True
     )
     messages: list[str] = []
     sink_id = logger.add(
@@ -533,12 +589,12 @@ def test_full_warnings_logs_all_skipped_annotation_warnings():
     finally:
         logger.remove(sink_id)
 
-    assert len(parser.get_parser_issue_messages()) == (
-        BaseParser.SKIPPED_WARNING_LIMIT + 5
+    assert len(parser._get_parser_issue_messages()) == (
+        BaseParser._SKIPPED_WARNING_LIMIT + 5
     )
     assert (
         sum(message.startswith("Skipping annotation:") for message in messages)
-        == BaseParser.SKIPPED_WARNING_LIMIT + 5
+        == BaseParser._SKIPPED_WARNING_LIMIT + 5
     )
     assert not any(
         message.startswith("Skipped logging ") for message in messages

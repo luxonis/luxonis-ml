@@ -273,7 +273,7 @@ def inspect(
         )
         h, w = img.shape[:2]
 
-        loader.augmentations = loader._init_augmentations(
+        loader._augmentations = loader._init_augmentations(
             augmentation_engine="albumentations",
             augmentation_config=aug_config,
             height=h,
@@ -289,9 +289,9 @@ def inspect(
                 "provided. No augmentations will be shown."
             )
             get_applied_augmentations = list
-        elif loader.augmentations is not None:
+        elif loader._augmentations is not None:
             collector = AugmentationsCollector(
-                loader.augmentations, aug_config
+                loader._augmentations, aug_config
             )
             get_applied_augmentations = collector.get_applied_augmentations
         else:

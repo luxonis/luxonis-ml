@@ -11,7 +11,7 @@ from .base_parser import BaseParser, ParserOutput
 
 
 class NativeParser(BaseParser):
-    SPLIT_NAMES: tuple[str, ...] = ("train", "val", "test")
+    _SPLIT_NAMES: tuple[str, ...] = ("train", "val", "test")
     """Parses directory with native LDF annotations.
 
     Expected format::

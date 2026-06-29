@@ -12,6 +12,7 @@ import numpy as np
 import polars as pl
 import yaml
 from loguru import logger
+from typeguard import typechecked
 from typing_extensions import override
 
 from luxonis_ml.data.augmentations import (
@@ -43,6 +44,7 @@ from luxonis_ml.typing import (
 
 
 class LuxonisLoader(BaseLoader):
+    @typechecked
     def __init__(
         self,
         dataset: LuxonisDataset,
@@ -138,97 +140,97 @@ class LuxonisLoader(BaseLoader):
             populate metadata for the dataset.
         """
 
-        self.exclude_empty_annotations = exclude_empty_annotations
-        self.autopopulate_metadata = autopopulate_metadata
-        self.height = height
-        self.width = width
-
         self.dataset = dataset
 
-        self.sync_mode = self.dataset.is_remote
-        self.keep_categorical_as_strings = keep_categorical_as_strings
-        self.filter_task_names = filter_task_names
-
-        if self.sync_mode:
+        if self.dataset.is_remote:
             self.dataset.pull_from_cloud(update_mode=UpdateMode(update_mode))
 
-        if isinstance(view, str):
-            view = [view]
-        self.view = view
+        self._height = height
+        self._width = width
+        self._view = [view] if isinstance(view, str) else view
 
-        self.df = self.dataset._load_df_offline(raise_when_empty=True)
-        self.classes = self.dataset.get_classes()
-        self.source_names = self.dataset.get_source_names()
+        self._autopopulate_metadata = autopopulate_metadata
+        self._exclude_empty_annotations = exclude_empty_annotations
+        self._keep_categorical_as_strings = keep_categorical_as_strings
+        self._filter_task_names = filter_task_names
 
-        if color_space is None:
-            color_space = dict.fromkeys(self.source_names, "RGB")
-        elif isinstance(color_space, str):
-            color_space = dict.fromkeys(self.source_names, color_space)
-        elif not isinstance(color_space, dict):
-            raise ValueError(
-                "color_space must be either a string or a dictionary"
+        self._source_names = self.dataset.get_source_names()
+        if isinstance(color_space, dict):
+            self._color_space = {
+                source_name: color_space.get(source_name, "RGB")
+                for source_name in self._source_names
+            }
+        else:
+            self._color_space = dict.fromkeys(
+                self._source_names, color_space or "RGB"
             )
-        self.color_space = color_space
 
-        if self.filter_task_names is not None:
+        if self._filter_task_names is None:
+            self._df = self.dataset._load_df_offline(raise_when_empty=True)
+            self._classes = self.dataset.get_classes()
+
+        else:
             if self.dataset.metadata.tasks:
                 df_task_names = set(self.dataset.metadata.tasks)
             else:
-                df_task_names = set(self.df["task_name"].to_list())
-            if extras := set(self.filter_task_names) - df_task_names:
+                df_task_names = set(self._df["task_name"].to_list())
+            if extras := set(self._filter_task_names) - df_task_names:
                 raise ValueError(
-                    f"filter_task_names contains task names that "
+                    f"`filter_task_names` contains task names that "
                     f"are not in the dataset: {extras}"
                 )
-            self.df = self.df.filter(
-                pl.col("task_name").is_in(self.filter_task_names)
+            self._df = self._df.filter(
+                pl.col("task_name").is_in(self._filter_task_names)
             )
-            self.classes = {
-                task_name: self.classes[task_name]
-                for task_name in self.filter_task_names
-                if task_name in self.classes
+            self._classes = {
+                task_name: self._classes[task_name]
+                for task_name in self._filter_task_names
+                if task_name in self._classes
             }
 
         self._df_col_indices = {
-            column: i for i, column in enumerate(self.df.columns)
+            column: i for i, column in enumerate(self._df.columns)
         }
 
         self.classes = self.dataset.get_classes()
-        self.instances: list[str] = []
-        splits_path = self.dataset.metadata_path / "splits.json"
+        self._instances: list[str] = []
+        splits_path = self.dataset._metadata_path / "splits.json"
         if not splits_path.exists():
             raise RuntimeError(
                 "Cannot find splits! Ensure you call dataset.make_splits()"
             )
+
         with open(splits_path) as file:
             splits = json.load(file)
 
-        for view in self.view:
-            self.instances.extend(splits[view])
+        for v in self._view:
+            self._instances.extend(splits[v])
 
         self.idx_to_df_row: list[list[int]] = []
-        group_id_list = self.df["group_id"].to_list()
+        group_id_list = self._df["group_id"].to_list()
         group_id_set = set(group_id_list)
-        self.instances = [
-            group_id for group_id in self.instances if group_id in group_id_set
+        self._instances = [
+            group_id
+            for group_id in self._instances
+            if group_id in group_id_set
         ]
 
         idx_map: dict[str, list[int]] = defaultdict(list)
         for i, group_id in enumerate(group_id_list):
             idx_map[group_id].append(i)
 
-        self.idx_to_df_row = [idx_map[uid] for uid in self.instances]
+        self._idx_to_df_row = [idx_map[uuid] for uuid in self._instances]
 
-        self.tasks_without_background = set()
+        self._tasks_without_background = set()
 
-        self._precompute_image_paths()
+        self._idx_to_img_paths = self._precompute_image_paths()
 
         _, test_labels, _ = self._load_data(0)
         for task, seg_masks in task_type_iterator(test_labels, "segmentation"):
             task_name = get_task_name(task)
             if seg_masks.shape[0] > 1 and (
-                "background" not in self.classes[task_name]
-                or self.classes[task_name]["background"] != 0
+                "background" not in self._classes[task_name]
+                or self._classes[task_name]["background"] != 0
             ):
                 unassigned_pixels = np.sum(seg_masks, axis=0) == 0
 
@@ -239,19 +241,19 @@ class LuxonisLoader(BaseLoader):
                         "If this is not desired then make sure all pixels are "
                         "assigned to one class or rename your background class."
                     )
-                    self.tasks_without_background.add(task)
-                    if "background" not in self.classes[task_name]:
-                        self.classes[task_name] = {
+                    self._tasks_without_background.add(task)
+                    if "background" not in self._classes[task_name]:
+                        self._classes[task_name] = {
                             "background": 0,
                             **{
                                 class_name: i + 1
-                                for class_name, i in self.classes[
+                                for class_name, i in self._classes[
                                     task_name
                                 ].items()
                             },
                         }
 
-        self.augmentations = self._init_augmentations(
+        self._augmentations = self._init_augmentations(
             augmentation_engine,
             augmentation_config or [],
             height,
@@ -269,7 +271,7 @@ class LuxonisLoader(BaseLoader):
         @rtype: int
         @return: Length of the loader.
         """
-        return len(self.instances)
+        return len(self._instances)
 
     @override
     def __getitem__(self, idx: int) -> LoaderOutput:
@@ -279,20 +281,20 @@ class LuxonisLoader(BaseLoader):
         @type idx: int
         @param idx: The integer index of the sample to retrieve.
         @rtype: L{LuxonisLoaderOutput}
-        @return: The loader ouput consisting of the image and a
+        @return: The loader output consisting of the image and a
             dictionary defining its annotations.
         """
 
-        if self.augmentations is None:
+        if self._augmentations is None:
             img_dict, labels, metadata = self._load_data(idx)
         else:
             img_dict, labels, metadata = self._load_with_augmentations(idx)
 
-        if not self.exclude_empty_annotations:
+        if not self._exclude_empty_annotations:
             img_dict, labels = self._add_empty_annotations(img_dict, labels)
 
         # Albumentations needs RGB
-        bgr_sources = [k for k, v in self.color_space.items() if v == "BGR"]
+        bgr_sources = [k for k, v in self._color_space.items() if v == "BGR"]
         for source_name in bgr_sources:
             img_dict[source_name] = cv2.cvtColor(
                 img_dict[source_name], cv2.COLOR_RGB2BGR
@@ -305,8 +307,8 @@ class LuxonisLoader(BaseLoader):
         image_height, image_width = next(iter(img_dict.values())).shape[:2]
         for task_name, task_types in self.dataset.get_tasks().items():
             if (
-                self.filter_task_names is not None
-                and task_name not in self.filter_task_names
+                self._filter_task_names is not None
+                and task_name not in self._filter_task_names
             ):
                 continue
             for task_type in task_types:
@@ -322,7 +324,7 @@ class LuxonisLoader(BaseLoader):
                     elif task_type == "segmentation":
                         labels[task] = np.zeros(
                             (
-                                len(self.classes[task_name]),
+                                len(self._classes[task_name]),
                                 image_height,
                                 image_width,
                             )
@@ -331,7 +333,7 @@ class LuxonisLoader(BaseLoader):
                         task
                     ):
                         labels[task] = np.zeros(
-                            (len(self.classes[task_name]),)
+                            (len(self._classes[task_name]),)
                         )
 
         return img_dict, labels
@@ -348,14 +350,14 @@ class LuxonisLoader(BaseLoader):
             with all the present annotations
         """
 
-        if not self.idx_to_df_row:
+        if not self._idx_to_df_row:
             raise ValueError(
                 f"No data found in dataset '{self.dataset.identifier}' "
-                f"for {self.view} views"
+                f"for {self._view} views"
             )
 
-        ann_indices = self.idx_to_df_row[idx]
-        ann_rows = [self.df.row(row) for row in ann_indices]
+        ann_indices = self._idx_to_df_row[idx]
+        ann_rows = [self._df.row(row) for row in ann_indices]
         col = self._df_col_indices
 
         sample_metadata: Params = {}
@@ -365,9 +367,9 @@ class LuxonisLoader(BaseLoader):
                 row[metadata_idx] if metadata_idx is not None else None
             )
 
-        source_to_path = self.idx_to_img_paths[idx]
+        source_to_path = self._idx_to_img_paths[idx]
 
-        if self.autopopulate_metadata:
+        if self._autopopulate_metadata:
             sample_metadata = {
                 "filenames": {
                     source_name: path.name
@@ -379,9 +381,14 @@ class LuxonisLoader(BaseLoader):
         img_dict: dict[str, np.ndarray] = {}
 
         for source_name, path in source_to_path.items():
-            color_space = self.color_space.get(source_name, "RGB")
+            color_space = self._color_space.get(source_name, "RGB")
             if color_space == "GRAY":
                 img = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+            else:
+                img = cv2.imread(str(path), cv2.IMREAD_COLOR)
+            if img is None:
+                raise FileNotFoundError(f"Cannot read image at path: {path}")
+            if color_space == "GRAY":
                 if img.ndim == 2:
                     img_gray = img[..., np.newaxis]
                 elif img.ndim == 3 and img.shape[2] == 3:
@@ -393,9 +400,7 @@ class LuxonisLoader(BaseLoader):
 
                 img_dict[source_name] = img_gray
             else:
-                img_dict[source_name] = cv2.cvtColor(
-                    cv2.imread(str(path), cv2.IMREAD_COLOR), cv2.COLOR_BGR2RGB
-                )
+                img_dict[source_name] = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
         labels_by_task: dict[str, list[Annotation]] = defaultdict(list)
         class_ids_by_task: dict[str, list[int]] = defaultdict(list)
@@ -418,7 +423,7 @@ class LuxonisLoader(BaseLoader):
             full_task_name = f"{task_name}/{task_type}"
             task_type = get_task_type(full_task_name)
             if task_type == "array" and self.dataset.is_remote:
-                data["path"] = self.dataset.arrays_path / data["path"]
+                data["path"] = self.dataset._arrays_path / data["path"]
 
             if task_type.startswith("metadata/"):
                 metadata_by_task[full_task_name].append(data)
@@ -434,7 +439,7 @@ class LuxonisLoader(BaseLoader):
                 labels_by_task[full_task_name].append(annotation)
                 if class_name is not None:
                     class_ids_by_task[full_task_name].append(
-                        self.classes[task_name][class_name]
+                        self._classes[task_name][class_name]
                     )
                 else:
                     class_ids_by_task[full_task_name].append(0)
@@ -443,7 +448,7 @@ class LuxonisLoader(BaseLoader):
         labels: Labels = {}
         encodings = self.dataset.get_categorical_encodings()
         for task, metadata in metadata_by_task.items():
-            if not self.keep_categorical_as_strings and task in encodings:
+            if not self._keep_categorical_as_strings and task in encodings:
                 metadata = [encodings[task][m] for m in metadata]  # type: ignore
             labels[task] = np.array(metadata)
 
@@ -462,11 +467,11 @@ class LuxonisLoader(BaseLoader):
             array = anns[0].combine_to_numpy(
                 anns,
                 class_ids_by_task[task],
-                len(self.classes[task_name]),
+                len(self._classes[task_name]),
             )
-            if task in self.tasks_without_background:
+            if task in self._tasks_without_background:
                 unassigned_pixels = ~np.any(array, axis=0)
-                background_idx = self.classes[task_name]["background"]
+                background_idx = self._classes[task_name]["background"]
                 array[background_idx, unassigned_pixels] = 1
 
             labels[task] = array
@@ -477,23 +482,23 @@ class LuxonisLoader(BaseLoader):
         self, idx: int
     ) -> tuple[dict[str, np.ndarray], Labels, Params]:
         indices = [idx]
-        assert self.augmentations is not None
-        if self.augmentations.batch_size > 1:
-            if self.augmentations.batch_size > len(self):
+        assert self._augmentations is not None
+        if self._augmentations.batch_size > 1:
+            if self._augmentations.batch_size > len(self):
                 warnings.warn(
-                    f"Augmentations batch_size ({self.augmentations.batch_size}) "
+                    f"Augmentations batch_size ({self._augmentations.batch_size}) "
                     f"is larger than dataset size ({len(self)}). "
                     "Samples will include repetitions.",
                     stacklevel=2,
                 )
                 other_indices = [i for i in range(len(self)) if i != idx]
                 picked_indices = random.choices(
-                    other_indices, k=self.augmentations.batch_size - 1
+                    other_indices, k=self._augmentations.batch_size - 1
                 )
             else:
                 picked_indices = set()
                 max_val = len(self)
-                while len(picked_indices) < self.augmentations.batch_size - 1:
+                while len(picked_indices) < self._augmentations.batch_size - 1:
                     rand_idx = random.randint(0, max_val - 1)
                     if rand_idx != idx and rand_idx not in picked_indices:
                         picked_indices.add(rand_idx)
@@ -508,7 +513,7 @@ class LuxonisLoader(BaseLoader):
             loaded_anns.append((img_dict, labels))
             sample_metadata_list.append(sample_etadata)
 
-        img_dict, labels = self.augmentations.apply(loaded_anns)
+        img_dict, labels = self._augmentations.apply(loaded_anns)
         sample_etadata = self._merge_sample_metadata(sample_metadata_list)
         return img_dict, labels, sample_etadata
 
@@ -557,16 +562,16 @@ class LuxonisLoader(BaseLoader):
         targets = {
             f"{task_name}/{task_type}": task_type
             for task_name, task_types in dataset_tasks.items()
-            if self.filter_task_names is None
-            or task_name in self.filter_task_names
+            if self._filter_task_names is None
+            or task_name in self._filter_task_names
             for task_type in task_types
         }
 
         n_classes = {
             f"{task_name}/{task_type}": self.dataset.get_n_classes()[task_name]
             for task_name, task_types in dataset_tasks.items()
-            if self.filter_task_names is None
-            or task_name in self.filter_task_names
+            if self._filter_task_names is None
+            or task_name in self._filter_task_names
             for task_type in task_types
         }
         pipeline_stage = self._get_augmentation_pipeline_stage()
@@ -578,7 +583,7 @@ class LuxonisLoader(BaseLoader):
             "config": augmentation_config,
             "targets": targets,
             "n_classes": n_classes,
-            "source_names": self.source_names,
+            "source_names": self._source_names,
             "keep_aspect_ratio": keep_aspect_ratio,
             "seed": seed,
             "min_bbox_visibility": min_bbox_visibility,
@@ -600,42 +605,44 @@ class LuxonisLoader(BaseLoader):
         return engine_cls(**init_kwargs)
 
     def _get_augmentation_pipeline_stage(self) -> str:
-        if "train" in self.view:
+        if "train" in self._view:
             return "train"
-        if "val" in self.view:
+        if "val" in self._view:
             return "val"
-        if "test" in self.view:
+        if "test" in self._view:
             return "test"
         # preserve the old `is_validation_pipeline` behavior:
         # any non-train split is treated as an evaluation pipeline
         return "val"
 
-    def _precompute_image_paths(self) -> None:
-        self.idx_to_img_paths: dict[int, dict[str, Path]] = {}
+    def _precompute_image_paths(self) -> dict[int, dict[str, Path]]:
+        idx_to_img_paths = {}
         col = self._df_col_indices
 
-        for idx, ann_indices in enumerate(self.idx_to_df_row):
-            ann_rows = [self.df.row(row) for row in ann_indices]
+        for idx, ann_indices in enumerate(self._idx_to_df_row):
+            ann_rows = [self._df.row(row) for row in ann_indices]
 
             source_to_path = {}
 
             for row in ann_rows:
-                img_path = row[col["file"]]
+                path = row[col["file"]]
                 source_name = row[col["source_name"]]
                 uuid = row[col["uuid"]]
 
                 if source_name in source_to_path:
                     continue
 
-                path = Path(img_path)
                 if not path.exists():
-                    file_extension = img_path.rsplit(".", 1)[-1]
-                    path = self.dataset.media_path / f"{uuid}.{file_extension}"
+                    path = (self.dataset._media_path / uuid).with_suffix(
+                        path.suffix
+                    )
                     if not path.exists():
                         raise FileNotFoundError(
-                            f"Cannot find image for uuid {uuid} and source '{source_name}'"
+                            f"Cannot find image for uuid '{uuid}' and source '{source_name}'"
                         )
 
                 source_to_path[source_name] = path
 
-            self.idx_to_img_paths[idx] = dict(sorted(source_to_path.items()))
+            idx_to_img_paths[idx] = dict(sorted(source_to_path.items()))
+
+        return idx_to_img_paths

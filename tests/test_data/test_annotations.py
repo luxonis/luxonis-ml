@@ -17,7 +17,6 @@ from luxonis_ml.data.datasets.annotation import (
     InstanceSegmentationAnnotation,
     KeypointAnnotation,
     SegmentationAnnotation,
-    check_valid_identifier,
     load_annotation,
 )
 from luxonis_ml.data.utils.parquet import (
@@ -28,21 +27,21 @@ from luxonis_ml.data.utils.parquet import (
 
 
 def test_valid_identifier():
-    check_valid_identifier("variable", label="")
-    check_valid_identifier("variable_name", label="")
-    check_valid_identifier("variable-name", label="")
+    Detection._check_valid_identifier("variable", label="")
+    Detection._check_valid_identifier("variable_name", label="")
+    Detection._check_valid_identifier("variable-name", label="")
 
     with pytest.raises(ValueError, match="can only contain alphanumeric"):
-        check_valid_identifier("variable name", label="")
+        Detection._check_valid_identifier("variable name", label="")
 
     with pytest.raises(ValueError, match="can only contain alphanumeric"):
-        check_valid_identifier("?variable_name", label="")
+        Detection._check_valid_identifier("?variable_name", label="")
 
     with pytest.raises(ValueError, match="can only contain alphanumeric"):
-        check_valid_identifier("12variable_name", label="")
+        Detection._check_valid_identifier("12variable_name", label="")
 
     with pytest.raises(ValueError, match="can only contain alphanumeric"):
-        check_valid_identifier("variable/name", label="")
+        Detection._check_valid_identifier("variable/name", label="")
 
 
 def test_load_annotation():

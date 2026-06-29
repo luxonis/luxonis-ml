@@ -610,7 +610,7 @@ def test_clone_dataset(
     if bucket_storage == BucketStorage.GCS:  # test GCS push/pull
         local_stats = cloned_dataset.get_statistics()
         cloned_dataset = LuxonisDataset(
-            cloned_dataset.dataset_name,
+            cloned_dataset._dataset_name,
             bucket_storage=bucket_storage,
             delete_local=True,
             delete_remote=False,
@@ -690,7 +690,7 @@ def test_merge_datasets(
         if bucket_storage == BucketStorage.GCS:  # test GCS push/pull
             local_stats = cloned_dataset1_merged_with_dataset2.get_statistics()
             cloned_dataset1_merged_with_dataset2 = LuxonisDataset(
-                cloned_dataset1_merged_with_dataset2.dataset_name,
+                cloned_dataset1_merged_with_dataset2._dataset_name,
                 bucket_storage=bucket_storage,
                 delete_local=True,
                 delete_remote=False,
@@ -735,7 +735,7 @@ def test_merge_datasets(
         if bucket_storage == BucketStorage.GCS:  # test GCS push/pull
             local_stats = dataset1_merged_with_dataset2.get_statistics()
             dataset1_merged_with_dataset2 = LuxonisDataset(
-                dataset1_merged_with_dataset2.dataset_name,
+                dataset1_merged_with_dataset2._dataset_name,
                 bucket_storage=bucket_storage,
                 delete_local=True,
                 delete_remote=False,
@@ -1219,8 +1219,8 @@ def test_merge_on_different_machines(dataset_name: str, tempdir: Path):
     dataset2.delete_dataset(delete_remote=True)
     dataset1 = LuxonisDataset(dataset_name + "_1")
     dataset2 = LuxonisDataset(dataset_name + "_2")
-    assert len(list(dataset1.media_path.glob("*"))) == 3
-    assert len(list(dataset2.media_path.glob("*"))) == 3
+    assert len(list(dataset1._media_path.glob("*"))) == 3
+    assert len(list(dataset2._media_path.glob("*"))) == 3
     dataset3 = dataset1.merge_with(
         dataset2, inplace=False, new_dataset_name=dataset_name
     )
@@ -1231,7 +1231,7 @@ def test_merge_on_different_machines(dataset_name: str, tempdir: Path):
         len(
             list(
                 Path.cwd().glob(
-                    f"{tempdir}/{dataset3.dataset_name}/train/images/*"
+                    f"{tempdir}/{dataset3._dataset_name}/train/images/*"
                 )
             )
         )

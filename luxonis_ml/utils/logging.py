@@ -95,7 +95,7 @@ def setup_logging(
         category: type[Warning],
         filename: str,
         lineno: int,
-        _file: str | None = None,
+        file: str | None = None,
         line: str | None = None,
     ) -> None:
         text = warnings.formatwarning(
