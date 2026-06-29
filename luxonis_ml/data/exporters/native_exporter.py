@@ -8,6 +8,7 @@ from typing import Any
 
 import polars as pl
 
+from luxonis_ml.data.datasets.annotation import DatasetRecord
 from luxonis_ml.data.exporters.base_exporter import BaseExporter
 from luxonis_ml.data.exporters.exporter_utils import (
     PreparedLDF,
@@ -118,6 +119,9 @@ class NativeExporter(BaseExporter):
                 else source_to_file[group_source_names[0]]
             ),
             "task_name": task_name,
+            "sample_metadata": DatasetRecord.decode_metadata(
+                row.get("sample_metadata")
+            ),
         }
 
         if ann_str is not None:
