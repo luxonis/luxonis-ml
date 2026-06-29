@@ -502,18 +502,18 @@ class LuxonisLoader(BaseLoader):
             indices.extend(picked_indices)
 
         loaded_anns: list[tuple[dict[str, np.ndarray], Labels]] = []
-        metadata_list: list[Params] = []
+        sample_metadata_list: list[Params] = []
         for i in indices:
-            img_dict, labels, metadata = self._load_data(i)
+            img_dict, labels, sample_etadata = self._load_data(i)
             loaded_anns.append((img_dict, labels))
-            metadata_list.append(metadata)
+            sample_metadata_list.append(sample_etadata)
 
         img_dict, labels = self.augmentations.apply(loaded_anns)
-        metadata = self._merge_record_metadata(metadata_list)
-        return img_dict, labels, metadata
+        sample_etadata = self._merge_sample_metadata(sample_metadata_list)
+        return img_dict, labels, sample_etadata
 
     @staticmethod
-    def _merge_record_metadata(metadata_batch: list[Params]) -> Params:
+    def _merge_sample_metadata(metadata_batch: list[Params]) -> Params:
         if not metadata_batch:
             return {}
 
