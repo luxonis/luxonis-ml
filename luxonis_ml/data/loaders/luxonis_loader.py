@@ -625,7 +625,7 @@ class LuxonisLoader(BaseLoader):
             source_to_path = {}
 
             for row in ann_rows:
-                path = row[col["file"]]
+                path = Path(row[col["file"]])
                 source_name = row[col["source_name"]]
                 uuid = row[col["uuid"]]
 
