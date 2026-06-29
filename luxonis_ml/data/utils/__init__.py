@@ -1,5 +1,4 @@
 from .data_utils import (
-    count_range,
     find_duplicates,
     get_class_distributions,
     get_duplicates_info,
@@ -46,7 +45,6 @@ __all__ = [
     "ParquetRecord",
     "UpdateMode",
     "concat_images",
-    "count_range",
     "create_text_image",
     "distinct_color_generator",
     "find_duplicates",

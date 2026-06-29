@@ -31,7 +31,6 @@ from luxonis_ml.data.utils import (
     task_type_iterator,
 )
 from luxonis_ml.data.utils.task_utils import task_is_metadata
-from luxonis_ml.telemetry import get_or_init
 from luxonis_ml.typing import (
     Labels,
     LoaderMultiOutput,
@@ -40,7 +39,6 @@ from luxonis_ml.typing import (
     Params,
     PathType,
 )
-from luxonis_ml.utils import get_telemetry_config
 
 
 class LuxonisLoader(BaseLoader):
@@ -251,28 +249,6 @@ class LuxonisLoader(BaseLoader):
             seed,
             min_bbox_visibility,
             bbox_area_threshold,
-        )
-        get_or_init(
-            library_name="luxonis_ml",
-            config=get_telemetry_config(),
-        ).capture(
-            "data.loader.init",
-            {
-                "component": "data",
-                "augmentation_engine": augmentation_engine,
-                "height": height,
-                "width": width,
-                "keep_aspect_ratio": keep_aspect_ratio,
-                "exclude_empty_annotations": exclude_empty_annotations,
-                "seed_set": seed is not None,
-                "min_bbox_visibility": min_bbox_visibility,
-                "bbox_area_threshold": bbox_area_threshold,
-                "keep_categorical_as_strings": keep_categorical_as_strings,
-                "update_mode": UpdateMode(update_mode).value,
-                "filter_task_names": len(filter_task_names or []),
-                "sync_mode": self.sync_mode,
-            },
-            include_system_metadata=True,
         )
 
     @override

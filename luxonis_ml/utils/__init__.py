@@ -10,7 +10,6 @@ with guard_missing_extra("utils"):
     from .logging import deprecated, log_once, setup_logging
     from .registry import AutoRegisterMeta, Registry
     from .rich_utils import make_progress_bar
-    from .telemetry import get_telemetry_config
 
 
 __all__ = [
@@ -23,7 +22,6 @@ __all__ = [
     "Registry",
     "deprecated",
     "environ",
-    "get_telemetry_config",
     "is_acyclic",
     "log_once",
     "make_progress_bar",

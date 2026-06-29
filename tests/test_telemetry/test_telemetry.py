@@ -22,7 +22,6 @@ from luxonis_ml.telemetry.backends.base import (
 from luxonis_ml.telemetry.cli import skip_telemetry
 from luxonis_ml.telemetry.redaction import sanitize_properties
 from luxonis_ml.telemetry.singleton import _telemetry_by_name
-from luxonis_ml.utils.telemetry import get_telemetry_config
 
 
 class DummyBackend(TelemetryBackend):
@@ -95,22 +94,6 @@ def test_config_from_environ(
     assert cfg.api_key == "secret"
     assert cfg.endpoint == "https://example"
     assert cfg.debug is True
-
-
-def test_luxonis_telemetry_config_uses_project_fallbacks(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("LUXONIS_TELEMETRY_BACKEND", raising=False)
-    monkeypatch.delenv("LUXONIS_TELEMETRY_API_KEY", raising=False)
-    monkeypatch.delenv("LUXONIS_TELEMETRY_ENDPOINT", raising=False)
-    monkeypatch.setenv("LUXONIS_TELEMETRY_DEBUG", "0")
-
-    cfg = get_telemetry_config()
-
-    assert cfg.backend == "posthog"
-    assert cfg.api_key is None
-    assert cfg.endpoint is None
-    assert cfg.source_component == "luxonis_ml"
 
 
 def test_capture_includes_context(

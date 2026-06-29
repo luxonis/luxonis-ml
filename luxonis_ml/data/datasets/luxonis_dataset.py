@@ -45,7 +45,6 @@ from luxonis_ml.data.utils import (
     COCOFormat,
     ParquetFileManager,
     UpdateMode,
-    count_range,
     get_class_distributions,
     get_duplicates_info,
     get_heatmaps,
@@ -56,13 +55,11 @@ from luxonis_ml.data.utils import (
 )
 from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.enums.enums import DatasetType
-from luxonis_ml.telemetry import get_or_init
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import (
     LuxonisFileSystem,
     deprecated,
     environ,
-    get_telemetry_config,
     make_progress_bar,
 )
 
@@ -141,7 +138,6 @@ class LuxonisDataset(BaseDataset):
 
         self.fs = LuxonisFileSystem(self.path)
 
-        had_existing = False
         if delete_local or delete_remote:
             if self.exists(
                 self.dataset_name,
@@ -149,7 +145,6 @@ class LuxonisDataset(BaseDataset):
                 self.bucket_storage,
                 self.bucket,
             ):
-                had_existing = True
                 self.delete_dataset(
                     delete_remote=delete_remote, delete_local=delete_local
                 )
@@ -171,41 +166,6 @@ class LuxonisDataset(BaseDataset):
                 "of `luxonis-ml`."
             )
         self.progress = make_progress_bar()
-        task_types = sorted(
-            {
-                task_type
-                for types in self._metadata.tasks.values()
-                for task_type in types
-            }
-        )
-        dataset_size = len(self)
-        split_size_ranges = {
-            split_name: count_range(len(split_values))
-            for split_name, split_values in (self.get_splits() or {}).items()
-        }
-        get_or_init(
-            library_name="luxonis_ml",
-            config=get_telemetry_config(),
-        ).capture(
-            "data.dataset.init",
-            {
-                "component": "data",
-                "dataset_class": self.__class__.__name__,
-                "bucket_storage": self.bucket_storage.value,
-                "bucket_type": self.bucket_type.value,
-                "is_remote": self.is_remote,
-                "delete_local": delete_local,
-                "delete_remote": delete_remote,
-                "had_existing": had_existing,
-                "ldf_version": str(self._metadata.ldf_version),
-                "version_mismatch": self.version != LDF_VERSION,
-                "task_types": task_types,
-                "task_type_count": len(task_types),
-                "dataset_size_range": count_range(dataset_size),
-                "split_size_ranges": split_size_ranges,
-            },
-            include_system_metadata=True,
-        )
 
     @property
     def metadata(self) -> Metadata:
@@ -1164,7 +1124,6 @@ class LuxonisDataset(BaseDataset):
         logger.info(f"Adding data to dataset '{self.dataset_name}'...")
 
         data_batch: list[DatasetRecord] = []
-        record_count = 0
         annotation_count = 0
 
         classes_per_task: dict[str, set[str]] = defaultdict(set)
@@ -1187,7 +1146,6 @@ class LuxonisDataset(BaseDataset):
 
         with ParquetFileManager(annotations_path, batch_size) as pfm:
             for i, record in enumerate(generator, start=1):
-                record_count = i
                 if not isinstance(record, DatasetRecord):
                     record = DatasetRecord(**record)
                 sources.update(record.files.keys())
@@ -1274,10 +1232,6 @@ class LuxonisDataset(BaseDataset):
         self._metadata.categorical_encodings = dict(categorical_encodings)
         self._metadata.metadata_types = metadata_types
         self.set_tasks(tasks)
-        annotation_types = sorted({t for ts in tasks.values() for t in ts})
-        annotation_type_counts = {
-            t: sum(t in ts for ts in tasks.values()) for t in annotation_types
-        }
         if sources:
             components = {
                 source_name: LuxonisComponent(
@@ -1291,37 +1245,6 @@ class LuxonisDataset(BaseDataset):
             )
             self.update_source(source)
         self._warn_on_duplicates()
-        get_or_init(
-            library_name="luxonis_ml",
-            config=get_telemetry_config(),
-        ).capture(
-            "data.dataset.add",
-            {
-                "component": "data",
-                "record_count_range": count_range(record_count),
-                "annotation_count_range": count_range(annotation_count),
-                "batch_size": batch_size,
-                "task_count_range": count_range(len(tasks)),
-                "annotation_types": annotation_types,
-                "annotation_type_count_ranges": {
-                    annotation_type: count_range(count)
-                    for annotation_type, count in annotation_type_counts.items()
-                },
-                "class_count_range": count_range(
-                    sum(
-                        len(task_classes)
-                        for task_classes in classes_per_task.values()
-                    )
-                ),
-                "source_count_range": count_range(len(sources)),
-                "metadata_field_count_range": count_range(len(metadata_types)),
-                "categorical_field_count_range": count_range(
-                    len(categorical_encodings)
-                ),
-                "is_remote": self.is_remote,
-            },
-            include_system_metadata=True,
-        )
         return self
 
     def _warn_on_duplicates(self) -> None:
@@ -1674,15 +1597,6 @@ class LuxonisDataset(BaseDataset):
             return max_idx
 
         last_part = _detect_last_part(out_path, self.identifier)
-        export_properties = {
-            "component": "data",
-            "dataset_type": dataset_type.name,
-            "zip_output": zip_output,
-            "partitioned": last_part is not None,
-            "partitions": (last_part + 1) if last_part is not None else 1,
-            "max_partition_size_gb": max_partition_size_gb,
-        }
-
         if zip_output:
             archives = create_zip_output(
                 max_partition_size=max_partition_size_gb,
@@ -1694,35 +1608,11 @@ class LuxonisDataset(BaseDataset):
                 logger.info(
                     f"Dataset successfully exported to: {[str(p) for p in archives]}"
                 )
-                get_or_init(
-                    library_name="luxonis_ml",
-                    config=get_telemetry_config(),
-                ).capture(
-                    "data.dataset.export",
-                    export_properties,
-                    include_system_metadata=True,
-                )
                 return archives
             logger.info(f"Dataset successfully exported to: {archives}")
-            get_or_init(
-                library_name="luxonis_ml",
-                config=get_telemetry_config(),
-            ).capture(
-                "data.dataset.export",
-                export_properties,
-                include_system_metadata=True,
-            )
             return archives
 
         logger.info(f"Dataset successfully exported to: {out_path}")
-        get_or_init(
-            library_name="luxonis_ml",
-            config=get_telemetry_config(),
-        ).capture(
-            "data.dataset.export",
-            export_properties,
-            include_system_metadata=True,
-        )
         return out_path
 
     def get_statistics(
