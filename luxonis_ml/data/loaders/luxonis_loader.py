@@ -280,7 +280,7 @@ class LuxonisLoader(BaseLoader):
 
         @type idx: int
         @param idx: The integer index of the sample to retrieve.
-        @rtype: L{LuxonisLoaderOutput}
+        @rtype: L{LoaderOutput}
         @return: The loader output consisting of the image and a
             dictionary defining its annotations.
         """

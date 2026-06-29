@@ -12,7 +12,7 @@ class BaseLoader(
 ):
     """Base abstract loader class.
 
-    Enforces the L{LuxonisLoaderOutput} output label structure.
+    Enforces the L{LoaderOutput} output label structure.
     """
 
     @abstractmethod
@@ -30,15 +30,15 @@ class BaseLoader(
 
         @type idx: int
         @param idx: Index of the sample to load.
-        @rtype: L{LuxonisLoaderOutput}
-        @return: Sample's data in C{LuxonisLoaderOutput} format.
+        @rtype: L{LoaderOutput}
+        @return: Sample's data in C{LoaderOutput} format.
         """
         ...
 
     def __iter__(self) -> Iterator[LoaderOutput]:
         """Iterates over the dataset.
 
-        @rtype: Iterator[L{LuxonisLoaderOutput}]
+        @rtype: Iterator[L{LoaderOutput}]
         @return: Iterator over the dataset.
         """
         for i in range(len(self)):
