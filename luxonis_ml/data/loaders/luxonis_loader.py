@@ -191,7 +191,6 @@ class LuxonisLoader(BaseLoader):
             column: i for i, column in enumerate(self._df.columns)
         }
 
-        self._classes = self.dataset.get_classes()
         self._instances: list[str] = []
         splits_path = self.dataset._metadata_path / "splits.json"
         if not splits_path.exists():
