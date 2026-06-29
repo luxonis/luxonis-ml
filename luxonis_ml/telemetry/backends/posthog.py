@@ -15,8 +15,12 @@ class PostHogBackend(TelemetryBackend):
     def __init__(self, config: TelemetryConfig) -> None:
         """Initialize the PostHog client.
 
-        @type config: L{TelemetryConfig}
-        @param config: Telemetry backend configuration.
+        Args:
+            config: Telemetry backend configuration.
+
+        Raises:
+            ValueError: If the PostHog API key is missing.
+            ImportError: If the ``posthog`` package is not installed.
         """
         super().__init__(config)
         if not config.api_key:

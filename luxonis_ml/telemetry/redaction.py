@@ -57,15 +57,16 @@ def sanitize_properties(
 ) -> dict[str, Any]:
     """Sanitize event properties before emitting telemetry.
 
-    This applies an allowlist (if provided), redacts secret-like keys,
-    and converts values to JSON-friendly types.
+    Applies an allowlist, redacts secret-like keys, and converts values
+    to JSON-friendly types.
 
-    @type properties: Optional[Mapping[str, Any]]
-    @param properties: Input properties to sanitize.
-    @type allowlist: Optional[set]
-    @param allowlist: If set, only these keys are included.
-    @type redact_keys: Optional[set]
-    @param redact_keys: Key substrings that should be redacted.
+    Args:
+        properties: Input properties to sanitize.
+        allowlist: If set, only these keys are included.
+        redact_keys: Key substrings that should be redacted.
+
+    Returns:
+        The sanitized property mapping.
     """
     if not properties:
         return {}

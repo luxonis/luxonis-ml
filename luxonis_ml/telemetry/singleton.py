@@ -25,23 +25,19 @@ def get_or_init(
 ) -> Telemetry:
     """Return an existing telemetry instance or initialize one.
 
-    @type library_name: str
-    @param library_name: Name of the library emitting telemetry.
-    @type library_version: Optional[str]
-    @param library_version: Version string for the library.
-    @type config: Optional[L{TelemetryConfig}]
-    @param config: Optional TelemetryConfig to use.
-    @type context_providers: Optional[list]
-    @param context_providers: Callables that return extra context to
-        attach to every event.
-    @type system_context_providers: Optional[list]
-    @param system_context_providers: Callables that return extra context
-        to attach only when system metadata is requested.
-    @type register_exit_handler: bool
-    @param register_exit_handler: If True, flush telemetry on process
-        exit.
-    @rtype: L{Telemetry}
-    @return: The existing or newly initialized telemetry instance.
+    Args:
+        library_name: Name of the library emitting telemetry.
+        library_version: Version string for the library.
+        config: Optional telemetry configuration.
+        context_providers: Callables that return extra context to
+            attach to every event.
+        system_context_providers: Callables that return extra context
+            to attach only when system metadata is requested.
+        register_exit_handler: Whether to flush telemetry on process
+            exit.
+
+    Returns:
+        The existing or newly initialized telemetry instance.
     """
     existing = get_telemetry(library_name)
     if existing is not None:
@@ -69,10 +65,13 @@ def get_or_init(
 def get_telemetry(library_name: str | None = None) -> Telemetry | None:
     """Return a telemetry instance by library name, if initialized.
 
-    @type library_name: Optional[str]
-    @param library_name: Name used to initialize the telemetry instance.
-        If C{None} and only one instance exists, that instance is
-        returned.
+    Args:
+        library_name: Name used to initialize the telemetry instance. If
+            omitted and only one instance exists, that instance is
+            returned.
+
+    Returns:
+        The matching telemetry instance, if available.
     """
     if library_name is None:
         if len(_telemetry_by_name) == 1:
@@ -92,21 +91,18 @@ def initialize_telemetry(
 ) -> Telemetry:
     """Initialize and return a telemetry instance for a library.
 
-    @type library_name: str
-    @param library_name: Name of the library emitting telemetry.
-    @type library_version: Optional[str]
-    @param library_version: Optional version string for the library.
-    @type config: Optional[L{TelemetryConfig}]
-    @param config: Optional TelemetryConfig to use.
-    @type context_providers: Optional[list]
-    @param context_providers: Optional list of context provider
-        callables.
-    @type system_context_providers: Optional[list]
-    @param system_context_providers: Optional list of system context
-        provider callables.
-    @type register_exit_handler: bool
-    @param register_exit_handler: If True, flush telemetry on process
-        exit.
+    Args:
+        library_name: Name of the library emitting telemetry.
+        library_version: Optional version string for the library.
+        config: Optional telemetry configuration.
+        context_providers: Optional list of context provider callables.
+        system_context_providers: Optional list of system context
+            provider callables.
+        register_exit_handler: Whether to flush telemetry on process
+            exit.
+
+    Returns:
+        The initialized telemetry instance.
     """
     if library_name not in _telemetry_by_name:
         _telemetry_by_name[library_name] = Telemetry(

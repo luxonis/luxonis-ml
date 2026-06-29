@@ -36,21 +36,18 @@ class Telemetry:
     ) -> None:
         """Initialize a telemetry client.
 
-        @type library_name: str
-        @param library_name: Name of the library emitting telemetry
-            (e.g. C{"luxonis_ml"}).
-        @type library_version: Optional[str]
-        @param library_version: Version string for the library. If
-            C{None}, it is resolved from package metadata when possible.
-        @type config: Optional[L{TelemetryConfig}]
-        @param config: TelemetryConfig to use. If C{None}, values are
-            read from environment variables.
-        @type context_providers: Optional[list]
-        @param context_providers: Callables that return extra context to
-            attach to every event.
-        @type system_context_providers: Optional[list]
-        @param system_context_providers: Callables that return extra
-            context to attach only when system metadata is requested.
+        Args:
+            library_name: Name of the library emitting telemetry, such
+                as ``"luxonis_ml"``.
+            library_version: Version string for the library. If omitted,
+                it is resolved from package metadata when possible.
+            config: Telemetry configuration to use. If omitted, values
+                are read from environment variables.
+            context_providers: Callables that return extra context to
+                attach to every event.
+            system_context_providers: Callables that return extra
+                context to attach only when system metadata is
+                requested.
         """
         self._config = config or TelemetryConfig.from_environ()
         if self._config.enabled and not Telemetry._logged_enabled_notice:
@@ -123,11 +120,10 @@ class Telemetry:
     ) -> None:
         """Register a custom backend class.
 
-        @type name: str
-        @param name: Backend name used in C{TelemetryConfig.backend}.
-        @type backend_cls: type
-        @param backend_cls: Backend class instantiated with
-            L{TelemetryConfig}.
+        Args:
+            name: Backend name used in ``TelemetryConfig.backend``.
+            backend_cls: Backend class instantiated with
+                ``TelemetryConfig``.
         """
         TELEMETRY_BACKENDS.register(
             name=name.lower(),
@@ -145,17 +141,14 @@ class Telemetry:
     ) -> None:
         """Capture a telemetry event.
 
-        @type event: str
-        @param event: Event name (e.g. C{"train_started"}).
-        @type properties: Optional[dict]
-        @param properties: Optional event properties. Values are
-            sanitized and redacted before sending.
-        @type allowlist: Optional[set]
-        @param allowlist: If set, only these property keys are included.
-        @type include_system_metadata: Optional[bool]
-        @param include_system_metadata: If True, adds extended system
-            metadata for this event. If C{None}, uses the config
-            default.
+        Args:
+            event: Event name, such as ``"train_started"``.
+            properties: Optional event properties. Values are sanitized
+                and redacted before sending.
+            allowlist: If set, only these property keys are included.
+            include_system_metadata: Whether to add extended system
+                metadata for this event. If omitted, the config default
+                is used.
         """
         if not self.is_enabled:
             return

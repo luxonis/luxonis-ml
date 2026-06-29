@@ -7,29 +7,22 @@ from luxonis_ml.utils.environ import environ
 class TelemetryConfig:
     """Configuration for telemetry collection.
 
-    @type enabled: bool
-    @param enabled: Whether telemetry should emit events.
-    @type backend: str
-    @param backend: Backend name to use (e.g., "posthog", "stdout").
-    @type api_key: Optional[str]
-    @param api_key: API key for the backend, if applicable.
-    @type endpoint: Optional[str]
-    @param endpoint: Custom endpoint/host for the backend, if
-        applicable.
-    @type debug: bool
-    @param debug: If True, enables debug behavior (e.g., stdout
-        backend).
-    @type allowlist: Optional[Set[str]]
-    @param allowlist: If set, only these CLI params are logged.
-    @type source_component: Optional[str]
-    @param source_component: Optional emitting component name. If
-        C{None}, the library name is reused.
-    @type include_system_metadata: bool
-    @param include_system_metadata: Include extended system metadata by
-        default.
-    @type include_base_context: bool
-    @param include_base_context: Include the shared default context on
-        every event by default.
+    Attributes:
+        enabled: Whether telemetry should emit events.
+        backend: Backend name to use, such as ``"posthog"`` or
+            ``"stdout"``.
+        api_key: API key for the backend, if applicable.
+        endpoint: Custom endpoint or host for the backend, if
+            applicable.
+        debug: Whether to enable debug behavior such as the stdout
+            backend default.
+        allowlist: CLI parameter names that may be logged.
+        source_component: Optional emitting component name. If omitted,
+            the library name is reused.
+        include_base_context: Whether to include the shared default
+            context on every event.
+        include_system_metadata: Whether to include extended system
+            metadata by default.
     """
 
     enabled: bool = True
@@ -46,8 +39,11 @@ class TelemetryConfig:
     def from_environ(cls) -> "TelemetryConfig":
         """Build a config from environment variables.
 
-        This reads the C{LUXONIS_TELEMETRY_*} settings and returns a
-        fully populated L{TelemetryConfig} instance.
+        Reads the ``LUXONIS_TELEMETRY_*`` settings and returns a fully
+        populated ``TelemetryConfig`` instance.
+
+        Returns:
+            A telemetry configuration built from environment variables.
         """
         debug = bool(environ.LUXONIS_TELEMETRY_DEBUG)
         enabled = bool(environ.LUXONIS_TELEMETRY_ENABLED)

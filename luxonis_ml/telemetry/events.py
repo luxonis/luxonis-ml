@@ -24,14 +24,14 @@ class TelemetryEvent:
     ) -> "TelemetryEvent":
         """Create a telemetry event with a UTC timestamp.
 
-        @type name: str
-        @param name: Event name.
-        @type properties: dict
-        @param properties: Event properties after sanitization.
-        @type context: dict
-        @param context: Merged context to attach to the event.
-        @type schema_version: int
-        @param schema_version: Event schema version.
+        Args:
+            name: Event name.
+            properties: Event properties after sanitization.
+            context: Merged context to attach to the event.
+            schema_version: Event schema version.
+
+        Returns:
+            A telemetry event with a UTC timestamp.
         """
         return cls(
             name=name,

@@ -54,15 +54,15 @@ def base_context(
 ) -> dict[str, Any]:
     """Create base context for all events.
 
-    @type library_name: str
-    @param library_name: Name of the emitting library.
-    @type library_version: Optional[str]
-    @param library_version: Version string for the library.
-    @type session_id: str
-    @param session_id: Random per-process session id.
-    @type source_component: Optional[str]
-    @param source_component: Optional component name for the emitter. If
-        C{None}, the library name is reused.
+    Args:
+        library_name: Name of the emitting library.
+        library_version: Version string for the library.
+        session_id: Random per-process session ID.
+        source_component: Optional component name for the emitter. If
+            omitted, the library name is reused.
+
+    Returns:
+        The shared base context attached to events.
     """
     return {
         "$process_person_profile": False,
