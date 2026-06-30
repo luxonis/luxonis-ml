@@ -5,7 +5,6 @@ import time
 from collections.abc import Generator
 from importlib import import_module
 from pathlib import Path
-from types import ModuleType
 from typing import Any, cast
 
 import pytest
@@ -957,9 +956,11 @@ def test_posthog_backend_capture_and_flush(
         def flush(self) -> None:
             calls["flushed"] = True
 
-    fake_module = ModuleType("posthog")
-    fake_module.Posthog = FakeClient
-    monkeypatch.setitem(sys.modules, "posthog", fake_module)
+    monkeypatch.setitem(
+        sys.modules,
+        "posthog",
+        cast(Any, type("FakePosthogModule", (), {"Posthog": FakeClient})()),
+    )
 
     backend = PostHogBackend(
         TelemetryConfig(
