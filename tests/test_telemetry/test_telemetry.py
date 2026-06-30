@@ -1,9 +1,12 @@
+import inspect
+import sys
 import threading
 import time
 from collections.abc import Generator
 from importlib import import_module
 from pathlib import Path
-from typing import Any
+from types import ModuleType
+from typing import Any, cast
 
 import pytest
 from cyclopts import App
@@ -18,12 +21,31 @@ from luxonis_ml.telemetry import (
     initialize_telemetry,
     suppress_telemetry,
 )
+from luxonis_ml.telemetry import client as telemetry_client
 from luxonis_ml.telemetry import context as telemetry_context
 from luxonis_ml.telemetry.backends.base import (
     TELEMETRY_BACKENDS,
     TelemetryBackend,
 )
+from luxonis_ml.telemetry.backends.noop import NoopBackend
+from luxonis_ml.telemetry.backends.posthog import (
+    PostHogBackend,
+    _merge_properties,
+)
+from luxonis_ml.telemetry.backends.stdout import StdoutBackend
 from luxonis_ml.telemetry.cli import skip_telemetry
+from luxonis_ml.telemetry.cli.cyclopts import (
+    _is_builtin_cyclopts_command,
+    _iter_unique_subapps,
+    _primary_name,
+)
+from luxonis_ml.telemetry.cli.shared import (
+    extract_params,
+    is_click_context,
+    join_command,
+    wrap_command_callback,
+)
+from luxonis_ml.telemetry.cli.typer import _resolve_command_name
 from luxonis_ml.telemetry.events import TelemetryEvent
 from luxonis_ml.telemetry.redaction import sanitize_properties
 from luxonis_ml.telemetry.singleton import _singleton_state, _telemetry_by_key
@@ -461,6 +483,61 @@ def test_context_utilities_expose_ready_to_use_metadata() -> None:
     assert "is_docker" in system
 
 
+@pytest.mark.parametrize(
+    ("machine", "processor", "expected"),
+    [
+        ("aarch64", "", "arm64"),
+        ("armv7l", "", "arm"),
+        ("", "i686", "x86"),
+        ("powerpc64", "", "powerpc"),
+        ("", "riscv64", "riscv"),
+        ("mips", "", "unknown"),
+    ],
+)
+def test_normalized_processor_variants(
+    monkeypatch: pytest.MonkeyPatch,
+    machine: str,
+    processor: str,
+    expected: str,
+) -> None:
+    monkeypatch.setattr(telemetry_context.platform, "machine", lambda: machine)
+    monkeypatch.setattr(
+        telemetry_context.platform, "processor", lambda: processor
+    )
+
+    assert telemetry_context.normalized_processor() == expected
+
+
+def test_is_ci_detects_known_markers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for key in [
+        "CI",
+        "GITHUB_ACTIONS",
+        "GITLAB_CI",
+        "BUILDKITE",
+        "JENKINS_URL",
+        "TEAMCITY_VERSION",
+    ]:
+        monkeypatch.delenv(key, raising=False)
+
+    assert telemetry_context.is_ci() is False
+
+    monkeypatch.setenv("GITHUB_ACTIONS", "1")
+    assert telemetry_context.is_ci() is True
+
+
+def test_base_context_uses_library_name_when_component_missing() -> None:
+    context = telemetry_context.base_context(
+        library_name="luxonis_ml",
+        library_version="1.2.3",
+        session_id="session-1",
+        source_component=None,
+    )
+
+    assert context["source_component"] == "luxonis_ml"
+
+
 def test_singleton_registry_multiple(dummy_backend: DummyBackend) -> None:
     config = TelemetryConfig(enabled=True, backend="dummy")
     t1 = initialize_telemetry(
@@ -666,6 +743,323 @@ def test_register_backend_is_case_insensitive(
     assert len(backend.events) == 1
 
 
+def test_telemetry_accessors_and_missing_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(telemetry_client, "_safe_version", lambda _: None)
+    telemetry = Telemetry(
+        "luxonis_ml",
+        source_component="cli",
+        config=TelemetryConfig(enabled=False, backend="noop"),
+    )
+
+    assert telemetry.config.backend == "noop"
+    assert telemetry.library_name == "luxonis_ml"
+    assert telemetry.library_version is None
+    assert telemetry.source_component == "cli"
+    assert telemetry.is_enabled is False
+
+
+def test_capture_noops_when_disabled(dummy_backend: DummyBackend) -> None:
+    telemetry = Telemetry(
+        "luxonis_ml",
+        config=TelemetryConfig(enabled=False, backend="dummy"),
+    )
+
+    telemetry.capture("event_test")
+
+    assert dummy_backend.events == []
+
+
+def test_capture_handles_backend_exceptions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    telemetry = Telemetry(
+        "luxonis_ml",
+        config=TelemetryConfig(enabled=True, backend="noop"),
+    )
+    backend = telemetry._backend
+    monkeypatch.setattr(
+        backend,
+        "capture",
+        lambda event: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+
+    telemetry.capture("event_test")
+
+
+def test_flush_and_shutdown_handle_disabled_and_backend_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    disabled = Telemetry(
+        "luxonis_ml",
+        config=TelemetryConfig(enabled=False, backend="noop"),
+    )
+    disabled.flush()
+    disabled.shutdown()
+
+    telemetry = Telemetry(
+        "luxonis_ml",
+        config=TelemetryConfig(enabled=True, backend="noop"),
+    )
+    backend = telemetry._backend
+    monkeypatch.setattr(
+        backend, "flush", lambda: (_ for _ in ()).throw(RuntimeError("boom"))
+    )
+    monkeypatch.setattr(
+        backend,
+        "shutdown",
+        lambda: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+
+    telemetry.flush()
+    telemetry.shutdown()
+
+
+def test_init_backend_falls_back_to_noop_for_unknown_backend() -> None:
+    telemetry = Telemetry(
+        "luxonis_ml",
+        config=TelemetryConfig(enabled=True, backend="missing"),
+    )
+
+    assert isinstance(telemetry._backend, NoopBackend)
+
+
+def test_init_backend_falls_back_to_noop_when_backend_init_fails(
+    reset_backend_registry: Generator[None, None, None],
+) -> None:
+    class BrokenBackend(TelemetryBackend):
+        def __init__(self, config: TelemetryConfig) -> None:
+            super().__init__(config)
+            raise RuntimeError("broken")
+
+        def capture(self, event: Any) -> None:
+            return
+
+    Telemetry.register_backend("broken", BrokenBackend)
+
+    telemetry = Telemetry(
+        "luxonis_ml",
+        config=TelemetryConfig(enabled=True, backend="broken"),
+    )
+
+    assert isinstance(telemetry._backend, NoopBackend)
+
+
+def test_context_providers_skip_failures_none_and_non_mappings(
+    dummy_backend: DummyBackend,
+) -> None:
+    telemetry = Telemetry(
+        "luxonis_ml",
+        config=TelemetryConfig(enabled=True, backend="dummy"),
+    )
+
+    def broken_provider(_telemetry: Telemetry) -> dict[str, str]:
+        raise RuntimeError("broken")
+
+    def none_provider(_telemetry: Telemetry) -> None:
+        return None
+
+    def non_mapping_provider(_telemetry: Telemetry) -> str:
+        return "invalid"
+
+    def valid_provider(_telemetry: Telemetry) -> dict[str, str]:
+        return {"kept": "value"}
+
+    telemetry.add_context_provider(broken_provider)
+    telemetry.add_context_provider(cast(Any, none_provider))
+    telemetry.add_context_provider(cast(Any, non_mapping_provider))
+    telemetry.add_context_provider(valid_provider)
+    telemetry.add_context_provider(valid_provider)
+
+    telemetry.capture("event_test")
+
+    event = dummy_backend.events[-1]
+    assert event.context["kept"] == "value"
+
+
+def test_safe_version_returns_none_for_expected_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        telemetry_client,
+        "version",
+        lambda _: (_ for _ in ()).throw(telemetry_client.PackageNotFoundError),
+    )
+    assert telemetry_client._safe_version("luxonis_ml") is None
+
+    monkeypatch.setattr(
+        telemetry_client,
+        "version",
+        lambda _: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+    assert telemetry_client._safe_version("luxonis_ml") is None
+
+
+def test_telemetry_backend_base_flush_and_shutdown() -> None:
+    backend = DummyBackend()
+    TelemetryBackend.flush(backend)
+    TelemetryBackend.shutdown(backend)
+
+    assert backend.flush_count == 1
+
+
+def test_stdout_backend_capture_outputs_payload(capsys: Any) -> None:
+    backend = StdoutBackend(TelemetryConfig(enabled=True, backend="stdout"))
+    event = TelemetryEvent.create(
+        name="event_test",
+        properties={"value": 1},
+        context={"$session_id": "session-1"},
+    )
+
+    backend.capture(event)
+    backend.flush()
+
+    out = capsys.readouterr().out
+    assert "event_test" in out
+    assert '"value": 1' in out
+
+
+def test_posthog_backend_requires_api_key() -> None:
+    with pytest.raises(ValueError, match="API key"):
+        PostHogBackend(TelemetryConfig(enabled=True, backend="posthog"))
+
+
+def test_posthog_backend_raises_when_package_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(sys.modules, "posthog", None)
+
+    with pytest.raises(ImportError, match="requires the 'posthog' package"):
+        PostHogBackend(
+            TelemetryConfig(
+                enabled=True,
+                backend="posthog",
+                api_key="secret",
+            )
+        )
+
+    monkeypatch.delitem(sys.modules, "posthog", raising=False)
+
+
+def test_posthog_backend_capture_and_flush(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: dict[str, Any] = {}
+
+    class FakeClient:
+        def __init__(self, **kwargs: Any) -> None:
+            calls["kwargs"] = kwargs
+
+        def capture(self, **kwargs: Any) -> None:
+            calls["capture"] = kwargs
+
+        def flush(self) -> None:
+            calls["flushed"] = True
+
+    fake_module = ModuleType("posthog")
+    fake_module.Posthog = FakeClient
+    monkeypatch.setitem(sys.modules, "posthog", fake_module)
+
+    backend = PostHogBackend(
+        TelemetryConfig(
+            enabled=True,
+            backend="posthog",
+            api_key="secret",
+            endpoint="https://ph.example",
+        )
+    )
+    event = TelemetryEvent.create(
+        name="event_test",
+        properties={"value": 1},
+        context={"$session_id": "session-1", "source_product": "luxonis_ml"},
+        distinct_id=None,
+    )
+
+    backend.capture(event)
+    backend.flush()
+
+    assert calls["kwargs"]["project_api_key"] == "secret"
+    assert calls["kwargs"]["host"] == "https://ph.example"
+    assert calls["capture"]["distinct_id"] == "session-1"
+    assert calls["capture"]["event"] == "event_test"
+    assert calls["capture"]["properties"]["schema_version"] == 1
+    assert calls["capture"]["properties"]["value"] == 1
+    assert calls["flushed"] is True
+
+
+def test_merge_properties_merges_schema_context_and_properties() -> None:
+    event = TelemetryEvent.create(
+        name="event_test",
+        properties={"value": 1},
+        context={"$session_id": "session-1", "value": 2},
+    )
+
+    merged = _merge_properties(event)
+
+    assert merged["schema_version"] == 1
+    assert merged["$session_id"] == "session-1"
+    assert merged["value"] == 1
+
+
+def test_wrap_command_callback_records_failures(
+    dummy_backend: DummyBackend,
+) -> None:
+    telemetry = Telemetry(
+        "luxonis_ml",
+        config=TelemetryConfig(enabled=True, backend="dummy"),
+    )
+
+    def failing(epochs: int) -> None:
+        raise RuntimeError("boom")
+
+    wrapped = wrap_command_callback(
+        failing,
+        telemetry,
+        "train",
+        allowlist={"epochs"},
+        include_system_metadata=None,
+    )
+
+    with pytest.raises(RuntimeError, match="boom"):
+        wrapped(epochs=5)
+
+    event = dummy_backend.events[-1]
+    assert event.properties["command"] == "train"
+    assert event.properties["epochs"] == 5
+    assert event.properties["success"] is False
+
+
+def test_extract_params_type_error_and_click_context() -> None:
+    def command(ctx: Any, epochs: int, ignored: int) -> None:
+        return
+
+    signature = inspect.signature(command)
+    fake_ctx = type(
+        "FakeContext",
+        (),
+        {"info_name": "train", "command": object()},
+    )()
+
+    assert extract_params(signature, (), {}, allowlist=None) == {}
+    assert extract_params(signature, (), {}, allowlist={"epochs"}) == {}
+    assert extract_params(
+        signature,
+        (fake_ctx, 5, 7),
+        {},
+        allowlist={"ctx", "epochs", "ignored"},
+    ) == {"epochs": 5, "ignored": 7}
+    assert is_click_context(fake_ctx) is True
+    assert is_click_context(object()) is False
+
+
+def test_join_command_and_name_resolvers() -> None:
+    assert join_command("", "train") == "train"
+    assert join_command("data", "") == "data"
+    assert join_command("data", "export") == "data export"
+    assert _resolve_command_name("visible", lambda: None) == "visible"
+
+
 def test_instrument_typer_emits_event(dummy_backend: DummyBackend) -> None:
     config = TelemetryConfig(enabled=True, backend="dummy")
     telemetry = Telemetry("luxonis_ml", config=config)
@@ -835,6 +1229,40 @@ def test_instrument_typer_skip_decorator(
     assert event.properties["command"] == "visible"
 
 
+def test_instrument_typer_skips_missing_callbacks_and_groups(
+    dummy_backend: DummyBackend,
+) -> None:
+    config = TelemetryConfig(enabled=True, backend="dummy")
+    telemetry = Telemetry("luxonis_ml", config=config)
+    app = _make_typer_app()
+    sub = _make_typer_app()
+
+    @app.command()
+    def root() -> int:
+        return 1
+
+    @sub.command()
+    def nested() -> int:
+        return 2
+
+    app.add_typer(sub, name="admin")
+    app.registered_commands.append(
+        type("Command", (), {"callback": None, "name": "skip"})()
+    )
+    app.registered_groups.append(
+        type("Group", (), {"name": "ghost", "typer_instance": None})()
+    )
+
+    from luxonis_ml.telemetry.cli import instrument_typer
+
+    instrument_typer(app, telemetry, exclude_commands={"admin nested"})
+
+    assert app.registered_commands[0].callback() == 1
+    assert sub.registered_commands[0].callback() == 2
+    assert len(dummy_backend.events) == 1
+    assert dummy_backend.events[0].properties["command"] == "root"
+
+
 def test_instrument_cyclopts_emits_event(dummy_backend: DummyBackend) -> None:
     config = TelemetryConfig(enabled=True, backend="dummy")
     telemetry = Telemetry("luxonis_ml", config=config)
@@ -990,3 +1418,17 @@ def test_capture_preserves_explicit_empty_allowlist(
 
     event = dummy_backend.events[-1]
     assert event.properties == {}
+
+
+def test_cyclopts_helpers_cover_builtin_and_alias_paths() -> None:
+    app = App(name=("demo", "alias"))
+    subapp = App(name=None)
+    app.command(subapp, name="child")
+
+    unique = _iter_unique_subapps([subapp, subapp, object()])
+
+    assert unique == [subapp]
+    assert _primary_name(("demo", "alias")) == "demo"
+    assert _primary_name(None) == ""
+    assert _is_builtin_cyclopts_command(app, app.help_print) is True
+    assert _is_builtin_cyclopts_command(app, object()) is False
