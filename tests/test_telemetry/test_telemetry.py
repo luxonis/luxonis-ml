@@ -97,7 +97,14 @@ def _invoke_typer(app: Any, args: list[str]) -> Any:
 
 
 def _invoke_cyclopts(app: App, args: list[str]) -> Any:
-    return app(args, exit_on_error=False)
+    try:
+        return app(args, exit_on_error=False)
+    except SystemExit as exc:
+        # Newer Cyclopts releases can treat integer return values as exit
+        # codes and raise SystemExit even with exit_on_error=False.
+        if isinstance(exc.code, int):
+            return exc.code
+        raise
 
 
 def test_config_from_environ(monkeypatch: pytest.MonkeyPatch) -> None:
