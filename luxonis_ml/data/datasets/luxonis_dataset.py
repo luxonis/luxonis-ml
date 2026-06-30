@@ -84,8 +84,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         team_id: str | None = None,
         bucket_type: BucketType
         | Literal["internal", "external"] = BucketType.INTERNAL,
-        bucket_storage: BucketStorage
-        | Literal["local", "gcs", "s3", "azure"] = BucketStorage.LOCAL,
+        bucket_storage: (
+            BucketStorage | Literal["local", "gcs", "s3", "azure"]
+        ) = BucketStorage.LOCAL,
         *,
         delete_local: bool = False,
         delete_remote: bool = False,
@@ -438,8 +439,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             )
         else:
             raise ValueError(
-                "You must specify a name for the new dataset "
-                "when inplace is False"
+                "You must specify a name for the new dataset when inplace is False"
             )
 
         if self.is_remote:
@@ -1157,7 +1157,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         logger.info(f"Adding data to dataset '{self._dataset_name}'...")
 
         data_batch: list[DatasetRecord] = []
-        annotation_count = 0
 
         classes_per_task: dict[str, set[str]] = defaultdict(set)
         tasks: dict[str, set[str]] = defaultdict(set)
@@ -1184,7 +1183,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 sources.update(record.files.keys())
                 ann = record.annotation
                 if ann is not None:
-                    annotation_count += 1
                     if not record.task_name:
                         record.task_name = infer_task(
                             record.task_name,
@@ -1304,10 +1302,12 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     @override
     def make_splits(
         self,
-        splits: Mapping[str, Sequence[PathType]]
-        | Mapping[str, float]
-        | tuple[float, float, float]
-        | None = None,
+        splits: (
+            Mapping[str, Sequence[PathType]]
+            | Mapping[str, float]
+            | tuple[float, float, float]
+            | None
+        ) = None,
         *,
         ratios: dict[str, float] | tuple[float, float, float] | None = None,
         definitions: dict[str, list[PathType]] | None = None,
