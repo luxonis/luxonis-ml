@@ -1,5 +1,5 @@
 from luxonis_ml.telemetry.client import Telemetry
-from luxonis_ml.telemetry.config import TelemetryConfig
+from luxonis_ml.telemetry.config import TelemetryConfig, TelemetryDefaults
 from luxonis_ml.telemetry.context import (
     host_context,
     host_context_provider,
@@ -17,6 +17,7 @@ from luxonis_ml.telemetry.suppression import suppress_telemetry
 __all__ = [
     "Telemetry",
     "TelemetryConfig",
+    "TelemetryDefaults",
     "get_or_init",
     "get_telemetry",
     "host_context",

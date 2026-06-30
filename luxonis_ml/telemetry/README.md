@@ -37,6 +37,8 @@ pip install luxonis-ml[telemetry]
   - Main client that captures events with context and sends them via a backend.
 - **TelemetryConfig**
   - Configuration object used to control backend selection and behavior.
+- **TelemetryDefaults**
+  - Optional product-level defaults used by `TelemetryConfig.from_environ(...)`.
 - **Backends**
   - `PostHogBackend`, `StdoutBackend`, `NoopBackend` (and custom backends).
 - **CLI Instrumentation**
@@ -76,6 +78,24 @@ telemetry.capture("dataset_parse_started", {"dataset_format": "coco"})
 Set `include_base_context=False` if a consuming library wants to build
 its own default event context instead of always attaching the shared
 LuxonisML base metadata.
+
+If a product wants environment-based config with library-specific
+fallbacks, use `TelemetryDefaults`:
+
+```python
+from luxonis_ml.telemetry import TelemetryConfig, TelemetryDefaults
+
+config = TelemetryConfig.from_environ(
+    defaults=TelemetryDefaults(
+        backend="stdout",
+        include_system_metadata=True,
+    )
+)
+```
+
+Precedence is: environment variable, then `TelemetryDefaults`, then the
+base `TelemetryConfig` default. For `backend`, the final fallback stays
+dynamic: `stdout` when resolved `debug=True`, otherwise `posthog`.
 
 Use `source_component` when one product/library emits from multiple
 surfaces and those emitters need distinct base context:
@@ -305,6 +325,10 @@ Telemetry is designed to fail open inside consuming libraries:
 ## Environment Variables
 
 The telemetry module reads the following environment variables:
+
+When building config with `TelemetryConfig.from_environ(...)`,
+precedence is: environment variable, then `TelemetryDefaults`, then the
+base `TelemetryConfig` default.
 
 - `LUXONIS_TELEMETRY_ENABLED`\
   Enables telemetry (default). Set to a falsy value to disable.

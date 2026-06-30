@@ -9,6 +9,7 @@ from cyclopts import App
 from luxonis_ml.telemetry import (
     Telemetry,
     TelemetryConfig,
+    TelemetryDefaults,
     get_or_init,
     get_telemetry,
     initialize_telemetry,
@@ -81,9 +82,7 @@ def reset_singletons() -> Generator[None, None, None]:
     _singleton_state["exit_handler_registered"] = False
 
 
-def test_config_from_environ(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_config_from_environ(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LUXONIS_TELEMETRY_ENABLED", "1")
     monkeypatch.setenv("LUXONIS_TELEMETRY_BACKEND", "stdout")
     monkeypatch.setenv("LUXONIS_TELEMETRY_API_KEY", "secret")
@@ -97,6 +96,86 @@ def test_config_from_environ(
     assert cfg.api_key == "secret"
     assert cfg.endpoint == "https://example"
     assert cfg.debug is True
+
+
+def test_config_from_environ_uses_product_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("LUXONIS_TELEMETRY_ENABLED", raising=False)
+    monkeypatch.delenv("LUXONIS_TELEMETRY_BACKEND", raising=False)
+    monkeypatch.delenv("LUXONIS_TELEMETRY_API_KEY", raising=False)
+    monkeypatch.delenv("LUXONIS_TELEMETRY_ENDPOINT", raising=False)
+    monkeypatch.delenv("LUXONIS_TELEMETRY_DEBUG", raising=False)
+
+    cfg = TelemetryConfig.from_environ(
+        defaults=TelemetryDefaults(
+            backend="dummy",
+            api_key="default-secret",
+            endpoint="https://default.example",
+            include_system_metadata=True,
+        )
+    )
+
+    assert cfg.enabled is True
+    assert cfg.backend == "dummy"
+    assert cfg.api_key == "default-secret"
+    assert cfg.endpoint == "https://default.example"
+    assert cfg.debug is False
+    assert cfg.include_system_metadata is True
+
+
+def test_config_from_environ_env_overrides_product_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LUXONIS_TELEMETRY_ENABLED", "0")
+    monkeypatch.setenv("LUXONIS_TELEMETRY_BACKEND", "stdout")
+    monkeypatch.setenv("LUXONIS_TELEMETRY_API_KEY", "env-secret")
+    monkeypatch.setenv("LUXONIS_TELEMETRY_ENDPOINT", "https://env.example")
+    monkeypatch.setenv("LUXONIS_TELEMETRY_DEBUG", "1")
+
+    cfg = TelemetryConfig.from_environ(
+        defaults=TelemetryDefaults(
+            enabled=True,
+            backend="dummy",
+            api_key="default-secret",
+            endpoint="https://default.example",
+            debug=False,
+        )
+    )
+
+    assert cfg.enabled is False
+    assert cfg.backend == "stdout"
+    assert cfg.api_key == "env-secret"
+    assert cfg.endpoint == "https://env.example"
+    assert cfg.debug is True
+
+
+def test_config_from_environ_uses_debug_default_for_backend() -> None:
+    cfg = TelemetryConfig.from_environ(defaults=TelemetryDefaults(debug=True))
+
+    assert cfg.debug is True
+    assert cfg.backend == "stdout"
+
+
+def test_config_from_environ_reads_dotenv(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("LUXONIS_TELEMETRY_API_KEY", raising=False)
+    monkeypatch.delenv("LUXONIS_TELEMETRY_BACKEND", raising=False)
+    monkeypatch.delenv("LUXONIS_TELEMETRY_DEBUG", raising=False)
+    (tmp_path / ".env").write_text(
+        "LUXONIS_TELEMETRY_DEBUG=true\n"
+        "LUXONIS_TELEMETRY_API_KEY=dotenv-secret\n",
+        encoding="utf-8",
+    )
+
+    cfg = TelemetryConfig.from_environ()
+
+    assert cfg.debug is True
+    assert cfg.backend == "stdout"
+    assert cfg.api_key == "dotenv-secret"
 
 
 def test_capture_includes_context(
