@@ -25,9 +25,14 @@ coupling your library to any specific analytics vendor.
 
 ## Installation
 
-Install telemetry package:
+The telemetry module ships with `luxonis-ml`. Install the optional
+`telemetry` extra only when you want the built-in PostHog backend:
 
 ```bash
+# base package only
+pip install luxonis-ml
+
+# include PostHog support
 pip install luxonis-ml[telemetry]
 ```
 

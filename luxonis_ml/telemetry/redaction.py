@@ -127,6 +127,9 @@ def _safe_mapping(
     output: dict[str, Any] = {}
     for key, nested_value in list(value.items())[:MAX_MAPPING_ITEMS]:
         safe_key = _truncate(str(key))
+        if _should_block_key(safe_key):
+            output[safe_key] = "<redacted>"
+            continue
         if _should_redact(safe_key, redact_keys):
             output[safe_key] = "<redacted>"
             continue

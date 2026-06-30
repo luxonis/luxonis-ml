@@ -1,11 +1,14 @@
+import threading
+import time
 from collections.abc import Generator
 from importlib import import_module
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from cyclopts import App
 
+import luxonis_ml.telemetry.singleton as telemetry_singleton
 from luxonis_ml.telemetry import (
     Telemetry,
     TelemetryConfig,
@@ -87,14 +90,14 @@ def _make_typer_app() -> Any:
     return typer_module.Typer()
 
 
-def _cyclopts_subapp(app: App, name: str) -> App:
-    return cast(Any, app)._commands[name]
+def _invoke_typer(app: Any, args: list[str]) -> Any:
+    testing_module = import_module("typer.testing")
+    runner = testing_module.CliRunner()
+    return runner.invoke(app, args)
 
 
-def _cyclopts_default_command(app: App) -> Any:
-    default_command = app.default_command
-    assert default_command is not None
-    return default_command
+def _invoke_cyclopts(app: App, args: list[str]) -> Any:
+    return app(args, exit_on_error=False)
 
 
 def test_config_from_environ(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -229,7 +232,7 @@ def test_capture_includes_context(
     assert event.context["source_product"] == "luxonis_ml"
     assert event.context["source_component"] == "luxonis_ml"
     assert event.context["is_luxonis_cloud"] is True
-    assert event.distinct_id is None
+    assert event.distinct_id == telemetry._session_id
 
 
 def test_capture_supports_distinct_id_override(
@@ -299,6 +302,7 @@ def test_base_context_can_be_disabled(dummy_backend: DummyBackend) -> None:
 
     event = dummy_backend.events[-1]
     assert event.context == {}
+    assert event.distinct_id == telemetry._session_id
 
 
 def test_host_context_is_opt_in(dummy_backend: DummyBackend) -> None:
@@ -368,6 +372,22 @@ def test_sanitize_properties_redacts_nested_mappings() -> None:
 
     assert out["config"]["api_key"] == "<redacted>"
     assert out["config"]["nested"]["token"] == "<redacted>"  # noqa: S105
+
+
+def test_sanitize_properties_blocks_nested_identifier_keys() -> None:
+    props = {
+        "config": {
+            "user_id": "user-123",
+            "hostname": "devbox",
+            "nested": {"team_id": "team-123"},
+        }
+    }
+
+    out = sanitize_properties(props)
+
+    assert out["config"]["user_id"] == "<redacted>"
+    assert out["config"]["hostname"] == "<redacted>"
+    assert out["config"]["nested"]["team_id"] == "<redacted>"
 
 
 def test_sanitize_properties_redacts_paths_urls_and_free_text() -> None:
@@ -525,6 +545,48 @@ def test_get_or_init_reuses_existing_component_instance(
     assert t2.config.backend == "dummy"
 
 
+def test_get_or_init_is_thread_safe() -> None:
+    original_telemetry = telemetry_singleton.Telemetry
+    created_count = 0
+    created_count_lock = threading.Lock()
+    start_event = threading.Event()
+    config = TelemetryConfig(enabled=False, backend="noop")
+
+    class SlowTelemetry(original_telemetry):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            nonlocal created_count
+            time.sleep(0.05)
+            with created_count_lock:
+                created_count += 1
+            super().__init__(*args, **kwargs)
+
+    telemetry_singleton.Telemetry = SlowTelemetry
+    try:
+        results: list[int] = []
+
+        def worker() -> None:
+            start_event.wait()
+            telemetry = get_or_init(
+                "threaded_lib",
+                config=config,
+                register_exit_handler=False,
+            )
+            results.append(id(telemetry))
+
+        threads = [threading.Thread(target=worker) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        start_event.set()
+        for thread in threads:
+            thread.join()
+    finally:
+        telemetry_singleton.Telemetry = original_telemetry
+
+    assert created_count == 1
+    assert len(set(results)) == 1
+    assert len(_telemetry_by_key) == 1
+
+
 def test_get_or_init_merges_new_context_providers(
     dummy_backend: DummyBackend,
 ) -> None:
@@ -620,6 +682,33 @@ def test_instrument_typer_emits_event(dummy_backend: DummyBackend) -> None:
     assert "epochs" not in event.properties
 
 
+def test_instrument_typer_uses_cli_visible_command_name(
+    dummy_backend: DummyBackend,
+) -> None:
+    config = TelemetryConfig(enabled=True, backend="dummy")
+    telemetry = Telemetry("luxonis_ml", config=config)
+
+    app = _make_typer_app()
+
+    @app.command()
+    def my_command() -> int:
+        return 1
+
+    @app.command()
+    def other_command() -> int:
+        return 2
+
+    from luxonis_ml.telemetry.cli import instrument_typer
+
+    instrument_typer(app, telemetry)
+
+    result = _invoke_typer(app, ["my-command"])
+
+    assert result.exit_code == 0
+    event = dummy_backend.events[-1]
+    assert event.properties["command"] == "my-command"
+
+
 def test_instrument_typer_allowlist_keeps_core_fields(
     dummy_backend: DummyBackend,
 ) -> None:
@@ -678,6 +767,35 @@ def test_instrument_typer_exclude_commands(
     assert event.properties["command"] == "evaluate"
 
 
+def test_instrument_typer_exclude_commands_uses_cli_name(
+    dummy_backend: DummyBackend,
+) -> None:
+    config = TelemetryConfig(enabled=True, backend="dummy")
+    telemetry = Telemetry("luxonis_ml", config=config)
+
+    app = _make_typer_app()
+
+    @app.command()
+    def my_command() -> int:
+        return 1
+
+    @app.command()
+    def visible_command() -> int:
+        return 2
+
+    from luxonis_ml.telemetry.cli import instrument_typer
+
+    instrument_typer(app, telemetry, exclude_commands={"my-command"})
+
+    hidden = _invoke_typer(app, ["my-command"])
+    visible = _invoke_typer(app, ["visible-command"])
+
+    assert hidden.exit_code == 0
+    assert visible.exit_code == 0
+    assert len(dummy_backend.events) == 1
+    assert dummy_backend.events[0].properties["command"] == "visible-command"
+
+
 def test_instrument_typer_skip_decorator(
     dummy_backend: DummyBackend,
 ) -> None:
@@ -724,8 +842,7 @@ def test_instrument_cyclopts_emits_event(dummy_backend: DummyBackend) -> None:
 
     instrument_cyclopts(app, telemetry)
 
-    cmd = _cyclopts_default_command(_cyclopts_subapp(app, "train"))
-    result = cmd(epochs=5)
+    result = _invoke_cyclopts(app, ["train", "--epochs", "5"])
     assert result == 5
     event = dummy_backend.events[-1]
     assert event.name == "cli_command"
@@ -749,8 +866,9 @@ def test_instrument_cyclopts_allowlist_keeps_core_fields(
 
     instrument_cyclopts(app, telemetry, allowlist={"epochs"})
 
-    _cyclopts_default_command(_cyclopts_subapp(app, "train"))(
-        epochs=5, dataset_name="secret"
+    _invoke_cyclopts(
+        app,
+        ["train", "--epochs", "5", "--dataset-name", "secret"],
     )
 
     event = dummy_backend.events[-1]
@@ -781,8 +899,8 @@ def test_instrument_cyclopts_exclude_commands(
 
     instrument_cyclopts(app, telemetry, exclude_commands={"train"})
 
-    _cyclopts_default_command(_cyclopts_subapp(app, "train"))(epochs=5)
-    _cyclopts_default_command(_cyclopts_subapp(app, "evaluate"))()
+    _invoke_cyclopts(app, ["train", "--epochs", "5"])
+    _invoke_cyclopts(app, ["evaluate"])
 
     assert len(dummy_backend.events) == 1
     event = dummy_backend.events[0]
@@ -811,8 +929,8 @@ def test_instrument_cyclopts_skip_decorator(
 
     instrument_cyclopts(app, telemetry)
 
-    _cyclopts_default_command(_cyclopts_subapp(app, "secret"))()
-    _cyclopts_default_command(_cyclopts_subapp(app, "visible"))()
+    _invoke_cyclopts(app, ["secret"])
+    _invoke_cyclopts(app, ["visible"])
 
     assert len(dummy_backend.events) == 1
     event = dummy_backend.events[0]
@@ -839,11 +957,29 @@ def test_instrument_cyclopts_nested_subapps(
 
     instrument_cyclopts(app, telemetry, allowlist={"full"})
 
-    _cyclopts_default_command(
-        _cyclopts_subapp(_cyclopts_subapp(app, "data"), "ls")
-    )(full=True)
+    _invoke_cyclopts(app, ["data", "ls", "--full"])
 
     event = dummy_backend.events[-1]
     assert event.name == "cli_command"
     assert event.properties["command"] == "data ls"
     assert event.properties["full"] is True
+
+
+def test_capture_preserves_explicit_empty_allowlist(
+    dummy_backend: DummyBackend,
+) -> None:
+    config = TelemetryConfig(
+        enabled=True,
+        backend="dummy",
+        allowlist={"keep"},
+    )
+    telemetry = Telemetry("luxonis_ml", config=config)
+
+    telemetry.capture(
+        "event_test",
+        {"keep": 1, "drop": 2},
+        allowlist=set(),
+    )
+
+    event = dummy_backend.events[-1]
+    assert event.properties == {}

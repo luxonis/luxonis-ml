@@ -1,4 +1,5 @@
 import atexit
+import threading
 from contextlib import suppress
 from dataclasses import dataclass
 
@@ -20,6 +21,7 @@ class TelemetryKey:
 
 _telemetry_by_key: dict[TelemetryKey, Telemetry] = {}
 _singleton_state = {"exit_handler_registered": False}
+_singleton_lock = threading.RLock()
 
 
 def get_or_init(
@@ -51,32 +53,33 @@ def get_or_init(
         The existing or newly initialized telemetry instance for the
         `(library_name, source_component)` key.
     """
-    existing = get_telemetry(
-        library_name,
-        source_component=source_component,
-    )
-    if existing is not None:
-        _reconcile_existing_telemetry(
-            existing=existing,
+    with _singleton_lock:
+        existing = get_telemetry(
+            library_name,
+            source_component=source_component,
+        )
+        if existing is not None:
+            _reconcile_existing_telemetry(
+                existing=existing,
+                library_name=library_name,
+                source_component=source_component,
+                library_version=library_version,
+                config=config,
+                context_providers=context_providers,
+                system_context_providers=system_context_providers,
+            )
+            if register_exit_handler:
+                shutdown_on_exit()
+            return existing
+        return initialize_telemetry(
             library_name=library_name,
             source_component=source_component,
             library_version=library_version,
             config=config,
             context_providers=context_providers,
             system_context_providers=system_context_providers,
+            register_exit_handler=register_exit_handler,
         )
-        if register_exit_handler:
-            shutdown_on_exit()
-        return existing
-    return initialize_telemetry(
-        library_name=library_name,
-        source_component=source_component,
-        library_version=library_version,
-        config=config,
-        context_providers=context_providers,
-        system_context_providers=system_context_providers,
-        register_exit_handler=register_exit_handler,
-    )
 
 
 def get_telemetry(
@@ -94,26 +97,27 @@ def get_telemetry(
         The matching telemetry instance when the lookup resolves to one
         instance. Ambiguous lookups return ``None``.
     """
-    if library_name is not None and source_component is not None:
-        return _telemetry_by_key.get(
-            _telemetry_key(
-                library_name=library_name,
-                source_component=source_component,
+    with _singleton_lock:
+        if library_name is not None and source_component is not None:
+            return _telemetry_by_key.get(
+                _telemetry_key(
+                    library_name=library_name,
+                    source_component=source_component,
+                )
             )
-        )
 
-    matches = [
-        telemetry
-        for key, telemetry in _telemetry_by_key.items()
-        if (library_name is None or key.library_name == library_name)
-        and (
-            source_component is None
-            or key.source_component == source_component
-        )
-    ]
-    if len(matches) == 1:
-        return matches[0]
-    return None
+        matches = [
+            telemetry
+            for key, telemetry in _telemetry_by_key.items()
+            if (library_name is None or key.library_name == library_name)
+            and (
+                source_component is None
+                or key.source_component == source_component
+            )
+        ]
+        if len(matches) == 1:
+            return matches[0]
+        return None
 
 
 def initialize_telemetry(
@@ -144,40 +148,46 @@ def initialize_telemetry(
         The initialized telemetry instance for the exact
         `(library_name, source_component)` key.
     """
-    key = _telemetry_key(
-        library_name=library_name,
-        source_component=source_component,
-    )
-    if key not in _telemetry_by_key:
-        _telemetry_by_key[key] = Telemetry(
-            library_name,
-            source_component=key.source_component,
-            library_version=library_version,
-            config=config,
-            context_providers=context_providers,
-            system_context_providers=system_context_providers,
+    with _singleton_lock:
+        key = _telemetry_key(
+            library_name=library_name,
+            source_component=source_component,
         )
-        if (
-            register_exit_handler
-            and not _singleton_state["exit_handler_registered"]
-        ):
-            atexit.register(_flush_on_exit)
-            _singleton_state["exit_handler_registered"] = True
-    return _telemetry_by_key[key]
+        if key not in _telemetry_by_key:
+            _telemetry_by_key[key] = Telemetry(
+                library_name,
+                source_component=key.source_component,
+                library_version=library_version,
+                config=config,
+                context_providers=context_providers,
+                system_context_providers=system_context_providers,
+            )
+            if register_exit_handler:
+                _register_exit_handler()
+        return _telemetry_by_key[key]
 
 
 def shutdown_on_exit() -> None:
     """Register an exit handler to flush telemetry on shutdown."""
-    if not _singleton_state["exit_handler_registered"]:
-        atexit.register(_flush_on_exit)
-        _singleton_state["exit_handler_registered"] = True
+    with _singleton_lock:
+        _register_exit_handler()
 
 
 def _flush_on_exit() -> None:
     """Flush all registered telemetry instances."""
-    for telemetry in list(_telemetry_by_key.values()):
+    with _singleton_lock:
+        telemetry_instances = list(_telemetry_by_key.values())
+
+    for telemetry in telemetry_instances:
         with suppress(Exception):
             telemetry.shutdown()
+
+
+def _register_exit_handler() -> None:
+    """Register the shared singleton flush handler once."""
+    if not _singleton_state["exit_handler_registered"]:
+        atexit.register(_flush_on_exit)
+        _singleton_state["exit_handler_registered"] = True
 
 
 def _reconcile_existing_telemetry(

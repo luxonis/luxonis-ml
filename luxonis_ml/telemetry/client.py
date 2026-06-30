@@ -159,7 +159,8 @@ class Telemetry:
                 metadata for this event. If omitted, the config default
                 is used.
             distinct_id: Optional backend identity override. When
-                omitted, backends may fall back to `$session_id`.
+                omitted, it defaults to the client's ephemeral session
+                identifier.
         """
         if not self.is_enabled:
             return
@@ -168,14 +169,16 @@ class Telemetry:
         try:
             sanitized = sanitize_properties(
                 properties,
-                allowlist=allowlist or self._config.allowlist,
+                allowlist=(
+                    self._config.allowlist if allowlist is None else allowlist
+                ),
             )
             context = self._build_context(include_system_metadata)
             payload = TelemetryEvent.create(
                 name=event,
                 properties=sanitized,
                 context=context,
-                distinct_id=distinct_id,
+                distinct_id=distinct_id or self._session_id,
             )
             self._backend.capture(payload)
         except Exception as exc:

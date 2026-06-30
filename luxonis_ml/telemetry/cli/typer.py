@@ -37,7 +37,7 @@ def _wrap_typer(
         callback = command.callback
         if callback is None:
             continue
-        name = command.name or callback.__name__
+        name = _resolve_command_name(command.name, callback)
         full_name = join_command(prefix, name)
         if exclude_commands and full_name in exclude_commands:
             continue
@@ -61,3 +61,13 @@ def _wrap_typer(
             exclude_commands=exclude_commands,
             prefix=group_prefix,
         )
+
+
+def _resolve_command_name(command_name: str | None, callback: Any) -> str:
+    """Resolve the CLI-visible Typer command name."""
+    if command_name is not None:
+        return command_name
+
+    from typer.main import get_command_name
+
+    return get_command_name(callback.__name__)
