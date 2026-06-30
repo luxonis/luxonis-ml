@@ -17,8 +17,6 @@ class TelemetryConfig:
         debug: Whether to enable debug behavior such as the stdout
             backend default.
         allowlist: CLI parameter names that may be logged.
-        source_component: Optional emitting component name. If omitted,
-            the library name is reused.
         include_base_context: Whether to include the shared default
             context on every event.
         include_system_metadata: Whether to include extended system
@@ -31,7 +29,6 @@ class TelemetryConfig:
     endpoint: str | None = None
     debug: bool = False
     allowlist: set[str] | None = None
-    source_component: str | None = None
     include_base_context: bool = True
     include_system_metadata: bool = False
 

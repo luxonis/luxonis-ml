@@ -22,7 +22,7 @@ from luxonis_ml.telemetry.backends.base import (
 from luxonis_ml.telemetry.cli import skip_telemetry
 from luxonis_ml.telemetry.events import TelemetryEvent
 from luxonis_ml.telemetry.redaction import sanitize_properties
-from luxonis_ml.telemetry.singleton import _telemetry_by_name
+from luxonis_ml.telemetry.singleton import _singleton_state, _telemetry_by_key
 
 
 class DummyBackend(TelemetryBackend):
@@ -74,9 +74,11 @@ def dummy_backend(
 
 @pytest.fixture(autouse=True)
 def reset_singletons() -> Generator[None, None, None]:
-    _telemetry_by_name.clear()
+    _telemetry_by_key.clear()
+    _singleton_state["exit_handler_registered"] = False
     yield
-    _telemetry_by_name.clear()
+    _telemetry_by_key.clear()
+    _singleton_state["exit_handler_registered"] = False
 
 
 def test_config_from_environ(
@@ -319,9 +321,12 @@ def test_source_component_can_be_overridden(
     config = TelemetryConfig(
         enabled=True,
         backend="noop",
-        source_component="luxonis_ml_cli",
     )
-    telemetry = Telemetry("luxonis_ml", config=config)
+    telemetry = Telemetry(
+        "luxonis_ml",
+        source_component="luxonis_ml_cli",
+        config=config,
+    )
     assert telemetry._base_context["source_component"] == "luxonis_ml_cli"
 
 
@@ -353,6 +358,29 @@ def test_singleton_registry_multiple(dummy_backend: DummyBackend) -> None:
     assert get_telemetry() is None
 
 
+def test_singleton_registry_multiple_components_same_library(
+    dummy_backend: DummyBackend,
+) -> None:
+    config = TelemetryConfig(enabled=True, backend="dummy")
+    cli = initialize_telemetry(
+        library_name="lib_a",
+        source_component="lib_a_cli",
+        config=config,
+        register_exit_handler=False,
+    )
+    runtime = initialize_telemetry(
+        library_name="lib_a",
+        source_component="lib_a_runtime",
+        config=config,
+        register_exit_handler=False,
+    )
+
+    assert cli is not runtime
+    assert get_telemetry("lib_a", source_component="lib_a_cli") is cli
+    assert get_telemetry("lib_a", source_component="lib_a_runtime") is runtime
+    assert get_telemetry("lib_a") is None
+
+
 def test_singleton_registry_single(dummy_backend: DummyBackend) -> None:
     config = TelemetryConfig(enabled=True, backend="dummy")
     t1 = initialize_telemetry(
@@ -378,6 +406,28 @@ def test_get_or_init_reuses_existing_instance(
         register_exit_handler=False,
     )
     assert t1 is t2
+    assert t2.config.backend == "dummy"
+
+
+def test_get_or_init_reuses_existing_component_instance(
+    dummy_backend: DummyBackend,
+) -> None:
+    config = TelemetryConfig(enabled=True, backend="dummy")
+    t1 = initialize_telemetry(
+        library_name="lib_a",
+        source_component="lib_a_cli",
+        config=config,
+        register_exit_handler=False,
+    )
+    t2 = get_or_init(
+        library_name="lib_a",
+        source_component="lib_a_cli",
+        config=TelemetryConfig(enabled=True, backend="noop"),
+        register_exit_handler=False,
+    )
+
+    assert t1 is t2
+    assert t2.source_component == "lib_a_cli"
     assert t2.config.backend == "dummy"
 
 

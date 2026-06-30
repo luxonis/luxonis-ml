@@ -29,6 +29,7 @@ class Telemetry:
         self,
         library_name: str,
         *,
+        source_component: str | None = None,
         library_version: str | None = None,
         config: TelemetryConfig | None = None,
         context_providers: list[ContextProvider] | None = None,
@@ -39,6 +40,8 @@ class Telemetry:
         Args:
             library_name: Name of the library emitting telemetry, such
                 as ``"luxonis_ml"``.
+            source_component: Optional emitter/component name for the
+                event context. If omitted, the library name is reused.
             library_version: Version string for the library. If omitted,
                 it is resolved from package metadata when possible.
             config: Telemetry configuration to use. If omitted, values
@@ -57,13 +60,14 @@ class Telemetry:
             )
             Telemetry._logged_enabled_notice = True
         self._library_name = library_name
+        self._source_component = source_component or library_name
         self._library_version = library_version or _safe_version(library_name)
         self._session_id = str(uuid4())
         self._base_context = base_context(
             library_name=self._library_name,
             library_version=self._library_version,
             session_id=self._session_id,
-            source_component=self._config.source_component,
+            source_component=self._source_component,
         )
         self._context_providers: list[ContextProvider] = []
         self._system_context_providers: list[SystemContextProvider] = []
@@ -82,6 +86,10 @@ class Telemetry:
     @property
     def library_version(self) -> str | None:
         return self._library_version
+
+    @property
+    def source_component(self) -> str:
+        return self._source_component
 
     @property
     def is_enabled(self) -> bool:

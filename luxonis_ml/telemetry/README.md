@@ -77,6 +77,22 @@ Set `include_base_context=False` if a consuming library wants to build
 its own default event context instead of always attaching the shared
 LuxonisML base metadata.
 
+Use `source_component` when one product/library emits from multiple
+surfaces and those emitters need distinct base context:
+
+```python
+from luxonis_ml.telemetry import Telemetry
+
+cli_telemetry = Telemetry(
+    "luxonis_ml",
+    source_component="data",
+)
+runtime_telemetry = Telemetry(
+    "luxonis_ml",
+    source_component="nn_archive",
+)
+```
+
 ## CLI Instrumentation
 
 ```python
@@ -229,7 +245,7 @@ telemetry = Telemetry("luxonis_ml", context_providers=[my_context])
 
 ## Singleton Usage
 
-For a global instance per library name:
+For a global instance per `(library_name, source_component)` pair:
 
 ```python
 from luxonis_ml.telemetry import get_or_init, get_telemetry
@@ -240,14 +256,42 @@ if telemetry:
     telemetry.capture("dataset_ls_invoked")
 ```
 
-Use different library names to keep multiple singleton instances.
+When a library has multiple emitters, initialize each component
+explicitly:
 
-For the same library name, `get_or_init(...)` reuses the existing
-telemetry instance. Conflicting config or version arguments are ignored
-with a warning, while new `context_providers` and
+```python
+from luxonis_ml.telemetry import get_or_init, get_telemetry
+
+get_or_init(
+    library_name="luxonis_ml",
+    source_component="data",
+)
+get_or_init(
+    library_name="luxonis_ml",
+    source_component="nn_archive",
+)
+
+cli = get_telemetry(
+    "luxonis_ml",
+    source_component="data",
+)
+runtime = get_telemetry(
+    "luxonis_ml",
+    source_component="nn_archive",
+)
+```
+
+If `source_component` is omitted, it defaults to `library_name`. For the
+same `(library_name, source_component)` pair, `get_or_init(...)` reuses
+the existing telemetry instance. Conflicting config or version arguments
+are ignored with a warning, while new `context_providers` and
 `system_context_providers` are merged into the existing instance. This
 lets multiple integration points contribute telemetry context without
 rebuilding the singleton.
+
+`get_telemetry(...)` returns `None` for ambiguous lookups. For example,
+`get_telemetry("luxonis_ml")` returns `None` if both `data` and
+`nn_archive` are registered.
 
 ## Failure Behavior
 
