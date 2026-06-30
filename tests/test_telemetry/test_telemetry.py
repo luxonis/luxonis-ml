@@ -1,9 +1,9 @@
 from collections.abc import Generator
+from importlib import import_module
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
-import typer
 from cyclopts import App
 
 from luxonis_ml.telemetry import (
@@ -80,6 +80,21 @@ def reset_singletons() -> Generator[None, None, None]:
     yield
     _telemetry_by_key.clear()
     _singleton_state["exit_handler_registered"] = False
+
+
+def _make_typer_app() -> Any:
+    typer_module = import_module("typer")
+    return typer_module.Typer()
+
+
+def _cyclopts_subapp(app: App, name: str) -> App:
+    return cast(Any, app)._commands[name]
+
+
+def _cyclopts_default_command(app: App) -> Any:
+    default_command = app.default_command
+    assert default_command is not None
+    return default_command
 
 
 def test_config_from_environ(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -586,7 +601,7 @@ def test_instrument_typer_emits_event(dummy_backend: DummyBackend) -> None:
     config = TelemetryConfig(enabled=True, backend="dummy")
     telemetry = Telemetry("luxonis_ml", config=config)
 
-    app = typer.Typer()
+    app = _make_typer_app()
 
     @app.command()
     def train(epochs: int = 10) -> int:
@@ -611,7 +626,7 @@ def test_instrument_typer_allowlist_keeps_core_fields(
     config = TelemetryConfig(enabled=True, backend="dummy")
     telemetry = Telemetry("luxonis_ml", config=config)
 
-    app = typer.Typer()
+    app = _make_typer_app()
 
     @app.command()
     def train(epochs: int = 10, dataset_name: str = "private") -> int:
@@ -638,7 +653,7 @@ def test_instrument_typer_exclude_commands(
     config = TelemetryConfig(enabled=True, backend="dummy")
     telemetry = Telemetry("luxonis_ml", config=config)
 
-    app = typer.Typer()
+    app = _make_typer_app()
 
     @app.command()
     def train(epochs: int = 10) -> int:
@@ -669,7 +684,7 @@ def test_instrument_typer_skip_decorator(
     config = TelemetryConfig(enabled=True, backend="dummy")
     telemetry = Telemetry("luxonis_ml", config=config)
 
-    app = typer.Typer()
+    app = _make_typer_app()
 
     @skip_telemetry
     @app.command()
@@ -709,7 +724,7 @@ def test_instrument_cyclopts_emits_event(dummy_backend: DummyBackend) -> None:
 
     instrument_cyclopts(app, telemetry)
 
-    cmd = app._commands["train"].default_command
+    cmd = _cyclopts_default_command(_cyclopts_subapp(app, "train"))
     result = cmd(epochs=5)
     assert result == 5
     event = dummy_backend.events[-1]
@@ -734,7 +749,9 @@ def test_instrument_cyclopts_allowlist_keeps_core_fields(
 
     instrument_cyclopts(app, telemetry, allowlist={"epochs"})
 
-    app._commands["train"].default_command(epochs=5, dataset_name="secret")
+    _cyclopts_default_command(_cyclopts_subapp(app, "train"))(
+        epochs=5, dataset_name="secret"
+    )
 
     event = dummy_backend.events[-1]
     assert event.properties["command"] == "train"
@@ -764,8 +781,8 @@ def test_instrument_cyclopts_exclude_commands(
 
     instrument_cyclopts(app, telemetry, exclude_commands={"train"})
 
-    app._commands["train"].default_command(epochs=5)
-    app._commands["evaluate"].default_command()
+    _cyclopts_default_command(_cyclopts_subapp(app, "train"))(epochs=5)
+    _cyclopts_default_command(_cyclopts_subapp(app, "evaluate"))()
 
     assert len(dummy_backend.events) == 1
     event = dummy_backend.events[0]
@@ -794,8 +811,8 @@ def test_instrument_cyclopts_skip_decorator(
 
     instrument_cyclopts(app, telemetry)
 
-    app._commands["secret"].default_command()
-    app._commands["visible"].default_command()
+    _cyclopts_default_command(_cyclopts_subapp(app, "secret"))()
+    _cyclopts_default_command(_cyclopts_subapp(app, "visible"))()
 
     assert len(dummy_backend.events) == 1
     event = dummy_backend.events[0]
@@ -822,7 +839,9 @@ def test_instrument_cyclopts_nested_subapps(
 
     instrument_cyclopts(app, telemetry, allowlist={"full"})
 
-    app._commands["data"]._commands["ls"].default_command(full=True)
+    _cyclopts_default_command(
+        _cyclopts_subapp(_cyclopts_subapp(app, "data"), "ls")
+    )(full=True)
 
     event = dummy_backend.events[-1]
     assert event.name == "cli_command"

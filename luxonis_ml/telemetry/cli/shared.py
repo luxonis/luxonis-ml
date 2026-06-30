@@ -3,9 +3,16 @@ import time
 from collections.abc import Callable, Iterable
 from contextlib import suppress
 from functools import wraps
-from typing import Any
+from typing import Any, Protocol, cast
 
 from luxonis_ml.telemetry.client import Telemetry
+
+
+class _TelemetryCallable(Protocol):
+    _telemetry_skip: bool
+    _telemetry_wrapped: bool
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any: ...
 
 
 def wrap_command_callback(
@@ -17,9 +24,11 @@ def wrap_command_callback(
     include_system_metadata: bool | None,
 ) -> Callable[..., Any]:
     """Wrap a command callback to emit telemetry for execution."""
-    if getattr(func, "_telemetry_skip", False):
+    telemetry_func = cast(_TelemetryCallable, func)
+
+    if getattr(telemetry_func, "_telemetry_skip", False):
         return func
-    if getattr(func, "_telemetry_wrapped", False):
+    if getattr(telemetry_func, "_telemetry_wrapped", False):
         return func
 
     signature = inspect.signature(func)
@@ -55,13 +64,13 @@ def wrap_command_callback(
                     include_system_metadata=include_system_metadata,
                 )
 
-    wrapper._telemetry_wrapped = True
+    cast(_TelemetryCallable, wrapper)._telemetry_wrapped = True
     return wrapper
 
 
 def skip_telemetry(func: Callable[..., Any]) -> Callable[..., Any]:
     """Mark a command callback as excluded from telemetry."""
-    func._telemetry_skip = True
+    cast(_TelemetryCallable, func)._telemetry_skip = True
     return func
 
 

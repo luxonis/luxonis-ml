@@ -1,11 +1,11 @@
-import typer
+from typing import Any
 
 from luxonis_ml.telemetry.cli.shared import join_command, wrap_command_callback
 from luxonis_ml.telemetry.client import Telemetry
 
 
 def instrument_typer(
-    app: typer.Typer,
+    app: Any,
     telemetry: Telemetry,
     *,
     allowlist: set[str] | None = None,
@@ -24,7 +24,7 @@ def instrument_typer(
 
 
 def _wrap_typer(
-    app: typer.Typer,
+    app: Any,
     telemetry: Telemetry,
     *,
     allowlist: set[str] | None,
