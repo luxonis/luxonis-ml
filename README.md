@@ -49,7 +49,6 @@ Additional dependencies for working with specific cloud services can be installe
 - `s3`: Dependencies for working with AWS S3
 - `roboflow`: Dependencies for downloading datasets from Roboflow
 - `mlflow`: Dependencies for working with MLFlow
-- `posthog`: Dependencies for using the PostHog telemetry backend
 
 > [!NOTE]
 > If some of the additional dependencies are required but not installed (_e.g._ attempting to use Google Cloud Storage without installing the `gcs` extra), then the missing dependencies will be installed automatically.

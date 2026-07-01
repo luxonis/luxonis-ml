@@ -46,7 +46,6 @@ roboflow = { file = ["extra_requirements/roboflow.txt"] }
 gcs = { file = ["extra_requirements/gcs.txt"] }
 s3 = { file = ["extra_requirements/s3.txt"] }
 mlflow = { file = ["extra_requirements/mlflow.txt"] }
-posthog = { file = ["extra_requirements/posthog.txt"] }
 
 [tool.setuptools.dynamic.optional-dependencies.all]
 file = [
