@@ -20,6 +20,8 @@ class TelemetryDefaults:
     allowlist: set[str] | None = None
     include_base_context: bool | None = None
     include_system_metadata: bool | None = None
+    disable_geoip: bool | None = None
+    allow_reserved_overrides: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -40,6 +42,9 @@ class TelemetryConfig:
             context on every event.
         include_system_metadata: Whether to include extended system
             metadata by default.
+        disable_geoip: Whether to disable PostHog GeoIP enrichment.
+        allow_reserved_overrides: Whether callers and context providers
+            may override reserved telemetry control fields.
     """
 
     enabled: bool = True
@@ -50,6 +55,8 @@ class TelemetryConfig:
     allowlist: set[str] | None = None
     include_base_context: bool = True
     include_system_metadata: bool = False
+    disable_geoip: bool = False
+    allow_reserved_overrides: bool = False
 
     @classmethod
     def from_environ(
@@ -127,6 +134,13 @@ class TelemetryConfig:
             include_system_metadata=_default_if_none(
                 defaults.include_system_metadata,
                 base_defaults.include_system_metadata,
+            ),
+            disable_geoip=_default_if_none(
+                defaults.disable_geoip, base_defaults.disable_geoip
+            ),
+            allow_reserved_overrides=_default_if_none(
+                defaults.allow_reserved_overrides,
+                base_defaults.allow_reserved_overrides,
             ),
         )
 

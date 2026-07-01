@@ -18,7 +18,6 @@ class TelemetryBackend(ABC):
     @abstractmethod
     def capture(self, event: TelemetryEvent) -> None:
         """Capture a telemetry event."""
-        raise NotImplementedError
 
     def flush(self) -> None:
         """Flush any buffered events."""

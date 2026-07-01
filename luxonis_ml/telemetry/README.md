@@ -84,6 +84,15 @@ Set `include_base_context=False` if a consuming library wants to build
 its own default event context instead of always attaching the shared
 LuxonisML base metadata.
 
+For the PostHog backend, `disable_geoip=False` is the default, which
+allows PostHog to derive coarse location data from IP addresses. Set
+`disable_geoip=True` to disable GeoIP enrichment.
+
+Reserved telemetry control fields such as `$process_person_profile`,
+`$session_id`, `source_product`, `source_component`, and `sdk_version`
+are protected by default. Set `allow_reserved_overrides=True` only when
+you intentionally want callers or context providers to override them.
+
 If a product wants environment-based config with library-specific
 fallbacks, use `TelemetryDefaults`:
 

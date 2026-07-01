@@ -18,6 +18,15 @@ from luxonis_ml.telemetry.suppression import is_suppressed
 
 ContextProvider = Callable[["Telemetry"], dict[str, Any]]
 SystemContextProvider = Callable[["Telemetry"], dict[str, Any]]
+PROTECTED_CONTEXT_KEYS = frozenset(
+    {
+        "$process_person_profile",
+        "$session_id",
+        "source_product",
+        "source_component",
+        "sdk_version",
+    }
+)
 
 
 class Telemetry:
@@ -282,8 +291,20 @@ class Telemetry:
                     "Telemetry context provider returned a non-mapping; skipping."
                 )
                 continue
-            if extra:
+            if not extra:
+                continue
+            if self._config.allow_reserved_overrides:
                 context.update(extra)
+                continue
+            for key, value in extra.items():
+                if key in PROTECTED_CONTEXT_KEYS and key in context:
+                    logger.debug(
+                        "Telemetry context provider attempted to override "
+                        "protected key '{}'; skipping.",
+                        key,
+                    )
+                    continue
+                context[key] = value
 
     def _add_provider(
         self,

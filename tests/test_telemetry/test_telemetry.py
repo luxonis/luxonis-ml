@@ -142,6 +142,8 @@ def test_config_from_environ(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cfg.api_key == "secret"
     assert cfg.endpoint == "https://example"
     assert cfg.debug is True
+    assert cfg.disable_geoip is False
+    assert cfg.allow_reserved_overrides is False
 
 
 def test_config_from_environ_uses_product_defaults(
@@ -159,6 +161,8 @@ def test_config_from_environ_uses_product_defaults(
             api_key="default-secret",
             endpoint="https://default.example",
             include_system_metadata=True,
+            disable_geoip=True,
+            allow_reserved_overrides=True,
         )
     )
 
@@ -168,6 +172,8 @@ def test_config_from_environ_uses_product_defaults(
     assert cfg.endpoint == "https://default.example"
     assert cfg.debug is False
     assert cfg.include_system_metadata is True
+    assert cfg.disable_geoip is True
+    assert cfg.allow_reserved_overrides is True
 
 
 def test_config_from_environ_env_overrides_product_defaults(
@@ -186,6 +192,8 @@ def test_config_from_environ_env_overrides_product_defaults(
             api_key="default-secret",
             endpoint="https://default.example",
             debug=False,
+            disable_geoip=True,
+            allow_reserved_overrides=True,
         )
     )
 
@@ -194,6 +202,8 @@ def test_config_from_environ_env_overrides_product_defaults(
     assert cfg.api_key == "env-secret"
     assert cfg.endpoint == "https://env.example"
     assert cfg.debug is True
+    assert cfg.disable_geoip is True
+    assert cfg.allow_reserved_overrides is True
 
 
 def test_config_from_environ_uses_debug_default_for_backend() -> None:
@@ -201,6 +211,8 @@ def test_config_from_environ_uses_debug_default_for_backend() -> None:
 
     assert cfg.debug is True
     assert cfg.backend == "stdout"
+    assert cfg.disable_geoip is False
+    assert cfg.allow_reserved_overrides is False
 
 
 def test_config_from_environ_reads_dotenv(
@@ -280,6 +292,76 @@ def test_capture_supports_distinct_id_override(
     assert (
         event.context["$session_id"] == telemetry._base_context["$session_id"]
     )
+
+
+def test_context_providers_cannot_override_protected_base_context(
+    dummy_backend: DummyBackend,
+) -> None:
+    config = TelemetryConfig(enabled=True, backend="dummy")
+
+    def overriding_context(_telemetry: Telemetry) -> dict[str, Any]:
+        return {
+            "$process_person_profile": True,
+            "$session_id": "override-session",
+            "source_product": "other_product",
+            "source_component": "other_component",
+            "sdk_version": "0.0.0",
+            "custom": "value",
+        }
+
+    telemetry = Telemetry(
+        "luxonis_ml",
+        source_component="cli",
+        library_version="1.2.3",
+        config=config,
+        context_providers=[overriding_context],
+    )
+
+    telemetry.capture("event_test")
+
+    event = dummy_backend.events[-1]
+    assert event.context["$process_person_profile"] is False
+    assert event.context["$session_id"] == telemetry._session_id
+    assert event.context["source_product"] == "luxonis_ml"
+    assert event.context["source_component"] == "cli"
+    assert event.context["sdk_version"] == "1.2.3"
+    assert event.context["custom"] == "value"
+
+
+def test_context_providers_can_override_reserved_fields_when_enabled(
+    dummy_backend: DummyBackend,
+) -> None:
+    config = TelemetryConfig(
+        enabled=True,
+        backend="dummy",
+        allow_reserved_overrides=True,
+    )
+
+    def overriding_context(_telemetry: Telemetry) -> dict[str, Any]:
+        return {
+            "$process_person_profile": True,
+            "$session_id": "override-session",
+            "source_product": "other_product",
+            "source_component": "other_component",
+            "sdk_version": "0.0.0",
+        }
+
+    telemetry = Telemetry(
+        "luxonis_ml",
+        source_component="cli",
+        library_version="1.2.3",
+        config=config,
+        context_providers=[overriding_context],
+    )
+
+    telemetry.capture("event_test")
+
+    event = dummy_backend.events[-1]
+    assert event.context["$process_person_profile"] is True
+    assert event.context["$session_id"] == "override-session"
+    assert event.context["source_product"] == "other_product"
+    assert event.context["source_component"] == "other_component"
+    assert event.context["sdk_version"] == "0.0.0"
 
 
 def test_include_system_metadata_flag(dummy_backend: DummyBackend) -> None:
@@ -981,6 +1063,7 @@ def test_posthog_backend_capture_and_flush(
     backend.flush()
 
     assert calls["kwargs"]["project_api_key"] == "secret"
+    assert calls["kwargs"]["disable_geoip"] is False
     assert calls["kwargs"]["host"] == "https://ph.example"
     assert calls["capture"]["distinct_id"] == "session-1"
     assert calls["capture"]["event"] == "event_test"
@@ -1001,6 +1084,48 @@ def test_merge_properties_merges_schema_context_and_properties() -> None:
     assert merged["schema_version"] == 1
     assert merged["$session_id"] == "session-1"
     assert merged["value"] == 1
+
+
+def test_merge_properties_preserves_reserved_posthog_keys() -> None:
+    event = TelemetryEvent.create(
+        name="event_test",
+        properties={
+            "$process_person_profile": True,
+            "$session_id": "override-session",
+            "schema_version": 99,
+        },
+        context={
+            "$process_person_profile": False,
+            "$session_id": "session-1",
+        },
+    )
+
+    merged = _merge_properties(event)
+
+    assert merged["$process_person_profile"] is False
+    assert merged["$session_id"] == "session-1"
+    assert merged["schema_version"] == 1
+
+
+def test_merge_properties_allows_reserved_overrides_when_enabled() -> None:
+    event = TelemetryEvent.create(
+        name="event_test",
+        properties={
+            "$process_person_profile": True,
+            "$session_id": "override-session",
+            "schema_version": 99,
+        },
+        context={
+            "$process_person_profile": False,
+            "$session_id": "session-1",
+        },
+    )
+
+    merged = _merge_properties(event, allow_reserved_overrides=True)
+
+    assert merged["$process_person_profile"] is True
+    assert merged["$session_id"] == "override-session"
+    assert merged["schema_version"] == 99
 
 
 def test_wrap_command_callback_records_failures(

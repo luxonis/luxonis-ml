@@ -7,6 +7,10 @@ from luxonis_ml.telemetry.backends.base import (
 from luxonis_ml.telemetry.config import TelemetryConfig
 from luxonis_ml.telemetry.events import TelemetryEvent
 
+PROTECTED_POSTHOG_PROPERTY_KEYS = frozenset(
+    {"$process_person_profile", "$session_id", "schema_version"}
+)
+
 
 @TELEMETRY_BACKENDS.register(name="posthog")
 class PostHogBackend(TelemetryBackend):
@@ -33,7 +37,7 @@ class PostHogBackend(TelemetryBackend):
             ) from exc
         kwargs = {
             "project_api_key": config.api_key,
-            "disable_geoip": False,
+            "disable_geoip": config.disable_geoip,
         }
         if config.endpoint:
             kwargs["host"] = config.endpoint
@@ -41,7 +45,10 @@ class PostHogBackend(TelemetryBackend):
 
     def capture(self, event: TelemetryEvent) -> None:
         """Capture an event using the PostHog client."""
-        properties = _merge_properties(event)
+        properties = _merge_properties(
+            event,
+            allow_reserved_overrides=self.config.allow_reserved_overrides,
+        )
         self._client.capture(
             distinct_id=event.distinct_id or event.context["$session_id"],
             event=event.name,
@@ -55,9 +62,20 @@ class PostHogBackend(TelemetryBackend):
             self._client.flush()
 
 
-def _merge_properties(event: TelemetryEvent) -> dict[str, Any]:
+def _merge_properties(
+    event: TelemetryEvent,
+    *,
+    allow_reserved_overrides: bool = False,
+) -> dict[str, Any]:
     """Merge event metadata into a single properties dict."""
-    properties = {"schema_version": event.schema_version}
-    properties.update(event.context)
+    properties = dict(event.context)
     properties.update(event.properties)
+    if allow_reserved_overrides:
+        return properties
+    properties["schema_version"] = event.schema_version
+    for key in PROTECTED_POSTHOG_PROPERTY_KEYS:
+        if key == "schema_version":
+            continue
+        if key in event.context:
+            properties[key] = event.context[key]
     return properties
