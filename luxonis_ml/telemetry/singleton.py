@@ -162,8 +162,8 @@ def initialize_telemetry(
                 context_providers=context_providers,
                 system_context_providers=system_context_providers,
             )
-            if register_exit_handler:
-                _register_exit_handler()
+        if register_exit_handler:
+            _register_exit_handler()
         return _telemetry_by_key[key]
 
 

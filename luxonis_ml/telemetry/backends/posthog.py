@@ -5,10 +5,11 @@ from luxonis_ml.telemetry.backends.base import (
     TelemetryBackend,
 )
 from luxonis_ml.telemetry.config import TelemetryConfig
+from luxonis_ml.telemetry.context import RESERVED_METADATA_KEYS
 from luxonis_ml.telemetry.events import TelemetryEvent
 
 PROTECTED_POSTHOG_PROPERTY_KEYS = frozenset(
-    {"$process_person_profile", "$session_id", "schema_version"}
+    {*RESERVED_METADATA_KEYS, "schema_version"}
 )
 
 
@@ -70,9 +71,9 @@ def _merge_properties(
     """Merge event metadata into a single properties dict."""
     properties = dict(event.context)
     properties.update(event.properties)
+    properties["schema_version"] = event.schema_version
     if allow_reserved_overrides:
         return properties
-    properties["schema_version"] = event.schema_version
     for key in PROTECTED_POSTHOG_PROPERTY_KEYS:
         if key == "schema_version":
             continue

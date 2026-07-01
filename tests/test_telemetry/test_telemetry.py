@@ -1,3 +1,4 @@
+import asyncio
 import inspect
 import sys
 import threading
@@ -224,8 +225,7 @@ def test_config_from_environ_reads_dotenv(
     monkeypatch.delenv("LUXONIS_TELEMETRY_BACKEND", raising=False)
     monkeypatch.delenv("LUXONIS_TELEMETRY_DEBUG", raising=False)
     (tmp_path / ".env").write_text(
-        "LUXONIS_TELEMETRY_DEBUG=true\n"
-        "LUXONIS_TELEMETRY_API_KEY=dotenv-secret\n",
+        "LUXONIS_TELEMETRY_DEBUG=true\nLUXONIS_TELEMETRY_API_KEY=dotenv-secret\n",
         encoding="utf-8",
     )
 
@@ -710,6 +710,35 @@ def test_get_or_init_reuses_existing_component_instance(
     assert t2.config.backend == "dummy"
 
 
+def test_initialize_telemetry_can_register_exit_handler_later(
+    dummy_backend: DummyBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = TelemetryConfig(enabled=True, backend="dummy")
+    registered: list[object] = []
+
+    monkeypatch.setattr(
+        telemetry_singleton.atexit,
+        "register",
+        registered.append,
+    )
+
+    t1 = initialize_telemetry(
+        library_name="lib_a",
+        config=config,
+        register_exit_handler=False,
+    )
+    t2 = initialize_telemetry(
+        library_name="lib_a",
+        config=config,
+        register_exit_handler=True,
+    )
+
+    assert t1 is t2
+    assert _singleton_state["exit_handler_registered"] is True
+    assert registered == [telemetry_singleton._flush_on_exit]
+
+
 def test_get_or_init_is_thread_safe() -> None:
     original_telemetry = telemetry_singleton.Telemetry
     created_count = 0
@@ -1093,10 +1122,16 @@ def test_merge_properties_preserves_reserved_posthog_keys() -> None:
             "$process_person_profile": True,
             "$session_id": "override-session",
             "schema_version": 99,
+            "source_product": "override-product",
+            "source_component": "override-component",
+            "sdk_version": "9.9.9",
         },
         context={
             "$process_person_profile": False,
             "$session_id": "session-1",
+            "source_product": "luxonis_ml",
+            "source_component": "telemetry",
+            "sdk_version": "1.2.3",
         },
     )
 
@@ -1105,6 +1140,9 @@ def test_merge_properties_preserves_reserved_posthog_keys() -> None:
     assert merged["$process_person_profile"] is False
     assert merged["$session_id"] == "session-1"
     assert merged["schema_version"] == 1
+    assert merged["source_product"] == "luxonis_ml"
+    assert merged["source_component"] == "telemetry"
+    assert merged["sdk_version"] == "1.2.3"
 
 
 def test_merge_properties_allows_reserved_overrides_when_enabled() -> None:
@@ -1114,10 +1152,16 @@ def test_merge_properties_allows_reserved_overrides_when_enabled() -> None:
             "$process_person_profile": True,
             "$session_id": "override-session",
             "schema_version": 99,
+            "source_product": "override-product",
+            "source_component": "override-component",
+            "sdk_version": "9.9.9",
         },
         context={
             "$process_person_profile": False,
             "$session_id": "session-1",
+            "source_product": "luxonis_ml",
+            "source_component": "telemetry",
+            "sdk_version": "1.2.3",
         },
     )
 
@@ -1125,7 +1169,10 @@ def test_merge_properties_allows_reserved_overrides_when_enabled() -> None:
 
     assert merged["$process_person_profile"] is True
     assert merged["$session_id"] == "override-session"
-    assert merged["schema_version"] == 99
+    assert merged["schema_version"] == 1
+    assert merged["source_product"] == "override-product"
+    assert merged["source_component"] == "override-component"
+    assert merged["sdk_version"] == "9.9.9"
 
 
 def test_wrap_command_callback_records_failures(
@@ -1149,6 +1196,35 @@ def test_wrap_command_callback_records_failures(
 
     with pytest.raises(RuntimeError, match="boom"):
         wrapped(epochs=5)
+
+    event = dummy_backend.events[-1]
+    assert event.properties["command"] == "train"
+    assert event.properties["epochs"] == 5
+    assert event.properties["success"] is False
+
+
+def test_wrap_command_callback_records_async_failures(
+    dummy_backend: DummyBackend,
+) -> None:
+    telemetry = Telemetry(
+        "luxonis_ml",
+        config=TelemetryConfig(enabled=True, backend="dummy"),
+    )
+
+    async def failing(epochs: int) -> None:
+        await asyncio.sleep(0)
+        raise RuntimeError("boom")
+
+    wrapped = wrap_command_callback(
+        failing,
+        telemetry,
+        "train",
+        allowlist={"epochs"},
+        include_system_metadata=None,
+    )
+
+    with pytest.raises(RuntimeError, match="boom"):
+        asyncio.run(wrapped(epochs=5))
 
     event = dummy_backend.events[-1]
     assert event.properties["command"] == "train"

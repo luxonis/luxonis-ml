@@ -33,6 +33,56 @@ def wrap_command_callback(
 
     signature = inspect.signature(func)
 
+    def emit_command_event(
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        *,
+        success: bool,
+        start: float,
+    ) -> None:
+        duration_ms = int((time.monotonic() - start) * 1000)
+        properties = {
+            "command": command_name,
+            "success": success,
+            "duration_ms": duration_ms,
+        }
+        properties.update(
+            extract_params(
+                signature,
+                args,
+                kwargs,
+                allowlist=allowlist,
+            )
+        )
+        with suppress(Exception):
+            telemetry.capture(
+                "cli_command",
+                properties,
+                include_system_metadata=include_system_metadata,
+            )
+
+    if inspect.iscoroutinefunction(func):
+
+        @wraps(func)
+        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+            start = time.monotonic()
+            success = True
+            try:
+                return await func(*args, **kwargs)
+            except Exception:
+                success = False
+                raise
+            finally:
+                emit_command_event(
+                    args,
+                    kwargs,
+                    success=success,
+                    start=start,
+                )
+
+        cast(_TelemetryCallable, async_wrapper)._telemetry_wrapped = True
+        return async_wrapper
+
     @wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         start = time.monotonic()
@@ -43,26 +93,12 @@ def wrap_command_callback(
             success = False
             raise
         finally:
-            duration_ms = int((time.monotonic() - start) * 1000)
-            properties = {
-                "command": command_name,
-                "success": success,
-                "duration_ms": duration_ms,
-            }
-            properties.update(
-                extract_params(
-                    signature,
-                    args,
-                    kwargs,
-                    allowlist=allowlist,
-                )
+            emit_command_event(
+                args,
+                kwargs,
+                success=success,
+                start=start,
             )
-            with suppress(Exception):
-                telemetry.capture(
-                    "cli_command",
-                    properties,
-                    include_system_metadata=include_system_metadata,
-                )
 
     cast(_TelemetryCallable, wrapper)._telemetry_wrapped = True
     return wrapper

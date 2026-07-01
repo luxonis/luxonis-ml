@@ -5,6 +5,16 @@ from typing import Any
 
 from luxonis_ml.utils.environ import environ
 
+RESERVED_METADATA_KEYS = frozenset(
+    {
+        "$process_person_profile",
+        "$session_id",
+        "source_product",
+        "source_component",
+        "sdk_version",
+    }
+)
+
 
 def is_ci() -> bool:
     """Best-effort detection of CI environments."""
