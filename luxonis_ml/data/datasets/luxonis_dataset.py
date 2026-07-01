@@ -84,8 +84,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         team_id: str | None = None,
         bucket_type: BucketType
         | Literal["internal", "external"] = BucketType.INTERNAL,
-        bucket_storage: BucketStorage
-        | Literal["local", "gcs", "s3", "azure"] = BucketStorage.LOCAL,
+        bucket_storage: (
+            BucketStorage | Literal["local", "gcs", "s3", "azure"]
+        ) = BucketStorage.LOCAL,
         *,
         delete_local: bool = False,
         delete_remote: bool = False,
@@ -438,8 +439,7 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             )
         else:
             raise ValueError(
-                "You must specify a name for the new dataset "
-                "when inplace is False"
+                "You must specify a name for the new dataset when inplace is False"
             )
 
         if self.is_remote:
@@ -1302,10 +1302,12 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     @override
     def make_splits(
         self,
-        splits: Mapping[str, Sequence[PathType]]
-        | Mapping[str, float]
-        | tuple[float, float, float]
-        | None = None,
+        splits: (
+            Mapping[str, Sequence[PathType]]
+            | Mapping[str, float]
+            | tuple[float, float, float]
+            | None
+        ) = None,
         *,
         ratios: dict[str, float] | tuple[float, float, float] | None = None,
         definitions: dict[str, list[PathType]] | None = None,
@@ -1650,7 +1652,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             return max_idx
 
         last_part = _detect_last_part(out_path, self.identifier)
-
         if zip_output:
             archives = create_zip_output(
                 max_partition_size=max_partition_size_gb,
