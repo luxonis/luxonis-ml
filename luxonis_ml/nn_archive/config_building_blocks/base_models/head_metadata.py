@@ -109,6 +109,9 @@ class HeadSegmentationMetadata(HeadMetadata):
     @ivar n_classes: Number of object classes segmented by the model.
     @type is_softmax: bool
     @ivar is_softmax: True, if output is already softmaxed
+    @type background_class: bool
+    @ivar background_class: Whether the pixels classified as index 0
+        should be treated as background.
     """
 
     classes: list[str] = Field(
@@ -120,9 +123,13 @@ class HeadSegmentationMetadata(HeadMetadata):
     is_softmax: bool = Field(
         description="True, if output is already softmaxed."
     )
+    background_class: bool = Field(
+        False,
+        description="Whether the pixels classified as index 0 should be treated as background.",
+    )
 
 
-class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
+class HeadYOLOMetadata(HeadObjectDetectionMetadata):
     """Metadata for the YOLO head.
 
     @type yolo_outputs: list
@@ -148,6 +155,8 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
     @type is_softmax: bool | None
     @ivar is_softmax: True, if output is already softmaxed in YOLO
         instance segmentation
+    @type strides: list[int] | None
+    @ivar strides: Optional per-head strides.
     """
 
     yolo_outputs: list[str] = Field(
@@ -187,6 +196,10 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
         None,
         description="True, if output is already softmaxed in YOLO instance segmentation.",
     )
+    strides: list[int] | None = Field(
+        None,
+        description="Optional per-head strides.",
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -209,6 +222,7 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
             "classes",
             "n_classes",
             "anchors",
+            "strides",
         ]
         defined_params = defined_params.difference(common_fields)
 
@@ -277,6 +291,7 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
             "n_prototypes",
             "n_keypoints",
             "is_softmax",
+            "strides",
         ]
         defined_params = defined_params.difference(common_fields)
 
