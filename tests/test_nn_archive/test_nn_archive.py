@@ -243,7 +243,7 @@ def test_head_metadata_defaults_and_overrides_serialize():
             conf_threshold=0.5,
             max_det=100,
             subtype="yolov6",
-            yolo_outputs=["feats"],
+            yolo_outputs=["out1", "out2", "out3"],
             strides=[8, 16, 32],
         ),  # type: ignore
         outputs=["output"],
