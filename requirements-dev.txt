@@ -8,3 +8,4 @@ pytest-deadfixtures~=3.0
 typer~=0.12
 onnx<1.17.0
 pre-commit<4.0.0
+pydoctor~=25.10
