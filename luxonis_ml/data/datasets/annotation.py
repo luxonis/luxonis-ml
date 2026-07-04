@@ -1125,6 +1125,10 @@ class ArrayAnnotation(Annotation):
 
     path: FilePath
 
+    def to_numpy(self) -> np.ndarray:
+        """Load the array from the file path."""
+        return np.load(self.path)
+
     @staticmethod
     @override
     def combine_to_numpy(

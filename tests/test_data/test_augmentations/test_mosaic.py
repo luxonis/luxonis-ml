@@ -71,14 +71,14 @@ def test_mosaic4_helpers(subtests: SubTests):
 
 def test_mosaic4():
     img = (np.random.rand(HEIGHT, WIDTH, 3) * 255).astype(np.uint8)
-    mosaic4 = Mosaic4(height=HEIGHT, width=WIDTH, p=1.0)
+    mosaic4 = Mosaic4(out_height=HEIGHT, out_width=WIDTH, p=1.0)
     m = mosaic4(image=[img, img, img, img])
     assert m["image"].shape == (HEIGHT, WIDTH, 3)
 
 
 def test_invalid():
     with pytest.raises(ValueError, match="`out_height` must be larger"):
-        Mosaic4(height=0, width=WIDTH)
+        Mosaic4(out_height=0, out_width=WIDTH)
 
     with pytest.raises(ValueError, match="`out_width` must be larger"):
-        Mosaic4(height=HEIGHT, width=0)
+        Mosaic4(out_height=HEIGHT, out_width=0)

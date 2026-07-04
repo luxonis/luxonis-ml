@@ -262,7 +262,7 @@ def test_segmentation_annotation(subtests: SubTests, tempdir: Path):
         assert seg.model_dump() == {
             "height": 4,
             "width": 4,
-            "counts": "11213ON0",
+            "counts": b"11213ON0",
         }
         np.save(tempdir / "mask.npy", mask)
         seg = SegmentationAnnotation(mask=tempdir / "mask.npy")  # type: ignore
@@ -498,7 +498,7 @@ def test_array_annotation(subtests: SubTests, tempdir: Path):
 
     with subtests.test("numpy"):
         annotation = ArrayAnnotation(path=arr_path)
-        assert np.array_equal(np.load(annotation.path), arr)
+        assert np.array_equal(annotation.to_numpy(), arr)
 
         annotations = [ArrayAnnotation(path=arr_path) for _ in range(5)]
         array = ArrayAnnotation.combine_to_numpy(
