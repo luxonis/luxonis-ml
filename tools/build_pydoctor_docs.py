@@ -147,6 +147,8 @@ def build_pydoctor(
         "--html-output",
         str(destination),
         str(source_root / PACKAGE),
+        "--theme",
+        "readthedocs",
     ]
     LOGGER.info("Building %s from %s", destination, source_root)
     completed = subprocess.run(command, check=False)
