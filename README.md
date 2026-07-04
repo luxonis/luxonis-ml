@@ -6,17 +6,20 @@
 [![PyPI - Downloads](https://img.shields.io/pypi/dm/luxonis-ml)](https://pypi.org/project/luxonis-ml/)
 
 ![CI](https://github.com/luxonis/luxonis-ml/actions/workflows/ci.yaml/badge.svg)
+[![Docs](https://github.com/luxonis/luxonis-ml/actions/workflows/docs-pages.yaml/badge.svg)](https://luxonis.github.io/luxonis-ml/)
 [![codecov](https://codecov.io/gh/luxonis/luxonis-ml/graph/badge.svg?token=01E7QTYXWU)](https://codecov.io/gh/luxonis/luxonis-ml)
 
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Docformatter](https://img.shields.io/badge/%20formatter-docformatter-fedcba.svg)](https://github.com/PyCQA/docformatter)
 [![Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-This library includes a collection of helper functions and utilities for the Luxonis MLOps stack. This includes the following submodules:
+This library includes a collection of helper functions and utilities for the Luxonis MLOps stack. API documentation is available at <https://luxonis.github.io/luxonis-ml/>.
 
-- **Dataset Management**: Creating computer vision datasets focused around Luxonis hardware and to be used with our [LuxonisTrain](https://pypi.org/project/luxonis-train/) framework. Additional documentation can be found in the [`luxonis_ml.data` module docs](https://github.com/luxonis/luxonis-ml/blob/main/luxonis_ml/data/__init__.py).
+The library includes the following submodules:
+
+- **Dataset Management**: Creating computer vision datasets focused around Luxonis hardware and to be used with our [LuxonisTrain](https://pypi.org/project/luxonis-train/) framework.
 - **Tracking**: Our implementation of a logger for use with PyTorch Lightning or in [LuxonisTrain](https://pypi.org/project/luxonis-train/)
-- **Telemetry**: A lightweight, reusable telemetry layer with pluggable backends. Additional documentation can be found [here](https://github.com/luxonis/luxonis-ml/blob/main/luxonis_ml/telemetry/README.md).
+- **Telemetry**: A lightweight, reusable telemetry layer with pluggable backends.
 - **Utils**: Miscellaneous utils for developers.
 
 **NOTE**:
@@ -25,6 +28,7 @@ The project is in a beta state, it might be missing certain features or contain 
 ## Table of Contents
 
 - [Installation](#installation)
+- [Documentation](#documentation)
 - [CLI](#cli)
 - [Contributing](#contributing)
 
@@ -66,6 +70,23 @@ Installing the package with all dependencies:
 ```bash
 pip install luxonis-ml[all]
 ```
+
+## Documentation
+
+The latest API documentation is published with GitHub Pages:
+
+- latest docs: <https://luxonis.github.io/luxonis-ml/latest/>
+- version index: <https://luxonis.github.io/luxonis-ml/>
+
+Versioned release docs are published under `releases/<tag>/` for releases created after `v0.8.6-beta`.
+
+To build the docs locally, install the development dependencies and run:
+
+```bash
+python tools/build_pydoctor_docs.py --mode current --output apidocs
+```
+
+The local site will be written to `apidocs/latest/index.html`.
 
 ## CLI
 
