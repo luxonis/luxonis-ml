@@ -306,13 +306,13 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             "Transpose",
         ]:
             logger.warning(
-                f"Using '{augmentation_name}' with keypoints."
+                f"Using '{augmentation_name}' with keypoints. "
                 "If your dataset contains symmetric keypoints "
                 "(e.g. left/right arms), you should use our custom "
                 "`HorizontalSymmetricKeypointsFlip`, "
                 "`VerticalSymmetricKeypointsFlip`, "
                 "or `TransposeSymmetricKeypoints`"
-                "to ensure keypoints are correctly reordered."
+                " to ensure keypoints are correctly reordered."
             )
 
     @deprecated(
@@ -632,15 +632,6 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
         return self._postprocess(data, n_keypoints)
 
-    @staticmethod
-    def _resolve_pipeline_stage(
-        pipeline_stage: Literal["train", "val", "test"] | None,
-        is_validation_pipeline: bool | None,
-    ) -> Literal["train", "val", "test"]:
-        if pipeline_stage is not None:
-            return pipeline_stage
-        return "val" if is_validation_pipeline else "train"
-
     def _preprocess_batch(
         self, labels_batch: list[LoaderMultiOutput]
     ) -> tuple[list[Data], dict[str, int]]:
@@ -820,9 +811,28 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         return out_image_dict, out_labels
 
     @staticmethod
+    def _resolve_pipeline_stage(
+        pipeline_stage: Literal["train", "val", "test"] | None,
+        is_validation_pipeline: bool | None,
+    ) -> Literal["train", "val", "test"]:
+        if pipeline_stage is not None:
+            return pipeline_stage
+        return "val" if is_validation_pipeline else "train"
+
+    @staticmethod
     def _mark_invisible_keypoints(
         keypoints: np.ndarray, shape: tuple[int, int], **_
     ) -> np.ndarray:
+        """Mark keypoints outside the image bounds as invisible.
+
+        Args:
+            keypoints: Keypoints with visibility stored in the last column.
+            shape: Image shape used for bounds checking.
+
+        Returns:
+            Copy of ``keypoints`` with out-of-bounds visibility set to zero.
+
+        """
         h, w = shape[:2]
         kps = keypoints.copy()
         xs, ys = kps[:, 0], kps[:, 1]
@@ -830,8 +840,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         kps[oob, -1] = 0.0
         return kps
 
+    @staticmethod
     def _create_default_resize_transform(
-        self,
         keep_aspect_ratio: bool,
         height: int,
         width: int,

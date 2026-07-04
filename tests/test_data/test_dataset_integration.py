@@ -4,6 +4,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+from cv2.typing import MatLike
 
 from luxonis_ml.data import BucketStorage, LuxonisDataset, LuxonisLoader
 from luxonis_ml.typing import Params
@@ -124,9 +125,9 @@ def generator(base_path: Path, tempdir: Path):
             keypoints.append([kpt_x / W, kpt_y / H, state])
 
         mask_path = annotations["SemanticSegmentationAnnotation"]["filename"]
-        mask = cv2.imread(
-            str(sequence_path / mask_path), cv2.IMREAD_GRAYSCALE
-        ).astype(bool)
+        mask = cv2.imread(str(sequence_path / mask_path), cv2.IMREAD_GRAYSCALE)
+        assert mask is not None
+        mask = mask.astype(bool)
 
         batch.append(
             {
@@ -147,7 +148,10 @@ def generator(base_path: Path, tempdir: Path):
         )
 
         if len(batch) == 4:
-            images = [cv2.imread(str(item["filepath"])) for item in batch]
+            images: list[MatLike] = [
+                cv2.imread(str(item["filepath"])) for item in batch
+            ]  # type: ignore
+            assert all(img is not None for img in images)
             H_img, W_img, C = images[0].shape
             combined_image = np.empty(
                 (2 * H_img, 2 * W_img, C), dtype=images[0].dtype

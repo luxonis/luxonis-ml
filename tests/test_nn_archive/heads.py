@@ -205,7 +205,7 @@ yolo_obb_detection_head = dict(
 
 yolo_instance_seg_kpts_head = dict(
     Head(
-        name="YoloInstaceSegKptHead",
+        name="YoloInstanceSegKptHead",
         parser="YOLO",
         outputs=["outputs"],
         metadata=head_yolo_instance_seg_kpts_metadata,

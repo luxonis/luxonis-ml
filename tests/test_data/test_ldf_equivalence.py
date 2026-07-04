@@ -146,8 +146,8 @@ def test_ldf_equivalent_returns_true_for_same_dataset_parse(
         )
 
         assert ldf_equivalent(
-            first_dataset.dataset_name,
-            second_dataset.dataset_name,
+            first_dataset._dataset_name,
+            second_dataset._dataset_name,
         )
     finally:
         if first_dataset is not None:
@@ -203,8 +203,8 @@ def test_ldf_equivalent_returns_false_for_different_datasets(
         )
 
         assert not ldf_equivalent(
-            first_dataset.dataset_name,
-            second_dataset.dataset_name,
+            first_dataset._dataset_name,
+            second_dataset._dataset_name,
         )
     finally:
         if first_dataset is not None:
@@ -236,8 +236,8 @@ def test_ldf_equivalent_returns_false_when_annotations_change(
         )
 
         assert not ldf_equivalent(
-            original_dataset.dataset_name,
-            modified_dataset.dataset_name,
+            original_dataset._dataset_name,
+            modified_dataset._dataset_name,
         )
     finally:
         if original_dataset is not None:
@@ -272,9 +272,9 @@ def test_luxonis_dataset_eq_uses_ldf_equivalence(
         )
 
         assert first_dataset == second_dataset
-        assert first_dataset == second_dataset.dataset_name
+        assert first_dataset == second_dataset._dataset_name
         assert first_dataset != different_dataset
-        assert first_dataset != different_dataset.dataset_name
+        assert first_dataset != different_dataset._dataset_name
         assert first_dataset != object()
     finally:
         if first_dataset is not None:

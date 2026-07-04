@@ -1,10 +1,20 @@
 import json
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
+from loguru import logger
 
-from luxonis_ml.data import LuxonisLoader, LuxonisParser, ParserIssue
+from luxonis_ml.data import (
+    BaseDataset,
+    LuxonisLoader,
+    LuxonisParser,
+    ParserIssue,
+)
+from luxonis_ml.data.parsers.base_parser import BaseParser, ParserOutput
 from luxonis_ml.data.utils import get_task_type
+from luxonis_ml.enums import DatasetType
 from luxonis_ml.utils import environ
 
 from .utils import create_image
@@ -130,6 +140,62 @@ def test_dir_parser(
     task_types = {get_task_type(task) for task in ann}
     assert task_types == expected_task_types
     dataset.delete_dataset(delete_local=True)
+
+
+def test_split_parser_creates_default_splits(dataset_name: str, tempdir: Path):
+    class_dir = tempdir / "flat_cls"
+    image_dir = class_dir / "class_a"
+    image_dir.mkdir(parents=True)
+    create_image(0, image_dir)
+
+    dataset = LuxonisParser(
+        str(class_dir),
+        dataset_name=dataset_name,
+        dataset_type=DatasetType.CLSDIR,
+        delete_local=True,
+    ).parse()
+    try:
+        splits = dataset.get_splits()
+        assert splits is not None
+        assert set(splits) == {"train", "val", "test"}
+        assert sum(len(group_ids) for group_ids in splits.values()) == 1
+
+        loader = LuxonisLoader(dataset)
+        next(iter(loader))
+    finally:
+        dataset.delete_dataset(delete_local=True)
+
+
+def test_fiftyone_classification_parser_discovers_validation_split(
+    dataset_name: str, tempdir: Path
+):
+    dataset_dir = tempdir / "fiftyone_cls"
+    for i, split in enumerate(["train", "validation", "test"]):
+        data_dir = dataset_dir / split / "data"
+        data_dir.mkdir(parents=True)
+        image_path = create_image(i, data_dir)
+        labels = {
+            "classes": ["daisy", "dandelion"],
+            "labels": {image_path.stem: i % 2},
+        }
+        (dataset_dir / split / "labels.json").write_text(json.dumps(labels))
+
+    dataset = LuxonisParser(
+        str(dataset_dir),
+        dataset_name=dataset_name,
+        dataset_type=DatasetType.FIFTYONECLS,
+        delete_local=True,
+    ).parse()
+    try:
+        splits = dataset.get_splits()
+        assert splits is not None
+        assert {name: len(ids) for name, ids in splits.items()} == {
+            "train": 1,
+            "val": 1,
+            "test": 1,
+        }
+    finally:
+        dataset.delete_dataset(delete_local=True)
 
 
 @pytest.mark.parametrize(
@@ -353,7 +419,7 @@ def test_parser_issue_messages_collect_skipped_annotations(
     try:
         assert len(dataset) == 1
 
-        issues = parser.get_parser_issue_messages()
+        issues = parser._get_parser_issue_messages()
         assert len(issues) == 3
         assert {issue.parser_issue for issue in issues} == {
             ParserIssue.COCO_ISCROWD,
@@ -400,7 +466,7 @@ def test_parser_issue_messages_collect_skipped_annotations(
         assert missing_image_issue.annotation_id is None
 
         issues.pop()
-        assert len(parser.get_parser_issue_messages()) == 3
+        assert len(parser._get_parser_issue_messages()) == 3
     finally:
         dataset.delete_dataset(delete_local=True)
 
@@ -430,6 +496,109 @@ def test_ultralytics_ndjson_parser(
         "classification",
     }
     dataset.delete_dataset(delete_local=True)
+
+
+class _DummyDataset:
+    def add(self, _generator: Iterator[object]) -> None:
+        return None
+
+    def make_splits(self, _splits: object) -> None:
+        return None
+
+
+class _WarningParser(BaseParser):
+    def __init__(
+        self,
+        warning_count: int,
+        *,
+        reason: str = "dummy skipped annotation",
+        full_warnings: bool = False,
+    ):
+        super().__init__(
+            cast(BaseDataset, _DummyDataset()),
+            DatasetType.COCO,
+            None,
+            full_warnings=full_warnings,
+        )
+        self.warning_count = warning_count
+        self.reason = reason
+
+    @staticmethod
+    def validate_split(_split_path: Path) -> dict[str, Any]:
+        return {}
+
+    def from_dir(
+        self, dataset_dir: Path, **kwargs: Any
+    ) -> tuple[list[Path], list[Path], list[Path]]:
+        return [], [], []
+
+    def from_split(self, **kwargs: Any) -> ParserOutput:
+        for annotation_id in range(self.warning_count):
+            self._warn_skipped_annotation(
+                ParserIssue.NON_NUMERIC_ANNOTATION,
+                self.reason,
+                annotation_id=annotation_id,
+            )
+        return iter(()), {}, []
+
+
+def test_skipped_annotation_warnings_are_capped():
+    parser = _WarningParser(BaseParser._SKIPPED_WARNING_LIMIT + 5)
+    messages: list[str] = []
+    sink_id = logger.add(
+        lambda message: messages.append(str(message).strip()),
+        format="{message}",
+        level="WARNING",
+    )
+
+    try:
+        parser.parse_split()
+    finally:
+        logger.remove(sink_id)
+
+    assert len(parser._get_parser_issue_messages()) == (
+        BaseParser._SKIPPED_WARNING_LIMIT + 5
+    )
+    assert (
+        sum(message.startswith("Skipping annotation:") for message in messages)
+        == BaseParser._SKIPPED_WARNING_LIMIT
+    )
+    assert (
+        "Skipped logging 5 additional warnings. Enable the "
+        "`--log-all-warnings` flag to see the full list."
+    ) in messages
+    assert (
+        "Skipped annotations: dummy skipped annotation (55 records)"
+        in messages
+    )
+
+
+def test_full_warnings_logs_all_skipped_annotation_warnings():
+    parser = _WarningParser(
+        BaseParser._SKIPPED_WARNING_LIMIT + 5, full_warnings=True
+    )
+    messages: list[str] = []
+    sink_id = logger.add(
+        lambda message: messages.append(str(message).strip()),
+        format="{message}",
+        level="WARNING",
+    )
+
+    try:
+        parser.parse_split()
+    finally:
+        logger.remove(sink_id)
+
+    assert len(parser._get_parser_issue_messages()) == (
+        BaseParser._SKIPPED_WARNING_LIMIT + 5
+    )
+    assert (
+        sum(message.startswith("Skipping annotation:") for message in messages)
+        == BaseParser._SKIPPED_WARNING_LIMIT + 5
+    )
+    assert not any(
+        message.startswith("Skipped logging ") for message in messages
+    )
 
 
 def test_ultralytics_ndjson_parser_explicit_type(

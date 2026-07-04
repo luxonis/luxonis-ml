@@ -1,4 +1,8 @@
-from luxonis_ml.typing import all_not_none, any_not_none, check_type
+from luxonis_ml.typing import (
+    all_not_none,
+    any_not_none,
+    check_type,
+)
 
 
 def test_all_not_none():

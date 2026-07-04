@@ -16,6 +16,7 @@ import polars as pl
 import rich.progress
 from filelock import FileLock
 from loguru import logger
+from rich.progress import Progress
 from semver.version import Version
 from typing_extensions import Self, override
 
@@ -58,6 +59,7 @@ from luxonis_ml.data.utils import (
 )
 from luxonis_ml.data.utils.constants import LDF_VERSION
 from luxonis_ml.data.utils.ldf_equivalence import ldf_equivalent
+from luxonis_ml.data.utils.parquet import DEFAULT_METADATA
 from luxonis_ml.enums.enums import DatasetType
 from luxonis_ml.typing import PathType
 from luxonis_ml.utils import LuxonisFileSystem, deprecated, environ
@@ -75,7 +77,7 @@ from .utils import (
 )
 
 
-class LuxonisDataset(BaseDataset):
+class LuxonisDataset(BaseDataset):  # noqa: PLW1641
     """Luxonis Dataset Format (LDF) dataset handle.
 
     LDF is a flexible and feature-rich dataset format
@@ -96,8 +98,9 @@ class LuxonisDataset(BaseDataset):
         team_id: str | None = None,
         bucket_type: BucketType
         | Literal["internal", "external"] = BucketType.INTERNAL,
-        bucket_storage: BucketStorage
-        | Literal["local", "gcs", "s3", "azure"] = BucketStorage.LOCAL,
+        bucket_storage: (
+            BucketStorage | Literal["local", "gcs", "s3", "azure"]
+        ) = BucketStorage.LOCAL,
         *,
         delete_local: bool = False,
         delete_remote: bool = False,
@@ -121,20 +124,21 @@ class LuxonisDataset(BaseDataset):
                 bucket storage.
 
         """
-        self.dataset_name = dataset_name
-        self.bucket_storage = BucketStorage(bucket_storage)
 
-        if self.bucket_storage == BucketStorage.AZURE_BLOB:
-            raise NotImplementedError("Azure Blob Storage not yet supported")
-
-        # What is this for?
-        self.bucket_type = BucketType(bucket_type)
-
+        self._dataset_name = dataset_name
         self._base_path = environ.LUXONISML_BASE_PATH
         self._base_path.mkdir(exist_ok=True)
 
         self._credentials = self._init_credentials()
         self._is_synced = False
+
+        # What is this for?
+        self._bucket_type = BucketType(bucket_type)
+
+        self._bucket_storage = BucketStorage(bucket_storage)
+
+        if self._bucket_storage == BucketStorage.AZURE_BLOB:
+            raise NotImplementedError("Azure Blob Storage not yet supported")
 
         self._bucket = self._get_credential("LUXONISML_BUCKET")
 
@@ -144,7 +148,7 @@ class LuxonisDataset(BaseDataset):
                 "must be set for remote datasets"
             )
 
-        self.team_id = team_id or self._get_credential("LUXONISML_TEAM_ID")
+        self._team_id = team_id or self._get_credential("LUXONISML_TEAM_ID")
 
         self._init_paths()
 
@@ -152,9 +156,9 @@ class LuxonisDataset(BaseDataset):
 
         if delete_local or delete_remote:
             if self.exists(
-                self.dataset_name,
-                self.team_id,
-                self.bucket_storage,
+                self._dataset_name,
+                self._team_id,
+                self._bucket_storage,
                 self._bucket,
             ):
                 self.delete_dataset(
@@ -167,7 +171,7 @@ class LuxonisDataset(BaseDataset):
         with FileLock(self._base_path / ".metadata.lock"):
             self._metadata = self._get_metadata()
 
-        if self.version != LDF_VERSION:
+        if self.version.major != LDF_VERSION.major:
             logger.warning(
                 f"LDF versions do not match. The current `luxonis-ml` "
                 f"installation supports LDF v{LDF_VERSION}, but the "
@@ -179,8 +183,8 @@ class LuxonisDataset(BaseDataset):
             )
 
     @cached_property
-    def _progress(self) -> rich.progress.Progress:
-        return rich.progress.Progress(
+    def _progress(self) -> Progress:
+        return Progress(
             rich.progress.TextColumn(
                 "[progress.description]{task.description}"
             ),
@@ -227,10 +231,7 @@ class LuxonisDataset(BaseDataset):
     @property
     @override
     def identifier(self) -> str:
-        return self.dataset_name
-
-    # Needed to complement __eq__.
-    __hash__ = None  # type: ignore[reportAssignmentType]
+        return self._dataset_name
 
     def __eq__(self, other: object) -> bool | NotImplementedType:
         """Compare datasets for equivalence."""
@@ -261,9 +262,9 @@ class LuxonisDataset(BaseDataset):
         self._local_path = (
             self._base_path
             / "data"
-            / self.team_id
+            / self._team_id
             / "datasets"
-            / self.dataset_name
+            / self._dataset_name
         )
         self._media_path = self._local_path / "media"
         self._annotations_path = self._local_path / "annotations"
@@ -281,10 +282,10 @@ class LuxonisDataset(BaseDataset):
             self._path = str(self._local_path)
         else:
             self._path = self._construct_url(
-                self.bucket_storage,
+                self._bucket_storage,
                 self._bucket,
-                self.team_id,
-                self.dataset_name,
+                self._team_id,
+                self._dataset_name,
             )
 
     def _save_df_offline(self, pl_df: pl.DataFrame) -> None:
@@ -359,13 +360,13 @@ class LuxonisDataset(BaseDataset):
 
         """
         if team_id is None:
-            team_id = self.team_id
+            team_id = self._team_id
 
         new_dataset = LuxonisDataset(
             dataset_name=new_dataset_name,
             team_id=team_id,
-            bucket_type=self.bucket_type,
-            bucket_storage=self.bucket_storage,
+            bucket_type=self._bucket_type,
+            bucket_storage=self._bucket_storage,
             delete_local=True,
             delete_remote=True,
         )
@@ -405,17 +406,17 @@ class LuxonisDataset(BaseDataset):
         new_dataset._init_paths()
         new_dataset._metadata = self._get_metadata()
 
-        new_dataset._metadata.parent_dataset = self.dataset_name
+        new_dataset._metadata.parent_dataset = self._dataset_name
 
         if push_to_cloud:
             if self.is_remote:
                 new_dataset.push_to_cloud(
                     update_mode=UpdateMode.MISSING,
-                    bucket_storage=self.bucket_storage,
+                    bucket_storage=self._bucket_storage,
                 )
             else:
                 logger.warning(
-                    f"Cannot push to cloud. The cloned dataset '{new_dataset.dataset_name}' is local. "
+                    f"Cannot push to cloud. The cloned dataset '{new_dataset._dataset_name}' is local. "
                 )
 
         new_dataset._write_metadata()
@@ -453,7 +454,7 @@ class LuxonisDataset(BaseDataset):
         if inplace:
             target_dataset = self
         elif new_dataset_name:
-            if self.bucket_storage != other.bucket_storage:
+            if self._bucket_storage != other._bucket_storage:
                 raise ValueError(
                     "Cannot merge datasets with different bucket storage types."
                 )
@@ -521,7 +522,7 @@ class LuxonisDataset(BaseDataset):
                 ),
             )
             target_dataset.push_to_cloud(
-                bucket_storage=target_dataset.bucket_storage,
+                bucket_storage=target_dataset._bucket_storage,
                 update_mode=UpdateMode.MISSING,
             )
 
@@ -646,32 +647,49 @@ class LuxonisDataset(BaseDataset):
         path = (
             self._base_path
             / "data"
-            / self.team_id
+            / self._team_id
             / "datasets"
-            / self.dataset_name
+            / self._dataset_name
             / "annotations"
         )
         files = list(path.glob("*.parquet"))
         if not files:
             if raise_when_empty:
                 raise FileNotFoundError(
-                    f"Dataset '{self.dataset_name}' is empty."
+                    f"Dataset '{self._dataset_name}' is empty."
                 )
             return None
 
-        lazy_df = pl.scan_parquet([str(f) for f in files])
+        lazy_df = self._scan_annotation_files(files)
 
         if lazy:
             return lazy_df
 
         df = lazy_df.collect()
         if df.is_empty() and raise_when_empty:
-            raise FileNotFoundError(f"Dataset '{self.dataset_name}' is empty.")
+            raise FileNotFoundError(
+                f"Dataset '{self._dataset_name}' is empty."
+            )
 
-        if attempt_migration and self.version != LDF_VERSION:
+        if attempt_migration and self.version.major != LDF_VERSION.major:
             df = migrate_dataframe(df)
 
         return df
+
+    @staticmethod
+    def _scan_annotation_files(files: list[Path]) -> pl.LazyFrame:
+        lazy_frames = []
+        for file in files:
+            lazy_frame = pl.scan_parquet(str(file))
+            if "sample_metadata" not in lazy_frame.schema:
+                lazy_frame = lazy_frame.with_columns(
+                    pl.lit(DEFAULT_METADATA).alias("sample_metadata")
+                )
+            lazy_frames.append(lazy_frame)
+
+        if len(lazy_frames) == 1:
+            return lazy_frames[0]
+        return pl.concat(lazy_frames, how="diagonal_relaxed")
 
     @overload
     def _get_index(
@@ -745,9 +763,7 @@ class LuxonisDataset(BaseDataset):
             df.with_columns(
                 [
                     pl.col("uuid"),
-                    pl.col("file")
-                    .map_dict(mapping, default=None)
-                    .alias("original_filepath"),
+                    pl.col("file").replace(mapping).alias("original_filepath"),
                 ]
             )
             .unique(
@@ -817,7 +833,7 @@ class LuxonisDataset(BaseDataset):
                 self._save_df_offline(df)
 
             version = Version.parse(metadata_json.get("ldf_version", "1.0.0"))
-            if version != LDF_VERSION:  # pragma: no cover
+            if version.major != LDF_VERSION.major:  # pragma: no cover
                 return migrate_metadata(
                     metadata_json,
                     self._load_df_offline(lazy=True, attempt_migration=False),
@@ -838,7 +854,7 @@ class LuxonisDataset(BaseDataset):
         """Whether the dataset is stored remotely (in a cloud bucket) or
         locally.
         """
-        return self.bucket_storage != BucketStorage.LOCAL
+        return self._bucket_storage != BucketStorage.LOCAL
 
     @override
     def update_source(self, source: LuxonisSource) -> None:
@@ -975,7 +991,7 @@ class LuxonisDataset(BaseDataset):
             logger.warning("This is a local dataset! Cannot sync from cloud.")
             return
 
-        local_dir = self._base_path / "data" / self.team_id / "datasets"
+        local_dir = self._base_path / "data" / self._team_id / "datasets"
         local_dir.mkdir(exist_ok=True, parents=True)
 
         lock_path = local_dir / ".sync.lock"
@@ -993,7 +1009,7 @@ class LuxonisDataset(BaseDataset):
                 uuids = index["uuid"].to_list()
                 origps = index["original_filepath"].to_list()
 
-                media_root = Path(local_dir) / self.dataset_name / "media"
+                media_root = Path(local_dir) / self._dataset_name / "media"
 
                 missing_media_paths = [
                     f"media/{uid}{Path(orig).suffix}"
@@ -1011,7 +1027,7 @@ class LuxonisDataset(BaseDataset):
                 )
                 self._fs.get_dir(
                     remote_paths=missing_media_paths,
-                    local_dir=local_dir / f"{self.dataset_name}" / "media",
+                    local_dir=local_dir / f"{self._dataset_name}" / "media",
                 )
             else:
                 logger.info("Media already synced")
@@ -1045,10 +1061,10 @@ class LuxonisDataset(BaseDataset):
             )
 
         dataset = LuxonisDataset(
-            dataset_name=self.dataset_name,
-            team_id=self.team_id,
-            bucket_type=self.bucket_type,
-            bucket_storage=bucket_storage or self.bucket_storage,
+            dataset_name=self._dataset_name,
+            team_id=self._team_id,
+            bucket_type=self._bucket_type,
+            bucket_storage=bucket_storage or self._bucket_storage,
             delete_local=False,
             delete_remote=False,
         )
@@ -1130,22 +1146,22 @@ class LuxonisDataset(BaseDataset):
 
         if not self.is_remote and delete_local:
             logger.info(
-                f"Deleting local dataset '{self.dataset_name}' from local storage"
+                f"Deleting local dataset '{self._dataset_name}' from local storage"
             )
             shutil.rmtree(self._path)
 
         if self.is_remote and delete_remote:
             logger.info(
-                f"Deleting remote dataset '{self.dataset_name}' from cloud storage"
+                f"Deleting remote dataset '{self._dataset_name}' from cloud storage"
             )
             assert self._path
-            assert self.dataset_name
+            assert self._dataset_name
             assert self._local_path
             self._fs.delete_dir(allow_delete_parent=True)
 
         if self.is_remote and delete_local:
             logger.info(
-                f"Deleting remote dataset '{self.dataset_name}' from local storage"
+                f"Deleting remote dataset '{self._dataset_name}' from local storage"
             )
             if self._local_path.exists():
                 shutil.rmtree(self._local_path)
@@ -1234,6 +1250,7 @@ class LuxonisDataset(BaseDataset):
                 self._progress.update(task, advance=1)
         self._progress.remove_task(task)
 
+    @override
     def add(
         self, generator: DatasetIterator, batch_size: int = 1_000_000
     ) -> Self:
@@ -1286,7 +1303,7 @@ class LuxonisDataset(BaseDataset):
             ValueError: If the dataset contains metadata annotations with conflicting types.
 
         """
-        logger.info(f"Adding data to dataset '{self.dataset_name}'...")
+        logger.info(f"Adding data to dataset '{self._dataset_name}'...")
 
         data_batch: list[DatasetRecord] = []
 
@@ -1441,10 +1458,12 @@ class LuxonisDataset(BaseDataset):
     @override
     def make_splits(
         self,
-        splits: Mapping[str, Sequence[PathType]]
-        | Mapping[str, float]
-        | tuple[float, float, float]
-        | None = None,
+        splits: (
+            Mapping[str, Sequence[PathType]]
+            | Mapping[str, float]
+            | tuple[float, float, float]
+            | None
+        ) = None,
         *,
         ratios: dict[str, float] | tuple[float, float, float] | None = None,
         definitions: dict[str, list[PathType]] | None = None,
@@ -1836,7 +1855,6 @@ class LuxonisDataset(BaseDataset):
             return max_idx
 
         last_part = _detect_last_part(out_path, self.identifier)
-
         if zip_output:
             archives = create_zip_output(
                 max_partition_size=max_partition_size_gb,

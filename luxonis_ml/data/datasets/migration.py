@@ -4,6 +4,8 @@ from typing import Any, Final, Literal, overload
 import polars as pl
 from typing_extensions import TypedDict
 
+from luxonis_ml.data.utils.parquet import DEFAULT_METADATA
+
 from .metadata import Metadata, Skeletons
 
 LDF_1_0_0_TASKS: Final[set[str]] = {
@@ -90,6 +92,7 @@ def migrate_dataframe(
             .alias("task_type")
         )
         .with_columns(pl.lit("image").alias("source_name"))
+        .with_columns(pl.lit(DEFAULT_METADATA).alias("sample_metadata"))
         .select(
             [
                 "file",
@@ -99,6 +102,7 @@ def migrate_dataframe(
                 "instance_id",
                 "task_type",
                 "annotation",
+                "sample_metadata",
                 "uuid",
             ]
         )

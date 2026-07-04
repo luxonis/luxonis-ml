@@ -1,4 +1,5 @@
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeGuard, TypeVar
 
@@ -24,57 +25,6 @@ PosixPathType: TypeAlias = str | PurePosixPath
     https://docs.python.org/3/library/pathlib.html#pathlib.PurePosixPath
 """
 
-
-TaskType: TypeAlias = Literal[
-    "classification",
-    "boundingbox",
-    "segmentation",
-    "instance_segmentation",
-    "keypoints",
-    "array",
-]
-
-
-Labels: TypeAlias = dict[str, "np.ndarray"]
-"""Dictionary mapping task names to annotations as ``np.ndarray`` values."""
-
-
-LoaderSingleOutput: TypeAlias = tuple["np.ndarray", Labels]
-"""Loader output for a single image source.
-
-The tuple contains one image array and a label dictionary.
-"""
-
-LoaderMultiOutput: TypeAlias = tuple[dict[str, "np.ndarray"], Labels]
-"""Loader output for one or more named image sources.
-
-The first tuple item maps source names to image arrays, and the second
-contains task labels.
-"""
-
-LoaderOutput: TypeAlias = LoaderSingleOutput | LoaderMultiOutput
-"""Loader output containing image data and labels.
-
-Single-source datasets return `LoaderSingleOutput`; multi-source datasets
-return `LoaderMultiOutput`.
-"""
-
-
-RGB: TypeAlias = tuple[int, int, int]
-r"""RGB color represented as a tuple of three integers
-in the range :math:`\left[0, 255\right]`"""
-
-HSV: TypeAlias = tuple[float, float, float]
-"""HSV color represented as a tuple of three floats"""
-
-Color: TypeAlias = str | int | RGB
-"""Color type alias.
-
-Can be either a string (e.g. "red", "#FF5512"),  a tuple of RGB values,
-or a single value (in which case it is interpreted as a grayscale
-value).
-"""
-
 PrimitiveType: TypeAlias = str | int | float | bool | None
 """Primitive types in Python."""
 
@@ -93,6 +43,71 @@ Params: TypeAlias = dict[str, ParamValue]
 
 Usually loaded from a YAML file.
 """
+
+TaskType: TypeAlias = Literal[
+    "classification",
+    "boundingbox",
+    "segmentation",
+    "instance_segmentation",
+    "keypoints",
+    "array",
+]
+
+
+Labels: TypeAlias = dict[str, "np.ndarray"]
+"""Dictionary mapping task names to the annotations as C{np.ndarray}"""
+
+
+LoaderSingleOutput: TypeAlias = tuple["np.ndarray", Labels]
+"""C{LoaderSingleOutput} is a tuple containing a single image as a
+C{np.ndarray} and a dictionary of task group names and their annotations
+as L{Labels}."""
+
+LoaderMultiOutput: TypeAlias = tuple[dict[str, "np.ndarray"], Labels]
+"""C{LoaderMultiOutput} is a tuple containing a dictionary mapping image
+names to C{np.ndarray} and a dictionary of task group names and their
+annotations as L{Labels}."""
+
+
+@dataclass(slots=True)
+class LoaderOutput(
+    tuple[np.ndarray | dict[str, "np.ndarray"], Labels]
+    if TYPE_CHECKING
+    else object
+):
+    images: dict[str, "np.ndarray"]
+    labels: dict[str, "np.ndarray"]
+    metadata: Params
+
+    def __iter__(self) -> Iterator["np.ndarray | dict[str, np.ndarray]"]:
+        yield self.images if len(self.images) > 1 else self.image
+        yield self.labels
+
+    def __getitem__(self, index: int) -> "np.ndarray | dict[str, np.ndarray]":
+        if index == 0:
+            return self.images if len(self.images) > 1 else self.image
+        if index == 1:
+            return self.labels
+        raise IndexError("Index out of range. Must be 0 or 1.")
+
+    @property
+    def image(self) -> "np.ndarray":
+        """Returns the first image in the images dictionary."""
+        return next(iter(self.images.values()))
+
+
+RGB: TypeAlias = tuple[int, int, int]
+
+HSV: TypeAlias = tuple[float, float, float]
+
+Color: TypeAlias = str | int | RGB
+"""Color type alias.
+
+Can be either a string (e.g. "red", "#FF5512"),  a tuple of RGB values,
+or a single value (in which case it is interpreted as a grayscale
+value).
+"""
+
 
 Kwargs: TypeAlias = dict[str, Any]
 """A keyword dictionary of arbitrary parameters."""

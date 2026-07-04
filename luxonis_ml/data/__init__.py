@@ -212,15 +212,17 @@ with guard_missing_extra("data"):
 
 
 def _load_dataset_plugins() -> None:  # pragma: no cover
+    """Register external dataset ``BaseDataset`` plugins."""
     for entry_point in _get_entry_points_subset("dataset_plugins"):
         plugin_class = entry_point.load()
         DATASETS_REGISTRY.register(module=plugin_class)
 
 
 def _load_loader_plugins() -> None:  # pragma: no cover
+    """Register external dataset ``BaseLoader`` plugins."""
     for entry_point in _get_entry_points_subset("loader_plugins"):
         plugin_class = entry_point.load()
-        DATASETS_REGISTRY.register(module=plugin_class)
+        LOADERS_REGISTRY.register(module=plugin_class)
 
 
 def _get_entry_points_subset(key: str) -> list:

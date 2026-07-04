@@ -326,7 +326,12 @@ from pydantic_core import core_schema
 from typing_extensions import Self, deprecated, override
 
 from luxonis_ml.data.utils.parquet import ParquetRecord
-from luxonis_ml.typing import BaseModelExtraForbid, PathType, check_type
+from luxonis_ml.typing import (
+    BaseModelExtraForbid,
+    Params,
+    PathType,
+    check_type,
+)
 from luxonis_ml.utils.logging import log_once
 
 KeypointVisibility: TypeAlias = Literal[0, 1, 2]
@@ -988,12 +993,11 @@ class SegmentationAnnotation(Annotation):
                         f"Failed to load mask from array at '{mask_path}'"
                     ) from e
             elif mask_path.suffix == ".png":
-                mask = cv2.imread(str(mask_path), cv2.IMREAD_UNCHANGED)
+                mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
                 if mask is None:
                     raise ValueError(
                         f"Failed to load mask from image at '{mask_path}'"
                     )
-
                 mask = mask.astype(bool).astype(np.uint8)
             else:
                 raise ValueError(
@@ -1181,6 +1185,7 @@ class DatasetRecord(BaseModelExtraForbid):
     files: dict[str, FilePath]
     annotation: Detection | None = None
     task_name: str = ""
+    sample_metadata: Params = Field(default_factory=dict)
 
     @property
     def file(self) -> FilePath:
@@ -1206,6 +1211,35 @@ class DatasetRecord(BaseModelExtraForbid):
             Use ``list(record.files.values())`` instead.
         """
         return list(self.files.values())
+
+    @model_validator(mode="after")
+    def validate_task_name_valid_identifier(self) -> Self:
+        Detection._check_valid_identifier(self.task_name, label="Task name")
+        return self
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_task_name(cls, values: dict[str, Any]) -> dict[str, Any]:
+        if "task" in values:
+            log_once(
+                logger.warning,
+                "The 'task' field is deprecated. Use 'task_name' instead.",
+            )
+            values["task_name"] = values.pop("task")
+        return values
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_files(cls, values: dict[str, Any]) -> dict[str, Any]:
+        values = deepcopy(values)
+        if "file" in values:
+            values["files"] = {"image": values.pop("file")}
+        if "files" in values:
+            files_dict = values["files"]
+            values["files"] = {
+                k: Path(v).absolute() for k, v in files_dict.items()
+            }
+        return values
 
     def to_parquet_rows(self) -> Iterable[ParquetRecord]:
         """Recursively convert the dataset record and all its
@@ -1233,6 +1267,7 @@ class DatasetRecord(BaseModelExtraForbid):
                     "instance_id": None,
                     "task_type": None,
                     "annotation": None,
+                    "sample_metadata": json.dumps(self.sample_metadata),
                 }
             else:
                 for task_type in [
@@ -1253,6 +1288,9 @@ class DatasetRecord(BaseModelExtraForbid):
                             "instance_id": annotation.instance_id,
                             "task_type": task_type,
                             "annotation": label.model_dump_json(),
+                            "sample_metadata": json.dumps(
+                                self.sample_metadata
+                            ),
                         }
                 for key, data in annotation.metadata.items():
                     yield {
@@ -1263,6 +1301,7 @@ class DatasetRecord(BaseModelExtraForbid):
                         "instance_id": annotation.instance_id,
                         "task_type": f"metadata/{key}",
                         "annotation": json.dumps(data),
+                        "sample_metadata": json.dumps(self.sample_metadata),
                     }
                 if annotation.class_name is not None:
                     yield {
@@ -1273,35 +1312,20 @@ class DatasetRecord(BaseModelExtraForbid):
                         "instance_id": annotation.instance_id,
                         "task_type": "classification",
                         "annotation": "{}",
+                        "sample_metadata": json.dumps(self.sample_metadata),
                     }
                 for name, detection in annotation.sub_detections.items():
                     yield from self._to_parquet_rows(
                         detection, f"{task_name}/{name}"
                     )
 
-    @model_validator(mode="before")
-    @classmethod
-    def _validate_task_name(cls, values: dict[str, Any]) -> dict[str, Any]:
-        if "task" in values:
-            log_once(
-                logger.warning,
-                "The 'task' field is deprecated. Use 'task_name' instead.",
-            )
-            values["task_name"] = values.pop("task")
-        return values
-
-    @model_validator(mode="before")
-    @classmethod
-    def _validate_files(cls, values: dict[str, Any]) -> dict[str, Any]:
-        values = deepcopy(values)
-        if "file" in values:
-            values["files"] = {"image": values.pop("file")}
-        if "files" in values:
-            files_dict = values["files"]
-            values["files"] = {
-                k: Path(v).absolute() for k, v in files_dict.items()
-            }
-        return values
+    @staticmethod
+    def decode_metadata(value: Any) -> Params:
+        if value in (None, ""):
+            return {}
+        if isinstance(value, str):
+            value = json.loads(value)
+        return value if isinstance(value, dict) else {}
 
 
 def load_annotation(

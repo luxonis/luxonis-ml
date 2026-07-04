@@ -393,7 +393,7 @@ class YOLOv8Parser(BaseParser):
 
                     elif task_type == "segmentation":
                         img = cv2.imread(str(img_path))
-                        if img is None:  # pragma: no cover
+                        if img is None:
                             raise ValueError(
                                 f"Failed to read image: {img_path}"
                             )

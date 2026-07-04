@@ -74,7 +74,7 @@ class UltralyticsNDJSONParser(BaseParser):
         generator, added_by_split, _added_images = self._build_record_stream(
             ndjson_path, reuse_cached=reuse_cached
         )
-        self.dataset.add(self._wrap_generator(generator))
+        self._dataset.add(self._wrap_generator(generator))
         return (
             added_by_split["train"],
             added_by_split["val"],
@@ -104,7 +104,7 @@ class UltralyticsNDJSONParser(BaseParser):
                 a valid Ultralytics dataset.
 
         """
-        self.reset_parser_issue_messages()
+        self._reset_parser_issue_messages()
         split_ratios = kwargs.pop("split_ratios", None)
         is_counts = split_ratios is not None and all(
             isinstance(v, int) for v in split_ratios.values()
@@ -122,13 +122,13 @@ class UltralyticsNDJSONParser(BaseParser):
         }
 
         if split_ratios is None:
-            self.dataset.make_splits(original_splits)
+            self._dataset.make_splits(original_splits)
         elif is_counts:
             sampled = self._apply_counts_to_splits(
                 original_splits,
                 split_ratios,  # type: ignore[arg-type]
             )
-            self.dataset.make_splits(sampled)
+            self._dataset.make_splits(sampled)
             self._remove_unsplit_records()
         else:
             logger.warning(
@@ -136,9 +136,9 @@ class UltralyticsNDJSONParser(BaseParser):
                 "and shuffle all samples across splits. Original split "
                 "boundaries from the NDJSON file will not be preserved."
             )
-            self.dataset.make_splits(split_ratios)
+            self._dataset.make_splits(split_ratios)
 
-        return self.dataset
+        return self._dataset
 
     def from_split(
         self,
@@ -197,7 +197,7 @@ class UltralyticsNDJSONParser(BaseParser):
                 dimensionality.
 
         """
-        self.reset_parser_issue_messages()
+        self._reset_parser_issue_messages()
         ndjson_path = kwargs.get("ndjson_path")
         if ndjson_path is None:
             raise ValueError("`ndjson_path` is required for NDJSON parsing.")
@@ -205,7 +205,7 @@ class UltralyticsNDJSONParser(BaseParser):
         generator, added_by_split, added_images = self._build_record_stream(
             ndjson_path, reuse_cached=reuse_cached
         )
-        self.dataset.add(self._wrap_generator(generator))
+        self._dataset.add(self._wrap_generator(generator))
         split_definitions: dict[str, Sequence[PathType]] = dict(added_by_split)
 
         is_counts = split_ratios is not None and all(
@@ -213,15 +213,15 @@ class UltralyticsNDJSONParser(BaseParser):
         )
 
         if split is not None:
-            self.dataset.make_splits({split: added_images})
+            self._dataset.make_splits({split: added_images})
         elif split_ratios is None:
-            self.dataset.make_splits(split_definitions)
+            self._dataset.make_splits(split_definitions)
         elif is_counts:
             sampled = self._apply_counts_to_splits(
                 split_definitions,
                 split_ratios,  # type: ignore[arg-type]
             )
-            self.dataset.make_splits(sampled)
+            self._dataset.make_splits(sampled)
             self._remove_unsplit_records()
         elif random_split:
             logger.warning(
@@ -229,9 +229,9 @@ class UltralyticsNDJSONParser(BaseParser):
                 "and shuffle all samples across splits. Original split "
                 "boundaries from the NDJSON file will not be preserved."
             )
-            self.dataset.make_splits(split_ratios)
+            self._dataset.make_splits(split_ratios)
 
-        return self.dataset
+        return self._dataset
 
     def _build_record_stream(
         self, ndjson_path: Path, reuse_cached: bool = True

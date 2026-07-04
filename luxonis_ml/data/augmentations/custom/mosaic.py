@@ -411,13 +411,13 @@ class Mosaic4(BatchTransform):
 
             for i in range(masks.shape[-1]):
                 mask = masks[..., i]
-                imgs = max(out_height, out_width)
+                imgsz = max(out_height, out_width)
                 h, w = mask.shape
-                r = imgs / max(h, w)
+                r = imgsz / max(h, w)
                 if r != 1:
                     w, h = (
-                        min(math.ceil(w * r), imgs),
-                        min(math.ceil(h * r), imgs),
+                        min(math.ceil(w * r), imgsz),
+                        min(math.ceil(h * r), imgsz),
                     )
                     mask = cv2.resize(
                         mask, (w, h), interpolation=cv2.INTER_NEAREST
@@ -557,14 +557,15 @@ class Mosaic4(BatchTransform):
         x_crop: int,
         y_crop: int,
     ) -> np.ndarray:
+        """Adjust bounding box coordinates for the mosaic grid position."""
         bbox = denormalize_bboxes(bbox, (in_height, in_width))
 
-        imgs = max(out_height, out_width)
-        r = imgs / max(in_height, in_width)
+        imgsz = max(out_height, out_width)
+        r = imgsz / max(in_height, in_width)
         if r != 1:
             in_width, in_height = (
-                min(math.ceil(in_width * r), imgs),
-                min(math.ceil(in_height * r), imgs),
+                min(math.ceil(in_width * r), imgsz),
+                min(math.ceil(in_height * r), imgsz),
             )
             bbox[:, :4] = bbox[:, :4] * r
 
@@ -591,12 +592,13 @@ class Mosaic4(BatchTransform):
         x_crop: int,
         y_crop: int,
     ) -> np.ndarray:
-        imgs = max(out_height, out_width)
-        r = imgs / max(in_height, in_width)
+        """Adjust keypoint coordinates for the mosaic grid position."""
+        imgsz = max(out_height, out_width)
+        r = imgsz / max(in_height, in_width)
         if r != 1:
             in_width, in_height = (
-                min(math.ceil(in_width * r), imgs),
-                min(math.ceil(in_height * r), imgs),
+                min(math.ceil(in_width * r), imgsz),
+                min(math.ceil(in_height * r), imgsz),
             )
             keypoints[:, 0] = keypoints[:, 0] * r
             keypoints[:, 1] = keypoints[:, 1] * r
