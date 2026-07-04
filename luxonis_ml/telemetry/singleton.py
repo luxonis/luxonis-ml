@@ -148,7 +148,7 @@ def initialize_telemetry(
 
     Returns:
         The initialized telemetry instance for the exact
-        `(library_name, source_component)` key.
+        ``(library_name, source_component)`` key.
 
     """
     with _singleton_lock:
