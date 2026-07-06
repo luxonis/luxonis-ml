@@ -102,16 +102,18 @@ class Mosaic4(BatchTransform):
         width = width if width is not None else out_width
 
         if height is None or height <= 0:
-            raise ValueError(
-                f"`out_height` must be larger than 0, got {height}"
-            )
+            raise ValueError(f"`height` must be larger than 0, got {height}")
         if width is None or width <= 0:
-            raise ValueError(f"`out_width` must be larger than 0, got {width}")
+            raise ValueError(f"`width` must be larger than 0, got {width}")
 
         self._height = height
         self._width = width
-        self._image_fill_value = value or image_fill_value
-        self._mask_fill_value = mask_value or mask_fill_value
+        self._image_fill_value = (
+            value if value is not None else image_fill_value
+        )
+        self._mask_fill_value = (
+            mask_value if mask_value is not None else mask_fill_value
+        )
 
     @override
     def get_params_dependent_on_data(

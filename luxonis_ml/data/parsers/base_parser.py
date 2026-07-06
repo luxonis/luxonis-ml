@@ -22,21 +22,7 @@ ParserOutput = tuple[DatasetIterator, dict[str, dict], list[Path]]
 
 
 class BaseParser(ABC):
-    """Base class for dataset-format parsers.
-
-    Attributes:
-        _SPLIT_NAMES: Canonical split directory names checked by
-            ``validate``.
-        _CANONICAL_SPLIT_NAMES: Split names used when assigning samples.
-        _SKIPPED_WARNING_LIMIT: Number of skipped-annotation warnings logged
-            before summaries are used.
-        _dataset: Dataset being populated by the parser.
-        _dataset_type: Dataset format handled by the parser.
-        _task_name: Optional task naming rule. When a string is provided,
-            every parsed record receives that task name. When a mapping is
-            provided, class names are mapped to task names.
-
-    """
+    """Base class for dataset-format parsers."""
 
     _SPLIT_NAMES: tuple[str, ...] = ("train", "valid", "test")
     _CANONICAL_SPLIT_NAMES: tuple[str, ...] = ("train", "val", "test")

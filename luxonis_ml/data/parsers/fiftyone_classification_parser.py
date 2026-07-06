@@ -50,10 +50,6 @@ class FiftyOneClassificationParser(BaseParser):
 
     This parser supports the FiftyOne image classification export layout.
 
-    Attributes:
-        SPLIT_NAMES: Split directory names used by the FiftyOne
-            classification layout.
-
     """
 
     _SPLIT_NAMES: tuple[str, ...] = ("train", "validation", "test")

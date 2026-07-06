@@ -198,9 +198,6 @@ def str_to_rgb(string: str) -> RGB:
         >>> len(str_to_rgb("car"))
         3
 
-    Returns:
-        The generated RGB color.
-
     """
     h = int(hashlib.md5(string.encode()).hexdigest(), 16)  # noqa: S324
     r = (h & 0xFF0000) >> 16
@@ -582,9 +579,8 @@ def visualize(
         source_name: Name of the image source.
         labels: Labels to visualize.
         classes: Mapping from task names to class ID mappings.
-        blend_all: Whether to blend all labels, except semantic
-            segmentations, into a single image. This mixes labels that
-            belong to different tasks.
+        blend_all: Whether to blend all labels into a single image.
+           This mixes labels that belong to different tasks.
         categorical_encodings: optional mapping for categorical metadata
             tasks. Keys are full task identifiers such as
             ``"task_name/metadata/key"`` and values map string labels to

@@ -147,7 +147,7 @@ def find_duplicates(df: pl.LazyFrame) -> dict[str, list[dict[str, Any]]]:
         ``"duplicate_annotations"``
             List of dictionaries containing ``"file_name"``,
             ``"task_type"``, ``"task_name"``, serialized
-            ``"annotation"``, and duplicate ``"count"``.
+            ``"annotation"`` (or ``"<binary mask>"`` for segmentation), and duplicate ``"count"``.
 
     """
     result = {

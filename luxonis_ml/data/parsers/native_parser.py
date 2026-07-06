@@ -26,9 +26,6 @@ class NativeParser(BaseParser):
     in the same format as the output of the generator function used
     by ``BaseDataset.add``.
 
-    Attributes:
-        _SPLIT_NAMES: Native LDF split directory names.
-
     """
 
     @staticmethod

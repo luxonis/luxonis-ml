@@ -43,7 +43,7 @@ class BaseDataset(
         ...
 
     @abstractmethod
-    def get_tasks(self) -> dict[str, str]:
+    def get_tasks(self) -> dict[str, list[str]]:
         """Return task names and task types.
 
         Returns:

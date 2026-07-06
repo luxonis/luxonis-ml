@@ -20,6 +20,7 @@ class ParquetRecord(TypedDict):
         instance_id: Optional instance identifier.
         task_type: Optional task type.
         annotation: Optional serialized annotation JSON.
+        sample_metadata: Optional serialized metadata JSON for the entire sample.
 
     """
 
