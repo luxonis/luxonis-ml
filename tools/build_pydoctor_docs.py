@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
 """Build pydoctor API documentation for GitHub Pages."""
 
-from __future__ import annotations
-
 import argparse
 import ast
 import html
-import inspect
 import json
 import logging
 import shutil
@@ -21,10 +18,6 @@ PROJECT_NAME = "LuxonisML"
 PROJECT_URL = "https://github.com/luxonis/luxonis-ml"
 PAGES_URL = "https://luxonis.github.io/luxonis-ml"
 DEFAULT_RELEASE_BASELINE = "v0.8.6-beta"
-EXTRACTALL_SUPPORTS_FILTER = (
-    "filter" in inspect.signature(tarfile.TarFile.extractall).parameters
-)
-LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -150,12 +143,11 @@ def build_pydoctor(
         "--theme",
         "readthedocs",
     ]
-    LOGGER.info("Building %s from %s", destination, source_root)
     completed = subprocess.run(command, check=False)
     if completed.returncode == 0:
         return
     if completed.returncode == 2 and (destination / "index.html").is_file():
-        LOGGER.warning(
+        print(  # noqa: T201
             "pydoctor exited with non-fatal documentation warnings; "
             "continuing because HTML was generated."
         )
@@ -258,10 +250,7 @@ class export_git_tag:
             check=True,
         )
         with tarfile.open(archive_path) as archive:
-            if EXTRACTALL_SUPPORTS_FILTER:
-                archive.extractall(source_root, filter="data")
-            else:
-                archive.extractall(source_root)  # noqa: S202
+            archive.extractall(source_root, filter="data")
         return source_root
 
     def __exit__(self, *_: object) -> None:
