@@ -39,13 +39,6 @@ def resolve_manifest_path(base_dir: Path, value: PathType) -> Path:
     Returns:
         Absolute resolved path.
 
-    Examples:
-        >>> base = Path("/dataset")
-        >>> resolve_manifest_path(base, "images/cat.jpg").as_posix()
-        '/dataset/images/cat.jpg'
-        >>> resolve_manifest_path(base, "/tmp/cat.jpg").as_posix()
-        '/tmp/cat.jpg'
-
     """
 
     raw = str(value)

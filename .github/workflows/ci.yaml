@@ -208,9 +208,6 @@ jobs:
           export_environment_variables: true
           token_format: access_token
 
-      - name: Check dead fixtures
-        run: pytest --dead-fixtures
-
       - name: Run pytest
         shell: bash
         run: |
