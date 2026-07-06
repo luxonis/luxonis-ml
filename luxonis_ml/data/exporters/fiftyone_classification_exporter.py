@@ -26,7 +26,7 @@ class FiftyOneClassificationExporter(BaseExporter):
                     000002.jpg
                     ...
                 labels.json
-            val/
+            validation/
                 data/
                     ...
                 labels.json
