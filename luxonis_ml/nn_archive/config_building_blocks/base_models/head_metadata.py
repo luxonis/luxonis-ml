@@ -112,6 +112,8 @@ class HeadSegmentationMetadata(HeadMetadata):
         n_classes: Number of classes segmented by the model.
         is_softmax: Whether the output already contains softmax
             probabilities.
+        background_class: Whether the pixels classified as index 0
+            should be treated as background.
 
     """
 
@@ -124,9 +126,13 @@ class HeadSegmentationMetadata(HeadMetadata):
     is_softmax: bool = Field(
         description="Whether the output already contains softmax probabilities."
     )
+    background_class: bool = Field(
+        False,
+        description="Whether the pixels classified as index 0 should be treated as background.",
+    )
 
 
-class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
+class HeadYOLOMetadata(HeadObjectDetectionMetadata):
     """Metadata for a YOLO head.
 
     Attributes:
@@ -143,6 +149,7 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
             keypoint detection.
         is_softmax: Optional flag indicating whether YOLO instance
             segmentation outputs already contain softmax probabilities.
+        strides: Optional per-head strides.
 
     """
 
@@ -186,6 +193,10 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
             "softmax probabilities."
         ),
     )
+    strides: list[int] | None = Field(
+        None,
+        description="Optional per-head strides.",
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -224,6 +235,7 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
             "classes",
             "n_classes",
             "anchors",
+            "strides",
         ]
         defined_params = defined_params.difference(common_fields)
 
@@ -293,6 +305,7 @@ class HeadYOLOMetadata(HeadObjectDetectionMetadata, HeadSegmentationMetadata):
             "n_prototypes",
             "n_keypoints",
             "is_softmax",
+            "strides",
         ]
         defined_params = defined_params.difference(common_fields)
 
