@@ -227,13 +227,24 @@ def safe_release_path(tag: str) -> str:
 
 
 def _extract_tar_safely(archive: tarfile.TarFile, destination: Path) -> None:
-    for member in _safe_tar_members(archive, destination):
-        archive.extract(member, destination, filter="data")
+    for member, target in _safe_tar_targets(archive, destination):
+        if member.isdir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        source = archive.extractfile(member)
+        if source is None:
+            raise SystemExit(
+                f"Refusing to extract unreadable archive member: {member.name}"
+            )
+        with source, target.open("wb") as output:
+            shutil.copyfileobj(source, output)
 
 
-def _safe_tar_members(
+def _safe_tar_targets(
     archive: tarfile.TarFile, destination: Path
-) -> list[tarfile.TarInfo]:
+) -> list[tuple[tarfile.TarInfo, Path]]:
     root = destination.resolve()
     members = []
     for member in archive.getmembers():
@@ -252,6 +263,7 @@ def _safe_tar_members(
             member.name in {"", "."}
             or member_path.is_absolute()
             or ".." in member_path.parts
+            or ":" in member.name
             or "\\" in member.name
         ):
             raise SystemExit(
@@ -264,7 +276,7 @@ def _safe_tar_members(
                 f"Refusing to extract archive member outside destination: "
                 f"{member.name}"
             )
-        members.append(member)
+        members.append((member, target))
     return members
 
 
