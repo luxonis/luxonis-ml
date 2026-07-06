@@ -137,6 +137,31 @@ See:
     categories, and instance-association rules.
 
 
+Annotation Payloads
+===================
+
+LDF supports a small set of annotation payload families:
+
+    - classification through a ``"class"`` value;
+    - normalized ``xywh`` bounding boxes through ``"boundingbox"``;
+    - normalized ``(x, y, visibility)`` keypoint triplets through
+      ``"keypoints"``;
+    - semantic segmentation masks through polygon points, binary masks, or
+      COCO RLE values under ``"segmentation"``;
+    - instance segmentation masks through the same mask encodings under
+      ``"instance_segmentation"``;
+    - arbitrary ``.npy`` array targets through ``"array"``;
+    - flexible metadata values through ``"metadata"``.
+
+Any annotation with a class contributes a classification target. When separate
+records describe the same physical object, use the same ``instance_id`` so
+boxes, keypoints, and instance masks can be associated reliably.
+
+See:
+    `luxonis_ml.data.datasets.annotation` for examples, exact field names,
+    mask encoding details, metadata categories, and loader output shapes.
+
+
 Command Line Interface
 ======================
 

@@ -8,7 +8,8 @@ transformation.
 Augmentation configuration is a list of records. Each record contains a
 ``name`` identifying an Albumentations transform or a transform registered in
 `TRANSFORMATIONS`, optional ``params``, optional ``use_for_resizing``, and
-optional stage filtering through ``apply_on_stages``.
+optional stage filtering through ``apply_on_stages``. When
+``apply_on_stages`` is omitted, the transform applies to ``"train"``.
 
 .. python::
 
@@ -31,7 +32,11 @@ input order:
 Resize handling is part of the engine. A transform marked with
 ``use_for_resizing`` is used as the resize stage; otherwise the engine falls
 back to a regular resize or `LetterboxResize`, depending on the loader's
-aspect-ratio setting.
+aspect-ratio setting. If the selected resize transform has probability
+``p < 1``, it stays in the resize stage and the remaining probability mass is
+filled by the default resize in an always-on ``OneOf``. The resize stage is
+applied before pixel-only transforms when downscaling saves work, and after
+pixel-only transforms when upscaling or preserving size.
 
 Standard Albumentations flip transforms such as ``HorizontalFlip``,
 ``VerticalFlip``, and ``Transpose`` flip keypoint coordinates but do not swap
