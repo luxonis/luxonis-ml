@@ -11,7 +11,7 @@ import subprocess
 import tarfile
 import tempfile
 from dataclasses import asdict, dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 PACKAGE = "luxonis_ml"
 PROJECT_NAME = "LuxonisML"
@@ -226,6 +226,48 @@ def safe_release_path(tag: str) -> str:
     return tag
 
 
+def _extract_tar_safely(archive: tarfile.TarFile, destination: Path) -> None:
+    for member in _safe_tar_members(archive, destination):
+        archive.extract(member, destination, filter="data")
+
+
+def _safe_tar_members(
+    archive: tarfile.TarFile, destination: Path
+) -> list[tarfile.TarInfo]:
+    root = destination.resolve()
+    members = []
+    for member in archive.getmembers():
+        if member.issym() or member.islnk():
+            raise SystemExit(
+                f"Refusing to extract archive link: {member.name}"
+            )
+        if not (member.isfile() or member.isdir()):
+            raise SystemExit(
+                f"Refusing to extract unsupported archive member: "
+                f"{member.name}"
+            )
+
+        member_path = PurePosixPath(member.name)
+        if (
+            member.name in {"", "."}
+            or member_path.is_absolute()
+            or ".." in member_path.parts
+            or "\\" in member.name
+        ):
+            raise SystemExit(
+                f"Refusing to extract unsafe archive path: {member.name}"
+            )
+
+        target = (root / Path(*member_path.parts)).resolve()
+        if target != root and root not in target.parents:
+            raise SystemExit(
+                f"Refusing to extract archive member outside destination: "
+                f"{member.name}"
+            )
+        members.append(member)
+    return members
+
+
 class export_git_tag:
     def __init__(self, tag: str) -> None:
         self.tag = tag
@@ -250,7 +292,7 @@ class export_git_tag:
             check=True,
         )
         with tarfile.open(archive_path) as archive:
-            archive.extractall(source_root, filter="data")
+            _extract_tar_safely(archive, source_root)
         return source_root
 
     def __exit__(self, *_: object) -> None:
