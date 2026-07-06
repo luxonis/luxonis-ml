@@ -1,3 +1,4 @@
+import json
 import tarfile
 from functools import lru_cache
 from pathlib import Path
@@ -11,6 +12,10 @@ from pydantic import ValidationError
 
 from luxonis_ml.nn_archive import ArchiveGenerator, is_nn_archive
 from luxonis_ml.nn_archive.config_building_blocks import HeadMetadata
+from luxonis_ml.nn_archive.config_building_blocks.base_models.head_metadata import (
+    HeadSegmentationMetadata,
+    HeadYOLOMetadata,
+)
 from luxonis_ml.nn_archive.config_building_blocks.enums.data_type import (
     DataType,
 )
@@ -134,6 +139,15 @@ def test_archive_generator(
     with tarfile.open(archive_path) as tar:
         assert "test_model.onnx" in tar.getnames()
         assert "config.json" in tar.getnames()
+        config = json.load(tar.extractfile("config.json"))  # type: ignore[arg-type]
+
+    metadata = config["model"]["heads"][0]["metadata"]
+    if archive_name == "custom_segmentation":
+        assert metadata["background_class"] is True
+    if archive_name == "yolo_instance_segmentation":
+        assert metadata["strides"] == [8, 16, 32]
+    if archive_name == "yolo_keypoint_detection":
+        assert metadata["strides"] is None
 
     assert is_nn_archive(archive_path)
     assert not is_nn_archive(onnx_path)
@@ -199,6 +213,55 @@ def test_optional_head_name():
         metadata=HeadMetadata(),  # type: ignore
         outputs=["output"],
     )
+
+
+def test_head_metadata_defaults_and_overrides_serialize():
+    yolo_default = HeadType(
+        name=None,
+        parser="YOLO",
+        metadata=HeadYOLOMetadata(
+            classes=["person"],
+            n_classes=1,
+            iou_threshold=0.5,
+            conf_threshold=0.5,
+            max_det=100,
+            subtype="yolov6",
+            yolo_outputs=["feats"],
+        ),  # type: ignore
+        outputs=["output"],
+    )
+    assert yolo_default.metadata.strides is None  # type: ignore
+    assert yolo_default.model_dump()["metadata"]["strides"] is None
+
+    yolo_override = HeadType(
+        name=None,
+        parser="YOLO",
+        metadata=HeadYOLOMetadata(
+            classes=["person"],
+            n_classes=1,
+            iou_threshold=0.5,
+            conf_threshold=0.5,
+            max_det=100,
+            subtype="yolov6",
+            yolo_outputs=["out1", "out2", "out3"],
+            strides=[8, 16, 32],
+        ),  # type: ignore
+        outputs=["output"],
+    )
+    assert yolo_override.model_dump()["metadata"]["strides"] == [8, 16, 32]
+
+    segmentation = HeadType(
+        name=None,
+        parser="Segmentation",
+        metadata=HeadSegmentationMetadata(
+            classes=["person"],
+            n_classes=1,
+            is_softmax=False,
+            background_class=True,
+        ),  # type: ignore
+        outputs=["output"],
+    )
+    assert segmentation.model_dump()["metadata"]["background_class"] is True
 
 
 def test_layout():
