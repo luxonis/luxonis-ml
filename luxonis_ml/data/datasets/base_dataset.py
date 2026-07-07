@@ -81,10 +81,8 @@ class BaseDataset(
             .. python::
 
                 {
-                    "vehicles": {
-                        "color": {"red": 0, "green": 1, "blue": 2},
-                        "brand": {"audi": 0, "bmw": 1, "mercedes": 2},
-                    }
+                    "color": {"red": 0, "green": 1, "blue": 2},
+                    "brand": {"audi": 0, "bmw": 1, "mercedes": 2},
                 }
 
         """
