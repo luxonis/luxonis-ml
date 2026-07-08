@@ -3,7 +3,7 @@ import hashlib
 import math
 from collections import defaultdict
 from collections.abc import Generator, Hashable, Iterator, Mapping
-from typing import Literal, TypeAlias
+from typing import Literal
 
 import cv2
 import matplotlib.colors
@@ -18,8 +18,6 @@ from luxonis_ml.data.utils import (
 from luxonis_ml.typing import HSV, RGB, Color, Labels
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX
-KeypointLabelMode: TypeAlias = Literal["none", "numbers", "full"]
-Skeletons: TypeAlias = dict[str, tuple[list[str], list[tuple[int, int]]]]
 
 
 class ColorMap(Mapping[Hashable, RGB]):
@@ -575,9 +573,10 @@ def visualize(
     blend_all: bool = False,
     categorical_encodings: dict[str, dict[str, int]] | None = None,
     *,
-    skeletons: Skeletons | None = None,
+    skeletons: dict[str, tuple[list[str], list[tuple[int, int]]]]
+    | None = None,
     draw_skeletons: bool = False,
-    keypoint_label_mode: KeypointLabelMode = "numbers",
+    keypoint_label_mode: Literal["none", "numbers", "full"] = "numbers",
 ) -> np.ndarray:
     """Visualize labels on the image.
 

@@ -260,8 +260,7 @@ def inspect(
             displayed image. Requires '--aug-config' to be set.
         print_sample_metadata: Print sample metadata for each displayed sample.
         skeletons: Draw keypoint skeleton edges.
-        keypoint_labels: Keypoint label mode. Can be "none", "numbers", or
-            "full".
+        keypoint_labels: Specify how to draw keypoint labels.
         bucket_storage: Storage type of the dataset.
 
     """
