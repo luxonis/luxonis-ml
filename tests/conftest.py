@@ -104,7 +104,19 @@ def augmentation_data(
             np.random.rand(height, width, 3) * 255 for _ in range(batch_size)
         ],
         "bboxes": [
-            np.array([[0.3 + i * 0.1, 0.3 + i * 0.1, 0.1, 0.1, 0, 0]])
+            np.array(
+                [
+                    [
+                        0.3 + i * 0.1,
+                        0.3 + i * 0.1,
+                        0.4 + i * 0.1,
+                        0.4 + i * 0.1,
+                        0,
+                        0,
+                        0,
+                    ]
+                ]
+            )
             for i in range(batch_size)
         ],
         "keypoints": [

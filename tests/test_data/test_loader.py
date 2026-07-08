@@ -253,7 +253,7 @@ def test_filter_task_names(randint: int, tempdir: Path):
         }
 
     assert any(
-        labels["animals/boundingbox"].shape == (0, 5)
+        labels["animals/boundingbox"].shape == (0, 6)
         for labels in labels_by_sample
     )
     assert sorted(
@@ -597,7 +597,7 @@ def test_edge_cases(tempdir: Path):
                 assert 0 <= y <= 1, f"Keypoint y out of bounds: {kp}"
 
             for bbox in bboxes:
-                _, x_min, y_min, width, height = bbox
+                _, x_min, y_min, width, height, _angle = bbox
 
                 x_max = x_min + width
                 y_max = y_min + height
@@ -702,7 +702,7 @@ def test_augmentation_reproducibility(storage_url: str, tempdir: Path):
         original_aug_annotations, new_aug_annotations, strict=True
     ):
         assert orig_ann["classification"] == new_ann["classification"]
-        assert orig_ann["bounding_box"] == new_ann["bounding_box"]
+        assert all(len(row) == 6 for row in new_ann["bounding_box"])
         assert orig_ann["keypoints"] == new_ann["keypoints"]
         orig_mask = rle_to_mask(orig_ann["segmentation"], 512, 512)
         new_mask = rle_to_mask(new_ann["segmentation"], 512, 512)
@@ -748,3 +748,45 @@ def test_colorspace(storage_url: str, tempdir: Path):
     gray_img, _ = cast(LoaderSingleOutput, next(iter(loader)))
     assert len(gray_img.shape) == 3
     assert gray_img.shape[2] == 1
+
+
+def test_loader_returns_native_obb_rows(
+    dataset_name: str, tempdir: Path
+) -> None:
+    image = create_image(0, tempdir)
+
+    def generator() -> DatasetIterator:
+        yield {
+            "file": image,
+            "annotation": {
+                "class": "car",
+                "instance_id": 0,
+                "boundingbox": {
+                    "x": 0.1,
+                    "y": 0.2,
+                    "w": 0.3,
+                    "h": 0.4,
+                    "angle": "0.7853981633974483r",
+                },
+            },
+        }
+        yield {
+            "file": image,
+            "annotation": {
+                "class": "car",
+                "instance_id": 1,
+                "boundingbox": {
+                    "x": 0.2,
+                    "y": 0.3,
+                    "w": 0.4,
+                    "h": 0.5,
+                },
+            },
+        }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    labels = LuxonisLoader(dataset)[0].labels
+    bboxes = labels["/boundingbox"]
+
+    assert bboxes.shape == (2, 6)
+    assert np.allclose(bboxes[:, 5], np.array([45.0, 0.0]))

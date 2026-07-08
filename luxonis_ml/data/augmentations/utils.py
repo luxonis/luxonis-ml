@@ -15,8 +15,8 @@ centralized.
      - :math:`\left(C, H, W\right)` or :math:`\left(N, H, W\right)`
      - :math:`\left(H, W, C\right)` or :math:`\left(H, W, N\right)`
    * - Bounding boxes
-     - :math:`\left[c, x, y, w, h\right]`
-     - :math:`\left[x_{\min}, y_{\min}, x_{\max}, y_{\max}, c, i\right]`
+     - :math:`\left[c, x, y, w, h, a\right]`
+     - :math:`\left[x_{\min}, y_{\min}, x_{\max}, y_{\max}, a, c, i\right]`
    * - Keypoints
      - :math:`\left(N, 3K\right)` normalized rows
      - :math:`\left(NK, 3\right)` pixel-space rows
@@ -24,12 +24,19 @@ centralized.
 The appended bbox index :math:`i` is used during postprocessing to keep
 bbox-associated labels, such as instance masks and keypoints, aligned with the
 bounding boxes that survive augmentation and filtering.
+
+For oriented boxes, a private keypoint target carries the four OBB corners
+through Albumentations. The axis-aligned bbox row is still used for visibility
+filtering and label ordering.
 """
 
+import math
 from collections.abc import Iterator
 from typing import TypeVar
 
 import numpy as np
+
+from luxonis_ml.data.datasets.annotation import normalize_angle_degrees
 
 
 def preprocess_mask(seg: np.ndarray) -> np.ndarray:
@@ -64,36 +71,40 @@ def preprocess_bboxes(bboxes: np.ndarray, bbox_counter: int) -> np.ndarray:
     r"""Convert LDF bounding boxes to Albumentations format.
 
     LDF stores bounding boxes as normalized
-    :math:`\left[c, x, y, w, h\right]` rows, where :math:`c` is the
-    class ID and :math:`x` and :math:`y` are the top-left corner.
-    Albumentations expects normalized
-    :math:`\left[x_{\min}, y_{\min}, x_{\max}, y_{\max}, c\right]`
-    rows. This function also appends a stable per-box index used after
-    augmentation to keep bbox-associated labels aligned with boxes that
-    survived filtering.
+    :math:`\left[c, x, y, w, h, a\right]` rows, where :math:`c` is the
+    class ID, :math:`x` and :math:`y` are the top-left corner, and
+    :math:`a` is the angle in degrees counter-clockwise. Albumentations
+    expects normalized axis-aligned bbox rows. The angle is preserved as an
+    extra label column and a private keypoint target carries the OBB corners
+    through spatial transforms. This function also appends a stable per-box
+    index used after augmentation to keep bbox-associated labels aligned with
+    boxes that survived filtering.
 
     Args:
-        bboxes: Bounding boxes of shape :math:`\left(N, 5\right)` in
-            :math:`\left[c, x, y, w, h\right]` format.
+        bboxes: Bounding boxes of shape :math:`\left(N, 6\right)` in
+            :math:`\left[c, x, y, w, h, a\right]` format.
         bbox_counter: Offset used to create the appended bbox indices.
             The first output row receives this value, the next receives
             ``bbox_counter + 1``, and so on.
 
     Returns:
-        Bounding boxes of shape :math:`\left(N, 6\right)` in
-        :math:`\left[x_{\min}, y_{\min}, x_{\max}, y_{\max}, c, i\right]`
+        Bounding boxes of shape :math:`\left(N, 7\right)` in
+        :math:`\left[x_{\min}, y_{\min}, x_{\max}, y_{\max}, a, c, i\right]`
         format, where :math:`i` is the stable bbox index.
 
     Examples:
-        >>> bboxes = np.array([[2, 0.1, 0.2, 0.3, 0.4]])
+        >>> bboxes = np.array([[2, 0.1, 0.2, 0.3, 0.4, 15]])
         >>> out = preprocess_bboxes(bboxes, bbox_counter=5)
         >>> np.round(out[:, :4], 4).tolist()
         [[0.1, 0.2, 0.4, 0.6]]
         >>> out[:, 4:].astype(int).tolist()
-        [[2, 5]]
+        [[15, 2, 5]]
 
     """
-    bboxes = bboxes[:, [1, 2, 3, 4, 0]]
+    if bboxes.size == 0:
+        return np.zeros((0, 7), dtype=bboxes.dtype)
+
+    bboxes = bboxes[:, [1, 2, 3, 4, 5, 0]]
 
     # Adding 1e-6 to avoid zero width or height.
     bboxes[:, 2] += bboxes[:, 0] + 1e-6
@@ -105,6 +116,56 @@ def preprocess_bboxes(bboxes: np.ndarray, bbox_counter: int) -> np.ndarray:
         bbox_counter, bboxes.shape[0] + bbox_counter, dtype=bboxes.dtype
     )[:, None]
     return np.concatenate((bboxes, indices), axis=1)
+
+
+def preprocess_bbox_corners(
+    bboxes: np.ndarray, height: int, width: int
+) -> np.ndarray:
+    r"""Convert LDF OBB rows to private Albumentations keypoints.
+
+    Args:
+        bboxes: Bounding boxes of shape :math:`\left(N, 6\right)` in
+            :math:`\left[c, x, y, w, h, a\right]` format.
+        height: Image height used to scale normalized coordinates.
+        width: Image width used to scale normalized coordinates.
+
+    Returns:
+        OBB corners of shape :math:`\left(4N, 3\right)` in pixel-space
+        ``[x, y, marker]`` format.
+
+    """
+    if bboxes.size == 0:
+        return np.zeros((0, 3), dtype=bboxes.dtype)
+
+    corners = np.empty((bboxes.shape[0] * 4, 3), dtype=float)
+    for i, bbox in enumerate(bboxes):
+        _class_id, x, y, box_width, box_height, angle = bbox
+        cx = (x + box_width / 2) * width
+        cy = (y + box_height / 2) * height
+        pixel_width = box_width * width
+        pixel_height = box_height * height
+        theta = math.radians(angle)
+        cos_t = math.cos(theta)
+        sin_t = math.sin(theta)
+        offsets = np.array(
+            [
+                [-pixel_width / 2, -pixel_height / 2],
+                [pixel_width / 2, -pixel_height / 2],
+                [pixel_width / 2, pixel_height / 2],
+                [-pixel_width / 2, pixel_height / 2],
+            ]
+        )
+        start = i * 4
+        end = start + 4
+        corners[start:end, 0] = (
+            cx + offsets[:, 0] * cos_t + offsets[:, 1] * sin_t
+        )
+        corners[start:end, 1] = (
+            cy - offsets[:, 0] * sin_t + offsets[:, 1] * cos_t
+        )
+        corners[start:end, 2] = -1
+
+    return corners
 
 
 def preprocess_keypoints(
@@ -176,7 +237,11 @@ def postprocess_mask(mask: np.ndarray) -> np.ndarray:
 
 
 def postprocess_bboxes(
-    bboxes: np.ndarray, area_threshold: float = 0.0004
+    bboxes: np.ndarray,
+    area_threshold: float = 0.0004,
+    bbox_corners: np.ndarray | None = None,
+    image_height: int | None = None,
+    image_width: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     r"""Convert augmented bounding boxes back to LDF format.
 
@@ -187,38 +252,44 @@ def postprocess_bboxes(
 
     Args:
         bboxes: Augmented bounding boxes of shape
-            :math:`\left(N, 6\right)` in
-            :math:`\left[x_{\min}, y_{\min}, x_{\max}, y_{\max}, c,
-            i\right]` format, where :math:`c` is the class ID and
-            :math:`i` is the stable bbox index.
+            :math:`\left(N, 7\right)` in
+            :math:`\left[x_{\min}, y_{\min}, x_{\max}, y_{\max}, a, c,
+            i\right]` format, where :math:`a` is the LDF OBB angle,
+            :math:`c` is the class ID and :math:`i` is the stable bbox
+            index.
         area_threshold: Minimum normalized box area
             :math:`w \cdot h` required for a box to remain valid.
+        bbox_corners: Optional transformed private OBB corner keypoints.
+        image_height: Height of the augmented image. Required when
+            ``bbox_corners`` is provided.
+        image_width: Width of the augmented image. Required when
+            ``bbox_corners`` is provided.
 
     Returns:
         A tuple containing:
 
-            - Bounding boxes of shape :math:`\left(M, 5\right)` in
-              :math:`\left[c, x, y, w, h\right]` format, where
+            - Bounding boxes of shape :math:`\left(M, 6\right)` in
+              :math:`\left[c, x, y, w, h, a\right]` format, where
               :math:`M \leq N` and :math:`c` is the class ID.
             - Integer indices of shape :math:`\left(M\right)` identifying
               which original bbox-associated labels survived filtering.
 
     Examples:
-        >>> bboxes = np.array([[0.1, 0.2, 0.4, 0.6, 2, 5]], dtype=float)
+        >>> bboxes = np.array([[0.1, 0.2, 0.4, 0.6, 15, 2, 5]], dtype=float)
         >>> out_bboxes, ordering = postprocess_bboxes(bboxes)
         >>> np.round(out_bboxes, 2).tolist()
-        [[2.0, 0.1, 0.2, 0.3, 0.4]]
+        [[2.0, 0.1, 0.2, 0.3, 0.4, 15.0]]
         >>> ordering.tolist()
         [5]
-        >>> tiny = np.array([[0.0, 0.0, 0.01, 0.01, 1, 3]], dtype=float)
+        >>> tiny = np.array([[0.0, 0.0, 0.01, 0.01, 0, 1, 3]], dtype=float)
         >>> postprocess_bboxes(tiny, area_threshold=0.1)[0].shape
-        (0, 5)
-        >>> postprocess_bboxes(np.empty((0, 6)), area_threshold=0.1)[0].shape
-        (0, 5)
+        (0, 6)
+        >>> postprocess_bboxes(np.empty((0, 7)), area_threshold=0.1)[0].shape
+        (0, 6)
 
     """
     if bboxes.size == 0:
-        return np.zeros((0, 5)), np.zeros((0,), dtype=np.uint8)
+        return np.zeros((0, 6)), np.zeros((0,), dtype=int)
     ordering = bboxes[:, -1]
     raw_bboxes = bboxes[:, :-1]
     raw_bboxes[:, 2] -= raw_bboxes[:, 0]
@@ -231,9 +302,64 @@ def postprocess_bboxes(
     raw_bboxes = raw_bboxes[valid_mask]
     refined_ordering = ordering[valid_mask]
 
-    out_bboxes = raw_bboxes[:, [4, 0, 1, 2, 3]]
+    if raw_bboxes.size == 0:
+        return np.zeros((0, 6)), refined_ordering.astype(int)
+
+    if bbox_corners is not None and bbox_corners.size > 0:
+        if image_height is None or image_width is None:
+            raise ValueError(
+                "`image_height` and `image_width` are required when "
+                "`bbox_corners` is provided."
+            )
+        corners = bbox_corners.reshape(-1, 4, 3)
+        selected_corners = corners[refined_ordering.astype(int), :, :2]
+        out_bboxes = _corners_to_ldf_bboxes(
+            selected_corners,
+            raw_bboxes[:, 5],
+            image_height,
+            image_width,
+        )
+    else:
+        raw_bboxes[:, 4] = [
+            normalize_angle_degrees(angle) for angle in raw_bboxes[:, 4]
+        ]
+        out_bboxes = raw_bboxes[:, [5, 0, 1, 2, 3, 4]]
 
     return out_bboxes, refined_ordering.astype(int)
+
+
+def _corners_to_ldf_bboxes(
+    corners: np.ndarray,
+    class_ids: np.ndarray,
+    image_height: int,
+    image_width: int,
+) -> np.ndarray:
+    centers = corners.mean(axis=1)
+    width_vectors = corners[:, 1] - corners[:, 0]
+    height_vectors = corners[:, 2] - corners[:, 1]
+    box_widths = np.linalg.norm(width_vectors, axis=1) / image_width
+    box_heights = np.linalg.norm(height_vectors, axis=1) / image_height
+    angles = np.array(
+        [
+            normalize_angle_degrees(
+                math.degrees(math.atan2(-vector[1], vector[0]))
+            )
+            for vector in width_vectors
+        ]
+    )
+
+    box_widths = np.clip(box_widths, 0.0, 1.0)
+    box_heights = np.clip(box_heights, 0.0, 1.0)
+    x = centers[:, 0] / image_width - box_widths / 2
+    y = centers[:, 1] / image_height - box_heights / 2
+    x = np.minimum(np.clip(x, 0.0, 1.0), 1.0 - box_widths)
+    y = np.minimum(np.clip(y, 0.0, 1.0), 1.0 - box_heights)
+    x = np.clip(x, 0.0, 1.0)
+    y = np.clip(y, 0.0, 1.0)
+    box_widths = np.minimum(box_widths, 1.0 - x)
+    box_heights = np.minimum(box_heights, 1.0 - y)
+
+    return np.column_stack((class_ids, x, y, box_widths, box_heights, angles))
 
 
 def postprocess_keypoints(

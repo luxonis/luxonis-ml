@@ -358,7 +358,7 @@ class LuxonisLoader(BaseLoader):
                 task = f"{task_name}/{task_type}"
                 if task not in labels:
                     if task_type == "boundingbox":
-                        labels[task] = np.zeros((0, 5))
+                        labels[task] = np.zeros((0, 6))
                     elif task_type == "keypoints":
                         n_keypoints = self.dataset.get_n_keypoints()[task_name]
                         labels[task] = np.zeros((0, n_keypoints * 3))

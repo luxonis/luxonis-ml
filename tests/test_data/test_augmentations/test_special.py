@@ -280,7 +280,11 @@ def test_use_for_resizing_falls_back_to_default_resize():
         [
             (
                 {"image": np.full((100, 200, 3), 255, dtype=np.uint8)},
-                {"task/boundingbox": np.array([[0.0, 0.5, 0.5, 0.1, 0.1]])},
+                {
+                    "task/boundingbox": np.array(
+                        [[0.0, 0.5, 0.5, 0.1, 0.1, 0.0]]
+                    )
+                },
             )
         ]
     )

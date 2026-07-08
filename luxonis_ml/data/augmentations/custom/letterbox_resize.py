@@ -306,7 +306,9 @@ class LetterboxResize(A.DualTransform):
             keypoint[:, 1] < pad_top,
             keypoint[:, 1] > self.height - pad_bottom,
         )
-        keypoint[out_of_bounds_x | out_of_bounds_y, :2] = -1
+        out_of_bounds = out_of_bounds_x | out_of_bounds_y
+        is_obb_corner = keypoint[:, -1] == -1.0
+        keypoint[out_of_bounds & ~is_obb_corner, :2] = -1
 
         return keypoint
 

@@ -6,6 +6,12 @@ import cv2
 import numpy as np
 from typing_extensions import override
 
+from luxonis_ml.data.datasets.annotation import normalize_angle_degrees
+
+
+def _is_obb_corner_keypoints(keypoints: np.ndarray) -> bool:
+    return keypoints.shape[1] > 2 and bool(np.all(keypoints[:, -1] == -1.0))
+
 
 class HorizontalSymmetricKeypointsFlip(A.DualTransform):
     """Flip images and symmetric keypoints horizontally.
@@ -105,6 +111,10 @@ class HorizontalSymmetricKeypointsFlip(A.DualTransform):
 
         flipped = bboxes.copy()
         flipped[:, [0, 2]] = 1 - flipped[:, [2, 0]]
+        if flipped.shape[1] > 4:
+            flipped[:, 4] = [
+                normalize_angle_degrees(-angle) for angle in flipped[:, 4]
+            ]
         return flipped
 
     @override
@@ -132,6 +142,8 @@ class HorizontalSymmetricKeypointsFlip(A.DualTransform):
         keypoints = keypoints.copy()
 
         keypoints[:, 0] = orig_width - keypoints[:, 0]
+        if _is_obb_corner_keypoints(keypoints):
+            return keypoints
 
         total_keypoints = keypoints.shape[0]
         if total_keypoints % self.n_keypoints != 0:
@@ -248,6 +260,10 @@ class VerticalSymmetricKeypointsFlip(A.DualTransform):
             return bboxes
         flipped = bboxes.copy()
         flipped[:, [1, 3]] = 1 - flipped[:, [3, 1]]
+        if flipped.shape[1] > 4:
+            flipped[:, 4] = [
+                normalize_angle_degrees(-angle) for angle in flipped[:, 4]
+            ]
         return flipped
 
     @override
@@ -275,6 +291,8 @@ class VerticalSymmetricKeypointsFlip(A.DualTransform):
         keypoints = keypoints.copy()
 
         keypoints[:, 1] = orig_height - keypoints[:, 1]
+        if _is_obb_corner_keypoints(keypoints):
+            return keypoints
 
         total_keypoints = keypoints.shape[0]
         if total_keypoints % self.n_keypoints != 0:
@@ -395,6 +413,10 @@ class TransposeSymmetricKeypoints(A.DualTransform):
             return bboxes
         t = bboxes.copy()
         t[:, [0, 1, 2, 3]] = t[:, [1, 0, 3, 2]]
+        if t.shape[1] > 4:
+            t[:, 4] = [
+                normalize_angle_degrees(90 - angle) for angle in t[:, 4]
+            ]
         return t
 
     @override
@@ -419,6 +441,8 @@ class TransposeSymmetricKeypoints(A.DualTransform):
             return keypoints
         keypoints = keypoints.copy()
         keypoints[:, [0, 1]] = keypoints[:, [1, 0]]
+        if _is_obb_corner_keypoints(keypoints):
+            return keypoints
         total_keypoints = keypoints.shape[0]
         if total_keypoints % self.n_keypoints != 0:
             raise ValueError(

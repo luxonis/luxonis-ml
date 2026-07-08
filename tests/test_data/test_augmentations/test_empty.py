@@ -68,7 +68,7 @@ def test_empty(dataset_name: str, tempdir: Path, n_samples: int):
         n_classes = dataset.get_n_classes()[""]
         if labels["/classification"].sum() == 0:
             assert labels["/classification"].shape == (n_classes,)
-            assert labels["/boundingbox"].shape == (0, 5)
+            assert labels["/boundingbox"].shape == (0, 6)
             assert labels["/keypoints"].shape == (0, 2 * 3)
             assert labels["/segmentation"].shape == (n_classes, 256, 256)
             assert labels["/segmentation"].sum() == 0

@@ -32,6 +32,35 @@ EXPORT_DATASET_TYPES = [
 ]
 
 
+def test_non_native_export_rejects_nonzero_obb(
+    dataset_name: str, tempdir: Path
+) -> None:
+    image = create_image(0, tempdir)
+
+    def generator() -> DatasetIterator:
+        yield {
+            "file": image,
+            "annotation": {
+                "class": "car",
+                "boundingbox": {
+                    "x": 0.1,
+                    "y": 0.2,
+                    "w": 0.3,
+                    "h": 0.4,
+                    "angle": 15,
+                },
+            },
+        }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    export_path = tempdir / "exported_obb"
+
+    with pytest.raises(ValueError, match="oriented bounding boxes"):
+        dataset.export(export_path, DatasetType.YOLOV8BOUNDINGBOX)
+
+    assert not export_path.exists()
+
+
 @pytest.mark.parametrize("url", ["COCO_people_subset.zip"])
 def test_dir_parser(
     dataset_name: str,

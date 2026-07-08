@@ -42,6 +42,7 @@ from luxonis_ml.data.exporters import (
 from luxonis_ml.data.exporters.exporter_utils import (
     ExporterSpec,
     create_zip_output,
+    ensure_non_oriented_bboxes,
 )
 from luxonis_ml.data.utils import (
     BucketStorage,
@@ -1829,9 +1830,12 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             raise ValueError(
                 f"Export path '{out_path}' already exists. Please remove it first."
             )
-        out_path.mkdir(parents=True)
 
         prepared_ldf = PreparedLDF.from_dataset(self)
+        if dataset_type != DatasetType.NATIVE:
+            ensure_non_oriented_bboxes(prepared_ldf, dataset_type.name)
+
+        out_path.mkdir(parents=True)
 
         exporter: BaseExporter = spec.cls(
             self.identifier, out_path, max_partition_size_gb, **spec.kwargs

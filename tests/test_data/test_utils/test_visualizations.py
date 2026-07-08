@@ -178,10 +178,10 @@ def test_visualize():
     ] = 1
     semantic_mask[0, ...] = 1 - np.sum(semantic_mask[1:], axis=0)
     labels = {
-        "task/boundingbox": np.array([[0.0, 0.2, 0.2, 0.65, 0.65]]),
+        "task/boundingbox": np.array([[0.0, 0.2, 0.2, 0.65, 0.65, 0.0]]),
         "task/keypoints": np.array([[0, 0, 0], [0.9, 0.1, 1], [0.5, 0.5, 2]]),
         "task/instance_segmentation": instance_mask,
-        "task2/boundingbox": np.array([[0.0, 0.4, 0.4, 0.2, 0.1]]),
+        "task2/boundingbox": np.array([[0.0, 0.4, 0.4, 0.2, 0.1, 0.0]]),
         "semantic/segmentation": semantic_mask,
     }
 
@@ -254,3 +254,15 @@ def test_visualize():
         .astype(np.uint8)
     )
     assert np.array_equal(expected_image, image)
+
+
+def test_visualize_rotated_bbox():
+    image = np.zeros((40, 40, 3), dtype=np.uint8)
+    labels = {
+        "task/boundingbox": np.array([[0.0, 0.25, 0.35, 0.5, 0.2, 30.0]])
+    }
+    classes = {"task": {"class_name": 0}}
+
+    out = visualize(image, "image", labels, classes, blend_all=True)
+
+    assert np.count_nonzero(out) > 0

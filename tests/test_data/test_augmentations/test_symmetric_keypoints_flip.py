@@ -142,6 +142,15 @@ def test_horizontal_flip_bboxes(bboxes: np.ndarray) -> None:
     assert np.allclose(out, expected)
 
 
+def test_horizontal_flip_obb_angle() -> None:
+    t = HorizontalSymmetricKeypointsFlip(keypoint_pairs=[(0, 0)], p=1.0)
+    params = get_params(t, (2, 3, 1))
+    bboxes = np.array([[0.2, 0.3, 0.6, 0.8, 30.0, 1.0, 7.0]])
+    out = t.apply_to_bboxes(bboxes, **params)
+    expected = np.array([[0.4, 0.3, 0.8, 0.8, -30.0, 1.0, 7.0]])
+    assert np.allclose(out, expected)
+
+
 def test_vertical_flip_image_and_mask(
     img: np.ndarray,
     mask: np.ndarray,
@@ -157,6 +166,15 @@ def test_vertical_flip_bboxes(bboxes: np.ndarray) -> None:
     params = get_params(t, (2, 3, 1))
     out = t.apply_to_bboxes(bboxes, **params)
     expected = np.array([[0.2, 1 - 0.8, 0.6, 1 - 0.3]])
+    assert np.allclose(out, expected)
+
+
+def test_vertical_flip_obb_angle() -> None:
+    t = VerticalSymmetricKeypointsFlip(keypoint_pairs=[(0, 0)], p=1.0)
+    params = get_params(t, (2, 3, 1))
+    bboxes = np.array([[0.2, 0.3, 0.6, 0.8, 30.0, 1.0, 7.0]])
+    out = t.apply_to_bboxes(bboxes, **params)
+    expected = np.array([[0.2, 0.2, 0.6, 0.7, -30.0, 1.0, 7.0]])
     assert np.allclose(out, expected)
 
 
@@ -181,4 +199,13 @@ def test_transpose_bboxes(bboxes: np.ndarray) -> None:
     out = t.apply_to_bboxes(bboxes, **params)
     x_min, y_min, x_max, y_max = bboxes[0]
     expected = np.array([[y_min, x_min, y_max, x_max]])
+    assert np.allclose(out, expected)
+
+
+def test_transpose_obb_angle() -> None:
+    t = TransposeSymmetricKeypoints(keypoint_pairs=[(0, 0)], p=1.0)
+    params = get_params(t, (2, 3, 1))
+    bboxes = np.array([[0.2, 0.3, 0.6, 0.8, 30.0, 1.0, 7.0]])
+    out = t.apply_to_bboxes(bboxes, **params)
+    expected = np.array([[0.3, 0.2, 0.8, 0.6, 60.0, 1.0, 7.0]])
     assert np.allclose(out, expected)
