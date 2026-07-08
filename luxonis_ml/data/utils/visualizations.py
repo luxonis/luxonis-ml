@@ -3,6 +3,7 @@ import hashlib
 import math
 from collections import defaultdict
 from collections.abc import Generator, Hashable, Iterator, Mapping
+from typing import Literal, TypeAlias
 
 import cv2
 import matplotlib.colors
@@ -17,6 +18,8 @@ from luxonis_ml.data.utils import (
 from luxonis_ml.typing import HSV, RGB, Color, Labels
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX
+KeypointLabelMode: TypeAlias = Literal["none", "numbers", "full"]
+Skeletons: TypeAlias = dict[str, tuple[list[str], list[tuple[int, int]]]]
 
 
 class ColorMap(Mapping[Hashable, RGB]):
@@ -571,6 +574,10 @@ def visualize(
     classes: dict[str, dict[str, int]],
     blend_all: bool = False,
     categorical_encodings: dict[str, dict[str, int]] | None = None,
+    *,
+    skeletons: Skeletons | None = None,
+    draw_skeletons: bool = False,
+    keypoint_label_mode: KeypointLabelMode = "numbers",
 ) -> np.ndarray:
     """Visualize labels on the image.
 
@@ -585,11 +592,21 @@ def visualize(
             tasks. Keys are full task identifiers such as
             ``"task_name/metadata/key"`` and values map string labels to
             encoded integers.
+        skeletons: Optional keypoint skeleton metadata keyed by task name.
+        draw_skeletons: Whether to draw keypoint skeleton edges.
+        keypoint_label_mode: Keypoint label mode. ``"none"`` hides keypoint
+            labels, ``"numbers"`` draws numeric indices, and ``"full"`` draws
+            skeleton keypoint names when available.
 
     Returns:
         The visualized image.
 
     """
+    if keypoint_label_mode not in {"none", "numbers", "full"}:
+        raise ValueError(
+            "keypoint_label_mode must be one of 'none', 'numbers', or 'full'"
+        )
+
     h, w, _ = image.shape
     images = {source_name: image}
     mappings = {task: bidict(c) for task, c in classes.items()}
@@ -651,6 +668,15 @@ def visualize(
         if isinstance(value, float):
             return f"{value:g}"
         return str(value)
+
+    def format_keypoint_label(
+        index: int, keypoint_names: list[str]
+    ) -> str | None:
+        if keypoint_label_mode == "none":
+            return None
+        if keypoint_label_mode == "full" and index < len(keypoint_names):
+            return keypoint_names[index]
+        return str(index)
 
     for task, arr in task_type_iterator(labels, "segmentation"):
         task_name = get_task_name(task)
@@ -741,6 +767,10 @@ def visualize(
         curr_image = images.get(image_name, image.copy())
 
         task_classes = mappings[task_name]
+        keypoint_names: list[str] = []
+        edges: list[tuple[int, int]] = []
+        if skeletons is not None and task_name in skeletons:
+            keypoint_names, edges = skeletons[task_name]
 
         for i, kp in enumerate(arr):
             kp = kp.reshape(-1, 3)
@@ -751,6 +781,39 @@ def visualize(
                 )
             else:
                 color = (255, 0, 0)
+
+            if draw_skeletons:
+                for start_idx, end_idx in edges:
+                    if (
+                        start_idx < 0
+                        or end_idx < 0
+                        or start_idx >= len(kp)
+                        or end_idx >= len(kp)
+                    ):
+                        continue
+                    if (
+                        int(kp[start_idx][-1]) == 0
+                        or int(kp[end_idx][-1]) == 0
+                    ):
+                        continue
+
+                    start_point = (
+                        int(kp[start_idx][0] * w),
+                        int(kp[start_idx][1] * h),
+                    )
+                    end_point = (
+                        int(kp[end_idx][0] * w),
+                        int(kp[end_idx][1] * h),
+                    )
+                    cv2.line(
+                        curr_image,
+                        start_point,
+                        end_point,
+                        color,
+                        thickness=2,
+                        lineType=cv2.LINE_AA,
+                    )
+
             for j, k in enumerate(kp):
                 visibility = int(k[-1])
                 if visibility == 0:
@@ -772,10 +835,11 @@ def visualize(
                     thickness=2,
                 )
 
-                text = str(j)
-                draw_keypoint_label(
-                    curr_image, text, point, size, color, font_scale
-                )
+                text = format_keypoint_label(j, keypoint_names)
+                if text is not None:
+                    draw_keypoint_label(
+                        curr_image, text, point, size, color, font_scale
+                    )
 
         images[image_name] = curr_image
 

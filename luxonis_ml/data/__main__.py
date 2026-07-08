@@ -1,6 +1,6 @@
 import shutil
 from pathlib import Path
-from typing import Annotated, TypeAlias
+from typing import Annotated, Literal, TypeAlias
 
 import cv2
 import matplotlib.pyplot as plt
@@ -229,6 +229,14 @@ def inspect(
         bool,
         Parameter(negative=""),
     ] = True,
+    skeletons: Annotated[
+        bool,
+        Parameter(negative=""),
+    ] = False,
+    keypoint_labels: Annotated[
+        Literal["none", "numbers", "full"],
+        Parameter(),
+    ] = "numbers",
     bucket_storage: BucketStorageT = BucketStorage.LOCAL,
 ):
     """Inspect images and annotations in a dataset.
@@ -251,6 +259,9 @@ def inspect(
         list_augmentations: Show the augmentations applied to each
             displayed image. Requires '--aug-config' to be set.
         print_sample_metadata: Print sample metadata for each displayed sample.
+        skeletons: Draw keypoint skeleton edges.
+        keypoint_labels: Keypoint label mode. Can be "none", "numbers", or
+            "full".
         bucket_storage: Storage type of the dataset.
 
     """
@@ -305,6 +316,11 @@ def inspect(
 
     classes = dataset.get_classes()
     categorical_encodings = dataset.get_categorical_encodings()
+    keypoint_skeletons = (
+        dataset.get_skeletons()
+        if skeletons or keypoint_labels == "full"
+        else None
+    )
     prev_windows = set()
 
     for data in loader:
@@ -357,6 +373,9 @@ def inspect(
                         classes,
                         blend_all=blend_all,
                         categorical_encodings=categorical_encodings,
+                        skeletons=keypoint_skeletons,
+                        draw_skeletons=skeletons,
+                        keypoint_label_mode=keypoint_labels,
                     )
                     if list_augmentations:
                         instance_image = add_augmentation_footer(
@@ -383,6 +402,9 @@ def inspect(
                     classes,
                     blend_all=blend_all,
                     categorical_encodings=categorical_encodings,
+                    skeletons=keypoint_skeletons,
+                    draw_skeletons=skeletons,
+                    keypoint_label_mode=keypoint_labels,
                 )
                 if list_augmentations:
                     labeled_image = add_augmentation_footer(

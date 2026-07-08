@@ -18,6 +18,15 @@ from luxonis_ml.data.utils.visualizations import (
 )
 
 
+def _labels_panel(output: np.ndarray, image: np.ndarray) -> np.ndarray:
+    padding = 10
+    label_height = 30
+    cell_width = image.shape[1] + 2 * padding
+    y = label_height + padding
+    x = cell_width + padding
+    return output[y : y + image.shape[0], x : x + image.shape[1]]
+
+
 def test_distinct_color_generator():
     assert list(distinct_color_generator(10)) == [
         (48, 105, 242),
@@ -254,3 +263,100 @@ def test_visualize():
         .astype(np.uint8)
     )
     assert np.array_equal(expected_image, image)
+
+
+def test_visualize_keypoint_label_modes(monkeypatch: pytest.MonkeyPatch):
+    image = np.zeros((100, 100, 3), dtype=np.uint8)
+    labels = {
+        "pose/keypoints": np.array(
+            [[0.2, 0.5, 2.0, 0.5, 0.5, 1.0, 0.8, 0.5, 2.0]]
+        )
+    }
+    classes = {"pose": {"person": 0}}
+    skeletons = {"pose": (["nose", "eye"], [])}
+    calls: list[str] = []
+
+    def fake_draw_keypoint_label(
+        _image: np.ndarray,
+        text: str,
+        _point: tuple[int, int],
+        _size: int,
+        _color: tuple[int, int, int],
+        _font_scale: float,
+    ) -> None:
+        calls.append(text)
+
+    monkeypatch.setattr(
+        "luxonis_ml.data.utils.visualizations.draw_keypoint_label",
+        fake_draw_keypoint_label,
+    )
+
+    visualize(
+        image.copy(),
+        "image",
+        labels,
+        classes,
+        skeletons=skeletons,
+        keypoint_label_mode="none",
+    )
+    assert calls == []
+
+    visualize(
+        image.copy(),
+        "image",
+        labels,
+        classes,
+        skeletons=skeletons,
+        keypoint_label_mode="numbers",
+    )
+    assert calls == ["0", "1", "2"]
+
+    calls.clear()
+    visualize(
+        image.copy(),
+        "image",
+        labels,
+        classes,
+        skeletons=skeletons,
+        keypoint_label_mode="full",
+    )
+    assert calls == ["nose", "eye", "2"]
+
+
+def test_visualize_keypoint_skeletons_respect_visibility():
+    image = np.zeros((100, 100, 3), dtype=np.uint8)
+    labels = {
+        "pose/keypoints": np.array(
+            [[0.2, 0.5, 2.0, 0.5, 0.5, 1.0, 0.8, 0.5, 0.0]]
+        )
+    }
+    classes = {"pose": {"person": 0}}
+    skeletons = {"pose": ([], [(0, 1), (1, 2)])}
+
+    without_skeletons = visualize(
+        image.copy(),
+        "image",
+        labels,
+        classes,
+        blend_all=True,
+        skeletons=skeletons,
+        draw_skeletons=False,
+        keypoint_label_mode="none",
+    )
+    with_skeletons = visualize(
+        image.copy(),
+        "image",
+        labels,
+        classes,
+        blend_all=True,
+        skeletons=skeletons,
+        draw_skeletons=True,
+        keypoint_label_mode="none",
+    )
+
+    without_panel = _labels_panel(without_skeletons, image)
+    with_panel = _labels_panel(with_skeletons, image)
+
+    assert np.count_nonzero(without_panel[50, 35]) == 0
+    assert np.count_nonzero(with_panel[50, 35]) > 0
+    assert np.count_nonzero(with_panel[50, 65]) == 0
