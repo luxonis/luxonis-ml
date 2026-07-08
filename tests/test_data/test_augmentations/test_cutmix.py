@@ -39,6 +39,40 @@ def test_cutmix_image() -> None:
     assert np.all(image[:, 5:] == 0)
 
 
+def test_cutmix_image_zero_area_patch() -> None:
+    cutmix = CutMix(p=1.0, alpha=1.0)
+    image1 = np.zeros((6, 8, 3), dtype=np.uint8)
+    image2 = np.full((6, 8, 3), 255, dtype=np.uint8)
+
+    image = cutmix.apply(
+        [image1, image2],
+        image_shapes=[(6, 8), (6, 8)],
+        x1=2,
+        y1=1,
+        x2=2,
+        y2=4,
+    )
+
+    np.testing.assert_array_equal(image, image1)
+
+
+def test_cutmix_without_aspect_ratio_resize() -> None:
+    cutmix = CutMix(p=1.0, alpha=1.0, keep_aspect_ratio=False)
+    image1 = np.zeros((6, 8, 3), dtype=np.uint8)
+    image2 = np.full((3, 4, 3), 255, dtype=np.uint8)
+
+    image = cutmix.apply(
+        [image1, image2],
+        image_shapes=[(6, 8), (3, 4)],
+        x1=2,
+        y1=1,
+        x2=5,
+        y2=4,
+    )
+
+    assert np.all(image[1:4, 2:5] == 255)
+
+
 def test_cutmix_semantic_mask() -> None:
     cutmix = CutMix(p=1.0, alpha=1.0)
     mask1 = np.ones((6, 8, 1), dtype=np.uint8)
@@ -58,6 +92,80 @@ def test_cutmix_semantic_mask() -> None:
     assert np.all(mask[4:] == 1)
     assert np.all(mask[:, :2] == 1)
     assert np.all(mask[:, 5:] == 1)
+
+
+def test_cutmix_semantic_mask_empty_base() -> None:
+    cutmix = CutMix(p=1.0, alpha=1.0)
+    mask2 = np.full((6, 8), 2, dtype=np.uint8)
+
+    mask = cutmix.apply_to_mask(
+        [np.array([]), mask2],
+        image_shapes=[(6, 8), (6, 8)],
+        x1=2,
+        y1=1,
+        x2=5,
+        y2=4,
+    )
+
+    assert mask.shape == (6, 8, 1)
+    assert np.all(mask[1:4, 2:5] == 2)
+    assert np.all(mask[:1] == 0)
+    assert np.all(mask[4:] == 0)
+
+
+def test_cutmix_semantic_mask_2d_patch_source_after_resize(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cutmix = CutMix(p=1.0, alpha=1.0)
+    mask1 = np.ones((6, 8, 1), dtype=np.uint8)
+    mask2 = np.full((6, 8), 2, dtype=np.uint8)
+    monkeypatch.setattr(cutmix, "_resize", lambda *_, **__: mask2)
+
+    mask = cutmix.apply_to_mask(
+        [mask1, mask2],
+        image_shapes=[(6, 8), (6, 8)],
+        x1=2,
+        y1=1,
+        x2=5,
+        y2=4,
+    )
+
+    assert mask.shape == (6, 8, 1)
+    assert np.all(mask[1:4, 2:5] == 2)
+    assert np.all(mask[:1] == 1)
+    assert np.all(mask[4:] == 1)
+
+
+def test_cutmix_semantic_mask_empty_inputs() -> None:
+    cutmix = CutMix(p=1.0, alpha=1.0)
+
+    mask = cutmix.apply_to_mask(
+        [np.array([]), np.array([])],
+        image_shapes=[(6, 8), (6, 8)],
+        x1=2,
+        y1=1,
+        x2=5,
+        y2=4,
+    )
+
+    assert mask.size == 0
+
+
+def test_cutmix_semantic_mask_zero_area_patch() -> None:
+    cutmix = CutMix(p=1.0, alpha=1.0)
+    mask1 = np.ones((6, 8, 1), dtype=np.uint8)
+    mask2 = np.full((6, 8, 1), 2, dtype=np.uint8)
+
+    mask = cutmix.apply_to_mask(
+        [mask1, mask2],
+        image_shapes=[(6, 8), (6, 8)],
+        x1=2,
+        y1=1,
+        x2=2,
+        y2=4,
+    )
+
+    np.testing.assert_array_equal(mask, mask1)
 
 
 def test_cutmix_semantic_mask_empty_patch_source() -> None:
@@ -105,6 +213,62 @@ def test_cutmix_instance_masks() -> None:
     assert np.all(masks[:, 5:, 1] == 0)
 
 
+def test_cutmix_instance_mask_empty_base() -> None:
+    cutmix = CutMix(p=1.0, alpha=1.0)
+    mask2 = np.full((6, 8, 1), 2, dtype=np.uint8)
+
+    masks = cutmix.apply_to_instance_mask(
+        [np.array([]), mask2],
+        image_shapes=[(6, 8), (6, 8)],
+        x1=2,
+        y1=1,
+        x2=5,
+        y2=4,
+    )
+
+    assert masks.shape == (6, 8, 1)
+    assert np.all(masks[1:4, 2:5, 0] == 2)
+    assert np.all(masks[:1, :, 0] == 0)
+    assert np.all(masks[4:, :, 0] == 0)
+
+
+def test_cutmix_instance_mask_2d_base_empty_patch_source() -> None:
+    cutmix = CutMix(p=1.0, alpha=1.0)
+    mask1 = np.ones((6, 8), dtype=np.uint8)
+
+    masks = cutmix.apply_to_instance_mask(
+        [mask1, np.array([])],
+        image_shapes=[(6, 8), (6, 8)],
+        x1=2,
+        y1=1,
+        x2=5,
+        y2=4,
+    )
+
+    assert masks.shape == (6, 8, 1)
+    assert np.all(masks[1:4, 2:5, 0] == 0)
+    assert np.all(masks[:1, :, 0] == 1)
+    assert np.all(masks[4:, :, 0] == 1)
+
+
+def test_cutmix_instance_mask_2d_patch_source() -> None:
+    cutmix = CutMix(p=1.0, alpha=1.0, keep_aspect_ratio=False)
+    mask1 = np.ones((6, 8, 1), dtype=np.uint8)
+    mask2 = np.full((6, 8), 2, dtype=np.uint8)
+
+    masks = cutmix.apply_to_instance_mask(
+        [mask1, mask2],
+        image_shapes=[(6, 8), (6, 8)],
+        x1=2,
+        y1=1,
+        x2=5,
+        y2=4,
+    )
+
+    assert masks.shape == (6, 8, 2)
+    assert np.all(masks[1:4, 2:5, 1] == 2)
+
+
 def test_cutmix_bboxes() -> None:
     cutmix = CutMix(p=1.0, alpha=1.0)
     bbox1 = np.array(
@@ -133,6 +297,21 @@ def test_cutmix_bboxes() -> None:
     np.testing.assert_allclose(bboxes, expected)
 
 
+def test_cutmix_empty_bboxes() -> None:
+    cutmix = CutMix(p=1.0, alpha=1.0)
+
+    bboxes = cutmix.apply_to_bboxes(
+        [np.array([]), np.array([])],
+        image_shapes=[(10, 10), (10, 10)],
+        x1=4,
+        y1=3,
+        x2=9,
+        y2=7,
+    )
+
+    assert bboxes.shape == (0, 6)
+
+
 def test_cutmix_keypoints() -> None:
     cutmix = CutMix(p=1.0, alpha=1.0)
     keypoints1 = np.array(
@@ -150,6 +329,73 @@ def test_cutmix_keypoints() -> None:
     )
 
     np.testing.assert_array_equal(keypoints[:, -1], [0.0, 2.0, 2.0, 0.0])
+
+
+def test_cutmix_empty_keypoints() -> None:
+    cutmix = CutMix(p=1.0, alpha=1.0)
+
+    keypoints = cutmix.apply_to_keypoints(
+        [np.array([]), np.array([])],
+        image_shapes=[(8, 8), (8, 8)],
+        x1=1,
+        y1=1,
+        x2=4,
+        y2=4,
+    )
+
+    assert keypoints.shape == (0, 5)
+
+
+def test_resize_invalid_target_type() -> None:
+    cutmix = CutMix(p=1.0, alpha=1.0)
+
+    with pytest.raises(ValueError, match="Unsupported target type"):
+        cutmix._resize(
+            np.zeros((1, 1, 1), dtype=np.uint8),
+            [(1, 1), (1, 1)],
+            "invalid",  # type: ignore[arg-type]
+        )
+
+
+def test_bbox_patch_helpers_empty_results() -> None:
+    bboxes = np.array([[0.0, 0.0, 0.2, 0.2, 0.0, 0.0]])
+
+    clipped = CutMix._clip_bboxes_to_patch(
+        bboxes, height=10, width=10, x1=4, y1=4, x2=8, y2=8
+    )
+    assert clipped.shape == (0, 6)
+
+    zero_area = CutMix._clip_bboxes_to_patch(
+        bboxes, height=10, width=10, x1=4, y1=4, x2=4, y2=8
+    )
+    assert zero_area.shape == (0, 6)
+
+    unchanged = CutMix._discard_bboxes_overlapping_patch(
+        bboxes, height=10, width=10, x1=4, y1=4, x2=4, y2=8
+    )
+    np.testing.assert_array_equal(unchanged, bboxes)
+
+
+def test_keypoint_and_dimension_helpers_empty_or_dimensional() -> None:
+    keypoints = np.array([])
+    assert (
+        CutMix._mark_keypoints_in_patch(
+            keypoints, x1=1, y1=1, x2=4, y2=4, visible_inside=True
+        ).size
+        == 0
+    )
+
+    squeezed = CutMix._match_dimensions(
+        np.ones((2, 3, 1), dtype=np.uint8),
+        np.ones((2, 3), dtype=np.uint8),
+    )
+    assert squeezed.shape == (2, 3)
+
+    expanded = CutMix._match_dimensions(
+        np.ones((2, 3), dtype=np.uint8),
+        np.ones((2, 3, 1), dtype=np.uint8),
+    )
+    assert expanded.shape == (2, 3, 1)
 
 
 def test_invalid_alpha() -> None:
