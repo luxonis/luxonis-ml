@@ -138,6 +138,13 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     Batch Augmentations
     -----------------------------
 
+    `CutMix`
+    ~~~~~~~~
+
+    CutMix is a data augmentation technique that patches one source image
+    into another using a rectangle sampled from a beta-distributed mixing
+    coefficient.
+
     `MixUp`
     ~~~~~~~
 
@@ -881,9 +888,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                         raise ValueError(
                             f"Batch transform '{item['name']}' cannot be "
                             f"nested inside '{config.name}'. "
-                            f"Batch transforms (e.g Mosaic4 and MixUp) "
-                            f"require multiple images and must be used "
-                            f"as top-level augmentations."
+                            "Batch transforms (e.g. Mosaic4, MixUp, "
+                            "and CutMix) require multiple images and "
+                            "must be used as top-level augmentations."
                         )
                     nested_transforms.append(transform)
                 else:

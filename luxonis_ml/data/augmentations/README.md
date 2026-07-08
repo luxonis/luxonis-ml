@@ -69,6 +69,7 @@ We also support **batch-level transformations**, built on top of the `BatchTrans
 
 Examples:
 
+- [`cutmix.py`](./custom/cutmix.py)
 - [`mosaic.py`](./custom/mosaic.py)
 - [`mixup.py`](./custom/mixup.py)
 
@@ -102,6 +103,10 @@ The configuration format for the `AlbumentationsEngine` consists of a list of re
     p: 1.
     out_width: 256
     out_height: 256
+- name: CutMix
+  params:
+    p: 0.5
+    alpha: 1.0
 ```
 
 ### Order of Transformations

@@ -96,6 +96,20 @@ def test_mixup(
     augmentations.apply([(images_dict, deepcopy(labels)) for _ in range(2)])
 
 
+def test_cutmix(
+    images_dict: dict[str, np.ndarray],
+    labels: Labels,
+    targets: dict[str, str],
+    n_classes: dict[str, int],
+) -> None:
+    config = [{"name": "CutMix", "params": {"p": 1.0}}]
+    source_names = list(images_dict.keys())
+    augmentations = AlbumentationsEngine(
+        256, 256, targets, n_classes, source_names, config
+    )
+    augmentations.apply([(images_dict, deepcopy(labels)) for _ in range(2)])
+
+
 def test_at_least_one_bbox_random_crop() -> None:
     """Test that AtLeastOneBBoxRandomCrop guarantees at least one bbox.
 
@@ -151,9 +165,10 @@ def test_batched_p_0(
             "params": {"p": 0, "out_width": 640, "out_height": 640},
         },
         {"name": "MixUp", "params": {"p": 0}},
+        {"name": "CutMix", "params": {"p": 0}},
     ]
     source_names = list(images_dict.keys())
     augmentations = AlbumentationsEngine(
         256, 256, targets, n_classes, source_names, config
     )
-    augmentations.apply([(images_dict, deepcopy(labels)) for _ in range(8)])
+    augmentations.apply([(images_dict, deepcopy(labels)) for _ in range(16)])
