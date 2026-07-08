@@ -181,16 +181,10 @@ class LuxonisLoader(BaseLoader):
             self._df = self._df.filter(
                 pl.col("task_name").is_in(self._filter_task_names)
             )
-            self._classes = {
-                task_name: self._classes[task_name]
-                for task_name in self._filter_task_names
-                if task_name in self._classes
-            }
 
         self._df_col_indices = {
             column: i for i, column in enumerate(self._df.columns)
         }
-
         self._instances: list[str] = []
         splits_path = self.dataset._metadata_path / "splits.json"
         if not splits_path.exists():
@@ -204,7 +198,6 @@ class LuxonisLoader(BaseLoader):
         for v in self._view:
             self._instances.extend(splits[v])
 
-        self.idx_to_df_row: list[list[int]] = []
         group_id_list = self._df["group_id"].to_list()
         group_id_set = set(group_id_list)
         self._instances = [
