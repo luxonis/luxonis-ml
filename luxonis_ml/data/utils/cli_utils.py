@@ -19,7 +19,10 @@ def parse_split_ratio(
     val: float | None = None,
     test: float | None = None,
 ) -> dict[str, float | int] | None:
-    """Parse split ratio argument.
+    r"""Parse a CLI split-ratio argument.
+
+    Float lists represent ratios and must sum to :math:`1.0`. Integer
+    lists represent absolute counts.
 
     Args:
         value: A string representation of a list
@@ -56,6 +59,7 @@ def parse_split_ratio(
         Traceback (most recent call last):
         ...
         ValueError: Split ratios must sum to 1.0; use whole numbers for counts.
+
     """
     if value is not None and any(v is not None for v in (train, val, test)):
         raise ValueError(
@@ -124,6 +128,16 @@ def parse_split_ratio(
 
 
 def check_exists(name: str, bucket_storage: BucketStorage) -> None:
+    """Ensure that a dataset exists in the selected storage.
+
+    Args:
+        name: Dataset name.
+        bucket_storage: Storage backend to query.
+
+    Raises:
+        typer.Exit: If the dataset does not exist.
+
+    """
     if not LuxonisDataset.exists(name, bucket_storage=bucket_storage):
         rprint(f"[red]Dataset [magenta]'{name}'[red] does not exist.")
         raise SystemExit(1)

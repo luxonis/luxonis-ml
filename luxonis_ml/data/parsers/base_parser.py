@@ -22,6 +22,8 @@ ParserOutput = tuple[DatasetIterator, dict[str, dict], list[Path]]
 
 
 class BaseParser(ABC):
+    """Base class for dataset-format parsers."""
+
     _SPLIT_NAMES: tuple[str, ...] = ("train", "valid", "test")
     _CANONICAL_SPLIT_NAMES: tuple[str, ...] = ("train", "val", "test")
     _SKIPPED_WARNING_LIMIT: int = 50
@@ -33,21 +35,18 @@ class BaseParser(ABC):
         task_name: str | dict[str, str] | None,
         full_warnings: bool = False,
     ):
-        """
-        @type dataset: BaseDataset
-        @param dataset: Dataset to add the parsed data to.
-        @type dataset_type: DatasetType
-        @param dataset_type: Type of the dataset.
-        @type task_name: Optional[Union[str, Dict[str, str]]]
-        @param task_name: Optional task name(s) for the dataset.
-            Can be either a single string, in which case all the records
-            added to the dataset will use this value as `task_name`, or
-            a dictionary with class names as keys and task names as values.
-            In the latter case, the task name for a record with a given
-            class name will be taken from the dictionary.
-        @type full_warnings: bool
-        @param full_warnings: If C{True}, all warnings will be logged.
-            If C{False}, only the first 50 warnings will be logged.
+        """Create a parser for a target dataset.
+
+        Args:
+            dataset: Dataset to populate with parsed records.
+            dataset_type: Source dataset format.
+            task_name: Optional task naming rule. A string is used for all
+                records. A mapping uses class names as keys and task names
+                as values.
+            full_warnings: Whether to log every skipped-annotation warning.
+                When ``False``, only the first 50 warnings are logged and the
+                rest are summarized.
+
         """
         self._dataset = dataset
         self._dataset_type = dataset_type
@@ -65,6 +64,7 @@ class BaseParser(ABC):
         )
 
     def _reset_parser_issue_messages(self) -> None:
+        """Clear collected parser issue messages and warning counters."""
         self._logged_skipped_annotation_warnings = 0
         self._suppressed_skipped_annotation_warnings = 0
 
@@ -72,33 +72,46 @@ class BaseParser(ABC):
         self._seen_parser_issue_messages.clear()
         self._skipped_annotation_counts_by_reason.clear()
 
+    def reset_parser_issue_messages(self) -> None:
+        """Clear collected parser issue messages."""
+        self._reset_parser_issue_messages()
+
+    def get_parser_issue_messages(self) -> list[ParserIssueMessage]:
+        """Return parser issue messages collected during the last
+        parse.
+        """
+        return self._get_parser_issue_messages()
+
     def _get_parser_issue_messages(self) -> list[ParserIssueMessage]:
-        """Returns collected parser issue messages from the last
-        parse."""
+        """Return parser issue messages collected during the last parse."""
         return list(self._parser_issue_messages)
 
     @staticmethod
     @abstractmethod
     def validate_split(split_path: Path) -> dict[str, Any] | None:
-        """Validates if a split subdirectory is in an expected format.
-        If so, returns kwargs to pass to L{from_split} method.
+        """Validate whether a split directory has the expected format.
 
-        @type split_path: Path
-        @param split_path: Path to split directory.
-        @rtype: Optional[Dict[str, Any]]
-        @return: Dictionary with kwargs to pass to L{from_split} method
-            or C{None} if the split is not in the expected format.
+        Args:
+            split_path: Path to a split directory.
+
+        Returns:
+            Keyword arguments for ``from_split``, or ``None`` if the split
+            is not in the expected format.
+
         """
         ...
 
     @classmethod
     def validate(cls, dataset_dir: Path) -> bool:
-        """Validates if the dataset is in an expected format.
+        """Validate whether the dataset directory has the expected
+        format.
 
-        @type dataset_dir: Path
-        @param dataset_dir: Path to source dataset directory.
-        @rtype: bool
-        @return: If the dataset is in the expected format.
+        Args:
+            dataset_dir: Source dataset directory.
+
+        Returns:
+            Whether the dataset is in the expected format.
+
         """
         splits = [
             d.name
@@ -112,11 +125,11 @@ class BaseParser(ABC):
 
     @staticmethod
     def _canonicalize_split_name(split_name: str) -> str:
-        """All current parsers use `train` and `test` split names
-        whereas validation splits can vary in name between `val` `valid`
-        and `validation`.
+        """All current parsers use ``train`` and ``test`` split names
+        whereas validation splits can vary in name between ``val`` ``valid``
+        and ``validation``.
 
-        This maps `valid` -> `val` and `validation` -> val
+        This maps ``valid`` -> ``val`` and ``validation`` -> val
         """
         if split_name in {"valid", "validation"}:
             return "val"
@@ -126,8 +139,9 @@ class BaseParser(ABC):
     def discover_dir_splits(
         cls, dataset_dir: Path
     ) -> dict[str, dict[str, Any]]:
-        """Returns present and valid split directories keyed by their
-        canonical split names."""
+        """Return present and valid split directories keyed by their
+        canonical split names.
+        """
         discovered: dict[str, dict[str, Any]] = {}
         for split_name in cls._SPLIT_NAMES:
             split_kwargs = cls.validate_split(dataset_dir / split_name)
@@ -140,44 +154,48 @@ class BaseParser(ABC):
     def from_dir(
         self, dataset_dir: Path, **kwargs
     ) -> tuple[list[Path], list[Path], list[Path]]:
-        """Parses all present data to L{LuxonisDataset} format.
+        """Parse all data in a source dataset directory.
 
-        @type dataset_dir: Path
-        @param dataset_dir: Path to source dataset directory.
-        @type kwargs: Any
-        @param kwargs: Additional arguments for a specific parser
-            implementation.
-        @rtype: Tuple[List[Path], List[Path], List[Path]]
-        @return: Tuple with added images for C{train}, C{val} and
-            C{test} splits.
+        Args:
+            dataset_dir: Source dataset directory.
+            kwargs: Additional parser-specific arguments.
+
+        Returns:
+            Added images for the train, validation, and test splits.
+
         """
         ...
 
     @abstractmethod
     def from_split(self, **kwargs) -> ParserOutput:
-        """Parses a data in a split subdirectory to L{LuxonisDataset}
-        format.
+        """Parse data from one split subdirectory.
 
-        @type kwargs: Dict[str, Any]
-        @param kwargs: Additional kwargs for specific parser implementation.
-            Should work together with L{validate_split} method like:
+        Args:
+            kwargs: Parser-specific arguments, usually produced by
+                ``validate_split``.
 
-                >>> from_split(**validate_split(split_path))
+        Example:
+            .. python::
 
-        @rtype: ParserOutput
-        @return: C{LDF} generator, list of class names,
-            skeleton dictionary for keypoints and list of added images.
+                split_kwargs = parser.validate_split(split_path)
+                if split_kwargs is not None:
+                    parser.from_split(**split_kwargs)
+
+        Returns:
+            LDF generator, skeleton metadata, and added images.
+
         """
         ...
 
     def _parse_split(self, **kwargs) -> list[Path]:
-        """Parses data in a split subdirectory.
+        """Parse data in one split subdirectory.
 
-        @type kwargs: Dict[str, Any]
-        @param kwargs: Additional kwargs for specific parser
-            implementation.
-        @rtype: List[str]
-        @return: List of added images.
+        Args:
+            kwargs: Parser-specific arguments.
+
+        Returns:
+            Added images.
+
         """
         generator, skeletons, added_images = self.from_split(**kwargs)
         self._dataset.add(self._wrap_generator(generator))
@@ -193,18 +211,18 @@ class BaseParser(ABC):
     def _apply_counts_to_pool(
         images: Sequence[PathType], split_ratios: dict[str, int]
     ) -> dict[str, Sequence[PathType]]:
-        """Distributes images across splits based on counts.
+        """Distribute images across splits based on requested counts.
 
         When total requested exceeds available, fills splits by priority
         (most requested first).
 
-        @type images: Sequence[PathType]
-        @param images: List of images to distribute.
-        @type split_ratios: Dict[str, int]
-        @param split_ratios: Counts for each split.
-        @rtype: Dict[str, Sequence[PathType]]
-        @return: Dictionary mapping split names to their assigned
-            images.
+        Args:
+            images: Images to distribute.
+            split_ratios: Requested counts for each split.
+
+        Returns:
+            Split names mapped to assigned images.
+
         """
         total_requested = sum(split_ratios.values())
         available = len(images)
@@ -248,14 +266,15 @@ class BaseParser(ABC):
         original_splits: dict[str, Sequence[PathType]],
         split_ratios: dict[str, int],
     ) -> dict[str, Sequence[PathType]]:
-        """Samples from each original split independently.
+        """Sample from each original split independently.
 
-        @type original_splits: Dict[str, Sequence[PathType]]
-        @param original_splits: Original split assignments.
-        @type split_ratios: Dict[str, int]
-        @param split_ratios: Requested counts for each split.
-        @rtype: Dict[str, Sequence[PathType]]
-        @return: Dictionary mapping split names to sampled images.
+        Args:
+            original_splits: Existing split assignments.
+            split_ratios: Requested counts for each split.
+
+        Returns:
+            Split names mapped to sampled images.
+
         """
         sampled: dict[str, Sequence[PathType]] = {}
         for split_name in ["train", "val", "test"]:
@@ -284,24 +303,20 @@ class BaseParser(ABC):
         split_ratios: dict[str, float | int] | None = None,
         **kwargs,
     ) -> BaseDataset:
-        """Parses data in a split subdirectory to L{LuxonisDataset}
-        format.
+        """Parse one split subdirectory into the target dataset.
 
-        @type split: Optional[str]
-        @param split: As what split the data will be added to LDF. If
-            set, C{split_ratios} and C{random_split} are ignored.
-        @type random_split: bool
-        @param random_split: If random splits should be made. If
-            C{True}, C{split_ratios} are used.
-        @type split_ratios: Optional[Dict[str, Union[float, int]]]
-        @param split_ratios: Ratios or counts for splits. Only used if
-            C{random_split} is C{True}. If floats, treated as ratios. If
-            ints, treated as counts. Defaults to C{(0.8, 0.1, 0.1)}.
-        @type kwargs: Dict[str, Any]
-        @param kwargs: Additional C{kwargs} for specific parser
-            implementation.
-        @rtype: LuxonisDataset
-        @return: C{LDF} with all the images and annotations parsed.
+        Args:
+            split: Optional split name to assign to parsed data. When set,
+                ``split_ratios`` and ``random_split`` are ignored.
+            random_split: Whether to generate random splits using
+                ``split_ratios``.
+            split_ratios: Optional ratios or counts. Float values are
+                treated as ratios; integer values are treated as counts.
+            kwargs: Parser-specific arguments.
+
+        Returns:
+            Dataset with parsed images and annotations.
+
         """
         self._reset_parser_issue_messages()
         try:
@@ -327,15 +342,19 @@ class BaseParser(ABC):
             self._log_skipped_annotation_summary()
 
     def parse_dir(self, dataset_dir: Path, **kwargs) -> BaseDataset:
-        """Parses entire dataset directory to L{LuxonisDataset} format.
+        """Parse an entire dataset directory into the target dataset.
 
-        @type dataset_dir: str
-        @param dataset_dir: Path to source dataset directory.
-        @type kwargs: Dict[str, Any]
-        @param kwargs: Additional C{kwargs} for specific parser
-            implementation.
-        @rtype: LuxonisDataset
-        @return: C{LDF} with all the images and annotations parsed.
+        Args:
+            dataset_dir: Source dataset directory.
+            kwargs: Parser-specific arguments.
+
+        Returns:
+            Dataset with parsed images and annotations.
+
+        Raises:
+            ValueError: If a parser that expects top-level splits cannot
+                find a ``train`` directory.
+
         """
         self._reset_parser_issue_messages()
         try:
@@ -412,24 +431,24 @@ class BaseParser(ABC):
         original_splits: dict[str, Sequence[PathType]],
         split_ratios: dict[str, int],
     ) -> dict[str, Sequence[PathType]]:
-        """Applies count-based split ratios to pre-existing splits.
+        """Apply count-based split requests to existing splits.
 
         Samples from each original split independently. If more samples
         are requested than available in a split, all available samples
         from that split are used.
 
-        @type original_splits: Dict[str, Sequence[PathType]]
-        @param original_splits: Original split assignments.
-        @type split_ratios: Dict[str, int]
-        @param split_ratios: Requested counts for each split.
-        @rtype: Dict[str, Sequence[PathType]]
-        @return: Dictionary mapping split names to assigned images.
+        Args:
+            original_splits: Existing split assignments.
+            split_ratios: Requested counts for each split.
+
+        Returns:
+            Split names mapped to assigned images.
+
         """
         return BaseParser._sample_from_splits(original_splits, split_ratios)
 
     def _remove_unsplit_records(self) -> None:
-        """Removes records from the dataset that are not assigned to any
-        split."""
+        """Remove records that are not assigned to any split."""
         # Cast to LuxonisDataset to access internal methods
         dataset: LuxonisDataset = self._dataset  # type: ignore[assignment]
 
@@ -455,13 +474,14 @@ class BaseParser(ABC):
 
     @staticmethod
     def _get_added_images(generator: DatasetIterator) -> list[Path]:
-        """Returns list of unique images added by the generator
-        function.
+        """Return unique images yielded by a dataset generator.
 
-        @type generator: L{DatasetGenerator}
-        @param generator: Generator function
-        @rtype: List[str]
-        @return: List of added images by generator function
+        Args:
+            generator: Dataset record generator.
+
+        Returns:
+            Unique added image paths.
+
         """
         return list(
             {
@@ -543,23 +563,22 @@ class BaseParser(ABC):
     def _compare_stem_files(
         list1: Iterable[Path], list2: Iterable[Path]
     ) -> bool:
-        """Compares sets of files by their stem.
+        """Compare sets of files by stem.
 
         Example:
-
             >>> BaseParser._compare_stem_files([Path("a.jpg"), Path("b.jpg")],
             ...                                [Path("a.xml"), Path("b.xml")])
             True
             >>> BaseParser._compare_stem_files([Path("a.jpg")], [Path("b.txt")])
             False
 
-        @type list1: Iterable[Path]
-        @param list1: First list of files
-        @type list2: Iterable[Path]
-        @param list2: Second list of files
-        @rtype: bool
-        @return: If the two sets of files are equal when compared by their stems.
-            If the sets are empty, returns C{False}.
+        Args:
+            list1: First files to compare.
+            list2: Second files to compare.
+
+        Returns:
+            Whether the non-empty file stem sets are equal.
+
         """
         set1 = {Path(f).stem for f in list1}
         set2 = {Path(f).stem for f in list2}
@@ -567,13 +586,14 @@ class BaseParser(ABC):
 
     @staticmethod
     def _list_images(image_dir: Path) -> list[Path]:
-        """Returns list of all images in the directory supported by
-        opencv.
+        """List OpenCV-supported images in a directory.
 
-        @type image_dir: Path
-        @param image_dir: Path to directory with images
-        @rtype: List[Path]
-        @return: List of images in the directory
+        Args:
+            image_dir: Directory with images.
+
+        Returns:
+            Supported image paths.
+
         """
         cv2_supported_image_formats = {
             ".bmp",
@@ -605,14 +625,15 @@ class BaseParser(ABC):
         ]
 
     def _wrap_generator(self, generator: DatasetIterator) -> DatasetIterator:
-        """Adds task to the generator.
+        """Add configured task names to generated records.
 
-        @type generator: DatasetIterator
-        @param generator: Generator function
-        @rtype: DatasetIterator
-        @return: Generator function with added task
+        Args:
+            generator: Dataset record generator.
+
+        Returns:
+            Generator that yields records with task names applied.
+
         """
-
         for item in generator:
             if isinstance(item, dict):
                 item = DatasetRecord(**item)

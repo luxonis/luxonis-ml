@@ -22,7 +22,17 @@ from luxonis_ml.enums import DatasetType
 
 
 class CocoExporter(BaseExporter):
-    """Exporter for COCO dataset format (Roboflow/FiftyOne variants)."""
+    """Exporter for COCO dataset format.
+
+    Attributes:
+        format: COCO output layout variant.
+        skeletons: Optional keypoint skeleton metadata.
+        allow_keypoints: Whether keypoint annotations can be exported.
+        class_name_to_category_id: Category IDs per split and class name.
+        last_category_id: Last assigned category ID per split.
+        image_registry: Exported image metadata per split.
+
+    """
 
     def __init__(
         self,

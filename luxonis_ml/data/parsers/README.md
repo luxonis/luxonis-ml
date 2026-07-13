@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> This README is deprecated. Use the GitHub Pages documentation instead: https://luxonis.github.io/luxonis-ml/latest/luxonis_ml.data.parsers.html
+
 # LuxonisML Parsers
 
 The `LuxonisParser` class provides functionality for converting various dataset formats to the Luxonis Dataset Format (LDF).

@@ -1,3 +1,33 @@
+r"""Built-in custom Albumentations transforms.
+
+The `TRANSFORMATIONS` registry contains Luxonis transforms that can be used by
+`AlbumentationsEngine` through augmentation configuration records. Registered
+transforms are referenced by class name in the ``name`` field, the same way as
+standard Albumentations transforms.
+
+Built-in custom transforms include:
+
+    - `LetterboxResize` for aspect-ratio preserving resize and padding.
+    - `MixUp` for blending pairs of images and compatible labels.
+    - `Mosaic4` for composing a :math:`2 \times 2` image mosaic.
+    - Symmetric keypoint flips and transposition helpers for keypoint tasks.
+
+User-defined transforms can be registered with ``TRANSFORMATIONS.register`` and
+then used by name in loader augmentation configuration.
+
+.. python::
+
+    TRANSFORMATIONS.register(module=CustomTransform)
+
+    augmentation_config = [
+        {
+            "name": "CustomTransform",
+            "params": {"p": 1.0},
+        },
+    ]
+
+"""
+
 import albumentations as A
 
 from luxonis_ml.utils import Registry

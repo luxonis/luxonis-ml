@@ -1,3 +1,5 @@
+"""Common type aliases and utility functions for type checking."""
+
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -12,11 +14,18 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 PathType: TypeAlias = str | Path
-"""A string or a `pathlib.Path` object."""
+"""A string or a `pathlib.Path`_ object.
+
+.. _pathlib.Path:
+    https://docs.python.org/3/library/pathlib.html#pathlib.Path
+"""
 
 PosixPathType: TypeAlias = str | PurePosixPath
-"""A string or a `pathlib.PurePosixPath` object."""
+"""A string or a `pathlib.PurePosixPath`_ object.
 
+.. _pathlib.PurePosixPath:
+    https://docs.python.org/3/library/pathlib.html#pathlib.PurePosixPath
+"""
 
 PrimitiveType: TypeAlias = str | int | float | bool | None
 """Primitive types in Python."""
@@ -107,7 +116,13 @@ Kwargs: TypeAlias = dict[str, Any]
 
 
 class BaseModelExtraForbid(BaseModel):
-    """BaseModel with extra fields forbidden."""
+    """Base model with extra fields forbidden.
+
+    Attributes:
+        model_config: Pydantic model configuration with ``extra`` set to
+            ``"forbid"``.
+
+    """
 
     model_config: ConfigDict = ConfigDict(extra="forbid")
 
@@ -118,12 +133,16 @@ class ConfigItem(BaseModelExtraForbid):
 
     A dictionary with a name and a dictionary of parameters.
 
-    @type name: str
-    @ivar name: The name of the object this configuration applies to.
-        Required.
-    @type params: Dict[str, JsonDict]
-    @ivar params: Additional parameters for instantiating the object.
-        Not required.
+    Attributes:
+        name: Name of the object this configuration applies to.
+        params: Additional parameters for instantiating the object.
+
+    Example:
+        >>> ConfigItem(name="Resize", params={"height": 256}).name
+        'Resize'
+        >>> ConfigItem(name="Normalize").params
+        {}
+
     """
 
     name: str
@@ -134,42 +153,76 @@ class ConfigItem(BaseModelExtraForbid):
 T = TypeVar("T")
 
 
-def check_type(value: Any, type_: type[T]) -> TypeGuard[T]:
-    """Checks if the value has the correct type.
+def check_type(value: Any, typ: type[T]) -> TypeGuard[T]:
+    """Check whether a value has the expected type.
 
-    @type value: Any
-    @param value: The value to check.
-    @type type_: Type[K]
-    @param type_: The type to check against.
-    @rtype: bool
-    @return: C{True} if the value has the correct type, C{False}
-        otherwise.
+    Note:
+        This function acts as a `type guard`_, allowing type checkers
+        to narrow the type of a variable when the function returns ``True``.
+
+    Examples:
+        >>> check_type("oak", str)
+        True
+        >>> check_type("oak", int)
+        False
+        >>> check_type([1, 2, 3], list)
+        True
+
+    Args:
+        value: Value to check.
+        typ: Type to check against.
+
+    Returns:
+        ``True`` if ``value`` conforms to ``typ``, otherwise ``False``.
+
+    .. _type guard:
+        https://typing.python.org/en/latest/spec/narrowing.html#typeguard
+
     """
     try:
-        typeguard.check_type(value, type_)
+        typeguard.check_type(value, typ)
     except (typeguard.TypeCheckError, TypeError):
         return False
     return True
 
 
 def all_not_none(values: Iterable[Any]) -> bool:
-    """Checks if none of the values in the iterable is C{None}
+    """Check whether all values in a collection are not ``None``.
 
-    @type values: Iterable[Any]
-    @param values: An iterable of values
-    @rtype: bool
-    @return: C{True} if all values are not C{None}, C{False} otherwise
+    Args:
+        values: Iterable of values to check.
+
+    Returns:
+        ``True`` if all values are not ``None``, otherwise ``False``.
+
+    Examples:
+        >>> all_not_none([1, "x", 0])
+        True
+        >>> all_not_none([1, None, 0])
+        False
+        >>> all_not_none([])
+        True
+
     """
     return all(v is not None for v in values)
 
 
 def any_not_none(values: Iterable[Any]) -> bool:
-    """Checks if at least one value in the iterable is not C{None}
+    """Check whether at least one value in a collection is not ``None``.
 
-    @type values: Iterable[Any]
-    @param values: An iterable of values
-    @rtype: bool
-    @return: C{True} if at least one value is not C{None}, C{False}
-        otherwise
+    Args:
+        values: Iterable of values to check.
+
+    Returns:
+        ``True`` if at least one value is not ``None``, otherwise ``False``.
+
+    Examples:
+        >>> any_not_none([None, "x"])
+        True
+        >>> any_not_none([None, None])
+        False
+        >>> any_not_none([])
+        False
+
     """
     return any(v is not None for v in values)

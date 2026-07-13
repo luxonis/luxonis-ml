@@ -45,6 +45,7 @@ class TelemetryConfig:
         disable_geoip: Whether to disable PostHog GeoIP enrichment.
         allow_reserved_overrides: Whether callers and context providers
             may override reserved telemetry control fields.
+
     """
 
     enabled: bool = True
@@ -76,6 +77,7 @@ class TelemetryConfig:
 
         Returns:
             A telemetry configuration built from environment variables.
+
         """
         settings = Environ()
         defaults = defaults or TelemetryDefaults()

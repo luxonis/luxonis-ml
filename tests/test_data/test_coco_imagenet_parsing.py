@@ -167,7 +167,7 @@ class TestCLIParseImagenet:
 
 
 class TestCoco2017Keypoints:
-    """``LuxonisParser(...).parse(use_keypoint_ann=True, ...)``"""
+    """Test ``LuxonisParser(...).parse(use_keypoint_ann=True, ...)``."""
 
     def test_keypoints_all_splits_ratio(
         self, coco_2017_all_splits: Path, dataset_name: str

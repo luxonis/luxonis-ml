@@ -5,13 +5,17 @@ from luxonis_ml.typing import PathType
 
 
 def is_nn_archive(path: PathType) -> bool:
-    """Check if the given path is a valid NN archive file.
+    """Check whether a path points to a valid NN Archive.
 
-    @type path: PathType
-    @param path: Path to the file to check.
-    @rtype: bool
-    @return: True if the file is a valid NN archive file, False
-        otherwise.
+    A valid archive must be a tar file and contain a top-level
+    ``config.json`` member.
+
+    Args:
+        path: Path to the file to check.
+
+    Returns:
+        ``True`` if the file is a valid NN Archive, otherwise ``False``.
+
     """
     path = Path(path)
 
@@ -29,16 +33,29 @@ def is_nn_archive(path: PathType) -> bool:
 
 
 def infer_layout(shape: list[int]) -> str:
-    """Infers a layout for the given shape.
+    """Infer a layout code for a tensor shape.
 
-    Tries to guess most common layouts for the given shape pattern.
-    Otherwise, uses the first free letter of the alphabet for each dimension.
+    The function recognizes common image tensor layouts. For other shapes,
+    it uses the first available letters starting at ``C``.
 
-    Example::
-        >>> make_default_layout([1, 3, 256, 256])
-        >>> "NCHW"
-        >>> make_default_layout([1, 19, 7, 8])
-        >>> "NABC"
+    Args:
+        shape: Tensor shape to infer from.
+
+    Returns:
+        Layout code matching the number of dimensions in ``shape``.
+
+    Raises:
+        ValueError: If the shape has too many dimensions for automatic
+            layout inference.
+
+    Example:
+        >>> infer_layout([1, 3, 256, 256])
+        'NCHW'
+        >>> infer_layout([256, 256, 3])
+        'HWC'
+        >>> infer_layout([1, 19, 7, 8])
+        'NCDE'
+
     """
     layout = []
     i = 0

@@ -10,11 +10,34 @@ from .source import LuxonisSource
 
 
 class Skeletons(TypedDict):
+    """Keypoint skeleton metadata.
+
+    Attributes:
+        labels: Keypoint names in index order.
+        edges: Keypoint graph edges as :math:`0`-based index pairs.
+
+    """
+
     labels: list[str]
     edges: list[tuple[int, int]]
 
 
 class Metadata(BaseModelExtraForbid):
+    """Stored metadata for a Luxonis Data Format dataset.
+
+    Attributes:
+        source: Dataset source description.
+        ldf_version: Luxonis Data Format version.
+        classes: Class-index mappings per task.
+        tasks: Task types per task name.
+        skeletons: Keypoint skeleton definitions per task.
+        categorical_encodings: Integer encodings for categorical metadata.
+        metadata_types: Metadata value types per metadata task.
+        parent_dataset: Optional identifier of the source dataset this
+            dataset was derived from.
+
+    """
+
     source: LuxonisSource | None
     ldf_version: str = str(LDF_VERSION)
     classes: dict[str, dict[str, int]] = {}
@@ -36,7 +59,21 @@ class Metadata(BaseModelExtraForbid):
             self.classes[task] = classes
 
     def merge_with(self, other: "Metadata") -> "Metadata":
-        """Merge two metadata objects together."""
+        """Merge two metadata objects together.
+
+        Args:
+            other: Metadata object to merge into this one.
+
+        Returns:
+            New metadata object containing merged classes, tasks,
+            skeletons, categorical encodings, metadata types, and source
+            information.
+
+        Raises:
+            ValueError: If the two metadata objects use different LDF
+                versions.
+
+        """
         if self.ldf_version != other.ldf_version:  # pragma: no cover
             raise ValueError(
                 "Cannot merge metadata with different LDF versions"

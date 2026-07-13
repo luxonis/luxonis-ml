@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> This README is deprecated. Use the GitHub Pages documentation instead: https://luxonis.github.io/luxonis-ml/latest/luxonis_ml.data.augmentations.html
+
 # Augmentations
 
 ## `AlbumentationsEngine`

@@ -78,7 +78,8 @@ def main(
     batched: Annotated[bool, Parameter(alias="-b")] = False,
 ) -> None:
     """Benchmark the time taken to write and read a dataset with the
-    given parameters."""
+    given parameters.
+    """
     if not no_write:
         avg = 0
         for _ in range(repeat):

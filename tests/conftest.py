@@ -225,7 +225,7 @@ def imagenet_sample_source(storage_url: str, base_tempdir: Path) -> Path:
 def _make_coco_variant(
     source: Path, dest_dir: Path, config: CocoSplitConfig
 ) -> Path:
-    """Creates a coco-2017 directory with only the requested splits.
+    """Create a coco-2017 directory with only the requested splits.
 
     Always copies the raw/ folder (needed for keypoint annotations) and
     info.json.
@@ -281,7 +281,7 @@ def coco_2017(
     """Parametrisable coco-2017 fixture.
 
     Use with ``@pytest.mark.parametrize("coco_2017", [...], indirect=True)``
-    where the parameter values are :class:`CocoSplitConfig` members.
+    where the parameter values are `CocoSplitConfig` members.
     """
     config: CocoSplitConfig = request.param
     return _make_coco_variant(coco_2017_source, tempdir, config)

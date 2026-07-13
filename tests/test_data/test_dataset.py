@@ -1242,9 +1242,6 @@ def test_merge_on_different_machines(dataset_name: str, tempdir: Path):
 def create_test_dataset_with_classes(
     tempdir: Path, task_classes: dict[str, dict[str, int]]
 ) -> LuxonisDataset:
-    """Helper function to create a test dataset with specific class
-    mappings."""
-
     def generator() -> DatasetIterator:
         for i in range(5):
             img = create_image(i, tempdir)
