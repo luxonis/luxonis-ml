@@ -35,6 +35,7 @@ class TelemetryEvent:
 
         Returns:
             A telemetry event with a UTC timestamp.
+
         """
         return cls(
             name=name,

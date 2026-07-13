@@ -20,6 +20,7 @@ def get(
         url: URL of the file to download.
         save_dir: Directory to save the file.
             Defaults to current working directory.
+
     """
     LuxonisFileSystem.download(url, save_dir or Path.cwd())
 
@@ -34,6 +35,7 @@ def put(
     Args:
         file: Path to the file to upload.
         url: URL of the file.
+
     """
     LuxonisFileSystem.upload(file, url)
 
@@ -44,6 +46,7 @@ def delete(url: str):
 
     Args:
         url: URL of the file to delete.
+
     """
     LuxonisFileSystem(url).delete_file("")
 
@@ -69,6 +72,7 @@ def ls(
         url: URL of the directory to list.
         recursive: Whether to list files recursively.
         typ: Type of files to list.
+
     """
     fs = LuxonisFileSystem(url.rstrip("/"))
     for file in fs.walk_dir("", recursive=recursive, typ=typ):

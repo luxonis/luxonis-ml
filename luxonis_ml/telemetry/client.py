@@ -51,6 +51,7 @@ class Telemetry:
             system_context_providers: Callables that return extra
                 context to attach only when system metadata is
                 requested.
+
         """
         self._config = config or TelemetryConfig.from_environ()
         if self._config.enabled and not Telemetry._logged_enabled_notice:
@@ -103,7 +104,8 @@ class Telemetry:
         self, provider: SystemContextProvider
     ) -> None:
         """Register a context provider used only with system
-        metadata."""
+        metadata.
+        """
         self._add_provider(self._system_context_providers, provider)
 
     def extend_context_providers(
@@ -132,6 +134,7 @@ class Telemetry:
             name: Backend name used in ``TelemetryConfig.backend``.
             backend_cls: Backend class instantiated with
                 ``TelemetryConfig``.
+
         """
         TELEMETRY_BACKENDS.register(
             name=name.lower(),
@@ -161,6 +164,7 @@ class Telemetry:
             distinct_id: Optional backend identity override. When
                 omitted, it defaults to the client's ephemeral session
                 identifier.
+
         """
         if not self.is_enabled:
             return
@@ -217,7 +221,8 @@ class Telemetry:
 
     def _init_backend(self) -> TelemetryBackend:
         """Initialize the configured backend or fall back to
-        NoopBackend."""
+        NoopBackend.
+        """
         if not self.is_enabled:
             return NoopBackend(self._config)
         name = self._config.backend.lower()

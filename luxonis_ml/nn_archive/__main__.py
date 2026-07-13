@@ -54,6 +54,7 @@ def inspect(
         outputs: Print outputs info.
         heads: Print heads info.
         buildinfo: Print build info if available.
+
     """
 
     if not any([inputs, metadata, outputs, heads, buildinfo]):
@@ -112,6 +113,7 @@ def extract(
         destination: Path where to extract the Archive.
             If not provided, the Archive is extracted to the current
             working directory.
+
     """
 
     destination = destination or Path.cwd()
@@ -119,7 +121,7 @@ def extract(
     extract_path.mkdir(exist_ok=True, parents=True)
 
     def safe_members(tar: tarfile.TarFile) -> list[tarfile.TarInfo]:
-        """Filter members to prevent path traversal attacks."""
+        """Filter archive members to prevent path traversal attacks."""
         safe_files = []
         root = extract_path.resolve()
         for member in tar.getmembers():

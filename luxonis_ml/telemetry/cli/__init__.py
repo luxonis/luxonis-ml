@@ -15,7 +15,8 @@ __all__ = [
 
 def __getattr__(name: str) -> Any:
     """Lazily import optional CLI adapters so their deps stay
-    optional."""
+    optional.
+    """
     if name == "instrument_typer":
         return import_module("luxonis_ml.telemetry.cli.typer").instrument_typer
     if name == "instrument_cyclopts":

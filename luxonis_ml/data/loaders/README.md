@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> This README is deprecated. Use the GitHub Pages documentation instead: https://luxonis.github.io/luxonis-ml/latest/luxonis_ml.data.loaders.html
+
 # LuxonisML Loader
 
 The `LuxonisLoader` class provides efficient access to dataset samples with configurable preprocessing options.

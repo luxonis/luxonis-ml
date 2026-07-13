@@ -73,6 +73,7 @@ def base_context(
 
     Returns:
         The shared base context attached to events.
+
     """
     return {
         "$process_person_profile": False,

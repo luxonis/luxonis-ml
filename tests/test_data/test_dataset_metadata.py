@@ -19,7 +19,8 @@ def basic_metadata() -> Metadata:
 
 def test_merge_with_different_versions():
     """Test that merging metadata with different LDF versions raises
-    ValueError."""
+    ValueError.
+    """
     metadata1 = Metadata(
         ldf_version="2.0.0",
         source=None,

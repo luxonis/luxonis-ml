@@ -21,6 +21,17 @@ from luxonis_ml.enums import DatasetType
 
 
 class SegmentationMaskDirectoryExporter(BaseExporter):
+    """Export semantic segmentation masks in directory format.
+
+    Attributes:
+        split_class_maps: Per-split class-to-ID maps used for
+            ``_classes.csv``.
+        BACKGROUND_NAME: Background class name written to class CSV files.
+        CLASS_COL: Class-name column in class CSV files.
+        ID_COL: Class-ID column in class CSV files.
+
+    """
+
     def __init__(
         self,
         dataset_identifier: str,
@@ -75,6 +86,16 @@ class SegmentationMaskDirectoryExporter(BaseExporter):
                 w.writerow([cid, name])
 
     def export(self, prepared_ldf: PreparedLDF) -> None:
+        """Export semantic segmentation masks and class CSV files.
+
+        Args:
+            prepared_ldf: Dataset data prepared for export.
+
+        Raises:
+            ValueError: If a class ID exceeds :math:`255`, because the
+                matching parser reads masks as 8-bit grayscale images.
+
+        """
         check_group_file_correspondence(prepared_ldf)
         exporter_specific_annotation_warning(
             prepared_ldf, self.supported_ann_types()

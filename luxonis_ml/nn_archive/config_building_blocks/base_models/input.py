@@ -13,84 +13,88 @@ from luxonis_ml.typing import BaseModelExtraForbid
 
 
 class PreprocessingBlock(BaseModelExtraForbid):
-    """Represents preprocessing operations applied to the input data.
+    """Preprocessing operations applied to model input data.
 
-    @type mean: list | None
-    @ivar mean: Mean values in channel order. Order depends on the order
-        in which the model was trained on.
-    @type scale: list | None
-    @ivar scale: Standardization values in channel order. Order depends
-        on the order in which the model was trained on.
-    @type reverse_channels: bool | None
-    @ivar reverse_channels: If True input to the model is RGB else BGR.
-    @type interleaved_to_planar: bool | None
-    @ivar interleaved_to_planar: If True input to the model is
-        interleaved (NHWC) else planar (NCHW).
-    @type dai_type: str | None
-    @ivar dai_type: DepthAI input type which is read by DepthAI to
-        automatically setup the pipeline.
+    Attributes:
+        mean: Optional mean values in channel order. The order should
+            match the preprocessing used during training.
+
+        scale: Optional standardization values in channel order. The
+            order should match the preprocessing used during training.
+
+        reverse_channels: Optional legacy channel-order flag.
+
+            .. deprecated:: 0.5.0
+                use ``dai_type`` instead.
+
+        interleaved_to_planar: Optional legacy layout conversion flag.
+
+            .. deprecated:: 0.5.0
+                use ``dai_type`` instead.
+
+        dai_type: Optional DepthAI input type used to configure pipeline
+            input handling.
+
     """
 
     mean: list[float] | None = Field(
         None,
-        description="Mean values in channel order. Order depends on the order in which the model was trained on.",
+        description=(
+            "Mean values in channel order, matching the preprocessing used "
+            "during training."
+        ),
     )
     scale: list[float] | None = Field(
         None,
-        description="Standardization values in channel order. Order depends on the order in which the model was trained on.",
+        description=(
+            "Standardization values in channel order, matching the "
+            "preprocessing used during training."
+        ),
     )
     reverse_channels: bool | None = Field(
         None,
         deprecated="Deprecated, use `dai_type` instead.",
-        description="If True input to the model is RGB else BGR.",
+        description="Legacy channel-order flag. Deprecated; use `dai_type` instead.",
     )
     interleaved_to_planar: bool | None = Field(
         None,
         deprecated="Deprecated, use `dai_type` instead.",
-        description="If True input to the model is interleaved (NHWC) else planar (NCHW).",
+        description="Legacy layout conversion flag. Deprecated; use `dai_type` instead.",
     )
     dai_type: str | None = Field(
         None,
-        description="DepthAI input type which is read by DepthAI to automatically setup the pipeline.",
+        description="DepthAI input type used to configure pipeline input handling.",
     )
 
 
 class Input(BaseModelExtraForbid):
-    """Represents input stream of a model.
+    """Model input stream definition.
 
-    @type name: str
-    @ivar name: Name of the input layer.
+    Attributes:
+        name: Name of the input layer.
+        dtype: Data type of the input data, such as ``"float32"``.
+        input_type: Expected kind of input data, such as ``"image"``.
+        shape: Input tensor shape.
+        layout: Letter code for interpreting tensor dimensions, such as
+            ``"NCHW"``.
+        preprocessing: Preprocessing applied to the input data.
 
-    @type dtype: DataType
-    @ivar dtype: Data type of the input data (e.g., 'float32').
-
-    @type input_type: InputType
-    @ivar input_type: Type of input data (e.g., 'image').
-
-    @type shape: list
-    @ivar shape: Shape of the input data as a list of integers (e.g. [H,W], [H,W,C], [N,H,W,C], ...).
-
-    @type layout: str
-    @ivar layout: Lettercode interpretation of the input data dimensions (e.g., 'NCHW').
-
-    @type preprocessing: PreprocessingBlock
-    @ivar preprocessing: Preprocessing steps applied to the input data.
     """
 
     name: str = Field(description="Name of the input layer.")
     dtype: DataType = Field(
-        description="Data type of the input data (e.g., 'float32')."
+        description="Data type of the input data, such as 'float32'."
     )
     input_type: InputType = Field(
-        description="Type of input data (e.g., 'image')."
+        description="Expected kind of input data, such as 'image'."
     )
     shape: list[int] = Field(
         min_length=1,
-        description="Shape of the input data as a list of integers (e.g. [H,W], [H,W,C], [N,H,W,C], ...).",
+        description="Input tensor shape.",
     )
     layout: str = Field(
         "NCHW",
-        description="Lettercode interpretation of the input data dimensions (e.g., 'NCHW')",
+        description="Letter code for interpreting tensor dimensions, such as 'NCHW'.",
         min_length=1,
     )
     preprocessing: PreprocessingBlock = Field(
@@ -99,6 +103,22 @@ class Input(BaseModelExtraForbid):
 
     @model_validator(mode="after")
     def validate_layout(self) -> Self:
+        r"""Validate that the layout is compatible with the input shape.
+
+        The layout must be a one-to-one description of the shape, so
+        :math:`|\mathrm{layout}| = |\mathrm{shape}|`. When ``N`` is
+        present it denotes batch size and must be first. Image inputs must
+        include a channel dimension ``C``.
+
+        Returns:
+            The validated input model.
+
+        Raises:
+            ValueError: If the layout contains duplicate letters, its
+                length does not match the shape length, ``N`` is present
+                but not first, or image input has no ``C`` dimension.
+
+        """
         self.layout = self.layout.upper()
 
         if len(self.layout) != len(set(self.layout)):
@@ -122,6 +142,23 @@ class Input(BaseModelExtraForbid):
     @model_validator(mode="before")
     @staticmethod
     def infer_layout(data: dict[str, Any]) -> dict[str, Any]:
+        """Infer the layout when a shape is provided without one.
+
+        Args:
+            data: Raw input model data.
+
+        Returns:
+            Raw model data with ``layout`` added when inference succeeds.
+
+        Examples:
+            >>> Input.infer_layout({"shape": [1, 3, 224, 224]})["layout"]
+            'NCHW'
+            >>> Input.infer_layout({"shape": [1, 3, 16, 16, 2]})
+            {'shape': [1, 3, 16, 16, 2], 'layout': 'NCDEF'}
+            >>> "layout" in Input.infer_layout({"shape": [1] * 30})
+            False
+
+        """
         if "shape" in data and "layout" not in data:
             with suppress(Exception):
                 data["layout"] = infer_layout(data["shape"])

@@ -57,6 +57,7 @@ def info(
     Args:
         name: Name of the dataset.
         bucket_storage: Storage type of the dataset.
+
     """
     check_exists(name, bucket_storage)
     print_info(LuxonisDataset(name, bucket_storage=bucket_storage))
@@ -84,6 +85,7 @@ def delete(
         local: If True, delete the dataset from local storage.
         remote: If True, delete the dataset from remote storage.
         yes: If True, skip confirmation prompt and delete immediately.
+
     """
     if not names:
         print("[red]At least one dataset name must be provided.[/red]")
@@ -147,6 +149,7 @@ def ls(
         full: If True, show full information about each dataset,
             including classes and tasks.
         bucket_storage: Storage type of the dataset.
+
     """
     datasets = LuxonisDataset.list_datasets(bucket_storage=bucket_storage)
     table = Table(
@@ -249,6 +252,7 @@ def inspect(
             displayed image. Requires '--aug-config' to be set.
         print_sample_metadata: Print sample metadata for each displayed sample.
         bucket_storage: Storage type of the dataset.
+
     """
     check_exists(name, bucket_storage)
 
@@ -441,6 +445,7 @@ def export(
             single archive. If ``False``, the dataset will be exported as a
             directory with the specified structure.
         bucket_storage: Storage type of the dataset.
+
     """
     save_dir = save_dir or name
     if delete_existing and Path(save_dir).exists():
@@ -467,6 +472,7 @@ def parse(
             alias="-t",
         ),
     ] = None,
+    bucket_storage: BucketStorageT = BucketStorage.LOCAL,
     delete_local: Annotated[
         bool,
         Parameter(
@@ -491,7 +497,6 @@ def parse(
     train: float | None = None,
     val: float | None = None,
     test: float | None = None,
-    bucket_storage: BucketStorageT = BucketStorage.LOCAL,
 ):
     """Parse a directory with data and create a Luxonis dataset.
 
@@ -501,6 +506,7 @@ def parse(
             If not provided, the directory name will be used.
         dataset_type: Type of the dataset.
             If not provided, the parser will attempt to detect it.
+        bucket_storage: Storage type of the dataset.
         delete_local: If True, delete any existing local
             dataset with the same name before parsing.
         save_dir: If dataset_dir is a remote URL,
@@ -523,6 +529,7 @@ def parse(
             to the validation set.
         test: Ratio or count of records to assign
             to the test set.
+
     """
     parser = LuxonisParser(
         dataset,
@@ -580,6 +587,7 @@ def health(
             will be saved. If not provided, the plots will be displayed
             interactively instead of being saved.
         bucket_storage: Storage type of the dataset.
+
     """
     check_exists(name, bucket_storage)
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
@@ -738,6 +746,7 @@ def push(
             Cannot be LOCAL.
         force: If True, push all media files even
             if they already exist in the target cloud storage.
+
     """
     check_exists(name, BucketStorage.LOCAL)
     dataset = LuxonisDataset(name, bucket_storage=BucketStorage.LOCAL)
@@ -787,6 +796,7 @@ def pull(
             if they already exist locally.
         bucket_storage: Cloud storage type to pull from.
             Cannot be LOCAL.
+
     """
     if bucket_storage == BucketStorage.LOCAL:
         print(
@@ -843,8 +853,8 @@ def clone(
             If not provided, all splits will be cloned.
             Example: ``--split train --split val`` to clone only the "train" and "val" splits.
         team_id: Team ID to use for the new dataset.
-    """
 
+    """
     check_exists(name, bucket_storage)
 
     if LuxonisDataset.exists(
@@ -899,6 +909,7 @@ def merge(
         bucket_storage: Storage type for both datasets.
         team_id: Team ID to use for the new dataset.
             If not provided, the team ID of the target dataset will be used.
+
     """
     check_exists(source_name, bucket_storage)
     check_exists(target_name, bucket_storage)
@@ -964,6 +975,7 @@ def sanitize(
     Args:
         name: Name of the dataset to sanitize.
         bucket_storage: Storage type of the dataset.
+
     """
     check_exists(name, bucket_storage)
     dataset = LuxonisDataset(name, bucket_storage=bucket_storage)

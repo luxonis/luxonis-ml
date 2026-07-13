@@ -12,19 +12,20 @@ from .base_parser import BaseParser, ParserOutput
 
 class NativeParser(BaseParser):
     _SPLIT_NAMES: tuple[str, ...] = ("train", "val", "test")
-    """Parses directory with native LDF annotations.
+    """Parse a directory with native LDF annotations.
 
     Expected format::
 
         dataset_dir/
         ├── train/
         │   └── annotations.json
-        ├── valid/
+        ├── val/
         └── test/
 
     The annotations are stored in a single JSON file as a list of dictionaries
     in the same format as the output of the generator function used
-    in L{BaseDataset.add} method.
+    by ``BaseDataset.add``.
+
     """
 
     @staticmethod
@@ -49,15 +50,16 @@ class NativeParser(BaseParser):
         return added_train_imgs, added_val_imgs, added_test_imgs
 
     def from_split(self, annotation_path: Path) -> ParserOutput:
-        """Parses annotations from LDF Format.
+        """Parse native LDF annotations.
 
-        @type annotation_path: C{Path}
-        @param annotation_dir: Path to the JSON file with annotations.
-        @rtype: L{ParserOutput}
-        @return: Annotation generator, list of classes names, skeleton
-            dictionary for keypoints and list of added images.
+        Args:
+            annotation_path: JSON file with annotations.
+
+        Returns:
+            Parser output containing annotation records, skeleton metadata,
+            and added images.
+
         """
-
         data = json.loads(annotation_path.read_text())
 
         def generator() -> DatasetIterator:

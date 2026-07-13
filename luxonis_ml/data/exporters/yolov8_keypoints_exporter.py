@@ -19,6 +19,16 @@ from .base_exporter import BaseExporter
 
 
 class YoloV8KeypointsExporter(BaseExporter):
+    """Export keypoint annotations in YOLOv8 pose format.
+
+    Attributes:
+        class_to_id: Class-name to class-ID mapping.
+        class_names: Class names ordered by class ID.
+        kpt_shape: Optional ``(n_kpts, kpt_dim)`` pair written to
+            ``dataset.yaml``.
+
+    """
+
     def __init__(
         self,
         dataset_identifier: str,

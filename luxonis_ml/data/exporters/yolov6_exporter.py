@@ -19,6 +19,14 @@ BBox: TypeAlias = tuple[int, float, float, float, float]
 
 
 class YoloV6Exporter(BaseExporter):
+    """Export object detection data in YOLOv6 format.
+
+    Attributes:
+        class_to_id: Class-name to class-ID mapping.
+        class_names: Class names ordered by class ID.
+
+    """
+
     def __init__(
         self,
         dataset_identifier: str,

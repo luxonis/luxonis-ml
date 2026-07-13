@@ -22,14 +22,37 @@ def ldf_equivalent(
     previous_dataset: Union[str, "LuxonisDataset"],
     new_dataset: Union[str, "LuxonisDataset"],
 ) -> bool:
+    """Return whether two datasets are equivalent in Luxonis Data Format.
+
+    Args:
+        previous_dataset: Dataset name or dataset instance used as the
+            reference.
+        new_dataset: Dataset name or dataset instance to compare.
+
+    Returns:
+        Whether the datasets are equivalent.
+
+    Raises:
+        TypeError: If either argument is neither a dataset name nor a
+            `LuxonisDataset`.
+        ValueError: If a dataset name matches multiple local datasets.
+        FileNotFoundError: If a named local dataset, split metadata,
+            annotation parquet file, or referenced image is missing.
+
+    """
     return LDFEquivalence.ldf_equivalent(previous_dataset, new_dataset)
 
 
 class LDFEquivalence:
+    """Helpers for comparing datasets in Luxonis Data Format."""
+
     @staticmethod
     def file_sha256(path: Path) -> str:
-        """The image's hash is used to order annotations to survive
-        renaming."""
+        """Return the SHA-256 hash for an image file.
+
+        Hashes are used to order annotations robustly when files are
+        renamed.
+        """
         return hashlib.sha256(path.read_bytes()).hexdigest()
 
     @classmethod
@@ -38,6 +61,24 @@ class LDFEquivalence:
         previous_dataset: Union[str, "LuxonisDataset"],
         new_dataset: Union[str, "LuxonisDataset"],
     ) -> bool:
+        """Return whether two datasets are equivalent.
+
+        Args:
+            previous_dataset: Dataset name or dataset instance used as the
+                reference.
+            new_dataset: Dataset name or dataset instance to compare.
+
+        Returns:
+            Whether the datasets are equivalent.
+
+        Raises:
+            TypeError: If either argument is neither a dataset name nor a
+                `LuxonisDataset`.
+            ValueError: If a dataset name matches multiple local datasets.
+            FileNotFoundError: If a named local dataset, split metadata,
+                annotation parquet file, or referenced image is missing.
+
+        """
         try:
             previous_ldf = cls._prepared_ldf_from_public_input(
                 previous_dataset
@@ -54,6 +95,24 @@ class LDFEquivalence:
         previous_dataset: Union[str, "LuxonisDataset"],
         new_dataset: Union[str, "LuxonisDataset"],
     ) -> bool:
+        """Alias for `ldf_equivalent`.
+
+        Args:
+            previous_dataset: Dataset name or dataset instance used as the
+                reference.
+            new_dataset: Dataset name or dataset instance to compare.
+
+        Returns:
+            Whether the datasets are equivalent.
+
+        Raises:
+            TypeError: If either argument is neither a dataset name nor a
+                `LuxonisDataset`.
+            ValueError: If a dataset name matches multiple local datasets.
+            FileNotFoundError: If a named local dataset, split metadata,
+                annotation parquet file, or referenced image is missing.
+
+        """
         return cls.ldf_equivalent(previous_dataset, new_dataset)
 
     @classmethod
@@ -63,6 +122,19 @@ class LDFEquivalence:
         new: Any,
         collector: LDFCollector | None = None,
     ) -> None:
+        """Assert that two prepared datasets are equivalent.
+
+        Args:
+            previous: `PreparedLDF` or `LuxonisDataset` reference dataset.
+            new: `PreparedLDF` or `LuxonisDataset` dataset to compare.
+            collector: Optional custom collector used for comparison.
+
+        Raises:
+            TypeError: If ``previous`` or ``new`` is neither
+                `PreparedLDF` nor `LuxonisDataset`.
+            AssertionError: If the collected representations differ.
+
+        """
         previous_ldf = cls._to_prepared_ldf(previous)
         new_ldf = cls._to_prepared_ldf(new)
 

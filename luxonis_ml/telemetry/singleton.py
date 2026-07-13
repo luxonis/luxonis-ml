@@ -51,7 +51,8 @@ def get_or_init(
 
     Returns:
         The existing or newly initialized telemetry instance for the
-        `(library_name, source_component)` key.
+        ``(library_name, source_component)`` key.
+
     """
     with _singleton_lock:
         existing = get_telemetry(
@@ -96,6 +97,7 @@ def get_telemetry(
     Returns:
         The matching telemetry instance when the lookup resolves to one
         instance. Ambiguous lookups return ``None``.
+
     """
     with _singleton_lock:
         if library_name is not None and source_component is not None:
@@ -146,7 +148,8 @@ def initialize_telemetry(
 
     Returns:
         The initialized telemetry instance for the exact
-        `(library_name, source_component)` key.
+        ``(library_name, source_component)`` key.
+
     """
     with _singleton_lock:
         key = _telemetry_key(
@@ -201,7 +204,8 @@ def _reconcile_existing_telemetry(
     system_context_providers: list[SystemContextProvider] | None,
 ) -> None:
     """Merge additive inputs and warn when immutable args are
-    ignored."""
+    ignored.
+    """
     resolved_source_component = _resolve_source_component(
         library_name=library_name,
         source_component=source_component,

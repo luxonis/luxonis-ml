@@ -1,3 +1,38 @@
+"""Public telemetry API for Luxonis packages.
+
+The `luxonis_ml.telemetry` package exposes a lightweight event-capture
+client, environment-driven configuration, singleton helpers, context
+providers, and suppression tools. It is designed so consuming packages can
+emit usage events without coupling directly to a specific analytics backend.
+PostHog support is optional through ``luxonis-ml[telemetry]``; disabled,
+misconfigured, and debug configurations can use no-op or stdout backends.
+
+Example:
+    Emit an event from a component while keeping backend configuration
+    separate from the call site.
+
+    .. code-block:: python
+
+        from luxonis_ml.telemetry import Telemetry
+
+        telemetry = Telemetry("luxonis_ml", source_component="data")
+        telemetry.capture(
+            "dataset_export_started",
+            {"dataset_type": "coco"},
+        )
+
+Note:
+    Telemetry failures are intentionally non-fatal for host applications. If a
+    backend cannot be initialized or capture fails, the telemetry layer falls
+    back or suppresses the error rather than interrupting the caller.
+
+See:
+    `luxonis_ml.telemetry.client` for the capture client,
+    `luxonis_ml.telemetry.config` for configuration, and
+    `luxonis_ml.telemetry.backends` for backend implementations.
+
+"""
+
 from luxonis_ml.telemetry.client import Telemetry
 from luxonis_ml.telemetry.config import TelemetryConfig, TelemetryDefaults
 from luxonis_ml.telemetry.context import (

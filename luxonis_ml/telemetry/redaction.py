@@ -67,6 +67,7 @@ def sanitize_properties(
 
     Returns:
         The sanitized property mapping.
+
     """
     if not properties:
         return {}

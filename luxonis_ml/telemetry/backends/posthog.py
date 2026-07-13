@@ -26,6 +26,7 @@ class PostHogBackend(TelemetryBackend):
         Raises:
             ValueError: If the PostHog API key is missing.
             ImportError: If the ``posthog`` package is not installed.
+
         """
         super().__init__(config)
         if not config.api_key:

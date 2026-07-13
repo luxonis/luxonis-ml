@@ -49,7 +49,7 @@ def test_load_annotation():
         "boundingbox", {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4}
     ) == BBoxAnnotation(x=0.1, y=0.2, w=0.3, h=0.4)
     with pytest.raises(ValueError, match="Unknown label type"):
-        load_annotation("invalid_name", {})
+        load_annotation("invalid_name", {})  # type: ignore
 
 
 def test_dataset_record(tempdir: Path):
@@ -259,10 +259,11 @@ def test_segmentation_annotation(subtests: SubTests, tempdir: Path):
         assert seg.height == 4
         assert seg.width == 4
         assert seg.counts == b"11213ON0"
-        assert (
-            seg.model_dump_json()
-            == '{"height":4,"width":4,"counts":"11213ON0"}'
-        )
+        assert seg.model_dump() == {
+            "height": 4,
+            "width": 4,
+            "counts": b"11213ON0",
+        }
         np.save(tempdir / "mask.npy", mask)
         seg = SegmentationAnnotation(mask=tempdir / "mask.npy")  # type: ignore
         assert seg.height == 4
@@ -460,7 +461,12 @@ def test_segmentation_annotation(subtests: SubTests, tempdir: Path):
 
         with pytest.raises(ValueError, match="outside of automatic clipping"):
             SegmentationAnnotation(
-                points=[(-2.1, 0), (1.1, 0), (1, 1.5), (-0.6, 1)],  # type: ignore
+                points=[  # type: ignore
+                    (-2.1, 0),
+                    (1.1, 0),
+                    (1, 1.5),
+                    (-0.6, 1),
+                ],
                 height=4,
                 width=4,
             )
