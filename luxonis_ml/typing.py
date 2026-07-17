@@ -77,15 +77,55 @@ class LoaderOutput(
     if TYPE_CHECKING
     else object
 ):
+    """Images, labels, and record metadata returned by dataset loaders.
+
+    Prefer attribute access for new code. The object also supports the legacy
+    two-value tuple protocol so existing code can continue to unpack
+    ``image_or_images, labels = loader[0]``.
+
+    Attributes:
+        images: Image arrays keyed by source name. Single-source datasets use
+            the conventional ``"image"`` key.
+        labels: Label arrays keyed by ``"task_name/task_type"``.
+        metadata: **Record-level metadata** from
+            `DatasetRecord.sample_metadata`, plus any automatic loader
+            metadata such as ``"filenames"`` when enabled.
+
+    Example:
+        .. python::
+
+            sample = loader[0]
+
+            images = sample.images
+            labels = sample.labels
+            metadata = sample.metadata
+
+    """
+
     images: dict[str, "np.ndarray"]
     labels: dict[str, "np.ndarray"]
     metadata: Params
 
     def __iter__(self) -> Iterator["np.ndarray | dict[str, np.ndarray]"]:
+        """Yield the legacy ``(image_or_images, labels)`` tuple shape.
+
+        Single-source samples yield the first image array. Multi-source samples
+        yield the full ``images`` mapping. Metadata is intentionally available
+        only through the `metadata` attribute.
+        """
         yield self.images if len(self.images) > 1 else self.image
         yield self.labels
 
     def __getitem__(self, index: int) -> "np.ndarray | dict[str, np.ndarray]":
+        """Return legacy tuple-style values by index.
+
+        Args:
+            index: ``0`` for image data and ``1`` for labels.
+
+        Raises:
+            IndexError: If ``index`` is not ``0`` or ``1``.
+
+        """
         if index == 0:
             return self.images if len(self.images) > 1 else self.image
         if index == 1:

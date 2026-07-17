@@ -56,6 +56,21 @@ class LuxonisLoader(BaseLoader):
     multi-source dataset it yields ``(images, labels)``, where ``images``
     maps source names to arrays.
 
+    Prefer attribute access for new code:
+
+    .. python::
+
+        sample = loader[0]
+
+        images = sample.images
+        labels = sample.labels
+        metadata = sample.metadata
+
+    ``sample.metadata`` contains **record-level metadata** from
+    `DatasetRecord.sample_metadata`. When ``autopopulate_metadata`` is enabled,
+    the loader also adds a ``"filenames"`` mapping from source name to file
+    basename.
+
     Label keys use ``"task_name/task_type"``. If a dataset was created
     without a task name, the default task name is empty and keys look like
     ``"/boundingbox"`` or ``"/segmentation"``.
@@ -77,6 +92,8 @@ class LuxonisLoader(BaseLoader):
         keep_categorical_as_strings: Whether categorical metadata remains
             as strings.
         filter_task_names: Optional task-name allowlist.
+        autopopulate_metadata: Whether automatic metadata such as source
+            filenames is added to `LoaderOutput.metadata`.
         tasks_without_background: Segmentation tasks where unassigned
             pixels are mapped to background class :math:`0`.
 
@@ -140,7 +157,10 @@ class LuxonisLoader(BaseLoader):
             filter_task_names: Optional task names to include. If omitted,
                 all tasks are included.
             autopopulate_metadata: Whether to add automatic sample metadata
-                such as source filenames.
+                such as source filenames. When enabled, returned metadata
+                includes a ``"filenames"`` dictionary keyed by source name.
+                Set to ``False`` to return only metadata stored in
+                `DatasetRecord.sample_metadata`.
 
         Raises:
             ValueError: If `color_space` is neither a string nor a
@@ -320,7 +340,19 @@ class LuxonisLoader(BaseLoader):
             idx: Index of the sample to retrieve.
 
         Returns:
-            Image data and annotation labels.
+            `LoaderOutput` with image arrays, annotation labels, and
+            record-level metadata.
+
+        Example:
+            .. python::
+
+                sample = loader[0]
+
+                images = sample.images
+                labels = sample.labels
+                metadata = sample.metadata
+
+                image_or_images, labels = sample  # Legacy compatibility.
 
         Raises:
             ValueError: If the selected views contain no records or a
@@ -562,6 +594,32 @@ class LuxonisLoader(BaseLoader):
 
     @staticmethod
     def _merge_sample_metadata(metadata_batch: list[Params]) -> Params:
+        """Merge metadata from samples used by a batch augmentation.
+
+        The first sample's metadata remains at the top level. Metadata from
+        every input sample is also preserved in
+        ``"batch_augmentation_metadata"`` so consumers can inspect which
+        records contributed to the augmented output.
+
+        Example:
+            .. python::
+
+                {
+                    "record_id": 123,
+
+                    "batch_augmentation_metadata": [
+                        {
+                            "input_index": 0,
+                            "sample_metadata": {"record_id": 123},
+                        },
+                        {
+                            "input_index": 1,
+                            "sample_metadata": {"record_id": 456},
+                        },
+                    ],
+                }
+
+        """
         if not metadata_batch:
             return {}
 

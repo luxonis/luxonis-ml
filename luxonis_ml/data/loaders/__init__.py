@@ -19,14 +19,31 @@ Basic Usage
     dataset = LuxonisDataset("parking_lot")
     loader = LuxonisLoader(dataset, view="train")
 
-    inputs, labels = loader[0]
+    sample = loader[0]
+
+    images = sample.images
+    labels = sample.labels
+    metadata = sample.metadata
 
 `LuxonisLoader` implements indexed access and iteration. The returned value is
-always ``(inputs, labels)``.
+always `LoaderOutput`.
 
-For single-source datasets, ``inputs`` is a single image-like array. For
-multi-source datasets, ``inputs`` is a dictionary mapping source names to
-arrays.
+`LoaderOutput.images` maps source names to arrays. Single-source datasets use
+the conventional ``"image"`` source name; multi-source datasets preserve the
+names from the record ``"files"`` mapping.
+
+`LoaderOutput.metadata` contains **record-level metadata** from
+``DatasetRecord.sample_metadata``. By default it also includes a
+``"filenames"`` mapping from source name to the loaded file basename.
+
+Legacy two-value unpacking still works when code only needs inputs and labels:
+
+.. python::
+
+    image_or_images, labels = loader[0]
+
+Metadata is not yielded by tuple unpacking. Access it through
+``loader[0].metadata``.
 
 
 Constructor Options
@@ -47,6 +64,8 @@ state. Common options include:
     - ``keep_categorical_as_strings`` to preserve categorical metadata values.
     - ``update_mode`` to control media synchronization for remote datasets.
     - ``filter_task_names`` to load only selected task groups.
+    - ``autopopulate_metadata`` to include automatic metadata such as source
+      filenames in `LoaderOutput.metadata`.
 
 When a remote dataset is loaded, annotations and metadata are refreshed. Media
 files are downloaded according to `UpdateMode`: ``ALL`` overwrites local media
@@ -70,6 +89,20 @@ Example:
 
 Metadata labels use ``"task_name/metadata/key"`` so each metadata field can be
 consumed independently.
+
+Sample metadata does not use label keys. It is returned separately through
+`LoaderOutput.metadata`:
+
+.. python::
+
+    sample = loader[0]
+    print(sample.metadata)
+
+    # {
+    #     "filenames": {"image": "frame_001.jpg"},
+    #     "record_id": 123,
+    #     "camera": "left",
+    # }
 
 
 Output Layouts
@@ -103,6 +136,54 @@ Output Layouts
 See:
     `luxonis_ml.data.datasets.annotation` for the ingestion schemas that are
     converted into these loader outputs.
+
+
+Sample Metadata
+
+**Record-level metadata** comes from ``DatasetRecord.sample_metadata`` and is
+available as `LoaderOutput.metadata`.
+
+.. python::
+
+    sample = loader[0]
+
+    sample.metadata
+    # {
+    #     "filenames": {"image": "frame_001.jpg"},
+    #     "record_id": 123,
+    #     "camera": "left",
+    # }
+
+Pass ``autopopulate_metadata=False`` to return only stored metadata:
+
+.. python::
+
+    loader = LuxonisLoader(dataset, autopopulate_metadata=False)
+    metadata = loader[0].metadata
+
+When batch augmentations combine several samples, metadata from the input
+samples is preserved in ``"batch_augmentation_metadata"``:
+
+.. python::
+
+    {
+        "record_id": 123,
+
+        "batch_augmentation_metadata": [
+            {
+                "input_index": 0,
+                "sample_metadata": {"record_id": 123},
+            },
+            {
+                "input_index": 1,
+                "sample_metadata": {"record_id": 456},
+            },
+        ],
+    }
+
+**Annotation metadata is different:** values under
+``annotation["metadata"]`` are converted into label tasks such as
+``"detection/metadata/weather"``.
 
 
 Runtime Options
