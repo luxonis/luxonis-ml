@@ -139,6 +139,7 @@ See:
 
 
 Sample Metadata
+===============
 
 **Record-level metadata** comes from ``DatasetRecord.sample_metadata`` and is
 available as `LoaderOutput.metadata`.
