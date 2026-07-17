@@ -53,7 +53,8 @@ Most data pipelines follow the same sequence:
      - Convert a supported external dataset layout into LDF.
      - `luxonis_ml.data.parsers`
    * - `LuxonisLoader`
-     - Iterate image-like inputs and labels from one or more dataset splits.
+     - Iterate image-like inputs, labels, and sample metadata from one or
+       more dataset splits.
      - `luxonis_ml.data.loaders`
    * - `AlbumentationsEngine`
      - Apply runtime image and label augmentation while loading samples.
@@ -69,8 +70,10 @@ Example:
         dataset = LuxonisDataset("parking_lot")
         loader = LuxonisLoader(dataset, view="train")
 
-        for inputs, labels in loader:
-            ...
+        for sample in loader:
+            images = sample.images
+            labels = sample.labels
+            metadata = sample.metadata
 
 Note:
     Importing from `luxonis_ml.data` is the recommended public API for common

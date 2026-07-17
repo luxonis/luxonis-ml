@@ -117,11 +117,43 @@ multiple synchronized sources.
      - Mapping from source names to synchronized media paths.
    * - ``task_name``
      - Optional group name used by loaders and metadata.
+   * - ``sample_metadata``
+     - Optional **record-level metadata** preserved with the sample and
+       returned by `LuxonisLoader` as `LoaderOutput.metadata`.
    * - ``annotation``
      - Optional annotation payload validated by `Detection`.
 
 Multi-source records preserve source names for `LuxonisLoader`, allowing
 training code to receive dictionaries such as ``{"rgb": ..., "depth": ...}``.
+Record-level metadata is separate from annotation metadata: ``sample_metadata``
+describes the sample, while ``annotation["metadata"]`` creates metadata label
+tasks.
+
+.. code-block:: json
+
+    {
+      "file": "images/frame_001.jpg",
+      "task_name": "detection",
+
+      "sample_metadata": {
+        "record_id": 123,
+        "camera": "left",
+        "tags": ["night", "warehouse"]
+      },
+
+      "annotation": {
+        "class": "person",
+        "boundingbox": {
+          "x": 0.1,
+          "y": 0.2,
+          "w": 0.3,
+          "h": 0.4
+        }
+      }
+    }
+
+**Frontend note:** ``sample_metadata`` is sample data, not an annotation
+target.
 
 See:
     `DatasetRecord` for record validation, `Detection` for payload grouping,
@@ -143,8 +175,8 @@ LUXONISML_TEAM_ID / datasets / dataset_name``. The default base path is
      - Contents
    * - ``annotations/*.parquet``
      - Parquet shards containing media paths, source names, task names, class
-       names, instance IDs, task types, serialized annotation payloads, and
-       UUIDs.
+       names, instance IDs, task types, serialized annotation payloads,
+       serialized ``sample_metadata`` JSON, and UUIDs.
    * - ``media/``
      - Local copies of remote media. Local-only datasets may keep this
        directory empty and continue referencing the original files.

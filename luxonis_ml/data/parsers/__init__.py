@@ -137,7 +137,7 @@ Supported Formats
    * - Native LDF
      - ``DatasetType.NATIVE``
      - ``NativeParser``
-     - Existing Luxonis native exports.
+     - Existing Luxonis native exports, including ``sample_metadata`` records.
 
 See:
     `luxonis_ml.data.datasets.annotation` for the LDF annotation schemas

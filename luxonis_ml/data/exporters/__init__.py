@@ -32,6 +32,9 @@ metadata, and media paths used by concrete exporters.
      - Semantic segmentation masks stored as image files.
    * - `NativeExporter`, `UltralyticsNDJSONExporter`
      - Native LDF and Ultralytics NDJSON interchange formats.
+
+`NativeExporter` preserves **record-level metadata** by writing
+``sample_metadata`` objects into native LDF ``annotations.json`` files.
 """
 
 from .base_exporter import BaseExporter
