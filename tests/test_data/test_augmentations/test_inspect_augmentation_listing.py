@@ -1,7 +1,7 @@
 import json
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from luxonis_ml.data.utils.augmentations_collector import (
     AugmentationsCollector,
@@ -13,12 +13,12 @@ def _make_transform(
     params: dict[str, Any] | None = None,
     transforms: list[Any] | None = None,
 ) -> Any:
-    transform = type(name, (), {})()
+    namespace: dict[str, Any] = {}
     if params is not None:
-        transform.params = params
+        namespace["params"] = params
     if transforms is not None:
-        transform.transforms = transforms
-    return transform
+        namespace["transforms"] = transforms
+    return type(name, (), namespace)()
 
 
 def _wrap_transform(transform: Any) -> Callable[[], Any]:
@@ -192,7 +192,7 @@ def test_load_augmentation_paths_accepts_in_memory_config():
 def test_collector_instruments_apply_and_tracks_unique_configured_paths():
     augmentations = _DummyAugmentations()
     collector = AugmentationsCollector(
-        augmentations,
+        cast(Any, augmentations),
         [
             {"name": "MixUp"},
             {"name": "HorizontalFlip"},
