@@ -2,30 +2,14 @@ import inspect as pyinspect
 import json
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Protocol, cast
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
+from luxonis_ml.typing import LoaderMultiOutput
 
-class AugmentationsLike(Protocol):
-    """Protocol for augmentation engines inspected by the collector.
-
-    Attributes:
-        apply: Callable used to apply augmentations.
-        batch_transform: Batch transform callable.
-        spatial_transform: Spatial transform callable.
-        custom_transform: Custom transform callable.
-        pixel_transform: Pixel transform callable.
-        resize_transform: Resize transform callable.
-
-    """
-
-    apply: Callable[..., object]
-    batch_transform: Any
-    spatial_transform: Callable[..., object]
-    custom_transform: Callable[..., object]
-    pixel_transform: Callable[..., object]
-    resize_transform: Callable[..., object]
+if TYPE_CHECKING:
+    from luxonis_ml.data import AlbumentationsEngine
 
 
 class AugmentationsCollector:
@@ -40,15 +24,15 @@ class AugmentationsCollector:
 
     def __init__(
         self,
-        augmentations: object,
+        augmentations: "AlbumentationsEngine",
         aug_config: Path | list[dict[str, Any]],
     ):
-        self.augmentations = cast(AugmentationsLike, augmentations)
-        self.configured_paths = set(self.load_augmentation_paths(aug_config))
+        self._augmentations = augmentations
+        self._configured_paths = set(self.load_augmentation_paths(aug_config))
         self._applied_augmentations: list[str] = []
-        self._original_apply = self.augmentations.apply
+        self._original_apply = self._augmentations.apply
         self._tracked_transforms = self.get_tracked_transforms(
-            self.augmentations
+            self._augmentations
         )
         self._instrument()
 
@@ -56,7 +40,9 @@ class AugmentationsCollector:
         return self._applied_augmentations.copy()
 
     def _instrument(self) -> None:
-        def capture_apply(input_batch: object) -> object:
+        def capture_apply(
+            input_batch: list[LoaderMultiOutput],
+        ) -> LoaderMultiOutput:
             self._applied_augmentations.clear()
             for transform in self._tracked_transforms:
                 self.reset_transform_params(transform)
@@ -66,14 +52,14 @@ class AugmentationsCollector:
             for transform in self._tracked_transforms:
                 for path in self.collect_applied_transform_paths(transform):
                     if (
-                        path in self.configured_paths
+                        path in self._configured_paths
                         and path not in seen_paths
                     ):
                         self._applied_augmentations.append(path)
                         seen_paths.add(path)
             return output
 
-        self.augmentations.apply = capture_apply
+        self._augmentations.apply = capture_apply
 
     @staticmethod
     def load_augmentation_paths(
@@ -142,20 +128,22 @@ class AugmentationsCollector:
         return float(probability) < 1.0
 
     @staticmethod
-    def get_tracked_transforms(augmentations: AugmentationsLike) -> list[Any]:
+    def get_tracked_transforms(
+        augmentations: "AlbumentationsEngine",
+    ) -> list[Any]:
         return [
-            augmentations.batch_transform,
+            augmentations._batch_transform,
             AugmentationsCollector.get_wrapped_transform(
-                augmentations.spatial_transform
+                augmentations._spatial_transform
             ),
             AugmentationsCollector.get_wrapped_transform(
-                augmentations.custom_transform
+                augmentations._custom_transform
             ),
             AugmentationsCollector.get_wrapped_transform(
-                augmentations.pixel_transform
+                augmentations._pixel_transform
             ),
             AugmentationsCollector.get_wrapped_transform(
-                augmentations.resize_transform
+                augmentations._resize_transform
             ),
         ]
 

@@ -1,3 +1,11 @@
+"""Parquet row helpers for Luxonis Data Format annotations.
+
+Most users should interact with `DatasetRecord.sample_metadata` and
+`LoaderOutput.metadata`. This module documents the lower-level storage shape:
+``sample_metadata`` is stored in parquet as serialized JSON text and decoded
+back to a dictionary when records are loaded or exported.
+"""
+
 from pathlib import Path
 from typing import Any, TypedDict
 
@@ -7,6 +15,7 @@ from typing_extensions import Self
 from luxonis_ml.typing import PathType
 
 DEFAULT_METADATA = "{}"
+"""Serialized empty metadata object used for old or missing metadata rows."""
 
 
 class ParquetRecord(TypedDict):
@@ -20,7 +29,22 @@ class ParquetRecord(TypedDict):
         instance_id: Optional instance identifier.
         task_type: Optional task type.
         annotation: Optional serialized annotation JSON.
-        sample_metadata: Optional serialized metadata JSON for the entire sample.
+        sample_metadata: Serialized JSON object for **record-level metadata**.
+            Empty metadata is stored as ``"{}"``.
+
+    Example:
+        .. python::
+
+            {
+                "file": "/data/images/frame_001.jpg",
+                "source_name": "image",
+                "task_name": "detection",
+                "class_name": "person",
+                "instance_id": 0,
+                "task_type": "boundingbox",
+                "annotation": '{"x":0.1,"y":0.2,"w":0.3,"h":0.4}',
+                "sample_metadata": '{"record_id":123,"camera":"left"}',
+            }
 
     """
 
@@ -40,6 +64,10 @@ class ParquetFileManager:
     Rows are buffered in memory and flushed to the current parquet file.
     A new file is selected every ``num_rows`` writes. Filenames are
     zero-padded numeric counters such as ``0000000000.parquet``.
+
+    Existing parquet shards that do not have ``sample_metadata`` are read as
+    if every row contained ``"{}"``. This keeps older LDF datasets compatible
+    with record-level metadata.
 
     Attributes:
         dir: Directory containing parquet files.
@@ -70,6 +98,7 @@ class ParquetFileManager:
             ...     "instance_id": 0,
             ...     "task_type": "boundingbox",
             ...     "annotation": "{}",
+            ...     "sample_metadata": "{}",
             ... }
             >>> manager = ParquetFileManager("/tmp/ldf-parquet-example", num_rows=2)
             >>> manager.num_rows

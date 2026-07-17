@@ -1,7 +1,7 @@
 numpy~=1.22
 opencv-python~=4.10
 albumentations>=2.0.0
-pyarrow~=17.0
+pyarrow~=23.0
 pycocotools~=2.0
 polars[timezone]~=0.20
 ordered-set~=4.0

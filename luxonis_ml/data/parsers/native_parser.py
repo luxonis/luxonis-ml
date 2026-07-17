@@ -11,7 +11,6 @@ from .base_parser import BaseParser, ParserOutput
 
 
 class NativeParser(BaseParser):
-    _SPLIT_NAMES: tuple[str, ...] = ("train", "val", "test")
     """Parse a directory with native LDF annotations.
 
     Expected format::
@@ -23,10 +22,41 @@ class NativeParser(BaseParser):
         └── test/
 
     The annotations are stored in a single JSON file as a list of dictionaries
-    in the same format as the output of the generator function used
-    by ``BaseDataset.add``.
+    in the same format as the output of the generator function used by
+    `BaseDataset.add`.
+
+    ``sample_metadata`` is read as **record-level metadata** and preserved on
+    the resulting `DatasetRecord`. It is distinct from
+    ``annotation["metadata"]``, which creates metadata label tasks.
+
+    Example ``annotations.json`` entry:
+
+        .. code-block:: json
+
+            {
+              "file": "images/0.jpg",
+              "task_name": "detection",
+
+              "sample_metadata": {
+                "record_id": 123,
+                "camera": "left",
+                "tags": ["night", "warehouse"]
+              },
+
+              "annotation": {
+                "class": "person",
+                "boundingbox": {
+                  "x": 0.1,
+                  "y": 0.2,
+                  "w": 0.3,
+                  "h": 0.4
+                }
+              }
+            }
 
     """
+
+    _SPLIT_NAMES: tuple[str, ...] = ("train", "val", "test")
 
     @staticmethod
     def validate_split(split_path: Path) -> dict[str, Any] | None:

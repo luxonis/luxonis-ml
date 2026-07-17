@@ -20,32 +20,67 @@ validated by `Detection`.
 
 Single-source records use ``"file"``:
 
-.. python::
+.. code-block:: json
 
     {
-        "file": "path/to/image.jpg",
-        "task_name": "detection",
-        "annotation": {
-            "class": "car",
-            "boundingbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
-        },
+      "file": "path/to/image.jpg",
+      "task_name": "detection",
+
+      "sample_metadata": {
+        "record_id": 123,
+        "camera": "left",
+        "tags": ["night", "warehouse"]
+      },
+
+      "annotation": {
+        "class": "car",
+        "boundingbox": {
+          "x": 0.1,
+          "y": 0.2,
+          "w": 0.3,
+          "h": 0.4
+        }
+      }
     }
 
 Multi-source records use ``"files"``:
 
-.. python::
+.. code-block:: json
 
     {
-        "files": {
-            "rgb": "path/to/rgb.png",
-            "depth": "path/to/depth.png",
-        },
-        "task_name": "detection",
-        "annotation": {
-            "class": "person",
-            "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.3, "h": 0.4},
-        },
+      "files": {
+        "rgb": "path/to/rgb.png",
+        "depth": "path/to/depth.png"
+      },
+      "task_name": "detection",
+
+      "sample_metadata": {
+        "sequence": "loading_dock_07",
+        "frame": 42
+      },
+
+      "annotation": {
+        "class": "person",
+        "boundingbox": {
+          "x": 0.1,
+          "y": 0.1,
+          "w": 0.3,
+          "h": 0.4
+        }
+      }
     }
+
+**Record-level metadata** lives in ``sample_metadata``. It describes the whole
+sample: capture IDs, UI tags, source-system identifiers, camera names, frame
+numbers, timestamps, or other values that should travel with the sample.
+`LuxonisLoader` exposes it through `LoaderOutput.metadata`.
+
+**Annotation metadata** lives in `Detection.metadata`. It is converted into
+label tasks such as ``"detection/metadata/weather"`` and is meant to be
+consumed by training code as annotation labels.
+
+**Frontend note:** ``sample_metadata`` is sample data, not an annotation
+target.
 
 Task names group annotations that should be consumed together. If no
 ``task_name`` is provided, the empty string ``""`` is used. Loader label keys
@@ -1228,10 +1263,46 @@ class ArrayAnnotation(Annotation):
 class DatasetRecord(BaseModelExtraForbid):
     """Dataset record containing file paths and an optional annotation.
 
+    A record is the unit of ingestion for `LuxonisDataset.add`. It may point
+    to one media source through ``file`` or to multiple synchronized sources
+    through ``files``.
+
+    ``sample_metadata`` stores **record-level metadata**. It is preserved by
+    native import/export and returned by `LuxonisLoader` as
+    `LoaderOutput.metadata`. It is intentionally separate from
+    `Detection.metadata`, which creates annotation metadata label tasks.
+
     Attributes:
         files: File paths keyed by source name.
         annotation: Optional detection associated with the dataset record.
         task_name: The name of the task to which the record belongs.
+        sample_metadata: JSON-like metadata for the whole sample. Values
+            should be JSON-serializable. Missing metadata defaults to an empty
+            dictionary.
+
+    Example:
+        .. code-block:: json
+
+            {
+              "file": "images/frame_001.jpg",
+              "task_name": "detection",
+
+              "sample_metadata": {
+                "record_id": 123,
+                "camera": "left",
+                "tags": ["night", "warehouse"]
+              },
+
+              "annotation": {
+                "class": "person",
+                "boundingbox": {
+                  "x": 0.1,
+                  "y": 0.2,
+                  "w": 0.3,
+                  "h": 0.4
+                }
+              }
+            }
 
     """
 
@@ -1374,6 +1445,17 @@ class DatasetRecord(BaseModelExtraForbid):
 
     @staticmethod
     def decode_metadata(value: Any) -> Params:
+        """Decode serialized record metadata into a dictionary.
+
+        Args:
+            value: A metadata dictionary, serialized JSON object, empty string,
+                or ``None``.
+
+        Returns:
+            Decoded metadata when the value is a dictionary-like JSON object;
+            otherwise an empty dictionary.
+
+        """
         if value in (None, ""):
             return {}
         if isinstance(value, str):

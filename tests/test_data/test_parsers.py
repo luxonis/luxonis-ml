@@ -543,7 +543,8 @@ class _WarningParser(BaseParser):
 
 
 def test_skipped_annotation_warnings_are_capped():
-    parser = _WarningParser(BaseParser._SKIPPED_WARNING_LIMIT + 5)
+    warning_count = BaseParser._SKIPPED_WARNING_LIMIT + 5
+    parser = _WarningParser(warning_count)
     messages: list[str] = []
     sink_id = logger.add(
         lambda message: messages.append(str(message).strip()),
@@ -556,9 +557,7 @@ def test_skipped_annotation_warnings_are_capped():
     finally:
         logger.remove(sink_id)
 
-    assert len(parser._get_parser_issue_messages()) == (
-        BaseParser._SKIPPED_WARNING_LIMIT + 5
-    )
+    assert len(parser._get_parser_issue_messages()) == warning_count
     assert (
         sum(message.startswith("Skipping annotation:") for message in messages)
         == BaseParser._SKIPPED_WARNING_LIMIT
@@ -568,7 +567,7 @@ def test_skipped_annotation_warnings_are_capped():
         "`--log-all-warnings` flag to see the full list."
     ) in messages
     assert (
-        "Skipped annotations: dummy skipped annotation (55 records)"
+        f"Skipped annotations: dummy skipped annotation ({warning_count} records)"
         in messages
     )
 

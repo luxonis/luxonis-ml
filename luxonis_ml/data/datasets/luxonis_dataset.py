@@ -1263,7 +1263,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 ``DatasetRecord`` objects or actual ``DatasetRecord``
                 instances. Each record must contain at least a
                 file path and can optionally include an annotation
-                and a task name.
+                and a task name. Use ``sample_metadata`` for values
+                attached to the whole sample rather than to one
+                annotation.
 
                 For example:
 
@@ -1271,29 +1273,41 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
                     def record_generator():
                         yield {
-                            "file": f"/path/to/image.jpg",
+                            "file": "/path/to/image.jpg",
                             "task_name": "animals",
+
+                            "sample_metadata": {
+                                "record_id": 123,
+                                "camera": "left",
+                                "tags": ["night", "warehouse"],
+                            },
+
                             "annotation": {
                                 "instance_id": 1,
-                                "class_name": "cat",
+                                "class": "cat",
                                 "boundingbox": {
-                                    "x": 10,
-                                    "y": 20,
-                                    "w": 100,
-                                    "h": 150,
-                                }
+                                    "x": 0.10,
+                                    "y": 0.20,
+                                    "w": 0.30,
+                                    "h": 0.40,
+                                },
                                 "keypoints": {
                                     "keypoints": [
-                                        (15, 25, 1),
-                                        (50, 60, 1),
-                                        (70, 80, 0),
+                                        (0.15, 0.25, 1),
+                                        (0.50, 0.60, 1),
+                                        (0.70, 0.80, 0),
                                     ],
                                 },
                                 "instance_segmentation": {
                                     "mask": "/path/to/mask.png",
-                                }
+                                },
                             },
                         }
+
+                `LuxonisLoader` returns ``sample_metadata`` through
+                `LoaderOutput.metadata`. Annotation metadata under
+                ``annotation["metadata"]`` is different: it becomes a
+                metadata label task.
 
             batch_size: The number of records to process in a batch before writing
                 to storage. Larger batch sizes may be more efficient but will
