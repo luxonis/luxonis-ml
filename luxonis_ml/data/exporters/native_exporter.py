@@ -19,7 +19,41 @@ from luxonis_ml.utils.path import path_to_posix
 
 
 class NativeExporter(BaseExporter):
-    """Exporter for LDF format."""
+    """Exporter for native LDF directory format.
+
+    Native export writes split directories with copied media and an
+    ``annotations.json`` file. Each annotation entry follows the same
+    record-level shape accepted by `NativeParser` and `LuxonisDataset.add`.
+
+    ``sample_metadata`` is exported as a JSON object next to ``file`` or
+    ``files``. It is **record-level metadata**, not an annotation label.
+
+    Example:
+        .. code-block:: json
+
+            {
+              "file": "images/0.jpg",
+              "task_name": "detection",
+
+              "sample_metadata": {
+                "record_id": 123,
+                "camera": "left",
+                "tags": ["night", "warehouse"]
+              },
+
+              "annotation": {
+                "instance_id": 0,
+                "class": "person",
+                "boundingbox": {
+                  "x": 0.1,
+                  "y": 0.2,
+                  "w": 0.3,
+                  "h": 0.4
+                }
+              }
+            }
+
+    """
 
     @staticmethod
     def get_split_names() -> dict[str, str]:
