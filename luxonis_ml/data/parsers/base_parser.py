@@ -26,7 +26,7 @@ class BaseParser(ABC):
 
     _SPLIT_NAMES: tuple[str, ...] = ("train", "valid", "test")
     _CANONICAL_SPLIT_NAMES: tuple[str, ...] = ("train", "val", "test")
-    _SKIPPED_WARNING_LIMIT: int = 50
+    _SKIPPED_WARNING_LIMIT: int = 10
 
     def __init__(
         self,
