@@ -201,8 +201,8 @@ class CutMix(BatchTransform):
                 bbox2.copy(),
                 image_shapes,
                 "bboxes",
-                orig_height=image_shapes[0][0],
-                orig_width=image_shapes[0][1],
+                orig_height=image_shapes[1][0],
+                orig_width=image_shapes[1][1],
             )
             bbox2 = self._clip_bboxes_to_patch(
                 bbox2, image_shapes[0][0], image_shapes[0][1], x1, y1, x2, y2
