@@ -292,6 +292,7 @@ class LDFEquivalence:
                             round(d["y"], 2),
                             round(d["w"], 2),
                             round(d["h"], 2),
+                            round(d.get("angle", 0.0), 2),
                         )
                     )
             if boxes:

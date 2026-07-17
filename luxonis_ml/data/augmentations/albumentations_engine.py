@@ -23,6 +23,7 @@ from .utils import (
     postprocess_bboxes,
     postprocess_keypoints,
     postprocess_mask,
+    preprocess_bbox_corners,
     preprocess_bboxes,
     preprocess_keypoints,
     preprocess_mask,
@@ -187,19 +188,16 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
     Oriented Bounding Boxes
     -----------------------
 
-    (Not yet implemented)
+    Bounding boxes are represented natively as oriented boxes with shape
+    :math:`\left(N, 6\right)` in LDF:
+    :math:`\left[c, x, y, w, h, a\right]`. The angle :math:`a` is in
+    degrees counter-clockwise and defaults to ``0`` for axis-aligned boxes.
 
-    Oriented bounding boxes are of shape :math:`\left(N, 5\right)` where
-    the last element of each row contains the angle of the bbox.
-    This format is not supported by Albumentations, however,
-    Albumentations support angle to be a part of the keypoints.
-    So, the oriented bounding boxes are split into regular
-    bounding boxes and a set of keypoints that represent
-    the center of the bbox and contain the angle as the third coordinate.
-
-    Both the keypoints and the bboxes are augmented separately.
-    At the end, the angle is extracted from the keypoints and added
-    back to the bounding boxes. The keypoints are discarded.
+    The engine converts these rows to Albumentations axis-aligned bbox rows
+    with the angle preserved as a label column. A private keypoint target
+    carries each OBB's four corners through spatial transforms, and
+    postprocessing reconstructs the native OBB row for boxes that survive
+    Albumentations visibility filtering.
 
     Custom Augmentations
     ====================
@@ -381,6 +379,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         self._image_size = (height, width)
         self._source_names = source_names
         self._bbox_area_threshold = bbox_area_threshold
+        self._bbox_corner_targets: dict[str, str] = {}
 
         for task, task_type in targets.items():
             target_name = self._task_to_target_name(task)
@@ -440,6 +439,12 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             self._targets[target_name] = target_type
             self._target_names_to_tasks[target_name] = task
 
+        for target_name, target_type in list(self._targets.items()):
+            if target_type == "bboxes":
+                self._bbox_corner_targets[target_name] = (
+                    f"_{target_name}_obb_corners"
+                )
+
         for source_name in source_names:
             self._targets[source_name] = "image"
 
@@ -450,6 +455,11 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             else "mask"
             for target_name, target_type in self._targets.items()
         }
+        hidden_corner_targets = dict.fromkeys(
+            self._bbox_corner_targets.values(), "keypoints"
+        )
+        targets_without_instance_mask.update(hidden_corner_targets)
+        custom_targets = {**self._targets, **hidden_corner_targets}
 
         pixel_transforms = []
         spatial_transforms = []
@@ -560,14 +570,14 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
         def _get_params(is_custom: bool = False) -> dict[str, Any]:
             return {
-                "bbox_params": A.BboxParams(
-                    format="albumentations", min_visibility=min_bbox_visibility
+                "bbox_params": self._create_bbox_params(
+                    min_bbox_visibility=min_bbox_visibility
                 ),
                 "keypoint_params": A.KeypointParams(
                     format="xy", remove_invisible=False
                 ),
                 "additional_targets": (
-                    self._targets
+                    custom_targets
                     if is_custom
                     else targets_without_instance_mask
                 ),
@@ -685,6 +695,11 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                                 self._target_names_to_tasks[target_name]
                             ]
                         )
+                    elif target_type == "bboxes":
+                        data[target_name] = np.empty((0, 7))
+                        data[self._bbox_corner_targets[target_name]] = (
+                            np.empty((0, 3))
+                        )
                     else:
                         data[target_name] = np.array([])
                     continue
@@ -697,6 +712,9 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 elif target_type == "bboxes":
                     data[target_name] = preprocess_bboxes(
                         array, bbox_counters[target_name]
+                    )
+                    data[self._bbox_corner_targets[target_name]] = (
+                        preprocess_bbox_corners(array, height, width)
                     )
                     bbox_counters[target_name] += data[target_name].shape[0]
 
@@ -760,7 +778,13 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
             if target_type == "bboxes":
                 out_labels[task], index = postprocess_bboxes(
-                    array, self._bbox_area_threshold
+                    array,
+                    self._bbox_area_threshold,
+                    bbox_corners=data.get(
+                        self._bbox_corner_targets[target_name]
+                    ),
+                    image_height=image_height,
+                    image_width=image_width,
                 )
                 bboxes_indices[task_name] = index
 
@@ -837,7 +861,8 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         kps = keypoints.copy()
         xs, ys = kps[:, 0], kps[:, 1]
         oob = (xs < 0) | (ys < 0) | (xs >= w) | (ys >= h)
-        kps[oob, -1] = 0.0
+        is_obb_corner = kps[:, -1] == -1.0
+        kps[oob & ~is_obb_corner, -1] = 0.0
         return kps
 
     @staticmethod
@@ -854,6 +879,13 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                 p=p,
             )
         return A.Resize(height=height, width=width, p=p)
+
+    @staticmethod
+    def _create_bbox_params(min_bbox_visibility: float) -> A.BboxParams:
+        return A.BboxParams(
+            format="albumentations",
+            min_visibility=min_bbox_visibility,
+        )
 
     @staticmethod
     def _create_transformation(

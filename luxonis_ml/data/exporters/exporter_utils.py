@@ -1,3 +1,4 @@
+import json
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -150,6 +151,23 @@ def exporter_specific_annotation_warning(
         logger.warning(
             f"Found unsupported annotation type '{name}'; skipping this annotation type."
         )
+
+
+def ensure_non_oriented_bboxes(
+    prepared_ldf: PreparedLDF, export_format: str, angle_epsilon: float = 1e-9
+) -> None:
+    """Reject nonzero OBB angles for axis-aligned export formats."""
+    for row in prepared_ldf.processed_df.iter_rows(named=True):
+        if row["task_type"] != "boundingbox" or not row["annotation"]:
+            continue
+        annotation = json.loads(row["annotation"])
+        angle = float(annotation.get("angle", 0.0))
+        if abs(angle) > angle_epsilon:
+            raise ValueError(
+                "Cannot export oriented bounding boxes with nonzero angles "
+                f"to '{export_format}' format. Use native export or convert "
+                "the annotations to axis-aligned boxes first."
+            )
 
 
 def split_of_group(prepared_ldf: PreparedLDF, group_id: Any) -> str:

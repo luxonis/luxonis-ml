@@ -129,8 +129,10 @@ When loaded, classes are usually returned as one-hot vectors with shape
 Bounding Boxes
 ==============
 
-`BBoxAnnotation` stores normalized ``xywh`` boxes, where ``x`` and ``y`` are
-the top-left corner and ``w`` and ``h`` are width and height:
+`BBoxAnnotation` stores normalized oriented ``xywh`` boxes, where ``x`` and
+``y`` are the top-left corner, ``w`` and ``h`` are width and height, and
+``angle`` is the rotation in degrees counter-clockwise around the box center.
+The angle defaults to ``0`` for axis-aligned boxes:
 
 .. python::
 
@@ -142,11 +144,12 @@ the top-left corner and ``w`` and ``h`` are width and height:
             "y": 0.10,
             "w": 0.35,
             "h": 0.25,
+            "angle": 15,
         },
     }
 
-Loader output combines boxes into :math:`\left(N, 5\right)` arrays with rows
-:math:`\left[c, x, y, w, h\right]`, where :math:`c` is the class index.
+Loader output combines boxes into :math:`\left(N, 6\right)` arrays with rows
+:math:`\left[c, x, y, w, h, a\right]`, where :math:`c` is the class index.
 
 
 Keypoints
@@ -336,6 +339,7 @@ Important:
 """
 
 import json
+import math
 import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
@@ -380,6 +384,14 @@ The values indicate the visibility of a keypoint in an image:
 """
 NormalizedFloat: TypeAlias = Annotated[float, Field(ge=0, le=1)]
 """A float value normalized to the range [0, 1]."""
+
+
+def normalize_angle_degrees(angle: float) -> float:
+    """Wrap an angle in degrees to the canonical OBB range."""
+    angle %= 180.0
+    if angle >= 90.0:
+        angle -= 180.0
+    return angle
 
 
 class Category(str):
@@ -683,6 +695,8 @@ class BBoxAnnotation(Annotation):
         y: Normalized top-left y coordinate.
         w: Normalized bounding box width.
         h: Normalized bounding box height.
+        angle: Bounding box rotation in degrees counter-clockwise around
+            the box center. Missing values default to ``0``.
 
     """
 
@@ -690,6 +704,7 @@ class BBoxAnnotation(Annotation):
     y: NormalizedFloat
     w: NormalizedFloat
     h: NormalizedFloat
+    angle: float = 0.0
 
     def to_numpy(self, class_id: int) -> np.ndarray:
         r"""Convert the bounding box annotation to row format.
@@ -698,11 +713,11 @@ class BBoxAnnotation(Annotation):
             class_id: The numeric class ID of the annotation.
 
         Returns:
-            An array of shape :math:`\left(5\right,)`
-            in the format ``[class_id, x, y, w, h]``.
+            An array of shape :math:`\left(6\right,)`
+            in the format ``[class_id, x, y, w, h, angle]``.
 
         """
-        return np.array([class_id, self.x, self.y, self.w, self.h])
+        return np.array([class_id, self.x, self.y, self.w, self.h, self.angle])
 
     @staticmethod
     @override
@@ -719,12 +734,13 @@ class BBoxAnnotation(Annotation):
             n_classes: Unused class count kept for API compatibility.
 
         Returns:
-            An array of shape :math:`\left(N, 5\right)`
+            An array of shape :math:`\left(N, 6\right)`
             where :math:`N` is the number of bounding box annotations
-            and each row is in the format ``[class_id, x, y, w, h]``.
+            and each row is in the format
+            ``[class_id, x, y, w, h, angle]``.
 
         """
-        boxes = np.empty((len(annotations), 5))
+        boxes = np.empty((len(annotations), 6))
         for i, ann in enumerate(annotations):
             boxes[i] = ann.to_numpy(classes[i])
         return boxes
@@ -733,6 +749,8 @@ class BBoxAnnotation(Annotation):
     @classmethod
     def _validate_values(cls, values: dict[str, Any]) -> dict[str, Any]:
         warn = False
+        if "angle" in values:
+            values["angle"] = cls._parse_angle(values["angle"])
         for key in ["x", "y", "w", "h"]:
             if values[key] < -2 or values[key] > 2:
                 raise ValueError(
@@ -748,6 +766,37 @@ class BBoxAnnotation(Annotation):
             )
 
         return cls._clip_sum(values)
+
+    @staticmethod
+    def _parse_angle(angle: Any) -> float:
+        if isinstance(angle, bool):
+            raise TypeError("BBox angle must be a finite number")
+
+        if isinstance(angle, str):
+            angle = angle.strip()
+            if angle.endswith("r"):
+                try:
+                    angle_value = math.degrees(float(angle[:-1]))
+                except ValueError as e:
+                    raise ValueError(
+                        "BBox angle with 'r' suffix must contain radians"
+                    ) from e
+            else:
+                try:
+                    angle_value = float(angle)
+                except ValueError as e:
+                    raise ValueError(
+                        "BBox angle must be a finite number"
+                    ) from e
+        else:
+            try:
+                angle_value = float(angle)
+            except (TypeError, ValueError) as e:
+                raise ValueError("BBox angle must be a finite number") from e
+
+        if not math.isfinite(angle_value):
+            raise ValueError("BBox angle must be a finite number")
+        return normalize_angle_degrees(angle_value)
 
     @staticmethod
     def _clip_sum(values: dict[str, Any]) -> dict[str, Any]:

@@ -31,7 +31,7 @@ def test_mixup(
         )
 
     with subtests.test("bboxes"):
-        assert transformed["bboxes"].shape == (2, 6)
+        assert transformed["bboxes"].shape == (2, 7)
         assert np.allclose(
             np.concatenate(augmentation_data["bboxes"]), transformed["bboxes"]
         )

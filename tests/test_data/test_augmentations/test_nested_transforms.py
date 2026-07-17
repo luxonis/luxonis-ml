@@ -168,8 +168,8 @@ def coco_labels() -> Labels:
     return {
         "task/boundingbox": np.array(
             [
-                [0.0, 0.57, 0.30, 0.17, 0.25],
-                [0.0, 0.39, 0.27, 0.20, 0.10],
+                [0.0, 0.57, 0.30, 0.17, 0.25, 0.0],
+                [0.0, 0.39, 0.27, 0.20, 0.10, 0.0],
             ]
         ),
         "task/keypoints": np.array(
@@ -181,8 +181,8 @@ def coco_labels() -> Labels:
         "task/segmentation": mask,
         "task/instance_segmentation/boundingbox": np.array(
             [
-                [0.0, 0.09, 0.09, 0.22, 0.22],
-                [0.0, 0.47, 0.47, 0.31, 0.31],
+                [0.0, 0.09, 0.09, 0.22, 0.22, 0.0],
+                [0.0, 0.47, 0.47, 0.31, 0.31, 0.0],
             ]
         ),
         "task/instance_segmentation/segmentation": instance_mask,

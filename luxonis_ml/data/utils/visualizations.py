@@ -255,6 +255,70 @@ def draw_dashed_rectangle(
     draw_dashed_line((x1, y2), (x1, y1))
 
 
+def draw_dashed_polygon(
+    image: np.ndarray,
+    points: np.ndarray,
+    color: Color,
+    thickness: int = 1,
+    dash_length: int = 10,
+) -> None:
+    """Draw a dashed polygon on the image."""
+
+    def draw_dashed_line(p1: tuple[int, int], p2: tuple[int, int]) -> None:
+        line_length = int(np.hypot(p2[0] - p1[0], p2[1] - p1[1]))
+        if line_length == 0:
+            return
+        dashes = [
+            (i, i + dash_length)
+            for i in range(0, line_length, 2 * dash_length)
+        ]
+        for start, end in dashes:
+            end = min(end, line_length)
+            start_point = (
+                int(p1[0] + (p2[0] - p1[0]) * start / line_length),
+                int(p1[1] + (p2[1] - p1[1]) * start / line_length),
+            )
+            end_point = (
+                int(p1[0] + (p2[0] - p1[0]) * end / line_length),
+                int(p1[1] + (p2[1] - p1[1]) * end / line_length),
+            )
+            cv2.line(
+                image, start_point, end_point, resolve_color(color), thickness
+            )
+
+    int_points = points.astype(int)
+    for i in range(len(int_points)):
+        p1 = tuple(int_points[i])
+        p2 = tuple(int_points[(i + 1) % len(int_points)])
+        draw_dashed_line(p1, p2)
+
+
+def bbox_to_corners(
+    bbox: np.ndarray, image_width: int, image_height: int
+) -> np.ndarray:
+    """Convert a normalized LDF bbox row to pixel-space OBB corners."""
+    _class_id, x, y, width, height, angle = bbox
+    cx = (x + width / 2) * image_width
+    cy = (y + height / 2) * image_height
+    box_width = width * image_width
+    box_height = height * image_height
+    theta = math.radians(angle)
+    cos_t = math.cos(theta)
+    sin_t = math.sin(theta)
+    offsets = np.array(
+        [
+            [-box_width / 2, -box_height / 2],
+            [box_width / 2, -box_height / 2],
+            [box_width / 2, box_height / 2],
+            [-box_width / 2, box_height / 2],
+        ]
+    )
+    corners = np.empty((4, 2), dtype=float)
+    corners[:, 0] = cx + offsets[:, 0] * cos_t + offsets[:, 1] * sin_t
+    corners[:, 1] = cy - offsets[:, 0] * sin_t + offsets[:, 1] * cos_t
+    return corners
+
+
 def draw_cross(
     img: np.ndarray,
     center: tuple[int, int],
@@ -664,32 +728,52 @@ def visualize(
         image_name = task_name if task_name and not blend_all else "labels"
         curr_image = images.get(image_name, image.copy())
 
-        draw_function = cv2.rectangle
-
         is_sublabel = len(task.split("/")) > 2
 
-        if is_sublabel:
-            draw_function = draw_dashed_rectangle
-
-        arr[:, [1, 3]] *= w
-        arr[:, [2, 4]] *= h
-        arr[:, 3] += arr[:, 1]
-        arr[:, 4] += arr[:, 2]
-        arr = arr.astype(int)
+        arr = np.asarray(arr, dtype=float)
+        if arr.shape[1] == 5:
+            arr = np.concatenate((arr, np.zeros((arr.shape[0], 1))), axis=1)
 
         for box in arr:
             class_id = int(box[0])
             bbox_classes[task_name].append(class_id)
             class_name = mappings[task_name].inverse[class_id]
             color = str_to_rgb(class_name)
-            draw_function(
-                curr_image,
-                (box[1], box[2]),
-                (box[3], box[4]),
-                color,
-                thickness=2,
+            if abs(box[5]) < 1e-9:
+                x1 = int(box[1] * w)
+                y1 = int(box[2] * h)
+                x2 = int((box[1] + box[3]) * w)
+                y2 = int((box[2] + box[4]) * h)
+                if is_sublabel:
+                    draw_dashed_rectangle(
+                        curr_image, (x1, y1), (x2, y2), color, thickness=2
+                    )
+                else:
+                    cv2.rectangle(
+                        curr_image, (x1, y1), (x2, y2), color, thickness=2
+                    )
+                label_box = np.array([class_id, x1, y1, x2, y2], dtype=int)
+            else:
+                points = bbox_to_corners(box, w, h).astype(int)
+                if is_sublabel:
+                    draw_dashed_polygon(curr_image, points, color, thickness=2)
+                else:
+                    cv2.polylines(
+                        curr_image, [points], True, color, thickness=2
+                    )
+                label_box = np.array(
+                    [
+                        class_id,
+                        points[:, 0].min(),
+                        points[:, 1].min(),
+                        points[:, 0].max(),
+                        points[:, 1].max(),
+                    ],
+                    dtype=int,
+                )
+            draw_bbox_label(
+                curr_image, class_name, label_box, color, font_scale
             )
-            draw_bbox_label(curr_image, class_name, box, color, font_scale)
         images[image_name] = curr_image
 
     for task, arr in task_type_iterator(labels, "instance_segmentation"):

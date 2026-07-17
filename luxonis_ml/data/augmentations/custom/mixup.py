@@ -190,7 +190,7 @@ class MixUp(BatchTransform):
         for i in range(len(bboxes_batch)):
             bbox = bboxes_batch[i]
             if bbox.size == 0:  # pragma: no cover
-                bboxes_batch[i] = np.zeros((0, 6), dtype=bbox.dtype)
+                bboxes_batch[i] = np.zeros((0, 7), dtype=bbox.dtype)
 
         bboxes_batch[1] = self._resize(
             bboxes_batch[1],

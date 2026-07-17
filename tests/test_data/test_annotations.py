@@ -124,7 +124,7 @@ def test_dataset_record(tempdir: Path):
                 "class_name": "person",
                 "instance_id": -1,
                 "task_type": "boundingbox",
-                "annotation": '{"x":0.1,"y":0.2,"w":0.3,"h":0.4}',
+                "annotation": '{"x":0.1,"y":0.2,"w":0.3,"h":0.4,"angle":0.0}',
                 **empty_metadata,
             },
             {
@@ -157,6 +157,14 @@ def test_bbox_annotation(subtests: SubTests):
         assert bbox.y == 0.2
         assert bbox.w == 0.3
         assert bbox.h == 0.4
+        assert bbox.angle == 0.0
+        assert BBoxAnnotation(
+            x=0.1,
+            y=0.2,
+            w=0.3,
+            h=0.4,
+            angle="1.5707963267948966r",  # type: ignore[arg-type]
+        ).angle == pytest.approx(-90.0)
 
     with subtests.test("no_auto_clip"):
         base_dict = {"x": 0, "y": 0, "w": 0, "h": 0}
@@ -168,6 +176,17 @@ def test_bbox_annotation(subtests: SubTests):
                     ValueError, match="outside of automatic clipping"
                 ):
                     BBoxAnnotation(**curr_dict)  # type: ignore
+        for angle in [True, "bad", "1.0q", float("inf")]:
+            with pytest.raises(
+                (pydantic.ValidationError, TypeError, ValueError)
+            ):
+                BBoxAnnotation(
+                    x=0.1,
+                    y=0.2,
+                    w=0.3,
+                    h=0.4,
+                    angle=angle,  # type: ignore[arg-type]
+                )
 
         bbox_ann = BBoxAnnotation(x=0.9, y=0, w=0.2, h=0)
         assert bbox_ann.x + bbox_ann.w <= 1
@@ -193,20 +212,21 @@ def test_bbox_annotation(subtests: SubTests):
     with subtests.test("numpy"):
         bbox = BBoxAnnotation(x=0.1, y=0.2, w=0.3, h=0.4)
         assert np.allclose(
-            bbox.to_numpy(class_id=4), np.array([4, 0.1, 0.2, 0.3, 0.4])
+            bbox.to_numpy(class_id=4),
+            np.array([4, 0.1, 0.2, 0.3, 0.4, 0.0]),
         )
         bboxes = [
             bbox,
-            BBoxAnnotation(x=0.2, y=0.3, w=0.4, h=0.5),
-            BBoxAnnotation(x=0.3, y=0.4, w=0.5, h=0.6),
+            BBoxAnnotation(x=0.2, y=0.3, w=0.4, h=0.5, angle=15),
+            BBoxAnnotation(x=0.3, y=0.4, w=0.5, h=0.6, angle=-20),
         ]
         assert np.allclose(
             BBoxAnnotation.combine_to_numpy(bboxes, [1, 2, 3]),
             np.array(
                 [
-                    [1, 0.1, 0.2, 0.3, 0.4],
-                    [2, 0.2, 0.3, 0.4, 0.5],
-                    [3, 0.3, 0.4, 0.5, 0.6],
+                    [1, 0.1, 0.2, 0.3, 0.4, 0.0],
+                    [2, 0.2, 0.3, 0.4, 0.5, 15.0],
+                    [3, 0.3, 0.4, 0.5, 0.6, -20.0],
                 ]
             ),
         )
@@ -635,7 +655,7 @@ def test_record(tempdir: Path):
             "task_name": "test",
             "class_name": "person",
             "task_type": "boundingbox",
-            "annotation": '{"x":0.1,"y":0.2,"w":0.5,"h":0.5}',
+            "annotation": '{"x":0.1,"y":0.2,"w":0.5,"h":0.5,"angle":0.0}',
         },
         {
             **common,
@@ -677,7 +697,7 @@ def test_record(tempdir: Path):
             "task_name": "test/head",
             "class_name": None,
             "task_type": "boundingbox",
-            "annotation": '{"x":0.2,"y":0.3,"w":0.1,"h":0.1}',
+            "annotation": '{"x":0.2,"y":0.3,"w":0.1,"h":0.1,"angle":0.0}',
         },
     ]
     assert list(record.to_parquet_rows()) == expected_rows

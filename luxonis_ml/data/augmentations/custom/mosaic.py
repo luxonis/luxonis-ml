@@ -272,7 +272,7 @@ class Mosaic4(BatchTransform):
             zip(bboxes_batch, image_shapes, strict=True)
         ):
             if bboxes.size == 0:  # pragma: no cover
-                bboxes = np.zeros((0, 6), dtype=bboxes.dtype)
+                bboxes = np.zeros((0, 7), dtype=bboxes.dtype)
 
             bbox = self._apply_mosaic4_to_bboxes(
                 bboxes,
@@ -619,5 +619,8 @@ class Mosaic4(BatchTransform):
             | (keypoints[:, 1] > out_height)
         )
 
-        keypoints[:, -1] = np.where(mask_invalid, 0, keypoints[:, -1])
+        is_obb_corner = keypoints[:, -1] == -1.0
+        keypoints[:, -1] = np.where(
+            mask_invalid & ~is_obb_corner, 0, keypoints[:, -1]
+        )
         return keypoints

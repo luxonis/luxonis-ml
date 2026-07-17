@@ -31,8 +31,8 @@ def labels() -> Labels:
         "task/classification": np.array([1.0]),
         "task/boundingbox": np.array(
             [
-                [0.0, 0.57, 0.30, 0.17, 0.25],
-                [0.0, 0.39, 0.27, 0.20, 0.10],
+                [0.0, 0.57, 0.30, 0.17, 0.25, 0.0],
+                [0.0, 0.39, 0.27, 0.20, 0.10, 0.0],
             ]
         ),
         "task/keypoints": np.array(
@@ -107,7 +107,7 @@ def test_at_least_one_bbox_random_crop() -> None:
     labels: Labels = {
         "task/boundingbox": np.array(
             [
-                [0.0, 0.5, 0.5, 0.1, 0.1],
+                [0.0, 0.5, 0.5, 0.1, 0.1, 0.0],
             ]
         ),
     }
@@ -137,6 +137,46 @@ def test_at_least_one_bbox_random_crop() -> None:
             "AtLeastOneBBoxRandomCrop should guarantee at least one "
             "bounding box per crop"
         )
+
+
+def test_affine_letterbox_preserves_obb_corners() -> None:
+    image = np.zeros((100, 200, 3), dtype=np.uint8)
+    labels: Labels = {
+        "task/boundingbox": np.array(
+            [
+                [0.0, 0.0, 0.0, 0.4, 0.3, 0.0],
+            ]
+        ),
+    }
+    targets = {"task/boundingbox": "boundingbox"}
+    n_classes = {"task/boundingbox": 1}
+    config = [
+        {
+            "name": "Affine",
+            "params": {
+                "scale": 1.0,
+                "translate_percent": 0.0,
+                "rotate": 30,
+                "shear": 0,
+                "p": 1.0,
+            },
+        }
+    ]
+    engine = AlbumentationsEngine(
+        512, 512, targets, n_classes, ["image"], config, bbox_area_threshold=0
+    )
+
+    _, out_labels = engine.apply([({"image": image}, labels)])
+    bboxes = out_labels["task/boundingbox"]
+
+    assert bboxes.shape == (1, 6)
+    assert bboxes[0, 1] >= 0
+    assert bboxes[0, 2] >= 0
+    assert bboxes[0, 1] + bboxes[0, 3] <= 1
+    assert bboxes[0, 2] + bboxes[0, 4] <= 1
+    assert bboxes[0, 3] == pytest.approx(0.4)
+    assert bboxes[0, 4] == pytest.approx(0.15)
+    assert bboxes[0, 5] == pytest.approx(30, abs=1e-3)
 
 
 def test_batched_p_0(

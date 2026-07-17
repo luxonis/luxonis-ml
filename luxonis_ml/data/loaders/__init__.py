@@ -118,8 +118,8 @@ Output Layouts
      - :math:`\left(C\right)`
      - One-hot class vector.
    * - ``boundingbox``
-     - :math:`\left(N, 5\right)`
-     - Rows are :math:`\left[c, x, y, w, h\right]`.
+     - :math:`\left(N, 6\right)`
+     - Rows are :math:`\left[c, x, y, w, h, a\right]`.
    * - ``segmentation``
      - :math:`\left(C, H, W\right)`
      - One-hot semantic mask in channel-first layout.
