@@ -295,7 +295,8 @@ def inspect(
             get_applied_augmentations = list
         elif loader._augmentations is not None:
             collector = AugmentationsCollector(
-                loader._augmentations, aug_config
+                loader._augmentations,  # type: ignore
+                aug_config,
             )
             get_applied_augmentations = collector.get_applied_augmentations
         else:
