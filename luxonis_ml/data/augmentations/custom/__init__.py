@@ -33,8 +33,8 @@ import albumentations as A
 
 from luxonis_ml.utils import Registry
 
-from .cutmix import CutMix
 from .letterbox_resize import LetterboxResize
+from .cutmix import CutMix
 from .mixup import MixUp
 from .mosaic import Mosaic4
 from .symmetric_keypoints_flip import (

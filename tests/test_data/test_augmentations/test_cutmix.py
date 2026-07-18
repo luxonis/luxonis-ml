@@ -5,17 +5,8 @@ from luxonis_ml.data.augmentations.custom.cutmix import CutMix
 
 
 def test_compute_patch() -> None:
-    assert CutMix._compute_patch(0.75, 8, 8, 4, 4) == (
-        2,
-        2,
-        6,
-        6,
-        0.75,
-    )
-
-    x1, y1, x2, y2, lambda_value = CutMix._compute_patch(0.75, 8, 8, 0, 0)
-    assert (x1, y1, x2, y2) == (0, 0, 2, 2)
-    assert lambda_value == pytest.approx(0.9375)
+    assert CutMix._compute_patch(0.75, 8, 8, 4, 4) == (2, 2, 6, 6)
+    assert CutMix._compute_patch(0.75, 8, 8, 0, 0) == (0, 0, 2, 2)
 
 
 def test_cutmix_image() -> None:
@@ -291,10 +282,71 @@ def test_cutmix_bboxes() -> None:
     expected = np.array(
         [
             [0.0, 0.0, 0.3, 0.2, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 1.0, 1.0, 1.0],
             [0.4, 0.3, 0.8, 0.7, 1.0, 1.0],
         ]
     )
     np.testing.assert_allclose(bboxes, expected)
+
+
+def test_cutmix_bboxes_strict_visibility() -> None:
+    cutmix = CutMix(p=1.0, alpha=1.0, bbox_min_visibility=1.0)
+    bbox1 = np.array(
+        [
+            [0.0, 0.0, 0.3, 0.2, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 1.0, 1.0, 1.0],
+        ]
+    )
+    bbox2 = np.array([[0.2, 0.2, 0.8, 0.8, 1.0, 1.0]])
+
+    bboxes = cutmix.apply_to_bboxes(
+        [bbox1, bbox2],
+        image_shapes=[(10, 10), (10, 10)],
+        x1=4,
+        y1=3,
+        x2=9,
+        y2=7,
+    )
+
+    expected = np.array(
+        [
+            [0.0, 0.0, 0.3, 0.2, 0.0, 0.0],
+            [0.4, 0.3, 0.8, 0.7, 1.0, 1.0],
+        ]
+    )
+    np.testing.assert_allclose(bboxes, expected)
+
+
+def test_cutmix_bboxes_min_visibility_keeps_all() -> None:
+    cutmix = CutMix(p=1.0, alpha=1.0, bbox_min_visibility=0.0)
+    bbox1 = np.array([[0.0, 0.0, 1.0, 1.0, 0.0, 0.0]])
+
+    bboxes = cutmix.apply_to_bboxes(
+        [bbox1, np.array([])],
+        image_shapes=[(10, 10), (10, 10)],
+        x1=0,
+        y1=0,
+        x2=10,
+        y2=10,
+    )
+
+    np.testing.assert_allclose(bboxes, bbox1)
+
+
+def test_cutmix_bboxes_min_visibility_drops_mostly_covered() -> None:
+    cutmix = CutMix(p=1.0, alpha=1.0, bbox_min_visibility=0.5)
+    bbox1 = np.array([[0.0, 0.0, 0.4, 0.4, 0.0, 0.0]])
+
+    bboxes = cutmix.apply_to_bboxes(
+        [bbox1, np.array([])],
+        image_shapes=[(10, 10), (10, 10)],
+        x1=1,
+        y1=1,
+        x2=4,
+        y2=4,
+    )
+
+    assert bboxes.shape == (0, 6)
 
 
 def test_cutmix_empty_bboxes() -> None:
@@ -370,8 +422,15 @@ def test_bbox_patch_helpers_empty_results() -> None:
     )
     assert zero_area.shape == (0, 6)
 
-    unchanged = CutMix._discard_bboxes_overlapping_patch(
-        bboxes, height=10, width=10, x1=4, y1=4, x2=4, y2=8
+    unchanged = CutMix._filter_bboxes_by_visibility(
+        bboxes,
+        height=10,
+        width=10,
+        x1=4,
+        y1=4,
+        x2=4,
+        y2=8,
+        min_visibility=0.5,
     )
     np.testing.assert_array_equal(unchanged, bboxes)
 
@@ -401,3 +460,10 @@ def test_keypoint_and_dimension_helpers_empty_or_dimensional() -> None:
 def test_invalid_alpha() -> None:
     with pytest.raises(ValueError, match="greater than 0"):
         CutMix(alpha=0)
+
+
+def test_invalid_bbox_min_visibility() -> None:
+    with pytest.raises(ValueError, match=r"\[0, 1\]"):
+        CutMix(bbox_min_visibility=1.5)
+    with pytest.raises(ValueError, match=r"\[0, 1\]"):
+        CutMix(bbox_min_visibility=-0.1)

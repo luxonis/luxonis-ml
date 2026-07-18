@@ -171,4 +171,6 @@ def test_batched_p_0(
     augmentations = AlbumentationsEngine(
         256, 256, targets, n_classes, source_names, config
     )
+    # 16 samples so batch-size-2 stacking across all three batch transforms
+    # exercises every pairing even when p=0 keeps each transform inactive.
     augmentations.apply([(images_dict, deepcopy(labels)) for _ in range(16)])

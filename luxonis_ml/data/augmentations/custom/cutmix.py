@@ -7,8 +7,7 @@ from albumentations.core.bbox_utils import denormalize_bboxes, normalize_bboxes
 from typing_extensions import override
 
 from luxonis_ml.data.augmentations.batch_transform import BatchTransform
-
-from .letterbox_resize import LetterboxResize
+from luxonis_ml.data.augmentations.custom import LetterboxResize
 
 
 class CutMix(BatchTransform):
@@ -21,6 +20,13 @@ class CutMix(BatchTransform):
     If the images have different sizes, the second image and its labels are
     resized to match the first image before the patch is copied.
 
+    Bounding boxes from the first image are kept if their visible area
+    (original area minus the intersection with the patch) is at least
+    ``bbox_min_visibility`` times their original area. Bounding boxes from
+    the second image are clipped to the patch region. Keypoints from the
+    first image that fall inside the patch are marked invisible, while
+    keypoints from the second image outside the patch are marked invisible.
+
     See:
         `CutMix: Regularization Strategy to Train Strong Classifiers with
         Localizable Features <https://arxiv.org/abs/1905.04899>`_.
@@ -30,6 +36,7 @@ class CutMix(BatchTransform):
         self,
         alpha: float = 1.0,
         keep_aspect_ratio: bool = True,
+        bbox_min_visibility: float = 0.5,
         p: float = 0.5,
     ):
         r"""Create a CutMix augmentation.
@@ -39,10 +46,14 @@ class CutMix(BatchTransform):
                 :math:`Beta(\alpha, \alpha)` distribution.
             keep_aspect_ratio: Whether to preserve the second image's
                 aspect ratio when resizing.
+            bbox_min_visibility: Minimum fraction of a first-image
+                bounding box that must remain visible (outside the patch)
+                for the box to be kept. Must lie in :math:`[0, 1]`.
             p: Probability of applying the transform.
 
         Raises:
-            ValueError: If ``alpha`` is not positive.
+            ValueError: If ``alpha`` is not positive or
+                ``bbox_min_visibility`` is outside :math:`[0, 1]`.
 
         """
         super().__init__(batch_size=2, p=p)
@@ -50,7 +61,13 @@ class CutMix(BatchTransform):
         if alpha <= 0:
             raise ValueError("Alpha must be greater than 0.")
 
+        if not 0.0 <= bbox_min_visibility <= 1.0:
+            raise ValueError(
+                "bbox_min_visibility must be in range [0, 1]."
+            )
+
         self._alpha = alpha
+        self._bbox_min_visibility = bbox_min_visibility
         if keep_aspect_ratio:
             self._resize_transform = LetterboxResize(1, 1)
         else:
@@ -71,16 +88,10 @@ class CutMix(BatchTransform):
         height, width = image.shape[:2]
         center_x = int(np.random.randint(0, width))
         center_y = int(np.random.randint(0, height))
-        x1, y1, x2, y2, lambda_value = self._compute_patch(
+        x1, y1, x2, y2 = self._compute_patch(
             params["lambda_value"], height, width, center_x, center_y
         )
-        return {
-            "x1": x1,
-            "y1": y1,
-            "x2": x2,
-            "y2": y2,
-            "lambda_value": lambda_value,
-        }
+        return {"x1": x1, "y1": y1, "x2": x2, "y2": y2}
 
     @override
     def apply(
@@ -93,7 +104,24 @@ class CutMix(BatchTransform):
         y2: int,
         **_,
     ) -> np.ndarray:
-        r"""Apply CutMix to a batch of images."""
+        r"""Apply CutMix to a batch of images.
+
+        Args:
+            image_batch: Images to transform. Each image should be of shape
+                :math:`\left(H, W, C\right)` or :math:`\left(H, W\right)`.
+            image_shapes: Shapes of the original images.
+            x1: Left edge of the patch in the first image.
+            y1: Top edge of the patch in the first image.
+            x2: Right edge of the patch in the first image.
+            y2: Bottom edge of the patch in the first image.
+
+        Returns:
+            A single image of shape :math:`\left(H_{out}, W_{out}, C\right)`
+            or :math:`\left(H_{out}, W_{out}\right)` where the rectangle
+            :math:`\left[y_1:y_2, x_1:x_2\right]` is replaced with the
+            corresponding region of the (resized) second image.
+
+        """
         image = image_batch[0].copy()
         if x1 == x2 or y1 == y2:
             return image
@@ -114,7 +142,24 @@ class CutMix(BatchTransform):
         y2: int,
         **_,
     ) -> np.ndarray:
-        r"""Apply CutMix to semantic segmentation masks."""
+        r"""Apply CutMix to semantic segmentation masks.
+
+        Args:
+            masks_batch: Masks to transform. Each mask should be of shape
+                :math:`\left(H, W, C\right)` or :math:`\left(H, W\right)`.
+            image_shapes: Shapes of the original images.
+            x1: Left edge of the patch in the first image.
+            y1: Top edge of the patch in the first image.
+            x2: Right edge of the patch in the first image.
+            y2: Bottom edge of the patch in the first image.
+
+        Returns:
+            A single semantic segmentation mask of shape
+            :math:`\left(H_{out}, W_{out}, C\right)` where the patch region
+            comes from the second (resized) mask and the rest comes from
+            the first mask.
+
+        """
         mask1, mask2 = masks_batch
 
         if mask2.size > 0:
@@ -150,7 +195,25 @@ class CutMix(BatchTransform):
         y2: int,
         **_,
     ) -> np.ndarray:
-        r"""Apply CutMix to instance segmentation masks."""
+        r"""Apply CutMix to instance segmentation masks.
+
+        Args:
+            masks_batch: Masks to transform. Each mask should be of shape
+                :math:`\left(H, W, N\right)`, where :math:`N` is the number
+                of instances.
+            image_shapes: Shapes of the original images.
+            x1: Left edge of the patch in the first image.
+            y1: Top edge of the patch in the first image.
+            x2: Right edge of the patch in the first image.
+            y2: Bottom edge of the patch in the first image.
+
+        Returns:
+            Concatenated instance masks of shape
+            :math:`\left(H_{out}, W_{out}, N_1 + N_2\right)`. First-image
+            instances have their patch region cleared; second-image
+            instances have everything outside the patch cleared.
+
+        """
         out_height, out_width = image_shapes[0]
         mask1, mask2 = masks_batch
         dtype = mask1.dtype if mask1.size > 0 else mask2.dtype
@@ -185,13 +248,39 @@ class CutMix(BatchTransform):
         y2: int,
         **_,
     ) -> np.ndarray:
-        """Apply CutMix to bounding boxes."""
+        """Apply CutMix to bounding boxes.
+
+        Bounding boxes from the first image are kept when their visible
+        area (original area minus intersection with the patch) is at least
+        ``bbox_min_visibility`` of the original area. Bounding boxes from
+        the second image are clipped to the patch region.
+
+        Args:
+            bboxes_batch: Bounding boxes to transform, in normalized
+                Albumentations format.
+            image_shapes: Original image shapes.
+            x1: Left edge of the patch in the first image.
+            y1: Top edge of the patch in the first image.
+            x2: Right edge of the patch in the first image.
+            y2: Bottom edge of the patch in the first image.
+
+        Returns:
+            Concatenated bounding boxes from both images.
+
+        """
         bbox1, bbox2 = bboxes_batch
         if bbox1.size == 0:
             bbox1 = self._empty_rows(bbox1, 6)
         else:
-            bbox1 = self._discard_bboxes_overlapping_patch(
-                bbox1, image_shapes[0][0], image_shapes[0][1], x1, y1, x2, y2
+            bbox1 = self._filter_bboxes_by_visibility(
+                bbox1,
+                image_shapes[0][0],
+                image_shapes[0][1],
+                x1,
+                y1,
+                x2,
+                y2,
+                self._bbox_min_visibility,
             )
 
         if bbox2.size == 0:
@@ -221,7 +310,25 @@ class CutMix(BatchTransform):
         y2: int,
         **_,
     ) -> np.ndarray:
-        """Apply CutMix to keypoints."""
+        """Apply CutMix to keypoints.
+
+        Keypoints from the first image that fall inside the patch are
+        marked invisible; keypoints from the second image outside the
+        patch are marked invisible.
+
+        Args:
+            keypoints_batch: Keypoints to transform.
+            image_shapes: Original image shapes.
+            x1: Left edge of the patch in the first image.
+            y1: Top edge of the patch in the first image.
+            x2: Right edge of the patch in the first image.
+            y2: Bottom edge of the patch in the first image.
+
+        Returns:
+            Concatenated keypoints from both images with visibility flags
+            updated according to their position relative to the patch.
+
+        """
         keypoints1, keypoints2 = keypoints_batch
 
         if keypoints1.size == 0:
@@ -243,7 +350,7 @@ class CutMix(BatchTransform):
                 orig_width=image_shapes[1][1],
             )
             keypoints2 = self._mark_keypoints_in_patch(
-                keypoints2, x1, y1, x2, y2, visible_inside=True
+                keypoints2.copy(), x1, y1, x2, y2, visible_inside=True
             )
 
         return np.concatenate([keypoints1, keypoints2], axis=0)
@@ -288,7 +395,7 @@ class CutMix(BatchTransform):
         width: int,
         center_x: int,
         center_y: int,
-    ) -> tuple[int, int, int, int, float]:
+    ) -> tuple[int, int, int, int]:
         lambda_value = float(np.clip(lambda_value, 0.0, 1.0))
         cut_ratio = math.sqrt(1.0 - lambda_value)
         cut_width = int(width * cut_ratio)
@@ -298,11 +405,7 @@ class CutMix(BatchTransform):
         y1 = int(np.clip(center_y - cut_height // 2, 0, height))
         x2 = int(np.clip(center_x + cut_width // 2, 0, width))
         y2 = int(np.clip(center_y + cut_height // 2, 0, height))
-
-        image_area = height * width
-        patch_area = (x2 - x1) * (y2 - y1)
-        adjusted_lambda = 1.0 - patch_area / image_area
-        return x1, y1, x2, y2, adjusted_lambda
+        return x1, y1, x2, y2
 
     @staticmethod
     def _clip_bboxes_to_patch(
@@ -331,7 +434,7 @@ class CutMix(BatchTransform):
         return normalize_bboxes(clipped[valid], (height, width))
 
     @staticmethod
-    def _discard_bboxes_overlapping_patch(
+    def _filter_bboxes_by_visibility(
         bboxes: np.ndarray,
         height: int,
         width: int,
@@ -339,19 +442,37 @@ class CutMix(BatchTransform):
         y1: int,
         x2: int,
         y2: int,
+        min_visibility: float,
     ) -> np.ndarray:
         if bboxes.size == 0 or x1 == x2 or y1 == y2:
             return bboxes
 
         denormalized = denormalize_bboxes(bboxes.copy(), (height, width))
-        overlap_width = np.minimum(denormalized[:, 2], x2) - np.maximum(
-            denormalized[:, 0], x1
+        bbox_width = denormalized[:, 2] - denormalized[:, 0]
+        bbox_height = denormalized[:, 3] - denormalized[:, 1]
+        original_area = bbox_width * bbox_height
+
+        overlap_width = np.clip(
+            np.minimum(denormalized[:, 2], x2)
+            - np.maximum(denormalized[:, 0], x1),
+            0,
+            None,
         )
-        overlap_height = np.minimum(denormalized[:, 3], y2) - np.maximum(
-            denormalized[:, 1], y1
+        overlap_height = np.clip(
+            np.minimum(denormalized[:, 3], y2)
+            - np.maximum(denormalized[:, 1], y1),
+            0,
+            None,
         )
-        overlaps_patch = (overlap_width > 0) & (overlap_height > 0)
-        return bboxes[~overlaps_patch]
+        intersection_area = overlap_width * overlap_height
+
+        with np.errstate(divide="ignore", invalid="ignore"):
+            visible_fraction = np.where(
+                original_area > 0,
+                1.0 - intersection_area / original_area,
+                0.0,
+            )
+        return bboxes[visible_fraction >= min_visibility]
 
     @staticmethod
     def _mark_keypoints_in_patch(

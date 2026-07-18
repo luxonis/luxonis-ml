@@ -107,7 +107,14 @@ The configuration format for the `AlbumentationsEngine` consists of a list of re
   params:
     p: 0.5
     alpha: 1.0
+    bbox_min_visibility: 0.5
 ```
+
+`alpha: 1.0` corresponds to the uniform patch-area sampling used as the
+default in the CutMix paper. `bbox_min_visibility` controls how strictly
+first-image bounding boxes are kept when the patch occludes them: a box
+is kept only when its remaining visible area is at least this fraction
+of its original area.
 
 ### Order of Transformations
 
