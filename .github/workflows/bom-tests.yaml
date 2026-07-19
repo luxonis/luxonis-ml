@@ -63,7 +63,7 @@ jobs:
       (github.event_name == 'pull_request' &&
        startsWith(github.head_ref, 'release/') &&
        github.event.pull_request.base.ref == 'main')
-    uses: Luxonis/luxonis-train/.github/workflows/ci.yaml@main
+    uses: Luxonis/luxonis-train/.github/workflows/ci.yaml@b218fe618f169833efcc6051f635d283ca7d606d
     with:
       ml_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ml_ref   || github.head_ref }}
       train_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.train_ref || 'main' }}
@@ -79,7 +79,7 @@ jobs:
       (github.event_name == 'pull_request' &&
        startsWith(github.head_ref, 'release/') &&
        github.event.pull_request.base.ref == 'main')
-    uses: Luxonis/modelconverter/.github/workflows/unittests.yaml@d5b6bf4b3f8f9db8f22f61a8bd4910efecf00b73
+    uses: Luxonis/modelconverter/.github/workflows/unittests.yaml@f858511d6d2662384935e133f68b6ef97223f24c
     with:
       ml_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ml_ref        || github.head_ref }}
       modelconv_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.modelconv_ref || 'main' }}
