@@ -576,7 +576,9 @@ def visualize(
     skeletons: dict[str, tuple[list[str], list[tuple[int, int]]]]
     | None = None,
     draw_skeletons: bool = False,
-    keypoint_label_mode: Literal["none", "numbers", "full"] = "numbers",
+    keypoint_label_mode: Literal[
+        "none", "numbers", "names", "full"
+    ] = "numbers",
 ) -> np.ndarray:
     """Visualize labels on the image.
 
@@ -601,10 +603,6 @@ def visualize(
         The visualized image.
 
     """
-    if keypoint_label_mode not in {"none", "numbers", "full"}:
-        raise ValueError(
-            "keypoint_label_mode must be one of 'none', 'numbers', or 'full'"
-        )
 
     h, w, _ = image.shape
     images = {source_name: image}
@@ -673,9 +671,16 @@ def visualize(
     ) -> str | None:
         if keypoint_label_mode == "none":
             return None
-        if keypoint_label_mode == "full" and index < len(keypoint_names):
+        if keypoint_label_mode == "numbers":
+            return str(index)
+        if index < len(keypoint_names):
+            if keypoint_label_mode == "full":
+                return f"{index}: {keypoint_names[index]}"
             return keypoint_names[index]
-        return str(index)
+        raise IndexError(  # pragma: no cover
+            f"Keypoint index {index} is out of range for task with "
+            f"{len(keypoint_names)} keypoints."
+        )
 
     for task, arr in task_type_iterator(labels, "segmentation"):
         task_name = get_task_name(task)

@@ -234,7 +234,7 @@ def inspect(
         Parameter(negative=""),
     ] = False,
     keypoint_labels: Annotated[
-        Literal["none", "numbers", "full"],
+        Literal["none", "numbers", "names", "full"],
         Parameter(),
     ] = "numbers",
     bucket_storage: BucketStorageT = BucketStorage.LOCAL,
@@ -318,7 +318,7 @@ def inspect(
     categorical_encodings = dataset.get_categorical_encodings()
     keypoint_skeletons = (
         dataset.get_skeletons()
-        if skeletons or keypoint_labels == "full"
+        if skeletons or keypoint_labels in ("names", "full")
         else None
     )
     prev_windows = set()
