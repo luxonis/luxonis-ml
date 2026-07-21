@@ -9,7 +9,7 @@ from functools import cached_property
 from os import PathLike
 from pathlib import Path, PurePosixPath
 from types import NotImplementedType
-from typing import Any, Literal, overload
+from typing import Any, Literal, cast, overload
 
 import numpy as np
 import polars as pl
@@ -62,7 +62,7 @@ from luxonis_ml.data.utils.ldf_equivalence import ldf_equivalent
 from luxonis_ml.data.utils.parquet import DEFAULT_METADATA
 from luxonis_ml.enums.enums import DatasetType
 from luxonis_ml.typing import PathType
-from luxonis_ml.utils import LuxonisFileSystem, deprecated, environ
+from luxonis_ml.utils import LuxonisFileSystem, environ
 
 from .annotation import Category, DatasetRecord, Detection
 from .base_dataset import BaseDataset, DatasetIterator
@@ -1464,11 +1464,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         with open(splits_path) as file:
             return json.load(file)
 
-    @deprecated(
-        "ratios",
-        "definitions",
-        suggest={"ratios": "splits", "definitions": "splits"},
-    )
     @override
     def make_splits(
         self,
@@ -1479,8 +1474,6 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             | None
         ) = None,
         *,
-        ratios: dict[str, float] | tuple[float, float, float] | None = None,
-        definitions: dict[str, list[PathType]] | None = None,
         replace_old_splits: bool = False,
     ) -> None:
         """Create dataset splits for training, validation, and testing.
@@ -1500,68 +1493,47 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
                 - A mapping of split names to float ratios.
                 - A tuple of three float ratios for train, val, and test splits.
 
-            ratios: A mapping of split names to float ratios
-                or a tuple of three float ratios for train, val, and test splits.
-
-                .. deprecated:: 0.4.0
-                    Use ``splits`` instead.
-
-            definitions: A mapping of split names to lists of file paths.
-
-                .. deprecated:: 0.4.0
-                    Use ``splits`` instead.
-
             replace_old_splits: Whether to replace old splits with new ones. If ``False`
                 (default), new splits will be added to old splits, and duplicate group IDs will be filtered out. If ``True``, old splits will be replaced with new splits.
 
         Raises:
-            ValueError: If both ``ratios`` and ``definitions`` are provided.
-            ValueError: If neither ``splits``, ``ratios``, nor ``definitions`` is provided.
-            ValueError: If both ``splits`` and ``ratios``/``definitions`` are provided.
             ValueError: If ``splits`` is provided but is empty.
-            ValueError: If ``ratios`` is provided but does not sum to 1.
-            ValueError: If ``definitions`` is provided but the total number of files in definitions exceeds
+            ValueError: If split ratios do not sum to 1.
+            ValueError: If split definitions contain more files than
                 the dataset size.
-            ValueError: If ``definitions`` are provided but all of them
+            ValueError: If explicit split definitions are provided but all of them
                 are already included in old splits, resulting in no new
                 files to add to splits while ``replace_old_splits`` is ``False``.
             FileNotFoundError: If the dataset is empty.
             TypeError: If the splits definitions are not in the expected format.
 
         """
-        if ratios is not None and definitions is not None:
-            raise ValueError("Cannot provide both ratios and definitions")
+        ratios: Mapping[str, float] | None = None
+        definitions: Mapping[str, Sequence[PathType]] | None = None
 
-        if splits is None and ratios is None and definitions is None:
+        if splits is None:
             splits = {"train": 0.8, "val": 0.1, "test": 0.1}
 
-        if splits is not None:
-            if ratios is not None or definitions is not None:
+        if isinstance(splits, tuple):
+            if not len(splits) == 3:
                 raise ValueError(
-                    "Cannot provide both splits and ratios/definitions"
+                    "Ratios must be a tuple of 3 floats for train, val, and test splits"
                 )
-            if isinstance(splits, tuple):
-                ratios = splits
-            elif isinstance(splits, dict):
-                if not splits:
-                    raise ValueError("Splits cannot be empty")
-                value = next(iter(splits.values()))
-                if isinstance(value, float):
-                    ratios = splits  # type: ignore
-                elif isinstance(value, list):
-                    definitions = splits  # type: ignore
+            ratios = {
+                "train": splits[0],
+                "val": splits[1],
+                "test": splits[2],
+            }
+        elif isinstance(splits, Mapping):
+            if not splits:
+                raise ValueError("Splits cannot be empty")
+            value = next(iter(splits.values()))
+            if isinstance(value, float):
+                ratios = cast("Mapping[str, float]", splits)
+            elif isinstance(value, list):
+                definitions = cast("Mapping[str, Sequence[PathType]]", splits)
 
         if ratios is not None:
-            if isinstance(ratios, tuple):
-                if not len(ratios) == 3:
-                    raise ValueError(
-                        "Ratios must be a tuple of 3 floats for train, val, and test splits"
-                    )
-                ratios = {
-                    "train": ratios[0],
-                    "val": ratios[1],
-                    "test": ratios[2],
-                }
             sum_ = sum(ratios.values())
             if not math.isclose(sum_, 1.0):
                 raise ValueError(f"Ratios must sum to 1.0, got {sum_:0.4f}")

@@ -267,9 +267,6 @@ def test_make_splits(
     with pytest.raises(ValueError, match="must be a tuple of 3 floats"):
         dataset.make_splits((0.7, 0.1, 0.1, 0.1))  # type: ignore
 
-    with pytest.raises(ValueError, match="Cannot provide both splits and"):
-        dataset.make_splits((0.7, 0.1, 0.2), definitions=definitions)
-
     with pytest.raises(ValueError, match=r"Ratios must sum to 1.0"):
         dataset.make_splits({"train": 1.5})
 
@@ -1272,7 +1269,7 @@ def create_test_dataset_with_classes(
     for task_name, classes in task_classes.items():
         dataset.set_classes(classes, task=task_name)
 
-    dataset.make_splits(ratios=(1, 0, 0))
+    dataset.make_splits((1, 0, 0))
     return dataset
 
 
@@ -1334,7 +1331,7 @@ def test_class_order_per_task_multiple_tasks(tempdir: Path):
     for task_name, classes in original_classes.items():
         dataset.set_classes(classes, task=task_name)
 
-    dataset.make_splits(ratios=(1, 0, 0))
+    dataset.make_splits((1, 0, 0))
 
     # Define new class orders for both tasks
     class_order_per_task = {
