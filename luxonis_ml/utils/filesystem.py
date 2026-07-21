@@ -258,7 +258,7 @@ class LuxonisFileSystem:
                     "There is no 'GOOGLE_APPLICATION_CREDENTIALS' in environment variables"
                 )
             # NOTE: This should automatically read from GOOGLE_APPLICATION_CREDENTIALS
-            fs = fsspec.filesystem(self._protocol)  # pragma: no cover
+            fs = fsspec.filesystem(self._protocol)
         elif self._protocol == "file":
             fs = fsspec.filesystem(self._protocol)
         else:
