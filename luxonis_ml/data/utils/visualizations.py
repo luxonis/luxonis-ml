@@ -669,18 +669,13 @@ def visualize(
     def format_keypoint_label(
         index: int, keypoint_names: list[str]
     ) -> str | None:
-        if keypoint_label_mode == "none":
-            return None
         if keypoint_label_mode == "numbers":
             return str(index)
-        if index < len(keypoint_names):
+        if keypoint_label_mode != "none" and index < len(keypoint_names):
             if keypoint_label_mode == "full":
                 return f"{index}: {keypoint_names[index]}"
             return keypoint_names[index]
-        raise IndexError(  # pragma: no cover
-            f"Keypoint index {index} is out of range for task with "
-            f"{len(keypoint_names)} keypoints."
-        )
+        return None
 
     for task, arr in task_type_iterator(labels, "segmentation"):
         task_name = get_task_name(task)
