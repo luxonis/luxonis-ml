@@ -1,5 +1,13 @@
+import socket
+import subprocess
+import sys
+import time
 import uuid
+from collections.abc import Iterator
+from contextlib import closing, suppress
 from pathlib import Path
+from urllib.error import URLError
+from urllib.request import urlopen
 
 import pytest
 
@@ -11,26 +19,90 @@ from luxonis_ml.utils.filesystem import (
 MLFLOW = pytest.importorskip("mlflow")
 
 
-@pytest.fixture
-def mlflow_tracking_uri(tempdir: Path, monkeypatch: pytest.MonkeyPatch):
-    tracking_dir = (tempdir / "mlflow").resolve()
-    tracking_dir.mkdir(parents=True, exist_ok=True)
-    tracking_uri = f"sqlite:///{(tracking_dir / 'tracking.db').as_posix()}"
-    monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking_uri)
-    MLFLOW.set_tracking_uri(tracking_uri)
+def _get_free_port() -> int:
+    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
 
-    yield tracking_uri
+
+def _wait_for_mlflow_server(
+    tracking_uri: str, process: subprocess.Popen, log_path: Path
+) -> None:
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise RuntimeError(log_path.read_text())
+        try:
+            with urlopen(  # noqa: S310
+                f"{tracking_uri}/health", timeout=0.5
+            ) as response:
+                if response.status == 200:
+                    return
+        except URLError:
+            time.sleep(0.2)
+    process.terminate()
+    raise TimeoutError(log_path.read_text())
+
+
+@pytest.fixture(scope="module")
+def mlflow_tracking_uri(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Iterator[str]:
+    server_dir = tmp_path_factory.mktemp("mlflow-server")
+    backend_store_uri = f"sqlite:///{(server_dir / 'tracking.db').as_posix()}"
+    artifacts_dir = server_dir / "artifacts"
+    artifacts_dir.mkdir()
+    port = _get_free_port()
+    tracking_uri = f"http://127.0.0.1:{port}"
+    log_path = server_dir / "server.log"
+    with log_path.open("w") as log_file:
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "mlflow",
+                "server",
+                "--backend-store-uri",
+                backend_store_uri,
+                "--default-artifact-root",
+                "mlflow-artifacts:/",
+                "--artifacts-destination",
+                artifacts_dir.resolve().as_uri(),
+                "--host",
+                "127.0.0.1",
+                "--port",
+                str(port),
+                "--workers",
+                "1",
+            ],
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+        )
+        _wait_for_mlflow_server(tracking_uri, process, log_path)
+
+        yield tracking_uri
+
+        MLFLOW.end_run()
+        process.terminate()
+        with suppress(subprocess.TimeoutExpired):
+            process.wait(timeout=10)
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=10)
+
+
+@pytest.fixture(autouse=True)
+def configure_mlflow_tracking_uri(mlflow_tracking_uri: str) -> Iterator[None]:
+    MLFLOW.set_tracking_uri(mlflow_tracking_uri)
+
+    yield
 
     MLFLOW.end_run()
 
 
 @pytest.fixture
 def mlflow_run(mlflow_tracking_uri: str, tempdir: Path, randint: int):
-    artifact_root = (tempdir / "artifacts").resolve()
-    artifact_root.mkdir(parents=True, exist_ok=True)
-    experiment_id = MLFLOW.create_experiment(
-        f"fs-test-{randint}", artifact_location=artifact_root.as_uri()
-    )
+    experiment_id = MLFLOW.create_experiment(f"fs-test-{randint}")
     client = MLFLOW.MlflowClient(tracking_uri=mlflow_tracking_uri)
     run = client.create_run(experiment_id)
 
@@ -40,6 +112,7 @@ def mlflow_run(mlflow_tracking_uri: str, tempdir: Path, randint: int):
 
 
 def test_mlflow_split_full_path():
+    assert LuxonisFileSystem._split_mlflow_path("0") == ["0", None, None]
     assert _get_protocol_and_path("mlflow://0/run/nested/file.txt") == (
         "mlflow",
         "0/run/nested/file.txt",
@@ -61,13 +134,11 @@ def test_mlflow_file_operations(
     tempdir: Path,
     mlflow_tracking_uri: str,
     mlflow_run: tuple[str, str],
-    monkeypatch: pytest.MonkeyPatch,
 ):
     experiment_id, run_id = mlflow_run
     local_file = tempdir / "source.txt"
     local_file.write_text("mlflow file contents")
 
-    monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
     fs = LuxonisFileSystem(
         f"mlflow://{experiment_id}/{run_id}",
         tracking_uri=mlflow_tracking_uri,
@@ -94,6 +165,13 @@ def test_mlflow_file_operations(
 
     downloaded_file = fs.get_file(remote_path, tempdir / "downloaded.txt")
     assert downloaded_file.read_text() == local_file.read_text()
+
+    explicit_download = LuxonisFileSystem.download(
+        f"mlflow://{experiment_id}/{run_id}/{remote_path}",
+        tempdir / "explicit.txt",
+        tracking_uri=mlflow_tracking_uri,
+    )
+    assert explicit_download.read_text() == local_file.read_text()
 
     static_download_dir = tempdir / "static-download"
     LuxonisFileSystem.download(
@@ -126,6 +204,9 @@ def test_mlflow_directory_operations(
 
     assert fs.exists("remote-dir")
     assert fs.is_directory("remote-dir")
+    assert fs.is_directory("")
+    assert fs.exists("")
+    assert not fs.exists("missing")
     assert set(fs.walk_dir("remote-dir", recursive=True)) == {
         "remote-dir/file_0.txt",
         "remote-dir/nested/file_1.txt",
@@ -138,6 +219,15 @@ def test_mlflow_directory_operations(
     downloaded_dir = fs.get_dir("remote-dir", tempdir / "downloaded-dir")
     assert (downloaded_dir / "file_0.txt").read_text() == "file 0"
     assert (downloaded_dir / "nested" / "file_1.txt").read_text() == "file 1"
+
+    existing_dir = tempdir / "existing-download-root"
+    existing_dir.mkdir()
+    existing_download = fs.get_dir("remote-dir", existing_dir)
+    assert existing_download == existing_dir / "remote-dir"
+    assert (existing_download / "file_0.txt").read_text() == "file 0"
+    assert (
+        existing_download / "nested" / "file_1.txt"
+    ).read_text() == "file 1"
 
     static_source = tempdir / "static-source"
     static_source.mkdir()
@@ -153,6 +243,64 @@ def test_mlflow_directory_operations(
         tracking_uri=mlflow_tracking_uri,
     )
     assert (static_download / "payload.txt").read_text() == "payload"
+
+
+def test_mlflow_error_paths(
+    tempdir: Path,
+    mlflow_tracking_uri: str,
+    mlflow_run: tuple[str, str],
+):
+    experiment_id, run_id = mlflow_run
+    local_file = tempdir / "source.txt"
+    local_file.write_text("payload")
+    local_dir = tempdir / "local-dir"
+    local_dir.mkdir()
+
+    fs = LuxonisFileSystem(
+        f"mlflow://{experiment_id}/{run_id}",
+        tracking_uri=mlflow_tracking_uri,
+    )
+    with pytest.raises(ValueError, match="No relative artifact path"):
+        fs.read_to_byte_buffer()
+    with pytest.raises(ValueError, match="No relative artifact path"):
+        fs.put_file(local_file, "")
+
+    missing_run_fs = LuxonisFileSystem(
+        f"mlflow://{experiment_id}/missing-run",
+        tracking_uri=mlflow_tracking_uri,
+    )
+    assert not missing_run_fs.exists()
+    with pytest.raises(ValueError, match="run_id"):
+        LuxonisFileSystem(
+            f"mlflow://{experiment_id}", tracking_uri=mlflow_tracking_uri
+        )._require_mlflow_run_id()
+
+    artifact_fs = LuxonisFileSystem(
+        f"mlflow://{experiment_id}/{run_id}/base",
+        tracking_uri=mlflow_tracking_uri,
+    )
+    assert artifact_fs._get_mlflow_artifact_path("child.txt") == (
+        "base/child.txt"
+    )
+    assert artifact_fs._relative_mlflow_artifact_path("other/file.txt") == (
+        "other/file.txt"
+    )
+
+    active_fs = LuxonisFileSystem(
+        "mlflow://",
+        allow_active_mlflow_run=True,
+        allow_local=False,
+        tracking_uri=mlflow_tracking_uri,
+    )
+    assert active_fs._get_mlflow_url("fallback.txt") == (
+        "mlflow:///fallback.txt"
+    )
+    with pytest.raises(ValueError, match="Reading to byte buffer"):
+        active_fs.read_to_byte_buffer()
+    with pytest.raises(ValueError, match="No active mlflow_instance"):
+        active_fs.put_file(local_file, "artifact.txt")
+    with pytest.raises(ValueError, match="No active mlflow_instance"):
+        active_fs.put_dir(local_dir, "artifacts")
 
 
 def test_mlflow_put_bytes(
@@ -177,14 +325,12 @@ def test_mlflow_active_run_upload(
     mlflow_tracking_uri: str,
     randint: int,
 ):
-    artifact_root = (tempdir / "active-artifacts").resolve()
-    artifact_root.mkdir(parents=True, exist_ok=True)
-    experiment_id = MLFLOW.create_experiment(
-        f"active-fs-test-{randint}",
-        artifact_location=artifact_root.as_uri(),
-    )
+    experiment_id = MLFLOW.create_experiment(f"active-fs-test-{randint}")
     local_file = tempdir / "active-source.txt"
     local_file.write_text("active run payload")
+    local_dir = tempdir / "active-dir-source"
+    local_dir.mkdir()
+    (local_dir / "active-dir-file.txt").write_text("active dir payload")
 
     with MLFLOW.start_run(experiment_id=experiment_id) as run:
         fs = LuxonisFileSystem(
@@ -199,6 +345,7 @@ def test_mlflow_active_run_upload(
             )
             == f"mlflow://{experiment_id}/{run.info.run_id}/active/renamed.txt"
         )
+        fs.put_dir(local_dir, "active-dir", mlflow_instance=MLFLOW)
 
         explicit_fs = LuxonisFileSystem(
             f"mlflow://{experiment_id}/{run.info.run_id}",
@@ -207,6 +354,9 @@ def test_mlflow_active_run_upload(
         assert explicit_fs.exists("active/renamed.txt")
         assert explicit_fs.read_text("active/renamed.txt") == (
             "active run payload"
+        )
+        assert explicit_fs.read_text("active-dir/active-dir-file.txt") == (
+            "active dir payload"
         )
 
 
@@ -235,12 +385,7 @@ def test_tracker_upload_artifact_to_mlflow(
 ):
     from luxonis_ml.tracker import LuxonisTracker
 
-    artifact_root = (tempdir / "tracker-artifacts").resolve()
-    artifact_root.mkdir(parents=True, exist_ok=True)
-    experiment_id = MLFLOW.create_experiment(
-        f"tracker-test-{randint}",
-        artifact_location=artifact_root.as_uri(),
-    )
+    experiment_id = MLFLOW.create_experiment(f"tracker-test-{randint}")
     artifact = tempdir / "tracker-source.txt"
     artifact.write_text("tracker payload")
     tracker = LuxonisTracker(

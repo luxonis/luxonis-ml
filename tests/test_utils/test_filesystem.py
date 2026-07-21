@@ -4,6 +4,7 @@ import pytest
 from _pytest.fixtures import SubRequest
 from pytest_subtests import SubTests
 
+from luxonis_ml.utils.environ import environ
 from luxonis_ml.utils.filesystem import (
     LuxonisFileSystem,
     _get_protocol_and_path,
@@ -224,12 +225,101 @@ def test_fail(tempdir: Path, randint: int):
         LuxonisFileSystem(str(file), allow_local=False)
 
 
+def test_mlflow_initialization_failures():
+    pytest.importorskip("mlflow")
+    with pytest.raises(ValueError, match="Using active MLFlow run"):
+        LuxonisFileSystem("mlflow://")
+
+    if environ.MLFLOW_TRACKING_URI is not None:  # pragma: no cover
+        pytest.skip("MLFLOW_TRACKING_URI is configured in this environment.")
+    with pytest.raises(ValueError, match="MLFLOW_TRACKING_URI"):
+        LuxonisFileSystem("mlflow://experiment/run")
+
+
 def test_bytes(fs: LuxonisFileSystem, randint: int):
     bytes_file = f"bytes_test_{randint}.txt"
     fs.put_bytes(f"bytes test {randint}".encode(), bytes_file)
     assert fs.exists(bytes_file)
     buffer = fs.read_to_byte_buffer(bytes_file)
     assert buffer.read() == f"bytes test {randint}".encode()
+
+
+def test_local_filesystem_edge_cases(tempdir: Path):
+    fs = LuxonisFileSystem(str(tempdir), cache_storage=str(tempdir / "cache"))
+    assert fs.protocol == "file"
+    assert not fs.is_mlflow
+    assert fs.full_path == f"file://{tempdir}"
+
+    file_path = tempdir / "file.txt"
+    file_path.write_text("content")
+    assert fs.read_text(file_path.name) == "content"
+    assert fs.read_to_byte_buffer(file_path.name).read() == b"content"
+    assert (
+        LuxonisFileSystem(str(file_path)).read_to_byte_buffer().read()
+        == b"content"
+    )
+    assert fs.get_file_uuid(file_path, local=True) == fs.get_file_uuid(
+        file_path.name
+    )
+
+    download_dir = tempdir / "downloads"
+    download_dir.mkdir()
+    assert (
+        fs.get_file(file_path.name, download_dir)
+        == download_dir / file_path.name
+    )
+
+    delete_a = tempdir / "delete_a.txt"
+    delete_b = tempdir / "delete_b.txt"
+    delete_a.write_text("a")
+    delete_b.write_text("b")
+    fs.delete_files([delete_a.name, delete_b.name])
+    assert not delete_a.exists()
+    assert not delete_b.exists()
+
+    delete_dir = tempdir / "delete_dir"
+    delete_dir.mkdir()
+    (delete_dir / "nested.txt").write_text("nested")
+    fs.delete_dir(delete_dir.name)
+    assert not delete_dir.exists()
+
+    with pytest.raises(ValueError, match="No directory specified"):
+        fs.delete_dir()
+    with pytest.raises(ValueError, match="Path must be a directory"):
+        fs.put_dir(file_path, "invalid-dir")
+
+    uuid_source = tempdir / "uuid_source.txt"
+    uuid_source.write_text("uuid")
+    upload_map = fs.put_dir(
+        [uuid_source],
+        "uuid-dir",
+        uuid_dict={str(uuid_source): "fixed-uuid"},
+    )
+    assert upload_map == {str(uuid_source): "uuid-dir/fixed-uuid.txt"}
+    assert fs.exists("uuid-dir/fixed-uuid.txt")
+
+    existing_dir = tempdir / "existing-download-root"
+    existing_dir.mkdir()
+    downloaded_dir = fs.get_dir("uuid-dir", existing_dir)
+    assert downloaded_dir == existing_dir / "uuid-dir"
+    assert (downloaded_dir / "fixed-uuid.txt").read_text() == "uuid"
+
+
+def test_s3_filesystem_initialization(tempdir: Path):
+    pytest.importorskip("s3fs")
+    fs = LuxonisFileSystem(
+        "s3://bucket/prefix", cache_storage=str(tempdir / "s3-cache")
+    )
+    assert fs.protocol == "s3"
+    assert fs.is_fsspec
+
+
+def test_gcs_filesystem_requires_credentials():
+    pytest.importorskip("gcsfs")
+    if environ.GOOGLE_APPLICATION_CREDENTIALS is not None:  # pragma: no cover
+        pytest.skip("GCS credentials are configured in this environment.")
+    with pytest.raises(RuntimeError, match="GOOGLE_APPLICATION_CREDENTIALS"):
+        LuxonisFileSystem("gcs://bucket/prefix")
 
 
 def compare_directories(

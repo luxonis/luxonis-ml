@@ -251,12 +251,14 @@ class LuxonisFileSystem:
                 endpoint_url=environ.AWS_S3_ENDPOINT_URL,
             )
         elif self._protocol == "gcs":
-            if environ.GOOGLE_APPLICATION_CREDENTIALS is None:
+            if (
+                environ.GOOGLE_APPLICATION_CREDENTIALS is None
+            ):  # pragma: no cover
                 raise RuntimeError(
                     "There is no 'GOOGLE_APPLICATION_CREDENTIALS' in environment variables"
                 )
             # NOTE: This should automatically read from GOOGLE_APPLICATION_CREDENTIALS
-            fs = fsspec.filesystem(self._protocol)
+            fs = fsspec.filesystem(self._protocol)  # pragma: no cover
         elif self._protocol == "file":
             fs = fsspec.filesystem(self._protocol)
         else:
@@ -631,7 +633,7 @@ class LuxonisFileSystem:
                         .relative_to(Path(self._path).resolve())
                     )
                 else:
-                    name = str(
+                    name = str(  # pragma: no cover
                         PurePosixPath(file["name"]).relative_to(self._path)
                     )
                 if typ == "all" or file["type"] == typ:
@@ -1177,7 +1179,7 @@ def _get_protocol_and_path(path: str) -> tuple[str, str | None]:
     return protocol, path or None
 
 
-def _pip_install(protocol: str, package: str) -> None:
+def _pip_install(protocol: str, package: str) -> None:  # pragma: no cover
     logger.error(f"'{package}' is necessary for '{protocol}://' protocol.")
     logger.info(f"Installing {package}...")
     subprocess.run(
