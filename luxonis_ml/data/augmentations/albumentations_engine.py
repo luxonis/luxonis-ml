@@ -18,7 +18,8 @@ from luxonis_ml.utils import deprecated
 from .base_engine import AugmentationEngine
 from .batch_compose import BatchCompose
 from .batch_transform import BatchTransform
-from .custom import TRANSFORMATIONS, LetterboxResize
+from .custom import TRANSFORMATIONS
+from .custom.letterbox_resize import create_letterbox_or_resize
 from .utils import (
     postprocess_bboxes,
     postprocess_keypoints,
@@ -516,7 +517,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
                     resize_transform = A.OneOf(
                         [
                             transform,
-                            self._create_default_resize_transform(
+                            create_letterbox_or_resize(
                                 keep_aspect_ratio=keep_aspect_ratio,
                                 height=height,
                                 width=width,
@@ -559,7 +560,7 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
             wrapped_spatial_ops = spatial_transforms
 
         if resize_transform is None:
-            resize_transform = self._create_default_resize_transform(
+            resize_transform = create_letterbox_or_resize(
                 keep_aspect_ratio=keep_aspect_ratio,
                 height=height,
                 width=width,
@@ -846,21 +847,6 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         oob = (xs < 0) | (ys < 0) | (xs >= w) | (ys >= h)
         kps[oob, -1] = 0.0
         return kps
-
-    @staticmethod
-    def _create_default_resize_transform(
-        keep_aspect_ratio: bool,
-        height: int,
-        width: int,
-        p: float = 1.0,
-    ) -> A.DualTransform:
-        if keep_aspect_ratio:
-            return LetterboxResize(
-                height=height,
-                width=width,
-                p=p,
-            )
-        return A.Resize(height=height, width=width, p=p)
 
     @staticmethod
     def _create_transformation(

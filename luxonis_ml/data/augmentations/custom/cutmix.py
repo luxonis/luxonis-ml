@@ -1,13 +1,15 @@
 import math
 from typing import Any, Literal
 
-import albumentations as A
 import numpy as np
 from albumentations.core.bbox_utils import denormalize_bboxes, normalize_bboxes
 from typing_extensions import override
 
 from luxonis_ml.data.augmentations.batch_transform import BatchTransform
-from luxonis_ml.data.augmentations.custom import LetterboxResize
+from luxonis_ml.data.augmentations.custom.letterbox_resize import (
+    LetterboxResize,
+    create_letterbox_or_resize,
+)
 
 
 class CutMix(BatchTransform):
@@ -66,10 +68,9 @@ class CutMix(BatchTransform):
 
         self._alpha = alpha
         self._bbox_min_visibility = bbox_min_visibility
-        if keep_aspect_ratio:
-            self._resize_transform = LetterboxResize(1, 1)
-        else:
-            self._resize_transform = A.Resize(1, 1)
+        self._resize_transform = create_letterbox_or_resize(
+            keep_aspect_ratio, 1, 1
+        )
 
     @override
     def get_params(self) -> dict[str, Any]:
