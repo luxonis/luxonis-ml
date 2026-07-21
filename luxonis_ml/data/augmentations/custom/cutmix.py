@@ -62,9 +62,7 @@ class CutMix(BatchTransform):
             raise ValueError("Alpha must be greater than 0.")
 
         if not 0.0 <= bbox_min_visibility <= 1.0:
-            raise ValueError(
-                "bbox_min_visibility must be in range [0, 1]."
-            )
+            raise ValueError("bbox_min_visibility must be in range [0, 1].")
 
         self._alpha = alpha
         self._bbox_min_visibility = bbox_min_visibility
