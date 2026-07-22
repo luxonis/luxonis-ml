@@ -830,12 +830,12 @@ class LuxonisFileSystem:
                         mlflow_instance,
                     )
                 )
-            for _ in track(
+            for future in track(
                 as_completed(futures),
                 total=len(futures),
                 description="Uploading files",
             ):
-                pass
+                future.result()
         return upload_dict
 
     def _get_files(
@@ -846,11 +846,17 @@ class LuxonisFileSystem:
     ) -> None:
         local_dir.mkdir(parents=True, exist_ok=True)
         with ThreadPoolExecutor() as executor:
-            for remote_path in remote_paths:
-                local_path = local_dir / PurePosixPath(remote_path).name
+            futures = [
                 executor.submit(
-                    self.get_file, remote_path, local_path, mlflow_instance
+                    self.get_file,
+                    remote_path,
+                    local_dir / PurePosixPath(remote_path).name,
+                    mlflow_instance,
                 )
+                for remote_path in remote_paths
+            ]
+            for future in as_completed(futures):
+                future.result()
 
     def _get_mlflow_artifact_path(
         self, remote_path: PosixPathType | None = None
