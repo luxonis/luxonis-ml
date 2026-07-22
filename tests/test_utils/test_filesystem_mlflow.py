@@ -38,7 +38,7 @@ def _wait_for_mlflow_server(
             ) as response:
                 if response.status == 200:
                     return
-        except (URLError, TimeoutError, socket.timeout):
+        except (URLError, TimeoutError):
             time.sleep(0.2)
     process.terminate()
     raise TimeoutError(log_path.read_text())
