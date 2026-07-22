@@ -557,6 +557,7 @@ class LuxonisFileSystem:
                 if not existed:
                     return local_dir
                 return local_dir / PurePosixPath(remote_paths).name
+            return Path(local_dir)
 
         if self.is_mlflow or self.is_fsspec:
             self._get_files(remote_paths, local_dir, mlflow_instance)
@@ -734,7 +735,7 @@ class LuxonisFileSystem:
             with open(path, "rb") as f:
                 file_contents = cast(bytes, f.read())
         elif self.is_mlflow:
-            file_contents = self.read_to_byte_buffer(path).read()
+            file_contents = self.read_to_byte_buffer(str(path)).read()
         else:
             download_path = str(self._path / path)
             with self._fs.open(download_path, "rb") as f:
