@@ -320,7 +320,7 @@ def test_visualize_keypoint_label_modes(monkeypatch: pytest.MonkeyPatch):
         skeletons=skeletons,
         keypoint_label_mode="full",
     )
-    assert calls == ["nose", "eye", "2"]
+    assert calls == ["0: nose", "1: eye"]
 
 
 def test_visualize_keypoint_skeletons_respect_visibility():
