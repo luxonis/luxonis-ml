@@ -762,9 +762,13 @@ class LuxonisFileSystem:
         result = {}
 
         with ThreadPoolExecutor() as executor:
-            for path in paths:
-                path = str(path)
-                future = executor.submit(self.get_file_uuid, path, local)
+            futures = {
+                str(path): executor.submit(
+                    self.get_file_uuid, str(path), local
+                )
+                for path in paths
+            }
+            for path, future in futures.items():
                 result[path] = future.result()
 
         return result
