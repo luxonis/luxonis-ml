@@ -10,6 +10,6 @@ filelock~=3.0
 bidict~=0.21
 gdown~=4.7
 defusedxml~=0.7
-pillow-heif<0.22.0
+pillow-heif~=1.5
 matplotlib~=3.10
 requests~=2.32
