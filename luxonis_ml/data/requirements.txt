@@ -1,14 +1,12 @@
-numpy~=1.22
+numpy~=2.5
 opencv-python~=4.10
 albumentations>=2.0.0
 pyarrow~=23.0
 pycocotools~=2.0
-polars[timezone]~=0.20
-ordered-set~=4.0
-semver~=3.0
+polars[timezone]~=1.43
 filelock~=3.0
 bidict~=0.21
-gdown~=4.7
+gdown~=6.1
 defusedxml~=0.7
 pillow-heif~=1.5
 matplotlib~=3.10
