@@ -2,7 +2,7 @@ pydantic~=2.7
 pydantic-extra-types~=2.10
 pydantic-settings~=2.1
 PyYAML~=6.0
-fsspec==2026.6.0
+fsspec==2024.6.1
 rich~=15.0
 semver~=3.0
 cyclopts~=4.16
