@@ -227,9 +227,28 @@ def _placed_chips(
     canvas = Canvas.blank(width, height)
     layout = LabelLayout(width, height)
     ctx = RenderContext(canvas=canvas, layout=layout)
+    # Shapes first, then the label chips (mirroring Image.render's two passes).
     for box in boxes:
         box.render(ctx)
+    for box in boxes:
+        box.render_labels(ctx)
     return layout.placed
+
+
+def test_labels_are_deferred_to_a_separate_pass() -> None:
+    """``render`` draws only the shape; ``render_labels`` places the chip.
+
+    This is what keeps a later box from covering an earlier box's label.
+    """
+    canvas = Canvas.blank(200, 150)
+    layout = LabelLayout(200, 150)
+    ctx = RenderContext(canvas=canvas, layout=layout)
+    box = BBox(x=0.1, y=0.2, w=0.5, h=0.5, label="car", score=0.9)
+
+    box.render(ctx)
+    assert layout.placed == []  # no chip yet — only the box outline was drawn
+    box.render_labels(ctx)
+    assert len(layout.placed) == 1
 
 
 def test_overlapping_box_labels_do_not_collide() -> None:

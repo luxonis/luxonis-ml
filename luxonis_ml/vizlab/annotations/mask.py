@@ -217,7 +217,7 @@ class Mask(InstanceSegmentationAnnotation, Annotation):
         canvas.overlay_mask(binary, color, alpha=alpha)
 
     def draw(self, ctx: RenderContext, style: Style, color: Color) -> None:
-        """Draw the sharp contour and label chip (second, display-size pass).
+        """Draw the sharp contour (the label chip is drawn later, on top).
 
         The contour is traced from the source-resolution mask and scaled to the
         canvas, so it stays crisp regardless of any display scaling.
@@ -228,22 +228,40 @@ class Mask(InstanceSegmentationAnnotation, Annotation):
             color: The resolved fill color.
 
         """
+        if not self.contour:
+            return
         canvas = ctx.canvas
         binary = self.to_numpy()
         mask_h, mask_w = binary.shape[:2]
         sx = canvas.width / mask_w
         sy = canvas.height / mask_h
-        if self.contour:
-            smoothing = _contour_smoothing(sx, sy)
-            for ring in _mask_contours(binary > 0):
-                canvas.polygon(
-                    _contour_path(ring, sx, sy, smoothing),
-                    stroke=color,
-                    stroke_width=style.stroke_width,
-                    dash=style.dash,
-                )
+        smoothing = _contour_smoothing(sx, sy)
+        for ring in _mask_contours(binary > 0):
+            canvas.polygon(
+                _contour_path(ring, sx, sy, smoothing),
+                stroke=color,
+                stroke_width=style.stroke_width,
+                dash=style.dash,
+            )
+
+    def draw_label(
+        self, ctx: RenderContext, style: Style, color: Color
+    ) -> None:
+        """Place the mask's label chip on top of all shapes.
+
+        Args:
+            ctx: The current render context.
+            style: The resolved style.
+            color: The resolved fill color.
+
+        """
+        canvas = ctx.canvas
+        binary = self.to_numpy()
+        mask_h, mask_w = binary.shape[:2]
         region = _nonzero_bounds(binary)
         if region is not None:
+            sx = canvas.width / mask_w
+            sy = canvas.height / mask_h
             region = Rect(
                 region.left * sx,
                 region.top * sy,

@@ -295,6 +295,23 @@ class Annotation(BaseModel):
 
         """
 
+    def draw_label(
+        self, ctx: RenderContext, style: Style, color: Color
+    ) -> None:
+        """Draw only this annotation's label chip, after all shapes are drawn.
+
+        Runs in a pass after every annotation's `draw`, so label chips always
+        sit on top of the boxes and masks — never behind a later shape. The
+        default draws nothing; annotations with a label chip (boxes, masks)
+        override it and omit the chip from `draw`.
+
+        Args:
+            ctx: The current render context.
+            style: This annotation's resolved style.
+            color: This annotation's resolved color.
+
+        """
+
     def render(self, ctx: RenderContext) -> None:
         """Resolve this annotation, draw its vector layer, then render its children.
 
@@ -324,3 +341,20 @@ class Annotation(BaseModel):
         child_ctx = ctx.descend(color, style)
         for child in self.children:
             child.render_fill(child_ctx)
+
+    def render_labels(self, ctx: RenderContext) -> None:
+        """Resolve this annotation, draw its label chip, then recurse children.
+
+        The label pass, mirroring `render` but for the chip layer, run after all
+        shapes so chips are never hidden behind a box or mask.
+
+        Args:
+            ctx: The current render context.
+
+        """
+        style = self.resolve_style(ctx)
+        color = self.resolve_color(ctx)
+        self.draw_label(ctx, style, color)
+        child_ctx = ctx.descend(color, style)
+        for child in self.children:
+            child.render_labels(child_ctx)

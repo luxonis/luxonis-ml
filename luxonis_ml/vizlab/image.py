@@ -231,11 +231,14 @@ class Image:
             style_scale=_style_scale(canvas.width, canvas.height),
         )
         # Reserve overlay label positions first so spatial labels avoid them,
-        # draw the spatial annotations, then draw overlays on top (drawn last).
+        # draw the spatial shapes, then their label chips on top (so a later box
+        # never covers an earlier one's chip), then overlays on top of all.
         for annotation in overlays:
             annotation.reserve(ctx)
         for annotation in spatial:
             annotation.render(ctx)
+        for annotation in spatial:
+            annotation.render_labels(ctx)
         for annotation in overlays:
             annotation.render(ctx)
 

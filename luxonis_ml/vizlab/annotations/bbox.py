@@ -128,8 +128,14 @@ class BBox(BBoxAnnotation, Annotation):
         """
         return None
 
+    def _region(self, width: int, height: int) -> Rect:
+        """Resolve the box's label anchor rect (its outline bounds)."""
+        if self._axis_aligned():
+            return self._rect(width, height)
+        return bounding_rect(self._corners(width, height))
+
     def draw(self, ctx: RenderContext, style: Style, color: Color) -> None:
-        """Draw the box and its label chip onto the canvas.
+        """Draw the box outline (its label chip is drawn later, on top).
 
         Args:
             ctx: The current render context.
@@ -145,9 +151,8 @@ class BBox(BBoxAnnotation, Annotation):
         )
 
         if self._axis_aligned():
-            region = self._rect(canvas.width, canvas.height)
             canvas.rounded_rect(
-                region,
+                self._rect(canvas.width, canvas.height),
                 radius=style.corner_radius,
                 fill=fill,
                 stroke=color,
@@ -156,16 +161,26 @@ class BBox(BBoxAnnotation, Annotation):
                 shadow=Shadow() if style.shadow else None,
             )
         else:
-            corners = self._corners(canvas.width, canvas.height)
             canvas.polygon(
-                corners,
+                self._corners(canvas.width, canvas.height),
                 fill=fill,
                 stroke=color,
                 stroke_width=style.stroke_width,
                 dash=style.dash,
             )
-            region = bounding_rect(corners)
 
+    def draw_label(
+        self, ctx: RenderContext, style: Style, color: Color
+    ) -> None:
+        """Place the box's label chip on top of all shapes.
+
+        Args:
+            ctx: The current render context.
+            style: The resolved style.
+            color: The resolved box color.
+
+        """
+        region = self._region(ctx.canvas.width, ctx.canvas.height)
         place_label(
             ctx, region, self.label, self.score, self.payload, color, style
         )
