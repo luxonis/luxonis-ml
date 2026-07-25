@@ -9,6 +9,7 @@ construct with no single LDF annotation counterpart. Contours use OpenCV when it
 is installed and are skipped otherwise (the fill still draws).
 """
 
+import math
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
@@ -57,27 +58,50 @@ def _mask_contours(mask_bool: np.ndarray) -> list[np.ndarray]:
     return rings
 
 
-def _chaikin_closed(points: np.ndarray, iterations: int) -> np.ndarray:
-    """Round a closed polygon by Chaikin corner-cutting.
+#: A vertex whose outline turns at least this much (≈50°) is kept sharp; gentler
+#: bends are rounded. This keeps rectangular masks rectangular (their ~90°
+#: corners survive) while still smoothing the facets of curved outlines.
+_KEEP_CORNER_ANGLE = math.radians(50.0)
 
-    Each iteration replaces every vertex with two points a quarter and
-    three-quarters along its outgoing edge, turning the pixel staircase of a
-    traced contour into a smooth curve. Cheap and OpenCV-free.
+
+def _smooth_ring(points: np.ndarray, iterations: int) -> np.ndarray:
+    """Round a closed polygon by corner-cutting, preserving sharp corners.
+
+    A Chaikin-style pass, but a vertex is only cut where the outline bends
+    gently; sharp corners (turn ``>= _KEEP_CORNER_ANGLE``) are left in place. So
+    the pixel-staircase facets of a curve round out, while a rectangle keeps its
+    corners instead of rounding into an ellipse. Cheap and OpenCV-free.
 
     Args:
         points: An ``(N, 2)`` array of closed-ring vertices.
         iterations: Number of corner-cutting passes.
 
     Returns:
-        The smoothed ``(N * 2**iterations, 2)`` ring.
+        The smoothed ring (variable length; sharp corners keep one vertex,
+        cut corners become two).
 
     """
     for _ in range(iterations):
+        prev = np.roll(points, 1, axis=0)
         nxt = np.roll(points, -1, axis=0)
-        smoothed = np.empty((len(points) * 2, 2), dtype=float)
-        smoothed[0::2] = 0.75 * points + 0.25 * nxt
-        smoothed[1::2] = 0.25 * points + 0.75 * nxt
-        points = smoothed
+        incoming = points - prev
+        outgoing = nxt - points
+        # Turn angle at each vertex: 0 straight, pi doubling back.
+        dot = (incoming * outgoing).sum(axis=1)
+        norms = np.linalg.norm(incoming, axis=1) * np.linalg.norm(
+            outgoing, axis=1
+        )
+        turn = np.arccos(np.clip(dot / (norms + 1e-9), -1.0, 1.0))
+        cut_before = 0.75 * points + 0.25 * prev
+        cut_after = 0.75 * points + 0.25 * nxt
+        out: list[np.ndarray] = []
+        for i in range(len(points)):
+            if turn[i] >= _KEEP_CORNER_ANGLE:
+                out.append(points[i])
+            else:
+                out.append(cut_before[i])
+                out.append(cut_after[i])
+        points = np.asarray(out, dtype=float)
     return points
 
 
@@ -87,7 +111,7 @@ def _contour_path(
     """Scale a contour ring to the canvas and optionally smooth it for drawing."""
     points = ring * np.array([sx, sy])
     if smoothing > 0 and len(points) >= 3:
-        points = _chaikin_closed(points, smoothing)
+        points = _smooth_ring(points, smoothing)
     return [(float(x), float(y)) for x, y in points]
 
 

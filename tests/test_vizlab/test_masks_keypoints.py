@@ -13,7 +13,7 @@ from luxonis_ml.vizlab import (
     SemanticMask,
     Style,
 )
-from luxonis_ml.vizlab.annotations.mask import _mask_contours
+from luxonis_ml.vizlab.annotations.mask import _mask_contours, _smooth_ring
 from luxonis_ml.vizlab.geometry import Rect
 
 
@@ -124,6 +124,27 @@ def test_mask_contours_without_opencv_returns_empty(
     base = _canvas()
     base.add(Mask(mask=_disc(80, 60, 40, 30, 12)))  # type: ignore
     assert base.render()[..., 3].max() > 0
+
+
+def test_smooth_ring_preserves_sharp_corners() -> None:
+    """A rectangle keeps its 90° corners (does not round into an ellipse)."""
+    square = np.array([(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)])
+    smoothed = _smooth_ring(square, iterations=3)
+    # Every corner is sharp, so none is cut: the ring is unchanged.
+    assert len(smoothed) == 4
+    assert np.allclose(
+        np.array(sorted(map(tuple, smoothed))),
+        np.array(sorted(map(tuple, square))),
+    )
+
+
+def test_smooth_ring_rounds_gentle_bends() -> None:
+    """A many-sided (near-circular) outline has its gentle corners rounded."""
+    angles = np.linspace(0.0, 2.0 * np.pi, 12, endpoint=False)
+    polygon = np.stack([np.cos(angles), np.sin(angles)], axis=1) * 10.0
+    smoothed = _smooth_ring(polygon, iterations=1)
+    # Gentle (~30°) bends are cut, so the ring gains points.
+    assert len(smoothed) > len(polygon)
 
 
 # --- SemanticMask (render-only) ---------------------------------------------
