@@ -50,6 +50,7 @@ from luxonis_ml.data.utils import (
     ParquetFileManager,
     UpdateMode,
     get_class_distributions,
+    get_class_heatmaps,
     get_duplicates_info,
     get_heatmaps,
     get_missing_annotations,
@@ -1890,7 +1891,11 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         return out_path
 
     def get_statistics(
-        self, sample_size: int | None = None, view: str | None = None
+        self,
+        sample_size: int | None = None,
+        view: str | None = None,
+        *,
+        per_class_heatmaps: bool = False,
     ) -> dict[str, Any]:
         """Return dataset statistics for a view or the full dataset.
 
@@ -1900,13 +1905,19 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
             - ``"class_distributions"``: Class frequencies organized by
               task name and task type. Classification tasks are excluded.
             - ``"missing_annotations"``: File paths that lack annotations.
-            - ``"heatmaps"``: Spatial annotation distributions.
+            - ``"heatmaps"``: Spatial annotation distributions per task type.
+            - ``"class_heatmaps"``: Present only when ``per_class_heatmaps`` is
+              set — the same spatial distributions split by class name
+              (``{task_name: {task_type: {class_name: 15x15 grid}}}``).
 
         Args:
             sample_size: Optional number of samples used for heatmap
                 generation.
             view: Optional split name to analyze. If omitted, the entire
                 dataset is analyzed.
+            per_class_heatmaps: Also compute a separate heatmap per class
+                (added under ``"class_heatmaps"``). Best for datasets with a
+                handful of classes.
 
         Returns:
             Dataset statistics.
@@ -1935,6 +1946,9 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
         stats["missing_annotations"] = get_missing_annotations(df)
 
         stats["heatmaps"] = get_heatmaps(df, sample_size)
+
+        if per_class_heatmaps:
+            stats["class_heatmaps"] = get_class_heatmaps(df, sample_size)
 
         return stats
 

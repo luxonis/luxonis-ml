@@ -40,6 +40,7 @@ from .augmentations_collector import AugmentationsCollector
 from .data_utils import (
     find_duplicates,
     get_class_distributions,
+    get_class_heatmaps,
     get_duplicates_info,
     get_heatmaps,
     get_missing_annotations,
@@ -87,6 +88,7 @@ __all__ = [
     "download_remote_file",
     "find_duplicates",
     "get_class_distributions",
+    "get_class_heatmaps",
     "get_duplicates_info",
     "get_heatmaps",
     "get_missing_annotations",
