@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Literal, TypeAlias
 
 import cv2
-import matplotlib.pyplot as plt
 import numpy as np
 import rich.box
 from cyclopts import App, Parameter, validators
@@ -33,10 +32,6 @@ from luxonis_ml.data.utils.cli_utils import (
     print_info,
 )
 from luxonis_ml.data.utils.enums import BucketStorage
-from luxonis_ml.data.utils.plot_utils import (
-    plot_class_distribution,
-    plot_heatmap,
-)
 from luxonis_ml.data.utils.task_utils import get_task_name, get_task_type
 from luxonis_ml.enums import DatasetType
 
@@ -982,6 +977,22 @@ def health(
         str | None,
         Parameter(alias="-s"),
     ] = None,
+    theme: Annotated[
+        Literal["dark", "light"],
+        Parameter(alias="-t"),
+    ] = "dark",
+    gradient: Annotated[
+        str,
+        Parameter(alias="-g"),
+    ] = "viridis",
+    distribution: Annotated[
+        Literal["bars", "chips", "stacked"],
+        Parameter(alias="-m"),
+    ] = "bars",
+    scale: Annotated[
+        float,
+        Parameter(alias="-c"),
+    ] = 1.0,
     bucket_storage: BucketStorageT = BucketStorage.LOCAL,
 ):
     """Plot class distributions and heatmaps for every task type and
@@ -998,8 +1009,15 @@ def health(
             from the dataset for calculating statistics and plots.
             If not provided, all annotations will be used.
         save_dir: Directory where the generated plots
-            will be saved. If not provided, the plots will be displayed
-            interactively instead of being saved.
+            will be saved. If not provided, the plots are shown in
+            interactive OpenCV windows instead.
+        theme: Visual theme of the plots: ``dark`` or ``light``.
+        gradient: Name of the heatmap colormap (e.g. ``viridis``,
+            ``turbo``, ``magma``, ``inferno``, ``jet``).
+        distribution: How class counts are drawn: ``bars``, ``chips``,
+            or the ``stacked`` proportion strip.
+        scale: Font and mark scale for the plots (``1.0`` is nominal;
+            increase for larger text and marks).
         bucket_storage: Storage type of the dataset.
 
     """
@@ -1097,49 +1115,75 @@ def health(
         console.print("[info]No plots to display.[/info]")
         return
 
+    try:
+        from luxonis_ml.data.utils import health_plots
+        from luxonis_ml.vizlab import DARK_THEME, GRADIENTS, LIGHT_THEME
+    except ImportError as exc:
+        console.print(
+            f"[red]Health charts require the 'viz' extra: {exc}[/red]"
+        )
+        return
+
+    if gradient not in GRADIENTS:
+        options = ", ".join(sorted(GRADIENTS))
+        console.print(
+            f"[red]Unknown gradient '{gradient}'. Options: {options}[/red]"
+        )
+        return
+
+    plot_theme = LIGHT_THEME if theme == "light" else DARK_THEME
+    screen = _screen_size() if not save_dir else None
+
     for task_name in all_task_names:
         class_dist_by_type = stats["class_distributions"].get(task_name, {})
         heatmaps_by_type = stats["heatmaps"].get(task_name, {})
-        all_task_types = sorted(
-            set(class_dist_by_type.keys()) | set(heatmaps_by_type.keys())
-        )
-
-        if not all_task_types:
+        if not (set(class_dist_by_type) | set(heatmaps_by_type)):
             console.print(f"[info]No plots for task name: {task_name}[/info]")
             continue
 
-        nrows = len(all_task_types)
-        square_size = 4
-        fig, axs = plt.subplots(
-            nrows, 2, figsize=(square_size * 2, square_size * nrows)
+        image = health_plots.build_health_grid(
+            task_name,
+            class_dist_by_type,
+            heatmaps_by_type,
+            theme=plot_theme,
+            gradient=gradient,
+            mode=distribution,
+            scale=scale,
         )
-        if task_name != "":
-            fig.suptitle(f"Task Name: {task_name}", fontsize=14)
-
-        if nrows == 1:
-            axs = [axs]
-
-        for i, task_type in enumerate(all_task_types):
-            plot_class_distribution(
-                axs[i][0], task_type, class_dist_by_type.get(task_type, [])
-            )
-            plot_heatmap(
-                axs[i][1],
-                fig,  # type: ignore
-                task_type,
-                heatmaps_by_type.get(task_type),  # type: ignore
-            )
-
-        plt.tight_layout()
-        plt.subplots_adjust(top=0.9, hspace=0.5)
-
         if save_dir:
-            fig.savefig(f"{save_dir}/dataset_health_{task_name}.png", dpi=150)  # type: ignore
-            plt.close(fig)
-        else:
-            plt.show(block=False)
-            if plt.waitforbuttonpress():
-                plt.close(fig)
+            image.save(f"{save_dir}/dataset_health_{task_name}.png")
+            continue
+
+        window = (
+            f"dataset health: {task_name}" if task_name else "dataset health"
+        )
+        out = image.to_numpy("bgr")
+        out_h, out_w = out.shape[:2]
+        cv2.namedWindow(window, cv2.WINDOW_NORMAL)
+        # Show at the render's native pixel size; only shrink (never enlarge)
+        # if the grid is larger than the screen, then center it.
+        win_w, win_h = out_w, out_h
+        if screen is not None:
+            fit = min(0.9 * screen[0] / out_w, 0.9 * screen[1] / out_h, 1.0)
+            win_w, win_h = (
+                max(1, round(out_w * fit)),
+                max(1, round(out_h * fit)),
+            )
+            cv2.moveWindow(
+                window,
+                max(0, (screen[0] - win_w) // 2),
+                max(0, (screen[1] - win_h) // 2),
+            )
+        cv2.resizeWindow(window, win_w, win_h)
+        cv2.imshow(window, out)
+        console.print(
+            "[info]Press any key for the next task, or 'q' to quit.[/info]"
+        )
+        if cv2.waitKey(0) == ord("q"):
+            break
+
+    if not save_dir:
+        cv2.destroyAllWindows()
 
 
 @app.command

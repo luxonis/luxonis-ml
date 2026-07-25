@@ -22,11 +22,17 @@ from luxonis_ml.vizlab.geometry import Rect
 from luxonis_ml.vizlab.style import Style
 
 from .base import RenderContext
-from .chip import chip_size, compose_label, draw_chip
+from .chip import chip_size, draw_chip
 from .overlay import CARD_BG, CARD_TEXT, Cell, CornerStack
 
 DistributionMode = Literal["bars", "chips", "gauge", "stacked"]
 """How a `ClassDistribution` is drawn. See the class docstring."""
+
+ValueFormat = Literal["percent", "count", "count+percent"]
+"""How a `ClassDistribution` value is labeled: a percentage (the default, for
+probabilities), a raw integer count, or ``"count · percent"`` — the last two for
+frequency distributions such as dataset class counts, where bars scale to the
+largest value instead of an absolute ``[0, 1]``."""
 
 _WHITE = Color(255, 255, 255)
 _OK = Color(80, 200, 120)
@@ -75,6 +81,11 @@ class ClassDistribution(CornerStack):
         top_k: Show only the ``top_k`` most probable classes (plus the ground-truth
             row if it is set and would otherwise be hidden). ``None`` shows all.
         title: Optional heading drawn above the panel (ignored in ``"chips"``).
+        value_format: How each value is labeled — ``"percent"`` (the default, for
+            probabilities), ``"count"`` (a raw integer), or ``"count+percent"``.
+            The count formats scale bars to the largest value rather than an
+            absolute ``[0, 1]``, so they suit frequency distributions (e.g. dataset
+            class counts).
 
     See `CornerStack` for ``corner``/``margin``/``gap`` and
     `Annotation` for ``style``/``palette``.
@@ -96,6 +107,7 @@ class ClassDistribution(CornerStack):
     ground_truth: str | None = None
     top_k: int | None = 5
     title: str | None = None
+    value_format: ValueFormat = "percent"
 
     @classmethod
     def from_scores(
@@ -155,6 +167,33 @@ class ClassDistribution(CornerStack):
                 top = [*top, hidden]
         return top
 
+    # -- value formatting ----------------------------------------------------
+
+    def _total(self) -> float:
+        """Total of all values, used for the share in count formats."""
+        return sum(max(0.0, v) for _, v in self._pairs())
+
+    def _bar_scale(self, values: list[float]) -> float:
+        """Value that maps to a full bar: ``1.0`` for percent, else the max value.
+
+        Probabilities are drawn on an absolute ``[0, 1]`` scale; counts have no
+        such ceiling, so their bars scale to the largest value.
+        """
+        if self.value_format == "percent":
+            return 1.0
+        top = max(values, default=1.0)
+        return top if top > 0 else 1.0
+
+    def _value_label(self, value: float, total: float) -> str:
+        """Format a value per ``value_format`` (percent / count / count+percent)."""
+        if self.value_format == "percent":
+            return _pct(value)
+        count = round(value)
+        if self.value_format == "count":
+            return str(count)
+        share = _pct(value / total) if total > 0 else "0%"
+        return f"{count} · {share}"
+
     # -- dispatch ------------------------------------------------------------
 
     def _cells(self, ctx: RenderContext, style: Style) -> list[Cell]:
@@ -204,19 +243,29 @@ class ClassDistribution(CornerStack):
         if not rows:
             return []
 
+        total = self._total()
+        scale = self._bar_scale([v for _, v in rows])
         bar_w = size * 7.0
         bar_h = size * 0.72
         measured = [
-            (name, prob, canvas.measure_text(name, size, weight=weight))
-            for name, prob in rows
+            (
+                name,
+                value,
+                self._value_label(value, total),
+                canvas.measure_text(name, size, weight=weight),
+            )
+            for name, value in rows
         ]
-        pct_w = canvas.measure_text("100%", size, weight=weight).width
-        name_w = max(m.width for _, _, m in measured)
-        row_h = max(bar_h, *(m.height for _, _, m in measured))
+        val_w = max(
+            canvas.measure_text(label, size, weight=weight).width
+            for _, _, label, _ in measured
+        )
+        name_w = max(m.width for _, _, _, m in measured)
+        row_h = max(bar_h, *(m.height for _, _, _, m in measured))
         title_metrics = self._title_metrics(canvas, size)
         title_h = title_metrics.height + _ROW_GAP if title_metrics else 0.0
 
-        content_w = name_w + _COL_GAP + bar_w + _COL_GAP + pct_w
+        content_w = name_w + _COL_GAP + bar_w + _COL_GAP + val_w
         if title_metrics is not None:
             content_w = max(content_w, title_metrics.width)
         card_w = content_w + 2 * _PAD
@@ -231,8 +280,8 @@ class ClassDistribution(CornerStack):
                 self._draw_title(cv, rect.left + _PAD, y, size)
                 y += title_h
             bar_x = rect.left + _PAD + name_w + _COL_GAP
-            pct_x = bar_x + bar_w + _COL_GAP
-            for name, prob, m in measured:
+            val_x = bar_x + bar_w + _COL_GAP
+            for name, value, label, m in measured:
                 is_gt = name == self.ground_truth
                 color = palette.color_for(name)
                 cv.text(
@@ -249,7 +298,7 @@ class ClassDistribution(CornerStack):
                 cv.rounded_rect(
                     track, radius=bar_h / 2, fill=color.with_alpha(0.2)
                 )
-                fill_w = bar_w * _clamp01(prob)
+                fill_w = bar_w * _clamp01(value / scale)
                 if fill_w > 0:
                     cv.rounded_rect(
                         Rect(
@@ -265,11 +314,10 @@ class ClassDistribution(CornerStack):
                         stroke=_WHITE,
                         stroke_width=1.5,
                     )
-                pct = _pct(prob)
-                pm = cv.measure_text(pct, size, weight=weight)
+                lm = cv.measure_text(label, size, weight=weight)
                 cv.text(
-                    (pct_x, y + (row_h - pm.height) / 2 + pm.ascent),
-                    pct,
+                    (val_x, y + (row_h - lm.height) / 2 + lm.ascent),
+                    label,
                     size=size,
                     color=CARD_TEXT,
                     weight=weight,
@@ -283,9 +331,11 @@ class ClassDistribution(CornerStack):
     def _chips_cells(self, ctx: RenderContext, style: Style) -> list[Cell]:
         canvas = ctx.canvas
         palette = self.resolved_palette(ctx)
+        total = self._total()
         cells: list[Cell] = []
-        for name, prob in self._selected():
-            text = compose_label(name, prob, None)
+        for name, value in self._selected():
+            label = self._value_label(value, total)
+            text = f"{name}  {label}" if name else label
             if not text:
                 continue
             color = palette.color_for(name)
@@ -319,14 +369,15 @@ class ClassDistribution(CornerStack):
         ranked = self._ranked()
         if not ranked:
             return []
-        name, prob = ranked[0]
+        name, value = ranked[0]
+        scale = self._bar_scale([v for _, v in ranked])
         color = palette.color_for(name)
         size = style.font_size
         big = size * 1.5
         bar_h = size * 0.9
 
         name_m = canvas.measure_text(name, size, weight=700)
-        pct_text = _pct(prob)
+        pct_text = self._value_label(value, self._total())
         pct_m = canvas.measure_text(pct_text, big, weight=700)
         gt = self.ground_truth
         correct = gt is not None and gt == name
@@ -374,7 +425,7 @@ class ClassDistribution(CornerStack):
             cv.rounded_rect(
                 track, radius=bar_h / 2, fill=color.with_alpha(0.2)
             )
-            fill_w = (right_edge - left) * _clamp01(prob)
+            fill_w = (right_edge - left) * _clamp01(value / scale)
             if fill_w > 0:
                 cv.rounded_rect(
                     Rect(left, by, left + fill_w, by + bar_h),
@@ -394,8 +445,13 @@ class ClassDistribution(CornerStack):
         if not segs:
             return []
 
-        other = max(0.0, 1.0 - sum(_clamp01(p) for _, p in segs))
-        keys = [*segs, ("other", other)] if other > 0.005 else list(segs)
+        total = self._total()
+        other_value = max(0.0, total - sum(v for _, v in segs))
+        keys = (
+            [*segs, ("other", other_value)]
+            if total > 0 and other_value / total > 0.005
+            else list(segs)
+        )
 
         strip_w = size * 14.0
         strip_h = size * 1.1
@@ -403,15 +459,18 @@ class ClassDistribution(CornerStack):
         key_measured = [
             (
                 name,
-                prob,
+                value,
+                self._value_label(value, total),
                 canvas.measure_text(
-                    f"{name}  {_pct(prob)}", size, weight=weight
+                    f"{name}  {self._value_label(value, total)}",
+                    size,
+                    weight=weight,
                 ),
             )
-            for name, prob in keys
+            for name, value in keys
         ]
-        row_h = max(m.height for _, _, m in key_measured)
-        key_w = max(swatch + _COL_GAP + m.width for _, _, m in key_measured)
+        row_h = max(m.height for _, _, _, m in key_measured)
+        key_w = max(swatch + _COL_GAP + m.width for _, _, _, m in key_measured)
         title_metrics = self._title_metrics(canvas, size)
         title_h = title_metrics.height + _ROW_GAP if title_metrics else 0.0
 
@@ -435,7 +494,7 @@ class ClassDistribution(CornerStack):
                 self._draw_title(cv, rect.left + _PAD, y, size)
                 y += title_h
             # Strip: a muted backdrop (the unshown "other" mass), then each class
-            # segment laid left to right, proportional to its probability.
+            # segment laid left to right, proportional to its share of the total.
             left = rect.left + _PAD
             inner_w = content_w
             cv.rounded_rect(
@@ -444,8 +503,8 @@ class ClassDistribution(CornerStack):
                 fill=_OTHER,
             )
             seg_x = left
-            for name, prob in segs:
-                seg_w = inner_w * _clamp01(prob)
+            for name, value in segs:
+                seg_w = inner_w * (value / total if total > 0 else 0.0)
                 if seg_w <= 0:
                     continue
                 seg = Rect(seg_x, y, seg_x + seg_w, y + strip_h)
@@ -457,7 +516,7 @@ class ClassDistribution(CornerStack):
                 seg_x += seg_w
             y += strip_h + _ROW_GAP
             # Inline key.
-            for name, prob, m in key_measured:
+            for name, _value, label, m in key_measured:
                 color = _OTHER if name == "other" else palette.color_for(name)
                 sw_top = y + (row_h - swatch) / 2
                 cv.rounded_rect(
@@ -472,7 +531,7 @@ class ClassDistribution(CornerStack):
                 )
                 cv.text(
                     (rect.left + _PAD + swatch + _COL_GAP, y + m.ascent),
-                    f"{name}  {_pct(prob)}",
+                    f"{name}  {label}",
                     size=size,
                     color=CARD_TEXT,
                     weight=700 if name == self.ground_truth else weight,

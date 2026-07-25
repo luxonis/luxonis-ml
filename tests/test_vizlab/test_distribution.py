@@ -154,3 +154,59 @@ def test_bar_uses_palette_color_for_class() -> None:
         & (out[..., 2] == color.b)
     )
     assert match.any()
+
+
+# --- value_format (counts / share) ------------------------------------------
+
+
+def test_total_sums_all_values() -> None:
+    assert (
+        ClassDistribution(probabilities={"a": 30.0, "b": 10.0})._total()
+        == 40.0
+    )
+
+
+def test_value_label_formats() -> None:
+    percent = ClassDistribution(value_format="percent")
+    assert percent._value_label(0.5, 1.0) == "50%"
+    count = ClassDistribution(value_format="count")
+    assert count._value_label(30.0, 40.0) == "30"
+    both = ClassDistribution(value_format="count+percent")
+    assert both._value_label(30.0, 40.0) == "30 · 75%"
+
+
+def test_bar_scale_percent_is_absolute_count_is_relative() -> None:
+    percent = ClassDistribution(value_format="percent")
+    assert percent._bar_scale([0.6, 0.2]) == 1.0
+    count = ClassDistribution(value_format="count")
+    # Counts scale to the largest value (that bar fills; others are relative).
+    assert count._bar_scale([600.0, 200.0]) == 600.0
+
+
+@pytest.mark.parametrize("fmt", ["count", "count+percent"])
+def test_count_mode_renders(fmt: str) -> None:
+    counts = {"person": 1240.0, "car": 712.0, "dog": 143.0}
+    out = (
+        _canvas()
+        .add(
+            ClassDistribution(
+                probabilities=counts, value_format=fmt, top_k=None
+            )
+        )
+        .render()
+    )
+    assert out[..., 3].max() > 0
+
+
+def test_content_size_positive_and_grows_with_classes() -> None:
+    small = ClassDistribution(probabilities={"a": 1.0, "b": 1.0})
+    big = ClassDistribution(
+        probabilities={f"c{i}": 1.0 for i in range(8)}, top_k=None
+    )
+    sw, sh = small.content_size()
+    bw, bh = big.content_size()
+    assert sw > 0
+    assert sh > 0
+    assert bw > 0
+    # More rows -> a taller card.
+    assert bh > sh

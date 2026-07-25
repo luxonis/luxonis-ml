@@ -6,13 +6,13 @@ rows inside a single card. Both are corner-stacked overlays (drawn on top of
 everything, and reserved so box labels avoid them).
 """
 
-from luxonis_ml.vizlab.canvas import Canvas, Shadow
+from luxonis_ml.vizlab.canvas import Canvas, Shadow, TextMetrics
 from luxonis_ml.vizlab.color import Color, ColorLike
 from luxonis_ml.vizlab.geometry import Rect
 from luxonis_ml.vizlab.style import Style
 
 from .base import RenderContext
-from .overlay import CARD_BG, CARD_TEXT, Cell, Corner, CornerStack, chip_cell
+from .overlay import CARD_BG, CARD_TEXT, Cell, Corner, CornerStack
 
 _CAPTION_BG = Color(22, 22, 26, 235)
 _CARD_BG = CARD_BG
@@ -52,11 +52,46 @@ class Caption(CornerStack):
             if self.title
             else style
         )
-        return [
-            chip_cell(
-                ctx.canvas, self.text, Color.parse(self.background), cap_style
-            )
+        canvas = ctx.canvas
+        size, weight = cap_style.font_size, cap_style.font_weight
+        pad_x, pad_y = cap_style.label_pad_x, cap_style.label_pad_y
+        # Wrap to keep the chip within the canvas (minus the corner margin).
+        avail = max(1.0, canvas.width - 2 * self.margin - 2 * pad_x)
+        lines = canvas.wrap_text(
+            self.text, size, max_width=avail, weight=weight
+        )
+        if not lines:
+            return []
+        fill = Color.parse(self.background)
+        text_color = fill.readable_text_color()
+        measured = [
+            (line, canvas.measure_text(line, size, weight=weight))
+            for line in lines
         ]
+        line_h = max(m.height for _, m in measured)
+        content_w = max(m.width for _, m in measured)
+        card_w = content_w + 2 * pad_x
+        card_h = len(measured) * line_h + 2 * pad_y
+
+        def _draw(cv: Canvas, rect: Rect) -> None:
+            cv.rounded_rect(
+                rect,
+                radius=cap_style.label_radius,
+                fill=fill,
+                shadow=Shadow(blur=4.0, dy=1.0) if cap_style.shadow else None,
+            )
+            y = rect.top + pad_y
+            for line, m in measured:
+                cv.text(
+                    (rect.left + pad_x, y + m.ascent),
+                    line,
+                    size=size,
+                    color=text_color,
+                    weight=weight,
+                )
+                y += line_h
+
+        return [Cell(card_w, card_h, _draw)]
 
 
 class InfoCard(CornerStack):
@@ -87,25 +122,45 @@ class InfoCard(CornerStack):
     def _cells(self, ctx: RenderContext, style: Style) -> list[Cell]:
         canvas = ctx.canvas
         size, weight = style.font_size, style.font_weight
+        title_size = size * 1.05
         pad, row_gap = 10.0, 6.0
+        # Wrap rows/title to keep the card within the canvas (minus the margin).
+        avail = max(1.0, canvas.width - 2 * self.margin - 2 * pad)
 
+        lines: list[str] = []
+        for row in self.rows:
+            lines.extend(
+                canvas.wrap_text(row, size, max_width=avail, weight=weight)
+                or [""]
+            )
         measured = [
-            (text, canvas.measure_text(text, size, weight=weight))
-            for text in self.rows
+            (line, canvas.measure_text(line, size, weight=weight))
+            for line in lines
         ]
-        title_metrics = (
-            canvas.measure_text(self.title, size * 1.05, weight=700)
+        title_lines = (
+            canvas.wrap_text(
+                self.title, title_size, max_width=avail, weight=700
+            )
             if self.title is not None
-            else None
+            else []
         )
-        if not measured and title_metrics is None:
+        title_measured = [
+            (line, canvas.measure_text(line, title_size, weight=700))
+            for line in title_lines
+        ]
+        if not measured and not title_measured:
             return []
 
         row_h = max((m.height for _, m in measured), default=size)
         content_w = max((m.width for _, m in measured), default=0.0)
-        title_h = title_metrics.height + row_gap if title_metrics else 0.0
-        if title_metrics is not None:
-            content_w = max(content_w, title_metrics.width)
+        title_line_h = max((m.height for _, m in title_measured), default=0.0)
+        title_h = (
+            len(title_measured) * title_line_h + row_gap
+            if title_measured
+            else 0.0
+        )
+        if title_measured:
+            content_w = max(content_w, *(m.width for _, m in title_measured))
 
         card_w = content_w + 2 * pad
         card_h = (
@@ -123,19 +178,21 @@ class InfoCard(CornerStack):
                 shadow=Shadow(blur=6.0, dy=2.0) if style.shadow else None,
             )
             y = rect.top + pad
-            if self.title is not None and title_metrics is not None:
+            for line, metrics in title_measured:
                 cv.text(
-                    (rect.left + pad, y + title_metrics.ascent),
-                    self.title,
-                    size=size * 1.05,
+                    (rect.left + pad, y + metrics.ascent),
+                    line,
+                    size=title_size,
                     color=_CARD_TEXT,
                     weight=700,
                 )
-                y += title_h
-            for text, metrics in measured:
+                y += title_line_h
+            if title_measured:
+                y += row_gap
+            for line, metrics in measured:
                 cv.text(
                     (rect.left + pad, y + metrics.ascent),
-                    text,
+                    line,
                     size=size,
                     color=_CARD_TEXT,
                     weight=weight,
@@ -185,29 +242,60 @@ class Legend(CornerStack):
     def _cells(self, ctx: RenderContext, style: Style) -> list[Cell]:
         canvas = ctx.canvas
         size, weight = style.font_size, style.font_weight
+        title_size = size * 1.05
         pad, row_gap, swatch_gap = 10.0, 6.0, 8.0
         swatch = size
+        # Wrap names to keep the card within the canvas; a wrapped name's swatch
+        # is drawn on its first line, continuation lines sit under the text.
+        name_avail = max(
+            1.0,
+            canvas.width - 2 * self.margin - 2 * pad - swatch - swatch_gap,
+        )
 
-        items = self._resolved_entries(ctx)
-        rows = [
-            (name, color, canvas.measure_text(name, size, weight=weight))
-            for name, color in items
+        # (line, color-or-None, metrics); color set only on an entry's first line.
+        rows: list[tuple[str, Color | None, TextMetrics]] = []
+        for name, color in self._resolved_entries(ctx):
+            wrapped = canvas.wrap_text(
+                name, size, max_width=name_avail, weight=weight
+            ) or [""]
+            for i, line in enumerate(wrapped):
+                rows.append(
+                    (
+                        line,
+                        color if i == 0 else None,
+                        canvas.measure_text(line, size, weight=weight),
+                    )
+                )
+        title_lines = (
+            canvas.wrap_text(
+                self.title,
+                title_size,
+                max_width=max(1.0, canvas.width - 2 * self.margin - 2 * pad),
+                weight=700,
+            )
+            if self.title is not None
+            else []
+        )
+        title_measured = [
+            (line, canvas.measure_text(line, title_size, weight=700))
+            for line in title_lines
         ]
-        if not rows and self.title is None:
+        if not rows and not title_measured:
             return []
 
         row_h = max((m.height for _, _, m in rows), default=size)
         content_w = max(
-            (swatch + swatch_gap + m.width for _, _, m in rows), default=0.0
+            (swatch + swatch_gap + m.width for _, _, m in rows),
+            default=0.0,
         )
-        title_metrics = (
-            canvas.measure_text(self.title, size * 1.05, weight=700)
-            if self.title is not None
-            else None
+        title_line_h = max((m.height for _, m in title_measured), default=0.0)
+        title_h = (
+            len(title_measured) * title_line_h + row_gap
+            if title_measured
+            else 0.0
         )
-        title_h = title_metrics.height + row_gap if title_metrics else 0.0
-        if title_metrics is not None:
-            content_w = max(content_w, title_metrics.width)
+        if title_measured:
+            content_w = max(content_w, *(m.width for _, m in title_measured))
 
         card_w = content_w + 2 * pad
         card_h = (
@@ -225,33 +313,36 @@ class Legend(CornerStack):
                 shadow=Shadow(blur=6.0, dy=2.0) if style.shadow else None,
             )
             y = rect.top + pad
-            if self.title is not None and title_metrics is not None:
+            for line, metrics in title_measured:
                 cv.text(
-                    (rect.left + pad, y + title_metrics.ascent),
-                    self.title,
-                    size=size * 1.05,
+                    (rect.left + pad, y + metrics.ascent),
+                    line,
+                    size=title_size,
                     color=_CARD_TEXT,
                     weight=700,
                 )
-                y += title_h
-            for name, color, metrics in rows:
-                sw_top = y + (row_h - swatch) / 2
-                cv.rounded_rect(
-                    Rect(
-                        rect.left + pad,
-                        sw_top,
-                        rect.left + pad + swatch,
-                        sw_top + swatch,
-                    ),
-                    radius=3.0,
-                    fill=color,
-                )
+                y += title_line_h
+            if title_measured:
+                y += row_gap
+            for line, color, metrics in rows:
+                if color is not None:
+                    sw_top = y + (row_h - swatch) / 2
+                    cv.rounded_rect(
+                        Rect(
+                            rect.left + pad,
+                            sw_top,
+                            rect.left + pad + swatch,
+                            sw_top + swatch,
+                        ),
+                        radius=3.0,
+                        fill=color,
+                    )
                 cv.text(
                     (
                         rect.left + pad + swatch + swatch_gap,
                         y + metrics.ascent,
                     ),
-                    name,
+                    line,
                     size=size,
                     color=_CARD_TEXT,
                     weight=weight,

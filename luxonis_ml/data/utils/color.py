@@ -1,11 +1,11 @@
 """Small color helpers for the data stack.
 
-`resolve_color` normalizes a color-like value (a matplotlib color name, a single
+`resolve_color` normalizes a color-like value (a CSS/Pillow color name, a single
 grayscale integer, or an RGB tuple) into an RGB value. It is used for augmentation
 fill values (see ``LetterboxResize``).
 """
 
-import matplotlib.colors
+from PIL import ImageColor
 
 from luxonis_ml.typing import RGB, Color
 
@@ -40,7 +40,9 @@ def resolve_color(color: Color) -> RGB:
             raise ValueError(f"Color value {val} is out of range [0, 255]")
 
     if isinstance(color, str):
-        return matplotlib.colors.to_rgb(color)  # type: ignore
+        # Preserve the historical float-[0, 1] return for named/hex colors.
+        r, g, b = ImageColor.getrgb(color)[:3]
+        return r / 255, g / 255, b / 255  # type: ignore
     if isinstance(color, int):
         _check_range(color)
         return color, color, color

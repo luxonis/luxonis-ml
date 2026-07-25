@@ -327,14 +327,27 @@ def _pad(rgba: np.ndarray, width: int, height: int, fill: Color) -> np.ndarray:
     return out
 
 
-def _title_height(titles: Sequence[str] | None, style: Style) -> float:
-    """Height reserved above each cell for a title, or ``0`` when there are none."""
+def _wrap_titles(
+    titles: Sequence[str] | None, count: int, cell_w: float, style: Style
+) -> list[list[str]]:
+    """Wrap each title to the cell width so long titles never overflow the cell."""
     if not titles:
-        return 0.0
-    metrics = _MEASURE.measure_text(
-        "Ag", style.font_size, weight=style.font_weight
-    )
-    return metrics.height + 2 * _TITLE_PAD
+        return [[] for _ in range(count)]
+    max_w = max(1.0, cell_w - 2 * _TITLE_PAD)
+    wrapped: list[list[str]] = []
+    for i in range(count):
+        title = titles[i] if i < len(titles) else ""
+        wrapped.append(
+            _MEASURE.wrap_text(
+                title,
+                style.font_size,
+                max_width=max_w,
+                weight=style.font_weight,
+            )
+            if title
+            else []
+        )
+    return wrapped
 
 
 def _grid(
@@ -359,7 +372,13 @@ def _grid(
     rows = math.ceil(len(rasters) / cols)
     cell_w = max(r.shape[1] for r in rasters)
     cell_h = max(r.shape[0] for r in rasters)
-    title_h = _title_height(titles, style)
+
+    line_h = _MEASURE.measure_text(
+        "Ag", style.font_size, weight=style.font_weight
+    ).height
+    wrapped = _wrap_titles(titles, len(rasters), cell_w, style)
+    max_lines = max((len(lines) for lines in wrapped), default=0)
+    title_h = max_lines * line_h + 2 * _TITLE_PAD if max_lines else 0.0
 
     width = pad + cols * (cell_w + pad)
     height = round(pad + rows * (title_h + cell_h + pad))
@@ -374,14 +393,15 @@ def _grid(
         row, col = divmod(i, cols)
         cell_x = pad + col * (cell_w + pad)
         cell_y = round(pad + row * (title_h + cell_h + pad))
-        if titles and i < len(titles) and titles[i]:
+        if wrapped[i]:
             _draw_title(
                 canvas,
-                titles[i],
+                wrapped[i],
                 cell_x + cell_w / 2,
                 cell_y,
                 style,
                 text_color,
+                line_h,
             )
         h, w = raster.shape[:2]
         x = cell_x + (cell_w - w) // 2
@@ -394,21 +414,24 @@ def _grid(
 
 def _draw_title(
     canvas: Canvas,
-    text: str,
+    lines: Sequence[str],
     center_x: float,
     top: float,
     style: Style,
     color: Color,
+    line_h: float,
 ) -> None:
-    """Draw a centered title string above a cell."""
-    metrics = canvas.measure_text(
-        text, style.font_size, weight=style.font_weight
-    )
-    baseline_y = top + _TITLE_PAD + metrics.ascent
-    canvas.text(
-        (center_x - metrics.width / 2, baseline_y),
-        text,
-        size=style.font_size,
-        color=color,
-        weight=style.font_weight,
-    )
+    """Draw centered, wrapped title lines above a cell."""
+    y = top + _TITLE_PAD
+    for line in lines:
+        metrics = canvas.measure_text(
+            line, style.font_size, weight=style.font_weight
+        )
+        canvas.text(
+            (center_x - metrics.width / 2, y + metrics.ascent),
+            line,
+            size=style.font_size,
+            color=color,
+            weight=style.font_weight,
+        )
+        y += line_h

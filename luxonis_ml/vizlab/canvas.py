@@ -396,6 +396,67 @@ class Canvas:
             width=width, ascent=-metrics.fAscent, descent=metrics.fDescent
         )
 
+    def wrap_text(
+        self,
+        text: str,
+        size: float,
+        *,
+        max_width: float,
+        weight: int = 400,
+    ) -> list[str]:
+        """Greedily word-wrap ``text`` to fit ``max_width`` pixels.
+
+        Splits on spaces and existing newlines; a single word wider than
+        ``max_width`` is hard-broken so no returned line exceeds the width. Used
+        to keep long labels and titles inside the canvas.
+
+        Args:
+            text: The string to wrap.
+            size: Text size in pixels.
+            max_width: Maximum line width in pixels.
+            weight: OpenType weight (100-900).
+
+        Returns:
+            The wrapped lines, top to bottom (empty when ``text`` is empty).
+
+        """
+        if not text:
+            return []
+        limit = max(1.0, max_width)
+
+        def width(run: str) -> float:
+            return self.measure_text(run, size, weight=weight).width
+
+        def fit_pieces(word: str) -> list[str]:
+            # A word wider than the limit is hard-broken into fitting chunks.
+            if len(word) <= 1 or width(word) <= limit:
+                return [word]
+            pieces: list[str] = []
+            start = 0
+            while start < len(word):
+                end = start + 1
+                while (
+                    end < len(word) and width(word[start : end + 1]) <= limit
+                ):
+                    end += 1
+                pieces.append(word[start:end])
+                start = end
+            return pieces
+
+        lines: list[str] = []
+        for paragraph in text.split("\n"):
+            current = ""
+            for word in paragraph.split(" "):
+                for piece in fit_pieces(word):
+                    candidate = piece if not current else f"{current} {piece}"
+                    if not current or width(candidate) <= limit:
+                        current = candidate
+                    else:
+                        lines.append(current)
+                        current = piece
+            lines.append(current)
+        return lines
+
     def text(
         self,
         origin: XY,

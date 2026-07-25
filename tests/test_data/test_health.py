@@ -3,10 +3,6 @@ from pathlib import Path
 import pytest
 
 from luxonis_ml.data import DatasetIterator, LuxonisParser
-from luxonis_ml.data.utils.plot_utils import (
-    _prepare_class_data,
-    _prepare_heatmap_data,
-)
 
 from .utils import create_dataset, create_image
 
@@ -40,7 +36,6 @@ def test_dataset_health(
         assert len(task_classes) == 1
         assert task_classes[0]["class_name"] == "person"
         assert task_classes[0]["count"] == 145
-        _prepare_class_data(task_classes)
 
     heatmaps = statistics["heatmaps"][""]
     annotation_types = [
@@ -51,7 +46,6 @@ def test_dataset_health(
     ]
     for ann_type in annotation_types:
         grid = heatmaps[ann_type]
-        _prepare_heatmap_data(grid)
         assert len(grid) == 15
         for row in grid:
             assert len(row) == 15
@@ -145,3 +139,70 @@ def test_dataset_sanitize(
     stats_after = dataset.get_statistics()
     assert len(stats_after["duplicates"]["duplicate_uuids"]) == 0
     assert len(stats_after["duplicates"]["duplicate_annotations"]) == 0
+
+
+def test_build_health_grid_renders() -> None:
+    """The vizlab health grid renders class-distribution and heatmap panels."""
+    pytest.importorskip("luxonis_ml.vizlab")
+    from luxonis_ml.data.utils.health_plots import build_health_grid
+
+    class_dist = {
+        "boundingbox": [
+            {"class_name": "person", "count": 1240},
+            {"class_name": "car", "count": 712},
+            {"class_name": "dog", "count": 143},
+        ],
+        "keypoints": [],  # exercises the empty-distribution placeholder
+    }
+    heatmaps = {
+        "boundingbox": [[i + j for j in range(15)] for i in range(15)],
+        "keypoints": None,  # exercises the missing-heatmap placeholder
+    }
+    image = build_health_grid("detections", class_dist, heatmaps)
+    rendered = image.render()
+    assert rendered.ndim == 3
+    assert rendered.shape[2] == 4
+    assert rendered.shape[0] > 0
+    assert rendered.shape[1] > 0
+    assert rendered[..., 3].max() > 0
+
+
+def test_build_health_grid_theme_style_options() -> None:
+    """The light theme, a gradient, a mode, and a scale all thread through."""
+    pytest.importorskip("luxonis_ml.vizlab")
+    from luxonis_ml.data.utils.health_plots import build_health_grid
+    from luxonis_ml.vizlab import LIGHT_THEME
+
+    class_dist = {
+        "boundingbox": [
+            {"class_name": "person", "count": 1240},
+            {"class_name": "car", "count": 712},
+        ]
+    }
+    heatmaps = {"boundingbox": [[i + j for j in range(15)] for i in range(15)]}
+    image = build_health_grid(
+        "det",
+        class_dist,
+        heatmaps,
+        theme=LIGHT_THEME,
+        gradient="turbo",
+        mode="stacked",
+        scale=1.25,
+    )
+    rendered = image.render()
+    assert rendered.shape[0] > 0
+    assert rendered.shape[1] > 0
+    # The light background is present in the composited grid.
+    bg = LIGHT_THEME.background
+    matches = (
+        (rendered[..., 0] == bg.r)
+        & (rendered[..., 1] == bg.g)
+        & (rendered[..., 2] == bg.b)
+    )
+    assert matches.any()
+
+    # A larger scale yields a larger grid.
+    smaller = build_health_grid(
+        "det", class_dist, heatmaps, theme=LIGHT_THEME, scale=0.6
+    ).render()
+    assert rendered.shape[0] > smaller.shape[0]

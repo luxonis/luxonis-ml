@@ -24,8 +24,8 @@ the part of the data workflow they support:
      - `RemoteFileDownloader` and `download_remote_file` copy supported
        remote files to local paths and validate image inputs.
    * - Visualization
-     - Label and image visualization is owned by `luxonis_ml.vizlab`; dataset
-       statistics still use `plot_class_distribution` and `plot_heatmap`.
+     - Label and image visualization (including dataset-health charts) is owned
+       by `luxonis_ml.vizlab`.
    * - Equivalence and augmentation inspection
      - LDF equivalence checks and `AugmentationsCollector` summaries for
        configured augmentation pipelines.
@@ -59,7 +59,6 @@ from .enums import (
     UpdateMode,
 )
 from .parquet import ParquetFileManager, ParquetRecord
-from .plot_utils import plot_class_distribution, plot_heatmap
 from .remote_file_downloader import (
     RemoteFileDownloader,
     download_remote_file,
@@ -95,8 +94,6 @@ __all__ = [
     "get_task_type",
     "infer_task",
     "merge_uuids",
-    "plot_class_distribution",
-    "plot_heatmap",
     "rgb_to_bool_masks",
     "split_task",
     "task_is_metadata",

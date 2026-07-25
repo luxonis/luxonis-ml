@@ -15,7 +15,7 @@ from typing import ClassVar
 from luxonis_ml.vizlab.canvas import Canvas
 from luxonis_ml.vizlab.color import Color
 from luxonis_ml.vizlab.geometry import Rect
-from luxonis_ml.vizlab.style import Style
+from luxonis_ml.vizlab.style import Style, Theme
 
 from .base import Annotation, RenderContext
 from .chip import chip_size, draw_chip
@@ -109,6 +109,36 @@ class CornerStack(Annotation):
     def extent(self) -> Rect | None:
         """Image-level overlays have no local extent."""
         return None
+
+    def content_size(
+        self, *, theme: Theme | None = None, style_scale: float = 1.0
+    ) -> tuple[float, float]:
+        """Return the natural ``(width, height)`` of this stack's cells, in pixels.
+
+        Measures without drawing, so a caller can size a standalone canvas to fit
+        the overlay (e.g. render a legend or a distribution panel on its own).
+        Width is the widest cell; height sums the cells plus the inter-cell gaps.
+
+        Args:
+            theme: Theme supplying default style/palette during measurement.
+            style_scale: Style scale to measure at; keep at ``1.0`` for canvases
+                below the style-scale reference size.
+
+        Returns:
+            The content's ``(width, height)``; ``(0.0, 0.0)`` when it has no cells.
+
+        """
+        ctx = RenderContext(
+            canvas=Canvas.blank(1, 1), theme=theme, style_scale=style_scale
+        )
+        cells = self._cells(ctx, self.resolve_style(ctx))
+        if not cells:
+            return (0.0, 0.0)
+        width = max(cell.width for cell in cells)
+        height = sum(cell.height for cell in cells) + self.gap * (
+            len(cells) - 1
+        )
+        return (width, height)
 
     def _positioned(
         self, ctx: RenderContext, style: Style
