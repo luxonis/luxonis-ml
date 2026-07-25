@@ -1,57 +1,54 @@
-"""The visualization engine of ``luxonis-ml``. It draws bounding boxes,
-instance/semantic masks, keypoints with skeletons, classification tags, and
-nested sub-labels with Skia — anti-aliasing, true alpha, rounded corners, soft
-shadows, and good typography. Install it with the ``viz`` extra
-(``pip install luxonis-ml[viz]``).
+"""Render images and Luxonis Data Format annotations.
 
-LDF-native. ``vizlab`` renders Luxonis Data Format objects directly: pass a
-`Detection` (or a whole `DatasetRecord`) straight to `Image.add`, or render a
-loader sample with `visualize_record`. Each render class (`BBox`, `Keypoints`,
-`Mask`, ...) also carries a ``from_ldf`` constructor and stays available as a
-lower-level drawing primitive. Spatial coordinates are image-normalized in
-``[0, 1]``.
+``vizlab`` is the visualization layer of ``luxonis-ml``. It renders bounding
+boxes, instance and semantic masks, keypoints, classification tags, nested
+detections, and image-level metadata with a shared palette and collision-aware
+label layout. Install the optional renderer with
+``pip install luxonis-ml[viz]``.
+
+The main entry point is `Image`. It accepts NumPy arrays, Pillow images, Torch
+tensors, and image paths. Add either native vizlab annotations or LDF
+`Detection` and `DatasetRecord` objects; drawing is deferred until `Image.render`
+so the renderer can place all labels together.
+
+Examples:
+    Render an LDF detection:
 
     >>> import numpy as np
     >>> from luxonis_ml.ldf import Detection
     >>> from luxonis_ml.vizlab import Image
-    >>> det = Detection(
+    >>> detection = Detection(
     ...     class_name="car",
     ...     boundingbox={"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
     ... )
-    >>> Image(np.zeros((80, 120, 3), np.uint8)).add(det).render().shape
+    >>> image = Image(np.zeros((80, 120, 3), np.uint8)).add(detection)
+    >>> image.render().shape
     (80, 120, 4)
 
-Design. `Image` is the composition root: annotations are collected with
-`Image.add` (which returns ``self`` for chaining) and nothing is drawn until
-`Image.render`, so labels are laid out with knowledge of the whole scene.
-Colors, placement, and style are chosen for you and can all be overridden. A
-class gets a stable, well-spread color from golden-ratio hue spacing
-(`GoldenRatioColors`); pre-seed a `Palette` with your class names to fix those
-colors across images. A sub-label's style is *derived* from its parent — a
-lighter shade with a thinner, dashed outline — so nesting reads at a glance.
-Label chips are placed to avoid overlapping each other and are drawn on top of
-every box and mask.
-
-Label types. `BBox` (axis-aligned, or oriented via ``angle``), `Keypoints`
-(with a `Skeleton`), `Mask` (instance: binary array, polygon points, or COCO
-RLE), `SemanticMask` (dense label map), and `Classification` (image-level
-corner tags), plus the `Caption`, `Legend`, and `InfoCard` overlays. Every
-annotation may carry a ``label``, a ``score``, and an arbitrary ``payload`` —
-the OCR case is a box plus its transcribed text.
+    Build the same scene with a native render annotation:
 
     >>> from luxonis_ml.vizlab import BBox
-    >>> img = Image(np.zeros((80, 120, 3), np.uint8))
-    >>> img.add(BBox(x=0.1, y=0.2, w=0.3, h=0.4, label="car", score=0.9))
+    >>> image = Image(np.zeros((80, 120, 3), np.uint8))
+    >>> image.add(BBox(x=0.1, y=0.2, w=0.3, h=0.4, label="car", score=0.9))
     Image(size=120x80, annotations=1)
 
-Composition. `blend` (mixup), `hstack`/`vstack`, and `grid` each render their
-inputs and return a new `Image`, leaving the originals untouched.
-`Image.with_panel` appends a "second window" of arbitrary JSON-like metadata
-(augmentations, source, tags) beside an image as an indented key/value tree
-that never occludes the pixels or labels. Theme with `DARK_THEME` (default) or
-`LIGHT_THEME`, or your own via `set_default_theme`.
+Notes:
+    Spatial coordinates are normalized to the source image in ``[0, 1]``.
+    Raster mask fills are painted at source resolution, then the image is scaled
+    once and vector strokes, keypoints, and label chips are drawn at display
+    resolution. Use ``mode="bgr"`` when the input is an OpenCV array.
 
-A single runnable script covering every feature lives in ``vizlab_examples/``.
+    The public API has four layers:
+
+    - `Image`, `visualize_record`, and `VizConfig` cover LDF and loader workflows.
+    - `BBox`, `Keypoints`, `Mask`, `SemanticMask`, and `Classification` are
+      lower-level render annotations.
+    - `Style`, `Palette`, and `Theme` control appearance.
+    - `blend`, `hstack`, `vstack`, `grid`, and `with_panel` return new composed
+      images and leave their inputs unchanged.
+
+    See ``vizlab_examples/`` for a runnable feature overview.
+
 """
 
 from luxonis_ml.guard_extras import guard_missing_extra

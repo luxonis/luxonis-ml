@@ -109,6 +109,19 @@ class Annotation(BaseModel):
             theme's palette.
         children: Nested sub-label annotations, drawn on top of this one.
 
+    Examples:
+        Fluent helpers mutate and return the same annotation:
+
+        >>> from luxonis_ml.vizlab import BBox
+        >>> box = BBox(x=0.1, y=0.2, w=0.3, h=0.4)
+        >>> box.tag("car", score=0.9).caption("track 7") is box
+        True
+
+        Nest a child annotation so it derives its parent's color and style:
+
+        >>> box.add(BBox(x=0.2, y=0.3, w=0.1, h=0.1, label="plate")) is box
+        True
+
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -128,6 +141,10 @@ class Annotation(BaseModel):
     def add(self, child: "Annotation") -> Self:
         """Attach a nested sub-label and return ``self`` for chaining.
 
+        The child is rendered after its parent. Without explicit color/style
+        overrides, it receives a derived color and style that visually indicates
+        nesting.
+
         Args:
             child: The child annotation to nest inside this one.
 
@@ -140,6 +157,9 @@ class Annotation(BaseModel):
 
     def tag(self, label: str, *, score: float | None = None) -> Self:
         """Set the class label (and optional score) and return ``self``.
+
+        The label selects a palette color and is shown on the annotation's label
+        chip. Setting ``score`` adds a percentage to that chip.
 
         Args:
             label: The class name.
@@ -155,6 +175,10 @@ class Annotation(BaseModel):
 
     def caption(self, value: str | float) -> Self:
         """Set the generic payload and return ``self``.
+
+        Payload appears after the label and score on the annotation's chip. This
+        is useful for recognized text, track identifiers, or another compact
+        per-instance value.
 
         Args:
             value: The text/int/float value to show on the label chip.

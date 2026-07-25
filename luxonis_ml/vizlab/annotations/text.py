@@ -30,6 +30,14 @@ class Caption(CornerStack):
     See `CornerStack` for
     ``corner``/``margin``/``gap``.
 
+    Examples:
+        >>> from luxonis_ml.vizlab import Caption, Corner
+        >>> caption = Caption(
+        ...     text="camera 1", corner=Corner.BOTTOM_LEFT, title=True
+        ... )
+        >>> caption.text
+        'camera 1'
+
     """
 
     text: str = ""
@@ -63,6 +71,12 @@ class InfoCard(CornerStack):
         title: Optional heading drawn above the rows.
 
     See `CornerStack` for ``corner``/``margin``/``gap``.
+
+    Examples:
+        >>> from luxonis_ml.vizlab import InfoCard
+        >>> card = InfoCard(rows=["track_id: 7", "speed: 12.4"], title="metadata")
+        >>> card.rows[0]
+        'track_id: 7'
 
     """
 
@@ -141,6 +155,14 @@ class Legend(CornerStack):
 
     See `CornerStack` for
     ``corner``/``margin``/``gap``.
+
+    Examples:
+        Class names use the active palette; tuples pin an explicit color:
+
+        >>> from luxonis_ml.vizlab import Legend
+        >>> legend = Legend(entries=["car", ("road", "#555555")], title="classes")
+        >>> len(legend.entries)
+        2
 
     """
 

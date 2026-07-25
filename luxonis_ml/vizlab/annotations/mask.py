@@ -293,6 +293,14 @@ class SemanticMask(Annotation):
     ``style`` and ``palette`` fields (``label``/``color`` do not apply — colors are
     per class id).
 
+    Examples:
+        >>> import numpy as np
+        >>> from luxonis_ml.vizlab import Image, SemanticMask
+        >>> labels = np.array([[0, 1], [2, 2]], dtype=np.uint8)
+        >>> mask = SemanticMask(labels=labels, names={1: "road", 2: "car"})
+        >>> Image(np.zeros((2, 2, 3), np.uint8)).add(mask).render().shape
+        (2, 2, 4)
+
     """
 
     labels: np.ndarray | None = None

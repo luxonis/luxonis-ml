@@ -37,13 +37,24 @@ def _split(tag: str | tuple[str, float]) -> tuple[str, float | None]:
 
 
 class Classification(CornerStack):
-    """A stack of class-tag chips in an image corner.
+    """Render image-level classes as colored corner chips.
+
+    Each tag becomes one chip. Multiple `Classification` overlays anchored to
+    the same corner are offset into one visual stack instead of covering one
+    another.
 
     Attributes:
         tags: Class names, or ``(name, score)`` pairs, one chip each.
 
     See `CornerStack` for ``corner``/``margin``/``gap`` and
     `Annotation` for ``style``/``palette``.
+
+    Examples:
+        >>> import numpy as np
+        >>> from luxonis_ml.vizlab import Classification, Image
+        >>> tags = Classification(tags=["indoor", ("cat", 0.92)])
+        >>> Image(np.zeros((40, 80, 3), np.uint8)).add(tags).render().shape
+        (40, 80, 4)
 
     """
 

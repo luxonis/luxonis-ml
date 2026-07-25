@@ -101,7 +101,29 @@ def _style_scale(width: int, height: int) -> float:
 
 
 class Image:
-    """A base image plus a collected list of annotations to draw on it."""
+    """Collect annotations over a base raster and render them as one scene.
+
+    `Image` is mutable: `add` and `render_at` update the scene and return
+    ``self`` for chaining. Rendering is lazy and cached by output size and
+    annotation state. Export methods return fresh arrays or objects, so callers
+    can modify their outputs without changing the `Image`.
+
+    Attributes:
+        width: Source-raster width in pixels.
+        height: Source-raster height in pixels.
+        annotations: Live list of top-level render annotations.
+        theme: Explicit per-image theme, or ``None`` for the process default.
+
+    Examples:
+        >>> import numpy as np
+        >>> from luxonis_ml.vizlab import BBox, Image
+        >>> image = Image(np.zeros((60, 100, 3), np.uint8))
+        >>> image.add(BBox(x=0.1, y=0.2, w=0.4, h=0.5, label="car"))
+        Image(size=100x60, annotations=1)
+        >>> image.render().shape
+        (60, 100, 4)
+
+    """
 
     def __init__(
         self,
@@ -115,8 +137,10 @@ class Image:
         """Create an image from any supported source.
 
         Args:
-            source: A numpy array, PIL image, torch tensor, or file path. See
-                `vizlab.io.load_rgba` for the accepted shapes.
+            source: A NumPy array, Pillow image, Torch tensor, or image path.
+                NumPy arrays may be ``(H, W)``, ``(H, W, 1)``, ``(H, W, 3)``, or
+                ``(H, W, 4)``; tensors may also be channel-first. See
+                `vizlab.io.load_rgba`.
             mode: Channel order for array/tensor sources, ``"rgb"`` (default) or
                 ``"bgr"`` (e.g. the output of ``cv2.imread``).
             theme: Theme supplying default style/palette; ``None`` uses the
@@ -127,6 +151,11 @@ class Image:
                 painted at the source resolution and the raster is scaled to this
                 size once; strokes and labels are then drawn crisply at it (see
                 `render`). ``None`` renders at the source resolution.
+
+        Raises:
+            TypeError: If ``source`` is not a supported image type.
+            ValueError: If an array/tensor shape or channel mode is unsupported.
+            FileNotFoundError: If an image path cannot be read or decoded.
 
         """
         self._rgba = io.load_rgba(source, mode)
@@ -153,7 +182,16 @@ class Image:
 
     @property
     def annotations(self) -> list[Annotation]:
-        """The list of top-level annotations collected so far."""
+        """Return the live list of top-level annotations.
+
+        Mutating this list or an annotation changes the next render; the render
+        cache tracks the mutable scene state automatically. Use `copy` first
+        when a separate top-level list is required.
+
+        Returns:
+            The mutable annotation list owned by this image.
+
+        """
         return self._annotations
 
     @property
@@ -211,6 +249,9 @@ class Image:
     def render_at(self, size: tuple[int, int] | None) -> Self:
         """Set the display render size and return ``self`` for chaining.
 
+        This changes the default used by `render`; passing ``size`` directly to
+        `render` overrides it for that call without updating this setting.
+
         Args:
             size: ``(width, height)`` to render at, or ``None`` for the source
                 resolution. See `render` for how the size is used.
@@ -228,8 +269,10 @@ class Image:
     def copy(self) -> "Image":
         """Return a shallow clone sharing the base raster.
 
-        The clone gets its own annotation list, so adding to it does not affect the
-        original — useful for reusing a base image across several visualizations.
+        The clone gets its own top-level annotation list, so adding or removing
+        annotations on the clone does not affect the original. Annotation objects,
+        nested children, the base raster, theme, and config remain shared; mutate
+        an annotation only when that change should be visible from both images.
 
         Returns:
             A new `Image` with the same base pixels and a copied annotation list.
@@ -255,7 +298,8 @@ class Image:
         image is scaled for display while painting heavy fills only once, at the
         source resolution.
 
-        The result is cached per size and mutable scene-graph state.
+        The result is cached per size and mutable scene-graph state. A copy is
+        returned on every call.
 
         Args:
             size: ``(width, height)`` to render at; ``None`` uses the size set via
@@ -328,6 +372,9 @@ class Image:
         Returns:
             The rendered image in the requested channel layout.
 
+        Raises:
+            ValueError: If ``mode`` is not one of the supported layouts.
+
         """
         return io.export(self.render(), mode)
 
@@ -353,20 +400,29 @@ class Image:
         Returns:
             This image, to allow chaining.
 
+        Raises:
+            ValueError: If the destination extension is not PNG, JPEG, or WebP.
+
         """
         io.save(self.render(), path, quality=quality)
         return self
 
     def show(self) -> None:
-        """Render and open the image in the default viewer (needs Pillow)."""
+        """Render and open the image in Pillow's default viewer.
+
+        Raises:
+            ImportError: If Pillow is not installed.
+
+        """
         self.to_pil().show()
 
     def blend(self, other: "Image", alpha: float = 0.3) -> "Image":
         """Blend this image with another (mixup), returning a new image.
 
-        Only the base rasters are mixed; both images' annotations are carried onto
-        the result and drawn crisply when it renders. See
-        `vizlab.compose.blend` for details.
+        Only the base rasters are mixed; both images' annotations are carried
+        onto the result and drawn crisply when it renders. Differently sized
+        inputs are padded at the bottom and right, and their spatial annotations
+        are transformed to remain aligned. See `vizlab.compose.blend`.
 
         Args:
             other: The image whose base is blended on top, weighted by ``alpha``.
@@ -389,9 +445,11 @@ class Image:
         width: float | None = None,
         title: str | None = None,
     ) -> "Image":
-        """Append a metadata sidebar showing ``data``, returning a new image.
+        """Append a metadata panel showing ``data`` and return a new image.
 
-        See `vizlab.panel.with_panel` for details.
+        Nested mappings and sequences are formatted as an indented tree. The
+        panel is placed outside the rendered image, so it cannot cover pixels or
+        labels. See `vizlab.panel.with_panel`.
 
         Args:
             data: JSON-like metadata (mapping/sequence/scalar, nested arbitrarily).
@@ -411,4 +469,5 @@ class Image:
         )
 
     def __repr__(self) -> str:
+        """Return a compact source-size and annotation-count summary."""
         return f"Image(size={self.width}x{self.height}, annotations={len(self._annotations)})"

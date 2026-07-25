@@ -42,8 +42,10 @@ def blend(
     collision-aware layout keeps the two images' labels from landing on top of each
     other. To fade labels anyway, give them a style with ``label_alpha < 1``.
 
-    Mismatched sizes are padded to the larger size (top-left anchored, so pixel
-    coordinates stay valid for both images' annotations).
+    Mismatched sizes are padded at the bottom and right to the larger canvas.
+    Boxes and keypoints are renormalized, masks are resized to their source image
+    and padded, and nested annotations are transformed recursively. Image-level
+    overlays remain anchored to the resulting canvas.
 
     Args:
         base: The first image.
@@ -169,7 +171,11 @@ def hstack(
     titles: Sequence[str] | None = None,
     style: Style = DEFAULT_STYLE,
 ) -> Image:
-    """Lay images out in a single row, left to right.
+    """Render images into a new, left-to-right row.
+
+    Each input is rendered before composition. Cells use the tallest input
+    height, and smaller images are centered within their cell. The inputs and
+    their scene graphs are not mutated.
 
     Args:
         images: The images to place.
@@ -180,6 +186,9 @@ def hstack(
 
     Returns:
         A new `Image` of the row.
+
+    Raises:
+        ValueError: If ``images`` is empty.
 
     Examples:
         >>> from luxonis_ml.vizlab.image import Image
@@ -207,7 +216,10 @@ def vstack(
     titles: Sequence[str] | None = None,
     style: Style = DEFAULT_STYLE,
 ) -> Image:
-    """Lay images out in a single column, top to bottom.
+    """Render images into a new, top-to-bottom column.
+
+    Cells use the widest input width, and smaller images are centered within
+    their cell. The inputs and their scene graphs are not mutated.
 
     Args:
         images: The images to place.
@@ -218,6 +230,9 @@ def vstack(
 
     Returns:
         A new `Image` of the column.
+
+    Raises:
+        ValueError: If ``images`` is empty.
 
     """
     return _grid(images, ncols=1, pad=pad, bg=bg, titles=titles, style=style)[
@@ -234,11 +249,15 @@ def grid(
     titles: Sequence[str] | None = None,
     style: Style = DEFAULT_STYLE,
 ) -> Image:
-    """Lay images out in a grid of uniform cells.
+    """Render images into a new row-major grid of uniform cells.
+
+    Cell width and height come from the largest rendered input. Smaller images
+    are centered, optional titles occupy a shared title band, and unused cells in
+    the final row are omitted.
 
     Args:
         images: The images to place, filled row-major.
-        ncols: Number of columns; defaults to ``ceil(sqrt(n))``.
+        ncols: Positive number of columns; defaults to ``ceil(sqrt(n))``.
         pad: Gap between cells and outer margin, in pixels.
         bg: Background color.
         titles: Optional per-image titles drawn above each cell.
@@ -246,6 +265,9 @@ def grid(
 
     Returns:
         A new `Image` of the grid.
+
+    Raises:
+        ValueError: If ``images`` is empty.
 
     Examples:
         >>> from luxonis_ml.vizlab.image import Image
@@ -276,14 +298,18 @@ def grid_placed(
 
     Args:
         images: The images to place, filled row-major.
-        ncols: Number of columns; defaults to ``ceil(sqrt(n))``.
+        ncols: Positive number of columns; defaults to ``ceil(sqrt(n))``.
         pad: Gap between cells and outer margin, in pixels.
         bg: Background color.
         titles: Optional per-image titles drawn above each cell.
         style: Style whose font is used for titles.
 
     Returns:
-        A ``(grid_image, placements)`` pair.
+        A ``(grid_image, placements)`` pair. Each placement is an integer
+        ``(x, y, width, height)`` tuple in composite-image pixels.
+
+    Raises:
+        ValueError: If ``images`` is empty.
 
     """
     count = len(list(images))

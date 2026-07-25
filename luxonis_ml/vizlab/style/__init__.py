@@ -1,4 +1,11 @@
-"""Styling: resolved per-annotation `Style` and class-color `Palette`."""
+"""Configure annotation geometry, class colors, and render-wide defaults.
+
+`Style` controls strokes, fills, typography, labels, keypoints, and masks.
+`Palette` assigns stable colors in first-seen class order; pre-register class
+names when the mapping must remain stable across images. `Theme` combines a
+style, palette, and composition background. An annotation-level override wins
+over its parent, then the active theme, then the library default.
+"""
 
 from .derive import derive_child_color, derive_child_style
 from .palette import (

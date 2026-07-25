@@ -75,6 +75,10 @@ def chip_cell(canvas: Canvas, text: str, color: Color, style: Style) -> Cell:
 class CornerStack(Annotation):
     """Base for image-level overlays that stack cells in a corner.
 
+    Corner stacks are drawn after spatial annotations. Their occupied rectangles
+    are reserved before box and mask labels are placed, and separate overlays in
+    the same corner are offset so every card remains visible.
+
     Attributes:
         corner: Which corner to anchor the stack to.
         margin: Distance from the image edges, in pixels.

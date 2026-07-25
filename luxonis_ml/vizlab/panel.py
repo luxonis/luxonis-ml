@@ -170,14 +170,20 @@ def with_panel(
     style: Style | None = None,
     bg: ColorLike | None = None,
 ) -> Image:
-    """Render ``image`` and append a metadata panel beside it.
+    """Render an image and append a non-overlapping metadata panel.
+
+    Mappings and sequences are flattened into an indented tree; long scalar
+    values wrap to the available width. A right or left panel may increase the
+    output height to fit its content. A bottom panel keeps the source image above
+    the panel. The input image is rendered but not mutated.
 
     Args:
         image: The image to annotate. Rendered at native resolution.
         data: JSON-like metadata (mapping/sequence/scalar, nested arbitrarily).
         side: Which edge to attach the panel to: ``"right"`` (default), ``"left"``,
             or ``"bottom"``.
-        width: Panel width in pixels; ``None`` auto-sizes from the content.
+        width: Panel width in pixels for every side; ``None`` auto-sizes from
+            the content. For a bottom panel this also sets the content width.
         title: Optional bold heading drawn above the tree.
         style: Style whose font is used (defaults to the library default).
         bg: Panel background color; defaults to the image's theme background.
@@ -185,6 +191,14 @@ def with_panel(
     Returns:
         A new `Image` of the image plus the panel. The input is
         not mutated.
+
+    Examples:
+        >>> import numpy as np
+        >>> from luxonis_ml.vizlab import Image, with_panel
+        >>> image = Image(np.zeros((20, 30, 3), np.uint8))
+        >>> data = {"source": "frame.jpg", "augmentations": ["flip", "blur"]}
+        >>> with_panel(image, data).render().shape[1] > image.width
+        True
 
     """
     style = style or DEFAULT_STYLE

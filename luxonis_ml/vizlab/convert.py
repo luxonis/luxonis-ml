@@ -55,7 +55,8 @@ class VizConfig:
     LDF annotations carry only data; everything needed to *draw* them that is
     not on the annotation itself is supplied here. The same config renders a
     live ``LuxonisDataset`` sample (from the ``inspect`` CLI) and hand-built
-    ``Detection`` objects (tests, library use).
+    `Detection` objects. Reuse one config across a dataset so palette assignments
+    and skeleton lookup remain consistent.
 
     Attributes:
         palette: Palette used to color classes. Pre-seed it with the dataset's
@@ -73,6 +74,18 @@ class VizConfig:
             OCR). It is rendered prominently — on a boxed detection's label chip,
             or as a large caption for a box-less one — instead of as a small
             metadata row. ``None`` disables the special treatment.
+
+    Examples:
+        >>> from luxonis_ml.vizlab import Palette, Skeleton, VizConfig
+        >>> skeleton = Skeleton.from_ldf(["left", "right"], [(0, 1)])
+        >>> config = VizConfig(
+        ...     palette=Palette(["person"]),
+        ...     skeletons={"pose": skeleton},
+        ...     keypoint_label_mode="names",
+        ...     draw_skeletons=True,
+        ... )
+        >>> config.skeletons["pose"].edges
+        ((0, 1),)
 
     """
 
@@ -263,11 +276,13 @@ def metadata_annotations(
 def to_render_annotations(
     obj: object, config: VizConfig | None = None
 ) -> list[Annotation]:
-    """Convert an LDF object into vizlab annotations (dispatch by type).
+    """Convert one supported LDF object into render annotations.
 
     Accepts a `DatasetRecord`, a `Detection`, or a single annotation model
     (`BBoxAnnotation`, `KeypointAnnotation`, `InstanceSegmentationAnnotation`,
-    `SegmentationAnnotation`).
+    `SegmentationAnnotation`). This is the conversion used by `Image.add`.
+    For record-level aggregation of classification and semantic-segmentation
+    labels, use `visualize_record`.
 
     Args:
         obj: The LDF object to render.
@@ -332,14 +347,15 @@ def visualize_record(
     panel: dict | None = None,
     size: tuple[int, int] | None = None,
 ) -> "Image":
-    """Render a `DatasetRecord` (and its image) into a composed `Image`.
+    """Build one complete record visualization over its source image.
 
     Draws every detection's spatial annotations, aggregates all top-level
     semantic-segmentation masks into a single
     `SemanticMask`, collects
     class-only detections into one classification overlay, and attaches a
     metadata side-panel built from the record's ``sample_metadata``, any array
-    shapes, and an optional extra ``panel`` mapping.
+    shapes, and an optional extra ``panel`` mapping. Extra panel values override
+    record metadata with the same key.
 
     Args:
         record: The LDF record to visualize (its ``annotation`` may be a single
@@ -353,8 +369,27 @@ def visualize_record(
             keeps the source resolution. See `Image.render`.
 
     Returns:
-        The rendered `Image`; when there is panel content, the returned
-        image includes the side-panel.
+        A new visualization `Image`. When panel content exists, the returned
+        image includes the rendered source and its side panel.
+
+    Examples:
+        >>> import numpy as np
+        >>> from luxonis_ml.ldf import DatasetRecord, Detection
+        >>> from luxonis_ml.vizlab import visualize_record
+        >>> record = DatasetRecord.model_construct(
+        ...     files={},
+        ...     annotation=[
+        ...         Detection(
+        ...             class_name="car",
+        ...             boundingbox={"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
+        ...         )
+        ...     ],
+        ...     task_name="objects",
+        ... )
+        >>> visualize_record(
+        ...     record, np.zeros((32, 48, 3), np.uint8)
+        ... ).render().shape
+        (32, 48, 4)
 
     """
     from .image import Image

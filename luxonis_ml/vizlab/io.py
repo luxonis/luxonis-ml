@@ -94,6 +94,10 @@ def _tensor_to_rgba(tensor: object, mode: str) -> np.ndarray:
 def load_rgba(source: object, mode: str = "rgb") -> np.ndarray:
     """Load any supported image source into an RGBA array.
 
+    Integer inputs are clipped to ``[0, 255]``. Floating-point inputs whose
+    maximum is at most ``1`` are interpreted as normalized and scaled by 255;
+    other floating-point inputs are treated as byte-range values.
+
     Args:
         source: A numpy array, a PIL image, a torch tensor, or a filesystem path
             (``str`` or ``pathlib.Path``).
@@ -106,6 +110,8 @@ def load_rgba(source: object, mode: str = "rgb") -> np.ndarray:
 
     Raises:
         TypeError: If the source type is not supported.
+        ValueError: If an array/tensor shape or channel mode is unsupported.
+        FileNotFoundError: If a path cannot be read or decoded.
 
     """
     if isinstance(source, np.ndarray):
@@ -152,7 +158,9 @@ def export(rgba: np.ndarray, mode: str = "rgb") -> np.ndarray:
         mode: Output layout: ``"rgb"``, ``"bgr"``, ``"rgba"``, or ``"bgra"``.
 
     Returns:
-        The converted array (3 channels for ``rgb``/``bgr``, 4 for ``rgba``/``bgra``).
+        The requested channel layout: three channels for ``rgb``/``bgr`` and
+        four for ``rgba``/``bgra``. ``"rgba"`` returns the input array itself;
+        the other modes return contiguous arrays.
 
     Raises:
         ValueError: If ``mode`` is not recognized.
@@ -199,8 +207,9 @@ def save(rgba: np.ndarray, path: str | Path, *, quality: int = 95) -> None:
 
     Args:
         rgba: An ``(H, W, 4)`` RGBA array.
-        path: Destination path.
-        quality: Encoder quality for lossy formats (0-100).
+        path: Destination path. Its suffix selects PNG, JPEG, or WebP.
+        quality: Encoder quality for JPEG and WebP, from 0 to 100. PNG ignores
+            this setting.
 
     Raises:
         ValueError: If the file extension is unsupported.
