@@ -666,14 +666,22 @@ def inspect(
     # A class name can appear under several tasks (e.g. "car" in car/boundingbox,
     # car/keypoints and car/classification of a multitask dataset). Dedupe while
     # preserving first-seen order so the palette and legend carry one row per
-    # class, not one per (task, class) pair.
-    class_names: list[str] = list(
-        dict.fromkeys(
-            class_name
+    # class, not one per (task, class) pair. Names are stripped to match the
+    # loader (which renders detections/masks under ``name.strip()``); without this
+    # a metadata name like " background" or " car" would key a different palette
+    # slot than the rendered mask, so legend colors would not match the drawing.
+    # The background class is then dropped: it is never drawn (segmentation skips
+    # it, classification maps it to ``None``), so seeding it would waste the first
+    # palette color on it and shift every real class's color by one.
+    class_names: list[str] = [
+        class_name
+        for class_name in dict.fromkeys(
+            class_name.strip()
             for classes in dataset.get_class_names().values()
             for class_name in classes
         )
-    )
+        if class_name != _BACKGROUND
+    ]
 
     viz_theme = LIGHT_THEME if theme == "light" else DARK_THEME
     # Make single images, panels, and grid backgrounds all follow the theme.
@@ -686,14 +694,13 @@ def inspect(
         draw_skeletons=skeletons,
         theme=viz_theme,
     )
-    has_legend = legend and any(name != _BACKGROUND for name in class_names)
     class_legend = (
         Legend(
-            entries=[n for n in class_names if n != _BACKGROUND],
+            entries=class_names,
             palette=config.palette,
             title="classes",
         )
-        if has_legend
+        if legend and class_names
         else None
     )
 

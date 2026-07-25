@@ -6,6 +6,8 @@ rows inside a single card. Both are corner-stacked overlays (drawn on top of
 everything, and reserved so box labels avoid them).
 """
 
+from collections.abc import Sequence
+
 from luxonis_ml.utils.color import brand
 from luxonis_ml.vizlab.canvas import Canvas, Shadow, TextMetrics
 from luxonis_ml.vizlab.color import Color, ColorLike
@@ -330,7 +332,7 @@ class Legend(CornerStack):
 
     """
 
-    entries: list[str | tuple[str, ColorLike]] = []
+    entries: Sequence[str | tuple[str, ColorLike]] = ()
     title: str | None = None
     corner: Corner = Corner.BOTTOM_RIGHT
 
