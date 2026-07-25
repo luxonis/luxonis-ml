@@ -557,6 +557,7 @@ def inspect(
 
     try:
         from luxonis_ml.data.loaders.label_converter import (
+            _BACKGROUND,
             loader_output_to_records,
         )
         from luxonis_ml.vizlab import (
@@ -579,12 +580,14 @@ def inspect(
         ) from e
 
     # Pre-seed a palette with every class name (in id order per task) so class
-    # colors stay stable across samples.
+    # colors stay stable across samples. Names are stripped to match the labels
+    # the converter produces (see ``loader_output_to_records``).
     class_names: list[str] = []
     for task_classes in classes.values():
         for class_name in sorted(task_classes, key=task_classes.__getitem__):
-            if class_name not in class_names:
-                class_names.append(class_name)
+            stripped = class_name.strip()
+            if stripped not in class_names:
+                class_names.append(stripped)
     config = VizConfig(
         palette=Palette(class_names),
         skeletons={
@@ -594,14 +597,16 @@ def inspect(
         keypoint_label_mode=keypoint_labels,
         draw_skeletons=skeletons,
     )
-    # A class-color key, colored from the shared palette so it matches the boxes.
+    # A class-color key, colored from the shared palette so it matches the
+    # boxes. "background" is bookkeeping, not a real class, so it is left out.
+    has_legend = legend and any(name != _BACKGROUND for name in class_names)
     class_legend = (
         Legend(
-            entries=list(class_names),
+            entries=[n for n in class_names if n != _BACKGROUND],
             palette=config.palette,
             title="classes",
         )
-        if legend and class_names
+        if has_legend
         else None
     )
 

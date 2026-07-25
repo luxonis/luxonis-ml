@@ -70,8 +70,11 @@ def loader_output_to_records(
 
     records: dict[str, DatasetRecord] = {}
     for task_name, task_types in grouped.items():
+        # Strip class names before use, so labels render cleanly and the
+        # "background" check matches even when a name has stray whitespace.
         id_to_name = {
-            index: name for name, index in classes.get(task_name, {}).items()
+            index: name.strip()
+            for name, index in classes.get(task_name, {}).items()
         }
         detections = _build_detections(
             task_name, task_types, id_to_name, categorical_encodings or {}
@@ -139,7 +142,9 @@ def _instance_detections(
         if boxes is not None and i < len(boxes):
             row = boxes[i]
             class_id = int(row[0])
-            fields["class_name"] = id_to_name.get(class_id)
+            name = id_to_name.get(class_id)
+            # "background" is a bookkeeping class, not a real label.
+            fields["class_name"] = None if name == _BACKGROUND else name
             fields["boundingbox"] = BBoxAnnotation(
                 x=float(row[1]),
                 y=float(row[2]),
@@ -198,7 +203,7 @@ def _classification_detections(
     detections: list[Detection] = []
     for class_id in np.flatnonzero(np.asarray(classification)):
         name = id_to_name.get(int(class_id))
-        if name is not None:
+        if name is not None and name != _BACKGROUND:
             detections.append(Detection(class_name=name))
     return detections
 

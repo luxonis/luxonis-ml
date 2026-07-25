@@ -79,3 +79,28 @@ def test_metadata_only_task_yields_detections() -> None:
     assert len(detections) == 2
     assert [d.boundingbox for d in detections] == [None, None]
     assert [d.metadata["text"] for d in detections] == ["HELLO", "WORLD"]
+
+
+def test_background_class_is_not_labeled() -> None:
+    """The 'background' class never becomes a visible label."""
+    import numpy as np
+
+    # A background box is unlabeled (drawn, but no class chip); a real one keeps
+    # its name. Names are stripped before rendering and the background check, so
+    # stray whitespace does not defeat either.
+    boxes = {
+        "det/boundingbox": np.array(
+            [[0, 0.1, 0.1, 0.2, 0.2], [1, 0.5, 0.5, 0.2, 0.2]]
+        )
+    }
+    dets = loader_output_to_records(
+        boxes, classes={"det": {" background ": 0, "  car ": 1}}
+    )["det"]._annotations()
+    assert [d.class_name for d in dets] == [None, "car"]
+
+    # A set background classification bit produces no chip.
+    cls = {"cls/classification": np.array([1, 1, 0])}
+    dets2 = loader_output_to_records(
+        cls, classes={"cls": {"background": 0, " cat": 1, "dog": 2}}
+    )["cls"]._annotations()
+    assert [d.class_name for d in dets2] == ["cat"]
