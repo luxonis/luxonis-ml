@@ -47,6 +47,24 @@ _MAX_SIDE = 620
 #: heatmaps render at a comfortable size rather than shrinking to fit their grid.
 _MIN_MINI = 200
 
+#: Human-readable descriptor for each panel, shown as the panel heading over the
+#: task path. Nicer than the raw ``"<path> — <keyword>"`` and it lets the two
+#: columns be told apart at a glance.
+_CLASSES_DESC = "Class distribution"
+_HEATMAP_DESC = "Spatial density"
+_PER_CLASS_DESC = "Per-class density"
+
+
+def _panel_title(path: str, descriptor: str) -> str:
+    """Build a styled two-line panel title: a heading over the task path.
+
+    The human ``descriptor`` is drawn bold as the heading; the task ``path`` sits
+    beneath it in monospace (it is a ``task_name/task_type`` key), giving the
+    panels a proper title/subtitle look instead of two words joined by a dash.
+    Uses vizlab title markup (see `luxonis_ml.vizlab.compose.grid`).
+    """
+    return f"<b>{descriptor}</b>\n<code>{path}</code>" if path else descriptor
+
 
 def _panel_bg(width: float, height: float, color: Color) -> np.ndarray:
     """Return a solid ``(H, W, 3)`` background of the given size and color."""
@@ -245,12 +263,13 @@ def build_health_grid(
     images: list[Image] = []
     titles: list[str] = []
     for task_type in task_types:
+        path = f"{prefix}{task_type}"
         distribution = _distribution_panel(
             class_dist_by_type.get(task_type, []), theme=theme, mode=mode
         )
         side = int(min(_MAX_SIDE, max(_MIN_SIDE, distribution.height)))
         images.append(distribution)
-        titles.append(f"{prefix}{task_type} — classes")
+        titles.append(_panel_title(path, _CLASSES_DESC))
         per_class = (
             class_heatmaps_by_type.get(task_type)
             if class_heatmaps_by_type is not None
@@ -262,7 +281,7 @@ def build_health_grid(
                     per_class, side, theme=theme, palette=theme.palette
                 )
             )
-            titles.append(f"{prefix}{task_type} — per-class heatmaps")
+            titles.append(_panel_title(path, _PER_CLASS_DESC))
         else:
             images.append(
                 _heatmap_panel(
@@ -272,10 +291,16 @@ def build_health_grid(
                     gradient=gradient,
                 )
             )
-            titles.append(f"{prefix}{task_type} — heatmap")
+            titles.append(_panel_title(path, _HEATMAP_DESC))
+    # Each task type contributes a distribution+heatmap pair (two cells). With
+    # several task types a single pair-per-row column grows very tall and must be
+    # shrunk to fit the screen — which shrinks the titles too. Pack two pairs per
+    # row past a couple of task types so the grid stays wide and needs far less
+    # shrinking, keeping titles readable.
+    ncols = 4 if len(task_types) > 2 else 2
     return grid(
         images,
-        ncols=2,
+        ncols=ncols,
         titles=titles,
         bg=theme.background,
         style=theme.style,

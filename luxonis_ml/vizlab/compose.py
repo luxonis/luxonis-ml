@@ -19,6 +19,7 @@ from .canvas import Canvas
 from .color import Color, ColorLike
 from .geometry import Rect
 from .image import Image, _style_scale
+from .markup import Span, parse
 from .style import DARK_THEME, DEFAULT_STYLE, Style
 
 _DEFAULT_BG = DARK_THEME.background
@@ -359,21 +360,23 @@ def _wrap_titles(
     cell_w: float,
     style: Style,
     pad: float,
-) -> list[list[str]]:
-    """Wrap each title to the cell width so long titles never overflow the cell."""
+) -> list[list[list[Span]]]:
+    """Parse each title as markup and wrap it to the cell width.
+
+    Titles support inline markup (``<b>``/``<i>``/``<code>``) and newline breaks,
+    so a caller can mix bold/mono runs and stack a heading over a subtitle. Each
+    title becomes a list of lines, each a list of styled spans; long lines wrap so
+    they never overflow the cell.
+    """
     if not titles:
         return [[] for _ in range(count)]
     max_w = max(1.0, cell_w - 2 * pad)
-    wrapped: list[list[str]] = []
+    wrapped: list[list[list[Span]]] = []
     for i in range(count):
         title = titles[i] if i < len(titles) else ""
+        spans = parse(title, weight=style.font_weight)
         wrapped.append(
-            _MEASURE.wrap_text(
-                title,
-                style.font_size,
-                max_width=max_w,
-                weight=style.font_weight,
-            )
+            _MEASURE.wrap_spans(spans, style.font_size, max_width=max_w)
             if title
             else []
         )
@@ -417,11 +420,20 @@ def _grid(
         else base_title
     )
     title_pad = _TITLE_PAD * _style_scale(cell_w, cell_h)
-    line_h = _MEASURE.measure_text(
-        "Ag", title_style.font_size, weight=title_style.font_weight
-    ).height
     wrapped = _wrap_titles(
         titles, len(rasters), cell_w, title_style, title_pad
+    )
+    # Row height from the tallest actual line (mono runs have a taller ink box),
+    # falling back to a plain measurement when there are no titles.
+    line_h = max(
+        (
+            _MEASURE.measure_spans(line, title_style.font_size).height
+            for lines in wrapped
+            for line in lines
+        ),
+        default=_MEASURE.measure_text(
+            "Ag", title_style.font_size, weight=title_style.font_weight
+        ).height,
     )
     max_lines = max((len(lines) for lines in wrapped), default=0)
     title_h = max_lines * line_h + 2 * title_pad if max_lines else 0.0
@@ -463,7 +475,7 @@ def _grid(
 
 def _draw_title(
     canvas: Canvas,
-    lines: Sequence[str],
+    lines: Sequence[list[Span]],
     center_x: float,
     top: float,
     style: Style,
@@ -471,17 +483,14 @@ def _draw_title(
     line_h: float,
     pad: float,
 ) -> None:
-    """Draw centered, wrapped title lines above a cell."""
+    """Draw centered, wrapped title lines (styled spans) above a cell."""
     y = top + pad
     for line in lines:
-        metrics = canvas.measure_text(
-            line, style.font_size, weight=style.font_weight
-        )
-        canvas.text(
+        metrics = canvas.measure_spans(line, style.font_size)
+        canvas.draw_spans(
             (center_x - metrics.width / 2, y + metrics.ascent),
             line,
             size=style.font_size,
             color=color,
-            weight=style.font_weight,
         )
         y += line_h

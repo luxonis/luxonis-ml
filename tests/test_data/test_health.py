@@ -239,6 +239,39 @@ def test_build_health_grid_renders() -> None:
     assert rendered[..., 3].max() > 0
 
 
+def test_many_task_types_use_a_wide_layout() -> None:
+    """Several task types pack two pairs per row, so the grid is wide, not tall.
+
+    A tall single-column grid would be shrunk hard to fit the screen (shrinking
+    its titles too); the wide layout keeps it closer to screen aspect.
+    """
+    pytest.importorskip("luxonis_ml.vizlab")
+    from luxonis_ml.data.utils.health_plots import build_health_grid
+
+    cd = [{"class_name": "person", "count": 10}]
+    hm = [[1] * 15 for _ in range(15)]
+    types = [
+        "boundingbox",
+        "keypoints",
+        "segmentation",
+        "instance_segmentation",
+    ]
+    wide = build_health_grid(
+        "detection", dict.fromkeys(types, cd), dict.fromkeys(types, hm)
+    ).render()
+    # Four task types -> four columns -> wider than tall.
+    assert wide.shape[1] > wide.shape[0]
+
+    # Two task types keep the two-column layout, so the four-type grid is packed
+    # into more columns (wider) rather than more rows.
+    narrow = build_health_grid(
+        "detection",
+        dict.fromkeys(types[:2], cd),
+        dict.fromkeys(types[:2], hm),
+    ).render()
+    assert wide.shape[1] > narrow.shape[1]
+
+
 def test_build_health_grid_theme_style_options() -> None:
     """The light theme, a gradient, a mode, and a scale all thread through."""
     pytest.importorskip("luxonis_ml.vizlab")

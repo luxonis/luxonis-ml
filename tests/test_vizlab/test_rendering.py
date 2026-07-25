@@ -292,6 +292,26 @@ def test_titles_add_height() -> None:
     assert titled > plain
 
 
+def test_multiline_markup_title_adds_a_line() -> None:
+    """A newline in a (markup) title stacks a second line, growing the band."""
+    cells = [Image(np.zeros((40, 120, 3), np.uint8)) for _ in range(2)]
+    one_line = grid(cells, ncols=2, pad=4, titles=["Heading", "x"])
+    two_line = grid(
+        cells, ncols=2, pad=4, titles=["Heading\n<code>path</code>", "x"]
+    )
+    assert two_line.render().shape[0] > one_line.render().shape[0]
+
+
+def test_emphasized_titles_are_taller_than_plain() -> None:
+    """Emphasized titles (larger + bold) occupy a taller band than plain ones."""
+    cells = [Image(np.zeros((40, 200, 3), np.uint8)) for _ in range(2)]
+    emphasized = grid(cells, ncols=2, pad=4, titles=["Heading", "x"])
+    plain = grid(
+        cells, ncols=2, pad=4, titles=["Heading", "x"], emphasize_titles=False
+    )
+    assert emphasized.render().shape[0] > plain.render().shape[0]
+
+
 def _placed_chips(
     *boxes: BBox, width: int = 400, height: int = 300
 ) -> list[Rect]:
