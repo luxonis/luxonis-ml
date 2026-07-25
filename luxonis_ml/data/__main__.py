@@ -464,6 +464,10 @@ def inspect(
         Literal["none", "numbers", "names", "full"],
         Parameter(),
     ] = "none",
+    legend: Annotated[
+        bool,
+        Parameter(alias="-lg", negative=""),
+    ] = False,
     bucket_storage: BucketStorageT = BucketStorage.LOCAL,
 ):
     """Inspect images and annotations in a dataset.
@@ -493,6 +497,7 @@ def inspect(
             displayed image. Requires '--aug-config' to be set.
         skeletons: Draw keypoint skeleton edges.
         keypoint_labels: Specify how to draw keypoint labels.
+        legend: Draw a class-color legend on each image.
         bucket_storage: Storage type of the dataset.
 
     """
@@ -556,6 +561,7 @@ def inspect(
         )
         from luxonis_ml.vizlab import (
             Image,
+            Legend,
             Palette,
             Skeleton,
             VizConfig,
@@ -587,6 +593,16 @@ def inspect(
         },
         keypoint_label_mode=keypoint_labels,
         draw_skeletons=skeletons,
+    )
+    # A class-color key, colored from the shared palette so it matches the boxes.
+    class_legend = (
+        Legend(
+            entries=list(class_names),
+            palette=config.palette,
+            title="classes",
+        )
+        if legend and class_names
+        else None
     )
 
     def build_panel(sample_labels: dict, sample_metadata: dict) -> dict:
@@ -701,6 +717,8 @@ def inspect(
                         detection, config, task_name=task_name
                     ):
                         viz.add(annotation)
+                    if class_legend is not None:
+                        viz.add(class_legend)
                     show(source_name, viz)
                     if cv2.waitKey() == ord("q"):
                         quit_requested = True
@@ -748,6 +766,8 @@ def inspect(
                 viz, placements = grid_placed(
                     tiles, ncols=cols, titles=list(records)
                 )
+            if class_legend is not None:
+                viz.add(class_legend)
             if panel:
                 viz = viz.with_panel(panel, title="metadata")
             out, frame_size, win_size = show(source_name, viz)
