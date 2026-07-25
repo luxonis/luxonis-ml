@@ -9,6 +9,8 @@ never occludes pixels or labels and the original is untouched.
 
 from collections.abc import Mapping, Sequence
 
+from luxonis_ml.utils.color import brand
+
 from .canvas import Canvas
 from .color import Color, ColorLike
 from .geometry import Rect
@@ -22,10 +24,12 @@ _PANEL_SIZE = 15.0
 _MIN_WIDTH = 220.0
 _MAX_WIDTH = 400.0
 
-_KEY = Color(150, 185, 235)
-_VALUE = Color(222, 222, 228)
-_TITLE = Color(245, 245, 248)
-_DIVIDER = Color(255, 255, 255, 30)
+# Panel chrome is on-brand: periwinkle keys, near-white values/title, a subtle
+# periwinkle divider (see `luxonis_ml.utils.color.brand`).
+_KEY = brand.CARD_KEY
+_VALUE = brand.CARD_TEXT
+_TITLE = brand.CARD_TITLE
+_DIVIDER = brand.DIVIDER
 
 _MEASURE = Canvas.blank(1, 1)
 

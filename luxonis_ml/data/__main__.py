@@ -988,7 +988,7 @@ def health(
     distribution: Annotated[
         Literal["bars", "chips", "stacked"],
         Parameter(alias="-m"),
-    ] = "bars",
+    ] = "stacked",
     scale: Annotated[
         float,
         Parameter(alias="-c"),

@@ -339,14 +339,14 @@ def render_heatmap_themes() -> Path:
 
 
 def render_distribution_modes() -> Path:
-    """Show one prediction under all four `ClassDistribution` render modes.
+    """Show one prediction under every `ClassDistribution` render mode.
 
     ``mode`` picks the look; ``ground_truth`` highlights the correct class (row,
-    chip, segment, or a ✓/✗ on the gauge) so a wrong top-1 is obvious.
+    chip, segment, wedge, or a ✓/✗ on the gauge) so a wrong top-1 is obvious.
     """
-    modes = ["bars", "chips", "gauge", "stacked"]
+    modes = ["bars", "chips", "gauge", "stacked", "pie", "donut"]
     cells = [
-        Image(gradient(300, 220, hue=0.6)).add(
+        Image(gradient(300, 260, hue=0.6)).add(
             ClassDistribution(
                 probabilities=_PREDICTION,
                 mode=mode,
@@ -356,7 +356,7 @@ def render_distribution_modes() -> Path:
         )
         for mode in modes
     ]
-    return save(grid(cells, ncols=4, titles=modes), "distributions.png")
+    return save(grid(cells, ncols=3, titles=modes), "distributions.png")
 
 
 def render_panel() -> Path:

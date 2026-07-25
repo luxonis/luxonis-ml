@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar
 
+from luxonis_ml.utils.color import brand
 from luxonis_ml.vizlab.canvas import Canvas
 from luxonis_ml.vizlab.color import Color
 from luxonis_ml.vizlab.geometry import Rect
@@ -22,10 +23,11 @@ from .chip import chip_size, draw_chip
 
 _WHITE = Color(255, 255, 255)
 
-#: Shared card chrome, so every stacked card (legend, info card, distribution
-#: panel) reads as one family.
-CARD_BG = Color(22, 22, 26, 214)
-CARD_TEXT = Color(238, 238, 240)
+#: Shared brand card chrome, so every stacked card (legend, info card,
+#: distribution panel) reads as one on-brand family. Sourced from
+#: `luxonis_ml.utils.color.brand`.
+CARD_BG = brand.CARD_BG
+CARD_TEXT = brand.CARD_TEXT
 
 CellDraw = Callable[[Canvas, Rect], None]
 """Draws a single stacked cell's content into its placed rectangle."""

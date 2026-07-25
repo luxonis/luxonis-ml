@@ -17,6 +17,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
+from luxonis_ml.utils.color import brand
 from luxonis_ml.vizlab.canvas import Canvas, Shadow, TextMetrics
 from luxonis_ml.vizlab.color import Color
 from luxonis_ml.vizlab.geometry import Rect
@@ -35,10 +36,12 @@ probabilities), a raw integer count, or ``"count · percent"`` — the last two 
 frequency distributions such as dataset class counts, where bars scale to the
 largest value instead of an absolute ``[0, 1]``."""
 
+# Neutral highlight for the ground-truth marker and verdict ticks; the rest is
+# on-brand chrome (green ✓ / red ✗ verdict, a muted slate "other" segment).
 _WHITE = Color(255, 255, 255)
-_OK = Color(80, 200, 120)
-_BAD = Color(230, 90, 90)
-_OTHER = Color(96, 96, 104)
+_OK = brand.SUCCESS
+_BAD = brand.ERROR
+_OTHER = brand.MUTED
 
 _PAD = 10.0
 _ROW_GAP = 6.0

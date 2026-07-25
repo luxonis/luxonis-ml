@@ -17,10 +17,11 @@ from .canvas import Canvas
 from .color import Color, ColorLike
 from .geometry import Rect
 from .image import Image
-from .style import DEFAULT_STYLE, Style
+from .style import DARK_THEME, DEFAULT_STYLE, Style
 
-_DEFAULT_BG = Color(24, 24, 28, 255)
-"""Neutral dark background painted behind stacked/gridded cells and pad gaps."""
+_DEFAULT_BG = DARK_THEME.background
+"""Brand dark background painted behind stacked/gridded cells and pad gaps
+(the default theme's background, so composites match single-image renders)."""
 
 _TITLE_PAD = 6.0
 _MEASURE = Canvas.blank(1, 1)

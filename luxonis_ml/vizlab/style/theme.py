@@ -14,13 +14,16 @@ process-wide default with `set_default_theme`, or pass ``theme=`` to a single
 
 from dataclasses import dataclass, field
 
+from luxonis_ml.utils.color import brand
 from luxonis_ml.vizlab.color import Color
 
 from .palette import DEFAULT_PALETTE, GoldenRatioColors, Palette
 from .style import DEFAULT_STYLE, Style
 
-_DARK_BG = Color(24, 24, 28, 255)
-_LIGHT_BG = Color(240, 240, 244, 255)
+# On-brand composite backgrounds: a deep navy in the Luxonis "ink" family for
+# dark mode, and the brand light-gray surface for light mode.
+_DARK_BG = brand.BACKGROUND
+_LIGHT_BG = brand.LIGHT_BACKGROUND
 
 
 @dataclass(frozen=True)
@@ -37,7 +40,7 @@ class Theme:
         >>> DARK_THEME.style.fill_alpha
         0.16
         >>> LIGHT_THEME.background.r
-        240
+        242
 
     """
 

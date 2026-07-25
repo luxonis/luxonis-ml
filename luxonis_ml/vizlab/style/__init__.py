@@ -9,10 +9,12 @@ over its parent, then the active theme, then the library default.
 
 from .derive import derive_child_color, derive_child_style
 from .palette import (
+    BRAND_COLORS,
     DEFAULT_PALETTE,
     ColorGenerator,
     GoldenRatioColors,
     Palette,
+    SequenceColors,
 )
 from .style import DEFAULT_STYLE, LabelPlacement, Style
 from .theme import (
@@ -24,6 +26,7 @@ from .theme import (
 )
 
 __all__ = [
+    "BRAND_COLORS",
     "DARK_THEME",
     "DEFAULT_PALETTE",
     "DEFAULT_STYLE",
@@ -32,6 +35,7 @@ __all__ = [
     "GoldenRatioColors",
     "LabelPlacement",
     "Palette",
+    "SequenceColors",
     "Style",
     "Theme",
     "derive_child_color",

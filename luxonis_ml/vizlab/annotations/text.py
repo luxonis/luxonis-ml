@@ -6,6 +6,7 @@ rows inside a single card. Both are corner-stacked overlays (drawn on top of
 everything, and reserved so box labels avoid them).
 """
 
+from luxonis_ml.utils.color import brand
 from luxonis_ml.vizlab.canvas import Canvas, Shadow, TextMetrics
 from luxonis_ml.vizlab.color import Color, ColorLike
 from luxonis_ml.vizlab.geometry import Rect
@@ -14,7 +15,7 @@ from luxonis_ml.vizlab.style import Style
 from .base import RenderContext
 from .overlay import CARD_BG, CARD_TEXT, Cell, Corner, CornerStack
 
-_CAPTION_BG = Color(22, 22, 26, 235)
+_CAPTION_BG = brand.CAPTION_BG
 _CARD_BG = CARD_BG
 _CARD_TEXT = CARD_TEXT
 

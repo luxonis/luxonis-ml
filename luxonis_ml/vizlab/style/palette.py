@@ -1,173 +1,25 @@
 """Distinct class colors from a pluggable, index-based generator.
 
-A `Palette` hands each new class the next color from a **color generator**:
-a callable ``int -> Color`` that maps a sequence position to a color. The default
-generator, `GoldenRatioColors`, offsets each hue from the last by the golden
-angle (~137.5°) so no two classes land on a near-identical hue — the failure mode a
-fixed palette (or a hash into one) can't avoid once the class count approaches the
-palette size.
-
-Swapping the whole color scheme is a single argument — ``Palette(generator=...)`` —
-so the strategy lives in exactly one place and callers (``BBox`` and friends) only
-ever touch `Palette.color_for`.
-
-Because the spacing guarantee only holds for *sequential* indices, colors are
-assigned in order of first appearance and memoized: within a process, a class keeps
-its color across every image (the module-level :data:`DEFAULT_PALETTE` is shared).
-The trade-off is that a class's color depends on the order classes are first seen,
-not on its name alone — stable within a run and across runs that request classes in
-the same order, but not across arbitrary reorderings. Pin a color explicitly with
-``BBox(color=...)`` or by pre-registering classes in a fixed order when a name must
-map to one exact color forever.
+The `Palette` and its color generators are shared color logic and live in
+`luxonis_ml.utils.color.palette`; the vizlab style package re-exports them here so
+that ``from luxonis_ml.vizlab.style.palette import ...`` keeps working and vizlab
+never reimplements color handling.
 """
 
-from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from luxonis_ml.utils.color.palette import (
+    BRAND_COLORS,
+    DEFAULT_PALETTE,
+    ColorGenerator,
+    GoldenRatioColors,
+    Palette,
+    SequenceColors,
+)
 
-from luxonis_ml.vizlab.color import Color
-
-ColorGenerator = Callable[[int], Color]
-"""A callable mapping a zero-based sequence index to a `Color`."""
-
-# (sqrt(5) - 1) / 2 — the golden ratio's conjugate. Stepping the hue by this each
-# time is the classic low-discrepancy way to spread points around a circle.
-_GOLDEN_CONJUGATE = 0.6180339887498949
-
-# A second, unrelated irrational step used to vary lightness, so that even the rare
-# pair of hue-neighbors (at large class counts) still differ in brightness.
-_LIGHTNESS_STEP = 0.7548776662466927
-
-
-@dataclass(frozen=True)
-class GoldenRatioColors:
-    """Maps a sequence index to a distinct color via golden-ratio hue spacing.
-
-    This is the default :data:`ColorGenerator`. Every knob that shapes the look
-    lives here, so restyling the whole palette means constructing one of these (or
-    any other ``int -> Color`` callable) and passing it to `Palette`.
-
-    Attributes:
-        hue0: Hue of index 0, in ``[0, 1]`` turns (default a blue).
-        saturation: Fixed saturation of every color, in ``[0, 1]``.
-        lightness: Base lightness of every color, in ``[0, 1]``.
-        lightness_jitter: Peak lightness deviation from ``lightness``, applied via a
-            second low-discrepancy sequence so brightness varies subtly (which keeps
-            colors apart even when hues get crowded at high class counts).
-
-    Examples:
-        >>> gen = GoldenRatioColors()
-        >>> gen(0) == gen(0)
-        True
-        >>> gen(0) == gen(1)
-        False
-
-    """
-
-    hue0: float = 0.6
-    saturation: float = 0.7
-    lightness: float = 0.62
-    lightness_jitter: float = 0.12
-
-    def __call__(self, index: int) -> Color:
-        """Generate the color for sequence position ``index``.
-
-        Args:
-            index: The zero-based position in the sequence.
-
-        Returns:
-            The generated `Color`.
-
-        """
-        hue = (self.hue0 + index * _GOLDEN_CONJUGATE) % 1.0
-        jitter = 2.0 * ((index * _LIGHTNESS_STEP) % 1.0) - 1.0
-        lightness = self.lightness + self.lightness_jitter * jitter
-        return Color.from_hls(hue, lightness, self.saturation)
-
-
-class Palette:
-    """Assigns colors to classes in order of first use, from a color generator.
-
-    Examples:
-        A class keeps its color; different classes get different colors:
-
-        >>> p = Palette()
-        >>> p.color_for("car") == p.color_for("car")
-        True
-        >>> p.color_for("car") == p.color_for("bus")
-        False
-        >>> len(p)
-        2
-
-        Two fresh palettes agree as long as classes are requested in the same order
-        (``"car"`` is index 0 in both) ...
-
-        >>> Palette().color_for("car") == Palette().color_for("car")
-        True
-
-        ... but the color follows first-seen order, not the name, so reordering
-        changes it:
-
-        >>> Palette(["a", "b"]).color_for("b") == Palette(["b", "a"]).color_for("b")
-        False
-
-    """
-
-    def __init__(
-        self,
-        classes: Iterable[str] | None = None,
-        *,
-        generator: ColorGenerator | None = None,
-    ) -> None:
-        """Create a palette, optionally pinning an initial class order.
-
-        Args:
-            classes: Class names to register up front, in the order that fixes their
-                colors. Any class not listed is assigned on first use.
-            generator: The ``int -> Color`` strategy; defaults to
-                `GoldenRatioColors`.
-
-        """
-        self._generator: ColorGenerator = generator or GoldenRatioColors()
-        self._colors: dict[str, Color] = {}
-        if classes is not None:
-            for name in classes:
-                self.color_for(name)
-
-    def __len__(self) -> int:
-        """Return the number of classes assigned a color so far."""
-        return len(self._colors)
-
-    def at(self, index: int) -> Color:
-        """Return the color for sequence position ``index`` (without registering it).
-
-        Args:
-            index: The zero-based position in the generator's sequence.
-
-        Returns:
-            The generated `Color`.
-
-        """
-        return self._generator(index)
-
-    def color_for(self, key: str) -> Color:
-        """Return the color assigned to ``key``, assigning a new one if unseen.
-
-        The first time a key is seen it takes the next color in the sequence; every
-        later call for that key returns the same color.
-
-        Args:
-            key: The label (or any string identity) to color.
-
-        Returns:
-            The assigned `Color`.
-
-        """
-        color = self._colors.get(key)
-        if color is None:
-            color = self._generator(len(self._colors))
-            self._colors[key] = color
-        return color
-
-
-DEFAULT_PALETTE = Palette()
-"""The process-wide default `Palette`, shared so a class keeps its color."""
+__all__ = [
+    "BRAND_COLORS",
+    "DEFAULT_PALETTE",
+    "ColorGenerator",
+    "GoldenRatioColors",
+    "Palette",
+    "SequenceColors",
+]
