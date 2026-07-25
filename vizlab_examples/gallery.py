@@ -29,7 +29,6 @@ from luxonis_ml.vizlab import (
     Legend,
     Mask,
     SemanticMask,
-    Skeleton,
     blend,
     grid,
     hstack,
@@ -131,9 +130,9 @@ def _keypoints() -> Image:
         (0.38, 0.72, 2),
         (0.62, 0.72, 2),
     ]
-    skeleton = Skeleton(edges=((0, 1), (0, 2), (1, 3), (2, 4)))
+    edges = [(0, 1), (0, 2), (1, 3), (2, 4)]
     return Image(gradient(_W, _H, hue=0.68)).add(
-        Keypoints(keypoints=pose, skeleton=skeleton, label="pose")
+        Keypoints(keypoints=pose, edges=edges, label="pose")
     )
 
 

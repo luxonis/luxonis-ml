@@ -18,7 +18,6 @@ from luxonis_ml.vizlab import (
     Mask,
     Palette,
     SemanticMask,
-    Skeleton,
     VizConfig,
     visualize_record,
 )
@@ -56,10 +55,13 @@ def test_mask_from_ldf():
     assert mask.to_numpy().shape == (4, 4)
 
 
-def test_skeleton_from_ldf():
-    skel = Skeleton.from_ldf(["a", "b", "c"], [(0, 1), (1, 2)])
-    assert skel.edges == ((0, 1), (1, 2))
-    assert skel.names == ("a", "b", "c")
+def test_keypoints_from_ldf_edges_and_names():
+    ann = KeypointAnnotation(keypoints=[(0.1, 0.2, 2), (0.3, 0.4, 2)])
+    kp = Keypoints.from_ldf(
+        ann, edges=[(0, 1)], keypoint_names=["a", "b"], point_labels="names"
+    )
+    assert kp.edges == [(0, 1)]
+    assert kp.keypoint_names == ["a", "b"]
 
 
 def test_semantic_mask_from_ldf_builds_id_map():

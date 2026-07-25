@@ -13,7 +13,7 @@ explicitly overridden.
 from .base import Annotation, RenderContext
 from .bbox import BBox
 from .classification import Classification
-from .keypoints import Keypoints, Skeleton
+from .keypoints import Keypoints
 from .mask import Mask, SemanticMask
 from .overlay import Corner, CornerStack
 from .text import Caption, InfoCard, Legend
@@ -48,5 +48,4 @@ __all__ = [
     "Mask",
     "RenderContext",
     "SemanticMask",
-    "Skeleton",
 ]

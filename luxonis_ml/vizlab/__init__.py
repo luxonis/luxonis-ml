@@ -66,7 +66,6 @@ with guard_missing_extra("viz"):
         Mask,
         RenderContext,
         SemanticMask,
-        Skeleton,
     )
     from .color import Color
     from .compose import blend, grid, hstack, vstack
@@ -110,7 +109,6 @@ __all__ = [
     "Rect",
     "RenderContext",
     "SemanticMask",
-    "Skeleton",
     "Style",
     "Theme",
     "VizConfig",

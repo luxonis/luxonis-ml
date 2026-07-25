@@ -11,7 +11,6 @@ from luxonis_ml.vizlab import (
     Keypoints,
     Mask,
     SemanticMask,
-    Skeleton,
     Style,
 )
 from luxonis_ml.vizlab.annotations.mask import _mask_contours
@@ -197,7 +196,8 @@ def test_semantic_mask_stroke_width_zero_skips_contour() -> None:
 
 # --- Keypoints (subclass of KeypointAnnotation) -----------------------------
 
-_SKELETON = Skeleton(edges=((0, 1), (1, 2), (5, 6)), names=("a", "b", "c"))
+_EDGES = [(0, 1), (1, 2), (5, 6)]
+_NAMES = ["a", "b", "c"]
 
 
 def test_keypoints_render_with_skeleton_and_names() -> None:
@@ -205,7 +205,8 @@ def test_keypoints_render_with_skeleton_and_names() -> None:
     base.add(
         Keypoints(
             keypoints=[(0.25, 0.15, 2), (0.25, 0.5, 1), (0.5, 0.7, 0)],
-            skeleton=_SKELETON,
+            edges=_EDGES,
+            keypoint_names=_NAMES,
             label="pose",
             point_labels="names",
         )
@@ -231,7 +232,7 @@ def test_keypoints_point_labels_numbers_render_without_skeleton() -> None:
 
 def test_keypoints_point_label_text() -> None:
     kp = Keypoints(
-        keypoints=[(0.1, 0.1, 2), (0.2, 0.2, 2)], skeleton=_SKELETON
+        keypoints=[(0.1, 0.1, 2), (0.2, 0.2, 2)], keypoint_names=_NAMES
     )
     assert kp._point_label(0) is None  # default "none"
     assert (
@@ -241,11 +242,11 @@ def test_keypoints_point_label_text() -> None:
         == "0"
     )
     named = Keypoints(
-        keypoints=[(0.1, 0.1, 2)], skeleton=_SKELETON, point_labels="names"
+        keypoints=[(0.1, 0.1, 2)], keypoint_names=_NAMES, point_labels="names"
     )
     assert named._point_label(1) == "b"
     full = Keypoints(
-        keypoints=[(0.1, 0.1, 2)], skeleton=_SKELETON, point_labels="full"
+        keypoints=[(0.1, 0.1, 2)], keypoint_names=_NAMES, point_labels="full"
     )
     assert full._point_label(2) == "2:c"
     # Falls back to the index when no name is available.
@@ -282,7 +283,7 @@ def test_keypoints_compose_with_box() -> None:
     base.add(
         Keypoints(
             keypoints=[(0.25, 0.25, 2), (0.5, 0.6, 2)],
-            skeleton=Skeleton(edges=((0, 1),)),
+            edges=[(0, 1)],
         )
     )
     assert base.render()[..., 3].max() > 0

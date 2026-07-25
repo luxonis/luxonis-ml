@@ -27,7 +27,6 @@ from .annotations import (
     Keypoints,
     Mask,
     SemanticMask,
-    Skeleton,
 )
 from .style import DEFAULT_STYLE, Palette, Theme
 
@@ -47,6 +46,9 @@ if TYPE_CHECKING:
 
 KeypointLabelMode = Literal["none", "numbers", "names", "full"]
 
+SkeletonDef = tuple[list[str], list[tuple[int, int]]]
+"""A keypoint skeleton as ``(labels, edges)`` — ``get_skeletons()``'s shape."""
+
 
 @dataclass
 class VizConfig:
@@ -63,9 +65,8 @@ class VizConfig:
             class names in a fixed order (``Palette(class_names)``) for
             deterministic, stable colors across images.
         skeletons: Keypoint skeletons keyed by task name, in LDF's own
-            ``(labels, edges)`` shape as returned by
-            ``LuxonisDataset.get_skeletons`` — build them with
-            `Skeleton.from_ldf`.
+            ``(labels, edges)`` shape — pass ``LuxonisDataset.get_skeletons()``
+            directly.
         keypoint_label_mode: How to label keypoints
             (``"none"``/``"numbers"``/``"names"``/``"full"``).
         draw_skeletons: Whether to draw skeleton limbs between keypoints.
@@ -76,21 +77,20 @@ class VizConfig:
             metadata row. ``None`` disables the special treatment.
 
     Examples:
-        >>> from luxonis_ml.vizlab import Palette, Skeleton, VizConfig
-        >>> skeleton = Skeleton.from_ldf(["left", "right"], [(0, 1)])
+        >>> from luxonis_ml.vizlab import Palette, VizConfig
         >>> config = VizConfig(
         ...     palette=Palette(["person"]),
-        ...     skeletons={"pose": skeleton},
+        ...     skeletons={"pose": (["left", "right"], [(0, 1)])},
         ...     keypoint_label_mode="names",
         ...     draw_skeletons=True,
         ... )
-        >>> config.skeletons["pose"].edges
-        ((0, 1),)
+        >>> config.skeletons["pose"]
+        (['left', 'right'], [(0, 1)])
 
     """
 
     palette: Palette | None = None
-    skeletons: dict[str, Skeleton] = field(default_factory=dict)
+    skeletons: dict[str, SkeletonDef] = field(default_factory=dict)
     keypoint_label_mode: KeypointLabelMode = "numbers"
     draw_skeletons: bool = False
     theme: Theme | None = None
@@ -129,9 +129,11 @@ def _spatial_annotations(
             "full",
         )
         skeleton = config.skeletons.get(task_name) if needs_skeleton else None
+        names, edges = skeleton if skeleton is not None else (None, [])
         keypoints = Keypoints.from_ldf(
             detection.keypoints,
-            skeleton=skeleton,
+            edges=edges,
+            keypoint_names=names,
             point_labels=label_mode,
             label=None if root is not None else label,
             palette=palette,

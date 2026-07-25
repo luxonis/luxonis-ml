@@ -1,15 +1,15 @@
-"""Keypoints and skeletons.
+"""Keypoints with an optional skeleton of limb edges.
 
 `Keypoints` subclasses the Luxonis Data Format
 `KeypointAnnotation`, reusing its normalized
 ``(x, y, visibility)`` keypoint list (COCO visibility ``0``/``1``/``2``) and
-adding rendering: joints, and — given a `Skeleton` — the limbs connecting
-them. Build a `Skeleton` from a dataset's definition with
-`Skeleton.from_ldf`.
+adding rendering: joints, and — given ``edges`` — the limbs connecting them. A
+dataset's skeleton definition is a ``(labels, edges)`` pair per task (as
+``LuxonisDataset.get_skeletons`` returns); pass its ``edges`` and, for named
+point labels, its ``labels`` as ``keypoint_names``.
 """
 
 from collections.abc import Iterable
-from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
@@ -27,44 +27,6 @@ PointLabelMode = Literal["none", "numbers", "names", "full"]
 """How to label each keypoint: nothing, its index, its name, or ``index:name``."""
 
 
-@dataclass(frozen=True)
-class Skeleton:
-    """A set of limb connections (and optional joint names) over keypoint indices.
-
-    Attributes:
-        edges: Pairs of keypoint indices to connect with a limb.
-        names: Optional per-keypoint names, ``K`` long, used for point labels.
-
-    """
-
-    edges: tuple[tuple[int, int], ...]
-    names: tuple[str, ...] | None = None
-
-    @classmethod
-    def from_ldf(
-        cls,
-        labels: Iterable[str] | None,
-        edges: Iterable[tuple[int, int]],
-    ) -> "Skeleton":
-        """Build a skeleton from an LDF dataset's skeleton definition.
-
-        LDF stores skeletons in dataset metadata as ``(labels, edges)`` (see
-        ``LuxonisDataset.get_skeletons``), not on the annotations themselves.
-
-        Args:
-            labels: Per-keypoint names in index order, or ``None``.
-            edges: 0-based keypoint index pairs to connect.
-
-        Returns:
-            The equivalent `Skeleton`.
-
-        """
-        return cls(
-            edges=tuple((int(a), int(b)) for a, b in edges),
-            names=tuple(labels) if labels else None,
-        )
-
-
 class Keypoints(KeypointAnnotation, Annotation):
     """A set of keypoints, optionally wired into a skeleton.
 
@@ -72,10 +34,13 @@ class Keypoints(KeypointAnnotation, Annotation):
     `KeypointAnnotation`.
 
     Attributes:
-        skeleton: Limb/name definition; without it only joints are drawn.
+        edges: Pairs of keypoint indices to connect with a limb; empty draws
+            joints only.
+        keypoint_names: Optional per-keypoint names (index order), used by the
+            ``"names"``/``"full"`` point-label modes.
         visibility_threshold: Points whose visibility is ``<=`` this are hidden.
         point_labels: How to label each joint — ``"none"`` (default),
-            ``"numbers"`` (its index), ``"names"`` (its skeleton name), or
+            ``"numbers"`` (its index), ``"names"`` (its keypoint name), or
             ``"full"`` (``index:name``). ``"names"``/``"full"`` fall back to the
             index when no name is available.
 
@@ -92,7 +57,8 @@ class Keypoints(KeypointAnnotation, Annotation):
 
     """
 
-    skeleton: Skeleton | None = None
+    edges: list[tuple[int, int]] = []
+    keypoint_names: list[str] | None = None
     visibility_threshold: float = 0.0
     point_labels: PointLabelMode = "none"
 
@@ -101,7 +67,8 @@ class Keypoints(KeypointAnnotation, Annotation):
         cls,
         annotation: KeypointAnnotation,
         *,
-        skeleton: Skeleton | None = None,
+        edges: Iterable[tuple[int, int]] = (),
+        keypoint_names: Iterable[str] | None = None,
         point_labels: PointLabelMode = "none",
         label: str | None = None,
         palette: Palette | None = None,
@@ -113,7 +80,9 @@ class Keypoints(KeypointAnnotation, Annotation):
 
         Args:
             annotation: The LDF keypoint annotation.
-            skeleton: Limb/name definition; without it only joints are drawn.
+            edges: Keypoint-index pairs to connect with limbs; empty draws only
+                joints.
+            keypoint_names: Per-keypoint names (index order) for named labels.
             point_labels: How to label each joint (see the class ``point_labels``
                 attribute).
             label: Class label used for the palette color.
@@ -125,7 +94,10 @@ class Keypoints(KeypointAnnotation, Annotation):
         """
         return cls(
             **annotation.model_dump(),
-            skeleton=skeleton,
+            edges=[(int(a), int(b)) for a, b in edges],
+            keypoint_names=(
+                list(keypoint_names) if keypoint_names is not None else None
+            ),
             point_labels=point_labels,
             label=label,
             palette=palette,
@@ -144,7 +116,7 @@ class Keypoints(KeypointAnnotation, Annotation):
         mode = self.point_labels
         if mode == "none":
             return None
-        names = self.skeleton.names if self.skeleton is not None else None
+        names = self.keypoint_names
         name = (
             names[index] if names is not None and index < len(names) else None
         )
@@ -248,10 +220,10 @@ class Keypoints(KeypointAnnotation, Annotation):
             style: The resolved style.
 
         """
-        if self.skeleton is None:
+        if not self.edges:
             return
         limb = color.with_alpha(0.85)
-        for a, b in self.skeleton.edges:
+        for a, b in self.edges:
             if a < len(xy) and b < len(xy) and visible[a] and visible[b]:
                 p1: XY = (float(xy[a, 0]), float(xy[a, 1]))
                 p2: XY = (float(xy[b, 0]), float(xy[b, 1]))

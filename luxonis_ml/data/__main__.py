@@ -564,7 +564,6 @@ def inspect(
             Image,
             Legend,
             Palette,
-            Skeleton,
             VizConfig,
             visualize_record,
         )
@@ -579,26 +578,18 @@ def inspect(
             "Install it with `pip install luxonis-ml[viz]`."
         ) from e
 
-    # Pre-seed a palette with every class name (in id order per task) so class
-    # colors stay stable across samples. Names are stripped to match the labels
-    # the converter produces (see ``loader_output_to_records``).
-    class_names: list[str] = []
-    for task_classes in classes.values():
-        for class_name in sorted(task_classes, key=task_classes.__getitem__):
-            stripped = class_name.strip()
-            if stripped not in class_names:
-                class_names.append(stripped)
+    class_names: list[str] = [
+        class_name
+        for classes in dataset.get_class_names().values()
+        for class_name in classes
+    ]
+
     config = VizConfig(
         palette=Palette(class_names),
-        skeletons={
-            task: Skeleton.from_ldf(labels, edges)
-            for task, (labels, edges) in keypoint_skeletons.items()
-        },
+        skeletons=keypoint_skeletons,
         keypoint_label_mode=keypoint_labels,
         draw_skeletons=skeletons,
     )
-    # A class-color key, colored from the shared palette so it matches the
-    # boxes. "background" is bookkeeping, not a real class, so it is left out.
     has_legend = legend and any(name != _BACKGROUND for name in class_names)
     class_legend = (
         Legend(
