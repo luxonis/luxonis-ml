@@ -232,6 +232,27 @@ def _text_value(detection: "Detection", text_key: str | None) -> str | None:
     return None if value is None else str(value)
 
 
+def _append_meta(
+    detection: "Detection",
+    text_key: str | None,
+    texts: list[str],
+    rows: list[str],
+) -> None:
+    """Append one detection's own metadata: text to ``texts``, the rest to ``rows``."""
+    if not detection.metadata:
+        return
+    text = _text_value(detection, text_key)
+    if text is not None:
+        texts.append(text)
+    other = {
+        key: value
+        for key, value in detection.metadata.items()
+        if text_key is None or key != text_key
+    }
+    if other:
+        rows.extend(_meta_rows(detection, other))
+
+
 def _collect_boxless(
     detection: "Detection",
     text_key: str | None,
@@ -243,23 +264,14 @@ def _collect_boxless(
     Recognized text (``text_key``) goes to ``texts`` (rendered prominently); all
     other metadata goes to ``rows`` (a plain card). Recurses sub-detections.
     """
-    if detection.boundingbox is None and detection.metadata:
-        text = _text_value(detection, text_key)
-        if text is not None:
-            texts.append(text)
-        other = {
-            key: value
-            for key, value in detection.metadata.items()
-            if text_key is None or key != text_key
-        }
-        if other:
-            rows.extend(_boxless_rows(detection, other))
+    if detection.boundingbox is None:
+        _append_meta(detection, text_key, texts, rows)
     for sub in detection.sub_detections.values():
         _collect_boxless(sub, text_key, texts, rows)
 
 
-def _boxless_rows(detection: "Detection", other: dict) -> list[str]:
-    """Format a box-less detection's non-text metadata as card rows."""
+def _meta_rows(detection: "Detection", other: dict) -> list[str]:
+    """Format a detection's non-text metadata as card rows."""
     rows: list[str] = []
     prefix = ""
     if detection.class_name:
@@ -271,31 +283,44 @@ def _boxless_rows(detection: "Detection", other: dict) -> list[str]:
 
 
 def metadata_annotations(
-    detections: "Iterable[Detection]", *, text_key: str | None = "text"
+    detections: "Iterable[Detection]",
+    *,
+    text_key: str | None = "text",
+    lone_object_card: bool = False,
 ) -> list[Annotation]:
-    """Build in-image cards for box-less detections' metadata.
+    """Build in-image cards for metadata that has nothing to hover.
 
     A detection that carries metadata but no bounding box has nothing to anchor a
     hover tooltip to, so its metadata is surfaced as a corner card. Recognized
     text (``text_key``) is rendered prominently in its own larger card; the
     remaining key/value metadata goes in a smaller ``"metadata"`` card. Boxed
-    detections contribute nothing here (their metadata is shown on hover, and
-    their text on the label chip).
+    detections normally contribute nothing here (their metadata is shown on hover,
+    and their text on the label chip).
 
     Args:
         detections: The detections to scan; their sub-detections are included.
         text_key: Metadata key holding recognized text, or ``None`` to treat all
             metadata uniformly.
+        lone_object_card: When the image holds exactly one detection, also card
+            that lone object's metadata even if it is boxed — a single object
+            needs no hover. With more than one object, boxed metadata stays
+            hover-only to keep dense scenes uncluttered.
 
     Returns:
-        The overlay annotations to draw (empty when there is no box-less
-        metadata).
+        The overlay annotations to draw (empty when there is nothing to card).
 
     """
+    detections = list(detections)
     texts: list[str] = []
     rows: list[str] = []
     for detection in detections:
         _collect_boxless(detection, text_key, texts, rows)
+    if (
+        lone_object_card
+        and len(detections) == 1
+        and detections[0].boundingbox is not None
+    ):
+        _append_meta(detections[0], text_key, texts, rows)
 
     annotations: list[Annotation] = []
     if texts:

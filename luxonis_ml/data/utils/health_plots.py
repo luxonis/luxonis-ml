@@ -30,7 +30,7 @@ from luxonis_ml.vizlab import (
     grid,
 )
 
-DistributionMode = Literal["bars", "chips", "stacked"]
+DistributionMode = Literal["bars", "chips", "stacked", "pie", "donut"]
 """Class-distribution looks offered by ``data health``."""
 
 #: Nominal font/mark scale for the plots. The base vizlab style (~16 px text) is

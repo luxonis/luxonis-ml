@@ -16,7 +16,7 @@ from .annotations.mask import _resize_mask
 from .canvas import Canvas
 from .color import Color, ColorLike
 from .geometry import Rect
-from .image import Image
+from .image import Image, _style_scale
 from .style import DARK_THEME, DEFAULT_STYLE, Style
 
 _DEFAULT_BG = DARK_THEME.background
@@ -329,12 +329,16 @@ def _pad(rgba: np.ndarray, width: int, height: int, fill: Color) -> np.ndarray:
 
 
 def _wrap_titles(
-    titles: Sequence[str] | None, count: int, cell_w: float, style: Style
+    titles: Sequence[str] | None,
+    count: int,
+    cell_w: float,
+    style: Style,
+    pad: float,
 ) -> list[list[str]]:
     """Wrap each title to the cell width so long titles never overflow the cell."""
     if not titles:
         return [[] for _ in range(count)]
-    max_w = max(1.0, cell_w - 2 * _TITLE_PAD)
+    max_w = max(1.0, cell_w - 2 * pad)
     wrapped: list[list[str]] = []
     for i in range(count):
         title = titles[i] if i < len(titles) else ""
@@ -374,12 +378,17 @@ def _grid(
     cell_w = max(r.shape[1] for r in rasters)
     cell_h = max(r.shape[0] for r in rasters)
 
+    # Scale titles to the tile size so they don't shrink against large images.
+    title_style = style.scaled(_style_scale(cell_w, cell_h))
+    title_pad = _TITLE_PAD * _style_scale(cell_w, cell_h)
     line_h = _MEASURE.measure_text(
-        "Ag", style.font_size, weight=style.font_weight
+        "Ag", title_style.font_size, weight=title_style.font_weight
     ).height
-    wrapped = _wrap_titles(titles, len(rasters), cell_w, style)
+    wrapped = _wrap_titles(
+        titles, len(rasters), cell_w, title_style, title_pad
+    )
     max_lines = max((len(lines) for lines in wrapped), default=0)
-    title_h = max_lines * line_h + 2 * _TITLE_PAD if max_lines else 0.0
+    title_h = max_lines * line_h + 2 * title_pad if max_lines else 0.0
 
     width = pad + cols * (cell_w + pad)
     height = round(pad + rows * (title_h + cell_h + pad))
@@ -400,9 +409,10 @@ def _grid(
                 wrapped[i],
                 cell_x + cell_w / 2,
                 cell_y,
-                style,
+                title_style,
                 text_color,
                 line_h,
+                title_pad,
             )
         h, w = raster.shape[:2]
         x = cell_x + (cell_w - w) // 2
@@ -421,9 +431,10 @@ def _draw_title(
     style: Style,
     color: Color,
     line_h: float,
+    pad: float,
 ) -> None:
     """Draw centered, wrapped title lines above a cell."""
-    y = top + _TITLE_PAD
+    y = top + pad
     for line in lines:
         metrics = canvas.measure_text(
             line, style.font_size, weight=style.font_weight

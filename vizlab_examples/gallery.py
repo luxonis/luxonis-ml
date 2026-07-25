@@ -29,6 +29,7 @@ from luxonis_ml.vizlab import (
     Gradient,
     Heatmap,
     Image,
+    InfoCard,
     Keypoints,
     Legend,
     Mask,
@@ -376,6 +377,49 @@ def render_panel() -> Path:
     return save(img.with_panel(metadata, title="metadata"), "panel.png")
 
 
+def render_typography() -> Path:
+    """Bundled fonts (Inter + JetBrains Mono) and inline ``<b>/<i>/<code>`` tags."""
+    markup = Image(gradient(_W, _H, hue=0.62)).add(
+        InfoCard(
+            rows=[
+                "The <b>quick</b> <i>brown</i> <code>fox()</code>",
+                "id: <b>42</b>",
+                "state: <i>occluded</i>",
+                "file: <code>seq/img_0007.jpg</code>",
+            ],
+            title="<b>inline markup</b>",
+            corner=Corner.TOP_LEFT,
+        )
+    )
+    # Values render in JetBrains Mono; numbers align in the bar chart.
+    numbers = Image(gradient(_W, _H, hue=0.05)).add(
+        ClassDistribution(
+            probabilities={
+                "person": 1240.0,
+                "car": 712.0,
+                "bike": 143.0,
+                "dog": 56.0,
+            },
+            value_format="count+percent",
+            top_k=None,
+        )
+    )
+    panel = (
+        Image(gradient(300, _H, hue=0.58))
+        .add(BBox(x=0.1, y=0.2, w=0.5, h=0.6, label="person", score=0.97))
+        .with_panel(
+            {"source": "img_0007.jpg", "frame": 7, "speed": 12.4},
+            title="sample",
+        )
+    )
+    grid_img = grid(
+        [markup, numbers, panel],
+        ncols=3,
+        titles=["markup: bold / italic / mono", "mono numbers", "mono values"],
+    )
+    return save(grid_img, "typography.png")
+
+
 def main() -> None:
     """Render every example and print where each landed."""
     for path in (
@@ -384,6 +428,7 @@ def main() -> None:
         render_distribution_modes(),
         render_compose(),
         render_panel(),
+        render_typography(),
     ):
         print(f"wrote {path}")
 

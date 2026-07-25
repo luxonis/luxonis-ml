@@ -10,10 +10,18 @@ from luxonis_ml.utils.color import brand
 from luxonis_ml.vizlab.canvas import Canvas, Shadow, TextMetrics
 from luxonis_ml.vizlab.color import Color, ColorLike
 from luxonis_ml.vizlab.geometry import Rect
+from luxonis_ml.vizlab.markup import Span, parse
 from luxonis_ml.vizlab.style import Style
 
 from .base import RenderContext
-from .overlay import CARD_BG, CARD_TEXT, Cell, Corner, CornerStack
+from .overlay import (
+    CARD_BG,
+    CARD_TEXT,
+    Cell,
+    Corner,
+    CornerStack,
+    swatch_outline,
+)
 
 _CAPTION_BG = brand.CAPTION_BG
 _CARD_BG = CARD_BG
@@ -21,10 +29,12 @@ _CARD_TEXT = CARD_TEXT
 
 _PAD, _ROW_GAP, _SWATCH_GAP = 10.0, 6.0, 8.0
 
-# A wrapped, measured text line: ``(line, metrics)``.
-_Line = tuple[str, TextMetrics]
-# A card row: ``(line, metrics, swatch_color_or_None)``.
-_Row = tuple[str, TextMetrics, "Color | None"]
+# A wrapped, measured text line: ``(styled spans, metrics)``. Card/caption/legend
+# text is parsed as inline markup (``<b>``/``<i>``/``<code>``), so a line is a
+# list of styled `Span` rather than a bare string.
+_Line = tuple[list[Span], TextMetrics]
+# A card row: ``(styled spans, metrics, swatch_color_or_None)``.
+_Row = tuple[list[Span], TextMetrics, "Color | None"]
 
 
 def _wrap_measured(
@@ -34,16 +44,19 @@ def _wrap_measured(
     weight: int,
     avail: float,
 ) -> list[_Line]:
-    """Wrap each text to ``avail`` px and measure every resulting line."""
+    """Wrap each text to ``avail`` px and measure every resulting line.
+
+    Text is parsed as inline markup, so ``<b>``/``<i>``/``<code>`` runs render
+    bold/italic/monospace; ``weight`` sets the untagged baseline.
+    """
     lines: list[_Line] = []
     for text in texts:
-        wrapped = canvas.wrap_text(
-            text, size, max_width=avail, weight=weight
-        ) or [""]
+        spans = parse(text, weight=weight)
+        wrapped = canvas.wrap_spans(spans, size, max_width=avail) or [
+            [Span("")]
+        ]
         for line in wrapped:
-            lines.append(
-                (line, canvas.measure_text(line, size, weight=weight))
-            )
+            lines.append((line, canvas.measure_spans(line, size)))
     return lines
 
 
@@ -108,12 +121,11 @@ def _draw_card(
     title_size = style.font_size * 1.05
     y = rect.top + _PAD
     for line, metrics in title_lines:
-        cv.text(
+        cv.draw_spans(
             (rect.left + _PAD, y + metrics.ascent),
             line,
             size=title_size,
             color=_CARD_TEXT,
-            weight=700,
         )
         y += title_line_h
     if title_lines:
@@ -131,13 +143,14 @@ def _draw_card(
                 ),
                 radius=3.0,
                 fill=color,
+                stroke=swatch_outline(_CARD_BG),
+                stroke_width=1.0,
             )
-        cv.text(
+        cv.draw_spans(
             (text_x, y + metrics.ascent),
             line,
             size=style.font_size,
             color=_CARD_TEXT,
-            weight=style.font_weight,
         )
         y += row_h + _ROW_GAP
 
@@ -152,11 +165,12 @@ def _swatch_rows(
     """Build swatched rows: each name wraps; its swatch sits on the first line."""
     rows: list[_Row] = []
     for name, color in items:
-        wrapped = canvas.wrap_text(
-            name, size, max_width=avail, weight=weight
-        ) or [""]
+        spans = parse(name, weight=weight)
+        wrapped = canvas.wrap_spans(spans, size, max_width=avail) or [
+            [Span("")]
+        ]
         for i, line in enumerate(wrapped):
-            metrics = canvas.measure_text(line, size, weight=weight)
+            metrics = canvas.measure_spans(line, size)
             rows.append((line, metrics, color if i == 0 else None))
     return rows
 
@@ -199,16 +213,14 @@ class Caption(CornerStack):
         pad_x, pad_y = cap_style.label_pad_x, cap_style.label_pad_y
         # Wrap to keep the chip within the canvas (minus the corner margin).
         avail = max(1.0, canvas.width - 2 * self.margin - 2 * pad_x)
-        lines = canvas.wrap_text(
-            self.text, size, max_width=avail, weight=weight
-        )
+        spans = parse(self.text, weight=weight)
+        lines = canvas.wrap_spans(spans, size, max_width=avail)
         if not lines:
             return []
         fill = Color.parse(self.background)
         text_color = fill.readable_text_color()
-        measured = [
-            (line, canvas.measure_text(line, size, weight=weight))
-            for line in lines
+        measured: list[_Line] = [
+            (line, canvas.measure_spans(line, size)) for line in lines
         ]
         line_h = max(m.height for _, m in measured)
         content_w = max(m.width for _, m in measured)
@@ -224,12 +236,11 @@ class Caption(CornerStack):
             )
             y = rect.top + pad_y
             for line, m in measured:
-                cv.text(
+                cv.draw_spans(
                     (rect.left + pad_x, y + m.ascent),
                     line,
                     size=size,
                     color=text_color,
-                    weight=weight,
                 )
                 y += line_h
 

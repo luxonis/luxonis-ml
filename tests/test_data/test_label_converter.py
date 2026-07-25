@@ -64,6 +64,71 @@ def test_loader_output_to_records_roundtrip(dataset_name: str, tempdir: Path):
     assert car.w == 0.3  # type: ignore
 
 
+def test_absent_metadata_does_not_create_phantom_boxless(
+    dataset_name: str, tempdir: Path
+) -> None:
+    """Regression: a per-instance metadata task that is absent for a sample must
+    not decode into box-less 'detections' whose every value reads as ``0.0``.
+
+    Previously the empty task was filled with a class-length zero vector (as if it
+    were classification), which decoded into phantom box-less instances. Those
+    surfaced in the metadata card as ``key: 0.0`` while never appearing on hover.
+    """
+
+    def generator() -> DatasetIterator:
+        img_a = str(create_image(0, tempdir))
+        img_b = str(create_image(1, tempdir))
+        # img_a registers a 2-class detection task carrying per-instance metadata.
+        yield {
+            "file": img_a,
+            "task_name": "detection",
+            "annotation": {
+                "class": "car",
+                "instance_id": 0,
+                "boundingbox": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2},
+                "metadata": {"track_id": 7},
+            },
+        }
+        yield {
+            "file": img_a,
+            "task_name": "detection",
+            "annotation": {
+                "class": "person",
+                "instance_id": 1,
+                "boundingbox": {"x": 0.5, "y": 0.5, "w": 0.2, "h": 0.2},
+                "metadata": {"track_id": 8},
+            },
+        }
+        # img_b has a single detection and no metadata for it.
+        yield {
+            "file": img_b,
+            "task_name": "detection",
+            "annotation": {
+                "class": "car",
+                "instance_id": 0,
+                "boundingbox": {"x": 0.3, "y": 0.3, "w": 0.2, "h": 0.2},
+            },
+        }
+
+    dataset = create_dataset(
+        dataset_name,
+        generator(),
+        BucketStorage.LOCAL,
+        splits={"train": 1.0},
+    )
+    classes = dataset.get_classes()
+    loader = LuxonisLoader(dataset, view="train")
+
+    boxless_with_metadata = []
+    for sample in loader:
+        records = loader_output_to_records(sample.labels, classes=classes)
+        for record in records.values():
+            for det in record._annotations():
+                if det.boundingbox is None and det.metadata:
+                    boxless_with_metadata.append(det.metadata)
+    assert boxless_with_metadata == []
+
+
 def test_metadata_only_task_yields_detections() -> None:
     """A metadata-only task (e.g. OCR) still produces one detection per entry.
 

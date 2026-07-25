@@ -193,14 +193,19 @@ def _draw_tooltip(
     ]
     if not rows:
         return
-    font, scale, thick = cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1
-    pad, gap = 8, 6
+    height, width = frame.shape[:2]
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    # Scale the tooltip type to the displayed frame so it stays legible on large
+    # windows (0.5 at ~720p short side, growing to ~1.1 on bigger frames).
+    scale = min(1.1, max(0.5, 0.5 * min(width, height) / 720.0))
+    thick = max(1, round(scale / 0.5))
+    k = scale / 0.5
+    pad, gap = round(8 * k), round(6 * k)
     sizes = [cv2.getTextSize(t, font, scale, thick)[0] for t in rows]
     text_h = max(h for _, h in sizes)
     line_h = text_h + gap
     box_w = max(w for w, _ in sizes) + 2 * pad
     box_h = 2 * pad + line_h * len(rows) - gap
-    height, width = frame.shape[:2]
     if box_w >= width or box_h >= height:
         return
     x = max(0, min(int(at[0]) + 16, width - box_w - 1))
@@ -463,6 +468,10 @@ def inspect(
         bool,
         Parameter(alias="-lg", negative=""),
     ] = False,
+    theme: Annotated[
+        Literal["dark", "light"],
+        Parameter(alias="-t"),
+    ] = "dark",
     bucket_storage: BucketStorageT = BucketStorage.LOCAL,
 ):
     """Inspect images and annotations in a dataset.
@@ -493,6 +502,7 @@ def inspect(
         skeletons: Draw keypoint skeleton edges.
         keypoint_labels: Specify how to draw keypoint labels.
         legend: Draw a class-color legend on each image.
+        theme: Visual theme of the visualization: ``dark`` or ``light``.
         bucket_storage: Storage type of the dataset.
 
     """
@@ -556,10 +566,13 @@ def inspect(
             loader_output_to_records,
         )
         from luxonis_ml.vizlab import (
+            DARK_THEME,
+            LIGHT_THEME,
             Image,
             Legend,
             Palette,
             VizConfig,
+            set_default_theme,
             visualize_record,
         )
         from luxonis_ml.vizlab.compose import grid_placed
@@ -579,11 +592,16 @@ def inspect(
         for class_name in classes
     ]
 
+    viz_theme = LIGHT_THEME if theme == "light" else DARK_THEME
+    # Make single images, panels, and grid backgrounds all follow the theme.
+    set_default_theme(viz_theme)
+
     config = VizConfig(
         palette=Palette(class_names),
         skeletons=keypoint_skeletons,
         keypoint_label_mode=keypoint_labels,
         draw_skeletons=skeletons,
+        theme=viz_theme,
     )
     has_legend = legend and any(name != _BACKGROUND for name in class_names)
     class_legend = (
@@ -708,6 +726,13 @@ def inspect(
                         detection, config, task_name=task_name
                     ):
                         viz.add(annotation)
+                    # A single instance per window: card its metadata (no hover).
+                    for overlay in metadata_annotations(
+                        [detection],
+                        text_key=config.text_metadata_key,
+                        lone_object_card=True,
+                    ):
+                        viz.add(overlay)
                     if class_legend is not None:
                         viz.add(class_legend)
                     if panel:
@@ -738,10 +763,12 @@ def inspect(
                         ):
                             viz.add(annotation)
                 # Box-less metadata has nothing to hover, so show it as a card
-                # (recognized text is rendered prominently on its own).
+                # (recognized text is rendered prominently on its own). A lone
+                # object is carded too, so a single detection needs no hover.
                 for overlay in metadata_annotations(
                     [d for r in records.values() for d in r._annotations()],
                     text_key=config.text_metadata_key,
+                    lone_object_card=True,
                 ):
                     viz.add(overlay)
             else:
@@ -757,7 +784,10 @@ def inspect(
                     for record in records.values()
                 ]
                 viz, placements = grid_placed(
-                    tiles, ncols=cols, titles=list(records)
+                    tiles,
+                    ncols=cols,
+                    titles=list(records),
+                    bg=viz_theme.background,
                 )
             if class_legend is not None:
                 viz.add(class_legend)
@@ -986,7 +1016,7 @@ def health(
         Parameter(alias="-g"),
     ] = "viridis",
     distribution: Annotated[
-        Literal["bars", "chips", "stacked"],
+        Literal["bars", "chips", "stacked", "pie", "donut"],
         Parameter(alias="-m"),
     ] = "stacked",
     scale: Annotated[
@@ -1015,7 +1045,7 @@ def health(
         gradient: Name of the heatmap colormap (e.g. ``viridis``,
             ``turbo``, ``magma``, ``inferno``, ``jet``).
         distribution: How class counts are drawn: ``bars``, ``chips``,
-            or the ``stacked`` proportion strip.
+            the ``stacked`` proportion strip, or a ``pie``/``donut`` chart.
         scale: Font and mark scale for the plots (``1.0`` is nominal;
             increase for larger text and marks).
         bucket_storage: Storage type of the dataset.

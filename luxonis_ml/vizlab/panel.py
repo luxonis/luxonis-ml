@@ -8,19 +8,22 @@ never occludes pixels or labels and the original is untouched.
 """
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 
 from luxonis_ml.utils.color import brand
 
 from .canvas import Canvas
 from .color import Color, ColorLike
 from .geometry import Rect
-from .image import Image
+from .image import Image, _style_scale
 from .style import DEFAULT_STYLE, Style, get_default_theme
 
+# Nominal metrics at the style-reference resolution; scaled up on larger images
+# so the panel's type tracks the picture size instead of shrinking against it.
 _PAD = 16.0
 _INDENT = 14.0
 _LINE_GAP = 5.0
-_PANEL_SIZE = 15.0
+_PANEL_SIZE = 16.0
 _MIN_WIDTH = 220.0
 _MAX_WIDTH = 400.0
 
@@ -35,6 +38,41 @@ _MEASURE = Canvas.blank(1, 1)
 
 # One logical line: (depth, prefix, prefix_is_key, body).
 Line = tuple[int, str, bool, str]
+
+
+@dataclass(frozen=True)
+class _Metrics:
+    """Panel metrics (sizes + chrome colors) resolved for one panel."""
+
+    size: float
+    pad: float
+    indent: float
+    line_gap: float
+    min_width: float
+    max_width: float
+    key: Color
+    value: Color
+    title: Color
+
+
+def _metrics(scale: float, background: Color) -> _Metrics:
+    """Resolve panel sizes (scaled by ``scale``) and background-aware text colors.
+
+    On a light background the near-white dark-theme chrome would be invisible, so
+    keys become brand purple and values/title become brand ink.
+    """
+    light_bg = background.readable_text_color().r < 128
+    return _Metrics(
+        size=_PANEL_SIZE * scale,
+        pad=_PAD * scale,
+        indent=_INDENT * scale,
+        line_gap=_LINE_GAP * scale,
+        min_width=_MIN_WIDTH * scale,
+        max_width=_MAX_WIDTH * scale,
+        key=brand.PURPLE if light_bg else _KEY,
+        value=brand.INK if light_bg else _VALUE,
+        title=brand.INK if light_bg else _TITLE,
+    )
 
 
 def _is_container(value: object) -> bool:
@@ -106,7 +144,13 @@ def _sequence_lines(data: Sequence, depth: int) -> list[Line]:
     return lines
 
 
-def _wrap(text: str, size: float, weight: int, max_width: float) -> list[str]:
+def _wrap(
+    text: str,
+    size: float,
+    weight: int,
+    max_width: float,
+    mono: bool = False,
+) -> list[str]:
     """Greedily wrap ``text`` to ``max_width`` using measured word widths."""
     if not text:
         return [""]
@@ -116,7 +160,9 @@ def _wrap(text: str, size: float, weight: int, max_width: float) -> list[str]:
         trial = f"{current} {word}".strip()
         if (
             not current
-            or _MEASURE.measure_text(trial, size, weight=weight).width
+            or _MEASURE.measure_text(
+                trial, size, weight=weight, mono=mono
+            ).width
             <= max_width
         ):
             current = trial
@@ -127,60 +173,70 @@ def _wrap(text: str, size: float, weight: int, max_width: float) -> list[str]:
     return wrapped
 
 
-# One draw op: (y, x, text, weight, color).
-_Op = tuple[float, float, str, int, Color]
+# One draw op: (y, x, text, weight, color, mono). Values render monospace.
+_Op = tuple[float, float, str, int, Color, bool]
 
 
 def _line_ops(
-    line: Line, content_w: float, row_h: float, ascent: float, y: float
+    line: Line,
+    content_w: float,
+    m: _Metrics,
+    row_h: float,
+    ascent: float,
+    y: float,
 ) -> tuple[list[_Op], float]:
     """Positioned text ops for one logical line; returns them and the next ``y``."""
     depth, prefix, is_key, body = line
-    x = depth * _INDENT
+    x = depth * m.indent
     weight = 600 if is_key else 400
     prefix_w = (
-        _MEASURE.measure_text(prefix, _PANEL_SIZE, weight=weight).width
+        _MEASURE.measure_text(prefix, m.size, weight=weight).width
         if prefix
         else 0.0
     )
     body_lines = _wrap(
-        body, _PANEL_SIZE, 400, max(24.0, content_w - x - prefix_w)
+        body, m.size, 400, max(24.0, content_w - x - prefix_w), mono=True
     )
     ops: list[_Op] = []
     if prefix:
-        ops.append((y + ascent, x, prefix, weight, _KEY if is_key else _VALUE))
+        color = m.key if is_key else m.value
+        ops.append((y + ascent, x, prefix, weight, color, False))
     if body_lines[0]:
-        ops.append((y + ascent, x + prefix_w, body_lines[0], 400, _VALUE))
+        ops.append(
+            (y + ascent, x + prefix_w, body_lines[0], 400, m.value, True)
+        )
     y += row_h
     for cont in body_lines[1:]:
-        ops.append((y + ascent, x + prefix_w, cont, 400, _VALUE))
+        ops.append((y + ascent, x + prefix_w, cont, 400, m.value, True))
         y += row_h
     return ops, y
 
 
-def _build_ops(lines: list[Line], content_w: float) -> tuple[list[_Op], float]:
+def _build_ops(
+    lines: list[Line], content_w: float, m: _Metrics
+) -> tuple[list[_Op], float]:
     """Lay out logical lines into positioned text ops; return them and total height."""
-    metrics = _MEASURE.measure_text("Ag", _PANEL_SIZE)
-    row_h = metrics.height + _LINE_GAP
+    metrics = _MEASURE.measure_text("Ag", m.size)
+    row_h = metrics.height + m.line_gap
     ops: list[_Op] = []
     y = 0.0
     for line in lines:
-        line_ops, y = _line_ops(line, content_w, row_h, metrics.ascent, y)
+        line_ops, y = _line_ops(line, content_w, m, row_h, metrics.ascent, y)
         ops.extend(line_ops)
     return ops, y
 
 
-def _auto_width(lines: list[Line]) -> float:
+def _auto_width(lines: list[Line], m: _Metrics) -> float:
     """Pick a panel width from the content, clamped to a sensible range."""
     widest = 0.0
     for depth, prefix, is_key, body in lines:
         weight = 600 if is_key else 400
-        prefix_w = _MEASURE.measure_text(
-            prefix, _PANEL_SIZE, weight=weight
+        prefix_w = _MEASURE.measure_text(prefix, m.size, weight=weight).width
+        body_w = _MEASURE.measure_text(
+            body, m.size, weight=400, mono=True
         ).width
-        body_w = _MEASURE.measure_text(body, _PANEL_SIZE, weight=400).width
-        widest = max(widest, depth * _INDENT + prefix_w + body_w)
-    return min(_MAX_WIDTH, max(_MIN_WIDTH, widest + 2 * _PAD))
+        widest = max(widest, depth * m.indent + prefix_w + body_w)
+    return min(m.max_width, max(m.min_width, widest + 2 * m.pad))
 
 
 def with_panel(
@@ -232,19 +288,20 @@ def with_panel(
         if bg is not None
         else (image.theme or get_default_theme()).background
     )
+    m = _metrics(_style_scale(img_w, img_h), background)
 
     lines = _format_tree(data)
-    panel_w = width if width is not None else _auto_width(lines)
-    content_w = panel_w - 2 * _PAD
-    ops, content_h = _build_ops(lines, content_w)
+    panel_w = width if width is not None else _auto_width(lines, m)
+    content_w = panel_w - 2 * m.pad
+    ops, content_h = _build_ops(lines, content_w, m)
 
     title_metrics = (
-        _MEASURE.measure_text(title, _PANEL_SIZE * 1.15, weight=700)
+        _MEASURE.measure_text(title, m.size * 1.15, weight=700)
         if title is not None
         else None
     )
-    title_h = title_metrics.height + _LINE_GAP * 2 if title_metrics else 0.0
-    panel_h = 2 * _PAD + title_h + content_h
+    title_h = title_metrics.height + m.line_gap * 2 if title_metrics else 0.0
+    panel_h = 2 * m.pad + title_h + content_h
 
     horizontal = side in ("right", "left")
     if horizontal:
@@ -266,7 +323,7 @@ def with_panel(
     _draw_divider(canvas, side, img_w, img_h, panel_w, out_w, out_h)
 
     panel_y = float(img_h) if not horizontal else 0.0
-    _draw_panel(canvas, ops, title, title_metrics, panel_x, panel_y)
+    _draw_panel(canvas, ops, title, title_metrics, panel_x, panel_y, m)
     return Image(canvas.to_rgba(), theme=image.theme)
 
 
@@ -295,24 +352,26 @@ def _draw_panel(
     title_metrics: object,
     panel_x: float,
     panel_y: float,
+    m: _Metrics,
 ) -> None:
     """Draw the optional title and the laid-out key/value ops."""
-    x0 = panel_x + _PAD
-    y0 = panel_y + _PAD
+    x0 = panel_x + m.pad
+    y0 = panel_y + m.pad
     if title is not None and title_metrics is not None:
         canvas.text(
             (x0, y0 + title_metrics.ascent),  # type: ignore[attr-defined]
             title,
-            size=_PANEL_SIZE * 1.15,
-            color=_TITLE,
+            size=m.size * 1.15,
+            color=m.title,
             weight=700,
         )
-        y0 += title_metrics.height + _LINE_GAP * 2  # type: ignore[attr-defined]
-    for op_y, op_x, text, weight, color in ops:
+        y0 += title_metrics.height + m.line_gap * 2  # type: ignore[attr-defined]
+    for op_y, op_x, text, weight, color, mono in ops:
         canvas.text(
             (x0 + op_x, y0 + op_y),
             text,
-            size=_PANEL_SIZE,
+            size=m.size,
             color=color,
             weight=weight,
+            mono=mono,
         )

@@ -28,7 +28,9 @@ if TYPE_CHECKING:
 
 #: Canvas short-side (px) at which styles render at their nominal size; larger
 #: canvases scale labels/strokes up proportionally (clamped to the range below).
-_STYLE_REFERENCE_PX = 760.0
+#: Kept a touch below a typical frame so type reads a bit larger relative to the
+#: image on medium and large canvases.
+_STYLE_REFERENCE_PX = 700.0
 _STYLE_SCALE_RANGE = (1.0, 3.0)
 
 

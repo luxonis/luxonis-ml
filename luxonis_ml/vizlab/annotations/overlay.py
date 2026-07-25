@@ -29,6 +29,33 @@ _WHITE = Color(255, 255, 255)
 CARD_BG = brand.CARD_BG
 CARD_TEXT = brand.CARD_TEXT
 
+
+def _on_dark(surface: Color) -> bool:
+    """Whether ``surface`` is dark enough to want light text/outlines on it."""
+    return surface.readable_text_color().r > 200
+
+
+def shade_outline(fill: Color, surface: Color) -> Color:
+    """Return a color-matched edge for a filled shape.
+
+    A lighter (on a dark ``surface``) or darker (on a light one) shade of
+    ``fill``, so wedges/bars/segments get a crisp rim without a foreign color.
+    """
+    return fill.lighten(0.45) if _on_dark(surface) else fill.darken(0.4)
+
+
+def swatch_outline(surface: Color) -> Color:
+    """Return a uniform light-or-dark hairline for a color swatch.
+
+    Unlike `shade_outline` this is not color-matched: every swatch on a card gets
+    the same subtle light (on dark) or dark (on light) ring so the key reads as a
+    set. The choice follows ``surface``.
+    """
+    return (
+        Color(255, 255, 255, 150) if _on_dark(surface) else Color(0, 0, 0, 130)
+    )
+
+
 CellDraw = Callable[[Canvas, Rect], None]
 """Draws a single stacked cell's content into its placed rectangle."""
 

@@ -63,7 +63,9 @@ def test_top_k_none_shows_all() -> None:
 # --- rendering --------------------------------------------------------------
 
 
-@pytest.mark.parametrize("mode", ["bars", "chips", "gauge", "stacked"])
+@pytest.mark.parametrize(
+    "mode", ["bars", "chips", "gauge", "stacked", "pie", "donut"]
+)
 def test_each_mode_renders(mode: str) -> None:
     out = (
         _canvas()
@@ -90,7 +92,7 @@ def test_empty_distribution_has_no_extent() -> None:
     assert ClassDistribution(probabilities={}).extent() is None
 
 
-@pytest.mark.parametrize("mode", ["bars", "chips", "stacked"])
+@pytest.mark.parametrize("mode", ["bars", "chips", "stacked", "pie", "donut"])
 def test_ground_truth_marker_changes_pixels(mode: str) -> None:
     base = _canvas()
     without = (
@@ -196,6 +198,60 @@ def test_count_mode_renders(fmt: str) -> None:
         .render()
     )
     assert out[..., 3].max() > 0
+
+
+def test_outline_helpers_follow_surface() -> None:
+    """Chart edges match the fill (lighter on dark); swatch rings are uniform."""
+    from luxonis_ml.vizlab.annotations.overlay import (
+        shade_outline,
+        swatch_outline,
+    )
+    from luxonis_ml.vizlab.color import Color
+
+    fill = Color(80, 120, 200)
+    dark, light = Color(20, 24, 30), Color(240, 240, 244)
+    # Color-matched edge: lighter on a dark surface, darker on a light one.
+    assert shade_outline(fill, dark).hls[1] > fill.hls[1]
+    assert shade_outline(fill, light).hls[1] < fill.hls[1]
+    # Uniform swatch ring: light on dark, dark on light.
+    assert swatch_outline(dark).r > 200
+    assert swatch_outline(light).r < 60
+
+
+def test_donut_differs_from_pie() -> None:
+    """The donut hole and center percentage make it visibly distinct from a pie."""
+    pie = (
+        _canvas(220, 260)
+        .add(ClassDistribution(probabilities=_DIST, mode="pie", top_k=None))
+        .render()
+    )
+    donut = (
+        _canvas(220, 260)
+        .add(ClassDistribution(probabilities=_DIST, mode="donut", top_k=None))
+        .render()
+    )
+    assert not np.array_equal(pie[..., :3], donut[..., :3])
+
+
+def test_pie_uses_palette_color_for_class() -> None:
+    """A wedge is painted with its class's palette color."""
+    palette = Palette(["cat", "dog", "fox"])
+    out = (
+        _canvas(220, 260)
+        .add(
+            ClassDistribution(
+                probabilities=_DIST,
+                mode="pie",
+                palette=palette,
+                top_k=None,
+            )
+        )
+        .render()
+    )
+    cat = palette.color_for("cat")
+    target = np.array(cat.rgb)
+    diff = np.abs(out[..., :3].astype(int) - target).sum(axis=-1)
+    assert (diff < 12).any()
 
 
 def test_content_size_positive_and_grows_with_classes() -> None:

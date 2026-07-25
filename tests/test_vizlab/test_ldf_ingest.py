@@ -167,6 +167,34 @@ def test_metadata_annotations_from_boxless_detections():
     assert metadata_annotations([boxed]) == []
 
 
+def test_metadata_annotations_cards_a_lone_boxed_object():
+    """A single boxed object cards its metadata; two or more stay hover-only."""
+    from luxonis_ml.vizlab import InfoCard
+    from luxonis_ml.vizlab.convert import metadata_annotations
+
+    car = Detection(
+        class_name="car",
+        boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.2, h=0.2),
+        metadata={"track_id": 42, "speed": 12.4},
+    )
+    person = Detection(
+        class_name="person",
+        boundingbox=BBoxAnnotation(x=0.6, y=0.6, w=0.2, h=0.3),
+        metadata={"track_id": 7},
+    )
+
+    # Lone object -> a metadata card with its real values.
+    cards = metadata_annotations([car], lone_object_card=True)
+    assert len(cards) == 1
+    assert isinstance(cards[0], InfoCard)
+    assert cards[0].rows == ["car", "  track_id: 42", "  speed: 12.4"]
+
+    # More than one object -> hover only, even with the flag set.
+    assert metadata_annotations([car, person], lone_object_card=True) == []
+    # Without the flag, a lone boxed object is still hover-only (default).
+    assert metadata_annotations([car]) == []
+
+
 def test_metadata_annotations_promotes_text_key():
     """The recognized-text key renders as a separate, prominent card."""
     from luxonis_ml.vizlab import InfoCard

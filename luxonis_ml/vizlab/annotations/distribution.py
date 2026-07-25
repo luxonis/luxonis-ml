@@ -2,7 +2,7 @@
 
 `Classification` renders dataset *labels* — the one (or few) correct classes as
 corner chips. A model *prediction* is different: a probability distribution over
-all classes. `ClassDistribution` renders that distribution, with four
+all classes. `ClassDistribution` renders that distribution, with several
 interchangeable looks (``mode``) and an optional ground-truth marker so you can
 see at a glance whether the top prediction is correct.
 
@@ -13,6 +13,7 @@ dataset path. It is an image-level corner overlay, built on the same
 `CornerStack` machinery as `Legend` and `Classification`.
 """
 
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal
@@ -20,14 +21,21 @@ from typing import Literal
 from luxonis_ml.utils.color import brand
 from luxonis_ml.vizlab.canvas import Canvas, Shadow, TextMetrics
 from luxonis_ml.vizlab.color import Color
-from luxonis_ml.vizlab.geometry import Rect
+from luxonis_ml.vizlab.geometry import XY, Rect
 from luxonis_ml.vizlab.style import Palette, Style
 
 from .base import RenderContext
 from .chip import chip_size, draw_chip
-from .overlay import CARD_BG, CARD_TEXT, Cell, CornerStack
+from .overlay import (
+    CARD_BG,
+    CARD_TEXT,
+    Cell,
+    CornerStack,
+    shade_outline,
+    swatch_outline,
+)
 
-DistributionMode = Literal["bars", "chips", "gauge", "stacked"]
+DistributionMode = Literal["bars", "chips", "gauge", "stacked", "pie", "donut"]
 """How a `ClassDistribution` is drawn. See the class docstring."""
 
 ValueFormat = Literal["percent", "count", "count+percent"]
@@ -46,6 +54,8 @@ _OTHER = brand.MUTED
 _PAD = 10.0
 _ROW_GAP = 6.0
 _COL_GAP = 8.0
+# Extra breathing room between a pie/donut's bottom edge and the key below it.
+_PIE_KEY_GAP = 16.0
 
 
 def _clamp01(value: float) -> float:
@@ -58,11 +68,16 @@ def _pct(prob: float) -> str:
     return f"{round(_clamp01(prob) * 100)}%"
 
 
+def _edge_w(style: Style) -> float:
+    """Hairline width for chart-element outlines, tracking the font size."""
+    return max(1.0, style.font_size * 0.09)
+
+
 class ClassDistribution(CornerStack):
     """A predicted probability distribution over classes, in one of four looks.
 
     Feed it a distribution (a ``{name: probability}`` mapping, or ``(name, prob)``
-    pairs) and it draws a corner panel. ``mode`` selects the look:
+    pairs) and it draws a corner panel. ``mode`` selects one of six looks:
 
     - ``"bars"`` (default): a ranked horizontal bar chart — class name, a bar whose
       length is the probability, and the percentage. Best general-purpose view.
@@ -71,6 +86,9 @@ class ClassDistribution(CornerStack):
     - ``"gauge"``: just the winning class as a single large confidence bar.
     - ``"stacked"``: one segmented strip showing the classes as proportions, with
       an inline key.
+    - ``"pie"`` / ``"donut"``: a circular chart of the classes as proportional
+      wedges, with an inline key; ``"donut"`` leaves a hole and prints the top
+      class's share in its center.
 
     Each class is colored from the palette by name, so it matches its box color.
     Set ``ground_truth`` to mark the correct class (a highlighted row/chip/segment,
@@ -80,7 +98,7 @@ class ClassDistribution(CornerStack):
     Attributes:
         probabilities: The distribution as a ``{name: prob}`` mapping or a list of
             ``(name, prob)`` pairs. Probabilities are expected in ``[0, 1]``.
-        mode: Which of the four looks to draw (see above).
+        mode: Which look to draw (see above).
         ground_truth: The correct class name to highlight, or ``None``.
         top_k: Show only the ``top_k`` most probable classes (plus the ground-truth
             row if it is set and would otherwise be hidden). ``None`` shows all.
@@ -207,6 +225,8 @@ class ClassDistribution(CornerStack):
             return self._gauge_cells(ctx, style)
         if self.mode == "stacked":
             return self._stacked_cells(ctx, style)
+        if self.mode in ("pie", "donut"):
+            return self._pie_cells(ctx, style)
         return self._bars_cells(ctx, style)
 
     def _card_bg(self, cv: Canvas, rect: Rect, style: Style) -> None:
@@ -261,7 +281,7 @@ class ClassDistribution(CornerStack):
             for name, value in rows
         ]
         val_w = max(
-            canvas.measure_text(label, size, weight=weight).width
+            canvas.measure_text(label, size, weight=weight, mono=True).width
             for _, _, label, _ in measured
         )
         name_w = max(m.width for _, _, _, m in measured)
@@ -345,7 +365,7 @@ class ClassDistribution(CornerStack):
 
         name_m = canvas.measure_text(name, size, weight=700)
         pct_text = self._value_label(value, self._total())
-        pct_m = canvas.measure_text(pct_text, big, weight=700)
+        pct_m = canvas.measure_text(pct_text, big, weight=700, mono=True)
         gt = self.ground_truth
         correct = gt is not None and gt == name
         marker = size * 1.1 if gt is not None else 0.0
@@ -385,6 +405,7 @@ class ClassDistribution(CornerStack):
                 size=big,
                 color=CARD_TEXT,
                 weight=700,
+                mono=True,
             )
             by = rect.top + _PAD + header_h + 8.0
             left, right_edge = rect.left + _PAD, rect.right - _PAD
@@ -398,6 +419,8 @@ class ClassDistribution(CornerStack):
                     Rect(left, by, left + fill_w, by + bar_h),
                     radius=bar_h / 2,
                     fill=color,
+                    stroke=shade_outline(color, CARD_BG),
+                    stroke_width=_edge_w(style),
                 )
 
         return [Cell(card_w, card_h, _draw)]
@@ -471,6 +494,76 @@ class ClassDistribution(CornerStack):
 
         return [Cell(card_w, card_h, _draw)]
 
+    # -- pie / donut ---------------------------------------------------------
+
+    def _keyed_segments(
+        self, segs: list[tuple[str, float]], total: float
+    ) -> list[tuple[str, float]]:
+        """Append a rolled-up ``"other"`` slice when the rest is non-negligible."""
+        other = max(0.0, total - sum(v for _, v in segs))
+        if total > 0 and other / total > 0.005:
+            return [*segs, ("other", other)]
+        return list(segs)
+
+    def _pie_cells(self, ctx: RenderContext, style: Style) -> list[Cell]:
+        canvas = ctx.canvas
+        palette = self.resolved_palette(ctx)
+        size, weight = style.font_size, style.font_weight
+        segs = self._selected()
+        if not segs:
+            return []
+
+        total = self._total()
+        keys = self._keyed_segments(segs, total)
+        diameter = size * 8.0
+        swatch = size
+        key_measured = [
+            (
+                name,
+                canvas.measure_text(
+                    f"{name}  {self._value_label(value, total)}",
+                    size,
+                    weight=weight,
+                ),
+            )
+            for name, value in keys
+        ]
+        row_h = max(m.height for _, m in key_measured)
+        key_w = max(swatch + _COL_GAP + m.width for _, m in key_measured)
+        title_metrics = self._title_metrics(canvas, size)
+        title_h = title_metrics.height + _ROW_GAP if title_metrics else 0.0
+
+        content_w = max(diameter, key_w)
+        if title_metrics is not None:
+            content_w = max(content_w, title_metrics.width)
+        card_w = content_w + 2 * _PAD
+        card_h = (
+            2 * _PAD
+            + title_h
+            + diameter
+            + _PIE_KEY_GAP
+            + len(key_measured) * row_h
+            + _ROW_GAP * (len(key_measured) - 1)
+        )
+        layout = _PieLayout(
+            segs=segs,
+            keys=keys,
+            key_measured=key_measured,
+            palette=palette,
+            total=total,
+            diameter=diameter,
+            swatch=swatch,
+            row_h=row_h,
+            donut=self.mode == "donut",
+            title_h=title_h,
+            has_title=title_metrics is not None,
+        )
+
+        def _draw(cv: Canvas, rect: Rect) -> None:
+            _draw_pie(cv, rect, self, style, layout)
+
+        return [Cell(card_w, card_h, _draw)]
+
 
 @dataclass(frozen=True)
 class _BarsLayout:
@@ -522,18 +615,21 @@ def _draw_bars(
                 Rect(bar_x, track_top, bar_x + fill_w, track_top + ll.bar_h),
                 radius=ll.bar_h / 2,
                 fill=color,
+                stroke=shade_outline(color, CARD_BG),
+                stroke_width=_edge_w(style),
             )
         if is_gt:
             cv.rounded_rect(
                 track, radius=ll.bar_h / 2, stroke=_WHITE, stroke_width=1.5
             )
-        lm = cv.measure_text(label, size, weight=weight)
+        lm = cv.measure_text(label, size, weight=weight, mono=True)
         cv.text(
             (val_x, y + (ll.row_h - lm.height) / 2 + lm.ascent),
             label,
             size=size,
             color=CARD_TEXT,
             weight=weight,
+            mono=True,
         )
         y += ll.row_h + _ROW_GAP
 
@@ -560,6 +656,7 @@ def _draw_stacked_strip(
     dist: "ClassDistribution",
     ll: _StackedLayout,
     y: float,
+    edge_w: float,
 ) -> None:
     """Paint the proportional strip: a muted backdrop plus each class segment."""
     left = rect.left + _PAD
@@ -574,9 +671,15 @@ def _draw_stacked_strip(
         if seg_w <= 0:
             continue
         seg = Rect(seg_x, y, seg_x + seg_w, y + ll.strip_h)
-        cv.rounded_rect(seg, radius=0.0, fill=ll.palette.color_for(name))
-        if name == dist.ground_truth:
-            cv.rounded_rect(seg, radius=0.0, stroke=_WHITE, stroke_width=2.0)
+        color = ll.palette.color_for(name)
+        gt = name == dist.ground_truth
+        cv.rounded_rect(
+            seg,
+            radius=0.0,
+            fill=color,
+            stroke=_WHITE if gt else shade_outline(color, CARD_BG),
+            stroke_width=2.0 if gt else edge_w,
+        )
         seg_x += seg_w
 
 
@@ -602,6 +705,8 @@ def _draw_stacked_key(
             ),
             radius=3.0,
             fill=color,
+            stroke=swatch_outline(CARD_BG),
+            stroke_width=1.0,
         )
         cv.text(
             (rect.left + _PAD + ll.swatch + _COL_GAP, y + m.ascent),
@@ -626,8 +731,160 @@ def _draw_stacked(
     if ll.has_title:
         dist._draw_title(cv, rect.left + _PAD, y, style.font_size)
         y += ll.title_h
-    _draw_stacked_strip(cv, rect, dist, ll, y)
+    _draw_stacked_strip(cv, rect, dist, ll, y, _edge_w(style))
     _draw_stacked_key(cv, rect, dist, style, ll, y + ll.strip_h + _ROW_GAP)
+
+
+@dataclass(frozen=True)
+class _PieLayout:
+    """Precomputed geometry for a ``"pie"``/``"donut"`` distribution card."""
+
+    segs: list[tuple[str, float]]
+    keys: list[tuple[str, float]]
+    key_measured: list[tuple[str, TextMetrics]]
+    palette: Palette
+    total: float
+    diameter: float
+    swatch: float
+    row_h: float
+    donut: bool
+    title_h: float
+    has_title: bool
+
+
+def _wedge_polygon(
+    cx: float, cy: float, r_out: float, r_in: float, a0: float, a1: float
+) -> list[XY]:
+    """Points of an annular sector (a full pie wedge when ``r_in`` is ``0``)."""
+    span = a1 - a0
+    steps = max(2, int(span / (math.pi / 32)) + 1)
+    outer: list[XY] = [
+        (
+            cx + r_out * math.cos(a0 + span * k / steps),
+            cy + r_out * math.sin(a0 + span * k / steps),
+        )
+        for k in range(steps + 1)
+    ]
+    inner: list[XY] = [
+        (
+            cx + r_in * math.cos(a1 - span * k / steps),
+            cy + r_in * math.sin(a1 - span * k / steps),
+        )
+        for k in range(steps + 1)
+    ]
+    return outer + inner
+
+
+def _draw_wedges(
+    cv: Canvas,
+    dist: "ClassDistribution",
+    ll: _PieLayout,
+    cx: float,
+    cy: float,
+    r_out: float,
+    r_in: float,
+    edge_w: float,
+) -> None:
+    """Paint each class as a proportional, color-outlined wedge.
+
+    Every wedge gets a lighter/darker rim matched to its fill; the ground truth
+    gets a brighter, thicker white outline instead so it stands out.
+    """
+    if ll.total <= 0:
+        cv.circle(
+            (cx, cy),
+            r_out,
+            fill=_OTHER,
+            stroke=shade_outline(_OTHER, CARD_BG),
+            stroke_width=edge_w,
+        )
+        return
+    angle = -math.pi / 2  # start at 12 o'clock
+    for name, value in ll.keys:
+        frac = value / ll.total
+        if frac <= 0:
+            continue
+        a1 = angle + frac * 2 * math.pi
+        color = _OTHER if name == "other" else ll.palette.color_for(name)
+        gt = name == dist.ground_truth
+        cv.polygon(
+            _wedge_polygon(cx, cy, r_out, r_in, angle, a1),
+            fill=color,
+            stroke=_WHITE if gt else shade_outline(color, CARD_BG),
+            stroke_width=edge_w * 1.8 if gt else edge_w,
+        )
+        angle = a1
+
+
+def _draw_pie_key(
+    cv: Canvas,
+    rect: Rect,
+    dist: "ClassDistribution",
+    style: Style,
+    ll: _PieLayout,
+    y: float,
+) -> None:
+    """Paint the swatch + name + value key beneath the pie."""
+    size, weight = style.font_size, style.font_weight
+    for (name, value), (_name, m) in zip(
+        ll.keys, ll.key_measured, strict=True
+    ):
+        color = _OTHER if name == "other" else ll.palette.color_for(name)
+        sw_top = y + (ll.row_h - ll.swatch) / 2
+        cv.rounded_rect(
+            Rect(
+                rect.left + _PAD,
+                sw_top,
+                rect.left + _PAD + ll.swatch,
+                sw_top + ll.swatch,
+            ),
+            radius=3.0,
+            fill=color,
+            stroke=swatch_outline(CARD_BG),
+            stroke_width=1.0,
+        )
+        cv.text(
+            (rect.left + _PAD + ll.swatch + _COL_GAP, y + m.ascent),
+            f"{name}  {dist._value_label(value, ll.total)}",
+            size=size,
+            color=CARD_TEXT,
+            weight=700 if name == dist.ground_truth else weight,
+        )
+        y += ll.row_h + _ROW_GAP
+
+
+def _draw_pie(
+    cv: Canvas,
+    rect: Rect,
+    dist: "ClassDistribution",
+    style: Style,
+    ll: _PieLayout,
+) -> None:
+    """Paint a pie/donut chart with an inline key below it."""
+    dist._card_bg(cv, rect, style)
+    y = rect.top + _PAD
+    if ll.has_title:
+        dist._draw_title(cv, rect.left + _PAD, y, style.font_size)
+        y += ll.title_h
+    r_out = ll.diameter / 2
+    r_in = r_out * 0.58 if ll.donut else 0.0
+    cx = (rect.left + rect.right) / 2
+    cy = y + r_out
+    _draw_wedges(cv, dist, ll, cx, cy, r_out, r_in, _edge_w(style))
+    if ll.donut and ll.total > 0 and ll.segs:
+        _name, top_value = max(ll.segs, key=lambda kv: kv[1])
+        label = _pct(top_value / ll.total)
+        big = style.font_size * 1.2
+        m = cv.measure_text(label, big, weight=700, mono=True)
+        cv.text(
+            (cx - m.width / 2, cy - m.height / 2 + m.ascent),
+            label,
+            size=big,
+            color=CARD_TEXT,
+            weight=700,
+            mono=True,
+        )
+    _draw_pie_key(cv, rect, dist, style, ll, y + ll.diameter + _PIE_KEY_GAP)
 
 
 def _draw_verdict(

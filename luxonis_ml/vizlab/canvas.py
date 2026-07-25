@@ -7,8 +7,9 @@ from an ``(H, W, 4)`` RGBA ``uint8`` array so the rest of the library never
 touches Skia types directly.
 """
 
-from collections.abc import Callable
-from dataclasses import dataclass
+import re
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
 
 import numpy as np
 import skia
@@ -16,6 +17,7 @@ import skia
 from .color import Color
 from .fonts import DEFAULT_FONTS, FontManager
 from .geometry import XY, Rect
+from .markup import Span
 
 _RGBA = skia.ColorType.kRGBA_8888_ColorType
 _UNPREMUL = skia.AlphaType.kUnpremul_AlphaType
@@ -111,6 +113,44 @@ def _wrap_words(
                 current = piece
     lines.append(current)
     return lines
+
+
+@dataclass
+class _WrapState:
+    """Mutable accumulator for `Canvas.wrap_spans`: built lines and the open one."""
+
+    lines: "list[list[Span]]" = field(default_factory=list)
+    current: "list[Span]" = field(default_factory=list)
+    width: float = 0.0
+    gap: bool = False  # a pending space before the next word
+
+    def newline(self) -> None:
+        """Flush the open line and start an empty one."""
+        self.lines.append(self.current)
+        self.current, self.width, self.gap = [], 0.0, False
+
+
+def _span_atoms(
+    spans: Sequence[Span],
+) -> "list[tuple[Span | None, bool]]":
+    """Break spans into wrap atoms: ``(word, _)`` or ``(None, is_newline)``.
+
+    A ``word`` atom is a whitespace-free run carrying its span's style; a
+    ``None`` atom is a separator — a forced line break when its flag is set,
+    otherwise a collapsible space.
+    """
+    atoms: list[tuple[Span | None, bool]] = []
+    for span in spans:
+        for part in re.split(r"(\s+)", span.text):
+            if not part:
+                continue
+            if part.isspace():
+                atoms.append((None, "\n" in part))
+            else:
+                atoms.append(
+                    (Span(part, span.weight, span.italic, span.mono), False)
+                )
+    return atoms
 
 
 class Canvas:
@@ -412,7 +452,13 @@ class Canvas:
             )
 
     def measure_text(
-        self, text: str, size: float, *, weight: int = 400
+        self,
+        text: str,
+        size: float,
+        *,
+        weight: int = 400,
+        italic: bool = False,
+        mono: bool = False,
     ) -> TextMetrics:
         """Measure a run of text without drawing it.
 
@@ -420,12 +466,14 @@ class Canvas:
             text: The string to measure.
             size: Text size in pixels.
             weight: OpenType weight (100-900).
+            italic: Whether to measure the italic variant.
+            mono: Whether to measure the monospace family.
 
         Returns:
             The `TextMetrics` for the run.
 
         """
-        font = self._fonts.font(size, weight=weight)
+        font = self._fonts.font(size, weight=weight, italic=italic, mono=mono)
         width = font.measureText(text)
         metrics = font.getMetrics()
         return TextMetrics(
@@ -439,6 +487,8 @@ class Canvas:
         *,
         max_width: float,
         weight: int = 400,
+        italic: bool = False,
+        mono: bool = False,
     ) -> list[str]:
         """Greedily word-wrap ``text`` to fit ``max_width`` pixels.
 
@@ -451,6 +501,8 @@ class Canvas:
             size: Text size in pixels.
             max_width: Maximum line width in pixels.
             weight: OpenType weight (100-900).
+            italic: Whether the text is italic (affects measured width).
+            mono: Whether the text uses the monospace family.
 
         Returns:
             The wrapped lines, top to bottom (empty when ``text`` is empty).
@@ -461,7 +513,9 @@ class Canvas:
         limit = max(1.0, max_width)
 
         def width(run: str) -> float:
-            return self.measure_text(run, size, weight=weight).width
+            return self.measure_text(
+                run, size, weight=weight, italic=italic, mono=mono
+            ).width
 
         lines: list[str] = []
         for paragraph in text.split("\n"):
@@ -476,6 +530,8 @@ class Canvas:
         size: float,
         color: Color,
         weight: int = 400,
+        italic: bool = False,
+        mono: bool = False,
     ) -> None:
         """Draw text with its baseline-left at ``origin``.
 
@@ -485,11 +541,155 @@ class Canvas:
             size: Text size in pixels.
             color: Text color.
             weight: OpenType weight (100-900).
+            italic: Whether to draw the italic variant.
+            mono: Whether to draw with the monospace family.
 
         """
-        font = self._fonts.font(size, weight=weight)
+        font = self._fonts.font(size, weight=weight, italic=italic, mono=mono)
         paint = skia.Paint(Color=_color4f(color), AntiAlias=True)
         self._canvas.drawString(text, origin[0], origin[1], font, paint)
+
+    # -- rich text (styled spans) --------------------------------------------
+
+    def _measure_span(self, span: "Span", size: float) -> TextMetrics:
+        """Measure a single styled `Span`."""
+        return self.measure_text(
+            span.text,
+            size,
+            weight=span.weight,
+            italic=span.italic,
+            mono=span.mono,
+        )
+
+    def measure_spans(
+        self, spans: "Sequence[Span]", size: float
+    ) -> TextMetrics:
+        """Measure a styled line: summed widths, tallest ascent/descent.
+
+        Args:
+            spans: The styled runs making up one line.
+            size: Text size in pixels.
+
+        Returns:
+            The combined `TextMetrics` for the line.
+
+        """
+        if not spans:
+            return self.measure_text("", size)
+        width = ascent = descent = 0.0
+        for span in spans:
+            metrics = self._measure_span(span, size)
+            width += metrics.width
+            ascent = max(ascent, metrics.ascent)
+            descent = max(descent, metrics.descent)
+        return TextMetrics(width=width, ascent=ascent, descent=descent)
+
+    def draw_spans(
+        self,
+        origin: XY,
+        spans: "Sequence[Span]",
+        *,
+        size: float,
+        color: Color,
+    ) -> None:
+        """Draw styled runs left-to-right from a shared baseline.
+
+        Args:
+            origin: The ``(x, y)`` baseline-left position of the line.
+            spans: The styled runs to draw in order.
+            size: Text size in pixels.
+            color: Text color (shared by every run).
+
+        """
+        x, y = origin
+        for span in spans:
+            if not span.text:
+                continue
+            self.text(
+                (x, y),
+                span.text,
+                size=size,
+                color=color,
+                weight=span.weight,
+                italic=span.italic,
+                mono=span.mono,
+            )
+            x += self._measure_span(span, size).width
+
+    def wrap_spans(
+        self, spans: "Sequence[Span]", size: float, *, max_width: float
+    ) -> "list[list[Span]]":
+        """Word-wrap styled runs to ``max_width``, preserving each run's style.
+
+        Splits on whitespace (newlines force a break); a word wider than
+        ``max_width`` is hard-broken so no line exceeds the width.
+
+        Args:
+            spans: The styled runs making up the paragraph.
+            size: Text size in pixels.
+            max_width: Maximum line width in pixels.
+
+        Returns:
+            One list of `Span` per output line (at least one line).
+
+        """
+        limit = max(1.0, max_width)
+        space_w = self.measure_text(" ", size).width
+        state = _WrapState()
+        for word, newline in _span_atoms(spans):
+            if word is None:
+                if newline:
+                    state.newline()
+                elif state.current:
+                    state.gap = True
+                continue
+            for piece in self._break_span(word, size, limit):
+                self._wrap_word(state, piece, size, limit, space_w)
+        state.lines.append(state.current)
+        return state.lines
+
+    def _break_span(
+        self, span: Span, size: float, limit: float
+    ) -> "list[Span]":
+        """Hard-break an over-wide span into pieces that each fit ``limit``."""
+        if not span.text or self._measure_span(span, size).width <= limit:
+            return [span]
+
+        def width_of(run: str) -> float:
+            return self.measure_text(
+                run,
+                size,
+                weight=span.weight,
+                italic=span.italic,
+                mono=span.mono,
+            ).width
+
+        return [
+            Span(piece, span.weight, span.italic, span.mono)
+            for piece in _break_word(span.text, width_of, limit)
+        ]
+
+    def _wrap_word(
+        self,
+        state: "_WrapState",
+        word: Span,
+        size: float,
+        limit: float,
+        space_w: float,
+    ) -> None:
+        """Place one word into ``state``, breaking to a new line if it overflows."""
+        w = self._measure_span(word, size).width
+        lead = space_w if state.gap else 0.0
+        if state.current and state.width + lead + w > limit:
+            state.newline()
+        if state.gap and state.current:
+            state.current.append(
+                Span(" ", word.weight, word.italic, word.mono)
+            )
+            state.width += space_w
+        state.current.append(word)
+        state.width += w
+        state.gap = False
 
     def overlay_mask(
         self,

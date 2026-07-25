@@ -8,6 +8,10 @@ the caller does not override falls back to :data:`DEFAULT_STYLE`.
 
 from dataclasses import dataclass, replace
 from enum import Enum
+from typing import Literal
+
+FontFamily = Literal["sans", "mono"]
+"""Which bundled family a label uses: proportional Inter or monospace JetBrains Mono."""
 
 
 class LabelPlacement(Enum):
@@ -31,6 +35,7 @@ class Style:
         corner_radius: Box corner radius in pixels.
         font_size: Label text size in pixels.
         font_weight: Label OpenType weight (100-900).
+        font_family: ``"sans"`` (Inter) or ``"mono"`` (JetBrains Mono).
         label_pad_x: Horizontal padding inside the label chip, in pixels.
         label_pad_y: Vertical padding inside the label chip, in pixels.
         label_radius: Label chip corner radius in pixels.
@@ -64,6 +69,7 @@ class Style:
     corner_radius: float = 9.0
     font_size: float = 16.0
     font_weight: int = 600
+    font_family: FontFamily = "sans"
     label_pad_x: float = 7.0
     label_pad_y: float = 4.0
     label_radius: float = 6.0
@@ -74,6 +80,11 @@ class Style:
     keypoint_outline_width: float = 1.5
     mask_alpha: float = 0.45
     shadow: bool = True
+
+    @property
+    def mono(self) -> bool:
+        """Whether labels render with the monospace family."""
+        return self.font_family == "mono"
 
     def merge(self, **overrides: object) -> "Style":
         """Return a copy with the given fields replaced.

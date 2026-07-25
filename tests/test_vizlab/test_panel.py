@@ -3,7 +3,25 @@
 import numpy as np
 
 from luxonis_ml.vizlab import BBox, Image, with_panel
-from luxonis_ml.vizlab.panel import _format_tree, _wrap
+from luxonis_ml.vizlab.color import Color
+from luxonis_ml.vizlab.panel import (
+    _PAD,
+    _PANEL_SIZE,
+    _build_ops,
+    _format_tree,
+    _metrics,
+    _wrap,
+)
+
+
+def test_value_ops_are_monospace_keys_are_not() -> None:
+    """Values render in JetBrains Mono; keys/bullets stay in Inter (sans)."""
+    m = _metrics(1.0, Color(24, 24, 28))
+    lines = _format_tree({"speed": 12.4})
+    ops, _ = _build_ops(lines, content_w=200.0, m=m)
+    by_text = {op[2]: op[5] for op in ops}  # text -> mono flag
+    assert by_text["speed: "] is False  # the key is sans
+    assert by_text["12.4"] is True  # the value is mono
 
 
 def _img(w: int = 120, h: int = 80) -> Image:
@@ -51,6 +69,38 @@ def test_with_panel_right_widens_output() -> None:
     rendered = out.render()
     assert rendered.shape[1] > 120  # widened by the panel
     assert rendered.shape[0] >= 80
+
+
+def test_metrics_scale_proportionally() -> None:
+    from luxonis_ml.vizlab.color import Color
+
+    m = _metrics(2.0, Color(24, 24, 28))
+    assert m.size == _PANEL_SIZE * 2.0
+    assert m.pad == _PAD * 2.0
+
+
+def test_metrics_colors_adapt_to_background() -> None:
+    """Panel text is light on a dark background and dark on a light one."""
+    from luxonis_ml.vizlab.color import Color
+
+    dark = _metrics(1.0, Color(24, 24, 28))
+    light = _metrics(1.0, Color(240, 240, 244))
+    # Values are near-white on dark, near-black on light.
+    assert dark.value.r > 200
+    assert light.value.r < 80
+
+
+def test_panel_type_scales_with_image_size() -> None:
+    """A larger image gets a larger (not shrinking) panel, so type stays legible."""
+    data = {
+        "source": "frame.jpg",
+        "note": "a longer value that may wrap around",
+    }
+    small = with_panel(_img(200, 200), data).render()
+    large = with_panel(_img(1600, 1600), data).render()
+    small_panel_w = small.shape[1] - 200
+    large_panel_w = large.shape[1] - 1600
+    assert large_panel_w > small_panel_w
 
 
 def test_with_panel_sides() -> None:

@@ -217,13 +217,26 @@ def test_per_instance_inspect_attaches_augmentation_panel(
     monkeypatch.setattr(data_main.cv2, "imshow", lambda *_args: None)
     monkeypatch.setattr(data_main.cv2, "waitKey", lambda *_args: ord("q"))
 
+    from luxonis_ml.vizlab import (
+        DARK_THEME,
+        LIGHT_THEME,
+        get_default_theme,
+        set_default_theme,
+    )
+
     aug_config = tmp_path / "augmentations.json"
     aug_config.write_text("[]")
-    data_main.inspect(
-        "dataset",
-        aug_config=aug_config,
-        per_instance=True,
-        list_augmentations=True,
-    )
+    try:
+        data_main.inspect(
+            "dataset",
+            aug_config=aug_config,
+            per_instance=True,
+            list_augmentations=True,
+            theme="light",
+        )
+        # The chosen theme becomes the process default for the visualization.
+        assert get_default_theme() is LIGHT_THEME
+    finally:
+        set_default_theme(DARK_THEME)
 
     assert panels == [{"augmentations": ["HorizontalFlip"]}]
