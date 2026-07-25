@@ -429,9 +429,9 @@ def inspect(
         ),
     ] = None,
     size_multiplier: Annotated[
-        float | None,
+        float | Literal["auto"],
         Parameter(alias="-s"),
-    ] = None,
+    ] = "auto",
     ignore_aspect_ratio: Annotated[
         bool,
         Parameter(alias="-i", negative=""),
@@ -489,7 +489,7 @@ def inspect(
             If not provided, no augmentations will be applied.
         size_multiplier: Multiplier for the displayed image size. If
             not given, the image is scaled automatically to fit the
-            screen (accounting for the metadata panel) and centered.
+            screen (accounting for all components).
         ignore_aspect_ratio: Do not keep the aspect ratio when
             resizing images.
         deterministic: Use deterministic augmentation mode.
@@ -641,6 +641,8 @@ def inspect(
         reserve: float = 0.0,
         cols: int = 1,
         rows: int = 1,
+        chrome_w: float = 0.0,
+        chrome_h: float = 0.0,
     ) -> tuple[int, int] | None:
         """Display size ``(w, h)`` for a source image, or ``None`` to keep native.
 
@@ -648,14 +650,18 @@ def inspect(
         size, then draws strokes and labels crisply at it, so annotations stay
         sharp without resampling every mask. ``reserve`` leaves horizontal room
         for the fixed-width metadata panel; ``cols``/``rows`` divide the budget
-        when several tiles share the screen (grid view).
+        when several tiles share the screen (grid view); ``chrome_w``/``chrome_h``
+        subtract the grid's own padding and titles so the *composited* frame fits
+        the screen at 1:1 — otherwise the window would be downscaled on display,
+        resampling (and softening) the already-rasterized labels.
         """
-        if size_multiplier is not None:
+        if size_multiplier != "auto":
             scale = size_multiplier
         elif screen is not None:
-            # Fit within 90% of the screen (leaving room for the panel/tiles).
-            avail_w = max(1.0, 0.9 * screen[0] - reserve) / cols
-            avail_h = (0.9 * screen[1]) / rows
+            # Fit within 90% of the screen (leaving room for the panel/tiles),
+            # then reserve the grid chrome so the whole composite fits at 1:1.
+            avail_w = max(1.0, 0.9 * screen[0] - reserve - chrome_w) / cols
+            avail_h = max(1.0, 0.9 * screen[1] - chrome_h) / rows
             scale = min(avail_w / width, avail_h / height)
         else:
             return None
@@ -669,7 +675,7 @@ def inspect(
         out = viz.to_numpy(mode="bgr")
         out_h, out_w = out.shape[:2]
         win_w, win_h = out_w, out_h
-        if screen is not None and size_multiplier is None:
+        if screen is not None and size_multiplier == "auto":
             # Safety net: never present a window larger than the screen (e.g. a
             # multi-tile grid). The image was already drawn at fit size, so this
             # only engages for composites that still overflow.
@@ -772,11 +778,22 @@ def inspect(
                 ):
                     viz.add(overlay)
             else:
-                # Fit the whole grid of tiles within the screen.
+                # Fit the whole grid of tiles within the screen. Reserve the
+                # grid chrome (outer/inter-cell padding + a title line per row)
+                # so the composite fits at 1:1 and its labels are never
+                # downscaled on display.
                 cols = max(1, math.ceil(math.sqrt(len(records))))
                 rows = math.ceil(len(records) / cols)
+                grid_pad = 10  # matches grid_placed's default padding
+                title_reserve = 44.0  # a single (scaled) title line + padding
                 size = target_size(
-                    width, height, reserve=reserve, cols=cols, rows=rows
+                    width,
+                    height,
+                    reserve=reserve,
+                    cols=cols,
+                    rows=rows,
+                    chrome_w=grid_pad * (cols + 1),
+                    chrome_h=grid_pad * (rows + 1) + rows * title_reserve,
                 )
                 # visualize_record adds each tile's own box-less metadata card.
                 tiles = [
