@@ -21,7 +21,7 @@ from .style import Theme, get_default_theme
 if TYPE_CHECKING:
     from PIL import Image as PILImage
 
-    from .ldf import VizConfig
+    from .convert import VizConfig
 
 #: Canvas short-side (px) at which styles render at their nominal size; larger
 #: canvases scale labels/strokes up proportionally (clamped to the range below).
@@ -118,7 +118,7 @@ class Image:
         `Detection`, a
         `DatasetRecord`, or a single annotation
         model — which is converted to render annotations natively (see
-        :mod:`luxonis_ml.vizlab.ldf`).
+        `luxonis_ml.vizlab.convert`).
 
         Args:
             annotation: The annotation or LDF object to add.
@@ -133,10 +133,12 @@ class Image:
         if isinstance(annotation, Annotation):
             self._annotations.append(annotation)
         else:
-            from . import ldf
+            from . import convert
 
             self._annotations.extend(
-                ldf.to_render_annotations(annotation, config or self._config)
+                convert.to_render_annotations(
+                    annotation, config or self._config
+                )
             )
         self._cache = None
         return self

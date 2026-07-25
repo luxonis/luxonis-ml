@@ -38,9 +38,9 @@ with guard_missing_extra("viz"):
     )
     from .color import Color
     from .compose import blend, grid, hstack, vstack
+    from .convert import VizConfig, visualize_record
     from .geometry import Rect
     from .image import Image
-    from .ldf import VizConfig, visualize_record
     from .panel import with_panel
     from .presets import COCO_CLASSES
     from .style import (

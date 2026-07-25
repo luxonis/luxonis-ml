@@ -345,7 +345,7 @@ def inspect(
             grid,
             visualize_record,
         )
-        from luxonis_ml.vizlab.ldf import detection_to_annotations
+        from luxonis_ml.vizlab.convert import detection_to_annotations
     except ImportError as e:
         raise SystemExit(
             "Visualization requires the 'viz' extra. "
