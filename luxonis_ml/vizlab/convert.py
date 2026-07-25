@@ -14,6 +14,7 @@ semantic segmentation and classification, and threads the rendering context
 (class palette, skeletons, keypoint label mode) through a `VizConfig`.
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
@@ -21,12 +22,19 @@ from .annotations import (
     Annotation,
     BBox,
     Classification,
+    Corner,
+    InfoCard,
     Keypoints,
     Mask,
     SemanticMask,
     Skeleton,
 )
-from .style import Palette, Theme
+from .style import DEFAULT_STYLE, Palette, Theme
+
+#: Prominent style for recognized-text captions (larger, bold).
+_TEXT_STYLE = DEFAULT_STYLE.merge(
+    font_size=DEFAULT_STYLE.font_size * 1.6, font_weight=700
+)
 
 if TYPE_CHECKING:
     from luxonis_ml.ldf import (
@@ -61,6 +69,10 @@ class VizConfig:
             (``"none"``/``"numbers"``/``"names"``/``"full"``).
         draw_skeletons: Whether to draw skeleton limbs between keypoints.
         theme: Theme supplying default style/palette; ``None`` uses the default.
+        text_metadata_key: Metadata key holding a recognized text string (e.g.
+            OCR). It is rendered prominently — on a boxed detection's label chip,
+            or as a large caption for a box-less one — instead of as a small
+            metadata row. ``None`` disables the special treatment.
 
     """
 
@@ -69,6 +81,7 @@ class VizConfig:
     keypoint_label_mode: KeypointLabelMode = "numbers"
     draw_skeletons: bool = False
     theme: Theme | None = None
+    text_metadata_key: str | None = "text"
 
 
 def _spatial_annotations(
@@ -90,6 +103,10 @@ def _spatial_annotations(
         root = BBox.from_ldf(
             detection.boundingbox, label=label, palette=palette
         )
+        # Show recognized text (e.g. OCR) prominently on the box's label chip.
+        text = _text_value(detection, config.text_metadata_key)
+        if text is not None:
+            root.payload = text
 
     if detection.keypoints is not None:
         label_mode = config.keypoint_label_mode
@@ -165,6 +182,84 @@ def detection_to_annotations(
     return annotations
 
 
+def _text_value(detection: "Detection", text_key: str | None) -> str | None:
+    """Return the detection's recognized-text metadata value, if any."""
+    if text_key is None or not detection.metadata:
+        return None
+    value = detection.metadata.get(text_key)
+    return None if value is None else str(value)
+
+
+def _collect_boxless(
+    detection: "Detection",
+    text_key: str | None,
+    texts: list[str],
+    rows: list[str],
+) -> None:
+    """Split a box-less detection's metadata into text and other rows.
+
+    Recognized text (``text_key``) goes to ``texts`` (rendered prominently); all
+    other metadata goes to ``rows`` (a plain card). Recurses sub-detections.
+    """
+    if detection.boundingbox is None and detection.metadata:
+        text = _text_value(detection, text_key)
+        if text is not None:
+            texts.append(text)
+        other = {
+            key: value
+            for key, value in detection.metadata.items()
+            if text_key is None or key != text_key
+        }
+        if other:
+            prefix = ""
+            if detection.class_name:
+                rows.append(detection.class_name)
+                prefix = "  "
+            for key, value in other.items():
+                rows.append(f"{prefix}{key}: {value}")
+    for sub in detection.sub_detections.values():
+        _collect_boxless(sub, text_key, texts, rows)
+
+
+def metadata_annotations(
+    detections: "Iterable[Detection]", *, text_key: str | None = "text"
+) -> list[Annotation]:
+    """Build in-image cards for box-less detections' metadata.
+
+    A detection that carries metadata but no bounding box has nothing to anchor a
+    hover tooltip to, so its metadata is surfaced as a corner card. Recognized
+    text (``text_key``) is rendered prominently in its own larger card; the
+    remaining key/value metadata goes in a smaller ``"metadata"`` card. Boxed
+    detections contribute nothing here (their metadata is shown on hover, and
+    their text on the label chip).
+
+    Args:
+        detections: The detections to scan; their sub-detections are included.
+        text_key: Metadata key holding recognized text, or ``None`` to treat all
+            metadata uniformly.
+
+    Returns:
+        The overlay annotations to draw (empty when there is no box-less
+        metadata).
+
+    """
+    texts: list[str] = []
+    rows: list[str] = []
+    for detection in detections:
+        _collect_boxless(detection, text_key, texts, rows)
+
+    annotations: list[Annotation] = []
+    if texts:
+        annotations.append(
+            InfoCard(rows=texts, corner=Corner.TOP_LEFT, style=_TEXT_STYLE)
+        )
+    if rows:
+        annotations.append(
+            InfoCard(rows=rows, title="metadata", corner=Corner.BOTTOM_LEFT)
+        )
+    return annotations
+
+
 def to_render_annotations(
     obj: object, config: VizConfig | None = None
 ) -> list[Annotation]:
@@ -203,6 +298,11 @@ def to_render_annotations(
                     detection, config, task_name=obj.task_name
                 )
             )
+        annotations.extend(
+            metadata_annotations(
+                obj._annotations(), text_key=config.text_metadata_key
+            )
+        )
         return annotations
     if isinstance(obj, Detection):
         return detection_to_annotations(obj, config)
@@ -294,6 +394,10 @@ def visualize_record(
         img.add(SemanticMask.from_ldf(segmentations, palette=config.palette))
     if class_tags:
         img.add(Classification.from_ldf(class_tags, palette=config.palette))
+    for overlay in metadata_annotations(
+        record._annotations(), text_key=config.text_metadata_key
+    ):
+        img.add(overlay)
 
     panel_data: dict = (
         dict(record.sample_metadata) if record.sample_metadata else {}

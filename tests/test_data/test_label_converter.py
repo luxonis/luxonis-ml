@@ -62,3 +62,20 @@ def test_loader_output_to_records_roundtrip(dataset_name: str, tempdir: Path):
     car = by_name["car"].boundingbox
     assert car.x == 0.1  # type: ignore
     assert car.w == 0.3  # type: ignore
+
+
+def test_metadata_only_task_yields_detections() -> None:
+    """A metadata-only task (e.g. OCR) still produces one detection per entry.
+
+    The instance count is derived from the metadata array length, not just
+    spatial annotations, so box-less metadata is not dropped.
+    """
+    import numpy as np
+
+    labels = {"text/metadata/text": np.array(["HELLO", "WORLD"], dtype=object)}
+    records = loader_output_to_records(labels, classes={"text": {}})
+
+    detections = records["text"]._annotations()
+    assert len(detections) == 2
+    assert [d.boundingbox for d in detections] == [None, None]
+    assert [d.metadata["text"] for d in detections] == ["HELLO", "WORLD"]

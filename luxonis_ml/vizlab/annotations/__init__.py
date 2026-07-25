@@ -6,7 +6,7 @@ from .classification import Classification
 from .keypoints import Keypoints, Skeleton
 from .mask import Mask, SemanticMask
 from .overlay import Corner, CornerStack
-from .text import Caption, Legend
+from .text import Caption, InfoCard, Legend
 
 # The render annotations carry a self-referential ``children: list[Annotation]``
 # field. Resolve that forward reference now that every annotation class exists and
@@ -20,6 +20,7 @@ for _model in (
     CornerStack,
     Classification,
     Caption,
+    InfoCard,
     Legend,
 ):
     _model.model_rebuild()
@@ -31,6 +32,7 @@ __all__ = [
     "Classification",
     "Corner",
     "CornerStack",
+    "InfoCard",
     "Keypoints",
     "Legend",
     "Mask",

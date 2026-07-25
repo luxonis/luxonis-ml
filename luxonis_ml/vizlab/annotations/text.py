@@ -51,6 +51,86 @@ class Caption(CornerStack):
         ]
 
 
+class InfoCard(CornerStack):
+    """A titled card of plain text rows, e.g. per-object metadata.
+
+    Like `Legend` but without color swatches: a rounded card with an optional
+    heading and one text row per line. Used to surface annotation metadata that
+    has no bounding box to anchor a hover tooltip to.
+
+    Attributes:
+        rows: The text lines to show, top to bottom.
+        title: Optional heading drawn above the rows.
+
+    See `CornerStack` for ``corner``/``margin``/``gap``.
+
+    """
+
+    rows: list[str] = []
+    title: str | None = None
+    corner: Corner = Corner.TOP_LEFT
+
+    def _cells(self, ctx: RenderContext, style: Style) -> list[Cell]:
+        canvas = ctx.canvas
+        size, weight = style.font_size, style.font_weight
+        pad, row_gap = 10.0, 6.0
+
+        measured = [
+            (text, canvas.measure_text(text, size, weight=weight))
+            for text in self.rows
+        ]
+        title_metrics = (
+            canvas.measure_text(self.title, size * 1.05, weight=700)
+            if self.title is not None
+            else None
+        )
+        if not measured and title_metrics is None:
+            return []
+
+        row_h = max((m.height for _, m in measured), default=size)
+        content_w = max((m.width for _, m in measured), default=0.0)
+        title_h = title_metrics.height + row_gap if title_metrics else 0.0
+        if title_metrics is not None:
+            content_w = max(content_w, title_metrics.width)
+
+        card_w = content_w + 2 * pad
+        card_h = (
+            2 * pad
+            + title_h
+            + len(measured) * row_h
+            + row_gap * max(0, len(measured) - 1)
+        )
+
+        def _draw(cv: Canvas, rect: Rect) -> None:
+            cv.rounded_rect(
+                rect,
+                radius=9.0,
+                fill=_CARD_BG,
+                shadow=Shadow(blur=6.0, dy=2.0) if style.shadow else None,
+            )
+            y = rect.top + pad
+            if self.title is not None and title_metrics is not None:
+                cv.text(
+                    (rect.left + pad, y + title_metrics.ascent),
+                    self.title,
+                    size=size * 1.05,
+                    color=_CARD_TEXT,
+                    weight=700,
+                )
+                y += title_h
+            for text, metrics in measured:
+                cv.text(
+                    (rect.left + pad, y + metrics.ascent),
+                    text,
+                    size=size,
+                    color=_CARD_TEXT,
+                    weight=weight,
+                )
+                y += row_h + row_gap
+
+        return [Cell(card_w, card_h, _draw)]
+
+
 class Legend(CornerStack):
     """A class-color key: swatch + name rows inside one card.
 

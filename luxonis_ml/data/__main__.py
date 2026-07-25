@@ -1,7 +1,9 @@
 import math
 import shutil
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Literal, TypeAlias
+from typing import TYPE_CHECKING, Annotated, Literal, TypeAlias
 
 import cv2
 import matplotlib.pyplot as plt
@@ -38,7 +40,13 @@ from luxonis_ml.data.utils.plot_utils import (
 from luxonis_ml.data.utils.task_utils import get_task_name, get_task_type
 from luxonis_ml.enums import DatasetType
 
+if TYPE_CHECKING:
+    from luxonis_ml.ldf import DatasetRecord, Detection
+    from luxonis_ml.vizlab import Palette
+
 app = App(help="Dataset utilities.")
+
+MouseCallback: TypeAlias = Callable[[int, int, int, int, object], None]
 
 
 BucketStorageT: TypeAlias = Annotated[BucketStorage, Parameter(alias="-b")]
@@ -62,6 +70,211 @@ def _screen_size() -> tuple[int, int] | None:
         return None
     else:
         return size
+
+
+# --- Metadata hover tooltips -------------------------------------------------
+
+HoverItem: TypeAlias = tuple[tuple[float, float, float, float], dict]
+
+
+@dataclass
+class _HoverWindow:
+    """Per-window state for drawing metadata tooltips on mouse hover.
+
+    Attributes:
+        base: The rendered BGR frame without any tooltip.
+        items: ``(rect, info)`` pairs; ``rect`` is a box in frame pixels and
+            ``info`` is the detection's metadata (plus a ``"_title"`` header).
+        frame: Composed frame size ``(w, h)`` (the image passed to ``imshow``).
+        win: On-screen window size ``(w, h)``; used to map mouse coordinates
+            back into frame pixels when the window was scaled.
+        hover_idx: Index of the item under the cursor, or ``None``.
+        mouse: Cursor position in frame pixels.
+        dirty: Whether the window needs a redraw.
+
+    """
+
+    base: "np.ndarray"
+    items: list[HoverItem]
+    frame: tuple[int, int]
+    win: tuple[int, int]
+    hover_idx: int | None = None
+    mouse: tuple[int, int] = (0, 0)
+    dirty: bool = False
+
+
+def _collect_hover_items(
+    detection: "Detection",
+    width: int,
+    height: int,
+    items: list[HoverItem],
+    offset_x: float = 0.0,
+    offset_y: float = 0.0,
+    text_key: str | None = None,
+    palette: "Palette | None" = None,
+) -> None:
+    """Append ``(box_rect, info)`` for a detection (and its sub-detections).
+
+    Only detections that carry both a bounding box and metadata contribute an
+    item; the box is resolved to pixel coordinates on a ``width`` x ``height``
+    image and shifted by ``(offset_x, offset_y)`` (the tile origin in a grid).
+    ``text_key`` metadata is omitted here since it is shown on the label chip.
+    When a ``palette`` is given, the tooltip title is tinted with the detection's
+    class color (matching how its box is drawn), stored under ``"_color"`` as a
+    BGR tuple.
+    """
+    box = detection.boundingbox
+    info = {
+        key: value
+        for key, value in (detection.metadata or {}).items()
+        if key != text_key
+    }
+    if box is not None and info:
+        rect = (
+            offset_x + box.x * width,
+            offset_y + box.y * height,
+            offset_x + (box.x + box.w) * width,
+            offset_y + (box.y + box.h) * height,
+        )
+        title = detection.class_name or "object"
+        if detection.instance_id is not None:
+            title = f"{title} #{detection.instance_id}"
+        info = {"_title": title, **info}
+        if palette is not None and detection.class_name is not None:
+            color = palette.color_for(detection.class_name)
+            info["_color"] = (color.b, color.g, color.r)
+        items.append((rect, info))
+    for sub in detection.sub_detections.values():
+        _collect_hover_items(
+            sub, width, height, items, offset_x, offset_y, text_key, palette
+        )
+
+
+def _hover_items(
+    records: "dict[str, DatasetRecord]",
+    width: int,
+    height: int,
+    text_key: str | None = None,
+    palette: "Palette | None" = None,
+) -> list[HoverItem]:
+    """Build the hover hit-list for all detections in ``records`` (no offset)."""
+    items: list[HoverItem] = []
+    for record in records.values():
+        for detection in record._annotations():
+            _collect_hover_items(
+                detection,
+                width,
+                height,
+                items,
+                text_key=text_key,
+                palette=palette,
+            )
+    return items
+
+
+def _hit_test(items: list[HoverItem], x: float, y: float) -> int | None:
+    """Return the index of the smallest box containing ``(x, y)``, or ``None``."""
+    best: int | None = None
+    best_area: float | None = None
+    for i, (rect, _) in enumerate(items):
+        left, top, right, bottom = rect
+        if left <= x <= right and top <= y <= bottom:
+            area = (right - left) * (bottom - top)
+            if best_area is None or area < best_area:
+                best, best_area = i, area
+    return best
+
+
+def _draw_tooltip(
+    frame: "np.ndarray", info: dict, at: tuple[int, int]
+) -> None:
+    """Draw a translucent metadata card near ``at`` on the BGR ``frame``."""
+    title = info.get("_title")
+    title_color = info.get("_color", (120, 200, 255))
+    rows = ([title] if title else []) + [
+        f"{key}: {value}"
+        for key, value in info.items()
+        if not key.startswith("_")
+    ]
+    if not rows:
+        return
+    font, scale, thick = cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1
+    pad, gap = 8, 6
+    sizes = [cv2.getTextSize(t, font, scale, thick)[0] for t in rows]
+    text_h = max(h for _, h in sizes)
+    line_h = text_h + gap
+    box_w = max(w for w, _ in sizes) + 2 * pad
+    box_h = 2 * pad + line_h * len(rows) - gap
+    height, width = frame.shape[:2]
+    if box_w >= width or box_h >= height:
+        return
+    x = max(0, min(int(at[0]) + 16, width - box_w - 1))
+    y = max(0, min(int(at[1]) + 16, height - box_h - 1))
+
+    roi = frame[y : y + box_h, x : x + box_w]
+    background = roi.copy()
+    background[:] = (32, 32, 32)
+    cv2.addWeighted(background, 0.72, roi, 0.28, 0, roi)
+    cv2.rectangle(frame, (x, y), (x + box_w, y + box_h), (90, 90, 90), 1)
+
+    baseline = y + pad + text_h
+    for i, text in enumerate(rows):
+        color = title_color if title and i == 0 else (238, 238, 238)
+        cv2.putText(
+            frame,
+            text,
+            (x + pad, baseline),
+            font,
+            scale,
+            color,
+            thick,
+            cv2.LINE_AA,
+        )
+        baseline += line_h
+
+
+def _make_hover_callback(window: _HoverWindow) -> MouseCallback:
+    """Build a mouse callback that tracks the hovered box for ``window``."""
+
+    def callback(
+        event: int, x: int, y: int, flags: int, param: object
+    ) -> None:
+        if event != cv2.EVENT_MOUSEMOVE or not window.items:
+            return
+        frame_w, frame_h = window.frame
+        win_w, win_h = window.win
+        fx = x * frame_w / win_w if win_w else x
+        fy = y * frame_h / win_h if win_h else y
+        idx = _hit_test(window.items, fx, fy)
+        pos = (int(fx), int(fy))
+        if idx != window.hover_idx or (
+            idx is not None and pos != window.mouse
+        ):
+            window.hover_idx = idx
+            window.mouse = pos
+            window.dirty = True
+
+    return callback
+
+
+def _wait_with_hover(windows: dict[str, _HoverWindow]) -> int:
+    """Poll for a key while redrawing hover tooltips; return the key pressed."""
+    while True:
+        key = cv2.waitKey(20)
+        if key != -1:
+            return key & 0xFF
+        for name, window in windows.items():
+            if not window.dirty:
+                continue
+            window.dirty = False
+            if window.hover_idx is None:
+                cv2.imshow(name, window.base)
+            else:
+                frame = window.base.copy()
+                _draw_tooltip(
+                    frame, window.items[window.hover_idx][1], window.mouse
+                )
+                cv2.imshow(name, frame)
 
 
 @app.command
@@ -255,6 +468,10 @@ def inspect(
 ):
     """Inspect images and annotations in a dataset.
 
+    Hovering the mouse over a detection that carries annotation metadata shows
+    that metadata in a tooltip, so dense scenes stay uncluttered. Press any key
+    to advance to the next sample, or 'q' to quit.
+
     Args:
         name: Name of the dataset to inspect.
         view: Which splits of the dataset to inspect.
@@ -342,10 +559,13 @@ def inspect(
             Palette,
             Skeleton,
             VizConfig,
-            grid,
             visualize_record,
         )
-        from luxonis_ml.vizlab.convert import detection_to_annotations
+        from luxonis_ml.vizlab.compose import grid_placed
+        from luxonis_ml.vizlab.convert import (
+            detection_to_annotations,
+            metadata_annotations,
+        )
     except ImportError as e:
         raise SystemExit(
             "Visualization requires the 'viz' extra. "
@@ -418,7 +638,9 @@ def inspect(
             return None
         return (max(1, round(width * scale)), max(1, round(height * scale)))
 
-    def show(source_name: str, viz: Image) -> None:
+    def show(
+        source_name: str, viz: Image
+    ) -> tuple[np.ndarray, tuple[int, int], tuple[int, int]]:
         out = viz.to_numpy(mode="bgr")
         out_h, out_w = out.shape[:2]
         win_w, win_h = out_w, out_h
@@ -437,6 +659,7 @@ def inspect(
                 max(0, (screen[1] - win_h) // 2),
             )
         cv2.imshow(source_name, out)
+        return out, (out_w, out_h), (win_w, win_h)
 
     prev_windows = set()
 
@@ -463,6 +686,7 @@ def inspect(
         ]
 
         quit_requested = False
+        hover_windows: dict[str, _HoverWindow] = {}
         for source_name, image in images_dict.items():
             image = image.astype(np.uint8)
             height, width = image.shape[:2]
@@ -492,6 +716,7 @@ def inspect(
                 )
 
             reserve = panel_reserve if panel else 0.0
+            placements: list[tuple[int, int, int, int]] | None = None
             if blend_all or len(records) <= 1:
                 size = target_size(width, height, reserve=reserve)
                 viz = Image(image, config=config).render_at(size)
@@ -501,6 +726,13 @@ def inspect(
                             detection, config, task_name=record.task_name
                         ):
                             viz.add(annotation)
+                # Box-less metadata has nothing to hover, so show it as a card
+                # (recognized text is rendered prominently on its own).
+                for overlay in metadata_annotations(
+                    [d for r in records.values() for d in r._annotations()],
+                    text_key=config.text_metadata_key,
+                ):
+                    viz.add(overlay)
             else:
                 # Fit the whole grid of tiles within the screen.
                 cols = max(1, math.ceil(math.sqrt(len(records))))
@@ -508,18 +740,58 @@ def inspect(
                 size = target_size(
                     width, height, reserve=reserve, cols=cols, rows=rows
                 )
+                # visualize_record adds each tile's own box-less metadata card.
                 tiles = [
                     visualize_record(record, image, config=config, size=size)
                     for record in records.values()
                 ]
-                viz = grid(tiles, titles=list(records))
+                viz, placements = grid_placed(
+                    tiles, ncols=cols, titles=list(records)
+                )
             if panel:
                 viz = viz.with_panel(panel, title="metadata")
-            show(source_name, viz)
+            out, frame_size, win_size = show(source_name, viz)
+
+            # Hover tooltips: hit-test the drawn detection boxes. In the grid
+            # view each tile has its own offset in the composite (from
+            # grid_placed); in the single/blend view the image sits at the
+            # frame's top-left.
+            disp_w, disp_h = size or (width, height)
+            text_key = config.text_metadata_key
+            items: list[HoverItem] = []
+            if placements is not None:
+                for (px, py, _, _), record in zip(
+                    placements, records.values(), strict=True
+                ):
+                    for detection in record._annotations():
+                        _collect_hover_items(
+                            detection,
+                            disp_w,
+                            disp_h,
+                            items,
+                            px,
+                            py,
+                            text_key,
+                            config.palette,
+                        )
+            else:
+                items = _hover_items(
+                    records, disp_w, disp_h, text_key, config.palette
+                )
+            window = _HoverWindow(
+                base=out, items=items, frame=frame_size, win=win_size
+            )
+            hover_windows[source_name] = window
+            cv2.setMouseCallback(source_name, _make_hover_callback(window))
 
         prev_windows = current_windows
 
-        if quit_requested or cv2.waitKey() == ord("q"):
+        if quit_requested:
+            break
+        key = (
+            _wait_with_hover(hover_windows) if hover_windows else cv2.waitKey()
+        )
+        if key == ord("q"):
             break
 
 

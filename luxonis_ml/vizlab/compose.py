@@ -114,7 +114,7 @@ def hstack(
         bg=bg,
         titles=titles,
         style=style,
-    )
+    )[0]
 
 
 def vstack(
@@ -138,7 +138,9 @@ def vstack(
         A new `Image` of the column.
 
     """
-    return _grid(images, ncols=1, pad=pad, bg=bg, titles=titles, style=style)
+    return _grid(images, ncols=1, pad=pad, bg=bg, titles=titles, style=style)[
+        0
+    ]
 
 
 def grid(
@@ -168,6 +170,38 @@ def grid(
         >>> import numpy as np
         >>> grid([Image(np.zeros((10, 10, 3), np.uint8))] * 4, ncols=2, pad=4).render().shape
         (32, 32, 4)
+
+    """
+    return grid_placed(
+        images, ncols=ncols, pad=pad, bg=bg, titles=titles, style=style
+    )[0]
+
+
+def grid_placed(
+    images: Sequence[Image],
+    *,
+    ncols: int | None = None,
+    pad: int = 10,
+    bg: ColorLike = _DEFAULT_BG,
+    titles: Sequence[str] | None = None,
+    style: Style = DEFAULT_STYLE,
+) -> tuple[Image, list[tuple[int, int, int, int]]]:
+    """Like `grid`, but also return each tile's ``(x, y, w, h)`` placement.
+
+    The placements (one per input image, in order) give where each tile's raster
+    landed in the composite, so callers can map tile-local coordinates — e.g.
+    detection boxes — into the composed image (used for hover hit-testing).
+
+    Args:
+        images: The images to place, filled row-major.
+        ncols: Number of columns; defaults to ``ceil(sqrt(n))``.
+        pad: Gap between cells and outer margin, in pixels.
+        bg: Background color.
+        titles: Optional per-image titles drawn above each cell.
+        style: Style whose font is used for titles.
+
+    Returns:
+        A ``(grid_image, placements)`` pair.
 
     """
     count = len(list(images))
@@ -203,8 +237,12 @@ def _grid(
     bg: ColorLike,
     titles: Sequence[str] | None,
     style: Style,
-) -> Image:
-    """Shared tiling used by `grid`, `hstack`, and `vstack`."""
+) -> tuple[Image, list[tuple[int, int, int, int]]]:
+    """Shared tiling used by `grid`, `hstack`, and `vstack`.
+
+    Returns the composed image and, for each input image (in order), the
+    ``(x, y, w, h)`` rectangle its raster occupies in the composite.
+    """
     rasters = [img.render() for img in images]
     if not rasters:
         raise ValueError("cannot compose an empty sequence of images")
@@ -223,6 +261,7 @@ def _grid(
     canvas.rounded_rect(Rect(0, 0, width, height), 0.0, fill=background)
     text_color = background.readable_text_color()
 
+    placements: list[tuple[int, int, int, int]] = []
     for i, raster in enumerate(rasters):
         row, col = divmod(i, cols)
         cell_x = pad + col * (cell_w + pad)
@@ -240,8 +279,9 @@ def _grid(
         x = cell_x + (cell_w - w) // 2
         y = round(cell_y + title_h) + (cell_h - h) // 2
         canvas.blit(raster, x, y)
+        placements.append((x, y, w, h))
 
-    return Image(canvas.to_rgba())
+    return Image(canvas.to_rgba()), placements
 
 
 def _draw_title(

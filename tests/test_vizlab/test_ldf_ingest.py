@@ -139,3 +139,101 @@ def test_color_determinism_across_records():
     assert box.resolve_color(_ctx()) == Palette(["car", "person"]).color_for(
         "person"
     )
+
+
+def test_metadata_annotations_from_boxless_detections():
+    """Box-less metadata becomes an InfoCard; boxed metadata does not."""
+    from luxonis_ml.vizlab import InfoCard
+    from luxonis_ml.vizlab.convert import metadata_annotations
+
+    boxless = Detection(
+        class_name="pose",
+        keypoints=KeypointAnnotation(keypoints=[(0.3, 0.3, 2)]),
+        metadata={"action": "running"},
+    )
+    boxed = Detection(
+        class_name="car",
+        boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.2, h=0.2),
+        metadata={"id": 7},  # shown on hover, not in a card
+    )
+    cards = metadata_annotations([boxless, boxed])
+    assert len(cards) == 1
+    assert isinstance(cards[0], InfoCard)
+    assert cards[0].rows == ["pose", "  action: running"]
+
+    # No box-less metadata -> no cards.
+    assert metadata_annotations([boxed]) == []
+
+
+def test_metadata_annotations_promotes_text_key():
+    """The recognized-text key renders as a separate, prominent card."""
+    from luxonis_ml.vizlab import InfoCard
+    from luxonis_ml.vizlab.convert import metadata_annotations
+    from luxonis_ml.vizlab.style import DEFAULT_STYLE
+
+    det = Detection(
+        class_name="ocr",
+        keypoints=KeypointAnnotation(keypoints=[(0.5, 0.5, 2)]),
+        metadata={"text": "HELLO", "conf": 0.9},
+    )
+    cards = metadata_annotations([det], text_key="text")
+    text_cards = [
+        c for c in cards if isinstance(c, InfoCard) and c.rows == ["HELLO"]
+    ]
+    meta_cards = [
+        c for c in cards if isinstance(c, InfoCard) and c.title == "metadata"
+    ]
+    assert len(text_cards) == 1
+    # Rendered larger than the default style.
+    assert text_cards[0].style is not None
+    assert text_cards[0].style.font_size > DEFAULT_STYLE.font_size
+    assert meta_cards[0].rows == ["ocr", "  conf: 0.9"]
+
+
+def test_metadata_annotations_recurses_sub_detections():
+    from luxonis_ml.vizlab import InfoCard
+    from luxonis_ml.vizlab.convert import metadata_annotations
+
+    parent = Detection(
+        class_name="car",
+        boundingbox=BBoxAnnotation(x=0.0, y=0.0, w=0.5, h=0.5),
+        sub_detections={
+            "plate": Detection(
+                boundingbox=None,  # type: ignore[arg-type]
+                metadata={"note": "AB123"},
+            )
+        },
+    )
+    cards = metadata_annotations([parent], text_key="text")
+    assert len(cards) == 1
+    assert isinstance(cards[0], InfoCard)
+    assert cards[0].rows == ["note: AB123"]
+
+
+def test_boxed_text_metadata_goes_on_chip():
+    """A boxed detection's text metadata becomes the box payload."""
+    from luxonis_ml.vizlab.convert import VizConfig, detection_to_annotations
+
+    det = Detection(
+        class_name="word",
+        boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.2),
+        metadata={"text": "STOP"},
+    )
+    annotations = detection_to_annotations(det, VizConfig())
+    assert annotations[0].payload == "STOP"
+
+
+def test_visualize_record_adds_metadata_card():
+    """A record whose only metadata is box-less renders an in-image card."""
+    from luxonis_ml.vizlab import InfoCard
+
+    det = Detection(
+        class_name="scene",
+        keypoints=KeypointAnnotation(keypoints=[(0.5, 0.5, 2)]),
+        metadata={"weather": "sunny"},
+    )
+    record = DatasetRecord.model_construct(
+        files={}, annotation=[det], task_name="scene"
+    )
+    img = visualize_record(record, np.zeros((60, 60, 3), np.uint8))
+    assert any(isinstance(a, InfoCard) for a in img.annotations)

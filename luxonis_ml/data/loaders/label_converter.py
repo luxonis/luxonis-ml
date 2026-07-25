@@ -116,14 +116,19 @@ def _instance_detections(
     keypoints = task_types.get("keypoints")
     instance_masks = task_types.get("instance_segmentation")
 
-    n_instances = max(
-        (
-            len(arr)
-            for arr in (boxes, keypoints, instance_masks)
-            if arr is not None
-        ),
-        default=0,
-    )
+    # Metadata arrays are per-instance too, so a metadata-only task (e.g. OCR
+    # with just ``metadata/text``) still yields one detection per entry.
+    metadata_lengths = [
+        len(np.asarray(arr))
+        for task_type, arr in task_types.items()
+        if task_type.startswith("metadata/") and np.asarray(arr).ndim == 1
+    ]
+    spatial_lengths = [
+        len(arr)
+        for arr in (boxes, keypoints, instance_masks)
+        if arr is not None
+    ]
+    n_instances = max([*spatial_lengths, *metadata_lengths], default=0)
     metadata = _decode_metadata(
         task_name, task_types, n_instances, categorical_encodings
     )
