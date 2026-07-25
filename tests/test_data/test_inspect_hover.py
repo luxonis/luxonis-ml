@@ -157,6 +157,9 @@ def test_per_instance_inspect_attaches_augmentation_panel(
         def get_classes(self) -> dict[str, dict[str, int]]:
             return {"objects": {"car": 0}}
 
+        def get_class_names(self) -> dict[str, list[str]]:
+            return {"objects": ["car"]}
+
         def get_categorical_encodings(self) -> dict[str, object]:
             return {}
 

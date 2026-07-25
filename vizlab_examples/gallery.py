@@ -123,12 +123,14 @@ def _payload() -> Image:
 
 
 def _keypoints() -> Image:
+    # COCO visibility: 2 = visible (solid dot), 1 = occluded (hollow ring). The
+    # right arm here is occluded.
     pose = [
         (0.5, 0.24, 2),
         (0.44, 0.48, 2),
-        (0.56, 0.48, 2),
+        (0.56, 0.48, 1),
         (0.38, 0.72, 2),
-        (0.62, 0.72, 2),
+        (0.62, 0.72, 1),
     ]
     edges = [(0, 1), (0, 2), (1, 3), (2, 4)]
     return Image(gradient(_W, _H, hue=0.68)).add(

@@ -263,6 +263,24 @@ def test_keypoints_visibility_threshold_hides_points() -> None:
     assert base.render()[..., 3].max() > 0
 
 
+def test_keypoint_occluded_renders_distinctly() -> None:
+    """A COCO-occluded joint (visibility 1) reads apart from a visible one."""
+    base = _canvas()
+    # Mixed 2/1 is COCO-style: the visibility-1 joint is drawn as a diamond.
+    mixed = (
+        base.copy()
+        .add(Keypoints(keypoints=[(0.3, 0.5, 2), (0.7, 0.5, 1)]))
+        .render()
+    )
+    both_visible = (
+        base.copy()
+        .add(Keypoints(keypoints=[(0.3, 0.5, 2), (0.7, 0.5, 2)]))
+        .render()
+    )
+    # Same positions, but the occluded joint's shape differs from a visible dot.
+    assert not np.array_equal(mixed, both_visible)
+
+
 def test_keypoints_extent_is_none() -> None:
     # LDF keypoints are always normalized, so the pixel extent is unknown.
     assert Keypoints(keypoints=[(0.1, 0.2, 2), (0.3, 0.4, 2)]).extent() is None
