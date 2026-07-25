@@ -224,6 +224,45 @@ def detection_to_annotations(
     return annotations
 
 
+def blend_records_to_annotations(
+    records: "Iterable[DatasetRecord]",
+    config: VizConfig | None = None,
+) -> list[Annotation]:
+    """Merge several records' detections into one flat annotation list.
+
+    Use this when several tasks are drawn onto the *same* image (e.g. the
+    ``--blend-all`` inspect view of a multitask dataset). Unlike converting each
+    record independently, this suppresses the image-level classification chip
+    once any spatial annotation (box, keypoints, mask) is present: a standalone
+    class tag only reads correctly as the sole content of an image, so blending a
+    classification task together with detection/segmentation tasks would leave a
+    redundant corner chip. When nothing but class tags is present, the chips are
+    kept.
+
+    Args:
+        records: The records whose detections are drawn together; each record's
+            task name is used to look up its detections' skeletons in ``config``.
+        config: Rendering context; a default is used when ``None``.
+
+    Returns:
+        The vizlab annotations to draw, with redundant classification chips
+        dropped when other annotations are present.
+
+    """
+    config = config or VizConfig()
+    annotations = [
+        annotation
+        for record in records
+        for detection in record._annotations()
+        for annotation in detection_to_annotations(
+            detection, config, task_name=record.task_name
+        )
+    ]
+    if any(not isinstance(a, Classification) for a in annotations):
+        return [a for a in annotations if not isinstance(a, Classification)]
+    return annotations
+
+
 def _text_value(detection: "Detection", text_key: str | None) -> str | None:
     """Return the detection's recognized-text metadata value, if any."""
     if text_key is None or not detection.metadata:

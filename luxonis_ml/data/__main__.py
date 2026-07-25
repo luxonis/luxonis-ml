@@ -653,6 +653,7 @@ def inspect(
         )
         from luxonis_ml.vizlab.compose import grid_placed
         from luxonis_ml.vizlab.convert import (
+            blend_records_to_annotations,
             detection_to_annotations,
             metadata_annotations,
         )
@@ -662,11 +663,17 @@ def inspect(
             "Install it with `pip install luxonis-ml[viz]`."
         ) from e
 
-    class_names: list[str] = [
-        class_name
-        for classes in dataset.get_class_names().values()
-        for class_name in classes
-    ]
+    # A class name can appear under several tasks (e.g. "car" in car/boundingbox,
+    # car/keypoints and car/classification of a multitask dataset). Dedupe while
+    # preserving first-seen order so the palette and legend carry one row per
+    # class, not one per (task, class) pair.
+    class_names: list[str] = list(
+        dict.fromkeys(
+            class_name
+            for classes in dataset.get_class_names().values()
+            for class_name in classes
+        )
+    )
 
     viz_theme = LIGHT_THEME if theme == "light" else DARK_THEME
     # Make single images, panels, and grid backgrounds all follow the theme.
@@ -845,12 +852,13 @@ def inspect(
             if blend_all or len(records) <= 1:
                 size = target_size(width, height, reserve=reserve)
                 viz = Image(image, config=config).render_at(size)
-                for record in records.values():
-                    for detection in record._annotations():
-                        for annotation in detection_to_annotations(
-                            detection, config, task_name=record.task_name
-                        ):
-                            viz.add(annotation)
+                # Blending several tasks onto one image: a classification task's
+                # corner chip is redundant next to boxes/keypoints/masks, so it is
+                # dropped unless a class tag is all there is to show.
+                for annotation in blend_records_to_annotations(
+                    records.values(), config
+                ):
+                    viz.add(annotation)
                 # Box-less metadata has nothing to hover, so show it as a card
                 # (recognized text is rendered prominently on its own). A lone
                 # object is carded too, so a single detection needs no hover.

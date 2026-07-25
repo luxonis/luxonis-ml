@@ -253,6 +253,43 @@ def test_boxed_text_metadata_goes_on_chip():
     assert annotations[0].payload == "STOP"
 
 
+def _record(task_name: str, *detections: Detection) -> DatasetRecord:
+    return DatasetRecord.model_construct(
+        files={}, annotation=list(detections), task_name=task_name
+    )
+
+
+def test_blend_drops_classification_chip_next_to_spatial() -> None:
+    """Blending a classification task with a detection drops the corner chip."""
+    from luxonis_ml.vizlab.convert import blend_records_to_annotations
+
+    classification = _record("classification", Detection(class_name="car"))
+    detection = _record(
+        "detection",
+        Detection(
+            class_name="car",
+            boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
+        ),
+    )
+    blended = blend_records_to_annotations([classification, detection])
+    assert not any(isinstance(a, Classification) for a in blended)
+    assert any(isinstance(a, BBox) for a in blended)
+
+
+def test_blend_keeps_classification_when_it_is_the_only_content() -> None:
+    """With nothing but class tags, the classification chips are kept."""
+    from luxonis_ml.vizlab.convert import blend_records_to_annotations
+
+    blended = blend_records_to_annotations(
+        [
+            _record("car", Detection(class_name="car")),
+            _record("motorbike", Detection(class_name="motorbike")),
+        ]
+    )
+    assert len(blended) == 2
+    assert all(isinstance(a, Classification) for a in blended)
+
+
 def test_visualize_record_adds_metadata_card():
     """A record whose only metadata is box-less renders an in-image card."""
     from luxonis_ml.vizlab import InfoCard
