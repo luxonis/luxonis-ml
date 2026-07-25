@@ -12,11 +12,11 @@ from luxonis_ml.vizlab.geometry import Rect
 from luxonis_ml.vizlab.style import Style
 
 from .base import RenderContext
-from .overlay import Cell, Corner, CornerStack, chip_cell
+from .overlay import CARD_BG, CARD_TEXT, Cell, Corner, CornerStack, chip_cell
 
 _CAPTION_BG = Color(22, 22, 26, 235)
-_CARD_BG = Color(22, 22, 26, 214)
-_CARD_TEXT = Color(238, 238, 240)
+_CARD_BG = CARD_BG
+_CARD_TEXT = CARD_TEXT
 
 
 class Caption(CornerStack):

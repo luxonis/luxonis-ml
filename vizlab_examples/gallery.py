@@ -23,6 +23,7 @@ from luxonis_ml.vizlab import (
     LIGHT_THEME,
     BBox,
     Caption,
+    ClassDistribution,
     Classification,
     Corner,
     Gradient,
@@ -241,6 +242,29 @@ def _heatmap() -> Image:
     return Image(gradient(_W, _H, hue=0.55)).add(Heatmap(values=field))
 
 
+# A synthetic softmax over classes, standing in for a model prediction.
+_PREDICTION = {
+    "husky": 0.58,
+    "malamute": 0.24,
+    "wolf": 0.09,
+    "samoyed": 0.05,
+    "corgi": 0.04,
+}
+
+
+def _distribution() -> Image:
+    # Model predictions are a probability distribution, not one class. The
+    # default "bars" mode ranks the classes; `ground_truth` marks the true one
+    # (here the model's top guess is wrong). See `render_distribution_modes`.
+    return Image(gradient(_W, _H, hue=0.6)).add(
+        ClassDistribution(
+            probabilities=_PREDICTION,
+            ground_truth="malamute",
+            title="prediction",
+        )
+    )
+
+
 def _light_theme() -> Image:
     # DARK_THEME is the default; pass LIGHT_THEME (or your own) for a light look.
     return (
@@ -261,6 +285,7 @@ def render_gallery() -> Path:
         "polygon mask": _polygon_mask(),
         "semantic mask": _semantic(),
         "heatmap": _heatmap(),
+        "class distribution": _distribution(),
         "nested sub-labels": _nested(),
         "classification": _classification(),
         "captions + legend": _captions_legend(),
@@ -313,6 +338,27 @@ def render_heatmap_themes() -> Path:
     return save(grid(cells, ncols=5, titles=titles), "heatmaps.png")
 
 
+def render_distribution_modes() -> Path:
+    """Show one prediction under all four `ClassDistribution` render modes.
+
+    ``mode`` picks the look; ``ground_truth`` highlights the correct class (row,
+    chip, segment, or a ✓/✗ on the gauge) so a wrong top-1 is obvious.
+    """
+    modes = ["bars", "chips", "gauge", "stacked"]
+    cells = [
+        Image(gradient(300, 220, hue=0.6)).add(
+            ClassDistribution(
+                probabilities=_PREDICTION,
+                mode=mode,
+                ground_truth="malamute",
+                corner=Corner.TOP_LEFT,
+            )
+        )
+        for mode in modes
+    ]
+    return save(grid(cells, ncols=4, titles=modes), "distributions.png")
+
+
 def render_panel() -> Path:
     """Append a metadata sidebar that never occludes the pixels or labels."""
     metadata = {
@@ -335,6 +381,7 @@ def main() -> None:
     for path in (
         render_gallery(),
         render_heatmap_themes(),
+        render_distribution_modes(),
         render_compose(),
         render_panel(),
     ):
