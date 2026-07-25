@@ -33,6 +33,7 @@ from luxonis_ml.guard_extras import guard_missing_extra
 with guard_missing_extra("utils"):
     from luxonis_ml.typing import BaseModelExtraForbid
 
+    from .color import Color
     from .config import LuxonisConfig
     from .environ import Environ, environ
     from .filesystem import PUT_FILE_REGISTRY, LuxonisFileSystem
@@ -45,6 +46,7 @@ __all__ = [
     "PUT_FILE_REGISTRY",
     "AutoRegisterMeta",
     "BaseModelExtraForbid",
+    "Color",
     "Environ",
     "LuxonisConfig",
     "LuxonisFileSystem",

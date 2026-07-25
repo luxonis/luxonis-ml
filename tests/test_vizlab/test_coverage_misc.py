@@ -31,8 +31,8 @@ def test_color_tuple_and_hex_errors() -> None:
     assert Color.parse((1, 2, 3, 4)) == Color(1, 2, 3, 4)
     with pytest.raises(ValueError, match="3 or 4 elements"):
         Color.parse((1, 2))
-    with pytest.raises(ValueError, match="cannot parse color"):
-        Color.parse(123)
+    # A bare int is a grayscale color; a bad hex still reports as hex.
+    assert Color.parse(123) == Color(123, 123, 123)
     with pytest.raises(ValueError, match="invalid hex color"):
         Color.parse("#gghhii")  # right length, non-hex digits
 

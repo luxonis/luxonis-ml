@@ -5,8 +5,9 @@ import cv2
 import numpy as np
 from typing_extensions import override
 
-from luxonis_ml.data.utils.color import resolve_color
-from luxonis_ml.typing import RGB, Color
+from luxonis_ml.typing import RGB
+from luxonis_ml.typing import Color as ColorLike
+from luxonis_ml.utils.color import Color
 
 
 class LetterboxResize(A.DualTransform):
@@ -24,7 +25,7 @@ class LetterboxResize(A.DualTransform):
         height: int,
         width: int,
         interpolation: int = cv2.INTER_LINEAR,
-        image_fill_value: Color = "black",
+        image_fill_value: ColorLike = "black",
         mask_fill_value: int = 0,
         p: float = 1.0,
     ):
@@ -50,8 +51,8 @@ class LetterboxResize(A.DualTransform):
         self.width = width
 
         self._interpolation = interpolation
-        self._image_fill_value = resolve_color(image_fill_value)
-        self._mask_fill_value = resolve_color(mask_fill_value)
+        self._image_fill_value = Color.parse(image_fill_value).rgb
+        self._mask_fill_value = Color.parse(mask_fill_value).rgb
 
     @property
     @override
