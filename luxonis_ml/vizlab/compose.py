@@ -11,6 +11,8 @@ from collections.abc import Sequence
 
 import numpy as np
 
+from luxonis_ml.utils.color import brand
+
 from .annotations import Annotation, BBox, Keypoints, Mask, SemanticMask
 from .annotations.mask import _resize_mask
 from .canvas import Canvas
@@ -24,6 +26,10 @@ _DEFAULT_BG = DARK_THEME.background
 (the default theme's background, so composites match single-image renders)."""
 
 _TITLE_PAD = 6.0
+#: Cell titles render a step larger and bold, so they read as headings above
+#: their tiles rather than as body text.
+_TITLE_SCALE = 1.3
+_TITLE_WEIGHT = 700
 _MEASURE = Canvas.blank(1, 1)
 
 
@@ -249,6 +255,7 @@ def grid(
     bg: ColorLike = _DEFAULT_BG,
     titles: Sequence[str] | None = None,
     style: Style = DEFAULT_STYLE,
+    emphasize_titles: bool = True,
 ) -> Image:
     """Render images into a new row-major grid of uniform cells.
 
@@ -263,6 +270,9 @@ def grid(
         bg: Background color.
         titles: Optional per-image titles drawn above each cell.
         style: Style whose font is used for titles.
+        emphasize_titles: When ``True`` (the default), titles render a step larger
+            and bold so they read as headings; set ``False`` for a nested sub-grid
+            whose labels should stay subordinate to the outer titles.
 
     Returns:
         A new `Image` of the grid.
@@ -278,7 +288,13 @@ def grid(
 
     """
     return grid_placed(
-        images, ncols=ncols, pad=pad, bg=bg, titles=titles, style=style
+        images,
+        ncols=ncols,
+        pad=pad,
+        bg=bg,
+        titles=titles,
+        style=style,
+        emphasize_titles=emphasize_titles,
     )[0]
 
 
@@ -290,6 +306,7 @@ def grid_placed(
     bg: ColorLike = _DEFAULT_BG,
     titles: Sequence[str] | None = None,
     style: Style = DEFAULT_STYLE,
+    emphasize_titles: bool = True,
 ) -> tuple[Image, list[tuple[int, int, int, int]]]:
     """Like `grid`, but also return each tile's ``(x, y, w, h)`` placement.
 
@@ -304,6 +321,8 @@ def grid_placed(
         bg: Background color.
         titles: Optional per-image titles drawn above each cell.
         style: Style whose font is used for titles.
+        emphasize_titles: When ``True`` (the default), titles render a step larger
+            and bold; set ``False`` to keep a nested sub-grid's labels subordinate.
 
     Returns:
         A ``(grid_image, placements)`` pair. Each placement is an integer
@@ -316,7 +335,13 @@ def grid_placed(
     count = len(list(images))
     cols = ncols if ncols is not None else max(1, math.ceil(math.sqrt(count)))
     return _grid(
-        images, ncols=cols, pad=pad, bg=bg, titles=titles, style=style
+        images,
+        ncols=cols,
+        pad=pad,
+        bg=bg,
+        titles=titles,
+        style=style,
+        emphasize_titles=emphasize_titles,
     )
 
 
@@ -363,6 +388,7 @@ def _grid(
     bg: ColorLike,
     titles: Sequence[str] | None,
     style: Style,
+    emphasize_titles: bool = True,
 ) -> tuple[Image, list[tuple[int, int, int, int]]]:
     """Shared tiling used by `grid`, `hstack`, and `vstack`.
 
@@ -379,7 +405,17 @@ def _grid(
     cell_h = max(r.shape[0] for r in rasters)
 
     # Scale titles to the tile size so they don't shrink against large images.
-    title_style = style.scaled(_style_scale(cell_w, cell_h))
+    # Emphasized titles (the default) render a step larger and bold so they read
+    # as headings; nested sub-grids can opt out to keep their labels subordinate.
+    base_title = style.scaled(_style_scale(cell_w, cell_h))
+    title_style = (
+        base_title.merge(
+            font_size=base_title.font_size * _TITLE_SCALE,
+            font_weight=_TITLE_WEIGHT,
+        )
+        if emphasize_titles
+        else base_title
+    )
     title_pad = _TITLE_PAD * _style_scale(cell_w, cell_h)
     line_h = _MEASURE.measure_text(
         "Ag", title_style.font_size, weight=title_style.font_weight
@@ -396,7 +432,9 @@ def _grid(
     background = Color.parse(bg)
     canvas = Canvas.blank(width, height)
     canvas.rounded_rect(Rect(0, 0, width, height), 0.0, fill=background)
-    text_color = background.readable_text_color()
+    # Titles use the on-brand heading color for the background (deep purple on a
+    # light grid, near-white on a dark one) rather than plain black/white.
+    text_color = brand.chrome_for(background).card_title
 
     placements: list[tuple[int, int, int, int]] = []
     for i, raster in enumerate(rasters):

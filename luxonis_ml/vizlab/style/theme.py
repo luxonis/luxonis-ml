@@ -40,7 +40,7 @@ class Theme:
         >>> DARK_THEME.style.fill_alpha
         0.16
         >>> LIGHT_THEME.background.r
-        242
+        237
 
     """
 

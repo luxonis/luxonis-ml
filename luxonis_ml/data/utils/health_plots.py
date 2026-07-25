@@ -43,8 +43,9 @@ _BASE_SCALE = 1.75
 _MARGIN = 16.0
 _MIN_SIDE = 300
 _MAX_SIDE = 620
-#: Smallest side for a single per-class heatmap tile.
-_MIN_MINI = 150
+#: Smallest side for a single per-class heatmap tile. Kept generous so per-class
+#: heatmaps render at a comfortable size rather than shrinking to fit their grid.
+_MIN_MINI = 200
 
 
 def _panel_bg(width: float, height: float, color: Color) -> np.ndarray:
@@ -184,8 +185,15 @@ def _class_heatmaps_panel(
         )
         for name in names
     ]
+    # Subordinate titles: these class names sit inside the outer grid's big
+    # "… — per-class heatmaps" heading, so keep them small rather than emphasized.
     return grid(
-        tiles, ncols=cols, titles=names, bg=theme.background, style=theme.style
+        tiles,
+        ncols=cols,
+        titles=names,
+        bg=theme.background,
+        style=theme.style,
+        emphasize_titles=False,
     )
 
 

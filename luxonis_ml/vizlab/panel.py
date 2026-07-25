@@ -26,13 +26,14 @@ _LINE_GAP = 5.0
 _PANEL_SIZE = 16.0
 _MIN_WIDTH = 220.0
 _MAX_WIDTH = 400.0
+#: The panel heading renders a step larger and bold, matching the grid/cell
+#: titles (see `luxonis_ml.vizlab.compose`), so it reads as a heading.
+_TITLE_SCALE = 1.3
+_TITLE_WEIGHT = 700
 
-# Panel chrome is on-brand: periwinkle keys, near-white values/title, a subtle
-# periwinkle divider (see `luxonis_ml.utils.color.brand`).
-_KEY = brand.CARD_KEY
-_VALUE = brand.CARD_TEXT
-_TITLE = brand.CARD_TITLE
-_DIVIDER = brand.DIVIDER
+# Panel chrome is on-brand and background-aware: resolved per render from
+# `brand.chrome_for` (see `_metrics`) so keys/values/title/divider adapt to a
+# dark or light composite background.
 
 _MEASURE = Canvas.blank(1, 1)
 
@@ -53,15 +54,17 @@ class _Metrics:
     key: Color
     value: Color
     title: Color
+    divider: Color
 
 
 def _metrics(scale: float, background: Color) -> _Metrics:
-    """Resolve panel sizes (scaled by ``scale``) and background-aware text colors.
+    """Resolve panel sizes (scaled by ``scale``) and background-aware chrome colors.
 
-    On a light background the near-white dark-theme chrome would be invisible, so
-    keys become brand purple and values/title become brand ink.
+    Chrome adapts to the composite background via `brand.chrome_for`: near-white
+    keys/values on a dark panel, brand-purple keys and deep-purple values/title on
+    a light one (where the dark-theme chrome would be invisible).
     """
-    light_bg = background.readable_text_color().r < 128
+    chrome = brand.chrome_for(background)
     return _Metrics(
         size=_PANEL_SIZE * scale,
         pad=_PAD * scale,
@@ -69,9 +72,10 @@ def _metrics(scale: float, background: Color) -> _Metrics:
         line_gap=_LINE_GAP * scale,
         min_width=_MIN_WIDTH * scale,
         max_width=_MAX_WIDTH * scale,
-        key=brand.PURPLE if light_bg else _KEY,
-        value=brand.INK if light_bg else _VALUE,
-        title=brand.INK if light_bg else _TITLE,
+        key=chrome.card_key,
+        value=chrome.card_text,
+        title=chrome.card_title,
+        divider=chrome.divider,
     )
 
 
@@ -296,7 +300,9 @@ def with_panel(
     ops, content_h = _build_ops(lines, content_w, m)
 
     title_metrics = (
-        _MEASURE.measure_text(title, m.size * 1.15, weight=700)
+        _MEASURE.measure_text(
+            title, m.size * _TITLE_SCALE, weight=_TITLE_WEIGHT
+        )
         if title is not None
         else None
     )
@@ -320,7 +326,7 @@ def with_panel(
     canvas = Canvas.blank(out_w, out_h)
     canvas.rounded_rect(Rect(0, 0, out_w, out_h), 0.0, fill=background)
     canvas.blit(base, image_x, image_y)
-    _draw_divider(canvas, side, img_w, img_h, panel_w, out_w, out_h)
+    _draw_divider(canvas, side, img_w, img_h, panel_w, out_w, out_h, m.divider)
 
     panel_y = float(img_h) if not horizontal else 0.0
     _draw_panel(canvas, ops, title, title_metrics, panel_x, panel_y, m)
@@ -335,14 +341,15 @@ def _draw_divider(
     panel_w: float,
     out_w: int,
     out_h: int,
+    divider: Color,
 ) -> None:
     """Draw a subtle line between the image and the panel."""
     if side == "right":
-        canvas.line((img_w, 0), (img_w, out_h), _DIVIDER, width=1.0)
+        canvas.line((img_w, 0), (img_w, out_h), divider, width=1.0)
     elif side == "left":
-        canvas.line((panel_w, 0), (panel_w, out_h), _DIVIDER, width=1.0)
+        canvas.line((panel_w, 0), (panel_w, out_h), divider, width=1.0)
     else:  # bottom
-        canvas.line((0, img_h), (out_w, img_h), _DIVIDER, width=1.0)
+        canvas.line((0, img_h), (out_w, img_h), divider, width=1.0)
 
 
 def _draw_panel(
@@ -361,9 +368,9 @@ def _draw_panel(
         canvas.text(
             (x0, y0 + title_metrics.ascent),  # type: ignore[attr-defined]
             title,
-            size=m.size * 1.15,
+            size=m.size * _TITLE_SCALE,
             color=m.title,
-            weight=700,
+            weight=_TITLE_WEIGHT,
         )
         y0 += title_metrics.height + m.line_gap * 2  # type: ignore[attr-defined]
     for op_y, op_x, text, weight, color, mono in ops:

@@ -15,17 +15,14 @@ from luxonis_ml.vizlab.style import Style
 
 from .base import RenderContext
 from .overlay import (
-    CARD_BG,
-    CARD_TEXT,
     Cell,
     Corner,
     CornerStack,
+    resolve_chrome,
     swatch_outline,
 )
 
 _CAPTION_BG = brand.CAPTION_BG
-_CARD_BG = CARD_BG
-_CARD_TEXT = CARD_TEXT
 
 _PAD, _ROW_GAP, _SWATCH_GAP = 10.0, 6.0, 8.0
 
@@ -65,11 +62,13 @@ def _card_cell(
     title_lines: list[_Line],
     rows: list[_Row],
     swatch: float,
+    chrome: brand.Chrome,
 ) -> Cell | None:
     """Build one card `Cell` from wrapped title lines and rows.
 
-    ``swatch`` is the swatch square size (``0`` for a swatch-less card). Shared by
-    `InfoCard` (no swatch) and `Legend` (swatch on each entry's first line).
+    ``swatch`` is the swatch square size (``0`` for a swatch-less card). ``chrome``
+    supplies the (theme-aware) card fill/text colors. Shared by `InfoCard` (no
+    swatch) and `Legend` (swatch on each entry's first line).
     """
     if not rows and not title_lines:
         return None
@@ -95,7 +94,15 @@ def _card_cell(
 
     def _draw(cv: Canvas, rect: Rect) -> None:
         _draw_card(
-            cv, rect, style, title_lines, title_line_h, rows, row_h, swatch
+            cv,
+            rect,
+            style,
+            title_lines,
+            title_line_h,
+            rows,
+            row_h,
+            swatch,
+            chrome,
         )
 
     return Cell(card_w, card_h, _draw)
@@ -110,12 +117,15 @@ def _draw_card(
     rows: list[_Row],
     row_h: float,
     swatch: float,
+    chrome: brand.Chrome,
 ) -> None:
     """Paint a card background, its title lines, then its (optionally swatched) rows."""
     cv.rounded_rect(
         rect,
         radius=9.0,
-        fill=_CARD_BG,
+        fill=chrome.card_bg,
+        stroke=chrome.border,
+        stroke_width=1.0 if chrome.border is not None else 0.0,
         shadow=Shadow(blur=6.0, dy=2.0) if style.shadow else None,
     )
     title_size = style.font_size * 1.05
@@ -125,7 +135,7 @@ def _draw_card(
             (rect.left + _PAD, y + metrics.ascent),
             line,
             size=title_size,
-            color=_CARD_TEXT,
+            color=chrome.card_title,
         )
         y += title_line_h
     if title_lines:
@@ -143,14 +153,14 @@ def _draw_card(
                 ),
                 radius=3.0,
                 fill=color,
-                stroke=swatch_outline(_CARD_BG),
+                stroke=swatch_outline(chrome.card_bg),
                 stroke_width=1.0,
             )
         cv.draw_spans(
             (text_x, y + metrics.ascent),
             line,
             size=style.font_size,
-            color=_CARD_TEXT,
+            color=chrome.card_text,
         )
         y += row_h + _ROW_GAP
 
@@ -217,8 +227,15 @@ class Caption(CornerStack):
         lines = canvas.wrap_spans(spans, size, max_width=avail)
         if not lines:
             return []
-        fill = Color.parse(self.background)
-        text_color = fill.readable_text_color()
+        # An unset background follows the theme (white chip + purple text on
+        # light, navy chip + near-white text on dark); an explicit one is honored
+        # verbatim, with a readable contrast picked for its text.
+        if self.background == _CAPTION_BG:
+            chrome = resolve_chrome(ctx)
+            fill, text_color = chrome.caption_bg, chrome.card_text
+        else:
+            fill = Color.parse(self.background)
+            text_color = fill.readable_text_color()
         measured: list[_Line] = [
             (line, canvas.measure_spans(line, size)) for line in lines
         ]
@@ -288,7 +305,7 @@ class InfoCard(CornerStack):
                 canvas, self.rows, size, weight, avail
             )
         ]
-        cell = _card_cell(style, title_lines, rows, swatch=0.0)
+        cell = _card_cell(style, title_lines, rows, 0.0, resolve_chrome(ctx))
         return [cell] if cell is not None else []
 
 
@@ -348,5 +365,7 @@ class Legend(CornerStack):
             if self.title is not None
             else []
         )
-        cell = _card_cell(style, title_lines, rows, swatch=swatch)
+        cell = _card_cell(
+            style, title_lines, rows, swatch, resolve_chrome(ctx)
+        )
         return [cell] if cell is not None else []

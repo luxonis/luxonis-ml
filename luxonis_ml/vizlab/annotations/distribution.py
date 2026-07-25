@@ -27,10 +27,9 @@ from luxonis_ml.vizlab.style import Palette, Style
 from .base import RenderContext
 from .chip import chip_size, draw_chip
 from .overlay import (
-    CARD_BG,
-    CARD_TEXT,
     Cell,
     CornerStack,
+    resolve_chrome,
     shade_outline,
     swatch_outline,
 )
@@ -50,9 +49,6 @@ _WHITE = Color(255, 255, 255)
 _OK = brand.SUCCESS
 _BAD = brand.ERROR
 _OTHER = brand.MUTED
-# Thin, translucent light-gray line separating pie/donut slices: enough to read
-# a seam, subtle enough not to draw attention.
-_SEP = Color(208, 213, 222, 135)
 
 _PAD = 10.0
 _ROW_GAP = 6.0
@@ -234,12 +230,16 @@ class ClassDistribution(CornerStack):
             return self._pie_cells(ctx, style)
         return self._bars_cells(ctx, style)
 
-    def _card_bg(self, cv: Canvas, rect: Rect, style: Style) -> None:
-        """Paint the shared rounded card background."""
+    def _card_bg(
+        self, cv: Canvas, rect: Rect, style: Style, chrome: brand.Chrome
+    ) -> None:
+        """Paint the shared rounded card background (theme-aware fill/border)."""
         cv.rounded_rect(
             rect,
             radius=9.0,
-            fill=CARD_BG,
+            fill=chrome.card_bg,
+            stroke=chrome.border,
+            stroke_width=1.0 if chrome.border is not None else 0.0,
             shadow=Shadow(blur=6.0, dy=2.0) if style.shadow else None,
         )
 
@@ -251,14 +251,21 @@ class ClassDistribution(CornerStack):
             return None
         return canvas.measure_text(self.title, size * 1.05, weight=700)
 
-    def _draw_title(self, cv: Canvas, x: float, y: float, size: float) -> None:
+    def _draw_title(
+        self,
+        cv: Canvas,
+        x: float,
+        y: float,
+        size: float,
+        chrome: brand.Chrome,
+    ) -> None:
         """Draw the title at baseline; assumes there is one."""
         metrics = cv.measure_text(str(self.title), size * 1.05, weight=700)
         cv.text(
             (x, y + metrics.ascent),
             str(self.title),
             size=size * 1.05,
-            color=CARD_TEXT,
+            color=chrome.card_title,
             weight=700,
         )
 
@@ -311,6 +318,7 @@ class ClassDistribution(CornerStack):
             name_w=name_w,
             title_h=title_h,
             has_title=title_metrics is not None,
+            chrome=resolve_chrome(ctx),
         )
 
         def _draw(cv: Canvas, rect: Rect) -> None:
@@ -364,6 +372,7 @@ class ClassDistribution(CornerStack):
         name, value = ranked[0]
         scale = self._bar_scale()
         color = palette.color_for(name)
+        chrome = resolve_chrome(ctx)
         size = style.font_size
         big = size * 1.5
         bar_h = size * 0.9
@@ -383,7 +392,7 @@ class ClassDistribution(CornerStack):
         card_h = 2 * _PAD + header_h + 8.0 + bar_h
 
         def _draw(cv: Canvas, rect: Rect) -> None:
-            self._card_bg(cv, rect, style)
+            self._card_bg(cv, rect, style, chrome)
             y = rect.top + _PAD
             cv.text(
                 (
@@ -392,7 +401,7 @@ class ClassDistribution(CornerStack):
                 ),
                 name,
                 size=size,
-                color=CARD_TEXT,
+                color=chrome.card_text,
                 weight=700,
             )
             right = rect.right - _PAD
@@ -408,7 +417,7 @@ class ClassDistribution(CornerStack):
                 ),
                 pct_text,
                 size=big,
-                color=CARD_TEXT,
+                color=chrome.card_text,
                 weight=700,
                 mono=True,
             )
@@ -424,7 +433,7 @@ class ClassDistribution(CornerStack):
                     Rect(left, by, left + fill_w, by + bar_h),
                     radius=bar_h / 2,
                     fill=color,
-                    stroke=shade_outline(color, CARD_BG),
+                    stroke=shade_outline(color, chrome.card_bg),
                     stroke_width=_edge_w(style),
                 )
 
@@ -492,6 +501,7 @@ class ClassDistribution(CornerStack):
             inner_w=content_w,
             title_h=title_h,
             has_title=title_metrics is not None,
+            chrome=resolve_chrome(ctx),
         )
 
         def _draw(cv: Canvas, rect: Rect) -> None:
@@ -562,6 +572,7 @@ class ClassDistribution(CornerStack):
             donut=self.mode == "donut",
             title_h=title_h,
             has_title=title_metrics is not None,
+            chrome=resolve_chrome(ctx),
         )
 
         def _draw(cv: Canvas, rect: Rect) -> None:
@@ -583,6 +594,7 @@ class _BarsLayout:
     name_w: float
     title_h: float
     has_title: bool
+    chrome: brand.Chrome
 
 
 def _draw_bars(
@@ -593,11 +605,12 @@ def _draw_bars(
     ll: _BarsLayout,
 ) -> None:
     """Paint a ranked bar chart: per row a name, a value bar, and a label."""
-    dist._card_bg(cv, rect, style)
+    chrome = ll.chrome
+    dist._card_bg(cv, rect, style, chrome)
     size, weight = style.font_size, style.font_weight
     y = rect.top + _PAD
     if ll.has_title:
-        dist._draw_title(cv, rect.left + _PAD, y, size)
+        dist._draw_title(cv, rect.left + _PAD, y, size, chrome)
         y += ll.title_h
     bar_x = rect.left + _PAD + ll.name_w + _COL_GAP
     val_x = bar_x + ll.bar_w + _COL_GAP
@@ -608,7 +621,7 @@ def _draw_bars(
             (rect.left + _PAD, y + (ll.row_h - m.height) / 2 + m.ascent),
             name,
             size=size,
-            color=CARD_TEXT,
+            color=chrome.card_text,
             weight=700 if is_gt else weight,
         )
         track_top = y + (ll.row_h - ll.bar_h) / 2
@@ -620,7 +633,7 @@ def _draw_bars(
                 Rect(bar_x, track_top, bar_x + fill_w, track_top + ll.bar_h),
                 radius=ll.bar_h / 2,
                 fill=color,
-                stroke=shade_outline(color, CARD_BG),
+                stroke=shade_outline(color, chrome.card_bg),
                 stroke_width=_edge_w(style),
             )
         if is_gt:
@@ -632,7 +645,7 @@ def _draw_bars(
             (val_x, y + (ll.row_h - lm.height) / 2 + lm.ascent),
             label,
             size=size,
-            color=CARD_TEXT,
+            color=chrome.card_text,
             weight=weight,
             mono=True,
         )
@@ -653,6 +666,7 @@ class _StackedLayout:
     inner_w: float
     title_h: float
     has_title: bool
+    chrome: brand.Chrome
 
 
 def _draw_stacked_strip(
@@ -682,7 +696,7 @@ def _draw_stacked_strip(
             seg,
             radius=0.0,
             fill=color,
-            stroke=_WHITE if gt else shade_outline(color, CARD_BG),
+            stroke=_WHITE if gt else shade_outline(color, ll.chrome.card_bg),
             stroke_width=2.0 if gt else edge_w,
         )
         seg_x += seg_w
@@ -710,14 +724,14 @@ def _draw_stacked_key(
             ),
             radius=3.0,
             fill=color,
-            stroke=swatch_outline(CARD_BG),
+            stroke=swatch_outline(ll.chrome.card_bg),
             stroke_width=1.0,
         )
         cv.text(
             (rect.left + _PAD + ll.swatch + _COL_GAP, y + m.ascent),
             f"{name}  {label}",
             size=size,
-            color=CARD_TEXT,
+            color=ll.chrome.card_text,
             weight=700 if name == dist.ground_truth else weight,
         )
         y += ll.row_h + _ROW_GAP
@@ -731,10 +745,10 @@ def _draw_stacked(
     ll: _StackedLayout,
 ) -> None:
     """Paint a stacked proportion strip with an inline key below it."""
-    dist._card_bg(cv, rect, style)
+    dist._card_bg(cv, rect, style, ll.chrome)
     y = rect.top + _PAD
     if ll.has_title:
-        dist._draw_title(cv, rect.left + _PAD, y, style.font_size)
+        dist._draw_title(cv, rect.left + _PAD, y, style.font_size, ll.chrome)
         y += ll.title_h
     _draw_stacked_strip(cv, rect, dist, ll, y, _edge_w(style))
     _draw_stacked_key(cv, rect, dist, style, ll, y + ll.strip_h + _ROW_GAP)
@@ -755,6 +769,7 @@ class _PieLayout:
     donut: bool
     title_h: float
     has_title: bool
+    chrome: brand.Chrome
 
 
 def _wedge_polygon(
@@ -811,11 +826,13 @@ def _draw_wedges(
 ) -> None:
     """Paint each class as a clean, solid wedge.
 
-    Slices are separated by thin light lines, for a flat, modern look that matches
-    the rest of the UI; the ground-truth slice is nudged outward (an "exploded"
-    slice) so it stands out. A single class fills the whole circle/ring with no
-    separators.
+    Slices are separated by a seam in the card's own background color (white on a
+    light card, navy on a dark one), for a crisp flat look that reads as a gap
+    rather than a foreign line; the ground-truth slice is nudged outward (an
+    "exploded" slice) so it stands out. A single class fills the whole circle/ring
+    with no separators.
     """
+    sep = ll.chrome.card_bg.with_alpha(255)
     drawn = [(name, value) for name, value in ll.keys if value > 0]
     if ll.total <= 0 or not drawn:
         cv.polygon(
@@ -839,7 +856,7 @@ def _draw_wedges(
         cv.polygon(
             _wedge_polygon(ox, oy, r_out, r_in, angle, a1),
             fill=_wedge_color(name, ll),
-            stroke=_SEP,
+            stroke=sep,
             stroke_width=sep_w,
         )
         angle = a1
@@ -869,14 +886,14 @@ def _draw_pie_key(
             ),
             radius=3.0,
             fill=color,
-            stroke=swatch_outline(CARD_BG),
+            stroke=swatch_outline(ll.chrome.card_bg),
             stroke_width=1.0,
         )
         cv.text(
             (rect.left + _PAD + ll.swatch + _COL_GAP, y + m.ascent),
             f"{name}  {dist._value_label(value, ll.total)}",
             size=size,
-            color=CARD_TEXT,
+            color=ll.chrome.card_text,
             weight=700 if name == dist.ground_truth else weight,
         )
         y += ll.row_h + _ROW_GAP
@@ -890,10 +907,10 @@ def _draw_pie(
     ll: _PieLayout,
 ) -> None:
     """Paint a pie/donut chart with an inline key below it."""
-    dist._card_bg(cv, rect, style)
+    dist._card_bg(cv, rect, style, ll.chrome)
     y = rect.top + _PAD
     if ll.has_title:
-        dist._draw_title(cv, rect.left + _PAD, y, style.font_size)
+        dist._draw_title(cv, rect.left + _PAD, y, style.font_size, ll.chrome)
         y += ll.title_h
     # Reserve a little room inside the diameter box so an exploded ground-truth
     # slice never spills past it.
@@ -902,7 +919,7 @@ def _draw_pie(
     r_in = r_out * 0.6 if ll.donut else 0.0
     cx = (rect.left + rect.right) / 2
     cy = y + ll.diameter / 2
-    sep_w = max(1.5, ll.diameter * 0.008)
+    sep_w = max(2.0, ll.diameter * 0.014)
     _draw_wedges(cv, dist, ll, cx, cy, r_out, r_in, sep_w, pop)
     if ll.donut and ll.total > 0 and ll.segs:
         top_name, top_value = max(ll.segs, key=lambda kv: kv[1])
@@ -914,7 +931,9 @@ def _draw_pie(
             label,
             size=big,
             # The top slice's hue, but forced to a legible lightness on the hole.
-            color=_readable_center(_wedge_color(top_name, ll), CARD_BG),
+            color=_readable_center(
+                _wedge_color(top_name, ll), ll.chrome.card_bg
+            ),
             weight=700,
             mono=True,
         )

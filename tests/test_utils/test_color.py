@@ -65,3 +65,44 @@ def test_invalid_name_raises():
 def test_bool_is_rejected():
     with pytest.raises(ValueError, match="cannot parse color"):
         Color.parse(True)
+
+
+def test_chrome_for_picks_by_background_lightness():
+    """A light background resolves the white/purple chrome; a dark one the navy."""
+    from luxonis_ml.utils.color import brand
+
+    light = brand.chrome_for(brand.LIGHT_BACKGROUND)
+    dark = brand.chrome_for(brand.BACKGROUND)
+    assert light is brand.LIGHT_CHROME
+    assert dark is brand.DARK_CHROME
+    # Light chrome: white card, brand-purple body text, deeper purple titles,
+    # and a hairline border.
+    assert light.card_bg.r > 240
+    assert light.card_bg.g > 240
+    assert light.card_text is brand.PURPLE
+    assert light.card_title is brand.PURPLE_TITLE
+    assert light.border is not None
+    # Dark chrome: navy card, light-purple (periwinkle) text — on-brand, not
+    # plain white — and no border (it relies on its shadow instead).
+    assert dark.card_text is brand.PERIWINKLE
+    assert dark.card_text.b > dark.card_text.r  # blue-purple, not white
+    assert dark.border is None
+
+
+def test_light_title_is_deeper_than_body_purple():
+    """The light-mode heading outranks the regular-purple body text."""
+    from luxonis_ml.utils.color import brand
+
+    # Same blue-purple family, but the title is clearly darker than the body.
+    assert brand.PURPLE_TITLE.b > brand.PURPLE_TITLE.r
+    assert sum(brand.PURPLE_TITLE.rgb) < sum(brand.PURPLE.rgb)
+
+
+def test_dark_title_is_lighter_than_body_on_dark():
+    """The dark-mode heading is a brighter lavender than the periwinkle body."""
+    from luxonis_ml.utils.color import brand
+
+    dark = brand.chrome_for(brand.BACKGROUND)
+    # Same purple family, but the title is clearly lighter (stronger on dark).
+    assert dark.card_title.b > dark.card_title.r
+    assert sum(dark.card_title.rgb) > sum(dark.card_text.rgb)

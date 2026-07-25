@@ -825,7 +825,7 @@ def inspect(
                     if class_legend is not None:
                         viz.add(class_legend)
                     if panel:
-                        viz = viz.with_panel(panel, title="metadata")
+                        viz = viz.with_panel(panel, title="Sample metadata")
                     show(source_name, viz)
                     if cv2.waitKey() == ord("q"):
                         quit_requested = True
@@ -892,7 +892,7 @@ def inspect(
             if class_legend is not None:
                 viz.add(class_legend)
             if panel:
-                viz = viz.with_panel(panel, title="metadata")
+                viz = viz.with_panel(panel, title="Sample metadata")
             out, frame_size, fit = show(source_name, viz)
 
             # Hover tooltips: hit-test the drawn detection boxes. In the grid

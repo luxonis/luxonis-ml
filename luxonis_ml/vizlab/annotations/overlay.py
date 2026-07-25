@@ -25,9 +25,30 @@ _WHITE = Color(255, 255, 255)
 
 #: Shared brand card chrome, so every stacked card (legend, info card,
 #: distribution panel) reads as one on-brand family. Sourced from
-#: `luxonis_ml.utils.color.brand`.
+#: `luxonis_ml.utils.color.brand`. These are the *dark-mode* defaults; a render
+#: on a light theme resolves the light variants via `resolve_chrome`.
 CARD_BG = brand.CARD_BG
 CARD_TEXT = brand.CARD_TEXT
+
+
+def resolve_chrome(ctx: RenderContext) -> brand.Chrome:
+    """Resolve the card/panel chrome for the context's theme background.
+
+    Cards adapt to the active theme: navy fills with near-white text on a dark
+    background, white fills with deep-purple text on a light one. Falls back to
+    the dark chrome when no theme is set.
+
+    Args:
+        ctx: The current render context (its ``theme`` supplies the background).
+
+    Returns:
+        The `Chrome` whose colors suit the composite background.
+
+    """
+    background = (
+        ctx.theme.background if ctx.theme is not None else brand.BACKGROUND
+    )
+    return brand.chrome_for(background)
 
 
 def _on_dark(surface: Color) -> bool:

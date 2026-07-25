@@ -80,14 +80,15 @@ def test_metrics_scale_proportionally() -> None:
 
 
 def test_metrics_colors_adapt_to_background() -> None:
-    """Panel text is light on a dark background and dark on a light one."""
+    """Panel text is a light purple on dark and a deeper purple on light."""
     from luxonis_ml.vizlab.color import Color
 
     dark = _metrics(1.0, Color(24, 24, 28))
     light = _metrics(1.0, Color(240, 240, 244))
-    # Values are near-white on dark, near-black on light.
-    assert dark.value.r > 200
-    assert light.value.r < 80
+    # Both on-brand blue-purple (not plain white/black), lighter on the dark bg.
+    assert dark.value.b > dark.value.r
+    assert light.value.b > light.value.r
+    assert sum(dark.value.rgb) > sum(light.value.rgb)
 
 
 def test_panel_type_scales_with_image_size() -> None:
