@@ -34,10 +34,7 @@ from luxonis_ml.data.utils.plot_utils import (
     plot_class_distribution,
     plot_heatmap,
 )
-from luxonis_ml.data.utils.visualizations import (
-    add_augmentation_footer,
-    visualize,
-)
+from luxonis_ml.data.utils.task_utils import get_task_name, get_task_type
 from luxonis_ml.enums import DatasetType
 
 app = App(help="Dataset utilities.")
@@ -225,10 +222,6 @@ def inspect(
         bool,
         Parameter(negative=""),
     ] = False,
-    print_sample_metadata: Annotated[
-        bool,
-        Parameter(negative=""),
-    ] = True,
     skeletons: Annotated[
         bool,
         Parameter(negative=""),
@@ -258,7 +251,6 @@ def inspect(
         per_instance: Show each label instance in a separate window.
         list_augmentations: Show the augmentations applied to each
             displayed image. Requires '--aug-config' to be set.
-        print_sample_metadata: Print sample metadata for each displayed sample.
         skeletons: Draw keypoint skeleton edges.
         keypoint_labels: Specify how to draw keypoint labels.
         bucket_storage: Storage type of the dataset.
@@ -316,108 +308,145 @@ def inspect(
 
     classes = dataset.get_classes()
     categorical_encodings = dataset.get_categorical_encodings()
-    keypoint_skeletons = (
-        dataset.get_skeletons()
-        if skeletons or keypoint_labels in ("names", "full")
-        else None
+    keypoint_skeletons = dataset.get_skeletons()
+
+    try:
+        from luxonis_ml.data.loaders.label_converter import (
+            loader_output_to_records,
+        )
+        from luxonis_ml.vizlab import (
+            Image,
+            Palette,
+            Skeleton,
+            VizConfig,
+            grid,
+            visualize_record,
+        )
+        from luxonis_ml.vizlab.ldf import detection_to_annotations
+    except ImportError as e:
+        raise SystemExit(
+            "Visualization requires the 'viz' extra. "
+            "Install it with `pip install luxonis-ml[viz]`."
+        ) from e
+
+    # Pre-seed a palette with every class name (in id order per task) so class
+    # colors stay stable across samples.
+    class_names: list[str] = []
+    for task_classes in classes.values():
+        for class_name in sorted(task_classes, key=task_classes.__getitem__):
+            if class_name not in class_names:
+                class_names.append(class_name)
+    config = VizConfig(
+        palette=Palette(class_names),
+        skeletons={
+            task: Skeleton.from_ldf(labels, edges)
+            for task, (labels, edges) in keypoint_skeletons.items()
+        },
+        keypoint_label_mode=keypoint_labels,
+        draw_skeletons=skeletons,
     )
+
+    def build_panel(sample_labels: dict, sample_metadata: dict) -> dict:
+        panel: dict = dict(sample_metadata) if sample_metadata else {}
+        arrays = {
+            get_task_name(k): list(v.shape)
+            for k, v in sample_labels.items()
+            if get_task_type(k) == "array"
+        }
+        if arrays:
+            panel["arrays"] = arrays
+        if list_augmentations:
+            applied = get_applied_augmentations()
+            if applied:
+                panel["augmentations"] = list(applied)
+        return panel
+
+    def show(source_name: str, viz: Image) -> None:
+        # Render at native resolution (so masks match the canvas), then scale the
+        # composed output for display.
+        out = viz.to_numpy(mode="bgr")
+        if size_multiplier != 1.0:
+            out = cv2.resize(
+                out,
+                (
+                    int(out.shape[1] * size_multiplier),
+                    int(out.shape[0] * size_multiplier),
+                ),
+            )
+        cv2.resizeWindow(source_name, out.shape[1], out.shape[0])
+        cv2.imshow(source_name, out)
+
     prev_windows = set()
 
     for data in loader:
         images_dict = data.images
-        labels = data.labels
-
-        if print_sample_metadata:
-            print("Sample metadata:", data.metadata)
 
         current_windows = set(images_dict.keys())
         for stale_window in prev_windows - current_windows:
             cv2.destroyWindow(stale_window)
 
-        instance_keys = [
-            "/boundingbox",
-            "/keypoints",
-            "/instance_segmentation",
-        ]
-        matched_instance_keys = [
-            k for k in labels if any(k.endswith(ik) for ik in instance_keys)
+        records = loader_output_to_records(
+            data.labels,
+            classes=classes,
+            categorical_encodings=categorical_encodings,
+        )
+        panel = build_panel(data.labels, data.metadata)
+        instances = [
+            (record.task_name, detection)
+            for record in records.values()
+            for detection in record._annotations()
+            if detection.boundingbox is not None
+            or detection.keypoints is not None
+            or detection.instance_segmentation is not None
         ]
 
+        quit_requested = False
         for source_name, image in images_dict.items():
             image = image.astype(np.uint8)
-            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-            h, w = image.shape[:2]
-            new_h, new_w = int(h * size_multiplier), int(w * size_multiplier)
-            image = cv2.resize(image, (new_w, new_h))
-
             cv2.namedWindow(source_name, cv2.WINDOW_NORMAL)
-            if per_instance and matched_instance_keys:
-                extra_keys = [
-                    k for k in labels if k not in matched_instance_keys
-                ]
-                if extra_keys:
-                    print(
-                        f"[yellow]Warning: Ignoring non-instance keys in labels: {extra_keys}[/yellow]"
-                    )
-                n_instances = len(labels[matched_instance_keys[0]])
-                for i in range(n_instances):
-                    instance_labels = {
-                        k: np.expand_dims(v[i], axis=0)
-                        for k, v in labels.items()
-                        if k in matched_instance_keys and len(v) > i
-                    }
-                    instance_image = visualize(
-                        image.copy(),
-                        source_name,
-                        instance_labels,
-                        classes,
-                        blend_all=blend_all,
-                        categorical_encodings=categorical_encodings,
-                        skeletons=keypoint_skeletons,
-                        draw_skeletons=skeletons,
-                        keypoint_label_mode=keypoint_labels,
-                    )
-                    if list_augmentations:
-                        instance_image = add_augmentation_footer(
-                            instance_image, get_applied_augmentations()
-                        )
-                    cv2.resizeWindow(
-                        source_name,
-                        instance_image.shape[1],
-                        instance_image.shape[0],
-                    )
-                    cv2.imshow(source_name, instance_image)
+
+            if per_instance and instances:
+                for task_name, detection in instances:
+                    viz = Image(image, config=config)
+                    for annotation in detection_to_annotations(
+                        detection, config, task_name=task_name
+                    ):
+                        viz.add(annotation)
+                    show(source_name, viz)
                     if cv2.waitKey() == ord("q"):
+                        quit_requested = True
                         break
+                if quit_requested:
+                    break
+                continue
+
+            if per_instance:
+                print(
+                    "[yellow]Warning: Per-instance mode is not supported for "
+                    f"this dataset. Showing all labels for '{source_name}'.[/yellow]"
+                )
+
+            if blend_all or len(records) <= 1:
+                viz = Image(image, config=config)
+                for record in records.values():
+                    for detection in record._annotations():
+                        for annotation in detection_to_annotations(
+                            detection, config, task_name=record.task_name
+                        ):
+                            viz.add(annotation)
             else:
-                if per_instance:
-                    print(
-                        "[yellow]Warning: Per-instance mode is not supported for this dataset. "
-                        f"Showing all labels in one window for '{source_name}'.[/yellow]"
-                    )
-                labeled_image = visualize(
-                    image,
-                    source_name,
-                    labels,
-                    classes,
-                    blend_all=blend_all,
-                    categorical_encodings=categorical_encodings,
-                    skeletons=keypoint_skeletons,
-                    draw_skeletons=skeletons,
-                    keypoint_label_mode=keypoint_labels,
-                )
-                if list_augmentations:
-                    labeled_image = add_augmentation_footer(
-                        labeled_image, get_applied_augmentations()
-                    )
-                cv2.resizeWindow(
-                    source_name, labeled_image.shape[1], labeled_image.shape[0]
-                )
-                cv2.imshow(source_name, labeled_image)
+                tiles = [
+                    visualize_record(record, image, config=config)
+                    for record in records.values()
+                ]
+                viz = grid(tiles, titles=list(records))
+            if panel:
+                viz = viz.with_panel(panel, title="metadata")
+            show(source_name, viz)
 
         prev_windows = current_windows
 
-        if cv2.waitKey() == ord("q"):
+        if quit_requested or cv2.waitKey() == ord("q"):
             break
 
 

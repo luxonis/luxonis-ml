@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 from typing_extensions import override
 
-from luxonis_ml.data.utils.visualizations import resolve_color
+from luxonis_ml.data.utils.color import resolve_color
 from luxonis_ml.typing import RGB, Color
 
 

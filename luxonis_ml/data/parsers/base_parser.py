@@ -645,16 +645,21 @@ class BaseParser(ABC):
                             update={"task_name": task_name}, deep=True
                         )
                 else:
-                    class_name = item.annotation.class_name
-                    if class_name is not None:
-                        try:
-                            task_name = self._task_name[class_name]
-                        except KeyError:
-                            raise ValueError(
-                                f"Class '{class_name}' not found in task names."
-                            ) from None
+                    for annotation in (
+                        item.annotation
+                        if isinstance(item.annotation, list)
+                        else [item.annotation]
+                    ):
+                        class_name = annotation.class_name
+                        if class_name is not None:
+                            try:
+                                task_name = self._task_name[class_name]
+                            except KeyError:
+                                raise ValueError(
+                                    f"Class '{class_name}' not found in task names."
+                                ) from None
 
-                        item.task_name = self._task_name[class_name]
-                    yield item
+                            item.task_name = self._task_name[class_name]
+                        yield item
             else:
                 yield item

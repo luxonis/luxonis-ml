@@ -24,8 +24,8 @@ the part of the data workflow they support:
      - `RemoteFileDownloader` and `download_remote_file` copy supported
        remote files to local paths and validate image inputs.
    * - Visualization
-     - `visualize`, color-map helpers, image concatenation, augmentation
-       footers, and dataset-statistic plots.
+     - Label and image visualization is owned by `luxonis_ml.vizlab`; dataset
+       statistics still use `plot_class_distribution` and `plot_heatmap`.
    * - Equivalence and augmentation inspection
      - LDF equivalence checks and `AugmentationsCollector` summaries for
        configured augmentation pipelines.
@@ -71,21 +71,12 @@ from .task_utils import (
     task_is_metadata,
     task_type_iterator,
 )
-from .visualizations import (
-    ColorMap,
-    add_augmentation_footer,
-    concat_images,
-    create_text_image,
-    distinct_color_generator,
-    visualize,
-)
 
 __all__ = [
     "AugmentationsCollector",
     "BucketStorage",
     "BucketType",
     "COCOFormat",
-    "ColorMap",
     "ImageType",
     "MediaType",
     "ParquetFileManager",
@@ -94,10 +85,6 @@ __all__ = [
     "ParserIssueMessage",
     "RemoteFileDownloader",
     "UpdateMode",
-    "add_augmentation_footer",
-    "concat_images",
-    "create_text_image",
-    "distinct_color_generator",
     "download_remote_file",
     "find_duplicates",
     "get_class_distributions",
@@ -114,6 +101,5 @@ __all__ = [
     "split_task",
     "task_is_metadata",
     "task_type_iterator",
-    "visualize",
     "warn_on_duplicates",
 ]

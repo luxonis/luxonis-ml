@@ -1,0 +1,154 @@
+"""Small geometry helpers and type aliases shared across annotations.
+
+Internally the library works in pixel coordinates with the origin at the
+top-left. Boxes are stored as ``(left, top, right, bottom)`` (``ltrb``); the
+public `BBox` accepts other conventions and
+converts to this one.
+"""
+
+import math
+from collections.abc import Sequence
+from dataclasses import dataclass
+
+XY = tuple[float, float]
+"""A point as an ``(x, y)`` pixel coordinate."""
+
+
+@dataclass(frozen=True)
+class Rect:
+    """An axis-aligned rectangle in pixel space (top-left origin).
+
+    Attributes:
+        left: Left edge x, in pixels.
+        top: Top edge y, in pixels.
+        right: Right edge x, in pixels.
+        bottom: Bottom edge y, in pixels.
+
+    Examples:
+        >>> r = Rect(0.0, 0.0, 10.0, 20.0)
+        >>> r.width, r.height, r.area
+        (10.0, 20.0, 200.0)
+        >>> r.center
+        (5.0, 10.0)
+        >>> Rect(-5.0, -5.0, 50.0, 50.0).clip_to(20.0, 20.0)
+        Rect(left=0.0, top=0.0, right=20.0, bottom=20.0)
+        >>> Rect(0.0, 0.0, 5.0, 5.0).union(Rect(3.0, 3.0, 10.0, 8.0))
+        Rect(left=0.0, top=0.0, right=10.0, bottom=8.0)
+
+    """
+
+    left: float
+    top: float
+    right: float
+    bottom: float
+
+    @property
+    def width(self) -> float:
+        """Width in pixels (never negative)."""
+        return max(0.0, self.right - self.left)
+
+    @property
+    def height(self) -> float:
+        """Height in pixels (never negative)."""
+        return max(0.0, self.bottom - self.top)
+
+    @property
+    def area(self) -> float:
+        """Area in square pixels."""
+        return self.width * self.height
+
+    @property
+    def center(self) -> XY:
+        """The rectangle center as an ``(x, y)`` point."""
+        return ((self.left + self.right) / 2.0, (self.top + self.bottom) / 2.0)
+
+    def clip_to(self, width: float, height: float) -> "Rect":
+        """Clip the rectangle to a ``[0, width] x [0, height]`` canvas.
+
+        Args:
+            width: Canvas width in pixels.
+            height: Canvas height in pixels.
+
+        Returns:
+            The clipped rectangle.
+
+        """
+        return Rect(
+            max(0.0, min(self.left, width)),
+            max(0.0, min(self.top, height)),
+            max(0.0, min(self.right, width)),
+            max(0.0, min(self.bottom, height)),
+        )
+
+    def union(self, other: "Rect") -> "Rect":
+        """Return the smallest rectangle containing both rectangles.
+
+        Args:
+            other: The other rectangle.
+
+        Returns:
+            The bounding union.
+
+        """
+        return Rect(
+            min(self.left, other.left),
+            min(self.top, other.top),
+            max(self.right, other.right),
+            max(self.bottom, other.bottom),
+        )
+
+
+def bounding_rect(points: Sequence[XY]) -> Rect:
+    """Compute the axis-aligned bounding rectangle of a set of points.
+
+    Args:
+        points: A non-empty sequence of ``(x, y)`` points.
+
+    Returns:
+        The bounding `Rect`.
+
+    Raises:
+        ValueError: If ``points`` is empty.
+
+    Examples:
+        >>> bounding_rect([(1.0, 2.0), (5.0, 0.0), (3.0, 9.0)])
+        Rect(left=1.0, top=0.0, right=5.0, bottom=9.0)
+
+    """
+    if not points:
+        raise ValueError("bounding_rect requires at least one point")
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    return Rect(min(xs), min(ys), max(xs), max(ys))
+
+
+def oriented_corners(
+    cx: float, cy: float, width: float, height: float, angle_rad: float
+) -> tuple[XY, XY, XY, XY]:
+    """Return the four corners of an oriented (rotated) rectangle.
+
+    Corners are ordered clockwise from the (pre-rotation) top-left, rotated about
+    the center. The rotation is clockwise on a top-left-origin, y-down canvas.
+
+    Args:
+        cx: Center x, in pixels.
+        cy: Center y, in pixels.
+        width: Box width, in pixels.
+        height: Box height, in pixels.
+        angle_rad: Rotation about the center, in radians.
+
+    Returns:
+        The four ``(x, y)`` corners.
+
+    Examples:
+        >>> oriented_corners(0.0, 0.0, 2.0, 4.0, 0.0)
+        ((-1.0, -2.0), (1.0, -2.0), (1.0, 2.0), (-1.0, 2.0))
+
+    """
+    hw, hh = width / 2.0, height / 2.0
+    cos_a, sin_a = math.cos(angle_rad), math.sin(angle_rad)
+
+    def _rot(dx: float, dy: float) -> XY:
+        return (cx + dx * cos_a - dy * sin_a, cy + dx * sin_a + dy * cos_a)
+
+    return (_rot(-hw, -hh), _rot(hw, -hh), _rot(hw, hh), _rot(-hw, hh))

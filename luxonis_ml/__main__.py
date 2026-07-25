@@ -47,7 +47,7 @@ def checkhealth():
     table.add_column("Module", header_style="magenta i")
     table.add_column("Status", header_style="magenta i")
     table.add_column("Error", header_style="magenta i", max_width=50)
-    for submodule in ["data", "utils", "nn_archive"]:
+    for submodule in ["ldf", "data", "vizlab", "utils", "nn_archive"]:
         error_message = ""
         try:
             __import__(f"luxonis_ml.{submodule}")

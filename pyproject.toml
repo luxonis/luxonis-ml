@@ -31,12 +31,23 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["."]
 
+[tool.setuptools.package-data]
+"luxonis_ml.vizlab" = ["fonts/*.ttf", "fonts/*.txt"]
+
 [tool.setuptools.dynamic]
 dependencies = { file = ["luxonis_ml/utils/requirements.txt"] }
 version = { attr = "luxonis_ml.__version__" }
 
 [tool.setuptools.dynamic.optional-dependencies]
-data = { file = ["luxonis_ml/data/requirements.txt"] }
+ldf = { file = ["luxonis_ml/ldf/requirements.txt"] }
+data = { file = [
+  "luxonis_ml/ldf/requirements.txt",
+  "luxonis_ml/data/requirements.txt",
+] }
+viz = { file = [
+  "luxonis_ml/ldf/requirements.txt",
+  "luxonis_ml/vizlab/requirements.txt",
+] }
 utils = { file = ["luxonis_ml/utils/requirements.txt"] }
 tracker = { file = ["luxonis_ml/tracker/requirements.txt"] }
 telemetry = { file = ["extra_requirements/posthog.txt"] }
@@ -49,7 +60,9 @@ mlflow = { file = ["extra_requirements/mlflow.txt"] }
 
 [tool.setuptools.dynamic.optional-dependencies.all]
 file = [
+  "luxonis_ml/ldf/requirements.txt",
   "luxonis_ml/data/requirements.txt",
+  "luxonis_ml/vizlab/requirements.txt",
   "luxonis_ml/utils/requirements.txt",
   "luxonis_ml/tracker/requirements.txt",
   "luxonis_ml/nn_archive/requirements.txt",
@@ -62,7 +75,9 @@ file = [
 
 [tool.setuptools.dynamic.optional-dependencies.dev]
 file = [
+  "luxonis_ml/ldf/requirements.txt",
   "luxonis_ml/data/requirements.txt",
+  "luxonis_ml/vizlab/requirements.txt",
   "luxonis_ml/utils/requirements.txt",
   "luxonis_ml/tracker/requirements.txt",
   "luxonis_ml/nn_archive/requirements.txt",
@@ -78,6 +93,7 @@ file = [
 target-version = "py310"
 line-length = 79
 indent-width = 4
+extend-exclude = ["vizlab_examples"]
 
 [tool.ruff.lint]
 select = [
@@ -171,7 +187,7 @@ wrap-summaries = 72
 wrap-descriptions = 72
 
 [tool.pyright]
-exclude = ["luxonis_ml/tracker", "examples", "__main__.py"]
+exclude = ["luxonis_ml/tracker", "examples", "vizlab_examples", "__main__.py"]
 typeCheckingMode = "basic"
 reportMissingTypeStubs = "none"
 reportPrivateImportUsage = "none"
