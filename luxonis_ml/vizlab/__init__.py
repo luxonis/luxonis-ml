@@ -1,12 +1,10 @@
-"""vizlab: composition-first, genuinely pretty visualization of CV labels.
-
-The visualization engine of ``luxonis-ml``. It draws bounding boxes,
+"""The visualization engine of ``luxonis-ml``. It draws bounding boxes,
 instance/semantic masks, keypoints with skeletons, classification tags, and
 nested sub-labels with Skia — anti-aliasing, true alpha, rounded corners, soft
 shadows, and good typography. Install it with the ``viz`` extra
 (``pip install luxonis-ml[viz]``).
 
-LDF-native. vizlab renders Luxonis Data Format objects directly: pass a
+LDF-native. ``vizlab`` renders Luxonis Data Format objects directly: pass a
 `Detection` (or a whole `DatasetRecord`) straight to `Image.add`, or render a
 loader sample with `visualize_record`. Each render class (`BBox`, `Keypoints`,
 `Mask`, ...) also carries a ``from_ldf`` constructor and stays available as a
