@@ -1,3 +1,4 @@
+import math
 import shutil
 from pathlib import Path
 from typing import Annotated, Literal, TypeAlias
@@ -41,6 +42,26 @@ app = App(help="Dataset utilities.")
 
 
 BucketStorageT: TypeAlias = Annotated[BucketStorage, Parameter(alias="-b")]
+
+
+def _screen_size() -> tuple[int, int] | None:
+    """Best-effort screen resolution in pixels, or ``None`` if unavailable.
+
+    Uses Tk (standard library) to query the display; returns ``None`` on any
+    failure (headless session, Tk missing), letting callers fall back to
+    unscaled, un-centered display.
+    """
+    try:
+        import tkinter as tk
+
+        root = tk.Tk()
+        root.withdraw()
+        size = (root.winfo_screenwidth(), root.winfo_screenheight())
+        root.destroy()
+    except Exception:
+        return None
+    else:
+        return size
 
 
 @app.command
@@ -195,9 +216,9 @@ def inspect(
         ),
     ] = None,
     size_multiplier: Annotated[
-        float,
+        float | None,
         Parameter(alias="-s"),
-    ] = 1.0,
+    ] = None,
     ignore_aspect_ratio: Annotated[
         bool,
         Parameter(alias="-i", negative=""),
@@ -229,7 +250,7 @@ def inspect(
     keypoint_labels: Annotated[
         Literal["none", "numbers", "names", "full"],
         Parameter(),
-    ] = "numbers",
+    ] = "none",
     bucket_storage: BucketStorageT = BucketStorage.LOCAL,
 ):
     """Inspect images and annotations in a dataset.
@@ -241,7 +262,9 @@ def inspect(
         aug_config: Path to a JSON or YAML config defining
             augmentations to apply when inspecting the dataset.
             If not provided, no augmentations will be applied.
-        size_multiplier: Multiplier for the displayed image size.
+        size_multiplier: Multiplier for the displayed image size. If
+            not given, the image is scaled automatically to fit the
+            screen (accounting for the metadata panel) and centered.
         ignore_aspect_ratio: Do not keep the aspect ratio when
             resizing images.
         deterministic: Use deterministic augmentation mode.
@@ -361,19 +384,58 @@ def inspect(
                 panel["augmentations"] = list(applied)
         return panel
 
+    screen = _screen_size()
+    # The metadata panel is drawn at a fixed pixel width, independent of the
+    # image scale, so reserve horizontal room for it when fitting to the screen.
+    panel_reserve = 400.0
+
+    def target_size(
+        width: int,
+        height: int,
+        *,
+        reserve: float = 0.0,
+        cols: int = 1,
+        rows: int = 1,
+    ) -> tuple[int, int] | None:
+        """Display size ``(w, h)`` for a source image, or ``None`` to keep native.
+
+        vizlab paints mask fills at the source resolution and scales once to this
+        size, then draws strokes and labels crisply at it, so annotations stay
+        sharp without resampling every mask. ``reserve`` leaves horizontal room
+        for the fixed-width metadata panel; ``cols``/``rows`` divide the budget
+        when several tiles share the screen (grid view).
+        """
+        if size_multiplier is not None:
+            scale = size_multiplier
+        elif screen is not None:
+            # Fit within 90% of the screen (leaving room for the panel/tiles).
+            avail_w = max(1.0, 0.9 * screen[0] - reserve) / cols
+            avail_h = (0.9 * screen[1]) / rows
+            scale = min(avail_w / width, avail_h / height)
+        else:
+            return None
+        if scale == 1.0:
+            return None
+        return (max(1, round(width * scale)), max(1, round(height * scale)))
+
     def show(source_name: str, viz: Image) -> None:
-        # Render at native resolution (so masks match the canvas), then scale the
-        # composed output for display.
         out = viz.to_numpy(mode="bgr")
-        if size_multiplier != 1.0:
-            out = cv2.resize(
-                out,
-                (
-                    int(out.shape[1] * size_multiplier),
-                    int(out.shape[0] * size_multiplier),
-                ),
+        out_h, out_w = out.shape[:2]
+        win_w, win_h = out_w, out_h
+        if screen is not None and size_multiplier is None:
+            # Safety net: never present a window larger than the screen (e.g. a
+            # multi-tile grid). The image was already drawn at fit size, so this
+            # only engages for composites that still overflow.
+            fit = min(0.9 * screen[0] / out_w, 0.9 * screen[1] / out_h, 1.0)
+            win_w, win_h = round(out_w * fit), round(out_h * fit)
+        cv2.resizeWindow(source_name, win_w, win_h)
+        if screen is not None:
+            # Center the window on the screen.
+            cv2.moveWindow(
+                source_name,
+                max(0, (screen[0] - win_w) // 2),
+                max(0, (screen[1] - win_h) // 2),
             )
-        cv2.resizeWindow(source_name, out.shape[1], out.shape[0])
         cv2.imshow(source_name, out)
 
     prev_windows = set()
@@ -403,11 +465,14 @@ def inspect(
         quit_requested = False
         for source_name, image in images_dict.items():
             image = image.astype(np.uint8)
+            height, width = image.shape[:2]
             cv2.namedWindow(source_name, cv2.WINDOW_NORMAL)
 
             if per_instance and instances:
+                # Per-instance windows carry no panel, so reserve no room for it.
+                size = target_size(width, height)
                 for task_name, detection in instances:
-                    viz = Image(image, config=config)
+                    viz = Image(image, config=config).render_at(size)
                     for annotation in detection_to_annotations(
                         detection, config, task_name=task_name
                     ):
@@ -426,8 +491,10 @@ def inspect(
                     f"this dataset. Showing all labels for '{source_name}'.[/yellow]"
                 )
 
+            reserve = panel_reserve if panel else 0.0
             if blend_all or len(records) <= 1:
-                viz = Image(image, config=config)
+                size = target_size(width, height, reserve=reserve)
+                viz = Image(image, config=config).render_at(size)
                 for record in records.values():
                     for detection in record._annotations():
                         for annotation in detection_to_annotations(
@@ -435,8 +502,14 @@ def inspect(
                         ):
                             viz.add(annotation)
             else:
+                # Fit the whole grid of tiles within the screen.
+                cols = max(1, math.ceil(math.sqrt(len(records))))
+                rows = math.ceil(len(records) / cols)
+                size = target_size(
+                    width, height, reserve=reserve, cols=cols, rows=rows
+                )
                 tiles = [
-                    visualize_record(record, image, config=config)
+                    visualize_record(record, image, config=config, size=size)
                     for record in records.values()
                 ]
                 viz = grid(tiles, titles=list(records))

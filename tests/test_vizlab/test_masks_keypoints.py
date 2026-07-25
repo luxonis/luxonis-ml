@@ -80,6 +80,42 @@ def test_mask_extent() -> None:
     assert Mask(mask=np.zeros((10, 10), dtype=np.uint8)).extent() is None  # type: ignore
 
 
+def test_mask_drawn_on_smaller_canvas() -> None:
+    """A mask stored at the image resolution draws onto a scaled-down canvas.
+
+    The image can be resized for display while masks stay at their source
+    resolution; drawing must resample rather than index out of bounds.
+    """
+    big = _disc(160, 120, 80, 60, 30)  # source-resolution mask
+    small = Image(np.full((60, 80, 3), 30, np.uint8))  # half-size canvas
+    out = small.add(Mask(mask=big, label="obj")).render()  # type: ignore
+    assert out.shape[:2] == (60, 80)
+    assert out[..., 3].max() > 0
+
+
+def test_mask_drawn_on_larger_canvas() -> None:
+    """A small mask upsamples to a larger canvas without error."""
+    small_mask = _disc(40, 30, 20, 15, 8)
+    big = Image(np.full((120, 160, 3), 30, np.uint8))
+    out = big.add(Mask(mask=small_mask)).render()  # type: ignore
+    assert out.shape[:2] == (120, 160)
+    assert out[..., 3].max() > 0
+
+
+def test_semantic_mask_drawn_on_smaller_canvas() -> None:
+    """A semantic label map at source resolution resamples to a scaled canvas."""
+    labels = np.zeros((120, 160), dtype=np.int32)
+    labels[:60] = 1
+    labels[60:] = 2
+    out = (
+        Image(np.full((60, 80, 3), 30, np.uint8))
+        .add(SemanticMask(labels=labels, ignore_index=0))
+        .render()
+    )
+    assert out.shape[:2] == (60, 80)
+    assert out[..., 3].max() > 0
+
+
 def test_mask_contours_without_opencv_returns_empty(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -171,10 +207,49 @@ def test_keypoints_render_with_skeleton_and_names() -> None:
             keypoints=[(0.25, 0.15, 2), (0.25, 0.5, 1), (0.5, 0.7, 0)],
             skeleton=_SKELETON,
             label="pose",
-            show_names=True,
+            point_labels="names",
         )
     )
     assert base.render()[..., 3].max() > 0
+
+
+def test_keypoints_point_labels_numbers_render_without_skeleton() -> None:
+    # "numbers" mode labels each joint by index and needs no skeleton.
+    plain = _canvas().render()
+    labeled = (
+        _canvas()
+        .add(
+            Keypoints(
+                keypoints=[(0.25, 0.15, 2), (0.5, 0.5, 2)],
+                point_labels="numbers",
+            )
+        )
+        .render()
+    )
+    assert not np.array_equal(plain, labeled)
+
+
+def test_keypoints_point_label_text() -> None:
+    kp = Keypoints(
+        keypoints=[(0.1, 0.1, 2), (0.2, 0.2, 2)], skeleton=_SKELETON
+    )
+    assert kp._point_label(0) is None  # default "none"
+    assert (
+        Keypoints(
+            keypoints=[(0.1, 0.1, 2)], point_labels="numbers"
+        )._point_label(0)
+        == "0"
+    )
+    named = Keypoints(
+        keypoints=[(0.1, 0.1, 2)], skeleton=_SKELETON, point_labels="names"
+    )
+    assert named._point_label(1) == "b"
+    full = Keypoints(
+        keypoints=[(0.1, 0.1, 2)], skeleton=_SKELETON, point_labels="full"
+    )
+    assert full._point_label(2) == "2:c"
+    # Falls back to the index when no name is available.
+    assert named._point_label(9) == "9"
 
 
 def test_keypoints_visibility_threshold_hides_points() -> None:

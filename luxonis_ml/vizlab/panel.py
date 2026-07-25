@@ -18,9 +18,9 @@ from .style import DEFAULT_STYLE, Style, get_default_theme
 _PAD = 16.0
 _INDENT = 14.0
 _LINE_GAP = 5.0
-_PANEL_SIZE = 13.5
-_MIN_WIDTH = 200.0
-_MAX_WIDTH = 360.0
+_PANEL_SIZE = 15.0
+_MIN_WIDTH = 220.0
+_MAX_WIDTH = 400.0
 
 _KEY = Color(150, 185, 235)
 _VALUE = Color(222, 222, 228)

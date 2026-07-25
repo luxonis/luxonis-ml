@@ -62,7 +62,7 @@ class Style:
     stroke_width: float = 3.0
     fill_alpha: float = 0.16
     corner_radius: float = 9.0
-    font_size: float = 15.0
+    font_size: float = 16.0
     font_weight: int = 600
     label_pad_x: float = 7.0
     label_pad_y: float = 4.0
@@ -90,6 +90,38 @@ class Style:
             key: value for key, value in overrides.items() if value is not None
         }
         return replace(self, **clean)  # type: ignore[arg-type]
+
+    def scaled(self, factor: float) -> "Style":
+        """Return a copy with every pixel dimension multiplied by ``factor``.
+
+        Scales the metrics that should track the canvas resolution — strokes,
+        typography, chip padding/radius, keypoint joints, and the dash pattern —
+        so labels stay proportionate (and readable) on large images and small
+        ones alike. Opacities, weight, placement, and shadow are unchanged.
+
+        Args:
+            factor: Multiplier for the pixel dimensions (``1.0`` is a no-op).
+
+        Returns:
+            The scaled `Style` (``self`` when ``factor`` is ``1.0``).
+
+        """
+        if factor == 1.0:
+            return self
+        return replace(
+            self,
+            stroke_width=self.stroke_width * factor,
+            corner_radius=self.corner_radius * factor,
+            font_size=self.font_size * factor,
+            label_pad_x=self.label_pad_x * factor,
+            label_pad_y=self.label_pad_y * factor,
+            label_radius=self.label_radius * factor,
+            keypoint_radius=self.keypoint_radius * factor,
+            keypoint_outline_width=self.keypoint_outline_width * factor,
+            dash=None
+            if self.dash is None
+            else (self.dash[0] * factor, self.dash[1] * factor),
+        )
 
 
 DEFAULT_STYLE = Style()

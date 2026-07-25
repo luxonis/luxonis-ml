@@ -23,6 +23,17 @@ if TYPE_CHECKING:
 
     from .ldf import VizConfig
 
+#: Canvas short-side (px) at which styles render at their nominal size; larger
+#: canvases scale labels/strokes up proportionally (clamped to the range below).
+_STYLE_REFERENCE_PX = 760.0
+_STYLE_SCALE_RANGE = (1.0, 3.0)
+
+
+def _style_scale(width: int, height: int) -> float:
+    """Resolution-aware style multiplier for a canvas of ``(width, height)``."""
+    lo, hi = _STYLE_SCALE_RANGE
+    return max(lo, min(hi, min(width, height) / _STYLE_REFERENCE_PX))
+
 
 class Image:
     """A base image plus a collected list of annotations to draw on it."""
@@ -34,6 +45,7 @@ class Image:
         mode: str = "rgb",
         theme: Theme | None = None,
         config: "VizConfig | None" = None,
+        render_size: tuple[int, int] | None = None,
     ) -> None:
         """Create an image from any supported source.
 
@@ -46,13 +58,23 @@ class Image:
                 process-wide default (see `vizlab.style.set_default_theme`).
             config: Default `VizConfig` used when
                 LDF objects are added via `add` without an explicit config.
+            render_size: Optional ``(width, height)`` display size. Mask fills are
+                painted at the source resolution and the raster is scaled to this
+                size once; strokes and labels are then drawn crisply at it (see
+                `render`). ``None`` renders at the source resolution.
 
         """
         self._rgba = io.load_rgba(source, mode)
         self._annotations: list[Annotation] = []
         self._theme = theme
         self._config = config
+        self._render_size = (
+            None
+            if render_size is None
+            else (int(render_size[0]), int(render_size[1]))
+        )
         self._cache: np.ndarray | None = None
+        self._cache_key: tuple[int, int] | None = None
 
     @property
     def width(self) -> int:
@@ -119,6 +141,23 @@ class Image:
         self._cache = None
         return self
 
+    def render_at(self, size: tuple[int, int] | None) -> Self:
+        """Set the display render size and return ``self`` for chaining.
+
+        Args:
+            size: ``(width, height)`` to render at, or ``None`` for the source
+                resolution. See `render` for how the size is used.
+
+        Returns:
+            This image, to allow fluent chaining.
+
+        """
+        self._render_size = (
+            None if size is None else (int(size[0]), int(size[1]))
+        )
+        self._cache = None
+        return self
+
     def copy(self) -> "Image":
         """Return a shallow clone sharing the base raster.
 
@@ -134,43 +173,73 @@ class Image:
         clone._annotations = list(self._annotations)
         clone._theme = self._theme
         clone._config = self._config
+        clone._render_size = self._render_size
         clone._cache = None
+        clone._cache_key = None
         return clone
 
-    def render(self) -> np.ndarray:
-        """Rasterize the base image and all annotations.
+    def render(self, size: tuple[int, int] | None = None) -> np.ndarray:
+        """Rasterize the base image and all annotations, in two passes.
 
-        The result is cached until the scene graph changes (via `add`).
+        Raster fills (mask overlays) are painted first, on a native-resolution
+        canvas. The canvas is then scaled once to the display size, and the sharp
+        vector layer (box strokes, mask contours, keypoints, label chips) is
+        drawn on top at that size. This keeps labels and outlines crisp when the
+        image is scaled for display while painting heavy fills only once, at the
+        source resolution.
+
+        The result is cached per size until the scene graph changes (via `add`).
+
+        Args:
+            size: ``(width, height)`` to render at; ``None`` uses the size set via
+                `render_at` (the source resolution if unset).
 
         Returns:
             A fresh ``(H, W, 4)`` ``uint8`` RGBA array. The caller may mutate it
             freely; the cache holds a separate copy.
 
         """
-        cache = self._cache
-        if cache is None:
-            canvas = Canvas.from_rgba(self._rgba)
-            layout = LabelLayout(canvas.width, canvas.height)
-            theme = (
-                self._theme if self._theme is not None else get_default_theme()
-            )
-            ctx = RenderContext(
-                canvas=canvas, depth=0, layout=layout, theme=theme
-            )
+        target = size if size is not None else self._render_size
+        key = target if target is not None else (self.width, self.height)
+        if self._cache is not None and self._cache_key == key:
+            return self._cache.copy()
 
-            spatial = [a for a in self._annotations if not a.OVERLAY]
-            overlays = [a for a in self._annotations if a.OVERLAY]
-            # Reserve overlay label positions first so spatial labels avoid them,
-            # draw the spatial annotations, then draw overlays on top (drawn last).
-            for annotation in overlays:
-                annotation.reserve(ctx)
-            for annotation in spatial:
-                annotation.render(ctx)
-            for annotation in overlays:
-                annotation.render(ctx)
+        theme = self._theme if self._theme is not None else get_default_theme()
+        spatial = [a for a in self._annotations if not a.OVERLAY]
+        overlays = [a for a in self._annotations if a.OVERLAY]
 
-            cache = canvas.to_rgba()
-            self._cache = cache
+        # Pass 1: raster fills at the source resolution.
+        canvas = Canvas.from_rgba(self._rgba)
+        fill_ctx = RenderContext(canvas=canvas, depth=0, theme=theme)
+        for annotation in spatial:
+            annotation.render_fill(fill_ctx)
+
+        # Scale the filled raster once to the display size.
+        if target is not None and target != (canvas.width, canvas.height):
+            canvas = canvas.scaled(target[0], target[1])
+
+        # Pass 2: sharp vector content at the display resolution. Style metrics
+        # scale with the canvas so labels stay proportionate and readable.
+        layout = LabelLayout(canvas.width, canvas.height)
+        ctx = RenderContext(
+            canvas=canvas,
+            depth=0,
+            layout=layout,
+            theme=theme,
+            style_scale=_style_scale(canvas.width, canvas.height),
+        )
+        # Reserve overlay label positions first so spatial labels avoid them,
+        # draw the spatial annotations, then draw overlays on top (drawn last).
+        for annotation in overlays:
+            annotation.reserve(ctx)
+        for annotation in spatial:
+            annotation.render(ctx)
+        for annotation in overlays:
+            annotation.render(ctx)
+
+        cache = canvas.to_rgba()
+        self._cache = cache
+        self._cache_key = key
         return cache.copy()
 
     def to_numpy(self, mode: str = "rgb") -> np.ndarray:

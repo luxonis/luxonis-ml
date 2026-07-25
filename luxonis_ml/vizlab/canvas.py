@@ -159,6 +159,33 @@ class Canvas:
         image = self._surface.makeImageSnapshot()
         return image.toarray(colorType=_RGBA)
 
+    def scaled(self, width: int, height: int) -> "Canvas":
+        """Return a new canvas with the current content scaled to ``(width, height)``.
+
+        Used to render pixel-heavy fills at the source resolution and then scale
+        the whole raster once to the display size, before crisp vector content
+        (strokes, labels) is drawn on top at that size.
+
+        Args:
+            width: Target width in pixels.
+            height: Target height in pixels.
+
+        Returns:
+            A new `Canvas`; the original is left unchanged. Returns a snapshot
+            copy at the same size when the dimensions already match.
+
+        """
+        image = self._surface.makeImageSnapshot()
+        out = Canvas.blank(int(width), int(height), self._fonts)
+        out._canvas.drawImageRect(
+            image,
+            skia.Rect.MakeWH(self.width, self.height),
+            skia.Rect.MakeWH(float(width), float(height)),
+            skia.SamplingOptions(skia.FilterMode.kLinear),
+            skia.Paint(AntiAlias=True),
+        )
+        return out
+
     def blit(self, rgba: np.ndarray, x: float, y: float) -> None:
         """Draw an RGBA image onto the canvas with its top-left at ``(x, y)``.
 

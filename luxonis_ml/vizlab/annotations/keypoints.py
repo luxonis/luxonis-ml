@@ -10,6 +10,7 @@ them. Build a `Skeleton` from a dataset's definition with
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 
@@ -21,6 +22,9 @@ from luxonis_ml.vizlab.style import Palette, Style
 from .base import Annotation, RenderContext
 
 _WHITE = Color(255, 255, 255)
+
+PointLabelMode = Literal["none", "numbers", "names", "full"]
+"""How to label each keypoint: nothing, its index, its name, or ``index:name``."""
 
 
 @dataclass(frozen=True)
@@ -70,7 +74,10 @@ class Keypoints(KeypointAnnotation, Annotation):
     Attributes:
         skeleton: Limb/name definition; without it only joints are drawn.
         visibility_threshold: Points whose visibility is ``<=`` this are hidden.
-        show_names: Draw each joint's name (needs ``skeleton.names``).
+        point_labels: How to label each joint — ``"none"`` (default),
+            ``"numbers"`` (its index), ``"names"`` (its skeleton name), or
+            ``"full"`` (``index:name``). ``"names"``/``"full"`` fall back to the
+            index when no name is available.
 
     See `Annotation` for the shared
     ``label``, ``color``, ``style``, and ``palette`` fields.
@@ -87,7 +94,7 @@ class Keypoints(KeypointAnnotation, Annotation):
 
     skeleton: Skeleton | None = None
     visibility_threshold: float = 0.0
-    show_names: bool = False
+    point_labels: PointLabelMode = "none"
 
     @classmethod
     def from_ldf(
@@ -95,7 +102,7 @@ class Keypoints(KeypointAnnotation, Annotation):
         annotation: KeypointAnnotation,
         *,
         skeleton: Skeleton | None = None,
-        show_names: bool = False,
+        point_labels: PointLabelMode = "none",
         label: str | None = None,
         palette: Palette | None = None,
     ) -> "Keypoints":
@@ -107,7 +114,8 @@ class Keypoints(KeypointAnnotation, Annotation):
         Args:
             annotation: The LDF keypoint annotation.
             skeleton: Limb/name definition; without it only joints are drawn.
-            show_names: Draw each joint's name (needs ``skeleton.names``).
+            point_labels: How to label each joint (see the class ``point_labels``
+                attribute).
             label: Class label used for the palette color.
             palette: Palette used to color the joints from ``label``.
 
@@ -118,10 +126,33 @@ class Keypoints(KeypointAnnotation, Annotation):
         return cls(
             **annotation.model_dump(),
             skeleton=skeleton,
-            show_names=show_names,
+            point_labels=point_labels,
             label=label,
             palette=palette,
         )
+
+    def _point_label(self, index: int) -> str | None:
+        """Return the label text for the keypoint at ``index``, or ``None``.
+
+        Args:
+            index: 0-based keypoint index.
+
+        Returns:
+            The text to draw beside the joint, or ``None`` when labels are off.
+
+        """
+        mode = self.point_labels
+        if mode == "none":
+            return None
+        names = self.skeleton.names if self.skeleton is not None else None
+        name = (
+            names[index] if names is not None and index < len(names) else None
+        )
+        if mode == "numbers":
+            return str(index)
+        if mode == "names":
+            return name if name is not None else str(index)
+        return f"{index}:{name}" if name is not None else str(index)
 
     def _resolve(
         self, width: int, height: int
@@ -186,13 +217,14 @@ class Keypoints(KeypointAnnotation, Annotation):
                 stroke=_WHITE,
                 stroke_width=style.keypoint_outline_width,
             )
-            if self.show_names and self.skeleton and self.skeleton.names:
+            text = self._point_label(i)
+            if text is not None:
                 canvas.text(
                     (
                         center[0] + radius + 3.0,
                         center[1] + style.font_size * 0.35,
                     ),
-                    self.skeleton.names[i],
+                    text,
                     size=style.font_size * 0.72,
                     color=_WHITE,
                     weight=style.font_weight,

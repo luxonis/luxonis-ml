@@ -92,16 +92,17 @@ def _spatial_annotations(
         )
 
     if detection.keypoints is not None:
-        want_names = config.keypoint_label_mode in ("names", "full")
-        skeleton = (
-            config.skeletons.get(task_name)
-            if config.draw_skeletons or want_names
-            else None
+        label_mode = config.keypoint_label_mode
+        # A skeleton is needed to draw limbs and to resolve joint names.
+        needs_skeleton = config.draw_skeletons or label_mode in (
+            "names",
+            "full",
         )
+        skeleton = config.skeletons.get(task_name) if needs_skeleton else None
         keypoints = Keypoints.from_ldf(
             detection.keypoints,
             skeleton=skeleton,
-            show_names=want_names,
+            point_labels=label_mode,
             label=None if root is not None else label,
             palette=palette,
         )
@@ -229,6 +230,7 @@ def visualize_record(
     config: VizConfig | None = None,
     theme: Theme | None = None,
     panel: dict | None = None,
+    size: tuple[int, int] | None = None,
 ) -> "Image":
     """Render a `DatasetRecord` (and its image) into a composed `Image`.
 
@@ -246,6 +248,9 @@ def visualize_record(
         config: Rendering context; a default is used when ``None``.
         theme: Theme override; falls back to ``config.theme``.
         panel: Extra key/value entries to show in the metadata side-panel.
+        size: Optional ``(width, height)`` display size for the image; the panel
+            (when present) is drawn crisply beside the scaled image. ``None``
+            keeps the source resolution. See `Image.render`.
 
     Returns:
         The rendered `Image`; when there is panel content, the returned
@@ -255,7 +260,9 @@ def visualize_record(
     from .image import Image
 
     config = config or VizConfig()
-    img = Image(image, theme=theme or config.theme, config=config)
+    img = Image(
+        image, theme=theme or config.theme, config=config, render_size=size
+    )
     task_name = record.task_name
 
     segmentations: list[tuple[str | None, SegmentationAnnotation]] = []

@@ -54,6 +54,9 @@ class RenderContext:
             label chips from overlapping. ``None`` outside an actual render.
         theme: The active theme, supplying default style/palette when an annotation
             sets none. ``None`` falls back to the library defaults.
+        style_scale: Multiplier applied to every resolved style so pixel metrics
+            (stroke, typography, chip padding) track the canvas resolution. ``1.0``
+            leaves styles at their nominal sizes.
 
     """
 
@@ -63,6 +66,7 @@ class RenderContext:
     parent_style: Style | None = None
     layout: LabelLayout | None = None
     theme: Theme | None = None
+    style_scale: float = 1.0
 
     def descend(self, color: Color, style: Style) -> "RenderContext":
         """Return a child context one level deeper, carrying resolved parent look.
@@ -83,6 +87,7 @@ class RenderContext:
             parent_style=style,
             layout=self.layout,
             theme=self.theme,
+            style_scale=self.style_scale,
         )
 
 
@@ -193,6 +198,10 @@ class Annotation(BaseModel):
     def resolve_style(self, ctx: RenderContext) -> Style:
         """Resolve the style: explicit, then parent-derived, then theme, then default.
 
+        The resolved style is scaled by ``ctx.style_scale`` so pixel metrics track
+        the canvas resolution. The parent-derived branch is left unscaled because
+        it derives from the parent's already-scaled style.
+
         Args:
             ctx: The current render context.
 
@@ -201,12 +210,12 @@ class Annotation(BaseModel):
 
         """
         if self.style is not None:
-            return self.style
+            return self.style.scaled(ctx.style_scale)
         if ctx.parent_style is not None:
             return derive_child_style(ctx.parent_style)
         if ctx.theme is not None:
-            return ctx.theme.style
-        return DEFAULT_STYLE
+            return ctx.theme.style.scaled(ctx.style_scale)
+        return DEFAULT_STYLE.scaled(ctx.style_scale)
 
     def resolve_color(self, ctx: RenderContext) -> Color:
         """Resolve the color: override, then parent-derived, then label, then hash.
@@ -254,7 +263,12 @@ class Annotation(BaseModel):
 
     @abstractmethod
     def draw(self, ctx: RenderContext, style: Style, color: Color) -> None:
-        """Draw just this annotation (not its children) onto the canvas.
+        """Draw the sharp (vector) layer of this annotation onto the canvas.
+
+        This is the strokes, outlines, keypoints, and label chips — everything
+        that must stay crisp. It runs in the second render pass, on the
+        (possibly scaled) display-size canvas. Raster fills belong in
+        `draw_fill` instead.
 
         Args:
             ctx: The current render context.
@@ -263,8 +277,26 @@ class Annotation(BaseModel):
 
         """
 
+    def draw_fill(
+        self, ctx: RenderContext, style: Style, color: Color
+    ) -> None:
+        """Draw the raster (fill) layer of this annotation onto the canvas.
+
+        This runs in the first render pass, on the native-resolution canvas
+        (before any display scaling), so pixel-heavy fills such as mask overlays
+        are painted once at source resolution rather than resampled per draw.
+        The default paints nothing; annotations with a raster fill (masks)
+        override it. Vector content (strokes, chips) stays in `draw`.
+
+        Args:
+            ctx: The current render context (native resolution).
+            style: This annotation's resolved style.
+            color: This annotation's resolved color.
+
+        """
+
     def render(self, ctx: RenderContext) -> None:
-        """Resolve this annotation, draw it, then render its children.
+        """Resolve this annotation, draw its vector layer, then render its children.
 
         Args:
             ctx: The current render context.
@@ -276,3 +308,19 @@ class Annotation(BaseModel):
         child_ctx = ctx.descend(color, style)
         for child in self.children:
             child.render(child_ctx)
+
+    def render_fill(self, ctx: RenderContext) -> None:
+        """Resolve this annotation, draw its raster fill, then recurse into children.
+
+        The first render pass, mirroring `render` but for the fill layer.
+
+        Args:
+            ctx: The current render context (native resolution).
+
+        """
+        style = self.resolve_style(ctx)
+        color = self.resolve_color(ctx)
+        self.draw_fill(ctx, style, color)
+        child_ctx = ctx.descend(color, style)
+        for child in self.children:
+            child.render_fill(child_ctx)

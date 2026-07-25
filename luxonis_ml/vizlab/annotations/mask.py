@@ -47,7 +47,86 @@ def _mask_contours(mask_bool: np.ndarray) -> list[np.ndarray]:
     contours, _ = cv2.findContours(
         m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
     )
-    return [c.reshape(-1, 2).astype(float) for c in contours if len(c) >= 2]
+    rings: list[np.ndarray] = []
+    for c in contours:
+        if len(c) < 2:
+            continue
+        # Drop the sub-pixel staircase so the outline is cleaner once scaled up.
+        c = cv2.approxPolyDP(c, 1.0, True)
+        rings.append(c.reshape(-1, 2).astype(float))
+    return rings
+
+
+def _chaikin_closed(points: np.ndarray, iterations: int) -> np.ndarray:
+    """Round a closed polygon by Chaikin corner-cutting.
+
+    Each iteration replaces every vertex with two points a quarter and
+    three-quarters along its outgoing edge, turning the pixel staircase of a
+    traced contour into a smooth curve. Cheap and OpenCV-free.
+
+    Args:
+        points: An ``(N, 2)`` array of closed-ring vertices.
+        iterations: Number of corner-cutting passes.
+
+    Returns:
+        The smoothed ``(N * 2**iterations, 2)`` ring.
+
+    """
+    for _ in range(iterations):
+        nxt = np.roll(points, -1, axis=0)
+        smoothed = np.empty((len(points) * 2, 2), dtype=float)
+        smoothed[0::2] = 0.75 * points + 0.25 * nxt
+        smoothed[1::2] = 0.25 * points + 0.75 * nxt
+        points = smoothed
+    return points
+
+
+def _contour_path(
+    ring: np.ndarray, sx: float, sy: float, smoothing: int
+) -> list[tuple[float, float]]:
+    """Scale a contour ring to the canvas and optionally smooth it for drawing."""
+    points = ring * np.array([sx, sy])
+    if smoothing > 0 and len(points) >= 3:
+        points = _chaikin_closed(points, smoothing)
+    return [(float(x), float(y)) for x, y in points]
+
+
+def _contour_smoothing(sx: float, sy: float) -> int:
+    """Chaikin passes to use for a contour scaled by ``(sx, sy)``.
+
+    Only smooths when the mask is upscaled (where the pixel staircase becomes
+    visible); downscaling already hides it, and native rendering is left as-is.
+    """
+    scale = max(sx, sy)
+    if scale <= 1.15:
+        return 0
+    return 3 if scale >= 2.0 else 2
+
+
+def _resize_mask(mask: np.ndarray, width: int, height: int) -> np.ndarray:
+    """Nearest-neighbor resize a mask to ``(height, width)``.
+
+    Masks are stored at the source image's resolution, but the canvas may be a
+    different size (e.g. the image was scaled for display). Nearest-neighbor
+    keeps class ids / binary values intact and is dtype-agnostic (no OpenCV
+    needed).
+
+    Args:
+        mask: An ``(H, W)`` array of any dtype.
+        width: Target width in pixels.
+        height: Target height in pixels.
+
+    Returns:
+        The mask resampled to ``(height, width)`` (the original if it already
+        matches).
+
+    """
+    src_h, src_w = mask.shape[:2]
+    if (src_h, src_w) == (height, width):
+        return mask
+    ys = (np.arange(height) * (src_h / height)).astype(np.intp)
+    xs = (np.arange(width) * (src_w / width)).astype(np.intp)
+    return mask[ys[:, None], xs[None, :]]
 
 
 def _nonzero_bounds(binary: np.ndarray) -> Rect | None:
@@ -119,11 +198,13 @@ class Mask(InstanceSegmentationAnnotation, Annotation):
         """Return the mask's pixel bounds, or ``None`` when empty."""
         return _nonzero_bounds(self.to_numpy())
 
-    def draw(self, ctx: RenderContext, style: Style, color: Color) -> None:
-        """Draw the fill, optional contour, and label chip onto the canvas.
+    def draw_fill(
+        self, ctx: RenderContext, style: Style, color: Color
+    ) -> None:
+        """Overlay the translucent mask fill at native resolution (first pass).
 
         Args:
-            ctx: The current render context.
+            ctx: The current render context (native resolution).
             style: The resolved style.
             color: The resolved fill color.
 
@@ -131,19 +212,44 @@ class Mask(InstanceSegmentationAnnotation, Annotation):
         alpha = (
             style.mask_alpha if self.fill_alpha is None else self.fill_alpha
         )
-        binary = self.to_numpy()
         canvas = ctx.canvas
+        binary = _resize_mask(self.to_numpy(), canvas.width, canvas.height)
         canvas.overlay_mask(binary, color, alpha=alpha)
+
+    def draw(self, ctx: RenderContext, style: Style, color: Color) -> None:
+        """Draw the sharp contour and label chip (second, display-size pass).
+
+        The contour is traced from the source-resolution mask and scaled to the
+        canvas, so it stays crisp regardless of any display scaling.
+
+        Args:
+            ctx: The current render context (display resolution).
+            style: The resolved style.
+            color: The resolved fill color.
+
+        """
+        canvas = ctx.canvas
+        binary = self.to_numpy()
+        mask_h, mask_w = binary.shape[:2]
+        sx = canvas.width / mask_w
+        sy = canvas.height / mask_h
         if self.contour:
+            smoothing = _contour_smoothing(sx, sy)
             for ring in _mask_contours(binary > 0):
                 canvas.polygon(
-                    [(float(x), float(y)) for x, y in ring],
+                    _contour_path(ring, sx, sy, smoothing),
                     stroke=color,
                     stroke_width=style.stroke_width,
                     dash=style.dash,
                 )
         region = _nonzero_bounds(binary)
         if region is not None:
+            region = Rect(
+                region.left * sx,
+                region.top * sy,
+                region.right * sx,
+                region.bottom * sy,
+            )
             place_label(
                 ctx, region, self.label, self.score, self.payload, color, style
             )
@@ -254,11 +360,21 @@ class SemanticMask(Annotation):
         """
         return None
 
-    def draw(self, ctx: RenderContext, style: Style, color: Color) -> None:
-        """Overlay one translucent color per class id.
+    def _ignored(self) -> set[int]:
+        """Return the set of class ids treated as background."""
+        return (
+            {self.ignore_index}
+            if isinstance(self.ignore_index, int)
+            else set(self.ignore_index)
+        )
+
+    def draw_fill(
+        self, ctx: RenderContext, style: Style, color: Color
+    ) -> None:
+        """Overlay one translucent color per class id at native resolution.
 
         Args:
-            ctx: The current render context.
+            ctx: The current render context (native resolution).
             style: The resolved style.
             color: Unused (colors are per class id).
 
@@ -270,24 +386,48 @@ class SemanticMask(Annotation):
         alpha = (
             style.mask_alpha if self.fill_alpha is None else self.fill_alpha
         )
-        ignore = (
-            {self.ignore_index}
-            if isinstance(self.ignore_index, int)
-            else set(self.ignore_index)
+        ignore = self._ignored()
+        labels = _resize_mask(
+            np.asarray(self.labels), canvas.width, canvas.height
         )
-
-        labels = np.asarray(self.labels)
         for class_id in np.unique(labels):
             cid = int(class_id)
             if cid in ignore:
                 continue
-            region = labels == class_id
+            canvas.overlay_mask(
+                labels == class_id, self._color(cid, palette), alpha=alpha
+            )
+
+    def draw(self, ctx: RenderContext, style: Style, color: Color) -> None:
+        """Stroke the sharp per-class contours (second, display-size pass).
+
+        Contours are traced from the source-resolution label map and scaled to
+        the canvas so they stay crisp regardless of display scaling.
+
+        Args:
+            ctx: The current render context (display resolution).
+            style: The resolved style.
+            color: Unused (colors are per class id).
+
+        """
+        if self.labels is None or style.stroke_width <= 0:
+            return
+        canvas = ctx.canvas
+        palette = self.resolved_palette(ctx)
+        ignore = self._ignored()
+        labels = np.asarray(self.labels)
+        mask_h, mask_w = labels.shape[:2]
+        sx = canvas.width / mask_w
+        sy = canvas.height / mask_h
+        smoothing = _contour_smoothing(sx, sy)
+        for class_id in np.unique(labels):
+            cid = int(class_id)
+            if cid in ignore:
+                continue
             class_color = self._color(cid, palette)
-            canvas.overlay_mask(region, class_color, alpha=alpha)
-            if style.stroke_width > 0:
-                for ring in _mask_contours(region):
-                    canvas.polygon(
-                        [(float(x), float(y)) for x, y in ring],
-                        stroke=class_color,
-                        stroke_width=style.stroke_width,
-                    )
+            for ring in _mask_contours(labels == class_id):
+                canvas.polygon(
+                    _contour_path(ring, sx, sy, smoothing),
+                    stroke=class_color,
+                    stroke_width=style.stroke_width,
+                )
