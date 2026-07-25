@@ -38,7 +38,7 @@ from luxonis_ml.enums import DatasetType
 
 if TYPE_CHECKING:
     from luxonis_ml.ldf import DatasetRecord, Detection
-    from luxonis_ml.vizlab import Palette
+    from luxonis_ml.vizlab import Image, Palette
     from luxonis_ml.vizlab.canvas import Canvas
 
 app = App(help="Dataset utilities.")
@@ -747,26 +747,33 @@ def inspect(
 
     def show(
         source_name: str, viz: Image
-    ) -> tuple[np.ndarray, tuple[int, int], tuple[int, int]]:
+    ) -> tuple[np.ndarray, tuple[int, int], float]:
         out = viz.to_numpy(mode="bgr")
         out_h, out_w = out.shape[:2]
-        win_w, win_h = out_w, out_h
+        fit = 1.0
         if screen is not None and size_multiplier == "auto":
-            # Safety net: never present a window larger than the screen (e.g. a
-            # multi-tile grid). The image was already drawn at fit size, so this
-            # only engages for composites that still overflow.
+            # A composite may still overflow the screen (e.g. a multi-tile grid).
             fit = min(0.9 * screen[0] / out_w, 0.9 * screen[1] / out_h, 1.0)
-            win_w, win_h = round(out_w * fit), round(out_h * fit)
-        cv2.resizeWindow(source_name, win_w, win_h)
+        if fit < 1.0:
+            # Shrink it ourselves with a high-quality area filter and present 1:1;
+            # letting OpenCV's WINDOW_NORMAL scale the full-size raster instead
+            # uses a crude filter that re-aliases the labels and chart edges.
+            out = cv2.resize(
+                out,
+                (max(1, round(out_w * fit)), max(1, round(out_h * fit))),
+                interpolation=cv2.INTER_AREA,
+            )
+            out_h, out_w = out.shape[:2]
+        cv2.resizeWindow(source_name, out_w, out_h)
         if screen is not None:
             # Center the window on the screen.
             cv2.moveWindow(
                 source_name,
-                max(0, (screen[0] - win_w) // 2),
-                max(0, (screen[1] - win_h) // 2),
+                max(0, (screen[0] - out_w) // 2),
+                max(0, (screen[1] - out_h) // 2),
             )
         cv2.imshow(source_name, out)
-        return out, (out_w, out_h), (win_w, win_h)
+        return out, (out_w, out_h), fit
 
     prev_windows = set()
 
@@ -886,7 +893,7 @@ def inspect(
                 viz.add(class_legend)
             if panel:
                 viz = viz.with_panel(panel, title="metadata")
-            out, frame_size, win_size = show(source_name, viz)
+            out, frame_size, fit = show(source_name, viz)
 
             # Hover tooltips: hit-test the drawn detection boxes. In the grid
             # view each tile has its own offset in the composite (from
@@ -914,8 +921,15 @@ def inspect(
                 items = _hover_items(
                     records, disp_w, disp_h, text_key, config.palette
                 )
+            if fit != 1.0:
+                # The frame was area-downscaled for display, so map the hit-boxes
+                # into the shown (1:1) frame too.
+                items = [
+                    ((x0 * fit, y0 * fit, x1 * fit, y1 * fit), info)
+                    for (x0, y0, x1, y1), info in items
+                ]
             window = _HoverWindow(
-                base=out, items=items, frame=frame_size, win=win_size
+                base=out, items=items, frame=frame_size, win=frame_size
             )
             hover_windows[source_name] = window
             cv2.setMouseCallback(source_name, _make_hover_callback(window))
@@ -1264,15 +1278,35 @@ def health(
             console.print(f"[info]No plots for task name: {task_name}[/info]")
             continue
 
-        image = health_plots.build_health_grid(
-            task_name,
-            class_dist_by_type,
-            heatmaps_by_type,
-            theme=plot_theme,
-            gradient=gradient,
-            mode=distribution,
-            scale=scale,
-        )
+        def render_grid(
+            s: float,
+            _task: str = task_name,
+            _dist: dict = class_dist_by_type,
+            _heat: dict = heatmaps_by_type,
+        ) -> "Image":
+            return health_plots.build_health_grid(
+                _task,
+                _dist,
+                _heat,
+                theme=plot_theme,
+                gradient=gradient,
+                mode=distribution,
+                scale=s,
+            )
+
+        image = render_grid(scale)
+        if screen is not None:
+            # Draw the charts/text at the size they will actually be shown: if
+            # the grid overflows the screen, re-render it smaller rather than
+            # downscaling the finished raster (resampling drawn vector content
+            # always softens/aliases it).
+            fit = min(
+                0.9 * screen[0] / image.width,
+                0.9 * screen[1] / image.height,
+                1.0,
+            )
+            if fit < 0.98:
+                image = render_grid(scale * fit)
         if save_dir:
             image.save(f"{save_dir}/dataset_health_{task_name}.png")
             continue
@@ -1281,23 +1315,28 @@ def health(
             f"dataset health: {task_name}" if task_name else "dataset health"
         )
         out = image.to_numpy("bgr")
+        # If the grid is larger than the screen, shrink it ourselves with a
+        # high-quality area filter and show 1:1. Letting OpenCV's WINDOW_NORMAL
+        # scale the full-size raster instead uses a crude filter that re-aliases
+        # the smooth chart edges.
+        if screen is not None:
+            out_h, out_w = out.shape[:2]
+            fit = min(0.9 * screen[0] / out_w, 0.9 * screen[1] / out_h, 1.0)
+            if fit < 1.0:
+                out = cv2.resize(
+                    out,
+                    (max(1, round(out_w * fit)), max(1, round(out_h * fit))),
+                    interpolation=cv2.INTER_AREA,
+                )
         out_h, out_w = out.shape[:2]
         cv2.namedWindow(window, cv2.WINDOW_NORMAL)
-        # Show at the render's native pixel size; only shrink (never enlarge)
-        # if the grid is larger than the screen, then center it.
-        win_w, win_h = out_w, out_h
+        cv2.resizeWindow(window, out_w, out_h)
         if screen is not None:
-            fit = min(0.9 * screen[0] / out_w, 0.9 * screen[1] / out_h, 1.0)
-            win_w, win_h = (
-                max(1, round(out_w * fit)),
-                max(1, round(out_h * fit)),
-            )
             cv2.moveWindow(
                 window,
-                max(0, (screen[0] - win_w) // 2),
-                max(0, (screen[1] - win_h) // 2),
+                max(0, (screen[0] - out_w) // 2),
+                max(0, (screen[1] - out_h) // 2),
             )
-        cv2.resizeWindow(window, win_w, win_h)
         cv2.imshow(window, out)
         console.print(
             "[info]Press any key for the next task, or 'q' to quit.[/info]"

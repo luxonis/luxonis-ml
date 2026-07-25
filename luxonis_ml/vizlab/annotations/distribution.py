@@ -41,8 +41,8 @@ DistributionMode = Literal["bars", "chips", "gauge", "stacked", "pie", "donut"]
 ValueFormat = Literal["percent", "count", "count+percent"]
 """How a `ClassDistribution` value is labeled: a percentage (the default, for
 probabilities), a raw integer count, or ``"count · percent"`` — the last two for
-frequency distributions such as dataset class counts, where bars scale to the
-largest value instead of an absolute ``[0, 1]``."""
+frequency distributions such as dataset class counts, where each bar shows the
+class's share of the total instead of an absolute ``[0, 1]`` probability."""
 
 # Neutral highlight for the ground-truth marker and verdict ticks; the rest is
 # on-brand chrome (green ✓ / red ✗ verdict, a muted slate "other" segment).
@@ -50,6 +50,9 @@ _WHITE = Color(255, 255, 255)
 _OK = brand.SUCCESS
 _BAD = brand.ERROR
 _OTHER = brand.MUTED
+# Thin, translucent light-gray line separating pie/donut slices: enough to read
+# a seam, subtle enough not to draw attention.
+_SEP = Color(208, 213, 222, 135)
 
 _PAD = 10.0
 _ROW_GAP = 6.0
@@ -105,9 +108,9 @@ class ClassDistribution(CornerStack):
         title: Optional heading drawn above the panel (ignored in ``"chips"``).
         value_format: How each value is labeled — ``"percent"`` (the default, for
             probabilities), ``"count"`` (a raw integer), or ``"count+percent"``.
-            The count formats scale bars to the largest value rather than an
-            absolute ``[0, 1]``, so they suit frequency distributions (e.g. dataset
-            class counts).
+            The count formats draw each bar as the class's share of the total
+            rather than an absolute ``[0, 1]``, so they suit frequency
+            distributions (e.g. dataset class counts).
 
     See `CornerStack` for ``corner``/``margin``/``gap`` and
     `Annotation` for ``style``/``palette``.
@@ -195,16 +198,18 @@ class ClassDistribution(CornerStack):
         """Total of all values, used for the share in count formats."""
         return sum(max(0.0, v) for _, v in self._pairs())
 
-    def _bar_scale(self, values: list[float]) -> float:
-        """Value that maps to a full bar: ``1.0`` for percent, else the max value.
+    def _bar_scale(self) -> float:
+        """Value that maps to a full bar: ``1.0`` for percent, else the total.
 
-        Probabilities are drawn on an absolute ``[0, 1]`` scale; counts have no
-        such ceiling, so their bars scale to the largest value.
+        Probabilities are already fractions on an absolute ``[0, 1]`` scale, so a
+        full bar is ``1.0``. Counts are drawn as a share of the whole, so a full
+        bar is the total — every bar's length then matches the percentage shown in
+        its label, and the bars together fill exactly one bar.
         """
         if self.value_format == "percent":
             return 1.0
-        top = max(values, default=1.0)
-        return top if top > 0 else 1.0
+        total = self._total()
+        return total if total > 0 else 1.0
 
     def _value_label(self, value: float, total: float) -> str:
         """Format a value per ``value_format`` (percent / count / count+percent)."""
@@ -268,7 +273,7 @@ class ClassDistribution(CornerStack):
             return []
 
         total = self._total()
-        scale = self._bar_scale([v for _, v in rows])
+        scale = self._bar_scale()
         bar_w = size * 7.0
         bar_h = size * 0.72
         measured = [
@@ -357,7 +362,7 @@ class ClassDistribution(CornerStack):
         if not ranked:
             return []
         name, value = ranked[0]
-        scale = self._bar_scale([v for _, v in ranked])
+        scale = self._bar_scale()
         color = palette.color_for(name)
         size = style.font_size
         big = size * 1.5
@@ -757,7 +762,7 @@ def _wedge_polygon(
 ) -> list[XY]:
     """Points of an annular sector (a full pie wedge when ``r_in`` is ``0``)."""
     span = a1 - a0
-    steps = max(2, int(span / (math.pi / 32)) + 1)
+    steps = max(2, int(span / (math.pi / 96)) + 1)
     outer: list[XY] = [
         (
             cx + r_out * math.cos(a0 + span * k / steps),
@@ -775,6 +780,24 @@ def _wedge_polygon(
     return outer + inner
 
 
+def _wedge_color(name: str, ll: _PieLayout) -> Color:
+    """Resolve a slice's fill: the palette color, or muted slate for ``other``."""
+    return _OTHER if name == "other" else ll.palette.color_for(name)
+
+
+def _readable_center(color: Color, background: Color) -> Color:
+    """Tint a slice color to a legible lightness for the donut's center number.
+
+    Keeps the slice's hue (so the number still reads as "that class") but forces a
+    lightness that contrasts with the hole background — bright on a dark card, dark
+    on a light one — so a naturally dark or washed-out class color stays visible.
+    """
+    on_dark = background.readable_text_color().r > 200
+    hue, lightness, saturation = color.hls
+    target = max(lightness, 0.72) if on_dark else min(lightness, 0.32)
+    return Color.from_hls(hue, target, min(saturation, 0.85))
+
+
 def _draw_wedges(
     cv: Canvas,
     dist: "ClassDistribution",
@@ -783,35 +806,41 @@ def _draw_wedges(
     cy: float,
     r_out: float,
     r_in: float,
-    edge_w: float,
+    sep_w: float,
+    pop: float,
 ) -> None:
-    """Paint each class as a proportional, color-outlined wedge.
+    """Paint each class as a clean, solid wedge.
 
-    Every wedge gets a lighter/darker rim matched to its fill; the ground truth
-    gets a brighter, thicker white outline instead so it stands out.
+    Slices are separated by thin light lines, for a flat, modern look that matches
+    the rest of the UI; the ground-truth slice is nudged outward (an "exploded"
+    slice) so it stands out. A single class fills the whole circle/ring with no
+    separators.
     """
-    if ll.total <= 0:
-        cv.circle(
-            (cx, cy),
-            r_out,
+    drawn = [(name, value) for name, value in ll.keys if value > 0]
+    if ll.total <= 0 or not drawn:
+        cv.polygon(
+            _wedge_polygon(cx, cy, r_out, r_in, -math.pi / 2, 1.5 * math.pi),
             fill=_OTHER,
-            stroke=shade_outline(_OTHER, CARD_BG),
-            stroke_width=edge_w,
+        )
+        return
+    if len(drawn) == 1:  # one class -> a solid, seamless circle/ring
+        cv.polygon(
+            _wedge_polygon(cx, cy, r_out, r_in, -math.pi / 2, 1.5 * math.pi),
+            fill=_wedge_color(drawn[0][0], ll),
         )
         return
     angle = -math.pi / 2  # start at 12 o'clock
-    for name, value in ll.keys:
-        frac = value / ll.total
-        if frac <= 0:
-            continue
-        a1 = angle + frac * 2 * math.pi
-        color = _OTHER if name == "other" else ll.palette.color_for(name)
-        gt = name == dist.ground_truth
+    for name, value in drawn:
+        a1 = angle + (value / ll.total) * 2 * math.pi
+        ox, oy = cx, cy
+        if pop > 0 and name == dist.ground_truth:
+            mid = (angle + a1) / 2
+            ox, oy = cx + pop * math.cos(mid), cy + pop * math.sin(mid)
         cv.polygon(
-            _wedge_polygon(cx, cy, r_out, r_in, angle, a1),
-            fill=color,
-            stroke=_WHITE if gt else shade_outline(color, CARD_BG),
-            stroke_width=edge_w * 1.8 if gt else edge_w,
+            _wedge_polygon(ox, oy, r_out, r_in, angle, a1),
+            fill=_wedge_color(name, ll),
+            stroke=_SEP,
+            stroke_width=sep_w,
         )
         angle = a1
 
@@ -866,13 +895,17 @@ def _draw_pie(
     if ll.has_title:
         dist._draw_title(cv, rect.left + _PAD, y, style.font_size)
         y += ll.title_h
-    r_out = ll.diameter / 2
-    r_in = r_out * 0.58 if ll.donut else 0.0
+    # Reserve a little room inside the diameter box so an exploded ground-truth
+    # slice never spills past it.
+    pop = ll.diameter * 0.035 if dist.ground_truth is not None else 0.0
+    r_out = ll.diameter / 2 - pop
+    r_in = r_out * 0.6 if ll.donut else 0.0
     cx = (rect.left + rect.right) / 2
-    cy = y + r_out
-    _draw_wedges(cv, dist, ll, cx, cy, r_out, r_in, _edge_w(style))
+    cy = y + ll.diameter / 2
+    sep_w = max(1.5, ll.diameter * 0.008)
+    _draw_wedges(cv, dist, ll, cx, cy, r_out, r_in, sep_w, pop)
     if ll.donut and ll.total > 0 and ll.segs:
-        _name, top_value = max(ll.segs, key=lambda kv: kv[1])
+        top_name, top_value = max(ll.segs, key=lambda kv: kv[1])
         label = _pct(top_value / ll.total)
         big = style.font_size * 1.2
         m = cv.measure_text(label, big, weight=700, mono=True)
@@ -880,7 +913,8 @@ def _draw_pie(
             (cx - m.width / 2, cy - m.height / 2 + m.ascent),
             label,
             size=big,
-            color=CARD_TEXT,
+            # The top slice's hue, but forced to a legible lightness on the hole.
+            color=_readable_center(_wedge_color(top_name, ll), CARD_BG),
             weight=700,
             mono=True,
         )

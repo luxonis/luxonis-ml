@@ -177,12 +177,15 @@ def test_value_label_formats() -> None:
     assert both._value_label(30.0, 40.0) == "30 · 75%"
 
 
-def test_bar_scale_percent_is_absolute_count_is_relative() -> None:
+def test_bar_scale_percent_is_absolute_count_is_share_of_total() -> None:
     percent = ClassDistribution(value_format="percent")
-    assert percent._bar_scale([0.6, 0.2]) == 1.0
-    count = ClassDistribution(value_format="count")
-    # Counts scale to the largest value (that bar fills; others are relative).
-    assert count._bar_scale([600.0, 200.0]) == 600.0
+    assert percent._bar_scale() == 1.0
+    count = ClassDistribution(
+        probabilities={"a": 600.0, "b": 200.0}, value_format="count"
+    )
+    # Counts scale to the total, so each bar's length is its share of the whole
+    # (and matches the percentage shown in its label).
+    assert count._bar_scale() == 800.0
 
 
 @pytest.mark.parametrize("fmt", ["count", "count+percent"])
@@ -252,6 +255,35 @@ def test_pie_uses_palette_color_for_class() -> None:
     target = np.array(cat.rgb)
     diff = np.abs(out[..., :3].astype(int) - target).sum(axis=-1)
     assert (diff < 12).any()
+
+
+def _exact_color_pixels(out: np.ndarray, color: object) -> int:
+    match = (
+        (out[..., 0] == color.r)  # type: ignore[attr-defined]
+        & (out[..., 1] == color.g)  # type: ignore[attr-defined]
+        & (out[..., 2] == color.b)  # type: ignore[attr-defined]
+    )
+    return int(match.sum())
+
+
+def test_single_class_pie_fills_fully_without_separators() -> None:
+    """One class fills a solid disc of its exact color — no separator lines."""
+    palette = Palette(["solo"])
+    color = palette.color_for("solo")
+    solo = (
+        _canvas(220, 260)
+        .add(
+            ClassDistribution(
+                probabilities={"solo": 1.0},
+                mode="pie",
+                palette=palette,
+                top_k=None,
+            )
+        )
+        .render()
+    )
+    # A full disc has a large, uninterrupted region of the exact fill color.
+    assert _exact_color_pixels(solo, color) > 2000
 
 
 def test_content_size_positive_and_grows_with_classes() -> None:
