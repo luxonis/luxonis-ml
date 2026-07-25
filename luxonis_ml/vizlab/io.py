@@ -38,7 +38,8 @@ def _ndarray_to_rgba(array: np.ndarray, mode: str) -> np.ndarray:
     """Normalize a numpy image to RGBA.
 
     Args:
-        array: An ``(H, W)``, ``(H, W, 3)``, or ``(H, W, 4)`` array.
+        array: An ``(H, W)``, ``(H, W, 1)``, ``(H, W, 3)``, or
+            ``(H, W, 4)`` array.
         mode: Channel order of 3/4-channel input, ``"rgb"`` or ``"bgr"``.
 
     Returns:
@@ -51,6 +52,8 @@ def _ndarray_to_rgba(array: np.ndarray, mode: str) -> np.ndarray:
     arr = _as_uint8(array)
     if arr.ndim == 2:
         arr = np.repeat(arr[:, :, None], 3, axis=2)
+    elif arr.ndim == 3 and arr.shape[2] == 1:
+        arr = np.repeat(arr, 3, axis=2)
     if arr.ndim != 3 or arr.shape[2] not in (3, 4):
         raise ValueError(f"unsupported image shape {array.shape!r}")
     if mode not in ("rgb", "bgr"):

@@ -1,9 +1,13 @@
 """Coverage for the ``data inspect`` metadata hover helpers."""
 
+from collections.abc import Iterator
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
+import luxonis_ml.data.__main__ as data_main
 from luxonis_ml.data.__main__ import (
     _collect_hover_items,
     _draw_tooltip,
@@ -126,3 +130,97 @@ def test_draw_tooltip_empty_info_is_noop() -> None:
     before = frame.copy()
     _draw_tooltip(frame, {}, (10, 10))
     assert np.array_equal(frame, before)
+
+
+def test_per_instance_inspect_attaches_augmentation_panel(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    image = np.zeros((32, 48, 3), dtype=np.uint8)
+    record = DatasetRecord.model_construct(
+        files={},
+        annotation=[
+            Detection(
+                class_name="car",
+                boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.4, h=0.4),
+            )
+        ],
+        task_name="objects",
+    )
+
+    class _Dataset:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def __len__(self) -> int:
+            return 1
+
+        def get_classes(self) -> dict[str, dict[str, int]]:
+            return {"objects": {"car": 0}}
+
+        def get_categorical_encodings(self) -> dict[str, object]:
+            return {}
+
+        def get_skeletons(self) -> dict[str, object]:
+            return {}
+
+    class _Loader:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            self._augmentations = None
+
+        def __getitem__(
+            self, _index: int
+        ) -> tuple[dict[str, np.ndarray], dict[str, object]]:
+            return {"image": image}, {}
+
+        def __iter__(self) -> Iterator[SimpleNamespace]:
+            yield SimpleNamespace(
+                images={"image": image},
+                labels={},
+                metadata={},
+            )
+
+        def _init_augmentations(self, **_kwargs: object) -> object:
+            return object()
+
+    class _Collector:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def get_applied_augmentations(self) -> list[str]:
+            return ["HorizontalFlip"]
+
+    from luxonis_ml.data.loaders import label_converter
+    from luxonis_ml.vizlab import Image
+
+    panels: list[object] = []
+
+    def capture_panel(self: Image, data: object, **_kwargs: object) -> Image:
+        panels.append(data)
+        return self
+
+    monkeypatch.setattr(data_main, "check_exists", lambda *_args: None)
+    monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
+    monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
+    monkeypatch.setattr(data_main, "AugmentationsCollector", _Collector)
+    monkeypatch.setattr(data_main, "_screen_size", lambda: None)
+    monkeypatch.setattr(
+        label_converter,
+        "loader_output_to_records",
+        lambda *_args, **_kwargs: {"objects": record},
+    )
+    monkeypatch.setattr(Image, "with_panel", capture_panel)
+    monkeypatch.setattr(data_main.cv2, "namedWindow", lambda *_args: None)
+    monkeypatch.setattr(data_main.cv2, "resizeWindow", lambda *_args: None)
+    monkeypatch.setattr(data_main.cv2, "imshow", lambda *_args: None)
+    monkeypatch.setattr(data_main.cv2, "waitKey", lambda *_args: ord("q"))
+
+    aug_config = tmp_path / "augmentations.json"
+    aug_config.write_text("[]")
+    data_main.inspect(
+        "dataset",
+        aug_config=aug_config,
+        per_instance=True,
+        list_augmentations=True,
+    )
+
+    assert panels == [{"augmentations": ["HorizontalFlip"]}]

@@ -64,6 +64,14 @@ def test_with_panel_sides() -> None:
     assert bottom.shape[0] > 60
 
 
+def test_bottom_panel_keeps_image_above_panel() -> None:
+    img = _img(100, 60)
+    source = img.render()
+    bottom = with_panel(img, {"aug": "flip"}, side="bottom").render()
+
+    assert np.array_equal(bottom[:59, :100], source[:59])
+
+
 def test_with_panel_explicit_width_and_method() -> None:
     img = _img(100, 60)
     out = img.with_panel({"k": "v"}, width=180.0)

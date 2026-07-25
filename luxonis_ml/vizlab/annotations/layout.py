@@ -82,6 +82,7 @@ class LabelLayout:
         self.width = width
         self.height = height
         self.placed: list[Rect] = []
+        self.overlay_positions: dict[int, list[Rect]] = {}
 
     def _clamp(self, x: float, y: float, width: float, height: float) -> Rect:
         """Clamp a chip of the given size fully inside the canvas."""

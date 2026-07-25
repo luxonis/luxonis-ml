@@ -18,6 +18,8 @@ from luxonis_ml.vizlab import (
     Color,
     Corner,
     Image,
+    Keypoints,
+    Mask,
     Rect,
     get_default_theme,
     grid,
@@ -139,6 +141,33 @@ def test_fluent_helpers_set_fields() -> None:
     )
 
 
+def test_render_cache_tracks_annotation_mutations() -> None:
+    base = np.full((160, 200, 3), 20, np.uint8)
+    box = BBox(x=0.2, y=0.2, w=0.5, h=0.5)
+    image = Image(base).add(box)
+
+    previous = image.render()
+    box.tag("car")
+    tagged = image.render()
+    assert not np.array_equal(previous, tagged)
+
+    box.caption("plate-42")
+    captioned = image.render()
+    assert not np.array_equal(tagged, captioned)
+
+    box.with_style(Style(stroke_width=9.0))
+    styled = image.render()
+    assert not np.array_equal(captioned, styled)
+
+    box.add(BBox(x=0.25, y=0.25, w=0.2, h=0.2, label="child"))
+    nested = image.render()
+    assert not np.array_equal(styled, nested)
+
+    image.annotations.append(Classification(tags=["scene"]))
+    appended = image.render()
+    assert not np.array_equal(nested, appended)
+
+
 def test_nested_rendering_changes_pixels() -> None:
     base = np.full((120, 120, 3), 30, np.uint8)
     parent_only = (
@@ -188,6 +217,18 @@ def test_classification_reserves_positions_for_layout() -> None:
     assert len(layout.placed) == 2
 
 
+def test_classification_overlays_share_one_corner_stack() -> None:
+    base = np.full((160, 200, 3), 20, np.uint8)
+    separate = (
+        Image(base)
+        .add(Classification(tags=["cat"]))
+        .add(Classification(tags=["dog"]))
+        .render()
+    )
+    combined = Image(base).add(Classification(tags=["cat", "dog"])).render()
+    assert np.array_equal(separate, combined)
+
+
 def test_blend_pads_mismatched_sizes_and_is_pure() -> None:
     a = Image(np.zeros((10, 20, 3), np.uint8))
     b = Image(np.full((30, 12, 3), 200, np.uint8))
@@ -195,6 +236,36 @@ def test_blend_pads_mismatched_sizes_and_is_pure() -> None:
     assert out.shape == (30, 20, 4)
     assert a.annotations == []
     assert b.annotations == []
+
+
+def test_blend_transforms_annotations_for_padded_images() -> None:
+    box = BBox(x=0.5, y=0.3, w=0.4, h=0.5, label="small")
+    box.add(Keypoints(keypoints=[(0.75, 0.6, 2)]))
+    box.add(Mask(mask=np.ones((10, 20), dtype=np.uint8)))  # type: ignore
+    small = Image(np.zeros((10, 20, 3), np.uint8)).add(box)
+    large = Image(np.zeros((30, 40, 3), np.uint8))
+
+    merged = large.blend(small)
+    transformed = merged.annotations[0]
+
+    assert isinstance(transformed, BBox)
+    assert np.allclose(
+        (transformed.x, transformed.y, transformed.w, transformed.h),
+        (0.25, 0.1, 0.2, 1 / 6),
+    )
+    keypoints = next(
+        child for child in transformed.children if isinstance(child, Keypoints)
+    )
+    assert np.allclose(keypoints.keypoints, [(0.375, 0.2, 2)])
+    mask = next(
+        child for child in transformed.children if isinstance(child, Mask)
+    )
+    mask_array = mask.to_numpy()
+    assert mask_array.shape == (30, 40)
+    assert np.all(mask_array[:10, :20] == 1)
+    assert np.all(mask_array[10:, :] == 0)
+    assert np.all(mask_array[:, 20:] == 0)
+    assert (box.x, box.y, box.w, box.h) == (0.5, 0.3, 0.4, 0.5)
 
 
 def test_blend_only_mixes_base_and_keeps_labels_crisp() -> None:

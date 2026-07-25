@@ -10,7 +10,7 @@ import polars as pl
 from loguru import logger
 
 from luxonis_ml.data import BaseDataset, DatasetIterator
-from luxonis_ml.data.datasets.annotation import DatasetRecord
+from luxonis_ml.data.datasets.annotation import DatasetRecord, Detection
 from luxonis_ml.data.utils.enums import ParserIssue, ParserIssueMessage
 from luxonis_ml.enums.enums import DatasetType
 from luxonis_ml.typing import PathType
@@ -640,17 +640,19 @@ class BaseParser(ABC):
 
             if self._task_name is not None:
                 if item.annotation is None:
-                    for task_name in set(self._task_name.values()):
+                    for task_name in dict.fromkeys(self._task_name.values()):
                         yield item.model_copy(
                             update={"task_name": task_name}, deep=True
                         )
                 else:
+                    grouped_annotations: dict[str, list[Detection]] = {}
                     for annotation in (
                         item.annotation
                         if isinstance(item.annotation, list)
                         else [item.annotation]
                     ):
                         class_name = annotation.class_name
+                        task_name = item.task_name
                         if class_name is not None:
                             try:
                                 task_name = self._task_name[class_name]
@@ -658,8 +660,22 @@ class BaseParser(ABC):
                                 raise ValueError(
                                     f"Class '{class_name}' not found in task names."
                                 ) from None
+                        grouped_annotations.setdefault(task_name, []).append(
+                            annotation
+                        )
 
-                            item.task_name = self._task_name[class_name]
-                        yield item
+                    for task_name, annotations in grouped_annotations.items():
+                        annotation = (
+                            annotations
+                            if isinstance(item.annotation, list)
+                            else annotations[0]
+                        )
+                        yield item.model_copy(
+                            update={
+                                "annotation": annotation,
+                                "task_name": task_name,
+                            },
+                            deep=True,
+                        )
             else:
                 yield item

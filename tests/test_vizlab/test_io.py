@@ -77,6 +77,15 @@ def test_tensor_chw_and_hwc() -> None:
     assert io.load_rgba(hwc).shape == (4, 5, 4)
 
 
+def test_single_channel_tensor_is_broadcast_to_rgb() -> None:
+    tensor = _FakeTensor(np.full((1, 4, 5), 128, dtype=np.uint8))
+    rgba = io.load_rgba(tensor)
+
+    assert rgba.shape == (4, 5, 4)
+    assert np.all(rgba[..., :3] == 128)
+    assert np.all(rgba[..., 3] == 255)
+
+
 def test_pil_source() -> None:
     pil = PILImage.fromarray(np.zeros((3, 4, 3), dtype=np.uint8), "RGB")
     assert io.load_rgba(pil).shape == (3, 4, 4)

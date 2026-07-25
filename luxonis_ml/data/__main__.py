@@ -714,8 +714,8 @@ def inspect(
             cv2.namedWindow(source_name, cv2.WINDOW_NORMAL)
 
             if per_instance and instances:
-                # Per-instance windows carry no panel, so reserve no room for it.
-                size = target_size(width, height)
+                reserve = panel_reserve if panel else 0.0
+                size = target_size(width, height, reserve=reserve)
                 for task_name, detection in instances:
                     viz = Image(image, config=config).render_at(size)
                     for annotation in detection_to_annotations(
@@ -724,6 +724,8 @@ def inspect(
                         viz.add(annotation)
                     if class_legend is not None:
                         viz.add(class_legend)
+                    if panel:
+                        viz = viz.with_panel(panel, title="metadata")
                     show(source_name, viz)
                     if cv2.waitKey() == ord("q"):
                         quit_requested = True

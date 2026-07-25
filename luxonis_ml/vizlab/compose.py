@@ -11,6 +11,8 @@ from collections.abc import Sequence
 
 import numpy as np
 
+from .annotations import Annotation, BBox, Keypoints, Mask, SemanticMask
+from .annotations.mask import _resize_mask
 from .canvas import Canvas
 from .color import Color, ColorLike
 from .geometry import Rect
@@ -64,19 +66,99 @@ def blend(
     """
     first = base.base_rgba()
     second = other.base_rgba()
+    base_annotations = base.annotations
+    other_annotations = other.annotations
     if first.shape != second.shape:
         height = max(first.shape[0], second.shape[0])
         width = max(first.shape[1], second.shape[1])
         fill = Color.parse(bg)
+        base_annotations = [
+            _pad_annotation(
+                annotation,
+                source_width=first.shape[1],
+                source_height=first.shape[0],
+                width=width,
+                height=height,
+            )
+            for annotation in base.annotations
+        ]
+        other_annotations = [
+            _pad_annotation(
+                annotation,
+                source_width=second.shape[1],
+                source_height=second.shape[0],
+                width=width,
+                height=height,
+            )
+            for annotation in other.annotations
+        ]
         first = _pad(first, width, height, fill)
         second = _pad(second, width, height, fill)
     mixed = (1.0 - alpha) * first.astype(np.float32) + alpha * second.astype(
         np.float32
     )
     result = Image(np.clip(mixed, 0, 255).astype(np.uint8), theme=base.theme)
-    for annotation in (*base.annotations, *other.annotations):
+    for annotation in (*base_annotations, *other_annotations):
         result.add(annotation)
     return result
+
+
+def _pad_annotation(
+    annotation: Annotation,
+    *,
+    source_width: int,
+    source_height: int,
+    width: int,
+    height: int,
+) -> Annotation:
+    """Copy an annotation from a top-left anchored source onto a padded canvas."""
+    clone = annotation.model_copy(deep=False)
+    scale_x = source_width / width
+    scale_y = source_height / height
+
+    if isinstance(clone, BBox):
+        clone.x *= scale_x
+        clone.y *= scale_y
+        clone.w *= scale_x
+        clone.h *= scale_y
+    elif isinstance(clone, Keypoints):
+        clone.keypoints = [
+            (x * scale_x, y * scale_y, visibility)
+            for x, y, visibility in clone.keypoints
+        ]
+    elif isinstance(clone, Mask):
+        from luxonis_ml.ldf import SegmentationAnnotation
+
+        source_mask = _resize_mask(
+            clone.to_numpy(), source_width, source_height
+        )
+        padded = np.zeros((height, width), dtype=source_mask.dtype)
+        padded[:source_height, :source_width] = source_mask
+        rle = SegmentationAnnotation._numpy_to_rle(padded)
+        clone.height = rle["height"]
+        clone.width = rle["width"]
+        clone.counts = rle["counts"].encode("utf-8")
+    elif isinstance(clone, SemanticMask) and clone.labels is not None:
+        labels = _resize_mask(
+            np.asarray(clone.labels), source_width, source_height
+        )
+        ignored = clone._ignored()
+        background = next(iter(ignored), 0)
+        padded = np.full((height, width), background, dtype=labels.dtype)
+        padded[:source_height, :source_width] = labels
+        clone.labels = padded
+
+    clone.children = [
+        _pad_annotation(
+            child,
+            source_width=source_width,
+            source_height=source_height,
+            width=width,
+            height=height,
+        )
+        for child in annotation.children
+    ]
+    return clone
 
 
 def hstack(

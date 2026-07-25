@@ -6,6 +6,9 @@ Annotations are collected with `Image.add`; nothing is drawn until
 in one pass.
 """
 
+import hashlib
+from dataclasses import fields, is_dataclass
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -27,6 +30,68 @@ if TYPE_CHECKING:
 #: canvases scale labels/strokes up proportionally (clamped to the range below).
 _STYLE_REFERENCE_PX = 760.0
 _STYLE_SCALE_RANGE = (1.0, 3.0)
+
+
+def _freeze_render_state(value: object) -> object:
+    """Convert mutable render state into a stable, equality-safe value."""
+    if isinstance(value, np.ndarray):
+        array = np.ascontiguousarray(value)
+        return (
+            "ndarray",
+            array.dtype.str,
+            array.shape,
+            hashlib.sha256(array.tobytes()).digest(),
+        )
+    if isinstance(value, Annotation):
+        model_fields = type(value).model_fields
+        return (
+            f"{type(value).__module__}.{type(value).__qualname__}",
+            tuple(
+                (name, _freeze_render_state(getattr(value, name)))
+                for name in model_fields
+            ),
+        )
+    if is_dataclass(value) and not isinstance(value, type):
+        return (
+            f"{type(value).__module__}.{type(value).__qualname__}",
+            tuple(
+                (field.name, _freeze_render_state(getattr(value, field.name)))
+                for field in fields(value)
+            ),
+        )
+    if isinstance(value, dict):
+        items = [
+            (_freeze_render_state(key), _freeze_render_state(item))
+            for key, item in value.items()
+        ]
+        return tuple(sorted(items, key=lambda item: repr(item[0])))
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_render_state(item) for item in value)
+    if isinstance(value, set):
+        return tuple(
+            sorted(
+                (_freeze_render_state(item) for item in value),
+                key=repr,
+            )
+        )
+    if isinstance(value, Enum):
+        return (type(value).__qualname__, value.value)
+    if hasattr(value, "__dict__"):
+        return (
+            f"{type(value).__module__}.{type(value).__qualname__}",
+            _freeze_render_state(vars(value)),
+        )
+    return (
+        value
+        if isinstance(value, (str, int, float, bool, bytes, type(None)))
+        else repr(value)
+    )
+
+
+def _scene_signature(annotations: list[Annotation]) -> bytes:
+    """Return a digest that changes whenever the mutable scene graph changes."""
+    state = _freeze_render_state(annotations)
+    return hashlib.sha256(repr(state).encode("utf-8")).digest()
 
 
 def _style_scale(width: int, height: int) -> float:
@@ -74,7 +139,7 @@ class Image:
             else (int(render_size[0]), int(render_size[1]))
         )
         self._cache: np.ndarray | None = None
-        self._cache_key: tuple[int, int] | None = None
+        self._cache_key: tuple[tuple[int, int], bytes] | None = None
 
     @property
     def width(self) -> int:
@@ -190,7 +255,7 @@ class Image:
         image is scaled for display while painting heavy fills only once, at the
         source resolution.
 
-        The result is cached per size until the scene graph changes (via `add`).
+        The result is cached per size and mutable scene-graph state.
 
         Args:
             size: ``(width, height)`` to render at; ``None`` uses the size set via
@@ -202,7 +267,10 @@ class Image:
 
         """
         target = size if size is not None else self._render_size
-        key = target if target is not None else (self.width, self.height)
+        render_size = (
+            target if target is not None else (self.width, self.height)
+        )
+        key = (render_size, _scene_signature(self._annotations))
         if self._cache is not None and self._cache_key == key:
             return self._cache.copy()
 
@@ -244,7 +312,10 @@ class Image:
 
         cache = canvas.to_rgba()
         self._cache = cache
-        self._cache_key = key
+        self._cache_key = (
+            render_size,
+            _scene_signature(self._annotations),
+        )
         return cache.copy()
 
     def to_numpy(self, mode: str = "rgb") -> np.ndarray:

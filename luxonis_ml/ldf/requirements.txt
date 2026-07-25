@@ -1,2 +1,4 @@
 numpy~=1.22
+opencv-python~=4.10
+pillow>=10.0
 pycocotools~=2.0

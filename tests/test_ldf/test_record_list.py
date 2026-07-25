@@ -73,6 +73,32 @@ def test_secondary_source_gets_one_null_row_per_source(image: str, depth: str):
     assert not any(r["source_name"] == "image" for r in null_rows)
 
 
+def test_sub_detections_do_not_repeat_secondary_source_rows(
+    image: str, depth: str
+):
+    car = _car()
+    car.sub_detections = {
+        "occupant": Detection(
+            class_name="person",
+            boundingbox={"x": 0.2, "y": 0.2, "w": 0.1, "h": 0.1},  # type: ignore
+        )
+    }
+    record = DatasetRecord(
+        files={"image": image, "depth": depth},  # type: ignore
+        annotation=[car, _person()],
+        task_name="t",
+    )
+
+    rows = list(record.to_parquet_rows())
+    null_rows = [row for row in rows if row["task_type"] is None]
+
+    assert len(null_rows) == 1
+    assert null_rows[0]["source_name"] == "depth"
+    nested = [row for row in rows if row["task_name"] == "t/occupant"]
+    assert nested
+    assert {row["source_name"] for row in nested} == {"image"}
+
+
 def test_annotations_helper_normalizes(image: str):
     assert DatasetRecord(file=image)._annotations() == []  # type: ignore
     car = _car()

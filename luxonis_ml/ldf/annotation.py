@@ -1429,7 +1429,12 @@ class DatasetRecord(BaseModelExtraForbid):
                 "sample_metadata": metadata,
             }
         for name, detection in annotation.sub_detections.items():
-            yield from self._rows_for_task([detection], f"{task_name}/{name}")
+            yield from self._detection_rows(
+                detection,
+                source,
+                file_path,
+                f"{task_name}/{name}",
+            )
 
     @staticmethod
     def decode_metadata(value: Any) -> Params:

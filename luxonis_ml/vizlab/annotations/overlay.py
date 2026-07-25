@@ -126,11 +126,73 @@ class CornerStack(Annotation):
             y += cell.height + self.gap
         return placed
 
+    def _avoid_reserved(
+        self,
+        positioned: list[tuple[Rect, CellDraw]],
+        reserved: list[Rect],
+    ) -> list[tuple[Rect, CellDraw]]:
+        """Shift a corner stack past overlays already anchored there."""
+        if not positioned or not reserved:
+            return positioned
+
+        rects = [rect for rect, _ in positioned]
+        block_left = min(rect.left for rect in rects)
+        block_right = max(rect.right for rect in rects)
+        block_top = min(rect.top for rect in rects)
+        block_bottom = max(rect.bottom for rect in rects)
+        block_height = block_bottom - block_top
+        top = self.corner in (Corner.TOP_LEFT, Corner.TOP_RIGHT)
+        y = block_top if top else block_bottom
+
+        def horizontally_overlaps(rect: Rect) -> bool:
+            return rect.right > block_left and rect.left < block_right
+
+        occupied = [rect for rect in reserved if horizontally_overlaps(rect)]
+        while True:
+            candidate_top = y if top else y - block_height
+            candidate_bottom = candidate_top + block_height
+            conflicts = [
+                rect
+                for rect in occupied
+                if rect.bottom + self.gap > candidate_top
+                and rect.top - self.gap < candidate_bottom
+            ]
+            if not conflicts:
+                break
+            y = (
+                max(rect.bottom for rect in conflicts) + self.gap
+                if top
+                else min(rect.top for rect in conflicts) - self.gap
+            )
+
+        offset = (y - block_top) if top else (y - block_bottom)
+        if offset == 0:
+            return positioned
+        return [
+            (
+                Rect(
+                    rect.left,
+                    rect.top + offset,
+                    rect.right,
+                    rect.bottom + offset,
+                ),
+                draw,
+            )
+            for rect, draw in positioned
+        ]
+
     def reserve(self, ctx: RenderContext) -> None:
         """Reserve each cell's rect so spatial labels avoid the corner."""
         if ctx.layout is None:
             return
-        for rect, _ in self._positioned(ctx, self.resolve_style(ctx)):
+        positioned = self._avoid_reserved(
+            self._positioned(ctx, self.resolve_style(ctx)),
+            ctx.layout.placed,
+        )
+        ctx.layout.overlay_positions[id(self)] = [
+            rect for rect, _ in positioned
+        ]
+        for rect, _ in positioned:
             ctx.layout.reserve(rect)
 
     def draw(self, ctx: RenderContext, style: Style, color: Color) -> None:
@@ -142,5 +204,15 @@ class CornerStack(Annotation):
             color: Unused (cells color their own content).
 
         """
-        for rect, draw_cell in self._positioned(ctx, style):
+        positioned = self._positioned(ctx, style)
+        if ctx.layout is not None:
+            reserved = ctx.layout.overlay_positions.get(id(self))
+            if reserved is not None and len(reserved) == len(positioned):
+                positioned = [
+                    (rect, draw)
+                    for rect, (_, draw) in zip(
+                        reserved, positioned, strict=True
+                    )
+                ]
+        for rect, draw_cell in positioned:
             draw_cell(ctx.canvas, rect)

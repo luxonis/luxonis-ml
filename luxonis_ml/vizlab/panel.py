@@ -221,14 +221,14 @@ def with_panel(
         out_h = int(img_h + panel_h)
         panel_x = 0.0
         image_x = 0
-        image_y = img_h
+        image_y = 0
 
     canvas = Canvas.blank(out_w, out_h)
     canvas.rounded_rect(Rect(0, 0, out_w, out_h), 0.0, fill=background)
     canvas.blit(base, image_x, image_y)
     _draw_divider(canvas, side, img_w, img_h, panel_w, out_w, out_h)
 
-    panel_y = float(image_y) if not horizontal else 0.0
+    panel_y = float(img_h) if not horizontal else 0.0
     _draw_panel(canvas, ops, title, title_metrics, panel_x, panel_y)
     return Image(canvas.to_rgba(), theme=image.theme)
 
