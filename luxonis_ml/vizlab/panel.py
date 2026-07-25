@@ -2,7 +2,7 @@
 
 `with_panel` renders an image and appends a panel that shows arbitrary
 JSON-like metadata (augmentations, tags, source, filenames, ...) as an indented
-key/value tree. Like the :mod:`compose` functions it renders the image at
+key/value tree. Like the `compose` functions it renders the image at
 native resolution and returns a new `Image`, so the panel
 never occludes pixels or labels and the original is untouched.
 """

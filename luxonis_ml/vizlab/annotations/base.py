@@ -10,7 +10,7 @@ overrides, palette, and nested children — and the drawing itself.
 Annotations form a tree: a box may carry child boxes (sub-labels), and children
 are rendered after their parent with a `RenderContext` that carries the
 parent's resolved color and style, so an unstyled child derives its look from its
-parent (see :mod:`luxonis_ml.vizlab.style.derive`).
+parent (see `luxonis_ml.vizlab.style.derive`).
 """
 
 from abc import abstractmethod
