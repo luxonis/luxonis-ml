@@ -1,8 +1,9 @@
 """vizlab gallery — one runnable script covering every feature.
 
 Renders a set of ONGs into ``vizlab_examples/output/``: a grid with one cell per
-label type, plus standalone images for compositing and the metadata panel. It
-synthesizes its own backdrops with numpy, so it needs no external assets.
+label type, a gradient-theme showcase for heatmaps, plus standalone images for
+compositing and the metadata panel. It synthesizes its own backdrops with numpy,
+so it needs no external assets.
 
 Run it from a checkout with the ``viz`` extra installed::
 
@@ -24,6 +25,8 @@ from luxonis_ml.vizlab import (
     Caption,
     Classification,
     Corner,
+    Gradient,
+    Heatmap,
     Image,
     Keypoints,
     Legend,
@@ -215,6 +218,29 @@ def _captions_legend() -> Image:
     )
 
 
+def _blob_field(
+    width: int, height: int, centers: list[tuple[float, float, float]]
+) -> np.ndarray:
+    """Sum of Gaussian bumps — a smooth field to stand in for a saliency map.
+
+    Each center is ``(cx, cy, sigma)`` in normalized image coordinates.
+    """
+    ys = np.linspace(0.0, 1.0, height)[:, None]
+    xs = np.linspace(0.0, 1.0, width)[None, :]
+    field = np.zeros((height, width), dtype=np.float64)
+    for cx, cy, sigma in centers:
+        field += np.exp(-(((xs - cx) ** 2 + (ys - cy) ** 2) / (2 * sigma**2)))
+    return field
+
+
+def _heatmap() -> Image:
+    # A dense scalar field (here two hot-spots) colored through a gradient and
+    # blended over the image; low values fade to transparent. The default
+    # gradient is "turbo"; see `render_heatmap_themes` for the other themes.
+    field = _blob_field(_W, _H, [(0.35, 0.4, 0.16), (0.7, 0.68, 0.1)])
+    return Image(gradient(_W, _H, hue=0.55)).add(Heatmap(values=field))
+
+
 def _light_theme() -> Image:
     # DARK_THEME is the default; pass LIGHT_THEME (or your own) for a light look.
     return (
@@ -234,6 +260,7 @@ def render_gallery() -> Path:
         "instance mask": _instance_mask(),
         "polygon mask": _polygon_mask(),
         "semantic mask": _semantic(),
+        "heatmap": _heatmap(),
         "nested sub-labels": _nested(),
         "classification": _classification(),
         "captions + legend": _captions_legend(),
@@ -260,6 +287,32 @@ def render_compose() -> Path:
     )
 
 
+def render_heatmap_themes() -> Path:
+    """Show one field under several gradient themes, plus a custom gradient.
+
+    ``Heatmap.gradient`` takes the name of a built-in theme or any `Gradient`;
+    build a custom one from a list of colors with ``Gradient.from_colors``.
+    """
+    field = _blob_field(
+        300, 220, [(0.3, 0.35, 0.15), (0.68, 0.62, 0.12), (0.5, 0.85, 0.08)]
+    )
+    themes: list[str | Gradient] = [
+        "turbo",
+        "viridis",
+        "magma",
+        "jet",
+        Gradient.from_colors(["#000000", "#00e5ff", "#ffffff"]),  # custom
+    ]
+    titles = ["turbo", "viridis", "magma", "jet", "custom"]
+    cells = [
+        Image(gradient(300, 220, hue=0.55)).add(
+            Heatmap(values=field, gradient=theme)
+        )
+        for theme in themes
+    ]
+    return save(grid(cells, ncols=5, titles=titles), "heatmaps.png")
+
+
 def render_panel() -> Path:
     """Append a metadata sidebar that never occludes the pixels or labels."""
     metadata = {
@@ -279,7 +332,12 @@ def render_panel() -> Path:
 
 def main() -> None:
     """Render every example and print where each landed."""
-    for path in (render_gallery(), render_compose(), render_panel()):
+    for path in (
+        render_gallery(),
+        render_heatmap_themes(),
+        render_compose(),
+        render_panel(),
+    ):
         print(f"wrote {path}")
 
 

@@ -13,6 +13,7 @@ explicitly overridden.
 from .base import Annotation, RenderContext
 from .bbox import BBox
 from .classification import Classification
+from .heatmap import Heatmap
 from .keypoints import Keypoints
 from .mask import Mask, SemanticMask
 from .overlay import Corner, CornerStack
@@ -27,6 +28,7 @@ for _model in (
     Keypoints,
     Mask,
     SemanticMask,
+    Heatmap,
     CornerStack,
     Classification,
     Caption,
@@ -42,6 +44,7 @@ __all__ = [
     "Classification",
     "Corner",
     "CornerStack",
+    "Heatmap",
     "InfoCard",
     "Keypoints",
     "Legend",

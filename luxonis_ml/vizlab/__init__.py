@@ -60,6 +60,7 @@ with guard_missing_extra("viz"):
         Caption,
         Classification,
         Corner,
+        Heatmap,
         InfoCard,
         Keypoints,
         Legend,
@@ -71,6 +72,12 @@ with guard_missing_extra("viz"):
     from .compose import blend, grid, hstack, vstack
     from .convert import VizConfig, visualize_record
     from .geometry import Rect
+    from .gradient import (
+        DEFAULT_GRADIENT,
+        GRADIENTS,
+        Gradient,
+        resolve_gradient,
+    )
     from .image import Image
     from .panel import with_panel
     from .presets import COCO_CLASSES
@@ -90,7 +97,9 @@ with guard_missing_extra("viz"):
 __all__ = [
     "COCO_CLASSES",
     "DARK_THEME",
+    "DEFAULT_GRADIENT",
     "DEFAULT_PALETTE",
+    "GRADIENTS",
     "LIGHT_THEME",
     "Annotation",
     "BBox",
@@ -99,6 +108,8 @@ __all__ = [
     "Color",
     "Corner",
     "GoldenRatioColors",
+    "Gradient",
+    "Heatmap",
     "Image",
     "InfoCard",
     "Keypoints",
@@ -116,6 +127,7 @@ __all__ = [
     "get_default_theme",
     "grid",
     "hstack",
+    "resolve_gradient",
     "set_default_theme",
     "visualize_record",
     "vstack",
