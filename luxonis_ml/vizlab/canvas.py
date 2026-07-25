@@ -476,8 +476,13 @@ class Canvas:
         font = self._fonts.font(size, weight=weight, italic=italic, mono=mono)
         width = font.measureText(text)
         metrics = font.getMetrics()
+        # Size to the font's ink box (fTop/fBottom), not the typographic
+        # ascent/descent (fAscent/fDescent): tall glyphs such as JetBrains Mono's
+        # full-height brackets/braces reach the ink box, so a card sized to the
+        # typographic metrics clips them top and bottom. fTop/fBottom are always
+        # at least as tall, so this only ever adds room, never removes it.
         return TextMetrics(
-            width=width, ascent=-metrics.fAscent, descent=metrics.fDescent
+            width=width, ascent=-metrics.fTop, descent=metrics.fBottom
         )
 
     def wrap_text(

@@ -1,3 +1,4 @@
+import functools
 import math
 import shutil
 from collections.abc import Callable
@@ -38,6 +39,7 @@ from luxonis_ml.enums import DatasetType
 if TYPE_CHECKING:
     from luxonis_ml.ldf import DatasetRecord, Detection
     from luxonis_ml.vizlab import Palette
+    from luxonis_ml.vizlab.canvas import Canvas
 
 app = App(help="Dataset utilities.")
 
@@ -180,57 +182,131 @@ def _hit_test(items: list[HoverItem], x: float, y: float) -> int | None:
     return best
 
 
-def _draw_tooltip(
-    frame: "np.ndarray", info: dict, at: tuple[int, int]
-) -> None:
-    """Draw a translucent metadata card near ``at`` on the BGR ``frame``."""
+@functools.lru_cache(maxsize=1)
+def _tooltip_measure() -> "Canvas":
+    """Return a cached tiny canvas used only to measure tooltip text."""
+    from luxonis_ml.vizlab.canvas import Canvas
+
+    return Canvas.blank(2, 2)
+
+
+def _tooltip_card(info: dict, size: int) -> "np.ndarray":
+    """Render the hover tooltip as a native vizlab card (RGBA).
+
+    Matches the rest of the UI: a rounded, translucent brand card with a soft
+    shadow, a class-colored title, periwinkle Inter keys, and near-white
+    JetBrains Mono values (so numbers/ids line up like the metadata panel).
+    """
+    from luxonis_ml.utils.color import brand
+    from luxonis_ml.vizlab.canvas import Canvas, Shadow
+    from luxonis_ml.vizlab.color import Color
+    from luxonis_ml.vizlab.geometry import Rect
+
+    measure = _tooltip_measure()
     title = info.get("_title")
-    title_color = info.get("_color", (120, 200, 255))
-    rows = ([title] if title else []) + [
-        f"{key}: {value}"
+    bgr = info.get("_color")
+    title_color = (
+        Color(bgr[2], bgr[1], bgr[0]) if bgr is not None else brand.CARD_TITLE
+    )
+    pairs = [
+        (f"{key}: ", str(value))
         for key, value in info.items()
         if not key.startswith("_")
     ]
-    if not rows:
+    pad, gap = round(size * 0.7), round(size * 0.4)
+    title_size = size * 1.06
+    row = measure.measure_text("Ag", size, mono=True)
+    rows = [
+        (
+            key,
+            val,
+            measure.measure_text(key, size, weight=600).width,
+            measure.measure_text(val, size, weight=500, mono=True).width,
+        )
+        for key, val in pairs
+    ]
+    title_m = (
+        measure.measure_text(title, title_size, weight=700) if title else None
+    )
+    content_w = max(
+        [kw + vw for _, _, kw, vw in rows]
+        + ([title_m.width] if title_m is not None else [0.0])
+    )
+    card_w = round(content_w + 2 * pad)
+    title_h = title_m.height + gap if title_m is not None else 0.0
+    card_h = round(2 * pad + title_h + len(rows) * row.height)
+    mg = round(size * 0.5)  # transparent margin so the drop shadow has room
+
+    canvas = Canvas.blank(card_w + 2 * mg, card_h + 2 * mg)
+    canvas.rounded_rect(
+        Rect(mg, mg, mg + card_w, mg + card_h),
+        radius=round(size * 0.55),
+        fill=brand.CARD_BG,
+        shadow=Shadow(blur=size * 0.5, dy=size * 0.14),
+    )
+    x0, y = mg + pad, float(mg + pad)
+    if title_m is not None:
+        canvas.text(
+            (x0, y + title_m.ascent),
+            str(title),
+            size=title_size,
+            color=title_color,
+            weight=700,
+        )
+        y += title_m.height + gap
+    for key, val, kw, _vw in rows:
+        base = y + row.ascent
+        canvas.text(
+            (x0, base), key, size=size, color=brand.CARD_KEY, weight=600
+        )
+        canvas.text(
+            (x0 + kw, base),
+            val,
+            size=size,
+            color=brand.CARD_TEXT,
+            weight=500,
+            mono=True,
+        )
+        y += row.height
+    return canvas.to_rgba()
+
+
+def _blit_rgba_on_bgr(
+    frame: "np.ndarray", rgba: "np.ndarray", x: int, y: int
+) -> None:
+    """Alpha-composite an RGBA card onto a BGR ``frame`` at ``(x, y)``."""
+    fh, fw = frame.shape[:2]
+    ch, cw = rgba.shape[:2]
+    x0, y0 = max(0, x), max(0, y)
+    x1, y1 = min(fw, x + cw), min(fh, y + ch)
+    if x1 <= x0 or y1 <= y0:
+        return
+    sub = rgba[y0 - y : y1 - y, x0 - x : x1 - x]
+    roi = frame[y0:y1, x0:x1]
+    alpha = sub[..., 3:4].astype(np.float32) / 255.0
+    card_bgr = sub[..., 2::-1].astype(np.float32)  # RGB -> BGR
+    roi[:] = (
+        card_bgr * alpha + roi.astype(np.float32) * (1.0 - alpha)
+    ).astype(np.uint8)
+
+
+def _draw_tooltip(
+    frame: "np.ndarray", info: dict, at: tuple[int, int]
+) -> None:
+    """Draw a native metadata card near ``at`` on the BGR ``frame``."""
+    has_rows = any(not key.startswith("_") for key in info)
+    if not info.get("_title") and not has_rows:
         return
     height, width = frame.shape[:2]
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    # Scale the tooltip type to the displayed frame so it stays legible on large
-    # windows (0.5 at ~720p short side, growing to ~1.1 on bigger frames).
-    scale = min(1.1, max(0.5, 0.5 * min(width, height) / 720.0))
-    thick = max(1, round(scale / 0.5))
-    k = scale / 0.5
-    pad, gap = round(8 * k), round(6 * k)
-    sizes = [cv2.getTextSize(t, font, scale, thick)[0] for t in rows]
-    text_h = max(h for _, h in sizes)
-    line_h = text_h + gap
-    box_w = max(w for w, _ in sizes) + 2 * pad
-    box_h = 2 * pad + line_h * len(rows) - gap
-    if box_w >= width or box_h >= height:
+    # Scale the type to the displayed frame so it stays legible on large windows.
+    size = int(min(24, max(13, round(min(width, height) / 48))))
+    card = _tooltip_card(info, size)
+    ch, cw = card.shape[:2]
+    if cw >= width or ch >= height:
         return
-    x = max(0, min(int(at[0]) + 16, width - box_w - 1))
-    y = max(0, min(int(at[1]) + 16, height - box_h - 1))
-
-    roi = frame[y : y + box_h, x : x + box_w]
-    background = roi.copy()
-    background[:] = (32, 32, 32)
-    cv2.addWeighted(background, 0.72, roi, 0.28, 0, roi)
-    cv2.rectangle(frame, (x, y), (x + box_w, y + box_h), (90, 90, 90), 1)
-
-    baseline = y + pad + text_h
-    for i, text in enumerate(rows):
-        color = title_color if title and i == 0 else (238, 238, 238)
-        cv2.putText(
-            frame,
-            text,
-            (x + pad, baseline),
-            font,
-            scale,
-            color,
-            thick,
-            cv2.LINE_AA,
-        )
-        baseline += line_h
+    x = max(0, min(int(at[0]) + 16, width - cw))
+    y = max(0, min(int(at[1]) + 16, height - ch))
+    _blit_rgba_on_bgr(frame, card, x, y)
 
 
 def _make_hover_callback(window: _HoverWindow) -> MouseCallback:
