@@ -7,6 +7,7 @@ from an ``(H, W, 4)`` RGBA ``uint8`` array so the rest of the library never
 touches Skia types directly.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
@@ -75,6 +76,41 @@ class TextMetrics:
     def height(self) -> float:
         """Total line height in pixels, i.e. ascent plus descent."""
         return self.ascent + self.descent
+
+
+def _break_word(
+    word: str, width_of: Callable[[str], float], limit: float
+) -> list[str]:
+    """Hard-break a word into chunks that each fit within ``limit`` pixels."""
+    if len(word) <= 1 or width_of(word) <= limit:
+        return [word]
+    pieces: list[str] = []
+    start = 0
+    while start < len(word):
+        end = start + 1
+        while end < len(word) and width_of(word[start : end + 1]) <= limit:
+            end += 1
+        pieces.append(word[start:end])
+        start = end
+    return pieces
+
+
+def _wrap_words(
+    words: list[str], width_of: Callable[[str], float], limit: float
+) -> list[str]:
+    """Greedily pack ``words`` into lines no wider than ``limit`` pixels."""
+    lines: list[str] = []
+    current = ""
+    for word in words:
+        for piece in _break_word(word, width_of, limit):
+            candidate = piece if not current else f"{current} {piece}"
+            if not current or width_of(candidate) <= limit:
+                current = candidate
+            else:
+                lines.append(current)
+                current = piece
+    lines.append(current)
+    return lines
 
 
 class Canvas:
@@ -427,34 +463,9 @@ class Canvas:
         def width(run: str) -> float:
             return self.measure_text(run, size, weight=weight).width
 
-        def fit_pieces(word: str) -> list[str]:
-            # A word wider than the limit is hard-broken into fitting chunks.
-            if len(word) <= 1 or width(word) <= limit:
-                return [word]
-            pieces: list[str] = []
-            start = 0
-            while start < len(word):
-                end = start + 1
-                while (
-                    end < len(word) and width(word[start : end + 1]) <= limit
-                ):
-                    end += 1
-                pieces.append(word[start:end])
-                start = end
-            return pieces
-
         lines: list[str] = []
         for paragraph in text.split("\n"):
-            current = ""
-            for word in paragraph.split(" "):
-                for piece in fit_pieces(word):
-                    candidate = piece if not current else f"{current} {piece}"
-                    if not current or width(candidate) <= limit:
-                        current = candidate
-                    else:
-                        lines.append(current)
-                        current = piece
-            lines.append(current)
+            lines.extend(_wrap_words(paragraph.split(" "), width, limit))
         return lines
 
     def text(

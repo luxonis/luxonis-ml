@@ -14,12 +14,13 @@ dataset path. It is an image-level corner overlay, built on the same
 """
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Literal
 
 from luxonis_ml.vizlab.canvas import Canvas, Shadow, TextMetrics
 from luxonis_ml.vizlab.color import Color
 from luxonis_ml.vizlab.geometry import Rect
-from luxonis_ml.vizlab.style import Style
+from luxonis_ml.vizlab.style import Palette, Style
 
 from .base import RenderContext
 from .chip import chip_size, draw_chip
@@ -272,57 +273,20 @@ class ClassDistribution(CornerStack):
         card_h = (
             2 * _PAD + title_h + len(rows) * row_h + _ROW_GAP * (len(rows) - 1)
         )
+        layout = _BarsLayout(
+            measured=measured,
+            palette=palette,
+            scale=scale,
+            bar_w=bar_w,
+            bar_h=bar_h,
+            row_h=row_h,
+            name_w=name_w,
+            title_h=title_h,
+            has_title=title_metrics is not None,
+        )
 
         def _draw(cv: Canvas, rect: Rect) -> None:
-            self._card_bg(cv, rect, style)
-            y = rect.top + _PAD
-            if title_metrics is not None:
-                self._draw_title(cv, rect.left + _PAD, y, size)
-                y += title_h
-            bar_x = rect.left + _PAD + name_w + _COL_GAP
-            val_x = bar_x + bar_w + _COL_GAP
-            for name, value, label, m in measured:
-                is_gt = name == self.ground_truth
-                color = palette.color_for(name)
-                cv.text(
-                    (rect.left + _PAD, y + (row_h - m.height) / 2 + m.ascent),
-                    name,
-                    size=size,
-                    color=CARD_TEXT,
-                    weight=700 if is_gt else weight,
-                )
-                track_top = y + (row_h - bar_h) / 2
-                track = Rect(
-                    bar_x, track_top, bar_x + bar_w, track_top + bar_h
-                )
-                cv.rounded_rect(
-                    track, radius=bar_h / 2, fill=color.with_alpha(0.2)
-                )
-                fill_w = bar_w * _clamp01(value / scale)
-                if fill_w > 0:
-                    cv.rounded_rect(
-                        Rect(
-                            bar_x, track_top, bar_x + fill_w, track_top + bar_h
-                        ),
-                        radius=bar_h / 2,
-                        fill=color,
-                    )
-                if is_gt:
-                    cv.rounded_rect(
-                        track,
-                        radius=bar_h / 2,
-                        stroke=_WHITE,
-                        stroke_width=1.5,
-                    )
-                lm = cv.measure_text(label, size, weight=weight)
-                cv.text(
-                    (val_x, y + (row_h - lm.height) / 2 + lm.ascent),
-                    label,
-                    size=size,
-                    color=CARD_TEXT,
-                    weight=weight,
-                )
-                y += row_h + _ROW_GAP
+            _draw_bars(cv, rect, self, style, layout)
 
         return [Cell(card_w, card_h, _draw)]
 
@@ -486,59 +450,181 @@ class ClassDistribution(CornerStack):
             + len(key_measured) * row_h
             + _ROW_GAP * (len(key_measured) - 1)
         )
+        layout = _StackedLayout(
+            segs=segs,
+            key_measured=key_measured,
+            palette=palette,
+            total=total,
+            strip_h=strip_h,
+            swatch=swatch,
+            row_h=row_h,
+            inner_w=content_w,
+            title_h=title_h,
+            has_title=title_metrics is not None,
+        )
 
         def _draw(cv: Canvas, rect: Rect) -> None:
-            self._card_bg(cv, rect, style)
-            y = rect.top + _PAD
-            if title_metrics is not None:
-                self._draw_title(cv, rect.left + _PAD, y, size)
-                y += title_h
-            # Strip: a muted backdrop (the unshown "other" mass), then each class
-            # segment laid left to right, proportional to its share of the total.
-            left = rect.left + _PAD
-            inner_w = content_w
-            cv.rounded_rect(
-                Rect(left, y, left + inner_w, y + strip_h),
-                radius=4.0,
-                fill=_OTHER,
-            )
-            seg_x = left
-            for name, value in segs:
-                seg_w = inner_w * (value / total if total > 0 else 0.0)
-                if seg_w <= 0:
-                    continue
-                seg = Rect(seg_x, y, seg_x + seg_w, y + strip_h)
-                cv.rounded_rect(seg, radius=0.0, fill=palette.color_for(name))
-                if name == self.ground_truth:
-                    cv.rounded_rect(
-                        seg, radius=0.0, stroke=_WHITE, stroke_width=2.0
-                    )
-                seg_x += seg_w
-            y += strip_h + _ROW_GAP
-            # Inline key.
-            for name, _value, label, m in key_measured:
-                color = _OTHER if name == "other" else palette.color_for(name)
-                sw_top = y + (row_h - swatch) / 2
-                cv.rounded_rect(
-                    Rect(
-                        rect.left + _PAD,
-                        sw_top,
-                        rect.left + _PAD + swatch,
-                        sw_top + swatch,
-                    ),
-                    radius=3.0,
-                    fill=color,
-                )
-                cv.text(
-                    (rect.left + _PAD + swatch + _COL_GAP, y + m.ascent),
-                    f"{name}  {label}",
-                    size=size,
-                    color=CARD_TEXT,
-                    weight=700 if name == self.ground_truth else weight,
-                )
-                y += row_h + _ROW_GAP
+            _draw_stacked(cv, rect, self, style, layout)
 
         return [Cell(card_w, card_h, _draw)]
+
+
+@dataclass(frozen=True)
+class _BarsLayout:
+    """Precomputed geometry for a ``"bars"`` distribution card."""
+
+    measured: list[tuple[str, float, str, TextMetrics]]
+    palette: Palette
+    scale: float
+    bar_w: float
+    bar_h: float
+    row_h: float
+    name_w: float
+    title_h: float
+    has_title: bool
+
+
+def _draw_bars(
+    cv: Canvas,
+    rect: Rect,
+    dist: "ClassDistribution",
+    style: Style,
+    ll: _BarsLayout,
+) -> None:
+    """Paint a ranked bar chart: per row a name, a value bar, and a label."""
+    dist._card_bg(cv, rect, style)
+    size, weight = style.font_size, style.font_weight
+    y = rect.top + _PAD
+    if ll.has_title:
+        dist._draw_title(cv, rect.left + _PAD, y, size)
+        y += ll.title_h
+    bar_x = rect.left + _PAD + ll.name_w + _COL_GAP
+    val_x = bar_x + ll.bar_w + _COL_GAP
+    for name, value, label, m in ll.measured:
+        is_gt = name == dist.ground_truth
+        color = ll.palette.color_for(name)
+        cv.text(
+            (rect.left + _PAD, y + (ll.row_h - m.height) / 2 + m.ascent),
+            name,
+            size=size,
+            color=CARD_TEXT,
+            weight=700 if is_gt else weight,
+        )
+        track_top = y + (ll.row_h - ll.bar_h) / 2
+        track = Rect(bar_x, track_top, bar_x + ll.bar_w, track_top + ll.bar_h)
+        cv.rounded_rect(track, radius=ll.bar_h / 2, fill=color.with_alpha(0.2))
+        fill_w = ll.bar_w * _clamp01(value / ll.scale)
+        if fill_w > 0:
+            cv.rounded_rect(
+                Rect(bar_x, track_top, bar_x + fill_w, track_top + ll.bar_h),
+                radius=ll.bar_h / 2,
+                fill=color,
+            )
+        if is_gt:
+            cv.rounded_rect(
+                track, radius=ll.bar_h / 2, stroke=_WHITE, stroke_width=1.5
+            )
+        lm = cv.measure_text(label, size, weight=weight)
+        cv.text(
+            (val_x, y + (ll.row_h - lm.height) / 2 + lm.ascent),
+            label,
+            size=size,
+            color=CARD_TEXT,
+            weight=weight,
+        )
+        y += ll.row_h + _ROW_GAP
+
+
+@dataclass(frozen=True)
+class _StackedLayout:
+    """Precomputed geometry for a ``"stacked"`` distribution card."""
+
+    segs: list[tuple[str, float]]
+    key_measured: list[tuple[str, float, str, TextMetrics]]
+    palette: Palette
+    total: float
+    strip_h: float
+    swatch: float
+    row_h: float
+    inner_w: float
+    title_h: float
+    has_title: bool
+
+
+def _draw_stacked_strip(
+    cv: Canvas,
+    rect: Rect,
+    dist: "ClassDistribution",
+    ll: _StackedLayout,
+    y: float,
+) -> None:
+    """Paint the proportional strip: a muted backdrop plus each class segment."""
+    left = rect.left + _PAD
+    cv.rounded_rect(
+        Rect(left, y, left + ll.inner_w, y + ll.strip_h),
+        radius=4.0,
+        fill=_OTHER,
+    )
+    seg_x = left
+    for name, value in ll.segs:
+        seg_w = ll.inner_w * (value / ll.total if ll.total > 0 else 0.0)
+        if seg_w <= 0:
+            continue
+        seg = Rect(seg_x, y, seg_x + seg_w, y + ll.strip_h)
+        cv.rounded_rect(seg, radius=0.0, fill=ll.palette.color_for(name))
+        if name == dist.ground_truth:
+            cv.rounded_rect(seg, radius=0.0, stroke=_WHITE, stroke_width=2.0)
+        seg_x += seg_w
+
+
+def _draw_stacked_key(
+    cv: Canvas,
+    rect: Rect,
+    dist: "ClassDistribution",
+    style: Style,
+    ll: _StackedLayout,
+    y: float,
+) -> None:
+    """Paint the inline swatch + name key beneath the strip."""
+    size, weight = style.font_size, style.font_weight
+    for name, _value, label, m in ll.key_measured:
+        color = _OTHER if name == "other" else ll.palette.color_for(name)
+        sw_top = y + (ll.row_h - ll.swatch) / 2
+        cv.rounded_rect(
+            Rect(
+                rect.left + _PAD,
+                sw_top,
+                rect.left + _PAD + ll.swatch,
+                sw_top + ll.swatch,
+            ),
+            radius=3.0,
+            fill=color,
+        )
+        cv.text(
+            (rect.left + _PAD + ll.swatch + _COL_GAP, y + m.ascent),
+            f"{name}  {label}",
+            size=size,
+            color=CARD_TEXT,
+            weight=700 if name == dist.ground_truth else weight,
+        )
+        y += ll.row_h + _ROW_GAP
+
+
+def _draw_stacked(
+    cv: Canvas,
+    rect: Rect,
+    dist: "ClassDistribution",
+    style: Style,
+    ll: _StackedLayout,
+) -> None:
+    """Paint a stacked proportion strip with an inline key below it."""
+    dist._card_bg(cv, rect, style)
+    y = rect.top + _PAD
+    if ll.has_title:
+        dist._draw_title(cv, rect.left + _PAD, y, style.font_size)
+        y += ll.title_h
+    _draw_stacked_strip(cv, rect, dist, ll, y)
+    _draw_stacked_key(cv, rect, dist, style, ll, y + ll.strip_h + _ROW_GAP)
 
 
 def _draw_verdict(

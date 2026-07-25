@@ -56,6 +56,57 @@ class Cell:
     draw: CellDraw
 
 
+def _block_bounds(rects: list[Rect]) -> tuple[float, float, float, float]:
+    """Return the ``(left, right, top, bottom)`` bounds enclosing ``rects``."""
+    return (
+        min(rect.left for rect in rects),
+        max(rect.right for rect in rects),
+        min(rect.top for rect in rects),
+        max(rect.bottom for rect in rects),
+    )
+
+
+def _slide_clear(
+    occupied: list[Rect],
+    y: float,
+    block_height: float,
+    top: bool,
+    gap: float,
+) -> float:
+    """Slide ``y`` along until the block clears every conflicting reserved rect."""
+    while True:
+        candidate_top = y if top else y - block_height
+        candidate_bottom = candidate_top + block_height
+        conflicts = [
+            rect
+            for rect in occupied
+            if rect.bottom + gap > candidate_top
+            and rect.top - gap < candidate_bottom
+        ]
+        if not conflicts:
+            return y
+        y = (
+            max(rect.bottom for rect in conflicts) + gap
+            if top
+            else min(rect.top for rect in conflicts) - gap
+        )
+
+
+def _offset_positioned(
+    positioned: list[tuple[Rect, CellDraw]], offset: float
+) -> list[tuple[Rect, CellDraw]]:
+    """Shift every placed rect vertically by ``offset``."""
+    return [
+        (
+            Rect(
+                rect.left, rect.top + offset, rect.right, rect.bottom + offset
+            ),
+            draw,
+        )
+        for rect, draw in positioned
+    ]
+
+
 def chip_cell(canvas: Canvas, text: str, color: Color, style: Style) -> Cell:
     """Build a stack cell that draws a single filled label chip.
 
@@ -173,52 +224,23 @@ class CornerStack(Annotation):
         """Shift a corner stack past overlays already anchored there."""
         if not positioned or not reserved:
             return positioned
-
-        rects = [rect for rect, _ in positioned]
-        block_left = min(rect.left for rect in rects)
-        block_right = max(rect.right for rect in rects)
-        block_top = min(rect.top for rect in rects)
-        block_bottom = max(rect.bottom for rect in rects)
-        block_height = block_bottom - block_top
+        left, right, block_top, block_bottom = _block_bounds(
+            [rect for rect, _ in positioned]
+        )
         top = self.corner in (Corner.TOP_LEFT, Corner.TOP_RIGHT)
-        y = block_top if top else block_bottom
-
-        def horizontally_overlaps(rect: Rect) -> bool:
-            return rect.right > block_left and rect.left < block_right
-
-        occupied = [rect for rect in reserved if horizontally_overlaps(rect)]
-        while True:
-            candidate_top = y if top else y - block_height
-            candidate_bottom = candidate_top + block_height
-            conflicts = [
-                rect
-                for rect in occupied
-                if rect.bottom + self.gap > candidate_top
-                and rect.top - self.gap < candidate_bottom
-            ]
-            if not conflicts:
-                break
-            y = (
-                max(rect.bottom for rect in conflicts) + self.gap
-                if top
-                else min(rect.top for rect in conflicts) - self.gap
-            )
-
+        occupied = [
+            rect
+            for rect in reserved
+            if rect.right > left and rect.left < right
+        ]
+        start_y = block_top if top else block_bottom
+        y = _slide_clear(
+            occupied, start_y, block_bottom - block_top, top, self.gap
+        )
         offset = (y - block_top) if top else (y - block_bottom)
         if offset == 0:
             return positioned
-        return [
-            (
-                Rect(
-                    rect.left,
-                    rect.top + offset,
-                    rect.right,
-                    rect.bottom + offset,
-                ),
-                draw,
-            )
-            for rect, draw in positioned
-        ]
+        return _offset_positioned(positioned, offset)
 
     def reserve(self, ctx: RenderContext) -> None:
         """Reserve each cell's rect so spatial labels avoid the corner."""

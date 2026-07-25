@@ -18,6 +18,147 @@ _CAPTION_BG = Color(22, 22, 26, 235)
 _CARD_BG = CARD_BG
 _CARD_TEXT = CARD_TEXT
 
+_PAD, _ROW_GAP, _SWATCH_GAP = 10.0, 6.0, 8.0
+
+# A wrapped, measured text line: ``(line, metrics)``.
+_Line = tuple[str, TextMetrics]
+# A card row: ``(line, metrics, swatch_color_or_None)``.
+_Row = tuple[str, TextMetrics, "Color | None"]
+
+
+def _wrap_measured(
+    canvas: Canvas,
+    texts: list[str],
+    size: float,
+    weight: int,
+    avail: float,
+) -> list[_Line]:
+    """Wrap each text to ``avail`` px and measure every resulting line."""
+    lines: list[_Line] = []
+    for text in texts:
+        wrapped = canvas.wrap_text(
+            text, size, max_width=avail, weight=weight
+        ) or [""]
+        for line in wrapped:
+            lines.append(
+                (line, canvas.measure_text(line, size, weight=weight))
+            )
+    return lines
+
+
+def _card_cell(
+    style: Style,
+    title_lines: list[_Line],
+    rows: list[_Row],
+    swatch: float,
+) -> Cell | None:
+    """Build one card `Cell` from wrapped title lines and rows.
+
+    ``swatch`` is the swatch square size (``0`` for a swatch-less card). Shared by
+    `InfoCard` (no swatch) and `Legend` (swatch on each entry's first line).
+    """
+    if not rows and not title_lines:
+        return None
+    size = style.font_size
+    swatch_col = swatch + _SWATCH_GAP if swatch else 0.0
+    row_h = max((m.height for _, m, _ in rows), default=size)
+    title_line_h = max((m.height for _, m in title_lines), default=0.0)
+    title_h = (
+        len(title_lines) * title_line_h + _ROW_GAP if title_lines else 0.0
+    )
+    content_w = max(
+        [swatch_col + m.width for _, m, _ in rows]
+        + [m.width for _, m in title_lines],
+        default=0.0,
+    )
+    card_w = content_w + 2 * _PAD
+    card_h = (
+        2 * _PAD
+        + title_h
+        + len(rows) * row_h
+        + _ROW_GAP * max(0, len(rows) - 1)
+    )
+
+    def _draw(cv: Canvas, rect: Rect) -> None:
+        _draw_card(
+            cv, rect, style, title_lines, title_line_h, rows, row_h, swatch
+        )
+
+    return Cell(card_w, card_h, _draw)
+
+
+def _draw_card(
+    cv: Canvas,
+    rect: Rect,
+    style: Style,
+    title_lines: list[_Line],
+    title_line_h: float,
+    rows: list[_Row],
+    row_h: float,
+    swatch: float,
+) -> None:
+    """Paint a card background, its title lines, then its (optionally swatched) rows."""
+    cv.rounded_rect(
+        rect,
+        radius=9.0,
+        fill=_CARD_BG,
+        shadow=Shadow(blur=6.0, dy=2.0) if style.shadow else None,
+    )
+    title_size = style.font_size * 1.05
+    y = rect.top + _PAD
+    for line, metrics in title_lines:
+        cv.text(
+            (rect.left + _PAD, y + metrics.ascent),
+            line,
+            size=title_size,
+            color=_CARD_TEXT,
+            weight=700,
+        )
+        y += title_line_h
+    if title_lines:
+        y += _ROW_GAP
+    text_x = rect.left + _PAD + (swatch + _SWATCH_GAP if swatch else 0.0)
+    for line, metrics, color in rows:
+        if color is not None and swatch:
+            sw_top = y + (row_h - swatch) / 2
+            cv.rounded_rect(
+                Rect(
+                    rect.left + _PAD,
+                    sw_top,
+                    rect.left + _PAD + swatch,
+                    sw_top + swatch,
+                ),
+                radius=3.0,
+                fill=color,
+            )
+        cv.text(
+            (text_x, y + metrics.ascent),
+            line,
+            size=style.font_size,
+            color=_CARD_TEXT,
+            weight=style.font_weight,
+        )
+        y += row_h + _ROW_GAP
+
+
+def _swatch_rows(
+    canvas: Canvas,
+    items: "list[tuple[str, Color]]",
+    size: float,
+    weight: int,
+    avail: float,
+) -> list[_Row]:
+    """Build swatched rows: each name wraps; its swatch sits on the first line."""
+    rows: list[_Row] = []
+    for name, color in items:
+        wrapped = canvas.wrap_text(
+            name, size, max_width=avail, weight=weight
+        ) or [""]
+        for i, line in enumerate(wrapped):
+            metrics = canvas.measure_text(line, size, weight=weight)
+            rows.append((line, metrics, color if i == 0 else None))
+    return rows
+
 
 class Caption(CornerStack):
     """A short line of text drawn as a card in a corner.
@@ -122,84 +263,21 @@ class InfoCard(CornerStack):
     def _cells(self, ctx: RenderContext, style: Style) -> list[Cell]:
         canvas = ctx.canvas
         size, weight = style.font_size, style.font_weight
-        title_size = size * 1.05
-        pad, row_gap = 10.0, 6.0
         # Wrap rows/title to keep the card within the canvas (minus the margin).
-        avail = max(1.0, canvas.width - 2 * self.margin - 2 * pad)
-
-        lines: list[str] = []
-        for row in self.rows:
-            lines.extend(
-                canvas.wrap_text(row, size, max_width=avail, weight=weight)
-                or [""]
-            )
-        measured = [
-            (line, canvas.measure_text(line, size, weight=weight))
-            for line in lines
-        ]
+        avail = max(1.0, canvas.width - 2 * self.margin - 2 * _PAD)
         title_lines = (
-            canvas.wrap_text(
-                self.title, title_size, max_width=avail, weight=700
-            )
+            _wrap_measured(canvas, [self.title], size * 1.05, 700, avail)
             if self.title is not None
             else []
         )
-        title_measured = [
-            (line, canvas.measure_text(line, title_size, weight=700))
-            for line in title_lines
-        ]
-        if not measured and not title_measured:
-            return []
-
-        row_h = max((m.height for _, m in measured), default=size)
-        content_w = max((m.width for _, m in measured), default=0.0)
-        title_line_h = max((m.height for _, m in title_measured), default=0.0)
-        title_h = (
-            len(title_measured) * title_line_h + row_gap
-            if title_measured
-            else 0.0
-        )
-        if title_measured:
-            content_w = max(content_w, *(m.width for _, m in title_measured))
-
-        card_w = content_w + 2 * pad
-        card_h = (
-            2 * pad
-            + title_h
-            + len(measured) * row_h
-            + row_gap * max(0, len(measured) - 1)
-        )
-
-        def _draw(cv: Canvas, rect: Rect) -> None:
-            cv.rounded_rect(
-                rect,
-                radius=9.0,
-                fill=_CARD_BG,
-                shadow=Shadow(blur=6.0, dy=2.0) if style.shadow else None,
+        rows: list[_Row] = [
+            (line, metrics, None)
+            for line, metrics in _wrap_measured(
+                canvas, self.rows, size, weight, avail
             )
-            y = rect.top + pad
-            for line, metrics in title_measured:
-                cv.text(
-                    (rect.left + pad, y + metrics.ascent),
-                    line,
-                    size=title_size,
-                    color=_CARD_TEXT,
-                    weight=700,
-                )
-                y += title_line_h
-            if title_measured:
-                y += row_gap
-            for line, metrics in measured:
-                cv.text(
-                    (rect.left + pad, y + metrics.ascent),
-                    line,
-                    size=size,
-                    color=_CARD_TEXT,
-                    weight=weight,
-                )
-                y += row_h + row_gap
-
-        return [Cell(card_w, card_h, _draw)]
+        ]
+        cell = _card_cell(style, title_lines, rows, swatch=0.0)
+        return [cell] if cell is not None else []
 
 
 class Legend(CornerStack):
@@ -242,111 +320,21 @@ class Legend(CornerStack):
     def _cells(self, ctx: RenderContext, style: Style) -> list[Cell]:
         canvas = ctx.canvas
         size, weight = style.font_size, style.font_weight
-        title_size = size * 1.05
-        pad, row_gap, swatch_gap = 10.0, 6.0, 8.0
         swatch = size
         # Wrap names to keep the card within the canvas; a wrapped name's swatch
         # is drawn on its first line, continuation lines sit under the text.
         name_avail = max(
             1.0,
-            canvas.width - 2 * self.margin - 2 * pad - swatch - swatch_gap,
+            canvas.width - 2 * self.margin - 2 * _PAD - swatch - _SWATCH_GAP,
         )
-
-        # (line, color-or-None, metrics); color set only on an entry's first line.
-        rows: list[tuple[str, Color | None, TextMetrics]] = []
-        for name, color in self._resolved_entries(ctx):
-            wrapped = canvas.wrap_text(
-                name, size, max_width=name_avail, weight=weight
-            ) or [""]
-            for i, line in enumerate(wrapped):
-                rows.append(
-                    (
-                        line,
-                        color if i == 0 else None,
-                        canvas.measure_text(line, size, weight=weight),
-                    )
-                )
+        rows = _swatch_rows(
+            canvas, self._resolved_entries(ctx), size, weight, name_avail
+        )
+        title_avail = max(1.0, canvas.width - 2 * self.margin - 2 * _PAD)
         title_lines = (
-            canvas.wrap_text(
-                self.title,
-                title_size,
-                max_width=max(1.0, canvas.width - 2 * self.margin - 2 * pad),
-                weight=700,
-            )
+            _wrap_measured(canvas, [self.title], size * 1.05, 700, title_avail)
             if self.title is not None
             else []
         )
-        title_measured = [
-            (line, canvas.measure_text(line, title_size, weight=700))
-            for line in title_lines
-        ]
-        if not rows and not title_measured:
-            return []
-
-        row_h = max((m.height for _, _, m in rows), default=size)
-        content_w = max(
-            (swatch + swatch_gap + m.width for _, _, m in rows),
-            default=0.0,
-        )
-        title_line_h = max((m.height for _, m in title_measured), default=0.0)
-        title_h = (
-            len(title_measured) * title_line_h + row_gap
-            if title_measured
-            else 0.0
-        )
-        if title_measured:
-            content_w = max(content_w, *(m.width for _, m in title_measured))
-
-        card_w = content_w + 2 * pad
-        card_h = (
-            2 * pad
-            + title_h
-            + len(rows) * row_h
-            + row_gap * max(0, len(rows) - 1)
-        )
-
-        def _draw(cv: Canvas, rect: Rect) -> None:
-            cv.rounded_rect(
-                rect,
-                radius=9.0,
-                fill=_CARD_BG,
-                shadow=Shadow(blur=6.0, dy=2.0) if style.shadow else None,
-            )
-            y = rect.top + pad
-            for line, metrics in title_measured:
-                cv.text(
-                    (rect.left + pad, y + metrics.ascent),
-                    line,
-                    size=title_size,
-                    color=_CARD_TEXT,
-                    weight=700,
-                )
-                y += title_line_h
-            if title_measured:
-                y += row_gap
-            for line, color, metrics in rows:
-                if color is not None:
-                    sw_top = y + (row_h - swatch) / 2
-                    cv.rounded_rect(
-                        Rect(
-                            rect.left + pad,
-                            sw_top,
-                            rect.left + pad + swatch,
-                            sw_top + swatch,
-                        ),
-                        radius=3.0,
-                        fill=color,
-                    )
-                cv.text(
-                    (
-                        rect.left + pad + swatch + swatch_gap,
-                        y + metrics.ascent,
-                    ),
-                    line,
-                    size=size,
-                    color=_CARD_TEXT,
-                    weight=weight,
-                )
-                y += row_h + row_gap
-
-        return [Cell(card_w, card_h, _draw)]
+        cell = _card_cell(style, title_lines, rows, swatch=swatch)
+        return [cell] if cell is not None else []

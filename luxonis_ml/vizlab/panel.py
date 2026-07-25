@@ -71,23 +71,34 @@ def _format_tree(data: object, depth: int = 0) -> list[Line]:
 (1, '• ', False, '3'), (0, 'c:', True, ''), (1, 'd: ', True, 'true')]
 
     """
-    lines: list[Line] = []
     if isinstance(data, Mapping):
-        for key, value in data.items():
-            if _is_container(value):
-                lines.append((depth, f"{key}:", True, ""))
-                lines.extend(_format_tree(value, depth + 1))
-            else:
-                lines.append((depth, f"{key}: ", True, _format_scalar(value)))
-    elif isinstance(data, Sequence) and not isinstance(data, (str, bytes)):
-        for item in data:
-            if _is_container(item):
-                lines.append((depth, "•", False, ""))
-                lines.extend(_format_tree(item, depth + 1))
-            else:
-                lines.append((depth, "• ", False, _format_scalar(item)))
-    else:
-        lines.append((depth, "", False, _format_scalar(data)))
+        return _mapping_lines(data, depth)
+    if isinstance(data, Sequence) and not isinstance(data, (str, bytes)):
+        return _sequence_lines(data, depth)
+    return [(depth, "", False, _format_scalar(data))]
+
+
+def _mapping_lines(data: Mapping, depth: int) -> list[Line]:
+    """Format a mapping's items as key/value (or key-header) lines."""
+    lines: list[Line] = []
+    for key, value in data.items():
+        if _is_container(value):
+            lines.append((depth, f"{key}:", True, ""))
+            lines.extend(_format_tree(value, depth + 1))
+        else:
+            lines.append((depth, f"{key}: ", True, _format_scalar(value)))
+    return lines
+
+
+def _sequence_lines(data: Sequence, depth: int) -> list[Line]:
+    """Format a sequence's items as bulleted lines."""
+    lines: list[Line] = []
+    for item in data:
+        if _is_container(item):
+            lines.append((depth, "•", False, ""))
+            lines.extend(_format_tree(item, depth + 1))
+        else:
+            lines.append((depth, "• ", False, _format_scalar(item)))
     return lines
 
 
@@ -116,34 +127,42 @@ def _wrap(text: str, size: float, weight: int, max_width: float) -> list[str]:
 _Op = tuple[float, float, str, int, Color]
 
 
+def _line_ops(
+    line: Line, content_w: float, row_h: float, ascent: float, y: float
+) -> tuple[list[_Op], float]:
+    """Positioned text ops for one logical line; returns them and the next ``y``."""
+    depth, prefix, is_key, body = line
+    x = depth * _INDENT
+    weight = 600 if is_key else 400
+    prefix_w = (
+        _MEASURE.measure_text(prefix, _PANEL_SIZE, weight=weight).width
+        if prefix
+        else 0.0
+    )
+    body_lines = _wrap(
+        body, _PANEL_SIZE, 400, max(24.0, content_w - x - prefix_w)
+    )
+    ops: list[_Op] = []
+    if prefix:
+        ops.append((y + ascent, x, prefix, weight, _KEY if is_key else _VALUE))
+    if body_lines[0]:
+        ops.append((y + ascent, x + prefix_w, body_lines[0], 400, _VALUE))
+    y += row_h
+    for cont in body_lines[1:]:
+        ops.append((y + ascent, x + prefix_w, cont, 400, _VALUE))
+        y += row_h
+    return ops, y
+
+
 def _build_ops(lines: list[Line], content_w: float) -> tuple[list[_Op], float]:
     """Lay out logical lines into positioned text ops; return them and total height."""
     metrics = _MEASURE.measure_text("Ag", _PANEL_SIZE)
     row_h = metrics.height + _LINE_GAP
-    ascent = metrics.ascent
     ops: list[_Op] = []
     y = 0.0
-    for depth, prefix, is_key, body in lines:
-        x = depth * _INDENT
-        weight = 600 if is_key else 400
-        prefix_w = (
-            _MEASURE.measure_text(prefix, _PANEL_SIZE, weight=weight).width
-            if prefix
-            else 0.0
-        )
-        body_lines = _wrap(
-            body, _PANEL_SIZE, 400, max(24.0, content_w - x - prefix_w)
-        )
-        if prefix:
-            ops.append(
-                (y + ascent, x, prefix, weight, _KEY if is_key else _VALUE)
-            )
-        if body_lines[0]:
-            ops.append((y + ascent, x + prefix_w, body_lines[0], 400, _VALUE))
-        y += row_h
-        for cont in body_lines[1:]:
-            ops.append((y + ascent, x + prefix_w, cont, 400, _VALUE))
-            y += row_h
+    for line in lines:
+        line_ops, y = _line_ops(line, content_w, row_h, metrics.ascent, y)
+        ops.extend(line_ops)
     return ops, y
 
 

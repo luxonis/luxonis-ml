@@ -32,60 +32,69 @@ _STYLE_REFERENCE_PX = 760.0
 _STYLE_SCALE_RANGE = (1.0, 3.0)
 
 
-def _freeze_render_state(value: object) -> object:
-    """Convert mutable render state into a stable, equality-safe value."""
-    if isinstance(value, np.ndarray):
-        array = np.ascontiguousarray(value)
-        return (
-            "ndarray",
-            array.dtype.str,
-            array.shape,
-            hashlib.sha256(array.tobytes()).digest(),
-        )
-    if isinstance(value, Annotation):
-        model_fields = type(value).model_fields
-        return (
-            f"{type(value).__module__}.{type(value).__qualname__}",
-            tuple(
-                (name, _freeze_render_state(getattr(value, name)))
-                for name in model_fields
-            ),
-        )
-    if is_dataclass(value) and not isinstance(value, type):
-        return (
-            f"{type(value).__module__}.{type(value).__qualname__}",
-            tuple(
-                (field.name, _freeze_render_state(getattr(value, field.name)))
-                for field in fields(value)
-            ),
-        )
-    if isinstance(value, dict):
-        items = [
-            (_freeze_render_state(key), _freeze_render_state(item))
-            for key, item in value.items()
-        ]
-        return tuple(sorted(items, key=lambda item: repr(item[0])))
-    if isinstance(value, (list, tuple)):
-        return tuple(_freeze_render_state(item) for item in value)
+def _qualname(value: object) -> str:
+    """Fully-qualified ``module.QualName`` of ``value``'s type."""
+    return f"{type(value).__module__}.{type(value).__qualname__}"
+
+
+def _freeze_ndarray(array: np.ndarray) -> object:
+    """Freeze an array by dtype, shape, and a content hash."""
+    contiguous = np.ascontiguousarray(array)
+    return (
+        "ndarray",
+        contiguous.dtype.str,
+        contiguous.shape,
+        hashlib.sha256(contiguous.tobytes()).digest(),
+    )
+
+
+def _freeze_fields(value: object, names: "list[str]") -> object:
+    """Freeze an object by ``(qualname, ((field, frozen), ...))``."""
+    return (
+        _qualname(value),
+        tuple(
+            (name, _freeze_render_state(getattr(value, name)))
+            for name in names
+        ),
+    )
+
+
+def _freeze_dict(value: dict) -> object:
+    """Freeze a dict into a repr-sorted tuple of frozen key/value pairs."""
+    items = [
+        (_freeze_render_state(key), _freeze_render_state(item))
+        for key, item in value.items()
+    ]
+    return tuple(sorted(items, key=lambda item: repr(item[0])))
+
+
+def _freeze_leaf(value: object) -> object:
+    """Freeze a set, enum, ``__dict__`` object, or scalar (the non-container tail)."""
     if isinstance(value, set):
         return tuple(
-            sorted(
-                (_freeze_render_state(item) for item in value),
-                key=repr,
-            )
+            sorted((_freeze_render_state(item) for item in value), key=repr)
         )
     if isinstance(value, Enum):
         return (type(value).__qualname__, value.value)
     if hasattr(value, "__dict__"):
-        return (
-            f"{type(value).__module__}.{type(value).__qualname__}",
-            _freeze_render_state(vars(value)),
-        )
-    return (
-        value
-        if isinstance(value, (str, int, float, bool, bytes, type(None)))
-        else repr(value)
-    )
+        return (_qualname(value), _freeze_render_state(vars(value)))
+    scalar = (str, int, float, bool, bytes, type(None))
+    return value if isinstance(value, scalar) else repr(value)
+
+
+def _freeze_render_state(value: object) -> object:
+    """Convert mutable render state into a stable, equality-safe value."""
+    if isinstance(value, np.ndarray):
+        return _freeze_ndarray(value)
+    if isinstance(value, Annotation):
+        return _freeze_fields(value, list(type(value).model_fields))
+    if is_dataclass(value) and not isinstance(value, type):
+        return _freeze_fields(value, [f.name for f in fields(value)])
+    if isinstance(value, dict):
+        return _freeze_dict(value)
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_render_state(item) for item in value)
+    return _freeze_leaf(value)
 
 
 def _scene_signature(annotations: list[Annotation]) -> bytes:
@@ -323,36 +332,12 @@ class Image:
         overlays = [a for a in self._annotations if a.OVERLAY]
 
         # Pass 1: raster fills at the source resolution.
-        canvas = Canvas.from_rgba(self._rgba)
-        fill_ctx = RenderContext(canvas=canvas, depth=0, theme=theme)
-        for annotation in spatial:
-            annotation.render_fill(fill_ctx)
-
+        canvas = self._render_fills(spatial, theme)
         # Scale the filled raster once to the display size.
         if target is not None and target != (canvas.width, canvas.height):
             canvas = canvas.scaled(target[0], target[1])
-
-        # Pass 2: sharp vector content at the display resolution. Style metrics
-        # scale with the canvas so labels stay proportionate and readable.
-        layout = LabelLayout(canvas.width, canvas.height)
-        ctx = RenderContext(
-            canvas=canvas,
-            depth=0,
-            layout=layout,
-            theme=theme,
-            style_scale=_style_scale(canvas.width, canvas.height),
-        )
-        # Reserve overlay label positions first so spatial labels avoid them,
-        # draw the spatial shapes, then their label chips on top (so a later box
-        # never covers an earlier one's chip), then overlays on top of all.
-        for annotation in overlays:
-            annotation.reserve(ctx)
-        for annotation in spatial:
-            annotation.render(ctx)
-        for annotation in spatial:
-            annotation.render_labels(ctx)
-        for annotation in overlays:
-            annotation.render(ctx)
+        # Pass 2: sharp vector content at the display resolution.
+        self._render_vectors(canvas, spatial, overlays, theme)
 
         cache = canvas.to_rgba()
         self._cache = cache
@@ -361,6 +346,43 @@ class Image:
             _scene_signature(self._annotations),
         )
         return cache.copy()
+
+    def _render_fills(self, spatial: list[Annotation], theme: Theme) -> Canvas:
+        """First pass: paint every annotation's raster fill at source resolution."""
+        canvas = Canvas.from_rgba(self._rgba)
+        ctx = RenderContext(canvas=canvas, depth=0, theme=theme)
+        for annotation in spatial:
+            annotation.render_fill(ctx)
+        return canvas
+
+    def _render_vectors(
+        self,
+        canvas: Canvas,
+        spatial: list[Annotation],
+        overlays: list[Annotation],
+        theme: Theme,
+    ) -> None:
+        """Second pass: crisp vector content and label chips at display resolution.
+
+        Overlay label positions are reserved first so spatial labels avoid them,
+        then spatial shapes, then their chips on top (so a later box never covers
+        an earlier one's chip), then the overlays on top of everything.
+        """
+        ctx = RenderContext(
+            canvas=canvas,
+            depth=0,
+            layout=LabelLayout(canvas.width, canvas.height),
+            theme=theme,
+            style_scale=_style_scale(canvas.width, canvas.height),
+        )
+        for annotation in overlays:
+            annotation.reserve(ctx)
+        for annotation in spatial:
+            annotation.render(ctx)
+        for annotation in spatial:
+            annotation.render_labels(ctx)
+        for annotation in overlays:
+            annotation.render(ctx)
 
     def to_numpy(self, mode: str = "rgb") -> np.ndarray:
         """Render and return the result as a numpy array.

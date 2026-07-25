@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from luxonis_ml.ldf import (
         DatasetRecord,
         Detection,
+        KeypointAnnotation,
         SegmentationAnnotation,
     )
 
@@ -121,38 +122,64 @@ def _spatial_annotations(
         if text is not None:
             root.payload = text
 
+    # Keypoints and the instance mask are children of the box (deriving its
+    # color), or top-level when there is no box; they carry no label then.
+    child_label = None if root is not None else label
     if detection.keypoints is not None:
-        label_mode = config.keypoint_label_mode
-        # A skeleton is needed to draw limbs and to resolve joint names.
-        needs_skeleton = config.draw_skeletons or label_mode in (
-            "names",
-            "full",
+        _attach(
+            root,
+            tops,
+            _keypoints_annotation(
+                detection.keypoints, config, task_name, child_label
+            ),
         )
-        skeleton = config.skeletons.get(task_name) if needs_skeleton else None
-        names, edges = skeleton if skeleton is not None else (None, [])
-        keypoints = Keypoints.from_ldf(
-            detection.keypoints,
-            edges=edges,
-            keypoint_names=names,
-            point_labels=label_mode,
-            label=None if root is not None else label,
-            palette=palette,
-        )
-        (root.add(keypoints) if root is not None else tops.append(keypoints))
-
     if detection.instance_segmentation is not None:
-        mask = Mask.from_ldf(
-            detection.instance_segmentation,
-            label=None if root is not None else label,
-            palette=palette,
+        _attach(
+            root,
+            tops,
+            Mask.from_ldf(
+                detection.instance_segmentation,
+                label=child_label,
+                palette=palette,
+            ),
         )
-        (root.add(mask) if root is not None else tops.append(mask))
-
     for name, sub in detection.sub_detections.items():
         for child in _spatial_annotations(sub, config, f"{task_name}/{name}"):
-            (root.add(child) if root is not None else tops.append(child))
+            _attach(root, tops, child)
 
     return ([root] if root is not None else []) + tops
+
+
+def _attach(
+    root: "Annotation | None", tops: list[Annotation], annotation: Annotation
+) -> None:
+    """Add ``annotation`` as a child of ``root``, or to the top-level list."""
+    if root is not None:
+        root.add(annotation)
+    else:
+        tops.append(annotation)
+
+
+def _keypoints_annotation(
+    keypoints: "KeypointAnnotation",
+    config: VizConfig,
+    task_name: str,
+    label: str | None,
+) -> Keypoints:
+    """Build a `Keypoints` annotation, resolving its skeleton from the config."""
+    label_mode = config.keypoint_label_mode
+    # A skeleton is needed to draw limbs and to resolve joint names.
+    needs_skeleton = config.draw_skeletons or label_mode in ("names", "full")
+    skeleton = config.skeletons.get(task_name) if needs_skeleton else None
+    names, edges = skeleton if skeleton is not None else (None, [])
+    return Keypoints.from_ldf(
+        keypoints,
+        edges=edges,
+        keypoint_names=names,
+        point_labels=label_mode,
+        label=label,
+        palette=config.palette,
+    )
 
 
 def detection_to_annotations(
@@ -226,14 +253,21 @@ def _collect_boxless(
             if text_key is None or key != text_key
         }
         if other:
-            prefix = ""
-            if detection.class_name:
-                rows.append(detection.class_name)
-                prefix = "  "
-            for key, value in other.items():
-                rows.append(f"{prefix}{key}: {value}")
+            rows.extend(_boxless_rows(detection, other))
     for sub in detection.sub_detections.values():
         _collect_boxless(sub, text_key, texts, rows)
+
+
+def _boxless_rows(detection: "Detection", other: dict) -> list[str]:
+    """Format a box-less detection's non-text metadata as card rows."""
+    rows: list[str] = []
+    prefix = ""
+    if detection.class_name:
+        rows.append(detection.class_name)
+        prefix = "  "
+    for key, value in other.items():
+        rows.append(f"{prefix}{key}: {value}")
+    return rows
 
 
 def metadata_annotations(
@@ -407,25 +441,15 @@ def visualize_record(
     array_shapes: dict[str, list[int]] = {}
 
     for detection in record._annotations():
-        for annotation in _spatial_annotations(detection, config, task_name):
-            img.add(annotation)
-        if detection.segmentation is not None:
-            segmentations.append(
-                (detection.class_name, detection.segmentation)
-            )
-        if (
-            detection.class_name is not None
-            and detection.boundingbox is None
-            and detection.keypoints is None
-            and detection.instance_segmentation is None
-            and detection.segmentation is None
-            and not detection.sub_detections
-        ):
-            class_tags.append(detection.class_name)
-        if detection.array is not None:
-            array_shapes[task_name or "array"] = list(
-                detection.array.to_numpy().shape
-            )
+        _scan_detection(
+            detection,
+            config,
+            task_name,
+            img,
+            segmentations,
+            class_tags,
+            array_shapes,
+        )
 
     if segmentations:
         img.add(SemanticMask.from_ldf(segmentations, palette=config.palette))
@@ -436,13 +460,55 @@ def visualize_record(
     ):
         img.add(overlay)
 
-    panel_data: dict = (
-        dict(record.sample_metadata) if record.sample_metadata else {}
-    )
-    if array_shapes:
-        panel_data["arrays"] = array_shapes
-    if panel:
-        panel_data.update(panel)
+    panel_data = _panel_data(record, array_shapes, panel)
     if panel_data:
         img = img.with_panel(panel_data, title="metadata")
     return img
+
+
+def _is_pure_classification(detection: "Detection") -> bool:
+    """Report whether a detection carries only a class name (an image-level tag)."""
+    return (
+        detection.class_name is not None
+        and detection.boundingbox is None
+        and detection.keypoints is None
+        and detection.instance_segmentation is None
+        and detection.segmentation is None
+        and not detection.sub_detections
+    )
+
+
+def _scan_detection(
+    detection: "Detection",
+    config: VizConfig,
+    task_name: str,
+    img: "Image",
+    segmentations: "list[tuple[str | None, SegmentationAnnotation]]",
+    class_tags: list[str],
+    array_shapes: dict[str, list[int]],
+) -> None:
+    """Add a detection's spatial annotations and collect its record-level parts."""
+    for annotation in _spatial_annotations(detection, config, task_name):
+        img.add(annotation)
+    if detection.segmentation is not None:
+        segmentations.append((detection.class_name, detection.segmentation))
+    if _is_pure_classification(detection) and detection.class_name is not None:
+        class_tags.append(detection.class_name)
+    if detection.array is not None:
+        array_shapes[task_name or "array"] = list(
+            detection.array.to_numpy().shape
+        )
+
+
+def _panel_data(
+    record: "DatasetRecord",
+    array_shapes: dict[str, list[int]],
+    panel: dict | None,
+) -> dict:
+    """Merge sample metadata, array shapes, and an extra panel into panel data."""
+    data: dict = dict(record.sample_metadata) if record.sample_metadata else {}
+    if array_shapes:
+        data["arrays"] = array_shapes
+    if panel:
+        data.update(panel)
+    return data
