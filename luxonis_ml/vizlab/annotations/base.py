@@ -8,9 +8,12 @@ rendering state — class label, confidence, generic payload, color/style
 overrides, palette, and nested children — and the drawing itself.
 
 Annotations form a tree: a box may carry child boxes (sub-labels), and children
-are rendered after their parent with a `RenderContext` that carries the
-parent's resolved color and style, so an unstyled child derives its look from its
-parent (see `luxonis_ml.vizlab.style.derive`).
+are rendered after their parent with a `RenderContext` that carries the parent's
+resolved color and style. A labeled sub-label is its own class, so it keeps its
+own palette color (a ``driver`` and a ``plate`` in a ``car`` are colored apart)
+while it derives the parent's dashed sub-label style and traces its outline in the
+parent's color to stay visibly nested; an *unlabeled* child derives the parent's
+color outright (see `luxonis_ml.vizlab.style.derive` and `Annotation.outline_color`).
 """
 
 from abc import abstractmethod
@@ -117,7 +120,8 @@ class Annotation(BaseModel):
         >>> box.tag("car", score=0.9).caption("track 7") is box
         True
 
-        Nest a child annotation so it derives its parent's color and style:
+        Nest a child annotation; a labeled sub-label keeps its own color and
+        derives the parent's dashed style:
 
         >>> box.add(BBox(x=0.2, y=0.3, w=0.1, h=0.1, label="plate")) is box
         True
@@ -242,11 +246,15 @@ class Annotation(BaseModel):
         return DEFAULT_STYLE.scaled(ctx.style_scale)
 
     def resolve_color(self, ctx: RenderContext) -> Color:
-        """Resolve the color: override, then parent-derived, then label, then hash.
+        """Resolve the fill/chip color: override, then own class, then parent, then hash.
 
-        A nested annotation without an explicit color derives from its parent (so a
-        sub-label reads as a lighter shade of it); a top-level one uses its palette
-        color from ``label``, or a stable per-object fallback when unlabeled.
+        A **labeled** annotation always takes its own class color from the palette,
+        even when nested: a sub-label is a class in its own right, so a ``driver``
+        and a ``plate`` inside a ``car`` are colored independently rather than as
+        shades of the car. Only an *unlabeled* nested annotation (e.g. keypoints
+        attached to a box) derives the parent's color, so it reads as part of the
+        parent. The visual tie for labeled sub-labels is carried by the outline
+        instead (see `outline_color`) and by the derived, dashed sub-label style.
 
         Args:
             ctx: The current render context.
@@ -257,12 +265,36 @@ class Annotation(BaseModel):
         """
         if self.color is not None:
             return Color.parse(self.color)
-        if ctx.parent_color is not None:
-            return derive_child_color(ctx.parent_color)
         palette = self.resolved_palette(ctx)
         if self.label is not None:
             return palette.color_for(self.label)
+        if ctx.parent_color is not None:
+            return derive_child_color(ctx.parent_color)
         return palette.color_for(f"{type(self).__name__}@{id(self):x}")
+
+    def outline_color(self, ctx: RenderContext, color: Color) -> Color:
+        """Resolve the color for this annotation's outline (box stroke, mask contour).
+
+        A labeled sub-label keeps its own ``color`` for its fill and label chip but
+        traces its outline in the parent's color, so it reads as its own class while
+        still visibly belonging to its parent. Top-level annotations, and ones with
+        an explicit ``color`` override, outline in their own ``color``.
+
+        Args:
+            ctx: The current render context.
+            color: This annotation's own resolved (fill/chip) color.
+
+        Returns:
+            The color to stroke the outline with.
+
+        """
+        if (
+            self.color is None
+            and self.label is not None
+            and ctx.parent_color is not None
+        ):
+            return ctx.parent_color
+        return color
 
     def reserve(self, ctx: RenderContext) -> None:
         """Reserve any fixed label positions before spatial labels are placed.

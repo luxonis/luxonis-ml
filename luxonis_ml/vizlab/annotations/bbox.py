@@ -149,13 +149,17 @@ class BBox(BBoxAnnotation, Annotation):
             if style.fill_alpha > 0
             else None
         )
+        # A nested sub-label fills and captions itself in its own class color but
+        # outlines in the parent's, so it reads as its own class yet stays tied to
+        # the parent (see Annotation.outline_color).
+        stroke = self.outline_color(ctx, color)
 
         if self._axis_aligned():
             canvas.rounded_rect(
                 self._rect(canvas.width, canvas.height),
                 radius=style.corner_radius,
                 fill=fill,
-                stroke=color,
+                stroke=stroke,
                 stroke_width=style.stroke_width,
                 dash=style.dash,
                 shadow=Shadow() if style.shadow else None,
@@ -164,7 +168,7 @@ class BBox(BBoxAnnotation, Annotation):
             canvas.polygon(
                 self._corners(canvas.width, canvas.height),
                 fill=fill,
-                stroke=color,
+                stroke=stroke,
                 stroke_width=style.stroke_width,
                 dash=style.dash,
             )

@@ -106,12 +106,22 @@ def test_nested_child_derives_color_and_style() -> None:
         parent_color=parent_color,
         parent_style=Style(),
     )
+    # An unlabeled child (e.g. keypoints on a box) derives the parent's color and
+    # style, so it reads as part of the parent.
     child = BBox(x=0.1, y=0.1, w=0.2, h=0.2)
     assert child.resolve_color(ctx) == derive_child_color(parent_color)
     assert child.resolve_style(ctx) == derive_child_style(Style())
-    assert BBox(x=0.1, y=0.1, w=0.2, h=0.2, label="car").resolve_color(
-        ctx
-    ) == derive_child_color(parent_color)
+
+    # A labeled child is its own class: it fills and captions in its own palette
+    # color, not a shade of the parent, but still derives the dashed sub-label
+    # style and outlines in the parent's color so it stays visibly nested.
+    palette = Palette()
+    labeled = BBox(x=0.1, y=0.1, w=0.2, h=0.2, label="car", palette=palette)
+    own = labeled.resolve_color(ctx)
+    assert own == palette.color_for("car")
+    assert own != derive_child_color(parent_color)
+    assert labeled.resolve_style(ctx) == derive_child_style(Style())
+    assert labeled.outline_color(ctx, own) == parent_color
 
 
 def test_top_level_uses_palette_and_explicit_color_wins() -> None:

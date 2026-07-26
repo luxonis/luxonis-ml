@@ -694,14 +694,19 @@ def render_from_record() -> Path:
             "city": "Ljubljana",
             "weather": "overcast",
             "annotator": "auto + review",
-            "objects": {"car": 2, "truck": 1, "person": 1, "sign": 1},
+            "augmentations": ["horizontal_flip", "color_jitter"],
         },
         "annotation": [
             # Per-class semantic segmentation of the ground surfaces.
             {
                 "class_name": "road",
                 "segmentation": {
-                    "points": [(0.0, 0.5), (1.0, 0.5), (1.0, 1.0), (0.0, 1.0)],
+                    "points": [
+                        (0.0, 0.5),
+                        (1.0, 0.5),
+                        (1.0, 1.0),
+                        (0.0, 1.0),
+                    ],
                     "width": w,
                     "height": h,
                 },
@@ -709,7 +714,12 @@ def render_from_record() -> Path:
             {
                 "class_name": "sidewalk",
                 "segmentation": {
-                    "points": [(0.0, 0.6), (0.2, 0.6), (0.1, 1.0), (0.0, 1.0)],
+                    "points": [
+                        (0.0, 0.6),
+                        (0.2, 0.6),
+                        (0.1, 1.0),
+                        (0.0, 1.0),
+                    ],
                     "width": w,
                     "height": h,
                 },
@@ -736,7 +746,12 @@ def render_from_record() -> Path:
             {
                 "class_name": "car",
                 "instance_id": 1,
-                "boundingbox": {"x": 0.05, "y": 0.62, "w": 0.28, "h": 0.24},
+                "boundingbox": {
+                    "x": 0.05,
+                    "y": 0.62,
+                    "w": 0.28,
+                    "h": 0.24,
+                },
                 "metadata": {"track_id": 4, "speed": 31.2},
                 "sub_detections": {
                     "plate": {

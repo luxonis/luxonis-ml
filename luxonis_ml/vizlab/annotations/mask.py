@@ -260,10 +260,13 @@ class Mask(InstanceSegmentationAnnotation, Annotation):
         sx = canvas.width / mask_w
         sy = canvas.height / mask_h
         smoothing = _contour_smoothing(sx, sy)
+        # A nested sub-label fills in its own class color but traces its contour in
+        # the parent's, so it stays tied to the parent (see outline_color).
+        stroke = self.outline_color(ctx, color)
         for ring in _mask_contours(binary > 0):
             canvas.polygon(
                 _contour_path(ring, sx, sy, smoothing),
-                stroke=color,
+                stroke=stroke,
                 stroke_width=style.stroke_width,
                 dash=style.dash,
             )
