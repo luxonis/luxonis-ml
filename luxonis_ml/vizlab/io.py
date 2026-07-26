@@ -7,13 +7,33 @@ and export go back out in whatever layout the caller asks for.
 """
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, TypeAlias, cast
 
 import numpy as np
+from numpy.typing import ArrayLike
 import skia
 
 if TYPE_CHECKING:
     from PIL import Image as PILImage
+
+
+class _TensorLike(Protocol):
+    """Duck-typed torch tensor: enough to pull it into a NumPy array.
+
+    ``torch`` is not a dependency of this package, so tensors are accepted
+    structurally rather than by importing ``torch.Tensor``.
+    """
+
+    def detach(self) -> "_TensorLike": ...
+    def cpu(self) -> "_TensorLike": ...
+    def numpy(self) -> np.ndarray: ...
+
+
+ImageSource: TypeAlias = (
+    "np.ndarray | PILImage.Image | _TensorLike | str | Path"
+)
+"""Any image the library can load: a NumPy array, a Pillow image, a (duck-typed)
+torch tensor, or a filesystem path. See `load_rgba`."""
 
 
 def _as_uint8(array: np.ndarray) -> np.ndarray:
@@ -66,7 +86,7 @@ def _ndarray_to_rgba(array: np.ndarray, mode: str) -> np.ndarray:
     return np.ascontiguousarray(arr)
 
 
-def _tensor_to_rgba(tensor: object, mode: str) -> np.ndarray:
+def _tensor_to_rgba(tensor: "_TensorLike", mode: str) -> np.ndarray:
     """Normalize a torch tensor to RGBA.
 
     Handles both ``(C, H, W)`` and ``(H, W, C)`` layouts.
@@ -79,9 +99,10 @@ def _tensor_to_rgba(tensor: object, mode: str) -> np.ndarray:
         A contiguous ``(H, W, 4)`` ``uint8`` RGBA array.
 
     """
-    array = np.asarray(
-        tensor.detach().cpu().numpy() if hasattr(tensor, "detach") else tensor  # type: ignore
-    )  # type: ignore[attr-defined]
+    numpy_array = (
+        tensor.detach().cpu().numpy() if hasattr(tensor, "detach") else tensor
+    )
+    array = np.asarray(numpy_array)  # type: ignore[arg-type]
     if (
         array.ndim == 3
         and array.shape[0] in (1, 3, 4)
@@ -91,7 +112,7 @@ def _tensor_to_rgba(tensor: object, mode: str) -> np.ndarray:
     return _ndarray_to_rgba(array, mode)
 
 
-def load_rgba(source: object, mode: str = "rgb") -> np.ndarray:
+def load_rgba(source: "ImageSource", mode: str = "rgb") -> np.ndarray:
     """Load any supported image source into an RGBA array.
 
     Integer inputs are clipped to ``[0, 255]``. Floating-point inputs whose
@@ -120,9 +141,10 @@ def load_rgba(source: object, mode: str = "rgb") -> np.ndarray:
         return _load_path(source)
     module = type(source).__module__
     if module.startswith("PIL."):
-        return _ndarray_to_rgba(np.asarray(source.convert("RGBA")), "rgb")  # type: ignore[attr-defined]
+        pil = cast("PILImage.Image", source)
+        return _ndarray_to_rgba(np.asarray(pil.convert("RGBA")), "rgb")
     if module.startswith("torch"):
-        return _tensor_to_rgba(source, mode)
+        return _tensor_to_rgba(cast("_TensorLike", source), mode)
     raise TypeError(f"unsupported image source type: {type(source)!r}")
 
 

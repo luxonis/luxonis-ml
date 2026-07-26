@@ -9,14 +9,28 @@ never occludes pixels or labels and the original is untouched.
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import TypeAlias
 
 from luxonis_ml.utils.color import brand
 
-from .canvas import Canvas
+from ._util import is_sequence
+from .canvas import Canvas, TextMetrics
 from .color import Color, ColorLike
 from .geometry import Rect
 from .image import Image, _style_scale
 from .style import DEFAULT_STYLE, Style, get_default_theme
+
+#: JSON-like metadata a panel can render: a scalar, or a mapping/sequence nested
+#: arbitrarily. Anything else is still accepted and stringified as a leaf.
+PanelData: TypeAlias = (
+    Mapping[str, "PanelData"]
+    | Sequence["PanelData"]
+    | str
+    | int
+    | float
+    | bool
+    | None
+)
 
 # Nominal metrics at the style-reference resolution; scaled up on larger images
 # so the panel's type tracks the picture size instead of shrinking against it.
@@ -81,9 +95,7 @@ def _metrics(scale: float, background: Color) -> _Metrics:
 
 def _is_container(value: object) -> bool:
     """Whether a value is a nested container (mapping or non-string sequence)."""
-    return isinstance(value, Mapping) or (
-        isinstance(value, Sequence) and not isinstance(value, (str, bytes))
-    )
+    return isinstance(value, Mapping) or is_sequence(value)
 
 
 def _format_scalar(value: object) -> str:
@@ -100,7 +112,7 @@ def _format_scalar(value: object) -> str:
     return text if len(text) <= 500 else text[:499] + "…"
 
 
-def _format_tree(data: object, depth: int = 0) -> list[Line]:
+def _format_tree(data: "PanelData", depth: int = 0) -> list[Line]:
     """Flatten JSON-like data into indented key/value lines.
 
     Args:
@@ -119,7 +131,7 @@ def _format_tree(data: object, depth: int = 0) -> list[Line]:
     """
     if isinstance(data, Mapping):
         return _mapping_lines(data, depth)
-    if isinstance(data, Sequence) and not isinstance(data, (str, bytes)):
+    if is_sequence(data):
         return _sequence_lines(data, depth)
     return [(depth, "", False, _format_scalar(data))]
 
@@ -245,7 +257,7 @@ def _auto_width(lines: list[Line], m: _Metrics) -> float:
 
 def with_panel(
     image: Image,
-    data: object,
+    data: "PanelData",
     *,
     side: str = "right",
     width: float | None = None,
@@ -359,7 +371,7 @@ def _draw_panel(
     canvas: Canvas,
     ops: list[_Op],
     title: str | None,
-    title_metrics: object,
+    title_metrics: TextMetrics | None,
     panel_x: float,
     panel_y: float,
     m: _Metrics,
@@ -369,13 +381,13 @@ def _draw_panel(
     y0 = panel_y + m.pad
     if title is not None and title_metrics is not None:
         canvas.text(
-            (x0, y0 + title_metrics.ascent),  # type: ignore[attr-defined]
+            (x0, y0 + title_metrics.ascent),
             title,
             size=m.size * _TITLE_SCALE,
             color=m.title,
             weight=_TITLE_WEIGHT,
         )
-        y0 += title_metrics.height + m.line_gap * 2  # type: ignore[attr-defined]
+        y0 += title_metrics.height + m.line_gap * 2
     for op_y, op_x, text, weight, color, mono in ops:
         canvas.text(
             (x0 + op_x, y0 + op_y),

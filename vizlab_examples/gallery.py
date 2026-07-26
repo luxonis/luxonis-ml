@@ -21,6 +21,8 @@ vizlab feature figures — each a self-contained group that drops into the docs:
 - ``heatmaps.png`` — one field under several gradient themes.
 - ``distributions.png`` — one prediction under every distribution mode.
 - ``compose.png`` — blend / stack / grid composition.
+- ``smart_combine.png`` — ``combine``: layout-free composition of a mixed set of
+  images and image groups (GT/prediction pair and per-class heatmaps).
 - ``panel.png`` — the metadata side panel.
 - ``typography.png`` — bundled fonts and inline ``<b>/<i>/<code>`` markup.
 
@@ -75,6 +77,7 @@ from luxonis_ml.vizlab import (
     Mask,
     SemanticMask,
     blend,
+    combine,
     grid,
     hstack,
 )
@@ -464,6 +467,66 @@ def render_compose() -> Path:
     return save(
         hstack([cat, dog, mixed], titles=["cat", "dog", "mixup"]),
         "compose.png",
+    )
+
+
+def render_smart_combine() -> Path:
+    """Smart, layout-free composition of a heterogeneous set of images.
+
+    Where `hstack`/`vstack`/`grid` ask the caller to pick a shape, `combine`
+    takes a mix of finished images and image *groups* and arranges them
+    sensibly on its own — no rows or columns chosen by hand. Each positional
+    argument is one group; ``combine`` accepts three kinds:
+
+    - a **titled mapping** ``{title: image}`` — here the same frame shown as
+      ground truth and as the model's prediction, drawn as a titled pair;
+    - a **bare list** of images — here the per-class detection heatmaps a
+      FOMO-style head emits, gathered into their own sub-grid that reflows to
+      stay roughly square as classes are added or removed;
+    - a **single image**, placed as-is (not shown here — pass any `Image`).
+
+    ``combine`` renders each group into a block and lays the blocks out with an
+    automatically chosen column count, so changing the class list reshapes the
+    whole figure without touching any layout code.
+    """
+    scene = street_scene(_W, _H)
+
+    # Ground truth vs. prediction on the *same* frame: GT boxes carry no score,
+    # the prediction's do, plus one spurious low-confidence detection.
+    ground_truth = (
+        Image(scene)
+        .add(BBox(x=0.08, y=0.30, w=0.26, h=0.52, label="person"))
+        .add(BBox(x=0.52, y=0.46, w=0.40, h=0.30, label="car"))
+    )
+    prediction = (
+        Image(scene)
+        .add(BBox(x=0.10, y=0.31, w=0.25, h=0.50, label="person", score=0.94))
+        .add(BBox(x=0.53, y=0.47, w=0.39, h=0.29, label="car", score=0.88))
+        .add(BBox(x=0.30, y=0.55, w=0.14, h=0.16, label="bike", score=0.41))
+    )
+
+    # Per-class saliency maps — the kind of stack a per-class heatmap head
+    # produces, one map per class. A bare list becomes its own sub-grid, so
+    # ``combine`` reflows these into a compact grid instead of a long row.
+    class_blobs = {
+        "person": [(0.20, 0.55, 0.12)],
+        "car": [(0.72, 0.60, 0.12)],
+        "bike": [(0.37, 0.63, 0.09)],
+        "truck": [(0.80, 0.45, 0.14)],
+        "rider": [(0.30, 0.50, 0.08)],
+        "sign": [(0.60, 0.35, 0.06)],
+    }
+    heatmaps = [
+        Image(scene).add(Heatmap(values=_blob_field(_W, _H, centers)))
+        for centers in class_blobs.values()
+    ]
+
+    return save(
+        combine(
+            {"ground truth": ground_truth, "prediction": prediction},
+            heatmaps,
+        ),
+        "smart_combine.png",
     )
 
 
@@ -1364,6 +1427,7 @@ def main() -> None:
         render_heatmap_themes(),
         render_distribution_modes(),
         render_compose(),
+        render_smart_combine(),
         render_panel(),
         render_typography(),
     ):

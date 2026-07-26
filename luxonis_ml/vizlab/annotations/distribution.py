@@ -138,7 +138,7 @@ class ClassDistribution(CornerStack):
         cls,
         class_names: Sequence[str],
         scores: Sequence[float],
-        **kwargs: object,
+        **kwargs,
     ) -> "ClassDistribution":
         """Build a distribution from an ordered score vector and its class names.
 
@@ -160,7 +160,7 @@ class ClassDistribution(CornerStack):
             (str(name), float(score))
             for name, score in zip(class_names, scores, strict=True)
         ]
-        return cls(probabilities=pairs, **kwargs)  # type: ignore[arg-type]
+        return cls(probabilities=pairs, **kwargs)
 
     # -- distribution selection ---------------------------------------------
 

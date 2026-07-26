@@ -16,7 +16,7 @@ semantic segmentation and classification, and threads the rendering context
 
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, TypeAlias
 
 from .annotations import (
     Annotation,
@@ -37,13 +37,27 @@ _TEXT_STYLE = DEFAULT_STYLE.merge(
 
 if TYPE_CHECKING:
     from luxonis_ml.ldf import (
+        BBoxAnnotation,
         DatasetRecord,
         Detection,
+        InstanceSegmentationAnnotation,
         KeypointAnnotation,
         SegmentationAnnotation,
     )
 
     from .image import Image
+    from .io import ImageSource
+
+    #: Any LDF object `Image.add`/`to_render_annotations` renders: a whole
+    #: record, a detection tree, or a single spatial annotation model.
+    RenderableLDF: TypeAlias = (
+        DatasetRecord
+        | Detection
+        | BBoxAnnotation
+        | KeypointAnnotation
+        | InstanceSegmentationAnnotation
+        | SegmentationAnnotation
+    )
 
 KeypointLabelMode = Literal["none", "numbers", "names", "full"]
 
@@ -374,7 +388,7 @@ def metadata_annotations(
 
 
 def to_render_annotations(
-    obj: object, config: VizConfig | None = None
+    obj: "RenderableLDF", config: VizConfig | None = None
 ) -> list[Annotation]:
     """Convert one supported LDF object into render annotations.
 
@@ -440,7 +454,7 @@ def to_render_annotations(
 
 def visualize_record(
     record: "DatasetRecord",
-    image: object,
+    image: "ImageSource",
     *,
     config: VizConfig | None = None,
     theme: Theme | None = None,

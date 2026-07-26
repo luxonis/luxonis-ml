@@ -86,7 +86,7 @@ class Style:
         """Whether labels render with the monospace family."""
         return self.font_family == "mono"
 
-    def merge(self, **overrides: object) -> "Style":
+    def merge(self, **overrides) -> "Style":
         """Return a copy with the given fields replaced.
 
         Args:
@@ -100,7 +100,7 @@ class Style:
         clean = {
             key: value for key, value in overrides.items() if value is not None
         }
-        return replace(self, **clean)  # type: ignore[arg-type]
+        return replace(self, **clean)
 
     def scaled(self, factor: float) -> "Style":
         """Return a copy with every pixel dimension multiplied by ``factor``.

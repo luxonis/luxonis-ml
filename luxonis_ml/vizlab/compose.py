@@ -7,12 +7,13 @@ purity unambiguous, unlike the in-place ``Image.add``.
 """
 
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 import numpy as np
 
 from luxonis_ml.utils.color import brand
 
+from ._util import is_sequence
 from .annotations import Annotation, BBox, Keypoints, Mask, SemanticMask
 from .annotations.mask import _resize_mask
 from .canvas import Canvas
@@ -349,6 +350,154 @@ def grid_placed(
         style=style,
         emphasize_titles=emphasize_titles,
     )
+
+
+#: A single image, a flat group of images, or a titled group of images.
+CombineGroup = (
+    Image | Sequence[Image] | Mapping[str, "Image | Sequence[Image]"]
+)
+
+
+def combine(
+    *groups: CombineGroup,
+    pad: int = 10,
+    bg: ColorLike = _DEFAULT_BG,
+    style: Style = DEFAULT_STYLE,
+) -> Image:
+    """Lay out a mixed set of images (and grouped images) into one figure.
+
+    A smart, layout-free counterpart to `hstack`/`vstack`/`grid`: pass any mix
+    of finished `Image` objects and image groups, and ``combine`` arranges them
+    sensibly without the caller choosing rows or columns. Each positional
+    ``group`` is one of:
+
+    - a single `Image` — placed as-is;
+    - a sequence of `Image` objects — gathered into their own sub-grid;
+    - a mapping ``{title: image-or-sequence}`` — each entry becomes a titled
+      sub-block (its key drawn as a heading), the blocks gathered into a
+      sub-grid.
+
+    The resolved groups are then arranged with an automatically chosen column
+    count (see `_smart_cols`). Inputs are rendered at native resolution and
+    never mutated; a brand-new `Image` is returned.
+
+    Args:
+        groups: The images / image-groups to compose.
+        pad: Gap between cells and the outer margin, in pixels.
+        bg: Background color painted behind cells and gaps.
+        style: Style whose font is used for titles.
+
+    Returns:
+        A new `Image` wrapping the composed figure.
+
+    Raises:
+        ValueError: If no groups are given, or a group is empty.
+        TypeError: If a group is not an `Image`, a sequence, or a mapping.
+
+    Examples:
+        >>> import numpy as np
+        >>> from luxonis_ml.vizlab import Image, combine
+        >>> gt = Image(np.zeros((40, 40, 3), np.uint8))
+        >>> pred = Image(np.zeros((40, 40, 3), np.uint8))
+        >>> heat = [Image(np.zeros((20, 20, 3), np.uint8)) for _ in range(3)]
+        >>> out = combine({"GT": gt, "Pred": pred}, heat).render()
+        >>> out.shape[2], out.shape[0] > 40, out.shape[1] > 40
+        (4, True, True)
+
+    """
+    if not groups:
+        raise ValueError("cannot combine an empty set of groups")
+    resolved = [_resolve_group(g, pad=pad, bg=bg, style=style) for g in groups]
+    if len(resolved) == 1:
+        # Honor the "brand-new Image" contract even for a single group: never
+        # hand back the caller's own object, so a later ``.add`` on the result
+        # can't mutate the input's scene graph.
+        return resolved[0].copy()
+    return grid(
+        resolved,
+        ncols=_smart_cols(resolved),
+        pad=pad,
+        bg=bg,
+        style=style,
+    )
+
+
+def _resolve_member(
+    member: "Image | Sequence[Image]",
+    *,
+    pad: int,
+    bg: ColorLike,
+    style: Style,
+) -> Image:
+    """Resolve a single mapping value / list to one image (nested sub-grid)."""
+    if isinstance(member, Image):
+        return member
+    if is_sequence(member):
+        items = list(member)
+        if not items:
+            raise ValueError("cannot combine an empty group")
+        for item in items:
+            if not isinstance(item, Image):
+                raise TypeError(
+                    f"unsupported group member type: {type(item)!r}"
+                )
+        if len(items) == 1:
+            return items[0]
+        return grid(
+            items,
+            ncols=_smart_cols(items),
+            pad=pad,
+            bg=bg,
+            style=style,
+            emphasize_titles=False,
+        )
+    raise TypeError(f"unsupported group member type: {type(member)!r}")
+
+
+def _resolve_group(
+    group: CombineGroup, *, pad: int, bg: ColorLike, style: Style
+) -> Image:
+    if isinstance(group, Image):
+        return group
+    if isinstance(group, Mapping):
+        if not group:
+            raise ValueError("cannot combine an empty group")
+        values = [
+            _resolve_member(v, pad=pad, bg=bg, style=style)
+            for v in group.values()
+        ]
+        return grid(
+            values,
+            ncols=_smart_cols(values),
+            pad=pad,
+            bg=bg,
+            titles=list(group.keys()),
+            style=style,
+            emphasize_titles=True,
+        )
+    if is_sequence(group):
+        return _resolve_member(group, pad=pad, bg=bg, style=style)
+    raise TypeError(f"unsupported group type: {type(group)!r}")
+
+
+def _smart_cols(images: Sequence[Image]) -> int:
+    """Choose a column count that keeps the composite roughly square.
+
+    Uses the tiles' mean aspect ratio: with ``c`` columns the composite is about
+    ``ceil(n/c)`` rows tall, so a near-square figure wants ``c ~= sqrt(n / r)``
+    where ``r`` is the mean width/height. Wide tiles therefore get fewer columns
+    (taller stack) and tall tiles get more, both pulling toward a square. Small
+    counts collapse to a single row unless the tiles are markedly tall.
+    """
+    count = len(images)
+    if count <= 1:
+        return 1
+    ratios = [img.width / max(1, img.height) for img in images]
+    mean_ratio = sum(ratios) / len(ratios)
+    if count <= 3:
+        return 1 if mean_ratio < 0.6 else count
+    cols = round(math.sqrt(count / max(mean_ratio, 0.1)))
+    return max(1, min(count, cols))
 
 
 def _pad(rgba: np.ndarray, width: int, height: int, fill: Color) -> np.ndarray:

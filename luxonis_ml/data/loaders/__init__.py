@@ -228,6 +228,12 @@ See:
 """
 
 from .base_loader import LOADERS_REGISTRY, BaseLoader
+from .label_converter import loader_output_to_records
 from .luxonis_loader import LuxonisLoader
 
-__all__ = ["LOADERS_REGISTRY", "BaseLoader", "LuxonisLoader"]
+__all__ = [
+    "LOADERS_REGISTRY",
+    "BaseLoader",
+    "LuxonisLoader",
+    "loader_output_to_records",
+]

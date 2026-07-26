@@ -166,7 +166,7 @@ with guard_missing_extra("viz"):
         SemanticMask,
     )
     from .color import Color
-    from .compose import blend, grid, hstack, vstack
+    from .compose import blend, combine, grid, hstack, vstack
     from .convert import VizConfig, visualize_record
     from .geometry import Rect
     from .gradient import (
@@ -222,6 +222,7 @@ __all__ = [
     "Theme",
     "VizConfig",
     "blend",
+    "combine",
     "get_default_theme",
     "grid",
     "hstack",

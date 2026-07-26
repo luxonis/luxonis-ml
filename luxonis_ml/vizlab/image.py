@@ -7,6 +7,7 @@ in one pass.
 """
 
 import hashlib
+from collections.abc import Hashable
 from dataclasses import fields, is_dataclass
 from enum import Enum
 from pathlib import Path
@@ -24,7 +25,9 @@ from .style import Theme, get_default_theme
 if TYPE_CHECKING:
     from PIL import Image as PILImage
 
-    from .convert import VizConfig
+    from .convert import RenderableLDF, VizConfig
+    from .io import ImageSource
+    from .panel import PanelData
 
 #: Canvas short-side (px) at which styles render at their nominal size; larger
 #: canvases scale labels/strokes up proportionally (clamped to the range below).
@@ -39,7 +42,7 @@ def _qualname(value: object) -> str:
     return f"{type(value).__module__}.{type(value).__qualname__}"
 
 
-def _freeze_ndarray(array: np.ndarray) -> object:
+def _freeze_ndarray(array: np.ndarray) -> Hashable:
     """Freeze an array by dtype, shape, and a content hash."""
     contiguous = np.ascontiguousarray(array)
     return (
@@ -50,7 +53,7 @@ def _freeze_ndarray(array: np.ndarray) -> object:
     )
 
 
-def _freeze_fields(value: object, names: "list[str]") -> object:
+def _freeze_fields(value: object, names: "list[str]") -> Hashable:
     """Freeze an object by ``(qualname, ((field, frozen), ...))``."""
     return (
         _qualname(value),
@@ -61,7 +64,7 @@ def _freeze_fields(value: object, names: "list[str]") -> object:
     )
 
 
-def _freeze_dict(value: dict) -> object:
+def _freeze_dict(value: dict) -> Hashable:
     """Freeze a dict into a repr-sorted tuple of frozen key/value pairs."""
     items = [
         (_freeze_render_state(key), _freeze_render_state(item))
@@ -70,7 +73,7 @@ def _freeze_dict(value: dict) -> object:
     return tuple(sorted(items, key=lambda item: repr(item[0])))
 
 
-def _freeze_leaf(value: object) -> object:
+def _freeze_leaf(value: object) -> Hashable:
     """Freeze a set, enum, ``__dict__`` object, or scalar (the non-container tail)."""
     if isinstance(value, set):
         return tuple(
@@ -84,7 +87,7 @@ def _freeze_leaf(value: object) -> object:
     return value if isinstance(value, scalar) else repr(value)
 
 
-def _freeze_render_state(value: object) -> object:
+def _freeze_render_state(value: object) -> Hashable:
     """Convert mutable render state into a stable, equality-safe value."""
     if isinstance(value, np.ndarray):
         return _freeze_ndarray(value)
@@ -138,7 +141,7 @@ class Image:
 
     def __init__(
         self,
-        source: object,
+        source: "ImageSource",
         *,
         mode: str = "rgb",
         theme: Theme | None = None,
@@ -220,7 +223,10 @@ class Image:
         return self._rgba.copy()
 
     def add(
-        self, annotation: object, *, config: "VizConfig | None" = None
+        self,
+        annotation: "Annotation | RenderableLDF",
+        *,
+        config: "VizConfig | None" = None,
     ) -> Self:
         """Collect an annotation (native or LDF) to be drawn at render time.
 
@@ -469,7 +475,7 @@ class Image:
 
     def with_panel(
         self,
-        data: object,
+        data: "PanelData",
         *,
         side: str = "right",
         width: float | None = None,
