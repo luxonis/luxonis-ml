@@ -445,11 +445,16 @@ def test_theme_supplies_default_palette_and_style() -> None:
 def test_default_theme_is_used_and_settable() -> None:
     base = np.full((40, 80, 3), 30, np.uint8)
     box = BBox(x=0.06, y=0.37, w=0.9, h=0.5, label="car")
-    dark_render = Image(base).add(box).render()
+    original_theme = get_default_theme()
     try:
+        set_default_theme(DARK_THEME)
+        image = Image(base).add(box)
+        dark_render = image.render()
         set_default_theme(LIGHT_THEME)
         assert get_default_theme() is LIGHT_THEME
-        light_render = Image(base).add(box).render()
+        light_render = image.render()
+        fresh_light_render = Image(base).add(box).render()
     finally:
-        set_default_theme(DARK_THEME)
+        set_default_theme(original_theme)
     assert not np.array_equal(dark_render, light_render)
+    assert np.array_equal(light_render, fresh_light_render)

@@ -99,9 +99,9 @@ def _freeze_render_state(value: object) -> object:
     return _freeze_leaf(value)
 
 
-def _scene_signature(annotations: list[Annotation]) -> bytes:
-    """Return a digest that changes whenever the mutable scene graph changes."""
-    state = _freeze_render_state(annotations)
+def _render_signature(annotations: list[Annotation], theme: Theme) -> bytes:
+    """Return a digest of all mutable state that can affect rendered pixels."""
+    state = _freeze_render_state((annotations, theme))
     return hashlib.sha256(repr(state).encode("utf-8")).digest()
 
 
@@ -309,8 +309,8 @@ class Image:
         image is scaled for display while painting heavy fills only once, at the
         source resolution.
 
-        The result is cached per size and mutable scene-graph state. A copy is
-        returned on every call.
+        The result is cached per size, active theme, and mutable scene-graph
+        state. A copy is returned on every call.
 
         Args:
             size: ``(width, height)`` to render at; ``None`` uses the size set via
@@ -325,11 +325,11 @@ class Image:
         render_size = (
             target if target is not None else (self.width, self.height)
         )
-        key = (render_size, _scene_signature(self._annotations))
+        theme = self._theme if self._theme is not None else get_default_theme()
+        key = (render_size, _render_signature(self._annotations, theme))
         if self._cache is not None and self._cache_key == key:
             return self._cache.copy()
 
-        theme = self._theme if self._theme is not None else get_default_theme()
         # Background layers (semantic segmentation) render beneath every other
         # spatial annotation; overlays (image-level chrome) render on top. A
         # stable sort keeps add-order within each tier.
@@ -351,7 +351,7 @@ class Image:
         self._cache = cache
         self._cache_key = (
             render_size,
-            _scene_signature(self._annotations),
+            _render_signature(self._annotations, theme),
         )
         return cache.copy()
 

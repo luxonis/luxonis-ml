@@ -449,7 +449,7 @@ def visualize_record(
 ) -> "Image":
     """Build one complete record visualization over its source image.
 
-    Draws every detection's spatial annotations, aggregates all top-level
+    Draws every detection's spatial annotations, aggregates all nested
     semantic-segmentation masks into a single
     `SemanticMask`, collects
     class-only detections into one classification overlay, and attaches a
@@ -554,6 +554,23 @@ def _scan_detection(
     """Add a detection's spatial annotations and collect its record-level parts."""
     for annotation in _spatial_annotations(detection, config, task_name):
         img.add(annotation)
+    _collect_record_annotations(
+        detection,
+        task_name,
+        segmentations,
+        class_tags,
+        array_shapes,
+    )
+
+
+def _collect_record_annotations(
+    detection: "Detection",
+    task_name: str,
+    segmentations: "list[tuple[str | None, SegmentationAnnotation]]",
+    class_tags: list[str],
+    array_shapes: dict[str, list[int]],
+) -> None:
+    """Collect record-level annotations from one complete detection tree."""
     if detection.segmentation is not None:
         segmentations.append((detection.class_name, detection.segmentation))
     if _is_pure_classification(detection) and detection.class_name is not None:
@@ -561,6 +578,14 @@ def _scan_detection(
     if detection.array is not None:
         array_shapes[task_name or "array"] = list(
             detection.array.to_numpy().shape
+        )
+    for name, sub_detection in detection.sub_detections.items():
+        _collect_record_annotations(
+            sub_detection,
+            f"{task_name}/{name}",
+            segmentations,
+            class_tags,
+            array_shapes,
         )
 
 

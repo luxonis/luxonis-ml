@@ -1,14 +1,18 @@
 """vizlab renders Luxonis Data Format objects natively."""
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
 from luxonis_ml.ldf import (
+    ArrayAnnotation,
     BBoxAnnotation,
     DatasetRecord,
     Detection,
     InstanceSegmentationAnnotation,
     KeypointAnnotation,
+    SegmentationAnnotation,
 )
 from luxonis_ml.vizlab import (
     BBox,
@@ -131,6 +135,63 @@ def test_visualize_record_renders_with_panel():
     img = visualize_record(record, np.zeros((60, 60, 3), np.uint8), config=cfg)
     # sample_metadata attaches a side-panel, widening the output.
     assert img.render().shape[1] > 60
+
+
+def test_visualize_record_collects_nested_record_annotations(
+    tmp_path: Path,
+) -> None:
+    """Nested masks, class tags, and array shapes reach record-level output."""
+    array_path = tmp_path / "embedding.npy"
+    np.save(array_path, np.zeros((2, 3), np.float32))
+    root = Detection(
+        class_name="vehicle",
+        boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.6, h=0.6),
+        sub_detections={
+            "surface": Detection(
+                class_name="road",
+                segmentation=SegmentationAnnotation(
+                    mask=np.ones((8, 8), np.uint8)  # type: ignore[arg-type]
+                ),
+            ),
+            "scene": Detection(class_name="outdoor"),
+        },
+    )
+    record = _record("det", root)
+    image = visualize_record(record, np.zeros((32, 32, 3), np.uint8))
+
+    semantic = next(
+        annotation
+        for annotation in image.annotations
+        if isinstance(annotation, SemanticMask)
+    )
+    classification = next(
+        annotation
+        for annotation in image.annotations
+        if isinstance(annotation, Classification)
+    )
+    assert semantic.names == {1: "road"}
+    assert list(classification.tags) == ["outdoor"]
+    assert (
+        sum(isinstance(annotation, BBox) for annotation in image.annotations)
+        == 1
+    )
+
+    array_record = _record(
+        "det",
+        Detection(
+            sub_detections={
+                "features": Detection(
+                    class_name=None,
+                    array=ArrayAnnotation(path=array_path),
+                )
+            },
+            class_name=None,
+        ),
+    )
+    with_array_panel = visualize_record(
+        array_record, np.zeros((32, 32, 3), np.uint8)
+    )
+    assert with_array_panel.width > 32
 
 
 def test_color_determinism_across_records():

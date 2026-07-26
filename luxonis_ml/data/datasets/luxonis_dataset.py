@@ -50,8 +50,8 @@ from luxonis_ml.data.utils import (
     ParquetFileManager,
     UpdateMode,
     get_class_distributions,
-    get_class_heatmaps,
     get_duplicates_info,
+    get_heatmap_statistics,
     get_heatmaps,
     get_missing_annotations,
     infer_task,
@@ -1945,10 +1945,12 @@ class LuxonisDataset(BaseDataset):  # noqa: PLW1641
 
         stats["missing_annotations"] = get_missing_annotations(df)
 
-        stats["heatmaps"] = get_heatmaps(df, sample_size)
-
         if per_class_heatmaps:
-            stats["class_heatmaps"] = get_class_heatmaps(df, sample_size)
+            stats["heatmaps"], stats["class_heatmaps"] = (
+                get_heatmap_statistics(df, sample_size)
+            )
+        else:
+            stats["heatmaps"] = get_heatmaps(df, sample_size)
 
         return stats
 

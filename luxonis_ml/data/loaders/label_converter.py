@@ -31,6 +31,15 @@ from luxonis_ml.typing import Labels, Params
 _BACKGROUND = "background"
 
 
+def _split_loader_key(key: str) -> tuple[str, str]:
+    """Split a loader key while preserving a nested task's full path."""
+    task_type = get_task_type(key)
+    suffix = f"/{task_type}"
+    if key.endswith(suffix):
+        return key[: -len(suffix)], task_type
+    return get_task_name(key), task_type
+
+
 def loader_output_to_records(
     labels: Labels,
     *,
@@ -71,7 +80,8 @@ def loader_output_to_records(
     """
     grouped: dict[str, dict[str, np.ndarray]] = defaultdict(dict)
     for key, array in labels.items():
-        grouped[get_task_name(key)][get_task_type(key)] = array
+        task_name, task_type = _split_loader_key(key)
+        grouped[task_name][task_type] = array
 
     records: dict[str, DatasetRecord] = {}
     for task_name, task_types in grouped.items():
@@ -113,10 +123,11 @@ def _build_detections(
     detections.extend(
         _semantic_detections(task_types, id_to_name, render_background)
     )
-    # An LDF detection/segmentation task also emits a `classification` vector
-    # derived from its instances' classes; only surface classification as
-    # standalone detections for pure image-level classification tasks.
-    if not detections:
+    # Bounding boxes and semantic masks carry their classes directly, so their
+    # derived classification vector would be redundant. Keypoints and instance
+    # masks do not encode class ids, however, so retain their vector as
+    # record-level class tags when none of the reconstructed instances is named.
+    if not any(detection.class_name is not None for detection in detections):
         detections.extend(_classification_detections(task_types, id_to_name))
     return detections
 

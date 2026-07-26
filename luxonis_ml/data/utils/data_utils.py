@@ -495,10 +495,20 @@ def get_heatmaps(
         :math:`15 \times 15` nested list of counts.
 
     """
+    return _heatmaps_from_rows(
+        _heatmap_rows(df, sample_size, with_class=False),
+        downsample_factor,
+    )
+
+
+def _heatmaps_from_rows(
+    rows: Iterable[dict[str, Any]], downsample_factor: int
+) -> dict[str, dict[str, list[list[int]]]]:
+    """Accumulate combined heatmaps from already selected annotation rows."""
     size = _HEATMAP_GRID_SIZE
     edges = np.linspace(0, 1, size + 1)
     heatmaps: dict[str, dict[str, np.ndarray]] = {}
-    for row in _heatmap_rows(df, sample_size, with_class=False):
+    for row in rows:
         grid = _annotation_grid(
             row["task_type"], row["annotation"], edges, downsample_factor
         )
@@ -537,10 +547,20 @@ def get_class_heatmaps(
         is a :math:`15 \times 15` nested list of counts.
 
     """
+    return _class_heatmaps_from_rows(
+        _heatmap_rows(df, sample_size, with_class=True),
+        downsample_factor,
+    )
+
+
+def _class_heatmaps_from_rows(
+    rows: Iterable[dict[str, Any]], downsample_factor: int
+) -> dict[str, dict[str, dict[str, list[list[int]]]]]:
+    """Accumulate per-class heatmaps from already selected annotation rows."""
     size = _HEATMAP_GRID_SIZE
     edges = np.linspace(0, 1, size + 1)
     heatmaps: dict[str, dict[str, dict[str, np.ndarray]]] = {}
-    for row in _heatmap_rows(df, sample_size, with_class=True):
+    for row in rows:
         class_name = row["class_name"]
         if class_name is None:
             continue
@@ -563,6 +583,32 @@ def get_class_heatmaps(
         }
         for t_name, tasks in heatmaps.items()
     }
+
+
+def get_heatmap_statistics(
+    df: pl.LazyFrame,
+    sample_size: int | None = None,
+    downsample_factor: int = 5,
+) -> tuple[
+    dict[str, dict[str, list[list[int]]]],
+    dict[str, dict[str, dict[str, list[list[int]]]]],
+]:
+    """Generate combined and per-class heatmaps from one shared sample.
+
+    Args:
+        df: Dataset information.
+        sample_size: Optional number of annotation rows to sample.
+        downsample_factor: Factor used to downsample segmentation masks.
+
+    Returns:
+        The combined heatmaps and their per-class breakdown.
+
+    """
+    rows = list(_heatmap_rows(df, sample_size, with_class=True))
+    return (
+        _heatmaps_from_rows(rows, downsample_factor),
+        _class_heatmaps_from_rows(rows, downsample_factor),
+    )
 
 
 def merge_uuids(uuids: Iterable[str]) -> uuid.UUID:

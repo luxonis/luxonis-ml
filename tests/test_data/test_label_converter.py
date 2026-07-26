@@ -194,3 +194,65 @@ def test_render_background_keeps_segmentation_background() -> None:
     )["seg"]._annotations()
     assert [d.class_name for d in shown] == ["background", "road"]
     assert all(d.segmentation is not None for d in shown)
+
+
+def test_nested_loader_task_paths_remain_distinct() -> None:
+    """Nested tasks keep their full paths instead of overwriting one another."""
+    import numpy as np
+
+    labels = {
+        "/driver/boundingbox": np.array([[0, 0.1, 0.1, 0.2, 0.2]]),
+        "/passenger/boundingbox": np.array([[0, 0.3, 0.3, 0.2, 0.2]]),
+        "det/face/boundingbox": np.array([[0, 0.5, 0.5, 0.2, 0.2]]),
+    }
+    classes = {
+        "/driver": {"driver": 0},
+        "/passenger": {"passenger": 0},
+        "det/face": {"face": 0},
+    }
+
+    records = loader_output_to_records(labels, classes=classes)
+
+    assert set(records) == {"/driver", "/passenger", "det/face"}
+    assert {
+        task: record._annotations()[0].class_name
+        for task, record in records.items()
+    } == {
+        "/driver": "driver",
+        "/passenger": "passenger",
+        "det/face": "face",
+    }
+    driver_box = records["/driver"]._annotations()[0].boundingbox
+    passenger_box = records["/passenger"]._annotations()[0].boundingbox
+    assert driver_box is not None
+    assert passenger_box is not None
+    assert driver_box.x == 0.1
+    assert passenger_box.x == 0.3
+
+
+def test_boxless_spatial_tasks_keep_classification_tags() -> None:
+    """Keypoints and instance masks retain classes that they cannot encode."""
+    import numpy as np
+
+    labels = {
+        "pose/keypoints": np.array([[0.25, 0.5, 2]]),
+        "pose/classification": np.array([0, 1]),
+        "objects/instance_segmentation": np.ones((1, 4, 4), np.uint8),
+        "objects/classification": np.array([1]),
+    }
+    classes = {
+        "pose": {"background": 0, "person": 1},
+        "objects": {"vehicle": 0},
+    }
+
+    records = loader_output_to_records(labels, classes=classes)
+
+    pose = records["pose"]._annotations()
+    assert any(detection.keypoints is not None for detection in pose)
+    assert any(detection.class_name == "person" for detection in pose)
+
+    objects = records["objects"]._annotations()
+    assert any(
+        detection.instance_segmentation is not None for detection in objects
+    )
+    assert any(detection.class_name == "vehicle" for detection in objects)
