@@ -875,15 +875,15 @@ class SegmentationAnnotation(Annotation):
         >>> rle = SegmentationAnnotation(
         ...     height=4,
         ...     width=4,
-        ...     counts=b'11213ON0'
+        ...     counts=b"11213ON0",
         ... )
         >>> mask = SegmentationAnnotation(
         ...     mask=np.array(
         ...         [
-        ...            [0, 1, 0, 0],
-        ...            [1, 1, 0, 0],
-        ...            [0, 0, 0, 0],
-        ...            [0, 0, 1, 1],
+        ...             [0, 1, 0, 0],
+        ...             [1, 1, 0, 0],
+        ...             [0, 0, 0, 0],
+        ...             [0, 0, 1, 1],
         ...         ]
         ...     )
         ... )

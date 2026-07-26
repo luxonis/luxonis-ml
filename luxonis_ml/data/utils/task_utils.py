@@ -119,7 +119,10 @@ def task_type_iterator(
         ...     "detector/boundingbox": np.array([1]),
         ...     "pose/keypoints": np.array([2]),
         ... }
-        >>> [(task, arr.tolist()) for task, arr in task_type_iterator(labels, "keypoints")]
+        >>> [
+        ...     (task, arr.tolist())
+        ...     for task, arr in task_type_iterator(labels, "keypoints")
+        ... ]
         [('pose/keypoints', [2])]
 
     """

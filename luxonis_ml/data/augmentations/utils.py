@@ -277,7 +277,9 @@ def postprocess_keypoints(
         >>> np.round(out, 2).tolist()
         [[0.5, 0.5, 2.0, 1.0, 0.0, 0.0]]
         >>> keypoints = np.array([[1, 1, 2], [9, 9, 1]], dtype=float)
-        >>> postprocess_keypoints(keypoints, np.array([1, 0]), 10, 10, 1).tolist()
+        >>> postprocess_keypoints(
+        ...     keypoints, np.array([1, 0]), 10, 10, 1
+        ... ).tolist()
         [[0.9, 0.9, 1.0], [0.1, 0.1, 2.0]]
 
     """
