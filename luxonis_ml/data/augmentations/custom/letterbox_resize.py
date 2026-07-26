@@ -14,6 +14,9 @@ class LetterboxResize(A.DualTransform):
     """Augmentation that resizes an image with padding to
     maintain the aspect ratio.
 
+    .. image:: TODO-HOST/aug_letterbox.png
+       :alt: A sample before and after aspect-preserving letterbox resize.
+
     Attributes:
         height: The desired height of the output image.
         width: The desired width of the output image.

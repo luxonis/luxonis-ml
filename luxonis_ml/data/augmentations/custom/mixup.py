@@ -22,6 +22,9 @@ class MixUp(BatchTransform):
     If the images have different sizes, the second image is resized to
     match the first one.
 
+    .. image:: TODO-HOST/aug_mixup.png
+       :alt: A sample and a MixUp blend of two samples with their labels.
+
     See:
         `mixup: Beyond Empirical Risk Minimization <https://arxiv.org/abs/1710.09412>`_.
     """

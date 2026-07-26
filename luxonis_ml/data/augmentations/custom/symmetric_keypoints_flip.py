@@ -8,23 +8,70 @@ from typing_extensions import override
 
 
 class HorizontalSymmetricKeypointsFlip(A.DualTransform):
-    """Flip images and symmetric keypoints horizontally.
+    """Mirror left-to-right, re-indexing symmetric keypoints so labels stay correct.
+
+    A plain horizontal flip mirrors the pixels (and boxes and masks) but leaves
+    the keypoint *order* untouched, which mislabels left/right-symmetric objects:
+    after mirroring, the object's left side is on the right, yet a fixed "left
+    shoulder" index still points at the now-right-side shoulder. This transform
+    additionally swaps each left/right keypoint pair, so every index keeps naming
+    the same part — the left-shoulder point travels with the mirrored left side
+    and is still labeled the left shoulder. Use it instead of Albumentations'
+    ``HorizontalFlip`` whenever a task has symmetric keypoints.
+
+    .. image:: TODO-HOST/aug_horizontal_flip.png
+       :alt: A pose with left/right joints colored, before and after a horizontal symmetric flip.
+
+    ``keypoint_pairs`` describes one object's symmetry as ``(left_index,
+    right_index)`` pairs. A keypoint that sits on the mirror axis (e.g. the nose)
+    has no partner and pairs with itself, ``(i, i)``. Every keypoint of the object
+    must appear in exactly one pair, so ``n_keypoints`` — the number of distinct
+    indices — equals the object's keypoint count. Keypoints for several objects
+    are passed as one flat array of length ``num_objects * n_keypoints``, and each
+    object's block is re-indexed independently. Bounding boxes and
+    segmentation/instance masks are mirrored as well.
 
     Attributes:
-        keypoint_pairs: Pairs of keypoint indices swapped after flipping.
-        n_keypoints: Number of unique keypoints described by
+        keypoint_pairs: ``(left_index, right_index)`` symmetry pairs for a single
+            object; on-axis keypoints pair with themselves as ``(i, i)``.
+        n_keypoints: Distinct keypoints per object, derived from
             ``keypoint_pairs``.
+
+    Examples:
+        A center point (self-paired) plus one left/right pair: the coordinates
+        mirror and the pair swaps, so each index keeps its body part.
+
+        >>> import numpy as np
+        >>> import albumentations as A
+        >>> transform = A.Compose(
+        ...     [
+        ...         HorizontalSymmetricKeypointsFlip(
+        ...             keypoint_pairs=[(0, 0), (1, 2)], p=1.0
+        ...         )
+        ...     ],
+        ...     keypoint_params=A.KeypointParams(
+        ...         format="xy", remove_invisible=False
+        ...     ),
+        ... )
+        >>> out = transform(
+        ...     image=np.zeros((10, 10, 3), np.uint8),
+        ...     keypoints=[(2.0, 5.0), (1.0, 3.0), (9.0, 4.0)],
+        ... )["keypoints"]
+        >>> [(round(float(k[0]), 1), round(float(k[1]), 1)) for k in out]
+        [(8.0, 5.0), (1.0, 4.0), (9.0, 3.0)]
 
     """
 
     def __init__(self, keypoint_pairs: list[tuple[int, int]], p: float = 0.5):
-        """Flip an image and symmetric keypoints horizontally.
+        """Mirror an image and its symmetric keypoints left-to-right.
 
-        Bounding boxes and segmentation masks are flipped as well.
+        Bounding boxes and segmentation/instance masks are mirrored too.
 
         Args:
-            keypoint_pairs: Pairs of keypoint indices to swap after the
-                flip.
+            keypoint_pairs: ``(left_index, right_index)`` symmetry pairs for one
+                object. On-axis keypoints with no mirror partner pair with
+                themselves, ``(i, i)``. Every keypoint must be covered exactly
+                once (see the class docstring).
             p: Probability of applying the augmentation.
 
         """
@@ -152,23 +199,63 @@ class HorizontalSymmetricKeypointsFlip(A.DualTransform):
 
 
 class VerticalSymmetricKeypointsFlip(A.DualTransform):
-    """Flip images and symmetric keypoints vertically.
+    """Mirror top-to-bottom, re-indexing symmetric keypoints so labels stay correct.
+
+    The vertical counterpart of
+    `HorizontalSymmetricKeypointsFlip`: the pixels, boxes, and masks are
+    mirrored top-to-bottom, and each pair in ``keypoint_pairs`` is swapped so
+    every index keeps naming the same part after the mirror (a plain vertical
+    flip would leave the order untouched and mislabel symmetric keypoints).
+
+    .. image:: TODO-HOST/aug_vertical_flip.png
+       :alt: A pose with left/right joints colored, before and after a vertical symmetric flip.
+
+    Give the pairs of keypoints that map onto each other under a *vertical*
+    mirror; a keypoint on the axis pairs with itself as ``(i, i)``, and every
+    keypoint of the object must appear exactly once (so ``n_keypoints`` is the
+    object's keypoint count). Several objects are passed as one flat array of
+    length ``num_objects * n_keypoints`` and re-indexed per block. See
+    `HorizontalSymmetricKeypointsFlip` for the full explanation.
 
     Attributes:
-        keypoint_pairs: Pairs of keypoint indices swapped after flipping.
-        n_keypoints: Number of unique keypoints described by
+        keypoint_pairs: Index pairs that swap under the vertical mirror; on-axis
+            keypoints pair with themselves as ``(i, i)``.
+        n_keypoints: Distinct keypoints per object, derived from
             ``keypoint_pairs``.
+
+    Examples:
+        The coordinates mirror top-to-bottom and the pair swaps:
+
+        >>> import numpy as np
+        >>> import albumentations as A
+        >>> transform = A.Compose(
+        ...     [
+        ...         VerticalSymmetricKeypointsFlip(
+        ...             keypoint_pairs=[(0, 0), (1, 2)], p=1.0
+        ...         )
+        ...     ],
+        ...     keypoint_params=A.KeypointParams(
+        ...         format="xy", remove_invisible=False
+        ...     ),
+        ... )
+        >>> out = transform(
+        ...     image=np.zeros((10, 10, 3), np.uint8),
+        ...     keypoints=[(2.0, 5.0), (1.0, 3.0), (9.0, 4.0)],
+        ... )["keypoints"]
+        >>> [(round(float(k[0]), 1), round(float(k[1]), 1)) for k in out]
+        [(2.0, 5.0), (9.0, 6.0), (1.0, 7.0)]
 
     """
 
     def __init__(self, keypoint_pairs: list[tuple[int, int]], p: float = 0.5):
-        """Flip an image and symmetric keypoints vertically.
+        """Mirror an image and its symmetric keypoints top-to-bottom.
 
-        Bounding boxes and segmentation masks are flipped as well.
+        Bounding boxes and segmentation/instance masks are mirrored too.
 
         Args:
-            keypoint_pairs: Pairs of keypoint indices to swap after the
-                flip.
+            keypoint_pairs: Index pairs that swap under the vertical mirror.
+                On-axis keypoints pair with themselves, ``(i, i)``; every
+                keypoint must be covered exactly once (see the class docstring).
             p: Probability of applying the augmentation.
 
         """
@@ -295,13 +382,51 @@ class VerticalSymmetricKeypointsFlip(A.DualTransform):
 
 
 class TransposeSymmetricKeypoints(A.DualTransform):
-    """Transpose images and symmetric keypoints.
+    """Reflect across the main diagonal, re-indexing symmetric keypoints.
+
+    Transposing swaps the x and y axes (equivalent to a 90 degree rotation
+    followed by a horizontal flip), reflecting the image, boxes, and masks across
+    the top-left/bottom-right diagonal. As with the flips, the geometry alone
+    would leave keypoint order untouched and mislabel symmetric objects, so each
+    pair in ``keypoint_pairs`` is swapped to keep every index on the same part.
+
+    .. image:: TODO-HOST/aug_transpose.png
+       :alt: A pose with left/right joints colored, before and after a symmetric transpose.
+
+    Give the pairs of keypoints that map onto each other under the diagonal
+    reflection; a keypoint on the axis pairs with itself as ``(i, i)``, and every
+    keypoint of the object must appear exactly once (so ``n_keypoints`` is the
+    object's keypoint count). Several objects are passed as one flat array of
+    length ``num_objects * n_keypoints`` and re-indexed per block. See
+    `HorizontalSymmetricKeypointsFlip` for the full explanation.
 
     Attributes:
-        keypoint_pairs: Pairs of keypoint indices swapped after
-            transposition.
-        n_keypoints: Number of unique keypoints described by
+        keypoint_pairs: Index pairs that swap under the diagonal reflection;
+            on-axis keypoints pair with themselves as ``(i, i)``.
+        n_keypoints: Distinct keypoints per object, derived from
             ``keypoint_pairs``.
+
+    Examples:
+        Each keypoint's x and y are swapped and the pair is swapped:
+
+        >>> import numpy as np
+        >>> import albumentations as A
+        >>> transform = A.Compose(
+        ...     [
+        ...         TransposeSymmetricKeypoints(
+        ...             keypoint_pairs=[(0, 0), (1, 2)], p=1.0
+        ...         )
+        ...     ],
+        ...     keypoint_params=A.KeypointParams(
+        ...         format="xy", remove_invisible=False
+        ...     ),
+        ... )
+        >>> out = transform(
+        ...     image=np.zeros((10, 10, 3), np.uint8),
+        ...     keypoints=[(2.0, 5.0), (1.0, 3.0), (9.0, 4.0)],
+        ... )["keypoints"]
+        >>> [(round(float(k[0]), 1), round(float(k[1]), 1)) for k in out]
+        [(5.0, 2.0), (4.0, 9.0), (3.0, 1.0)]
 
     """
 
@@ -310,13 +435,16 @@ class TransposeSymmetricKeypoints(A.DualTransform):
         keypoint_pairs: list[tuple[int, int]],
         p: float = 0.5,
     ):
-        """Transpose an image and symmetric keypoints.
+        """Reflect an image and its symmetric keypoints across the main diagonal.
 
-        Equivalent to 90 degree rotation followed by horizontal flip.
+        Transposing is equivalent to a 90 degree rotation followed by a
+        horizontal flip. Bounding boxes and segmentation/instance masks are
+        transposed too.
 
         Args:
-            keypoint_pairs: Pairs of keypoint indices to swap after the
-                transpose.
+            keypoint_pairs: Index pairs that swap under the diagonal reflection.
+                On-axis keypoints pair with themselves, ``(i, i)``; every
+                keypoint must be covered exactly once (see the class docstring).
             p: Probability of applying the augmentation.
 
         """

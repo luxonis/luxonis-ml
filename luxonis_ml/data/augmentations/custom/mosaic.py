@@ -14,6 +14,9 @@ from luxonis_ml.utils.logging import deprecated
 class Mosaic4(BatchTransform):
     r"""Batch-based augmentation that creates a mosaic of four images.
 
+    .. image:: TODO-HOST/aug_mosaic.png
+       :alt: A sample and a 2x2 Mosaic4 of four samples with their labels.
+
     The transform arranges four images in a deterministic :math:`2 \times 2`
     grid:
 
