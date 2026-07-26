@@ -14,7 +14,10 @@ of `Span`; the canvas measures and draws spans with the bundled fonts.
 
 Examples:
     >>> from luxonis_ml.vizlab.markup import parse
-    >>> [(s.text, s.weight, s.italic, s.mono) for s in parse("a <b>b</b> <i>c</i>")]
+    >>> [
+    ...     (s.text, s.weight, s.italic, s.mono)
+    ...     for s in parse("a <b>b</b> <i>c</i>")
+    ... ]
     [('a ', 400, False, False), ('b', 700, False, False), (' ', 400, False, False), ('c', 400, True, False)]
 
 """

@@ -190,6 +190,9 @@ def _swatch_rows(
 class Caption(CornerStack):
     """A short line of text drawn as a card in a corner.
 
+    .. image:: TODO-HOST/overlays.png
+       :alt: Captions among classification tags, a legend, and analytics.
+
     Attributes:
         text: The caption text (single line).
         background: Card fill color; the text uses a readable contrast of it.
@@ -273,6 +276,9 @@ class InfoCard(CornerStack):
     heading and one text row per line. Used to surface annotation metadata that
     has no bounding box to anchor a hover tooltip to.
 
+    .. image:: TODO-HOST/typography.png
+       :alt: Text cards with bundled fonts and inline bold/italic/mono markup.
+
     Attributes:
         rows: The text lines to show, top to bottom.
         title: Optional heading drawn above the rows.
@@ -281,7 +287,9 @@ class InfoCard(CornerStack):
 
     Examples:
         >>> from luxonis_ml.vizlab import InfoCard
-        >>> card = InfoCard(rows=["track_id: 7", "speed: 12.4"], title="metadata")
+        >>> card = InfoCard(
+        ...     rows=["track_id: 7", "speed: 12.4"], title="metadata"
+        ... )
         >>> card.rows[0]
         'track_id: 7'
 
@@ -314,6 +322,9 @@ class InfoCard(CornerStack):
 class Legend(CornerStack):
     """A class-color key: swatch + name rows inside one card.
 
+    .. image:: TODO-HOST/overlays.png
+       :alt: A class-color legend among captions, tags, and analytics.
+
     Attributes:
         entries: Class names (colored from the palette) or explicit
             ``(name, color)`` pairs.
@@ -326,7 +337,9 @@ class Legend(CornerStack):
         Class names use the active palette; tuples pin an explicit color:
 
         >>> from luxonis_ml.vizlab import Legend
-        >>> legend = Legend(entries=["car", ("road", "#555555")], title="classes")
+        >>> legend = Legend(
+        ...     entries=["car", ("road", "#555555")], title="classes"
+        ... )
         >>> len(legend.entries)
         2
 

@@ -43,6 +43,9 @@ class Classification(CornerStack):
     the same corner are offset into one visual stack instead of covering one
     another.
 
+    .. image:: TODO-HOST/overlays.png
+       :alt: Classification tags among captions, a legend, and analytics.
+
     Attributes:
         tags: Class names, or ``(name, score)`` pairs, one chip each.
 
@@ -79,6 +82,14 @@ class Classification(CornerStack):
 
         Returns:
             The equivalent `Classification` overlay.
+
+        Examples:
+            The collected image-level class names become the chip tags, plain or
+            scored:
+
+            >>> chip = Classification.from_ldf(["cat", ("dog", 0.8)])
+            >>> chip.tags
+            ['cat', ('dog', 0.8)]
 
         """
         return cls(tags=list(class_names), palette=palette)

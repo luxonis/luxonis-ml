@@ -30,6 +30,9 @@ _LIGHT_BG = brand.LIGHT_BACKGROUND
 class Theme:
     """The default style, palette, and background for a render.
 
+    .. image:: TODO-HOST/themes.png
+       :alt: The same scene rendered in the dark and light themes.
+
     Attributes:
         style: Default style for annotations that set none.
         palette: Palette assigning class colors. Shared, so a class keeps its color

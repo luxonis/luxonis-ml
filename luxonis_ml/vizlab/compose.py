@@ -264,6 +264,9 @@ def grid(
     are centered, optional titles occupy a shared title band, and unused cells in
     the final row are omitted.
 
+    .. image:: TODO-HOST/compose.png
+       :alt: Blend, stack, and grid composition of rendered images.
+
     Args:
         images: The images to place, filled row-major.
         ncols: Positive number of columns; defaults to ``ceil(sqrt(n))``.
@@ -284,7 +287,9 @@ def grid(
     Examples:
         >>> from luxonis_ml.vizlab.image import Image
         >>> import numpy as np
-        >>> grid([Image(np.zeros((10, 10, 3), np.uint8))] * 4, ncols=2, pad=4).render().shape
+        >>> grid(
+        ...     [Image(np.zeros((10, 10, 3), np.uint8))] * 4, ncols=2, pad=4
+        ... ).render().shape
         (32, 32, 4)
 
     """

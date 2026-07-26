@@ -5,6 +5,7 @@ palette pins each class to a fixed color regardless of the order they appear in 
 given image::
 
     from luxonis_ml.vizlab import Palette, COCO_CLASSES
+
     palette = Palette(COCO_CLASSES)
 
 Examples:

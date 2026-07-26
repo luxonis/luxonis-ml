@@ -260,6 +260,9 @@ def with_panel(
     output height to fit its content. A bottom panel keeps the source image above
     the panel. The input image is rendered but not mutated.
 
+    .. image:: TODO-HOST/panel.png
+       :alt: A metadata side panel beside the annotated image.
+
     Args:
         image: The image to annotate. Rendered at native resolution.
         data: JSON-like metadata (mapping/sequence/scalar, nested arbitrarily).

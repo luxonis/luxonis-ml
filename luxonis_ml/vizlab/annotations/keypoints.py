@@ -44,6 +44,9 @@ class Keypoints(KeypointAnnotation, Annotation):
     Reuses the normalized ``(x, y, visibility)`` ``keypoints`` list of
     `KeypointAnnotation`.
 
+    .. image:: TODO-HOST/masks_keypoints.png
+       :alt: Keypoints alongside instance, polygon, and semantic masks.
+
     Attributes:
         edges: Pairs of keypoint indices to connect with a limb; empty draws
             joints only.
@@ -105,6 +108,25 @@ class Keypoints(KeypointAnnotation, Annotation):
 
         Returns:
             The equivalent `Keypoints`.
+
+        Examples:
+            The LDF ``(x, y, visibility)`` points are reused as-is; the skeleton
+            ``edges`` and label are rendering state added on top:
+
+            >>> from luxonis_ml.ldf import KeypointAnnotation
+            >>> ann = KeypointAnnotation.model_validate(
+            ...     {"keypoints": [(0.1, 0.2, 2), (0.3, 0.4, 0)]}
+            ... )
+            >>> kp = Keypoints.from_ldf(ann, edges=[(0, 1)], label="pose")
+            >>> len(kp.keypoints)
+            2
+            >>> (
+            ...     kp.keypoints[0][2],
+            ...     kp.keypoints[1][2],
+            ... )  # visibility preserved
+            (2, 0)
+            >>> (kp.edges, kp.label)
+            ([(0, 1)], 'pose')
 
         """
         return cls(

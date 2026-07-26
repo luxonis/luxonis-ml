@@ -34,6 +34,9 @@ class BBox(BBoxAnnotation, Annotation):
     Reuses the normalized ``x, y, w, h`` fields (top-left origin) of
     `BBoxAnnotation`; ``angle`` adds optional rotation.
 
+    .. image:: TODO-HOST/detection.png
+       :alt: Box labels: plain, oriented, OCR payload, and nested sub-labels.
+
     Attributes:
         angle: Rotation about the box center (0 for an axis-aligned box).
         angle_unit: ``"deg"`` (default) or ``"rad"`` for ``angle``.
@@ -73,6 +76,19 @@ class BBox(BBoxAnnotation, Annotation):
 
         Returns:
             The equivalent `BBox`.
+
+        Examples:
+            The LDF coordinates are reused verbatim; only rendering state is added:
+
+            >>> from luxonis_ml.ldf import BBoxAnnotation
+            >>> ann = BBoxAnnotation.model_validate(
+            ...     {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4}
+            ... )
+            >>> box = BBox.from_ldf(ann, label="car", score=0.9)
+            >>> (box.x, box.y, box.w, box.h)
+            (0.1, 0.2, 0.3, 0.4)
+            >>> (box.label, box.score)
+            ('car', 0.9)
 
         """
         return cls(

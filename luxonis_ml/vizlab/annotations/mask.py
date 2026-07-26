@@ -171,6 +171,9 @@ class Mask(InstanceSegmentationAnnotation, Annotation):
     COCO RLE ``counts`` + ``height``/``width``) and decoded to a dense ``(H, W)``
     array with the inherited ``to_numpy()`` — no separate decoding here.
 
+    .. image:: TODO-HOST/masks_keypoints.png
+       :alt: Instance, polygon, and semantic masks alongside keypoints.
+
     Attributes:
         fill_alpha: Fill opacity override; falls back to ``style.mask_alpha``.
         contour: Whether to stroke the mask outline.
@@ -209,6 +212,21 @@ class Mask(InstanceSegmentationAnnotation, Annotation):
 
         Returns:
             The equivalent `Mask`.
+
+        Examples:
+            The LDF mask storage is reused directly; ``to_numpy()`` decodes it back
+            to the same dense array:
+
+            >>> import numpy as np
+            >>> from luxonis_ml.ldf import InstanceSegmentationAnnotation
+            >>> ann = InstanceSegmentationAnnotation.model_validate(
+            ...     {"mask": np.eye(3, dtype=np.uint8)}
+            ... )
+            >>> mask = Mask.from_ldf(ann, label="cell")
+            >>> mask.to_numpy().tolist()
+            [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+            >>> mask.label
+            'cell'
 
         """
         return cls(
@@ -308,6 +326,9 @@ class SemanticMask(Annotation):
     `SegmentationAnnotation`), so `from_ldf` combines
     those into the ``(H, W)`` id map this draws.
 
+    .. image:: TODO-HOST/masks_keypoints.png
+       :alt: A semantic mask beside instance and polygon masks and keypoints.
+
     Attributes:
         labels: An ``(H, W)`` integer array of class ids.
         names: Optional id-to-name mapping (or a list indexed by id) used both for
@@ -357,6 +378,24 @@ class SemanticMask(Annotation):
         Returns:
             A `SemanticMask` over the combined id map, or an empty one
             when ``segmentations`` is empty.
+
+        Examples:
+            Each per-class LDF `SegmentationAnnotation` becomes one id in the
+            combined map, in first-seen order (id 0 stays background):
+
+            >>> import numpy as np
+            >>> from luxonis_ml.ldf import SegmentationAnnotation
+            >>> road = SegmentationAnnotation.model_validate(
+            ...     {"mask": np.array([[1, 1], [0, 0]], np.uint8)}
+            ... )
+            >>> sky = SegmentationAnnotation.model_validate(
+            ...     {"mask": np.array([[0, 0], [1, 1]], np.uint8)}
+            ... )
+            >>> sm = SemanticMask.from_ldf([("road", road), ("sky", sky)])
+            >>> sm.names
+            {1: 'road', 2: 'sky'}
+            >>> sm.labels.tolist()
+            [[1, 1], [2, 2]]
 
         """
         if not segmentations:

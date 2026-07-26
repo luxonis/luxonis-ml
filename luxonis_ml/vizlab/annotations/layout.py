@@ -23,9 +23,13 @@ def _overlap_area(a: Rect, b: Rect) -> float:
         The overlap area in square pixels.
 
     Examples:
-        >>> _overlap_area(Rect(0.0, 0.0, 10.0, 10.0), Rect(5.0, 5.0, 15.0, 15.0))
+        >>> _overlap_area(
+        ...     Rect(0.0, 0.0, 10.0, 10.0), Rect(5.0, 5.0, 15.0, 15.0)
+        ... )
         25.0
-        >>> _overlap_area(Rect(0.0, 0.0, 10.0, 10.0), Rect(20.0, 20.0, 30.0, 30.0))
+        >>> _overlap_area(
+        ...     Rect(0.0, 0.0, 10.0, 10.0), Rect(20.0, 20.0, 30.0, 30.0)
+        ... )
         0.0
 
     """

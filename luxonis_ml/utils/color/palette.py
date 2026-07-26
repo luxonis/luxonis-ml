@@ -173,7 +173,9 @@ class Palette:
         ... but the color follows first-seen order, not the name, so reordering
         changes it:
 
-        >>> Palette(["a", "b"]).color_for("b") == Palette(["b", "a"]).color_for("b")
+        >>> Palette(["a", "b"]).color_for("b") == Palette(
+        ...     ["b", "a"]
+        ... ).color_for("b")
         False
 
     """

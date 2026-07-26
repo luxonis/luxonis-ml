@@ -8,6 +8,7 @@ figure grouping related features so it can drop straight into the docs:
 - ``from_record.png`` — the same kind of rich sample produced directly from a
   large ``DatasetRecord``-compatible dict via ``visualize_record`` (data in,
   picture out — no annotation objects built by hand).
+- ``gallery.png`` — one at-a-glance grid with a single cell per feature.
 - ``detection.png`` — box-based labels (plain, oriented, OCR payload, nested).
 - ``masks_keypoints.png`` — pixel- and point-level labels (keypoints, instance
   mask, polygon mask, semantic mask).
@@ -345,6 +346,33 @@ def _light_theme() -> Image:
         Image(np.full((_H, _W, 3), 236, np.uint8), theme=LIGHT_THEME)
         .add(BBox(x=0.08, y=0.16, w=0.5, h=0.68, label="person", score=0.97))
         .add(BBox(x=0.44, y=0.36, w=0.47, h=0.5, label="dog", score=0.86))
+    )
+
+
+def render_overview() -> Path:
+    """One at-a-glance grid with a single cell per feature.
+
+    A less-focused companion to the per-topic figures below: it fits every label
+    type on one page so the top-level docs can show the whole surface at once,
+    then link out to the focused figures for detail.
+    """
+    cells = {
+        "bounding boxes": _boxes(),
+        "oriented boxes": _oriented(),
+        "payload (OCR)": _payload(),
+        "keypoints": _keypoints(),
+        "instance mask": _instance_mask(),
+        "polygon mask": _polygon_mask(),
+        "semantic mask": _semantic(),
+        "heatmap": _heatmap(),
+        "class distribution": _distribution(),
+        "nested sub-labels": _nested(),
+        "classification": _classification(),
+        "captions + legend": _captions_legend(),
+    }
+    return save(
+        grid(list(cells.values()), ncols=3, titles=list(cells)),
+        "gallery.png",
     )
 
 
@@ -860,6 +888,7 @@ def main() -> None:
     for path in (
         render_showcase(),
         render_from_record(),
+        render_overview(),
         render_detection(),
         render_masks_keypoints(),
         render_overlays(),

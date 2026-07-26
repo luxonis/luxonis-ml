@@ -63,7 +63,9 @@ class ParquetFileManager:
             ...     "annotation": "{}",
             ...     "sample_metadata": "{}",
             ... }
-            >>> manager = ParquetFileManager("/tmp/ldf-parquet-example", num_rows=2)
+            >>> manager = ParquetFileManager(
+            ...     "/tmp/ldf-parquet-example", num_rows=2
+            ... )
             >>> manager.num_rows
             2
 

@@ -22,10 +22,13 @@ def rgb_to_bool_masks(
     """Convert an RGB segmentation mask to boolean class masks.
 
     Example:
-        >>> segmentation_mask = np.array([
-        ...     [[0, 0, 0], [255, 0, 0], [0, 255, 0]],
-        ...     [[0, 0, 0], [0, 255, 0], [0, 0, 255]],
-        ...     ], dtype=np.uint8)
+        >>> segmentation_mask = np.array(
+        ...     [
+        ...         [[0, 0, 0], [255, 0, 0], [0, 255, 0]],
+        ...         [[0, 0, 0], [0, 255, 0], [0, 0, 255]],
+        ...     ],
+        ...     dtype=np.uint8,
+        ... )
         >>> class_colors = {
         ...     "red": (255, 0, 0),
         ...     "green": (0, 255, 0),

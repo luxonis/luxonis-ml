@@ -94,6 +94,9 @@ class ClassDistribution(CornerStack):
     or a ✓/✗ on the gauge); if the true class falls outside ``top_k`` it is still
     shown, so a missed prediction stays visible.
 
+    .. image:: TODO-HOST/distributions.png
+       :alt: One prediction shown in every class-distribution mode.
+
     Attributes:
         probabilities: The distribution as a ``{name: prob}`` mapping or a list of
             ``(name, prob)`` pairs. Probabilities are expected in ``[0, 1]``.

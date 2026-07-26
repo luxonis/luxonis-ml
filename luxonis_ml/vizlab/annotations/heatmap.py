@@ -72,6 +72,9 @@ class Heatmap(Annotation):
     pass and scaled with the image, so it stays smooth when the image is resized
     for display.
 
+    .. image:: TODO-HOST/heatmaps.png
+       :alt: One density field colored through several gradient themes.
+
     Attributes:
         values: The ``(H, W)`` scalar field. May be any resolution; it is
             resampled to the image. ``None`` draws nothing.

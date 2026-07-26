@@ -95,6 +95,9 @@ line-length = 79
 indent-width = 4
 extend-exclude = ["vizlab_examples"]
 
+[tool.ruff.format]
+docstring-code-format = true
+
 [tool.ruff.lint]
 select = [
   "ANN",

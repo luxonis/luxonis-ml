@@ -870,18 +870,14 @@ class SegmentationAnnotation(Annotation):
         - Polygons as lists of normalized points together with the image width and height.
 
     Example:
-        >>> rle = SegmentationAnnotation(
-        ...     height=4,
-        ...     width=4,
-        ...     counts=b'11213ON0'
-        ... )
+        >>> rle = SegmentationAnnotation(height=4, width=4, counts=b"11213ON0")
         >>> mask = SegmentationAnnotation(
         ...     mask=np.array(
         ...         [
-        ...            [0, 1, 0, 0],
-        ...            [1, 1, 0, 0],
-        ...            [0, 0, 0, 0],
-        ...            [0, 0, 1, 1],
+        ...             [0, 1, 0, 0],
+        ...             [1, 1, 0, 0],
+        ...             [0, 0, 0, 0],
+        ...             [0, 0, 1, 1],
         ...         ]
         ...     )
         ... )
