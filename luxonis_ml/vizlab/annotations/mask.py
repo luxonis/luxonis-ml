@@ -11,7 +11,7 @@ is installed and are skipped otherwise (the fill still draws).
 
 import math
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
 
@@ -350,6 +350,10 @@ class SemanticMask(Annotation):
         (2, 2, 4)
 
     """
+
+    #: Semantic segmentation is a background layer: it always renders beneath
+    #: boxes, instance masks, and keypoints, never on top of them.
+    BACKGROUND: ClassVar[bool] = True
 
     labels: np.ndarray | None = None
     names: dict[int, str] | list[str] | None = None

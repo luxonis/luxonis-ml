@@ -330,7 +330,13 @@ class Image:
             return self._cache.copy()
 
         theme = self._theme if self._theme is not None else get_default_theme()
-        spatial = [a for a in self._annotations if not a.OVERLAY]
+        # Background layers (semantic segmentation) render beneath every other
+        # spatial annotation; overlays (image-level chrome) render on top. A
+        # stable sort keeps add-order within each tier.
+        spatial = sorted(
+            (a for a in self._annotations if not a.OVERLAY),
+            key=lambda a: not a.BACKGROUND,
+        )
         overlays = [a for a in self._annotations if a.OVERLAY]
 
         # Pass 1: raster fills at the source resolution.

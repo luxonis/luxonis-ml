@@ -21,6 +21,7 @@ from luxonis_ml.vizlab import (
     Keypoints,
     Mask,
     Rect,
+    SemanticMask,
     get_default_theme,
     grid,
     hstack,
@@ -176,6 +177,33 @@ def test_render_cache_tracks_annotation_mutations() -> None:
     image.annotations.append(Classification(tags=["scene"]))
     appended = image.render()
     assert not np.array_equal(nested, appended)
+
+
+def test_semantic_segmentation_renders_beneath_other_masks() -> None:
+    """A `SemanticMask` is a background layer, drawn under every other spatial
+    annotation regardless of the order it was added.
+    """
+    assert SemanticMask.BACKGROUND is True
+    assert Mask.BACKGROUND is False
+
+    instance = Mask(
+        mask=np.ones((20, 20), np.uint8),
+        color="#ff0000",
+        fill_alpha=1.0,
+        contour=False,
+    )
+    semantic = SemanticMask(
+        labels=np.ones((20, 20), np.int32),
+        color_map={1: "#0000ff"},
+        fill_alpha=1.0,
+    )
+    # Semantic segmentation is added *after* the instance mask but must still
+    # render below it, so the center pixel stays the instance mask's red.
+    rendered = (
+        Image(np.zeros((20, 20, 3), np.uint8)).add(instance).add(semantic)
+    )
+    center = rendered.render()[10, 10]
+    assert center[0] > center[2]
 
 
 def test_nested_rendering_changes_pixels() -> None:

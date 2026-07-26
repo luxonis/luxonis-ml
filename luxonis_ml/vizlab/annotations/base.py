@@ -142,6 +142,11 @@ class Annotation(BaseModel):
     #: Overlays reserve their label positions first, then render last.
     OVERLAY: ClassVar[bool] = False
 
+    #: Whether this is a background layer drawn beneath every other spatial
+    #: annotation (e.g. a semantic-segmentation map), so boxes, instance masks,
+    #: and keypoints are never hidden under it.
+    BACKGROUND: ClassVar[bool] = False
+
     def add(self, child: "Annotation") -> Self:
         """Attach a nested sub-label and return ``self`` for chaining.
 
