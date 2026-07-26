@@ -526,7 +526,7 @@ def visualize_record(
 
     panel_data = _panel_data(record, array_shapes, panel)
     if panel_data:
-        img = img.with_panel(panel_data, title="metadata")
+        img = img.with_panel(panel_data, title="Sample Metadata")
     return img
 
 
