@@ -544,6 +544,10 @@ def inspect(
         bool,
         Parameter(alias="-lg", negative=""),
     ] = False,
+    show_background: Annotated[
+        bool,
+        Parameter(alias="-bg", negative=""),
+    ] = False,
     theme: Annotated[
         Literal["dark", "light"],
         Parameter(alias="-t"),
@@ -578,6 +582,8 @@ def inspect(
         skeletons: Draw keypoint skeleton edges.
         keypoint_labels: Specify how to draw keypoint labels.
         legend: Draw a class-color legend on each image.
+        show_background: Render the semantic-segmentation background class
+            (hidden by default) and include it in the palette and legend.
         theme: Visual theme of the visualization: ``dark`` or ``light``.
         bucket_storage: Storage type of the dataset.
 
@@ -670,18 +676,21 @@ def inspect(
     # loader (which renders detections/masks under ``name.strip()``); without this
     # a metadata name like " background" or " car" would key a different palette
     # slot than the rendered mask, so legend colors would not match the drawing.
-    # The background class is then dropped: it is never drawn (segmentation skips
-    # it, classification maps it to ``None``), so seeding it would waste the first
-    # palette color on it and shift every real class's color by one.
-    class_names: list[str] = [
-        class_name
-        for class_name in dict.fromkeys(
+    stripped_names = list(
+        dict.fromkeys(
             class_name.strip()
             for classes in dataset.get_class_names().values()
             for class_name in classes
         )
-        if class_name != _BACKGROUND
-    ]
+    )
+    # Real classes are always seeded first, in the same order regardless of the
+    # ``--show-background`` flag, so their colors never change when it is toggled.
+    # Background (never drawn for detection/classification) is only appended — at
+    # the end, taking its own trailing color — when ``--show-background`` renders
+    # its segmentation mask; otherwise it is dropped entirely.
+    class_names: list[str] = [n for n in stripped_names if n != _BACKGROUND]
+    if show_background and _BACKGROUND in stripped_names:
+        class_names.append(_BACKGROUND)
 
     viz_theme = LIGHT_THEME if theme == "light" else DARK_THEME
     # Make single images, panels, and grid backgrounds all follow the theme.
@@ -802,6 +811,7 @@ def inspect(
             data.labels,
             classes=classes,
             categorical_encodings=categorical_encodings,
+            render_background=show_background,
         )
         panel = build_panel(data.labels, data.metadata)
         instances = [

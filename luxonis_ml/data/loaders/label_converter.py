@@ -36,6 +36,7 @@ def loader_output_to_records(
     *,
     classes: dict[str, dict[str, int]],
     categorical_encodings: dict[str, dict[str, int]] | None = None,
+    render_background: bool = False,
 ) -> dict[str, DatasetRecord]:
     """Convert `LuxonisLoader` label arrays into canonical LDF records.
 
@@ -48,6 +49,10 @@ def loader_output_to_records(
             ``{class_name: id}`` dict, used to recover class names from ids.
         categorical_encodings: ``LuxonisDataset.get_categorical_encodings()``,
             used to decode categorical metadata ids back to their string values.
+        render_background: Keep the semantic-segmentation background class as a
+            drawable mask (named ``"background"``). When ``False`` (the default)
+            the background channel is dropped, mirroring how detection and
+            classification treat it as a bookkeeping non-label.
 
     Returns:
         One `DatasetRecord` per task name, each holding a list of `Detection`
@@ -77,7 +82,11 @@ def loader_output_to_records(
             for name, index in classes.get(task_name, {}).items()
         }
         detections = _build_detections(
-            task_name, task_types, id_to_name, categorical_encodings or {}
+            task_name,
+            task_types,
+            id_to_name,
+            categorical_encodings or {},
+            render_background,
         )
         records[task_name] = DatasetRecord.model_construct(
             files={"image": Path("<loader>")},
@@ -93,6 +102,7 @@ def _build_detections(
     task_types: dict[str, np.ndarray],
     id_to_name: dict[int, str],
     categorical_encodings: dict[str, dict[str, int]],
+    render_background: bool = False,
 ) -> list[Detection]:
     detections: list[Detection] = []
     detections.extend(
@@ -100,7 +110,9 @@ def _build_detections(
             task_name, task_types, id_to_name, categorical_encodings
         )
     )
-    detections.extend(_semantic_detections(task_types, id_to_name))
+    detections.extend(
+        _semantic_detections(task_types, id_to_name, render_background)
+    )
     # An LDF detection/segmentation task also emits a `classification` vector
     # derived from its instances' classes; only surface classification as
     # standalone detections for pure image-level classification tasks.
@@ -173,7 +185,9 @@ def _instance_detections(
 
 
 def _semantic_detections(
-    task_types: dict[str, np.ndarray], id_to_name: dict[int, str]
+    task_types: dict[str, np.ndarray],
+    id_to_name: dict[int, str],
+    render_background: bool = False,
 ) -> list[Detection]:
     semantic = task_types.get("segmentation")
     if semantic is None:
@@ -181,7 +195,9 @@ def _semantic_detections(
     detections: list[Detection] = []
     for class_id, channel in enumerate(np.asarray(semantic)):
         name = id_to_name.get(class_id)
-        if name == _BACKGROUND or not np.any(channel):
+        if (name == _BACKGROUND and not render_background) or not np.any(
+            channel
+        ):
             continue
         detections.append(
             Detection(

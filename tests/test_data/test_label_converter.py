@@ -169,3 +169,28 @@ def test_background_class_is_not_labeled() -> None:
         cls, classes={"cls": {"background": 0, " cat": 1, "dog": 2}}
     )["cls"]._annotations()
     assert [d.class_name for d in dets2] == ["cat"]
+
+
+def test_render_background_keeps_segmentation_background() -> None:
+    """``render_background`` surfaces the background segmentation channel."""
+    import numpy as np
+
+    # A (C, H, W) semantic map: channel 0 is background, channel 1 is road.
+    seg = np.zeros((2, 2, 2), dtype=np.uint8)
+    seg[0, 0, :] = 1  # background occupies the top row
+    seg[1, 1, :] = 1  # road occupies the bottom row
+    labels = {"seg/segmentation": seg}
+    classes = {"seg": {" background": 0, " road": 1}}
+
+    # By default the background channel is dropped, mirroring detection.
+    default = loader_output_to_records(labels, classes=classes)[
+        "seg"
+    ]._annotations()
+    assert [d.class_name for d in default] == ["road"]
+
+    # With render_background it becomes a drawable, stripped-name mask.
+    shown = loader_output_to_records(
+        labels, classes=classes, render_background=True
+    )["seg"]._annotations()
+    assert [d.class_name for d in shown] == ["background", "road"]
+    assert all(d.segmentation is not None for d in shown)
