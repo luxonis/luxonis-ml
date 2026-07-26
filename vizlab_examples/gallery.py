@@ -34,10 +34,6 @@ for the download, GCS credentials:
 - ``aug_letterbox.png`` — `LetterboxResize`.
 - ``aug_mixup.png`` — `MixUp`.
 - ``aug_mosaic.png`` — `Mosaic4`.
-- ``aug_horizontal_flip.png`` / ``aug_vertical_flip.png`` /
-  ``aug_transpose.png`` — the symmetric keypoint flips, on a synthetic pose with
-  left (cyan) and right (rose) joints colored, so the mirror keeps each side on
-  the correct anatomical part (a naive flip would swap them).
 
 The vizlab figures synthesize their own backdrops with numpy (no external
 assets); the augmentation figures are skipped with a hint when the ``data``
@@ -1346,152 +1342,12 @@ def render_aug_mosaic() -> Path:
     return _aug_examples(examples, "Mosaic4", "aug_mosaic.png")
 
 
-# A synthetic, asymmetric person pose (the person's LEFT arm raised) as a
-# front-facing figure, so anatomical left is at image-right. Keypoints are
-# colored by body side; after a symmetric flip the side colors stay on the
-# correct anatomical parts — that is the whole point of these transforms, and
-# what naive index-preserving flips get wrong. Order matches ``_FLIP_PAIRS``.
-_FLIP_POSE = [
-    (0.50, 0.13),  # 0 nose
-    (0.61, 0.27),  # 1 left shoulder
-    (0.39, 0.27),  # 2 right shoulder
-    (0.68, 0.16),  # 3 left elbow (raised)
-    (0.33, 0.40),  # 4 right elbow
-    (0.73, 0.06),  # 5 left wrist (raised)
-    (0.30, 0.52),  # 6 right wrist
-    (0.57, 0.54),  # 7 left hip
-    (0.43, 0.54),  # 8 right hip
-    (0.59, 0.72),  # 9 left knee
-    (0.41, 0.72),  # 10 right knee
-    (0.60, 0.90),  # 11 left ankle
-    (0.40, 0.90),  # 12 right ankle
-]
-#: Left/right index pairs swapped after a symmetric flip; the nose is its own.
-_FLIP_PAIRS = [(0, 0), (1, 2), (3, 4), (5, 6), (7, 8), (9, 10), (11, 12)]
-_FLIP_SIDE = 360
-
-# Index groups per body side and the (side-local) skeleton edges connecting them.
-_FLIP_LEFT = [1, 3, 5, 7, 9, 11]
-_FLIP_RIGHT = [2, 4, 6, 8, 10, 12]
-_FLIP_CENTER = [0, 1, 2, 7, 8]  # nose + shoulders + hips (the torso)
-_LIMB_EDGES = [(0, 1), (1, 2), (0, 3), (3, 4), (4, 5)]  # arm then leg
-_TORSO_EDGES = [(0, 1), (0, 2), (1, 2), (3, 4), (1, 3), (2, 4)]
-_LEFT_COLOR, _RIGHT_COLOR, _CENTER_COLOR = "#22d3ee", "#fb7185", "#94a3b8"
-
-
-def _flip_backdrop(side: int) -> np.ndarray:
-    """Build a gradient with a bright corner ``sun`` so the mirror is obvious."""
-    image = gradient(side, side, hue=0.6).copy()
-    ys, xs = np.ogrid[:side, :side]
-    sun = (xs - 0.15 * side) ** 2 + (ys - 0.15 * side) ** 2 <= (
-        0.07 * side
-    ) ** 2
-    image[sun] = (250, 214, 96)
-    return image
-
-
-def _pose_image(image: np.ndarray, pose: list[tuple[float, float]]) -> Image:
-    """Draw the pose with keypoints colored by body side (left/right/torso)."""
-
-    def side(
-        indices: list[int], edges: list[tuple[int, int]], color: str
-    ) -> Keypoints:
-        points = [(pose[i][0], pose[i][1], 2) for i in indices]
-        return Keypoints(keypoints=points, edges=edges, color=color)
-
-    return (
-        Image(image)
-        .add(side(_FLIP_CENTER, _TORSO_EDGES, _CENTER_COLOR))
-        .add(side(_FLIP_RIGHT, _LIMB_EDGES, _RIGHT_COLOR))
-        .add(side(_FLIP_LEFT, _LIMB_EDGES, _LEFT_COLOR))
-    )
-
-
-def _render_flip(transform: object, title: str, name: str) -> Path:
-    """Apply a symmetric-flip transform to the pose and show before/after.
-
-    Left-side joints are cyan, right-side rose. After the flip the image mirrors
-    (watch the sun) yet each color stays on the correct anatomical side — the
-    left palm travels with the left arm rather than being mislabeled.
-    """
-    import albumentations as A
-
-    backdrop = _flip_backdrop(_FLIP_SIDE)
-    before = _pose_image(backdrop, _FLIP_POSE)
-
-    points = [(x * _FLIP_SIDE, y * _FLIP_SIDE) for x, y in _FLIP_POSE]
-    result = A.Compose(
-        [transform],
-        keypoint_params=A.KeypointParams(format="xy", remove_invisible=False),
-    )(image=backdrop, keypoints=points)
-    out_image = result["image"]
-    out_h, out_w = out_image.shape[:2]
-    flipped = [
-        (float(p[0]) / out_w, float(p[1]) / out_h) for p in result["keypoints"]
-    ]
-    after = _pose_image(out_image, flipped)
-
-    return save(
-        grid(
-            [
-                _fit_height(before, _AUG_DISPLAY_H),
-                _fit_height(after, _AUG_DISPLAY_H),
-            ],
-            ncols=2,
-            titles=["original", title],
-        ),
-        name,
-    )
-
-
-def render_aug_horizontal_flip() -> Path:
-    """HorizontalSymmetricKeypointsFlip: mirror left<->right, re-indexing joints."""
-    from luxonis_ml.data.augmentations.custom import (
-        HorizontalSymmetricKeypointsFlip,
-    )
-
-    return _render_flip(
-        HorizontalSymmetricKeypointsFlip(keypoint_pairs=_FLIP_PAIRS, p=1.0),
-        "HorizontalSymmetricKeypointsFlip",
-        "aug_horizontal_flip.png",
-    )
-
-
-def render_aug_vertical_flip() -> Path:
-    """VerticalSymmetricKeypointsFlip: mirror top<->bottom, re-indexing joints."""
-    from luxonis_ml.data.augmentations.custom import (
-        VerticalSymmetricKeypointsFlip,
-    )
-
-    return _render_flip(
-        VerticalSymmetricKeypointsFlip(keypoint_pairs=_FLIP_PAIRS, p=1.0),
-        "VerticalSymmetricKeypointsFlip",
-        "aug_vertical_flip.png",
-    )
-
-
-def render_aug_transpose() -> Path:
-    """TransposeSymmetricKeypoints: swap axes, re-indexing symmetric joints."""
-    from luxonis_ml.data.augmentations.custom import (
-        TransposeSymmetricKeypoints,
-    )
-
-    return _render_flip(
-        TransposeSymmetricKeypoints(keypoint_pairs=_FLIP_PAIRS, p=1.0),
-        "TransposeSymmetricKeypoints",
-        "aug_transpose.png",
-    )
-
-
 def render_augmentations() -> list[Path]:
     """Render every custom-augmentation figure; needs the ``data`` extra."""
     return [
         render_aug_letterbox(),
         render_aug_mixup(),
         render_aug_mosaic(),
-        render_aug_horizontal_flip(),
-        render_aug_vertical_flip(),
-        render_aug_transpose(),
     ]
 
 
