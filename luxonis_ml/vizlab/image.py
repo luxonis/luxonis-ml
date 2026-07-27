@@ -20,7 +20,10 @@ from . import io
 from .annotations.base import Annotation, RenderContext
 from .annotations.layout import LabelLayout
 from .canvas import Canvas
+from .geometry import Rect
+from .hitmap import HitMap
 from .style import Theme, get_default_theme
+from .tooltip import Tooltip
 
 if TYPE_CHECKING:
     from PIL import Image as PILImage
@@ -327,14 +330,48 @@ class Image:
             freely; the cache holds a separate copy.
 
         """
+        return self._render(size, capture=False)[0]
+
+    def render_hits(
+        self, size: tuple[int, int] | None = None
+    ) -> tuple[np.ndarray, HitMap]:
+        """Render like `render`, also returning a hover `HitMap`.
+
+        The map holds the display-pixel region of every annotation that carries a
+        `Tooltip` (see `Annotation.tooltip`), so an interactive viewer can resolve
+        the annotation under the cursor. Unlike `render`, this call is not cached;
+        it is meant to run once per displayed frame.
+
+        Args:
+            size: ``(width, height)`` to render at; ``None`` uses the size set via
+                `render_at` (the source resolution if unset).
+
+        Returns:
+            A ``(rgba, hitmap)`` pair. The RGBA array matches what `render` would
+            return for the same ``size``.
+
+        """
+        rgba, hits = self._render(size, capture=True)
+        return rgba, hits if hits is not None else HitMap.empty()
+
+    def _render(
+        self, size: tuple[int, int] | None, *, capture: bool
+    ) -> tuple[np.ndarray, HitMap | None]:
+        """Shared render body for `render` (cached) and `render_hits` (uncapped).
+
+        When ``capture`` is ``False`` the result is served from / stored in the
+        render cache exactly as before and the second tuple element is ``None``.
+        When ``capture`` is ``True`` the cache is bypassed and a `HitMap` of every
+        tooltip-bearing annotation's region is collected instead.
+        """
         target = size if size is not None else self._render_size
         render_size = (
             target if target is not None else (self.width, self.height)
         )
         theme = self._theme if self._theme is not None else get_default_theme()
         key = (render_size, _render_signature(self._annotations, theme))
-        if self._cache is not None and self._cache_key == key:
-            return self._cache.copy()
+        if not capture and self._cache is not None and self._cache_key == key:
+            return self._cache.copy(), None
 
         # Background layers (semantic segmentation) render beneath every other
         # spatial annotation; overlays (image-level chrome) render on top. A
@@ -351,15 +388,15 @@ class Image:
         if target is not None and target != (canvas.width, canvas.height):
             canvas = canvas.scaled(target[0], target[1])
         # Pass 2: sharp vector content at the display resolution.
-        self._render_vectors(canvas, spatial, overlays, theme)
+        hits: list[tuple[Rect, Tooltip]] | None = [] if capture else None
+        self._render_vectors(canvas, spatial, overlays, theme, hits)
 
-        cache = canvas.to_rgba()
-        self._cache = cache
-        self._cache_key = (
-            render_size,
-            _render_signature(self._annotations, theme),
-        )
-        return cache.copy()
+        rgba = canvas.to_rgba()
+        if not capture:
+            self._cache = rgba
+            self._cache_key = key
+            return rgba.copy(), None
+        return rgba.copy(), HitMap(hits if hits is not None else [])
 
     def _render_fills(self, spatial: list[Annotation], theme: Theme) -> Canvas:
         """First pass: paint every annotation's raster fill at source resolution."""
@@ -375,12 +412,15 @@ class Image:
         spatial: list[Annotation],
         overlays: list[Annotation],
         theme: Theme,
+        hits: list[tuple[Rect, Tooltip]] | None = None,
     ) -> None:
         """Second pass: crisp vector content and label chips at display resolution.
 
         Overlay label positions are reserved first so spatial labels avoid them,
         then spatial shapes, then their chips on top (so a later box never covers
-        an earlier one's chip), then the overlays on top of everything.
+        an earlier one's chip), then the overlays on top of everything. When
+        ``hits`` is given, tooltip-bearing annotations append their region to it
+        during the label pass (all in this canvas's display pixels).
         """
         ctx = RenderContext(
             canvas=canvas,
@@ -388,6 +428,7 @@ class Image:
             layout=LabelLayout(canvas.width, canvas.height),
             theme=theme,
             style_scale=_style_scale(canvas.width, canvas.height),
+            hits=hits,
         )
         for annotation in overlays:
             annotation.reserve(ctx)

@@ -34,6 +34,7 @@ from luxonis_ml.vizlab.style import (
     derive_child_color,
     derive_child_style,
 )
+from luxonis_ml.vizlab.tooltip import Tooltip
 
 from .layout import LabelLayout
 
@@ -60,6 +61,10 @@ class RenderContext:
         style_scale: Multiplier applied to every resolved style so pixel metrics
             (stroke, typography, chip padding) track the canvas resolution. ``1.0``
             leaves styles at their nominal sizes.
+        hits: Collector for hover hit entries, or ``None`` to capture none. When
+            set, annotations that carry a `Tooltip` append their ``(region,
+            tooltip)`` to it during the label pass (see `emit_hit`); the regions
+            are in final display-pixel coordinates.
 
     """
 
@@ -70,6 +75,7 @@ class RenderContext:
     layout: LabelLayout | None = None
     theme: Theme | None = None
     style_scale: float = 1.0
+    hits: list[tuple[Rect, Tooltip]] | None = None
 
     def descend(self, color: Color, style: Style) -> "RenderContext":
         """Return a child context one level deeper, carrying resolved parent look.
@@ -79,8 +85,8 @@ class RenderContext:
             style: The resolved style of the annotation being descended from.
 
         Returns:
-            A new `RenderContext` sharing the canvas, layout, and theme with
-            ``depth + 1``.
+            A new `RenderContext` sharing the canvas, layout, theme, and hit
+            collector with ``depth + 1``.
 
         """
         return RenderContext(
@@ -91,7 +97,23 @@ class RenderContext:
             layout=self.layout,
             theme=self.theme,
             style_scale=self.style_scale,
+            hits=self.hits,
         )
+
+    def emit_hit(self, region: Rect, tooltip: Tooltip | None) -> None:
+        """Record a hover region for the current annotation, if collecting.
+
+        A no-op unless a collector is attached (`hits`) and the annotation
+        carries a `Tooltip`. ``region`` must be in the canvas's final display
+        pixels (the label pass runs on the already-scaled canvas).
+
+        Args:
+            region: The annotation's axis-aligned bounds in display pixels.
+            tooltip: The hover content to associate with ``region``, if any.
+
+        """
+        if self.hits is not None and tooltip is not None:
+            self.hits.append((region, tooltip))
 
 
 class Annotation(BaseModel):
@@ -110,6 +132,9 @@ class Annotation(BaseModel):
         style: Style override; falls back to a parent-derived or the theme's style.
         palette: Palette used to pick a color from ``label``; ``None`` uses the
             theme's palette.
+        tooltip: Optional hover content surfaced by an interactive viewer when the
+            annotation is hovered (see `luxonis_ml.vizlab.viewer`). Non-rendering
+            state: it never draws, but `Image.render_hits` reports its region.
         children: Nested sub-label annotations, drawn on top of this one.
 
     Examples:
@@ -136,6 +161,7 @@ class Annotation(BaseModel):
     color: ColorLike | None = None
     style: Style | None = None
     palette: Palette | None = None
+    tooltip: Tooltip | None = None
     children: list["Annotation"] = Field(default_factory=list)
 
     #: Whether this is image-level chrome drawn on top of everything (e.g. a tag).

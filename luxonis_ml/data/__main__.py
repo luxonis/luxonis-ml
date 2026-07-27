@@ -1,8 +1,5 @@
-import functools
 import math
 import shutil
-from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Literal, TypeAlias
 
@@ -37,320 +34,12 @@ from luxonis_ml.data.utils.task_utils import get_task_name, get_task_type
 from luxonis_ml.enums import DatasetType
 
 if TYPE_CHECKING:
-    from luxonis_ml.ldf import DatasetRecord, Detection
-    from luxonis_ml.vizlab import Image, Palette
-    from luxonis_ml.vizlab.canvas import Canvas
+    from luxonis_ml.vizlab import Image
 
 app = App(help="Dataset utilities.")
 
-MouseCallback: TypeAlias = Callable[[int, int, int, int, object], None]
-
 
 BucketStorageT: TypeAlias = Annotated[BucketStorage, Parameter(alias="-b")]
-
-
-def _screen_size() -> tuple[int, int] | None:
-    """Best-effort screen resolution in pixels, or ``None`` if unavailable.
-
-    Uses Tk (standard library) to query the display; returns ``None`` on any
-    failure (headless session, Tk missing), letting callers fall back to
-    unscaled, un-centered display.
-    """
-    try:
-        import tkinter as tk
-
-        root = tk.Tk()
-        root.withdraw()
-        size = (root.winfo_screenwidth(), root.winfo_screenheight())
-        root.destroy()
-    except Exception:
-        return None
-    else:
-        return size
-
-
-# --- Metadata hover tooltips -------------------------------------------------
-
-HoverItem: TypeAlias = tuple[tuple[float, float, float, float], dict]
-
-
-@dataclass
-class _HoverWindow:
-    """Per-window state for drawing metadata tooltips on mouse hover.
-
-    Attributes:
-        base: The rendered BGR frame without any tooltip.
-        items: ``(rect, info)`` pairs; ``rect`` is a box in frame pixels and
-            ``info`` is the detection's metadata (plus a ``"_title"`` header).
-        frame: Composed frame size ``(w, h)`` (the image passed to ``imshow``).
-        win: On-screen window size ``(w, h)``; used to map mouse coordinates
-            back into frame pixels when the window was scaled.
-        hover_idx: Index of the item under the cursor, or ``None``.
-        mouse: Cursor position in frame pixels.
-        dirty: Whether the window needs a redraw.
-
-    """
-
-    base: "np.ndarray"
-    items: list[HoverItem]
-    frame: tuple[int, int]
-    win: tuple[int, int]
-    hover_idx: int | None = None
-    mouse: tuple[int, int] = (0, 0)
-    dirty: bool = False
-
-
-def _collect_hover_items(
-    detection: "Detection",
-    width: int,
-    height: int,
-    items: list[HoverItem],
-    offset_x: float = 0.0,
-    offset_y: float = 0.0,
-    text_key: str | None = None,
-    palette: "Palette | None" = None,
-) -> None:
-    """Append ``(box_rect, info)`` for a detection (and its sub-detections).
-
-    Only detections that carry both a bounding box and metadata contribute an
-    item; the box is resolved to pixel coordinates on a ``width`` x ``height``
-    image and shifted by ``(offset_x, offset_y)`` (the tile origin in a grid).
-    ``text_key`` metadata is omitted here since it is shown on the label chip.
-    When a ``palette`` is given, the tooltip title is tinted with the detection's
-    class color (matching how its box is drawn), stored under ``"_color"`` as a
-    BGR tuple.
-    """
-    box = detection.boundingbox
-    info = {
-        key: value
-        for key, value in (detection.metadata or {}).items()
-        if key != text_key
-    }
-    if box is not None and info:
-        rect = (
-            offset_x + box.x * width,
-            offset_y + box.y * height,
-            offset_x + (box.x + box.w) * width,
-            offset_y + (box.y + box.h) * height,
-        )
-        title = detection.class_name or "object"
-        if detection.instance_id is not None:
-            title = f"{title} #{detection.instance_id}"
-        info = {"_title": title, **info}
-        if palette is not None and detection.class_name is not None:
-            color = palette.color_for(detection.class_name)
-            info["_color"] = (color.b, color.g, color.r)
-        items.append((rect, info))
-    for sub in detection.sub_detections.values():
-        _collect_hover_items(
-            sub, width, height, items, offset_x, offset_y, text_key, palette
-        )
-
-
-def _hover_items(
-    records: "dict[str, DatasetRecord]",
-    width: int,
-    height: int,
-    text_key: str | None = None,
-    palette: "Palette | None" = None,
-) -> list[HoverItem]:
-    """Build the hover hit-list for all detections in ``records`` (no offset)."""
-    items: list[HoverItem] = []
-    for record in records.values():
-        for detection in record._annotations():
-            _collect_hover_items(
-                detection,
-                width,
-                height,
-                items,
-                text_key=text_key,
-                palette=palette,
-            )
-    return items
-
-
-def _hit_test(items: list[HoverItem], x: float, y: float) -> int | None:
-    """Return the index of the smallest box containing ``(x, y)``, or ``None``."""
-    best: int | None = None
-    best_area: float | None = None
-    for i, (rect, _) in enumerate(items):
-        left, top, right, bottom = rect
-        if left <= x <= right and top <= y <= bottom:
-            area = (right - left) * (bottom - top)
-            if best_area is None or area < best_area:
-                best, best_area = i, area
-    return best
-
-
-@functools.lru_cache(maxsize=1)
-def _tooltip_measure() -> "Canvas":
-    """Return a cached tiny canvas used only to measure tooltip text."""
-    from luxonis_ml.vizlab.canvas import Canvas
-
-    return Canvas.blank(2, 2)
-
-
-def _tooltip_card(info: dict, size: int) -> "np.ndarray":
-    """Render the hover tooltip as a native vizlab card (RGBA).
-
-    Matches the rest of the UI: a rounded, translucent brand card with a soft
-    shadow, a class-colored title, periwinkle Inter keys, and near-white
-    JetBrains Mono values (so numbers/ids line up like the metadata panel).
-    """
-    from luxonis_ml.utils.color import brand
-    from luxonis_ml.vizlab.canvas import Canvas, Shadow
-    from luxonis_ml.vizlab.color import Color
-    from luxonis_ml.vizlab.geometry import Rect
-
-    measure = _tooltip_measure()
-    title = info.get("_title")
-    bgr = info.get("_color")
-    title_color = (
-        Color(bgr[2], bgr[1], bgr[0]) if bgr is not None else brand.CARD_TITLE
-    )
-    pairs = [
-        (f"{key}: ", str(value))
-        for key, value in info.items()
-        if not key.startswith("_")
-    ]
-    pad, gap = round(size * 0.7), round(size * 0.4)
-    title_size = size * 1.06
-    row = measure.measure_text("Ag", size, mono=True)
-    rows = [
-        (
-            key,
-            val,
-            measure.measure_text(key, size, weight=600).width,
-            measure.measure_text(val, size, weight=500, mono=True).width,
-        )
-        for key, val in pairs
-    ]
-    title_m = (
-        measure.measure_text(title, title_size, weight=700) if title else None
-    )
-    content_w = max(
-        [kw + vw for _, _, kw, vw in rows]
-        + ([title_m.width] if title_m is not None else [0.0])
-    )
-    card_w = round(content_w + 2 * pad)
-    title_h = title_m.height + gap if title_m is not None else 0.0
-    card_h = round(2 * pad + title_h + len(rows) * row.height)
-    mg = round(size * 0.5)  # transparent margin so the drop shadow has room
-
-    canvas = Canvas.blank(card_w + 2 * mg, card_h + 2 * mg)
-    canvas.rounded_rect(
-        Rect(mg, mg, mg + card_w, mg + card_h),
-        radius=round(size * 0.55),
-        fill=brand.CARD_BG,
-        shadow=Shadow(blur=size * 0.5, dy=size * 0.14),
-    )
-    x0, y = mg + pad, float(mg + pad)
-    if title_m is not None:
-        canvas.text(
-            (x0, y + title_m.ascent),
-            str(title),
-            size=title_size,
-            color=title_color,
-            weight=700,
-        )
-        y += title_m.height + gap
-    for key, val, kw, _vw in rows:
-        base = y + row.ascent
-        canvas.text(
-            (x0, base), key, size=size, color=brand.CARD_KEY, weight=600
-        )
-        canvas.text(
-            (x0 + kw, base),
-            val,
-            size=size,
-            color=brand.CARD_TEXT,
-            weight=500,
-            mono=True,
-        )
-        y += row.height
-    return canvas.to_rgba()
-
-
-def _blit_rgba_on_bgr(
-    frame: "np.ndarray", rgba: "np.ndarray", x: int, y: int
-) -> None:
-    """Alpha-composite an RGBA card onto a BGR ``frame`` at ``(x, y)``."""
-    fh, fw = frame.shape[:2]
-    ch, cw = rgba.shape[:2]
-    x0, y0 = max(0, x), max(0, y)
-    x1, y1 = min(fw, x + cw), min(fh, y + ch)
-    if x1 <= x0 or y1 <= y0:
-        return
-    sub = rgba[y0 - y : y1 - y, x0 - x : x1 - x]
-    roi = frame[y0:y1, x0:x1]
-    alpha = sub[..., 3:4].astype(np.float32) / 255.0
-    card_bgr = sub[..., 2::-1].astype(np.float32)  # RGB -> BGR
-    roi[:] = (
-        card_bgr * alpha + roi.astype(np.float32) * (1.0 - alpha)
-    ).astype(np.uint8)
-
-
-def _draw_tooltip(
-    frame: "np.ndarray", info: dict, at: tuple[int, int]
-) -> None:
-    """Draw a native metadata card near ``at`` on the BGR ``frame``."""
-    has_rows = any(not key.startswith("_") for key in info)
-    if not info.get("_title") and not has_rows:
-        return
-    height, width = frame.shape[:2]
-    # Scale the type to the displayed frame so it stays legible on large windows.
-    size = int(min(24, max(13, round(min(width, height) / 48))))
-    card = _tooltip_card(info, size)
-    ch, cw = card.shape[:2]
-    if cw >= width or ch >= height:
-        return
-    x = max(0, min(int(at[0]) + 16, width - cw))
-    y = max(0, min(int(at[1]) + 16, height - ch))
-    _blit_rgba_on_bgr(frame, card, x, y)
-
-
-def _make_hover_callback(window: _HoverWindow) -> MouseCallback:
-    """Build a mouse callback that tracks the hovered box for ``window``."""
-
-    def callback(
-        event: int, x: int, y: int, flags: int, param: object
-    ) -> None:
-        if event != cv2.EVENT_MOUSEMOVE or not window.items:
-            return
-        frame_w, frame_h = window.frame
-        win_w, win_h = window.win
-        fx = x * frame_w / win_w if win_w else x
-        fy = y * frame_h / win_h if win_h else y
-        idx = _hit_test(window.items, fx, fy)
-        pos = (int(fx), int(fy))
-        if idx != window.hover_idx or (
-            idx is not None and pos != window.mouse
-        ):
-            window.hover_idx = idx
-            window.mouse = pos
-            window.dirty = True
-
-    return callback
-
-
-def _wait_with_hover(windows: dict[str, _HoverWindow]) -> int:
-    """Poll for a key while redrawing hover tooltips; return the key pressed."""
-    while True:
-        key = cv2.waitKey(20)
-        if key != -1:
-            return key & 0xFF
-        for name, window in windows.items():
-            if not window.dirty:
-                continue
-            window.dirty = False
-            if window.hover_idx is None:
-                cv2.imshow(name, window.base)
-            else:
-                frame = window.base.copy()
-                _draw_tooltip(
-                    frame, window.items[window.hover_idx][1], window.mouse
-                )
-                cv2.imshow(name, frame)
 
 
 @app.command
@@ -650,19 +339,22 @@ def inspect(
         from luxonis_ml.vizlab import (
             DARK_THEME,
             LIGHT_THEME,
+            HitMap,
             Image,
             Legend,
             Palette,
             VizConfig,
+            fit_grid,
+            grid_hits,
             set_default_theme,
             visualize_record,
         )
-        from luxonis_ml.vizlab.compose import grid_placed
         from luxonis_ml.vizlab.convert import (
             blend_records_to_annotations,
             detection_to_annotations,
             metadata_annotations,
         )
+        from luxonis_ml.vizlab.viewer import Viewer
     except ImportError as e:
         raise SystemExit(
             "Visualization requires the 'viz' extra. "
@@ -702,6 +394,7 @@ def inspect(
         keypoint_label_mode=keypoint_labels,
         draw_skeletons=skeletons,
         theme=viz_theme,
+        hover_metadata=True,
     )
     class_legend = (
         Legend(
@@ -714,7 +407,7 @@ def inspect(
     )
 
     def build_panel(sample_labels: dict, sample_metadata: dict) -> dict:
-        panel: dict = dict(sample_metadata) if sample_metadata else {}
+        panel = dict(sample_metadata) if sample_metadata else {}
         arrays = {
             get_task_name(k): list(v.shape)
             for k, v in sample_labels.items()
@@ -728,85 +421,157 @@ def inspect(
                 panel["augmentations"] = list(applied)
         return panel
 
-    screen = _screen_size()
-    # The metadata panel is drawn at a fixed pixel width, independent of the
-    # image scale, so reserve horizontal room for it when fitting to the screen.
+    # vizlab now owns layout, screen-fit sizing, hover hit-testing, and the
+    # interactive window loop; this command only prepares data and hands frames
+    # (and their hit maps) to the viewer.
+    viewer = Viewer()
+    screen = viewer.screen
+    # The metadata panel is a fixed pixel width, independent of the image scale,
+    # so reserve horizontal room for it when fitting a composite to the screen.
     panel_reserve = 400.0
 
-    def target_size(
-        width: int,
-        height: int,
-        *,
-        reserve: float = 0.0,
-        cols: int = 1,
-        rows: int = 1,
-        chrome_w: float = 0.0,
-        chrome_h: float = 0.0,
+    def display_size(
+        width: int, height: int, reserve: float
     ) -> tuple[int, int] | None:
-        """Display size ``(w, h)`` for a source image, or ``None`` to keep native.
+        """Display size for one source image, or ``None`` to keep native.
 
-        vizlab paints mask fills at the source resolution and scales once to this
-        size, then draws strokes and labels crisply at it, so annotations stay
-        sharp without resampling every mask. ``reserve`` leaves horizontal room
-        for the fixed-width metadata panel; ``cols``/``rows`` divide the budget
-        when several tiles share the screen (grid view); ``chrome_w``/``chrome_h``
-        subtract the grid's own padding and titles so the *composited* frame fits
-        the screen at 1:1 — otherwise the window would be downscaled on display,
-        resampling (and softening) the already-rasterized labels.
+        An explicit ``--size-multiplier`` scales the source directly; ``auto``
+        fits it within 90% of the screen (leaving room for the panel), never
+        upscaling. ``None`` means render at the source size.
         """
         if size_multiplier != "auto":
             scale = size_multiplier
         elif screen is not None:
-            # Fit within 90% of the screen (leaving room for the panel/tiles),
-            # then reserve the grid chrome so the whole composite fits at 1:1.
-            avail_w = max(1.0, 0.9 * screen[0] - reserve - chrome_w) / cols
-            avail_h = max(1.0, 0.9 * screen[1] - chrome_h) / rows
-            scale = min(avail_w / width, avail_h / height)
+            avail_w = max(1.0, 0.9 * screen[0] - reserve)
+            avail_h = max(1.0, 0.9 * screen[1])
+            scale = min(avail_w / width, avail_h / height, 1.0)
         else:
             return None
         if scale == 1.0:
             return None
         return (max(1, round(width * scale)), max(1, round(height * scale)))
 
-    def show(
-        source_name: str, viz: Image
-    ) -> tuple[np.ndarray, tuple[int, int], float]:
-        out = viz.to_numpy(mode="bgr")
-        out_h, out_w = out.shape[:2]
-        fit = 1.0
-        if screen is not None and size_multiplier == "auto":
-            # A composite may still overflow the screen (e.g. a multi-tile grid).
-            fit = min(0.9 * screen[0] / out_w, 0.9 * screen[1] / out_h, 1.0)
-        if fit < 1.0:
-            # Shrink it ourselves with a high-quality area filter and present 1:1;
-            # letting OpenCV's WINDOW_NORMAL scale the full-size raster instead
-            # uses a crude filter that re-aliases the labels and chart edges.
-            out = cv2.resize(
-                out,
-                (max(1, round(out_w * fit)), max(1, round(out_h * fit))),
-                interpolation=cv2.INTER_AREA,
+    def compose_tiles(
+        tiles: list[Image], cols: int, titles: list[str], reserve: float
+    ) -> tuple[Image, HitMap]:
+        """Grid record tiles, sizing them for the screen (or the multiplier)."""
+        if size_multiplier != "auto":
+            scaled = [
+                tile.copy().render_at(
+                    (
+                        max(1, round(tile.width * size_multiplier)),
+                        max(1, round(tile.height * size_multiplier)),
+                    )
+                )
+                for tile in tiles
+            ]
+            return grid_hits(
+                scaled, ncols=cols, titles=titles, bg=viz_theme.background
             )
-            out_h, out_w = out.shape[:2]
-        cv2.resizeWindow(source_name, out_w, out_h)
         if screen is not None:
-            # Center the window on the screen.
-            cv2.moveWindow(
-                source_name,
-                max(0, (screen[0] - out_w) // 2),
-                max(0, (screen[1] - out_h) // 2),
+            target = (round(0.9 * screen[0]), round(0.9 * screen[1]))
+            return fit_grid(
+                tiles,
+                target=target,
+                ncols=cols,
+                reserve=reserve,
+                titles=titles,
+                bg=viz_theme.background,
             )
-        cv2.imshow(source_name, out)
-        return out, (out_w, out_h), fit
+        return grid_hits(
+            tiles, ncols=cols, titles=titles, bg=viz_theme.background
+        )
 
-    prev_windows = set()
+    def build_frame(
+        image: np.ndarray, records: dict, panel: dict, reserve: float
+    ) -> tuple[Image, HitMap]:
+        """Build the ``(display, hit map)`` for one non-per-instance source.
+
+        The legend is an overlay and the panel is attached on the right, so a hit
+        map captured before framing stays valid on the framed image.
+        """
+        height, width = image.shape[:2]
+        if blend_all or len(records) <= 1:
+            viz = Image(image, config=config).render_at(
+                display_size(width, height, reserve)
+            )
+            # Blending several tasks onto one image: a classification task's
+            # corner chip is redundant next to boxes/keypoints/masks, so it is
+            # dropped unless a class tag is all there is to show.
+            for annotation in blend_records_to_annotations(
+                records.values(), config
+            ):
+                viz.add(annotation)
+            # Box-less metadata has nothing to hover, so show it as a card; a
+            # lone object is carded too, so a single detection needs no hover.
+            for overlay in metadata_annotations(
+                [d for r in records.values() for d in r._annotations()],
+                text_key=config.text_metadata_key,
+                lone_object_card=True,
+            ):
+                viz.add(overlay)
+            if class_legend is not None:
+                viz.add(class_legend)
+            _, hitmap = viz.render_hits()
+            display = (
+                viz.with_panel(panel, title="Sample metadata")
+                if panel
+                else viz
+            )
+            return display, hitmap
+        # A grid of per-record tiles; compose_tiles sizes them so the whole
+        # composite fits the screen and returns the composed hit map.
+        cols = max(1, math.ceil(math.sqrt(len(records))))
+        tiles = [
+            visualize_record(record, image, config=config)
+            for record in records.values()
+        ]
+        grid_img, hitmap = compose_tiles(tiles, cols, list(records), reserve)
+        if class_legend is not None:
+            grid_img.add(class_legend)
+        display = (
+            grid_img.with_panel(panel, title="Sample metadata")
+            if panel
+            else grid_img
+        )
+        return display, hitmap
+
+    def show_instances(
+        source_name: str,
+        image: np.ndarray,
+        instances: list,
+        panel: dict,
+        reserve: float,
+    ) -> bool:
+        """Show each instance in its own window; return ``True`` on quit."""
+        height, width = image.shape[:2]
+        size = display_size(width, height, reserve)
+        for task_name, detection in instances:
+            viz = Image(image, config=config).render_at(size)
+            for annotation in detection_to_annotations(
+                detection, config, task_name=task_name
+            ):
+                viz.add(annotation)
+            # A single instance per window: card its metadata (no hover).
+            for overlay in metadata_annotations(
+                [detection],
+                text_key=config.text_metadata_key,
+                lone_object_card=True,
+            ):
+                viz.add(overlay)
+            if class_legend is not None:
+                viz.add(class_legend)
+            display = (
+                viz.with_panel(panel, title="Sample metadata")
+                if panel
+                else viz
+            )
+            if viewer.show_blocking(source_name, display) == "q":
+                return True
+        return False
 
     for data in loader:
         images_dict = data.images
-
-        current_windows = set(images_dict.keys())
-        for stale_window in prev_windows - current_windows:
-            cv2.destroyWindow(stale_window)
-
         records = loader_output_to_records(
             data.labels,
             classes=classes,
@@ -822,152 +587,38 @@ def inspect(
             or detection.keypoints is not None
             or detection.instance_segmentation is not None
         ]
+        reserve = panel_reserve if panel else 0.0
 
         quit_requested = False
-        hover_windows: dict[str, _HoverWindow] = {}
+        needs_wait = False
         for source_name, image in images_dict.items():
             image = image.astype(np.uint8)
-            height, width = image.shape[:2]
-            cv2.namedWindow(source_name, cv2.WINDOW_NORMAL)
-
             if per_instance and instances:
-                reserve = panel_reserve if panel else 0.0
-                size = target_size(width, height, reserve=reserve)
-                for task_name, detection in instances:
-                    viz = Image(image, config=config).render_at(size)
-                    for annotation in detection_to_annotations(
-                        detection, config, task_name=task_name
-                    ):
-                        viz.add(annotation)
-                    # A single instance per window: card its metadata (no hover).
-                    for overlay in metadata_annotations(
-                        [detection],
-                        text_key=config.text_metadata_key,
-                        lone_object_card=True,
-                    ):
-                        viz.add(overlay)
-                    if class_legend is not None:
-                        viz.add(class_legend)
-                    if panel:
-                        viz = viz.with_panel(panel, title="Sample metadata")
-                    show(source_name, viz)
-                    if cv2.waitKey() == ord("q"):
-                        quit_requested = True
-                        break
-                if quit_requested:
+                if show_instances(
+                    source_name, image, instances, panel, reserve
+                ):
+                    quit_requested = True
                     break
                 continue
-
             if per_instance:
                 print(
                     "[yellow]Warning: Per-instance mode is not supported for "
                     f"this dataset. Showing all labels for '{source_name}'.[/yellow]"
                 )
+            display, hitmap = build_frame(image, records, panel, reserve)
+            viewer.show(source_name, display, hitmap)
+            needs_wait = True
 
-            reserve = panel_reserve if panel else 0.0
-            placements: list[tuple[int, int, int, int]] | None = None
-            if blend_all or len(records) <= 1:
-                size = target_size(width, height, reserve=reserve)
-                viz = Image(image, config=config).render_at(size)
-                # Blending several tasks onto one image: a classification task's
-                # corner chip is redundant next to boxes/keypoints/masks, so it is
-                # dropped unless a class tag is all there is to show.
-                for annotation in blend_records_to_annotations(
-                    records.values(), config
-                ):
-                    viz.add(annotation)
-                # Box-less metadata has nothing to hover, so show it as a card
-                # (recognized text is rendered prominently on its own). A lone
-                # object is carded too, so a single detection needs no hover.
-                for overlay in metadata_annotations(
-                    [d for r in records.values() for d in r._annotations()],
-                    text_key=config.text_metadata_key,
-                    lone_object_card=True,
-                ):
-                    viz.add(overlay)
-            else:
-                # Fit the whole grid of tiles within the screen. Reserve the
-                # grid chrome (outer/inter-cell padding + a title line per row)
-                # so the composite fits at 1:1 and its labels are never
-                # downscaled on display.
-                cols = max(1, math.ceil(math.sqrt(len(records))))
-                rows = math.ceil(len(records) / cols)
-                grid_pad = 10  # matches grid_placed's default padding
-                title_reserve = 44.0  # a single (scaled) title line + padding
-                size = target_size(
-                    width,
-                    height,
-                    reserve=reserve,
-                    cols=cols,
-                    rows=rows,
-                    chrome_w=grid_pad * (cols + 1),
-                    chrome_h=grid_pad * (rows + 1) + rows * title_reserve,
-                )
-                # visualize_record adds each tile's own box-less metadata card.
-                tiles = [
-                    visualize_record(record, image, config=config, size=size)
-                    for record in records.values()
-                ]
-                viz, placements = grid_placed(
-                    tiles,
-                    ncols=cols,
-                    titles=list(records),
-                    bg=viz_theme.background,
-                )
-            if class_legend is not None:
-                viz.add(class_legend)
-            if panel:
-                viz = viz.with_panel(panel, title="Sample metadata")
-            out, frame_size, fit = show(source_name, viz)
-
-            # Hover tooltips: hit-test the drawn detection boxes. In the grid
-            # view each tile has its own offset in the composite (from
-            # grid_placed); in the single/blend view the image sits at the
-            # frame's top-left.
-            disp_w, disp_h = size or (width, height)
-            text_key = config.text_metadata_key
-            items: list[HoverItem] = []
-            if placements is not None:
-                for (px, py, _, _), record in zip(
-                    placements, records.values(), strict=True
-                ):
-                    for detection in record._annotations():
-                        _collect_hover_items(
-                            detection,
-                            disp_w,
-                            disp_h,
-                            items,
-                            px,
-                            py,
-                            text_key,
-                            config.palette,
-                        )
-            else:
-                items = _hover_items(
-                    records, disp_w, disp_h, text_key, config.palette
-                )
-            if fit != 1.0:
-                # The frame was area-downscaled for display, so map the hit-boxes
-                # into the shown (1:1) frame too.
-                items = [
-                    ((x0 * fit, y0 * fit, x1 * fit, y1 * fit), info)
-                    for (x0, y0, x1, y1), info in items
-                ]
-            window = _HoverWindow(
-                base=out, items=items, frame=frame_size, win=frame_size
-            )
-            hover_windows[source_name] = window
-            cv2.setMouseCallback(source_name, _make_hover_callback(window))
-
-        prev_windows = current_windows
-
+        # Windows for sources no longer present (a differing next sample) close.
+        viewer.destroy_stale(set(images_dict.keys()))
         if quit_requested:
             break
-        key = (
-            _wait_with_hover(hover_windows) if hover_windows else cv2.waitKey()
-        )
-        if key == ord("q"):
+        # Per-instance mode already blocked on each instance; otherwise block for
+        # a keypress while hover tooltips redraw.
+        if needs_wait and viewer.wait() == "q":
             break
+
+    viewer.close()
 
 
 @app.command
@@ -1289,6 +940,7 @@ def health(
     try:
         from luxonis_ml.data.utils import health_plots
         from luxonis_ml.vizlab import DARK_THEME, GRADIENTS, LIGHT_THEME
+        from luxonis_ml.vizlab.viewer import Cv2Backend
     except ImportError as exc:
         console.print(
             f"[red]Health charts require the 'viz' extra: {exc}[/red]"
@@ -1303,7 +955,8 @@ def health(
         return
 
     plot_theme = LIGHT_THEME if theme == "light" else DARK_THEME
-    screen = _screen_size() if not save_dir else None
+    # The viewer's cv2 backend also provides the best-effort screen size.
+    screen = Cv2Backend().screen_size() if not save_dir else None
 
     for task_name in all_task_names:
         class_dist_by_type = stats["class_distributions"].get(task_name, {})

@@ -157,7 +157,7 @@ def test_style_scaled_keeps_family() -> None:
 
 def _render(card: object) -> np.ndarray:
     img = Image(np.full((160, 320, 3), 24, np.uint8))
-    return img.add(card).render()[..., :3]
+    return img.add(card).render()[..., :3]  # type: ignore[arg-type]
 
 
 def test_bold_markup_changes_card_pixels() -> None:

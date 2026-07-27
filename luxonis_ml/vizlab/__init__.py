@@ -166,7 +166,16 @@ with guard_missing_extra("viz"):
         SemanticMask,
     )
     from .color import Color
-    from .compose import blend, combine, grid, hstack, vstack
+    from .compose import (
+        blend,
+        combine,
+        combine_hits,
+        fit_grid,
+        grid,
+        grid_hits,
+        hstack,
+        vstack,
+    )
     from .convert import VizConfig, visualize_record
     from .geometry import Rect
     from .gradient import (
@@ -175,6 +184,7 @@ with guard_missing_extra("viz"):
         Gradient,
         resolve_gradient,
     )
+    from .hitmap import HitMap
     from .image import Image
     from .panel import with_panel
     from .presets import COCO_CLASSES
@@ -190,6 +200,7 @@ with guard_missing_extra("viz"):
         get_default_theme,
         set_default_theme,
     )
+    from .tooltip import Tooltip
 
 __all__ = [
     "COCO_CLASSES",
@@ -208,6 +219,7 @@ __all__ = [
     "GoldenRatioColors",
     "Gradient",
     "Heatmap",
+    "HitMap",
     "Image",
     "InfoCard",
     "Keypoints",
@@ -220,11 +232,15 @@ __all__ = [
     "SemanticMask",
     "Style",
     "Theme",
+    "Tooltip",
     "VizConfig",
     "blend",
     "combine",
+    "combine_hits",
+    "fit_grid",
     "get_default_theme",
     "grid",
+    "grid_hits",
     "hstack",
     "resolve_gradient",
     "set_default_theme",

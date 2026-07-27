@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, TypeAlias, cast
 
 import numpy as np
-from numpy.typing import ArrayLike
 import skia
 
 if TYPE_CHECKING:

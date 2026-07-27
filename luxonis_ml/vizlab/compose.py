@@ -7,7 +7,7 @@ purity unambiguous, unlike the in-place ``Image.add``.
 """
 
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 
 import numpy as np
 
@@ -19,6 +19,7 @@ from .annotations.mask import _resize_mask
 from .canvas import Canvas
 from .color import Color, ColorLike
 from .geometry import Rect
+from .hitmap import HitMap
 from .image import Image, _style_scale
 from .markup import Span, parse
 from .style import DARK_THEME, DEFAULT_STYLE, Style
@@ -352,6 +353,144 @@ def grid_placed(
     )
 
 
+def grid_hits(
+    images: Sequence[Image],
+    *,
+    ncols: int | None = None,
+    pad: int = 10,
+    bg: ColorLike = _DEFAULT_BG,
+    titles: Sequence[str] | None = None,
+    style: Style = DEFAULT_STYLE,
+    emphasize_titles: bool = True,
+) -> tuple[Image, HitMap]:
+    """Like `grid_placed`, but return a composed `HitMap` instead of placements.
+
+    Each tile's own `Image.render_hits` map is offset by where its raster lands
+    in the composite (the placement `grid_placed` reports) and the maps are
+    merged, so the result is in the composite's pixel coordinates.
+
+    Args:
+        images: The images to place, filled row-major.
+        ncols: Positive number of columns; defaults to ``ceil(sqrt(n))``.
+        pad: Gap between cells and outer margin, in pixels.
+        bg: Background color.
+        titles: Optional per-image titles drawn above each cell.
+        style: Style whose font is used for titles.
+        emphasize_titles: Whether titles render a step larger and bold.
+
+    Returns:
+        A ``(grid_image, hitmap)`` pair. The image matches `grid`'s output.
+
+    Raises:
+        ValueError: If ``images`` is empty.
+
+    """
+    images = list(images)
+    composite, placements = grid_placed(
+        images,
+        ncols=ncols,
+        pad=pad,
+        bg=bg,
+        titles=titles,
+        style=style,
+        emphasize_titles=emphasize_titles,
+    )
+    hitmap = HitMap.empty()
+    for image, (x, y, _, _) in zip(images, placements, strict=True):
+        _, tile_hits = image.render_hits()
+        hitmap = hitmap.merge(tile_hits.offset(x, y))
+    return composite, hitmap
+
+
+def fit_grid(
+    images: Sequence[Image],
+    *,
+    target: tuple[int, int],
+    ncols: int | None = None,
+    reserve: float = 0.0,
+    pad: int = 10,
+    bg: ColorLike = _DEFAULT_BG,
+    titles: Sequence[str] | None = None,
+    style: Style = DEFAULT_STYLE,
+) -> tuple[Image, HitMap]:
+    """Grid ``images`` scaled so the whole composite fits within ``target``.
+
+    Owns the column/chrome/scale arithmetic a caller would otherwise duplicate:
+    it derives one tile scale from the tiles' native sizes, the grid padding, an
+    optional per-row title band, and a horizontal ``reserve`` (e.g. for a side
+    panel), then renders each tile crisply at the scaled size (via
+    `Image.render_at`) before tiling — so labels stay sharp instead of being
+    downscaled afterwards. Inputs are copied, never mutated.
+
+    Args:
+        images: The tiles to place, filled row-major.
+        target: The ``(width, height)`` pixel budget the composite must fit in.
+        ncols: Column count; defaults to `_smart_cols`.
+        reserve: Horizontal pixels to keep free (subtracted from the width
+            budget), e.g. for a metadata panel drawn beside the grid.
+        pad: Gap between cells and the outer margin, in pixels.
+        bg: Background color.
+        titles: Optional per-image titles.
+        style: Style whose font is used for titles.
+
+    Returns:
+        A ``(grid_image, hitmap)`` pair, fitted to ``target``.
+
+    Raises:
+        ValueError: If ``images`` is empty.
+
+    """
+    images = list(images)
+    if not images:
+        raise ValueError("cannot compose an empty sequence of images")
+    count = len(images)
+    cols = ncols if ncols is not None else _smart_cols(images)
+    cols = max(1, min(cols, count))
+    rows = math.ceil(count / cols)
+    cell_w = max(img.width for img in images)
+    cell_h = max(img.height for img in images)
+
+    title_h = _fit_title_h(cell_w, cell_h, titles, style)
+    avail_w = max(1.0, target[0] - pad * (cols + 1) - reserve)
+    avail_h = max(1.0, target[1] - pad * (rows + 1) - rows * title_h)
+    scale = min(avail_w / (cols * cell_w), avail_h / (rows * cell_h), 1.0)
+
+    scaled = [
+        img.copy().render_at(
+            (
+                max(1, round(img.width * scale)),
+                max(1, round(img.height * scale)),
+            )
+        )
+        for img in images
+    ]
+    return grid_hits(
+        scaled, ncols=cols, pad=pad, bg=bg, titles=titles, style=style
+    )
+
+
+def _fit_title_h(
+    cell_w: int, cell_h: int, titles: Sequence[str] | None, style: Style
+) -> float:
+    """Reserve for a single (emphasized) title line above each cell, or ``0``.
+
+    A slight over-estimate is intentional: it uses the native (unscaled) cell
+    size, so the composite errs toward fitting the target with a little room to
+    spare rather than overflowing it.
+    """
+    if not titles:
+        return 0.0
+    scale = _style_scale(cell_w, cell_h)
+    scaled = style.scaled(scale)
+    title_style = scaled.merge(
+        font_size=scaled.font_size * _TITLE_SCALE, font_weight=_TITLE_WEIGHT
+    )
+    line_h = _MEASURE.measure_text(
+        "Ag", title_style.font_size, weight=title_style.font_weight
+    ).height
+    return line_h + 2 * _TITLE_PAD * scale
+
+
 #: A single image, a flat group of images, or a titled group of images.
 CombineGroup = (
     Image | Sequence[Image] | Mapping[str, "Image | Sequence[Image]"]
@@ -422,6 +561,61 @@ def combine(
     )
 
 
+def combine_hits(
+    *groups: CombineGroup,
+    pad: int = 10,
+    bg: ColorLike = _DEFAULT_BG,
+    style: Style = DEFAULT_STYLE,
+) -> tuple[Image, HitMap]:
+    """Like `combine`, but also return a composed hover `HitMap`.
+
+    Resolves each group to an image and its hover map (recursing through nested
+    sub-grids), lays the groups out with the same auto-column rule as `combine`,
+    and offsets every group's map by where the group landed — so the returned map
+    is in the final composite's pixel coordinates.
+
+    Args:
+        groups: The images / image-groups to compose.
+        pad: Gap between cells and the outer margin, in pixels.
+        bg: Background color painted behind cells and gaps.
+        style: Style whose font is used for titles.
+
+    Returns:
+        A ``(image, hitmap)`` pair; the image matches `combine`'s output.
+
+    Raises:
+        ValueError: If no groups are given, or a group is empty.
+        TypeError: If a group is not an `Image`, a sequence, or a mapping.
+
+    """
+    if not groups:
+        raise ValueError("cannot combine an empty set of groups")
+    resolved = [
+        _resolve_group_hits(g, pad=pad, bg=bg, style=style) for g in groups
+    ]
+    if len(resolved) == 1:
+        image, hitmap = resolved[0]
+        return image.copy(), hitmap
+    images = [image for image, _ in resolved]
+    composite, placements = grid_placed(
+        images, ncols=_smart_cols(images), pad=pad, bg=bg, style=style
+    )
+    return composite, _merge_placed(
+        (hitmap for _, hitmap in resolved), placements
+    )
+
+
+def _merge_placed(
+    hitmaps: "Iterable[HitMap]",
+    placements: Sequence[tuple[int, int, int, int]],
+) -> HitMap:
+    """Offset each sub-map by its tile placement and merge them into one map."""
+    merged = HitMap.empty()
+    for hitmap, (x, y, _, _) in zip(hitmaps, placements, strict=True):
+        merged = merged.merge(hitmap.offset(x, y))
+    return merged
+
+
 def _resolve_member(
     member: "Image | Sequence[Image]",
     *,
@@ -477,6 +671,69 @@ def _resolve_group(
         )
     if is_sequence(group):
         return _resolve_member(group, pad=pad, bg=bg, style=style)
+    raise TypeError(f"unsupported group type: {type(group)!r}")
+
+
+def _resolve_member_hits(
+    member: "Image | Sequence[Image]",
+    *,
+    pad: int,
+    bg: ColorLike,
+    style: Style,
+) -> tuple[Image, HitMap]:
+    """Like `_resolve_member`, returning the image and its hover map."""
+    if isinstance(member, Image):
+        return member, member.render_hits()[1]
+    if is_sequence(member):
+        items = list(member)
+        if not items:
+            raise ValueError("cannot combine an empty group")
+        for item in items:
+            if not isinstance(item, Image):
+                raise TypeError(
+                    f"unsupported group member type: {type(item)!r}"
+                )
+        if len(items) == 1:
+            return items[0], items[0].render_hits()[1]
+        return grid_hits(
+            items,
+            ncols=_smart_cols(items),
+            pad=pad,
+            bg=bg,
+            style=style,
+            emphasize_titles=False,
+        )
+    raise TypeError(f"unsupported group member type: {type(member)!r}")
+
+
+def _resolve_group_hits(
+    group: CombineGroup, *, pad: int, bg: ColorLike, style: Style
+) -> tuple[Image, HitMap]:
+    """Like `_resolve_group`, returning the image and its hover map."""
+    if isinstance(group, Image):
+        return group, group.render_hits()[1]
+    if isinstance(group, Mapping):
+        if not group:
+            raise ValueError("cannot combine an empty group")
+        resolved = [
+            _resolve_member_hits(v, pad=pad, bg=bg, style=style)
+            for v in group.values()
+        ]
+        images = [image for image, _ in resolved]
+        composite, placements = grid_placed(
+            images,
+            ncols=_smart_cols(images),
+            pad=pad,
+            bg=bg,
+            titles=list(group.keys()),
+            style=style,
+            emphasize_titles=True,
+        )
+        return composite, _merge_placed(
+            (hitmap for _, hitmap in resolved), placements
+        )
+    if is_sequence(group):
+        return _resolve_member_hits(group, pad=pad, bg=bg, style=style)
     raise TypeError(f"unsupported group type: {type(group)!r}")
 
 

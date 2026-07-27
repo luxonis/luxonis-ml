@@ -29,6 +29,7 @@ from .annotations import (
     SemanticMask,
 )
 from .style import DEFAULT_STYLE, Palette, Theme
+from .tooltip import Tooltip
 
 #: Prominent style for recognized-text captions (larger, bold).
 _TEXT_STYLE = DEFAULT_STYLE.merge(
@@ -90,6 +91,10 @@ class VizConfig:
             OCR). It is rendered prominently — on a boxed detection's label chip,
             or as a large caption for a box-less one — instead of as a small
             metadata row. ``None`` disables the special treatment.
+        hover_metadata: When ``True``, a boxed detection's remaining metadata
+            (everything but ``text_metadata_key``) is attached to its box as a
+            `Tooltip`, so an interactive viewer can show it on hover instead of
+            crowding the frame. Off by default (static renders have no hover).
 
     Examples:
         >>> from luxonis_ml.vizlab import Palette, VizConfig
@@ -110,6 +115,7 @@ class VizConfig:
     draw_skeletons: bool = False
     theme: Theme | None = None
     text_metadata_key: str | None = "text"
+    hover_metadata: bool = False
 
 
 def _spatial_annotations(
@@ -135,6 +141,9 @@ def _spatial_annotations(
         text = _text_value(detection, config.text_metadata_key)
         if text is not None:
             root.payload = text
+        # The rest of the metadata rides along as hover content, if enabled.
+        if config.hover_metadata:
+            root.tooltip = _detection_tooltip(detection, config)
 
     # Keypoints and the instance mask are children of the box (deriving its
     # color), or top-level when there is no box; they carry no label then.
@@ -283,6 +292,35 @@ def _text_value(detection: "Detection", text_key: str | None) -> str | None:
         return None
     value = detection.metadata.get(text_key)
     return None if value is None else str(value)
+
+
+def _detection_tooltip(
+    detection: "Detection", config: VizConfig
+) -> Tooltip | None:
+    """Build a hover `Tooltip` from a boxed detection's non-text metadata.
+
+    Mirrors what the box's chip already shows (recognized text stays on the
+    chip): the class name — with the instance id when present — becomes the
+    title, tinted with the class color, and the remaining metadata becomes the
+    rows. Returns ``None`` when there is no metadata worth hovering.
+    """
+    text_key = config.text_metadata_key
+    rows = tuple(
+        (str(key), str(value))
+        for key, value in (detection.metadata or {}).items()
+        if key != text_key
+    )
+    if not rows:
+        return None
+    title = detection.class_name or "object"
+    if detection.instance_id is not None:
+        title = f"{title} #{detection.instance_id}"
+    tint = (
+        config.palette.color_for(detection.class_name)
+        if config.palette is not None and detection.class_name is not None
+        else None
+    )
+    return Tooltip(title=title, rows=rows, tint=tint)
 
 
 def _append_meta(

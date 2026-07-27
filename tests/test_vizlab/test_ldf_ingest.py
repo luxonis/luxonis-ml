@@ -117,7 +117,7 @@ def test_image_add_individual_annotation_models():
 
 def test_image_add_rejects_unknown_type():
     with pytest.raises(TypeError):
-        Image(np.zeros((10, 10, 3), np.uint8)).add(object())
+        Image(np.zeros((10, 10, 3), np.uint8)).add(object())  # type: ignore[arg-type]
 
 
 def test_visualize_record_renders_with_panel():

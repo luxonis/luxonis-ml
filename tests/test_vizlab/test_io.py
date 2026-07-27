@@ -93,7 +93,7 @@ def test_pil_source() -> None:
 
 def test_unsupported_source_raises() -> None:
     with pytest.raises(TypeError, match="unsupported image source"):
-        io.load_rgba(12345)
+        io.load_rgba(12345)  # type: ignore[arg-type]
 
 
 def test_load_path_roundtrip_and_errors(tmp_path: Path) -> None:

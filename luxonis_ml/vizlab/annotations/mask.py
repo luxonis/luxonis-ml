@@ -313,6 +313,7 @@ class Mask(InstanceSegmentationAnnotation, Annotation):
                 region.right * sx,
                 region.bottom * sy,
             )
+            ctx.emit_hit(region, self.tooltip)
             place_label(
                 ctx, region, self.label, self.score, self.payload, color, style
             )
