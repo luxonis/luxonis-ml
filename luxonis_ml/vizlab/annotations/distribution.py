@@ -254,6 +254,13 @@ class ClassDistribution(CornerStack):
             return None
         return canvas.measure_text(self.title, size * 1.05, weight=700)
 
+    def _title_band(
+        self, canvas: Canvas, size: float
+    ) -> tuple[TextMetrics | None, float]:
+        """Measure the optional title and the vertical band it occupies."""
+        metrics = self._title_metrics(canvas, size)
+        return metrics, metrics.height + _ROW_GAP if metrics else 0.0
+
     def _draw_title(
         self,
         cv: Canvas,
@@ -301,8 +308,7 @@ class ClassDistribution(CornerStack):
         )
         name_w = max(m.width for _, _, _, m in measured)
         row_h = max(bar_h, *(m.height for _, _, _, m in measured))
-        title_metrics = self._title_metrics(canvas, size)
-        title_h = title_metrics.height + _ROW_GAP if title_metrics else 0.0
+        title_metrics, title_h = self._title_band(canvas, size)
 
         content_w = name_w + _COL_GAP + bar_w + _COL_GAP + val_w
         if title_metrics is not None:
@@ -453,12 +459,7 @@ class ClassDistribution(CornerStack):
             return []
 
         total = self._total()
-        other_value = max(0.0, total - sum(v for _, v in segs))
-        keys = (
-            [*segs, ("other", other_value)]
-            if total > 0 and other_value / total > 0.005
-            else list(segs)
-        )
+        keys = self._keyed_segments(segs, total)
 
         strip_w = size * 14.0
         strip_h = size * 1.1
@@ -478,8 +479,7 @@ class ClassDistribution(CornerStack):
         ]
         row_h = max(m.height for _, _, _, m in key_measured)
         key_w = max(swatch + _COL_GAP + m.width for _, _, _, m in key_measured)
-        title_metrics = self._title_metrics(canvas, size)
-        title_h = title_metrics.height + _ROW_GAP if title_metrics else 0.0
+        title_metrics, title_h = self._title_band(canvas, size)
 
         content_w = max(strip_w, key_w)
         if title_metrics is not None:
@@ -548,8 +548,7 @@ class ClassDistribution(CornerStack):
         ]
         row_h = max(m.height for _, m in key_measured)
         key_w = max(swatch + _COL_GAP + m.width for _, m in key_measured)
-        title_metrics = self._title_metrics(canvas, size)
-        title_h = title_metrics.height + _ROW_GAP if title_metrics else 0.0
+        title_metrics, title_h = self._title_band(canvas, size)
 
         content_w = max(diameter, key_w)
         if title_metrics is not None:
@@ -705,6 +704,24 @@ def _draw_stacked_strip(
         seg_x += seg_w
 
 
+def _draw_key_swatch(
+    cv: Canvas,
+    left: float,
+    y: float,
+    color: Color,
+    ll: "_StackedLayout | _PieLayout",
+) -> None:
+    """Draw one key's color swatch, vertically centered in its row."""
+    sw_top = y + (ll.row_h - ll.swatch) / 2
+    cv.rounded_rect(
+        Rect(left, sw_top, left + ll.swatch, sw_top + ll.swatch),
+        radius=3.0,
+        fill=color,
+        stroke=swatch_outline(ll.chrome.card_bg),
+        stroke_width=1.0,
+    )
+
+
 def _draw_stacked_key(
     cv: Canvas,
     rect: Rect,
@@ -717,19 +734,7 @@ def _draw_stacked_key(
     size, weight = style.font_size, style.font_weight
     for name, _value, label, m in ll.key_measured:
         color = _OTHER if name == "other" else ll.palette.color_for(name)
-        sw_top = y + (ll.row_h - ll.swatch) / 2
-        cv.rounded_rect(
-            Rect(
-                rect.left + _PAD,
-                sw_top,
-                rect.left + _PAD + ll.swatch,
-                sw_top + ll.swatch,
-            ),
-            radius=3.0,
-            fill=color,
-            stroke=swatch_outline(ll.chrome.card_bg),
-            stroke_width=1.0,
-        )
+        _draw_key_swatch(cv, rect.left + _PAD, y, color, ll)
         cv.text(
             (rect.left + _PAD + ll.swatch + _COL_GAP, y + m.ascent),
             f"{name}  {label}",
@@ -879,19 +884,7 @@ def _draw_pie_key(
         ll.keys, ll.key_measured, strict=True
     ):
         color = _OTHER if name == "other" else ll.palette.color_for(name)
-        sw_top = y + (ll.row_h - ll.swatch) / 2
-        cv.rounded_rect(
-            Rect(
-                rect.left + _PAD,
-                sw_top,
-                rect.left + _PAD + ll.swatch,
-                sw_top + ll.swatch,
-            ),
-            radius=3.0,
-            fill=color,
-            stroke=swatch_outline(ll.chrome.card_bg),
-            stroke_width=1.0,
-        )
+        _draw_key_swatch(cv, rect.left + _PAD, y, color, ll)
         cv.text(
             (rect.left + _PAD + ll.swatch + _COL_GAP, y + m.ascent),
             f"{name}  {dist._value_label(value, ll.total)}",

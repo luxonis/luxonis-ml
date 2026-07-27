@@ -269,11 +269,7 @@ def build_health_grid(
 
     """
     theme = theme if theme is not None else get_default_theme()
-    theme = Theme(
-        style=theme.style.scaled(_BASE_SCALE * scale),
-        palette=theme.palette,
-        background=theme.background,
-    )
+    theme = theme.with_style(theme.style.scaled(_BASE_SCALE * scale))
     # A heatmap exists only for annotations with a spatial representation.
     # Class distributions may also include metadata, which must not create a
     # placeholder plot in the health view.

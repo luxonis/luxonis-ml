@@ -343,8 +343,7 @@ def grid_placed(
         ValueError: If ``images`` is empty.
 
     """
-    count = len(list(images))
-    cols = ncols if ncols is not None else max(1, math.ceil(math.sqrt(count)))
+    cols = ncols if ncols is not None else _default_cols(len(images))
     composite, placements, _ = _grid(
         images,
         ncols=cols,
@@ -390,8 +389,7 @@ def grid_hits(
 
     """
     images = list(images)
-    count = len(images)
-    cols = ncols if ncols is not None else max(1, math.ceil(math.sqrt(count)))
+    cols = ncols if ncols is not None else _default_cols(len(images))
     composite, placements, tile_hits = _grid(
         images,
         ncols=cols,
@@ -402,10 +400,7 @@ def grid_hits(
         emphasize_titles=emphasize_titles,
         capture=True,
     )
-    hitmap = HitMap.empty()
-    for hits, (x, y, _, _) in zip(tile_hits or [], placements, strict=True):
-        hitmap = hitmap.merge(hits.offset(x, y))
-    return Frame(composite, hitmap)
+    return Frame(composite, _merge_placed(tile_hits or [], placements))
 
 
 def fit_grid(
@@ -623,6 +618,18 @@ def _merge_placed(
     return merged
 
 
+def _as_images(member: "Sequence[object]") -> list[Image]:
+    """Validate a group's sequence member into a non-empty list of images."""
+    images: list[Image] = []
+    for item in member:
+        if not isinstance(item, Image):
+            raise TypeError(f"unsupported group member type: {type(item)!r}")
+        images.append(item)
+    if not images:
+        raise ValueError("cannot combine an empty group")
+    return images
+
+
 def _resolve_member(
     member: "Image | Sequence[Image]",
     *,
@@ -634,14 +641,7 @@ def _resolve_member(
     if isinstance(member, Image):
         return member
     if is_sequence(member):
-        items = list(member)
-        if not items:
-            raise ValueError("cannot combine an empty group")
-        for item in items:
-            if not isinstance(item, Image):
-                raise TypeError(
-                    f"unsupported group member type: {type(item)!r}"
-                )
+        items = _as_images(member)
         if len(items) == 1:
             return items[0]
         return grid(
@@ -692,14 +692,7 @@ def _resolve_member_hits(
     if isinstance(member, Image):
         return member.frame()
     if is_sequence(member):
-        items = list(member)
-        if not items:
-            raise ValueError("cannot combine an empty group")
-        for item in items:
-            if not isinstance(item, Image):
-                raise TypeError(
-                    f"unsupported group member type: {type(item)!r}"
-                )
+        items = _as_images(member)
         if len(items) == 1:
             return items[0].frame()
         return grid_hits(
@@ -763,6 +756,11 @@ def _smart_cols(images: Sequence[Image]) -> int:
         return 1 if mean_ratio < 0.6 else count
     cols = round(math.sqrt(count / max(mean_ratio, 0.1)))
     return max(1, min(count, cols))
+
+
+def _default_cols(count: int) -> int:
+    """Default plain-grid column count: roughly square, at least one."""
+    return max(1, math.ceil(math.sqrt(count)))
 
 
 def _pad(rgba: np.ndarray, width: int, height: int, fill: Color) -> np.ndarray:
