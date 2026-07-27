@@ -143,6 +143,13 @@ Notes:
     - `blend`, `hstack`, `vstack`, `grid`, and `with_panel` return new composed
       images and leave their inputs unchanged.
 
+    Interactive display lives in the opt-in `luxonis_ml.vizlab.viewer`
+    subpackage (import it explicitly: ``from luxonis_ml.vizlab.viewer import
+    Viewer``). It is deliberately *not* re-exported here so the core rendering
+    package never imports a windowing/OpenCV backend until a viewer is used. Pair
+    it with `Frame` (an `Image` plus its hover `HitMap`, from `Image.frame` or the
+    ``*_hits`` compose helpers).
+
     See ``vizlab_examples/`` for a runnable feature overview.
 
 """
@@ -177,6 +184,7 @@ with guard_missing_extra("viz"):
         vstack,
     )
     from .convert import VizConfig, visualize_record
+    from .frame import Frame
     from .geometry import Rect
     from .gradient import (
         DEFAULT_GRADIENT,
@@ -216,6 +224,7 @@ __all__ = [
     "Classification",
     "Color",
     "Corner",
+    "Frame",
     "GoldenRatioColors",
     "Gradient",
     "Heatmap",

@@ -74,8 +74,7 @@ def test_show_arms_hover_and_wait_draws_tooltip_then_quits() -> None:
     backend = FakeBackend(keys=[-1, ord("q")])
     viewer = Viewer(backend)
     image, _ = _tooltip_image()
-    _, hits = image.render_hits()
-    viewer.show("w", image, hits)
+    viewer.show("w", image.frame())
     assert backend.created == ["w"]
     base = backend.shown[-1][1]
 
@@ -89,8 +88,7 @@ def test_hover_outside_boxes_keeps_base_frame() -> None:
     backend = FakeBackend(keys=[-1, ord("q")])
     viewer = Viewer(backend)
     image, _ = _tooltip_image()
-    _, hits = image.render_hits()
-    viewer.show("w", image, hits)
+    viewer.show("w", image.frame())
     base = backend.shown[-1][1]
 
     backend.handlers["w"](3, 3)  # corner, outside the box -> no tooltip
@@ -102,8 +100,7 @@ def test_show_fits_frame_to_screen() -> None:
     backend = FakeBackend(screen=(100, 100))
     viewer = Viewer(backend)
     image = Image(np.zeros((400, 600, 3), np.uint8))
-    _, hits = image.render_hits()
-    viewer.show("w", image, hits)
+    viewer.show("w", image.frame())
     _, frame = backend.shown[-1]
     height, width = frame.shape[:2]
     assert width <= 90  # within 0.9 * screen
@@ -121,9 +118,9 @@ def test_destroy_stale_closes_absent_windows() -> None:
     backend = FakeBackend()
     viewer = Viewer(backend)
     image = Image(np.zeros((40, 60, 3), np.uint8))
-    _, hits = image.render_hits()
-    viewer.show("a", image, hits)
-    viewer.show("b", image, hits)
+    frame = image.frame()
+    viewer.show("a", frame)
+    viewer.show("b", frame)
     viewer.destroy_stale({"a"})
     assert backend.destroyed == ["b"]
 
@@ -149,12 +146,28 @@ def test_render_tooltip_card_is_rgba() -> None:
     assert card.shape[2] == 4
 
 
+def test_tint_swatch_shows_class_color_without_a_title() -> None:
+    from luxonis_ml.vizlab import Color
+
+    # A rows-only tooltip has no title to tint; the swatch surfaces the color.
+    plain = render_tooltip_card(Tooltip(rows=(("id", "7"),)), 14)
+    tinted = render_tooltip_card(
+        Tooltip(rows=(("id", "7"),), tint=Color(255, 0, 0)), 14
+    )
+    # The swatch adds a header band, so the tinted card is taller.
+    assert tinted.shape[0] > plain.shape[0]
+    # And the swatch actually paints red pixels the plain card lacks.
+    red = (
+        (tinted[..., 0] > 180) & (tinted[..., 1] < 80) & (tinted[..., 2] < 80)
+    )
+    assert red.any()
+
+
 def test_run_delivers_keys_and_hovers_inline() -> None:
     backend = FakeBackend()
     viewer = Viewer(backend)
     image, _ = _tooltip_image()
-    _, hits = image.render_hits()
-    viewer.show("w", image, hits)
+    viewer.show("w", image.frame())
     got: list[str] = []
     viewer.run(got.append)
 

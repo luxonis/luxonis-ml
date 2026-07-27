@@ -247,6 +247,46 @@ class Keypoints(KeypointAnnotation, Annotation):
                     weight=style.font_weight,
                 )
 
+    def draw_label(
+        self, ctx: RenderContext, style: Style, color: Color
+    ) -> None:
+        """Emit the hover region for the joints, if this set carries a tooltip.
+
+        Keypoints have no label chip; this override exists only so a tooltip-
+        bearing set participates in hover hit-testing. The region is the bounds
+        of the visible joints, padded by the joint radius, in display pixels.
+
+        Args:
+            ctx: The current render context.
+            style: The resolved style.
+            color: The resolved instance color.
+
+        """
+        if self.tooltip is None:
+            return
+        region = self._hit_region(ctx.canvas.width, ctx.canvas.height, style)
+        if region is not None:
+            ctx.emit_hit(region, self.tooltip)
+
+    def _hit_region(
+        self, width: int, height: int, style: Style
+    ) -> Rect | None:
+        """Return the padded bounds of the visible joints, or ``None`` if none."""
+        xy, vis = self._resolve(width, height)
+        points = xy[vis > self.visibility_threshold]
+        if len(points) == 0:
+            return None
+        pad = (
+            style.keypoint_radius * _DIAMOND_SCALE
+            + style.keypoint_outline_width
+        )
+        return Rect(
+            float(points[:, 0].min()) - pad,
+            float(points[:, 1].min()) - pad,
+            float(points[:, 0].max()) + pad,
+            float(points[:, 1].max()) + pad,
+        )
+
     def _draw_diamond(
         self,
         canvas: "Canvas",

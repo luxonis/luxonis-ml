@@ -38,9 +38,8 @@ def render_tooltip_card(tooltip: Tooltip, size: int) -> np.ndarray:
 
     measure = _measure_canvas()
     title = tooltip.title
-    title_color = (
-        tooltip.tint if tooltip.tint is not None else brand.CARD_TITLE
-    )
+    tint = tooltip.tint
+    title_color = tint if tint is not None else brand.CARD_TITLE
     pairs = [(f"{key}: ", value) for key, value in tooltip.rows]
 
     pad, gap = round(size * 0.7), round(size * 0.4)
@@ -58,12 +57,17 @@ def render_tooltip_card(tooltip: Tooltip, size: int) -> np.ndarray:
     title_m = (
         measure.measure_text(title, title_size, weight=700) if title else None
     )
-    content_w = max(
-        [kw + vw for _, _, kw, vw in rows]
-        + ([title_m.width] if title_m is not None else [0.0])
+    # A class-color swatch leads the header, so the tint reads even when there is
+    # no title to tint (a rows-only tooltip). Its side tracks the header height.
+    swatch = round(size * 0.95) if tint is not None else 0
+    swatch_gap = round(size * 0.45) if swatch else 0
+    header_line_h = title_m.height if title_m is not None else float(swatch)
+    header_w = (swatch + swatch_gap if title_m is not None else swatch) + (
+        title_m.width if title_m is not None else 0.0
     )
+    content_w = max([kw + vw for _, _, kw, vw in rows] + [header_w])
     card_w = round(content_w + 2 * pad)
-    title_h = title_m.height + gap if title_m is not None else 0.0
+    title_h = header_line_h + gap if (title_m is not None or swatch) else 0.0
     card_h = round(2 * pad + title_h + len(rows) * row.height)
     mg = round(size * 0.5)  # transparent margin so the drop shadow has room
 
@@ -75,15 +79,25 @@ def render_tooltip_card(tooltip: Tooltip, size: int) -> np.ndarray:
         shadow=Shadow(blur=size * 0.5, dy=size * 0.14),
     )
     x0, y = mg + pad, float(mg + pad)
-    if title_m is not None:
-        canvas.text(
-            (x0, y + title_m.ascent),
-            str(title),
-            size=title_size,
-            color=title_color,
-            weight=700,
-        )
-        y += title_m.height + gap
+    if title_m is not None or swatch:
+        tx = float(x0)
+        if tint is not None and swatch:
+            sy = y + (header_line_h - swatch) / 2
+            canvas.rounded_rect(
+                Rect(tx, sy, tx + swatch, sy + swatch),
+                radius=round(swatch * 0.3),
+                fill=tint,
+            )
+            tx += swatch + swatch_gap
+        if title_m is not None:
+            canvas.text(
+                (tx, y + title_m.ascent),
+                str(title),
+                size=title_size,
+                color=title_color,
+                weight=700,
+            )
+        y += header_line_h + gap
     for key, val, kw, _vw in rows:
         base = y + row.ascent
         canvas.text(

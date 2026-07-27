@@ -18,6 +18,7 @@ from .annotations import Annotation, BBox, Keypoints, Mask, SemanticMask
 from .annotations.mask import _resize_mask
 from .canvas import Canvas
 from .color import Color, ColorLike
+from .frame import Frame
 from .geometry import Rect
 from .hitmap import HitMap
 from .image import Image, _style_scale
@@ -342,7 +343,7 @@ def grid_placed(
     """
     count = len(list(images))
     cols = ncols if ncols is not None else max(1, math.ceil(math.sqrt(count)))
-    return _grid(
+    composite, placements, _ = _grid(
         images,
         ncols=cols,
         pad=pad,
@@ -351,6 +352,7 @@ def grid_placed(
         style=style,
         emphasize_titles=emphasize_titles,
     )
+    return composite, placements
 
 
 def grid_hits(
@@ -362,12 +364,12 @@ def grid_hits(
     titles: Sequence[str] | None = None,
     style: Style = DEFAULT_STYLE,
     emphasize_titles: bool = True,
-) -> tuple[Image, HitMap]:
-    """Like `grid_placed`, but return a composed `HitMap` instead of placements.
+) -> "Frame":
+    """Like `grid_placed`, but return a `Frame` (composite plus composed `HitMap`).
 
-    Each tile's own `Image.render_hits` map is offset by where its raster lands
-    in the composite (the placement `grid_placed` reports) and the maps are
-    merged, so the result is in the composite's pixel coordinates.
+    Each tile is rendered once (via `Image.render_hits`); its own map is offset by
+    where its raster lands in the composite and the maps are merged, so the
+    result is in the composite's pixel coordinates.
 
     Args:
         images: The images to place, filled row-major.
@@ -379,27 +381,29 @@ def grid_hits(
         emphasize_titles: Whether titles render a step larger and bold.
 
     Returns:
-        A ``(grid_image, hitmap)`` pair. The image matches `grid`'s output.
+        A `Frame` whose image matches `grid`'s output.
 
     Raises:
         ValueError: If ``images`` is empty.
 
     """
     images = list(images)
-    composite, placements = grid_placed(
+    count = len(images)
+    cols = ncols if ncols is not None else max(1, math.ceil(math.sqrt(count)))
+    composite, placements, tile_hits = _grid(
         images,
-        ncols=ncols,
+        ncols=cols,
         pad=pad,
         bg=bg,
         titles=titles,
         style=style,
         emphasize_titles=emphasize_titles,
+        capture=True,
     )
     hitmap = HitMap.empty()
-    for image, (x, y, _, _) in zip(images, placements, strict=True):
-        _, tile_hits = image.render_hits()
-        hitmap = hitmap.merge(tile_hits.offset(x, y))
-    return composite, hitmap
+    for hits, (x, y, _, _) in zip(tile_hits or [], placements, strict=True):
+        hitmap = hitmap.merge(hits.offset(x, y))
+    return Frame(composite, hitmap)
 
 
 def fit_grid(
@@ -412,7 +416,7 @@ def fit_grid(
     bg: ColorLike = _DEFAULT_BG,
     titles: Sequence[str] | None = None,
     style: Style = DEFAULT_STYLE,
-) -> tuple[Image, HitMap]:
+) -> "Frame":
     """Grid ``images`` scaled so the whole composite fits within ``target``.
 
     Owns the column/chrome/scale arithmetic a caller would otherwise duplicate:
@@ -434,7 +438,7 @@ def fit_grid(
         style: Style whose font is used for titles.
 
     Returns:
-        A ``(grid_image, hitmap)`` pair, fitted to ``target``.
+        A `Frame` (grid image plus hover map), fitted to ``target``.
 
     Raises:
         ValueError: If ``images`` is empty.
@@ -566,8 +570,8 @@ def combine_hits(
     pad: int = 10,
     bg: ColorLike = _DEFAULT_BG,
     style: Style = DEFAULT_STYLE,
-) -> tuple[Image, HitMap]:
-    """Like `combine`, but also return a composed hover `HitMap`.
+) -> "Frame":
+    """Like `combine`, but return a `Frame` (composite plus composed `HitMap`).
 
     Resolves each group to an image and its hover map (recursing through nested
     sub-grids), lays the groups out with the same auto-column rule as `combine`,
@@ -581,7 +585,7 @@ def combine_hits(
         style: Style whose font is used for titles.
 
     Returns:
-        A ``(image, hitmap)`` pair; the image matches `combine`'s output.
+        A `Frame` whose image matches `combine`'s output.
 
     Raises:
         ValueError: If no groups are given, or a group is empty.
@@ -594,14 +598,15 @@ def combine_hits(
         _resolve_group_hits(g, pad=pad, bg=bg, style=style) for g in groups
     ]
     if len(resolved) == 1:
-        image, hitmap = resolved[0]
-        return image.copy(), hitmap
-    images = [image for image, _ in resolved]
+        frame = resolved[0]
+        return Frame(frame.image.copy(), frame.hitmap)
+    images = [frame.image for frame in resolved]
     composite, placements = grid_placed(
         images, ncols=_smart_cols(images), pad=pad, bg=bg, style=style
     )
-    return composite, _merge_placed(
-        (hitmap for _, hitmap in resolved), placements
+    return Frame(
+        composite,
+        _merge_placed((frame.hitmap for frame in resolved), placements),
     )
 
 
@@ -680,10 +685,10 @@ def _resolve_member_hits(
     pad: int,
     bg: ColorLike,
     style: Style,
-) -> tuple[Image, HitMap]:
-    """Like `_resolve_member`, returning the image and its hover map."""
+) -> Frame:
+    """Like `_resolve_member`, returning the image paired with its hover map."""
     if isinstance(member, Image):
-        return member, member.render_hits()[1]
+        return member.frame()
     if is_sequence(member):
         items = list(member)
         if not items:
@@ -694,7 +699,7 @@ def _resolve_member_hits(
                     f"unsupported group member type: {type(item)!r}"
                 )
         if len(items) == 1:
-            return items[0], items[0].render_hits()[1]
+            return items[0].frame()
         return grid_hits(
             items,
             ncols=_smart_cols(items),
@@ -708,10 +713,10 @@ def _resolve_member_hits(
 
 def _resolve_group_hits(
     group: CombineGroup, *, pad: int, bg: ColorLike, style: Style
-) -> tuple[Image, HitMap]:
-    """Like `_resolve_group`, returning the image and its hover map."""
+) -> Frame:
+    """Like `_resolve_group`, returning the image paired with its hover map."""
     if isinstance(group, Image):
-        return group, group.render_hits()[1]
+        return group.frame()
     if isinstance(group, Mapping):
         if not group:
             raise ValueError("cannot combine an empty group")
@@ -719,7 +724,7 @@ def _resolve_group_hits(
             _resolve_member_hits(v, pad=pad, bg=bg, style=style)
             for v in group.values()
         ]
-        images = [image for image, _ in resolved]
+        images = [frame.image for frame in resolved]
         composite, placements = grid_placed(
             images,
             ncols=_smart_cols(images),
@@ -729,8 +734,9 @@ def _resolve_group_hits(
             style=style,
             emphasize_titles=True,
         )
-        return composite, _merge_placed(
-            (hitmap for _, hitmap in resolved), placements
+        return Frame(
+            composite,
+            _merge_placed((frame.hitmap for frame in resolved), placements),
         )
     if is_sequence(group):
         return _resolve_member_hits(group, pad=pad, bg=bg, style=style)
@@ -803,13 +809,23 @@ def _grid(
     titles: Sequence[str] | None,
     style: Style,
     emphasize_titles: bool = True,
-) -> tuple[Image, list[tuple[int, int, int, int]]]:
-    """Shared tiling used by `grid`, `hstack`, and `vstack`.
+    capture: bool = False,
+) -> tuple[Image, list[tuple[int, int, int, int]], list[HitMap] | None]:
+    """Shared tiling used by `grid`, `hstack`, `vstack`, and `grid_hits`.
 
-    Returns the composed image and, for each input image (in order), the
-    ``(x, y, w, h)`` rectangle its raster occupies in the composite.
+    Returns the composed image; for each input image (in order) the
+    ``(x, y, w, h)`` rectangle its raster occupies in the composite; and, when
+    ``capture`` is set, each tile's own hover `HitMap` (else ``None``). Capturing
+    renders every tile once via `Image.render_hits`, so `grid_hits` need not
+    render the tiles a second time to collect their maps.
     """
-    rasters = [img.render() for img in images]
+    if capture:
+        rendered = [img.render_hits() for img in images]
+        rasters = [raster for raster, _ in rendered]
+        tile_hits: list[HitMap] | None = [hits for _, hits in rendered]
+    else:
+        rasters = [img.render() for img in images]
+        tile_hits = None
     if not rasters:
         raise ValueError("cannot compose an empty sequence of images")
 
@@ -881,7 +897,7 @@ def _grid(
         canvas.blit(raster, x, y)
         placements.append((x, y, w, h))
 
-    return Image(canvas.to_rgba()), placements
+    return Image(canvas.to_rgba()), placements, tile_hits
 
 
 def _draw_title(

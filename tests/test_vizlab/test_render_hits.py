@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from luxonis_ml.vizlab import BBox, Image, Tooltip
+from luxonis_ml.vizlab import BBox, Image, Keypoints, Tooltip
 
 
 def _blank(h: int = 60, w: int = 100) -> Image:
@@ -59,3 +59,38 @@ def test_chip_less_box_with_tooltip_still_hits() -> None:
     img = _blank(60, 100).add(BBox(x=0.2, y=0.2, w=0.4, h=0.4, tooltip=tip))
     _, hits = img.render_hits()
     assert hits.hit(40, 30) is tip
+
+
+def test_keypoints_without_tooltip_emit_no_hit() -> None:
+    img = _blank(60, 100).add(
+        Keypoints(keypoints=[(0.3, 0.3, 2), (0.6, 0.6, 2)], label="pose")
+    )
+    _, hits = img.render_hits()
+    assert hits.items == []
+
+
+def test_keypoints_tooltip_hits_over_the_joints() -> None:
+    tip = Tooltip(title="pose", rows=(("id", "3"),))
+    img = _blank(60, 100).add(
+        Keypoints(keypoints=[(0.3, 0.3, 2), (0.6, 0.6, 2)], tooltip=tip)
+    )
+    _, hits = img.render_hits()
+    assert len(hits.items) == 1
+    # A joint at (0.3, 0.3) -> (30, 18) px on a 100x60 canvas is inside the
+    # padded bounds; a far corner is not.
+    assert hits.hit(30, 18) is tip
+    assert hits.hit(2, 2) is None
+
+
+def test_keypoints_hit_ignores_occluded_only_sets() -> None:
+    # All points below the visibility threshold -> nothing visible -> no region.
+    tip = Tooltip(title="pose")
+    img = _blank(60, 100).add(
+        Keypoints(
+            keypoints=[(0.3, 0.3, 0), (0.6, 0.6, 0)],
+            visibility_threshold=0.0,
+            tooltip=tip,
+        )
+    )
+    _, hits = img.render_hits()
+    assert hits.items == []

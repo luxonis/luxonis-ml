@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from PIL import Image as PILImage
 
     from .convert import RenderableLDF, VizConfig
+    from .frame import Frame
     from .io import ImageSource
     from .panel import PanelData
 
@@ -353,6 +354,23 @@ class Image:
         """
         rgba, hits = self._render(size, capture=True)
         return rgba, hits if hits is not None else HitMap.empty()
+
+    def frame(self) -> "Frame":
+        """Pair this image with its hover `HitMap` as a `Frame`.
+
+        Captures the display-pixel region of every tooltip-bearing annotation
+        (see `render_hits`) at the native render size and bundles it with the
+        image, ready to hand to a `Viewer`. The map matches what `render` (no
+        size) returns, which is the size the viewer renders before screen-fitting.
+
+        Returns:
+            A `Frame` wrapping this image and its hit map.
+
+        """
+        from .frame import Frame
+
+        _, hitmap = self.render_hits()
+        return Frame(self, hitmap)
 
     def _render(
         self, size: tuple[int, int] | None, *, capture: bool

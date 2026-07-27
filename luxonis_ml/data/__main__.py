@@ -339,7 +339,7 @@ def inspect(
         from luxonis_ml.vizlab import (
             DARK_THEME,
             LIGHT_THEME,
-            HitMap,
+            Frame,
             Image,
             Legend,
             Palette,
@@ -453,7 +453,7 @@ def inspect(
 
     def compose_tiles(
         tiles: list[Image], cols: int, titles: list[str], reserve: float
-    ) -> tuple[Image, HitMap]:
+    ) -> Frame:
         """Grid record tiles, sizing them for the screen (or the multiplier)."""
         if size_multiplier != "auto":
             scaled = [
@@ -482,14 +482,24 @@ def inspect(
             tiles, ncols=cols, titles=titles, bg=viz_theme.background
         )
 
+    def framed(frame: Frame, panel: dict) -> Frame:
+        """Attach the class legend (overlay) and metadata panel (right side).
+
+        Both are coordinate-preserving — the legend draws on top and the panel
+        sits outside the image — so ``frame``'s hit map stays valid; keep it via
+        `Frame.with_image`.
+        """
+        image = frame.image
+        if class_legend is not None:
+            image.add(class_legend)
+        if panel:
+            image = image.with_panel(panel, title="Sample metadata")
+        return frame.with_image(image)
+
     def build_frame(
         image: np.ndarray, records: dict, panel: dict, reserve: float
-    ) -> tuple[Image, HitMap]:
-        """Build the ``(display, hit map)`` for one non-per-instance source.
-
-        The legend is an overlay and the panel is attached on the right, so a hit
-        map captured before framing stays valid on the framed image.
-        """
+    ) -> Frame:
+        """Build the display `Frame` for one non-per-instance source."""
         height, width = image.shape[:2]
         if blend_all or len(records) <= 1:
             viz = Image(image, config=config).render_at(
@@ -510,15 +520,7 @@ def inspect(
                 lone_object_card=True,
             ):
                 viz.add(overlay)
-            if class_legend is not None:
-                viz.add(class_legend)
-            _, hitmap = viz.render_hits()
-            display = (
-                viz.with_panel(panel, title="Sample metadata")
-                if panel
-                else viz
-            )
-            return display, hitmap
+            return framed(viz.frame(), panel)
         # A grid of per-record tiles; compose_tiles sizes them so the whole
         # composite fits the screen and returns the composed hit map.
         cols = max(1, math.ceil(math.sqrt(len(records))))
@@ -526,15 +528,9 @@ def inspect(
             visualize_record(record, image, config=config)
             for record in records.values()
         ]
-        grid_img, hitmap = compose_tiles(tiles, cols, list(records), reserve)
-        if class_legend is not None:
-            grid_img.add(class_legend)
-        display = (
-            grid_img.with_panel(panel, title="Sample metadata")
-            if panel
-            else grid_img
+        return framed(
+            compose_tiles(tiles, cols, list(records), reserve), panel
         )
-        return display, hitmap
 
     def show_instances(
         source_name: str,
@@ -605,8 +601,9 @@ def inspect(
                     "[yellow]Warning: Per-instance mode is not supported for "
                     f"this dataset. Showing all labels for '{source_name}'.[/yellow]"
                 )
-            display, hitmap = build_frame(image, records, panel, reserve)
-            viewer.show(source_name, display, hitmap)
+            viewer.show(
+                source_name, build_frame(image, records, panel, reserve)
+            )
             needs_wait = True
 
         # Windows for sources no longer present (a differing next sample) close.

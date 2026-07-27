@@ -215,7 +215,8 @@ def to_pil(rgba: np.ndarray) -> "PILImage.Image":
         from PIL import Image as PILImage
     except ImportError as exc:
         raise ImportError(
-            "Pillow is required for to_pil(); install the 'pil' extra"
+            "Pillow is required for to_pil(); install the 'viz' extra "
+            "(pip install 'luxonis-ml[viz]')."
         ) from exc
     return PILImage.fromarray(rgba, mode="RGBA")
 

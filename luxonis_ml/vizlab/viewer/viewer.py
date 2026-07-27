@@ -1,10 +1,11 @@
 """The `Viewer`: an interactive, backend-agnostic image window with hover.
 
-`Viewer` presents finished `Image` frames, fits them to the screen, routes mouse
-moves through a `HitMap` to show per-annotation tooltips, and runs the keyboard
-loop — all over a pluggable `WindowBackend` (OpenCV by default). Callers hand it
-frames and hit maps (see `Image.render_hits`, `luxonis_ml.vizlab.grid_hits`) and
-never touch windowing themselves.
+`Viewer` presents `Frame` objects (an `Image` plus its hover `HitMap`), fits them
+to the screen, routes mouse moves through the map to show per-annotation
+tooltips, and runs the keyboard loop — all over a pluggable `WindowBackend`
+(OpenCV by default). Callers build frames with `Image.frame` or the ``*_hits``
+compose helpers (`luxonis_ml.vizlab.grid_hits`) and never touch windowing
+themselves.
 """
 
 from collections.abc import Callable
@@ -13,6 +14,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from luxonis_ml.vizlab import io
+from luxonis_ml.vizlab.frame import Frame
 from luxonis_ml.vizlab.hitmap import HitMap
 from luxonis_ml.vizlab.image import Image
 from luxonis_ml.vizlab.tooltip import Tooltip
@@ -73,7 +75,7 @@ class Viewer:
         """The backend's screen size in pixels, or ``None`` if unavailable."""
         return self._screen
 
-    def _frame(
+    def _prepare(
         self, display: Image, hitmap: HitMap
     ) -> tuple[np.ndarray, HitMap]:
         """Render ``display`` to a screen-fitted BGR frame and scale the map.
@@ -108,30 +110,30 @@ class Viewer:
         if self._screen is not None:
             self._backend.center(name, width, height, self._screen)
 
-    def show(self, name: str, display: Image, hitmap: HitMap) -> None:
-        """Present ``display`` in window ``name`` and arm its hover tooltips.
+    def show(self, name: str, frame: Frame) -> None:
+        """Present ``frame`` in window ``name`` and arm its hover tooltips.
 
         Args:
             name: The window identifier (created on first use).
-            display: The finished frame to show.
-            hitmap: Hover regions for ``display`` in its native pixels (from
-                `Image.render_hits` / the ``*_hits`` compose helpers); it is
-                scaled internally to match the shown frame.
+            frame: The `Frame` to show — an image plus its hover `HitMap` (from
+                `Image.frame` or the ``*_hits`` compose helpers). The map is in
+                the image's native pixels and is scaled internally to match the
+                shown frame.
 
         """
-        frame, hitmap = self._frame(display, hitmap)
-        self._open(name, frame)
-        state = _HoverState(base=frame, hitmap=hitmap)
+        bgr, hitmap = self._prepare(frame.image, frame.hitmap)
+        self._open(name, bgr)
+        state = _HoverState(base=bgr, hitmap=hitmap)
         self._windows[name] = state
         self._backend.set_mouse_handler(name, self._handler(name, state))
-        self._backend.show(name, frame)
+        self._backend.show(name, bgr)
 
     def show_blocking(self, name: str, display: Image) -> str:
         """Show one frame (no hover) and block until a key; return its char."""
-        frame, _ = self._frame(display, HitMap.empty())
-        self._open(name, frame)
+        bgr, _ = self._prepare(display, HitMap.empty())
+        self._open(name, bgr)
         self._windows.pop(name, None)
-        self._backend.show(name, frame)
+        self._backend.show(name, bgr)
         return _key_char(self._backend.poll_key(0))
 
     def wait(self) -> str:

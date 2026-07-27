@@ -86,8 +86,7 @@ def test_show_sets_png_on_real_widget(
     backend = NotebookBackend()
     viewer = Viewer(backend)
     image = Image(np.zeros((40, 60, 3), np.uint8))
-    _, hits = image.render_hits()
-    viewer.show("w", image, hits)
+    viewer.show("w", image.frame())
 
     widget = backend._images["w"]
     assert widget.value[:8] == b"\x89PNG\r\n\x1a\n"
