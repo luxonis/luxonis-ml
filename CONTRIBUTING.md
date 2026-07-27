@@ -4,8 +4,6 @@ This guide is the starting point for local development and pull requests.
 For API usage details, use the generated docs at
 <https://luxonis.github.io/luxonis-ml/latest/>.
 
-If you are using a coding agent, also give it [AGENTS.md](AGENTS.md).
-
 ## First 10 Minutes
 
 ```bash
