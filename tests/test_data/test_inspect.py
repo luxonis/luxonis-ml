@@ -135,10 +135,10 @@ def test_per_instance_inspect_attaches_augmentation_panel(
     monkeypatch.setattr(Image, "with_panel", capture_panel)
 
     from luxonis_ml.vizlab import (
-        DARK_THEME,
         LIGHT_THEME,
+        RenderOptions,
         get_default_theme,
-        set_default_theme,
+        set_default_options,
     )
 
     aug_config = tmp_path / "augmentations.json"
@@ -151,10 +151,11 @@ def test_per_instance_inspect_attaches_augmentation_panel(
             list_augmentations=True,
             theme="light",
         )
-        # The chosen theme becomes the process default for the visualization.
-        assert get_default_theme() is LIGHT_THEME
+        # The chosen theme becomes the scope default (with the dataset palette
+        # pinned onto it, so it is a light-background theme, not LIGHT_THEME itself).
+        assert get_default_theme().background == LIGHT_THEME.background
     finally:
-        set_default_theme(DARK_THEME)
+        set_default_options(RenderOptions())
 
     assert panels == [{"augmentations": ["HorizontalFlip"]}]
 
@@ -225,12 +226,12 @@ def test_inspect_grid_renders_real_frames(
         lambda *_args, **_kwargs: records,
     )
 
-    from luxonis_ml.vizlab import DARK_THEME, set_default_theme
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
 
     try:
         data_main.inspect("dataset", legend=True)
     finally:
-        set_default_theme(DARK_THEME)
+        set_default_options(RenderOptions())
 
     # One composited window was presented for the sole source image.
     assert backend.shown == ["image"]

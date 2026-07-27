@@ -142,7 +142,7 @@ def test_fluent_helpers_set_fields() -> None:
         BBox(x=0.0, y=0.0, w=1.0, h=1.0)
         .tag("car", score=0.9)
         .caption("plate-42")
-        .with_style(style)
+        .styled(style)
     )
     assert (box.label, box.score, box.payload, box.style) == (
         "car",
@@ -166,7 +166,7 @@ def test_render_cache_tracks_annotation_mutations() -> None:
     captioned = image.render()
     assert not np.array_equal(tagged, captioned)
 
-    box.with_style(Style(stroke_width=9.0))
+    box.styled(Style(stroke_width=9.0))
     styled = image.render()
     assert not np.array_equal(captioned, styled)
 

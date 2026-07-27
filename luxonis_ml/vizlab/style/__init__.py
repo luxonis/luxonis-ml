@@ -16,7 +16,13 @@ from .palette import (
     Palette,
     SequenceColors,
 )
-from .style import DEFAULT_STYLE, LabelPlacement, Style
+from .style import (
+    DEFAULT_STYLE,
+    LabelPlacement,
+    Style,
+    current_default_style,
+    current_style_overrides,
+)
 from .theme import (
     DARK_THEME,
     LIGHT_THEME,
@@ -38,6 +44,8 @@ __all__ = [
     "SequenceColors",
     "Style",
     "Theme",
+    "current_default_style",
+    "current_style_overrides",
     "derive_child_color",
     "derive_child_style",
     "get_default_theme",

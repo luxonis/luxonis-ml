@@ -343,10 +343,10 @@ def inspect(
             Image,
             Legend,
             Palette,
-            VizConfig,
+            RenderOptions,
             fit_grid,
             grid_hits,
-            set_default_theme,
+            set_default_options,
             visualize_record,
         )
         from luxonis_ml.vizlab.convert import (
@@ -385,23 +385,22 @@ def inspect(
         class_names.append(_BACKGROUND)
 
     viz_theme = LIGHT_THEME if theme == "light" else DARK_THEME
-    # Make single images, panels, and grid backgrounds all follow the theme.
-    set_default_theme(viz_theme)
-
-    config = VizConfig(
-        palette=Palette(class_names),
+    # The palette is pinned to the dataset's class order for stable colors; it
+    # lives on the theme, and the whole bundle is the render options.
+    palette = Palette(class_names)
+    options = RenderOptions(
+        theme=viz_theme.with_palette(palette),
         skeletons=keypoint_skeletons,
         keypoint_label_mode=keypoint_labels,
         draw_skeletons=skeletons,
-        theme=viz_theme,
         hover_metadata=True,
     )
+    # Make single images, panels, and grid backgrounds all follow the options
+    # (so bare Images in this command pick up the theme/palette too).
+    set_default_options(options)
+
     class_legend = (
-        Legend(
-            entries=class_names,
-            palette=config.palette,
-            title="classes",
-        )
+        Legend(entries=class_names, palette=palette, title="classes")
         if legend and class_names
         else None
     )
@@ -502,21 +501,20 @@ def inspect(
         """Build the display `Frame` for one non-per-instance source."""
         height, width = image.shape[:2]
         if blend_all or len(records) <= 1:
-            viz = Image(image, config=config).render_at(
+            viz = Image(image, options=options).render_at(
                 display_size(width, height, reserve)
             )
             # Blending several tasks onto one image: a classification task's
             # corner chip is redundant next to boxes/keypoints/masks, so it is
             # dropped unless a class tag is all there is to show.
             for annotation in blend_records_to_annotations(
-                records.values(), config
+                records.values(), options
             ):
                 viz.add(annotation)
             # Box-less metadata has nothing to hover, so show it as a card; a
             # lone object is carded too, so a single detection needs no hover.
             for overlay in metadata_annotations(
                 [d for r in records.values() for d in r._annotations()],
-                text_key=config.text_metadata_key,
                 lone_object_card=True,
             ):
                 viz.add(overlay)
@@ -525,7 +523,7 @@ def inspect(
         # composite fits the screen and returns the composed hit map.
         cols = max(1, math.ceil(math.sqrt(len(records))))
         tiles = [
-            visualize_record(record, image, config=config)
+            visualize_record(record, image, options=options)
             for record in records.values()
         ]
         return framed(
@@ -543,15 +541,14 @@ def inspect(
         height, width = image.shape[:2]
         size = display_size(width, height, reserve)
         for task_name, detection in instances:
-            viz = Image(image, config=config).render_at(size)
+            viz = Image(image, options=options).render_at(size)
             for annotation in detection_to_annotations(
-                detection, config, task_name=task_name
+                detection, options, task_name=task_name
             ):
                 viz.add(annotation)
             # A single instance per window: card its metadata (no hover).
             for overlay in metadata_annotations(
                 [detection],
-                text_key=config.text_metadata_key,
                 lone_object_card=True,
             ):
                 viz.add(overlay)

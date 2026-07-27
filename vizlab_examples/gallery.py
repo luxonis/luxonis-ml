@@ -18,6 +18,8 @@ vizlab feature figures — each a self-contained group that drops into the docs:
 - ``overlays.png`` — things drawn *over* the image (classification tags,
   captions + legend, heatmap, class distribution).
 - ``themes.png`` — the same scene in the dark and light themes.
+- ``styling.png`` — the ways to control appearance: theme, palette pins,
+  per-annotation overrides, and a scoped default style.
 - ``heatmaps.png`` — one field under several gradient themes.
 - ``distributions.png`` — one prediction under every distribution mode.
 - ``compose.png`` — blend / stack / grid composition.
@@ -59,9 +61,9 @@ from rich import print
 
 if TYPE_CHECKING:
     from luxonis_ml.data import LuxonisDataset
-    from luxonis_ml.vizlab import VizConfig
 
 from luxonis_ml.vizlab import (
+    DARK_THEME,
     LIGHT_THEME,
     BBox,
     Caption,
@@ -73,9 +75,12 @@ from luxonis_ml.vizlab import (
     Image,
     InfoCard,
     Keypoints,
+    LabelPlacement,
     Legend,
     Mask,
+    RenderOptions,
     SemanticMask,
+    Style,
     blend,
     combine,
     grid,
@@ -368,7 +373,7 @@ def _distribution() -> Image:
 def _light_theme() -> Image:
     # DARK_THEME is the default; pass LIGHT_THEME (or your own) for a light look.
     return (
-        Image(np.full((_H, _W, 3), 236, np.uint8), theme=LIGHT_THEME)
+        Image(np.full((_H, _W, 3), 236, np.uint8), options=RenderOptions(theme=LIGHT_THEME))
         .add(BBox(x=0.08, y=0.16, w=0.5, h=0.68, label="person", score=0.97))
         .add(BBox(x=0.44, y=0.36, w=0.47, h=0.5, label="dog", score=0.86))
     )
@@ -452,6 +457,97 @@ def render_themes() -> Path:
             titles=["dark theme", "light theme"],
         ),
         "themes.png",
+    )
+
+
+def render_styling() -> Path:
+    """The ways to control appearance, from broadest to most local.
+
+    Four cells over the same two-box scene:
+
+    - **default** — the dark theme's style and palette-assigned class colors.
+    - **custom theme** — a `RenderOptions` on the image bundling a house `Style`
+      (via `Theme.with_style`) and pinned class colors (`Theme.with_class_colors`).
+    - **per-annotation** — most-local-wins: ``styled(field=...)`` layers a few
+      fields over the theme, ``color=`` pins one box's color, and passing a full
+      `Style` to ``styled`` replaces that box's style wholesale.
+    - **scoped** — `Style.override` installs a default style for a ``with`` block;
+      since scopes apply at render time, the scene is rendered inside the block
+      and the pixels wrapped. `default_options` / `Style.as_default` work the same
+      way for whole `RenderOptions` / a full `Style`.
+    """
+
+    def scene() -> Image:
+        # A fresh two-box scene each call, so every cell restyles from scratch.
+        return (
+            Image(gradient(_W, _H, hue=0.55))
+            .add(BBox(x=0.08, y=0.2, w=0.42, h=0.62, label="car", score=0.94))
+            .add(
+                BBox(x=0.56, y=0.34, w=0.34, h=0.52, label="person", score=0.9)
+            )
+        )
+
+    # Broadest: a theme carries the default style + palette. Bundle a house style
+    # (thin strokes, inside labels, mono chips, no shadow) and pinned class colors
+    # into RenderOptions, and hand it to the image.
+    house = Style(
+        stroke_width=2.0,
+        corner_radius=3.0,
+        shadow=False,
+        font_family="mono",
+        label_placement=LabelPlacement.INSIDE,
+    )
+    themed = Image(
+        gradient(_W, _H, hue=0.55),
+        options=RenderOptions(
+            theme=DARK_THEME.with_style(house).with_class_colors(
+                {"car": "#ff5c8a", "person": "#22d3ee"}
+            )
+        ),
+    )
+    themed.add(BBox(x=0.08, y=0.2, w=0.42, h=0.62, label="car", score=0.94))
+    themed.add(BBox(x=0.56, y=0.34, w=0.34, h=0.52, label="person", score=0.9))
+
+    # Per-annotation: styled(fields) layers over the theme (the rest stays
+    # default), color= pins a color, styled(Style(...)) replaces wholesale.
+    per_annotation = (
+        Image(gradient(_W, _H, hue=0.55))
+        .add(
+            BBox(
+                x=0.08, y=0.2, w=0.42, h=0.62, label="car", score=0.94
+            ).styled(stroke_width=6.0, dash=(12.0, 7.0))
+        )
+        .add(
+            BBox(
+                x=0.56,
+                y=0.34,
+                w=0.34,
+                h=0.52,
+                label="person",
+                score=0.9,
+                color="#ffd166",
+            ).styled(Style(stroke_width=2.0, corner_radius=2.0))
+        )
+    )
+
+    # Scoped: everything rendered inside the block picks up the override.
+    with Style.override(
+        stroke_width=1.5,
+        fill_alpha=0.3,
+        shadow=False,
+        label_placement=LabelPlacement.INSIDE,
+    ):
+        scoped = Image(scene().render())
+
+    cells = {
+        "default theme": scene(),
+        "custom theme + pinned colors": themed,
+        "per-annotation overrides": per_annotation,
+        "Style.override scope": scoped,
+    }
+    return save(
+        grid(list(cells.values()), ncols=2, titles=list(cells)),
+        "styling.png",
     )
 
 
@@ -795,7 +891,7 @@ def render_from_record() -> Path:
     with no vizlab annotation objects built by hand.
     """
     from luxonis_ml.ldf import DatasetRecord
-    from luxonis_ml.vizlab import VizConfig, visualize_record
+    from luxonis_ml.vizlab import RenderOptions, visualize_record
 
     w, h = 960, 600
     record_dict = {
@@ -916,12 +1012,12 @@ def render_from_record() -> Path:
     }
 
     record = DatasetRecord.model_validate(record_dict)
-    config = VizConfig(
+    options = RenderOptions(
         skeletons={"scene": (_POSE_NAMES, _POSE_EDGES)},
         draw_skeletons=True,
         keypoint_label_mode="none",
     )
-    img = visualize_record(record, street_scene(w, h), config=config)
+    img = visualize_record(record, street_scene(w, h), options=options)
     return save(img, "from_record.png")
 
 
@@ -1103,7 +1199,7 @@ def _batch_demo_dataset() -> tuple["LuxonisDataset", list[str]]:
 
 def _aug_viz_config(
     dataset: "LuxonisDataset", *, font_scale: float = 1.0
-) -> "VizConfig":
+) -> "RenderOptions":
     """Build a `VizConfig` sharing the dataset palette and keypoint skeletons.
 
     ``font_scale`` enlarges the class-label font; the samples are large and get
@@ -1113,7 +1209,7 @@ def _aug_viz_config(
     from luxonis_ml.vizlab import (
         Palette,
         Theme,
-        VizConfig,
+        RenderOptions,
         get_default_theme,
     )
 
@@ -1133,18 +1229,17 @@ def _aug_viz_config(
             palette=theme.palette,
             background=theme.background,
         )
-    return VizConfig(
-        palette=Palette(class_names),
+    return RenderOptions(
+        theme=theme.with_palette(Palette(class_names)),
         skeletons=dataset.get_skeletons(),
         draw_skeletons=True,
         keypoint_label_mode="none",
-        theme=theme,
     )
 
 
 def _load_annotated(
     dataset: "LuxonisDataset",
-    config: "VizConfig",
+    config: "RenderOptions",
     *,
     augmentation: list[dict] | None = None,
     size: int | None = None,
@@ -1201,7 +1296,7 @@ def _load_annotated(
 
 def _render_aug_sample(
     dataset: "LuxonisDataset",
-    config: "VizConfig",
+    config: "RenderOptions",
     *,
     augmentation: list[dict] | None = None,
     size: int | None = None,
@@ -1219,7 +1314,7 @@ def _render_aug_sample(
         seed=seed,
         tasks=tasks,
     )
-    viz = Image(image, config=config)
+    viz = Image(image, options=config)
     for annotation in annotations:
         viz.add(annotation)
     return viz
@@ -1318,7 +1413,7 @@ def _aug_examples(images: list[Image], title: str, name: str) -> Path:
 
 def _mixup_image(
     dataset: "LuxonisDataset",
-    config: "VizConfig",
+    config: "RenderOptions",
     tasks: list[str],
     *,
     index_a: int,
@@ -1359,7 +1454,7 @@ def _mixup_image(
     blended = cv2.addWeighted(
         image_a, _MIXUP_ALPHA, image_b, 1 - _MIXUP_ALPHA, 0.0
     )
-    viz = Image(blended, config=config)
+    viz = Image(blended, options=config)
     for annotation in (*labels_a, *labels_b):
         viz.add(annotation)
     return viz
@@ -1424,6 +1519,7 @@ def main() -> None:
         render_masks_keypoints(),
         render_overlays(),
         render_themes(),
+        render_styling(),
         render_heatmap_themes(),
         render_distribution_modes(),
         render_compose(),

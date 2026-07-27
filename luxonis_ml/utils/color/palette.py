@@ -24,10 +24,10 @@ the same order, but not across arbitrary reorderings. Pin a color explicitly wit
 map to one exact color forever.
 """
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 
-from .base import Color
+from .base import Color, ColorLike
 from .brand import AMBER, GREEN, MINT, ORANGE, PERIWINKLE, PURPLE, RED, SALMON
 
 ColorGenerator = Callable[[int], Color]
@@ -185,18 +185,25 @@ class Palette:
         classes: Iterable[str] | None = None,
         *,
         generator: ColorGenerator | None = None,
+        colors: Mapping[str, ColorLike] | None = None,
     ) -> None:
-        """Create a palette, optionally pinning an initial class order.
+        """Create a palette, optionally pinning class order and exact colors.
 
         Args:
             classes: Class names to register up front, in the order that fixes their
                 colors. Any class not listed is assigned on first use.
             generator: The ``int -> Color`` strategy; defaults to
                 `GoldenRatioColors`.
+            colors: Explicit ``{class_name: color}`` pins. A pinned class always
+                gets exactly that color and never consumes a generator slot, so
+                pins do not shift the sequence colors of the other classes.
 
         """
         self._generator: ColorGenerator = generator or GoldenRatioColors()
         self._colors: dict[str, Color] = {}
+        self._pins: dict[str, Color] = {
+            name: Color.parse(value) for name, value in (colors or {}).items()
+        }
         if classes is not None:
             for name in classes:
                 self.color_for(name)
@@ -230,11 +237,53 @@ class Palette:
             The assigned `Color`.
 
         """
+        pinned = self._pins.get(key)
+        if pinned is not None:
+            return pinned
         color = self._colors.get(key)
         if color is None:
             color = self._generator(len(self._colors))
             self._colors[key] = color
         return color
+
+    def pin(self, key: str, color: ColorLike) -> "Palette":
+        """Pin ``key`` to exactly ``color`` and return ``self`` for chaining.
+
+        A pinned class always gets this color from `color_for`, overriding any
+        generated one, and never consumes a generator slot.
+
+        Args:
+            key: The class name (or string identity) to pin.
+            color: The exact color for ``key`` (any :data:`ColorLike`).
+
+        Returns:
+            This palette, to allow fluent chaining.
+
+        """
+        self._pins[key] = Color.parse(color)
+        return self
+
+    def with_colors(self, colors: Mapping[str, ColorLike]) -> "Palette":
+        """Return a copy of this palette with additional class-color pins.
+
+        The copy shares the generator and inherits already-assigned colors and
+        pins; ``colors`` are merged on top. The original is not mutated, so a
+        shared palette can be specialized per render without side effects.
+
+        Args:
+            colors: Extra ``{class_name: color}`` pins to add.
+
+        Returns:
+            A new `Palette` with the merged pins.
+
+        """
+        clone = Palette(generator=self._generator)
+        clone._colors = dict(self._colors)
+        clone._pins = {
+            **self._pins,
+            **{name: Color.parse(value) for name, value in colors.items()},
+        }
+        return clone
 
 
 DEFAULT_PALETTE = Palette()

@@ -18,7 +18,7 @@ from .canvas import Canvas, TextMetrics
 from .color import Color, ColorLike
 from .geometry import Rect
 from .image import Image, _style_scale
-from .style import DEFAULT_STYLE, Style, get_default_theme
+from .style import DEFAULT_STYLE, Style
 
 #: JSON-like metadata a panel can render: a scalar, or a mapping/sequence nested
 #: arbitrarily. Anything else is still accepted and stringified as a leaf.
@@ -302,11 +302,7 @@ def with_panel(
     style = style or DEFAULT_STYLE
     base = image.render()
     img_h, img_w = base.shape[:2]
-    background = (
-        Color.parse(bg)
-        if bg is not None
-        else (image.theme or get_default_theme()).background
-    )
+    background = Color.parse(bg) if bg is not None else image.theme.background
     m = _metrics(_style_scale(img_w, img_h), background)
 
     lines = _format_tree(data)
@@ -345,7 +341,7 @@ def with_panel(
 
     panel_y = float(img_h) if not horizontal else 0.0
     _draw_panel(canvas, ops, title, title_metrics, panel_x, panel_y, m)
-    return Image(canvas.to_rgba(), theme=image.theme)
+    return Image(canvas.to_rgba(), options=image.options)
 
 
 def _draw_divider(

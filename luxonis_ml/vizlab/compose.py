@@ -110,7 +110,9 @@ def blend(
     mixed = (1.0 - alpha) * first.astype(np.float32) + alpha * second.astype(
         np.float32
     )
-    result = Image(np.clip(mixed, 0, 255).astype(np.uint8), theme=base.theme)
+    result = Image(
+        np.clip(mixed, 0, 255).astype(np.uint8), options=base.options
+    )
     for annotation in (*base_annotations, *other_annotations):
         result.add(annotation)
     return result

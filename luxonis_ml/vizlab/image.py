@@ -22,14 +22,16 @@ from .annotations.layout import LabelLayout
 from .canvas import Canvas
 from .geometry import Rect
 from .hitmap import HitMap
-from .style import Theme, get_default_theme
+from .options import RenderOptions, current_options
+from .style import Theme
 from .tooltip import Tooltip
 
 if TYPE_CHECKING:
     from PIL import Image as PILImage
 
-    from .convert import RenderableLDF, VizConfig
+    from .convert import RenderableLDF
     from .frame import Frame
+    from .gradient import Gradient
     from .io import ImageSource
     from .panel import PanelData
 
@@ -106,9 +108,13 @@ def _freeze_render_state(value: object) -> Hashable:
     return _freeze_leaf(value)
 
 
-def _render_signature(annotations: list[Annotation], theme: Theme) -> bytes:
+def _render_signature(
+    annotations: list[Annotation],
+    theme: Theme,
+    gradient: "Gradient | str | None" = None,
+) -> bytes:
     """Return a digest of all mutable state that can affect rendered pixels."""
-    state = _freeze_render_state((annotations, theme))
+    state = _freeze_render_state((annotations, theme, gradient))
     return hashlib.sha256(repr(state).encode("utf-8")).digest()
 
 
@@ -148,8 +154,7 @@ class Image:
         source: "ImageSource",
         *,
         mode: str = "rgb",
-        theme: Theme | None = None,
-        config: "VizConfig | None" = None,
+        options: RenderOptions | None = None,
         render_size: tuple[int, int] | None = None,
     ) -> None:
         """Create an image from any supported source.
@@ -161,10 +166,10 @@ class Image:
                 `vizlab.io.load_rgba`.
             mode: Channel order for array/tensor sources, ``"rgb"`` (default) or
                 ``"bgr"`` (e.g. the output of ``cv2.imread``).
-            theme: Theme supplying default style/palette; ``None`` uses the
-                process-wide default (see `vizlab.style.set_default_theme`).
-            config: Default `VizConfig` used when
-                LDF objects are added via `add` without an explicit config.
+            options: `RenderOptions` supplying the theme (style/palette/background),
+                the default gradient, and the LDF-adapter behavior used when LDF
+                objects are added via `add`. ``None`` uses the options in effect
+                for the current scope (see `vizlab.default_options`).
             render_size: Optional ``(width, height)`` display size. Mask fills are
                 painted at the source resolution and the raster is scaled to this
                 size once; strokes and labels are then drawn crisply at it (see
@@ -178,8 +183,7 @@ class Image:
         """
         self._rgba = io.load_rgba(source, mode)
         self._annotations: list[Annotation] = []
-        self._theme = theme
-        self._config = config
+        self._options = options
         self._render_size = (
             None
             if render_size is None
@@ -213,9 +217,20 @@ class Image:
         return self._annotations
 
     @property
-    def theme(self) -> Theme | None:
-        """The explicit theme set on this image, or ``None`` to use the default."""
-        return self._theme
+    def theme(self) -> Theme:
+        """The theme this image renders with (its options', else the scope's)."""
+        return self._resolve_options().theme
+
+    @property
+    def options(self) -> RenderOptions | None:
+        """The explicit `RenderOptions` set on this image, or ``None``."""
+        return self._options
+
+    def _resolve_options(self) -> RenderOptions:
+        """Return this image's options, falling back to the current scope's."""
+        return (
+            self._options if self._options is not None else current_options()
+        )
 
     def base_rgba(self) -> np.ndarray:
         """Return a copy of the base raster, without any annotations drawn.
@@ -230,7 +245,7 @@ class Image:
         self,
         annotation: "Annotation | RenderableLDF",
         *,
-        config: "VizConfig | None" = None,
+        options: RenderOptions | None = None,
     ) -> Self:
         """Collect an annotation (native or LDF) to be drawn at render time.
 
@@ -246,9 +261,9 @@ class Image:
 
         Args:
             annotation: The annotation or LDF object to add.
-            config: Rendering context for LDF objects; falls back to the config
-                passed to `Image`, then to defaults. Ignored for native
-                annotations.
+            options: `RenderOptions` for converting LDF objects; falls back to the
+                options passed to `Image`, then to the current scope's. Ignored
+                for native annotations.
 
         Returns:
             This image, to allow ``img.add(...).add(...)`` chaining.
@@ -261,7 +276,7 @@ class Image:
 
             self._annotations.extend(
                 convert.to_render_annotations(
-                    annotation, config or self._config
+                    annotation, options or self._resolve_options()
                 )
             )
         self._cache = None
@@ -292,8 +307,8 @@ class Image:
 
         The clone gets its own top-level annotation list, so adding or removing
         annotations on the clone does not affect the original. Annotation objects,
-        nested children, the base raster, theme, and config remain shared; mutate
-        an annotation only when that change should be visible from both images.
+        nested children, the base raster, and options remain shared; mutate an
+        annotation only when that change should be visible from both images.
 
         Returns:
             A new `Image` with the same base pixels and a copied annotation list.
@@ -302,8 +317,7 @@ class Image:
         clone = Image.__new__(Image)
         clone._rgba = self._rgba
         clone._annotations = list(self._annotations)
-        clone._theme = self._theme
-        clone._config = self._config
+        clone._options = self._options
         clone._render_size = self._render_size
         clone._cache = None
         clone._cache_key = None
@@ -386,8 +400,13 @@ class Image:
         render_size = (
             target if target is not None else (self.width, self.height)
         )
-        theme = self._theme if self._theme is not None else get_default_theme()
-        key = (render_size, _render_signature(self._annotations, theme))
+        options = self._resolve_options()
+        theme = options.theme
+        gradient = options.gradient
+        key = (
+            render_size,
+            _render_signature(self._annotations, theme, gradient),
+        )
         if not capture and self._cache is not None and self._cache_key == key:
             return self._cache.copy(), None
 
@@ -401,13 +420,13 @@ class Image:
         overlays = [a for a in self._annotations if a.OVERLAY]
 
         # Pass 1: raster fills at the source resolution.
-        canvas = self._render_fills(spatial, theme)
+        canvas = self._render_fills(spatial, theme, gradient)
         # Scale the filled raster once to the display size.
         if target is not None and target != (canvas.width, canvas.height):
             canvas = canvas.scaled(target[0], target[1])
         # Pass 2: sharp vector content at the display resolution.
         hits: list[tuple[Rect, Tooltip]] | None = [] if capture else None
-        self._render_vectors(canvas, spatial, overlays, theme, hits)
+        self._render_vectors(canvas, spatial, overlays, theme, gradient, hits)
 
         rgba = canvas.to_rgba()
         if not capture:
@@ -416,10 +435,17 @@ class Image:
             return rgba.copy(), None
         return rgba.copy(), HitMap(hits if hits is not None else [])
 
-    def _render_fills(self, spatial: list[Annotation], theme: Theme) -> Canvas:
+    def _render_fills(
+        self,
+        spatial: list[Annotation],
+        theme: Theme,
+        gradient: "Gradient | str | None",
+    ) -> Canvas:
         """First pass: paint every annotation's raster fill at source resolution."""
         canvas = Canvas.from_rgba(self._rgba)
-        ctx = RenderContext(canvas=canvas, depth=0, theme=theme)
+        ctx = RenderContext(
+            canvas=canvas, depth=0, theme=theme, gradient=gradient
+        )
         for annotation in spatial:
             annotation.render_fill(ctx)
         return canvas
@@ -430,6 +456,7 @@ class Image:
         spatial: list[Annotation],
         overlays: list[Annotation],
         theme: Theme,
+        gradient: "Gradient | str | None",
         hits: list[tuple[Rect, Tooltip]] | None = None,
     ) -> None:
         """Second pass: crisp vector content and label chips at display resolution.
@@ -447,6 +474,7 @@ class Image:
             theme=theme,
             style_scale=_style_scale(canvas.width, canvas.height),
             hits=hits,
+            gradient=gradient,
         )
         for annotation in overlays:
             annotation.reserve(ctx)

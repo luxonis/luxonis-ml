@@ -17,8 +17,9 @@ color outright (see `luxonis_ml.vizlab.style.derive` and `Annotation.outline_col
 """
 
 from abc import abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import Self
@@ -31,6 +32,8 @@ from luxonis_ml.vizlab.style import (
     Palette,
     Style,
     Theme,
+    current_default_style,
+    current_style_overrides,
     derive_child_color,
     derive_child_style,
 )
@@ -40,6 +43,7 @@ from .layout import LabelLayout
 
 if TYPE_CHECKING:
     from luxonis_ml.vizlab.canvas import Canvas
+    from luxonis_ml.vizlab.gradient import Gradient
 
 
 @dataclass
@@ -65,6 +69,8 @@ class RenderContext:
             set, annotations that carry a `Tooltip` append their ``(region,
             tooltip)`` to it during the label pass (see `emit_hit`); the regions
             are in final display-pixel coordinates.
+        gradient: Default colormap for heatmaps that set none (from the render
+            options); ``None`` falls back to the library default gradient.
 
     """
 
@@ -76,6 +82,7 @@ class RenderContext:
     theme: Theme | None = None
     style_scale: float = 1.0
     hits: list[tuple[Rect, Tooltip]] | None = None
+    gradient: "Gradient | str | None" = None
 
     def descend(self, color: Color, style: Style) -> "RenderContext":
         """Return a child context one level deeper, carrying resolved parent look.
@@ -98,6 +105,7 @@ class RenderContext:
             theme=self.theme,
             style_scale=self.style_scale,
             hits=self.hits,
+            gradient=self.gradient,
         )
 
     def emit_hit(self, region: Rect, tooltip: Tooltip | None) -> None:
@@ -129,7 +137,14 @@ class Annotation(BaseModel):
         score: Confidence in ``[0, 1]``, rendered as a percentage on the chip.
         payload: Arbitrary value (e.g. transcribed OCR text) shown on the chip.
         color: Explicit color override; any :data:`ColorLike`.
-        style: Style override; falls back to a parent-derived or the theme's style.
+        style: Full style override that *replaces* the resolved theme/parent style
+            (set via ``styled`` with a `Style`). ``None`` falls back to the
+            parent-derived or theme style. For a partial tweak that keeps the rest
+            of the theme, pass field overrides to ``styled`` instead.
+        style_overrides: Partial style fields layered over the resolved base style
+            (set via ``styled`` with keyword fields), so only the named fields
+            change. Applied on top of any `luxonis_ml.vizlab.Style.override` scope;
+            values are in display pixels.
         palette: Palette used to pick a color from ``label``; ``None`` uses the
             theme's palette.
         tooltip: Optional hover content surfaced by an interactive viewer when the
@@ -160,6 +175,7 @@ class Annotation(BaseModel):
     payload: str | int | float | None = None
     color: ColorLike | None = None
     style: Style | None = None
+    style_overrides: dict[str, Any] = Field(default_factory=dict)
     palette: Palette | None = None
     tooltip: Tooltip | None = None
     children: list["Annotation"] = Field(default_factory=list)
@@ -225,17 +241,53 @@ class Annotation(BaseModel):
         self.payload = value
         return self
 
-    def with_style(self, style: Style) -> Self:
-        """Set an explicit style override and return ``self``.
+    def styled(
+        self,
+        style: "Style | Mapping[str, Any] | None" = None,
+        /,
+        **fields: Any,
+    ) -> Self:
+        """Set this annotation's style and return ``self``.
+
+        Two modes, chosen by the argument:
+
+        - **Field overrides** (keyword arguments, or a mapping) *layer* over the
+          resolved theme/parent style — only the named fields change, everything
+          else still comes from the theme. This is the usual case
+          (``box.styled(stroke_width=6)``); values are in display pixels.
+        - A full `Style` *replaces* the base style, ignoring the theme
+          (``box.styled(Style(...))``). Any field overrides — passed here as
+          keywords, or from an enclosing `luxonis_ml.vizlab.Style.override`
+          scope — still layer on top of it.
 
         Args:
-            style: The style to draw this annotation with.
+            style: A `Style` to use as the base (replacing the theme), or a mapping
+                of `Style` field overrides to layer. ``None`` layers only
+                ``fields``.
+            **fields: `Style` field overrides layered on top.
 
         Returns:
             This annotation, to allow fluent chaining.
 
+        Examples:
+            >>> from luxonis_ml.vizlab import BBox, Style
+            >>> box = BBox(x=0.1, y=0.2, w=0.3, h=0.4)
+            >>> box.styled(stroke_width=6.0) is box  # layer over the theme
+            True
+            >>> box.styled(
+            ...     Style(shadow=False)
+            ... ) is box  # replace the base style
+            True
+
         """
-        self.style = style
+        if isinstance(style, Style):
+            self.style = style.merge(**fields) if fields else style
+        else:
+            merged = {**self.style_overrides}
+            if style is not None:
+                merged.update(style)
+            merged.update(fields)
+            self.style_overrides = merged
         return self
 
     def resolved_palette(self, ctx: RenderContext) -> Palette:
@@ -255,11 +307,15 @@ class Annotation(BaseModel):
         return DEFAULT_PALETTE
 
     def resolve_style(self, ctx: RenderContext) -> Style:
-        """Resolve the style: explicit, then parent-derived, then theme, then default.
+        """Resolve the style, layering overrides over the base style.
 
-        The resolved style is scaled by ``ctx.style_scale`` so pixel metrics track
-        the canvas resolution. The parent-derived branch is left unscaled because
-        it derives from the parent's already-scaled style.
+        The base is a full `styled` style override (which replaces the theme), else
+        the parent-derived style (when nested), else the scoped
+        `luxonis_ml.vizlab.Style.as_default` style, else the theme's style, else the
+        library default — scaled by ``ctx.style_scale`` so pixel metrics track the
+        canvas resolution (the parent-derived branch is already scaled). Any
+        `luxonis_ml.vizlab.Style.override` scope and this annotation's ``styled``
+        field overrides are then layered on top, in display pixels.
 
         Args:
             ctx: The current render context.
@@ -269,12 +325,19 @@ class Annotation(BaseModel):
 
         """
         if self.style is not None:
-            return self.style.scaled(ctx.style_scale)
-        if ctx.parent_style is not None:
-            return derive_child_style(ctx.parent_style)
-        if ctx.theme is not None:
-            return ctx.theme.style.scaled(ctx.style_scale)
-        return DEFAULT_STYLE.scaled(ctx.style_scale)
+            base = self.style.scaled(ctx.style_scale)
+        elif ctx.parent_style is not None:
+            base = derive_child_style(ctx.parent_style)
+        else:
+            ambient = current_default_style()
+            if ambient is not None:
+                base = ambient.scaled(ctx.style_scale)
+            elif ctx.theme is not None:
+                base = ctx.theme.style.scaled(ctx.style_scale)
+            else:
+                base = DEFAULT_STYLE.scaled(ctx.style_scale)
+        overrides = {**current_style_overrides(), **self.style_overrides}
+        return base.merge(**overrides) if overrides else base
 
     def resolve_color(self, ctx: RenderContext) -> Color:
         """Resolve the fill/chip color: override, then own class, then parent, then hash.

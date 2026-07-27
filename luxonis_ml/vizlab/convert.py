@@ -14,9 +14,8 @@ semantic segmentation and classification, and threads the rendering context
 (class palette, skeletons, keypoint label mode) through a `VizConfig`.
 """
 
-from collections.abc import Iterable
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal, TypeAlias
+from collections.abc import Iterable, Mapping
+from typing import TYPE_CHECKING, TypeAlias
 
 from .annotations import (
     Annotation,
@@ -28,13 +27,11 @@ from .annotations import (
     Mask,
     SemanticMask,
 )
-from .style import DEFAULT_STYLE, Palette, Theme
+from .options import RenderOptions
 from .tooltip import Tooltip
 
-#: Prominent style for recognized-text captions (larger, bold).
-_TEXT_STYLE = DEFAULT_STYLE.merge(
-    font_size=DEFAULT_STYLE.font_size * 1.6, font_weight=700
-)
+#: Backwards-compatible alias: the LDF-adapter config is now `RenderOptions`.
+VizConfig: TypeAlias = RenderOptions
 
 if TYPE_CHECKING:
     from luxonis_ml.ldf import (
@@ -60,66 +57,9 @@ if TYPE_CHECKING:
         | SegmentationAnnotation
     )
 
-KeypointLabelMode = Literal["none", "numbers", "names", "full"]
-
-SkeletonDef = tuple[list[str], list[tuple[int, int]]]
-"""A keypoint skeleton as ``(labels, edges)`` — ``get_skeletons()``'s shape."""
-
-
-@dataclass
-class VizConfig:
-    """Rendering context for turning LDF objects into vizlab annotations.
-
-    LDF annotations carry only data; everything needed to *draw* them that is
-    not on the annotation itself is supplied here. The same config renders a
-    live ``LuxonisDataset`` sample (from the ``inspect`` CLI) and hand-built
-    `Detection` objects. Reuse one config across a dataset so palette assignments
-    and skeleton lookup remain consistent.
-
-    Attributes:
-        palette: Palette used to color classes. Pre-seed it with the dataset's
-            class names in a fixed order (``Palette(class_names)``) for
-            deterministic, stable colors across images.
-        skeletons: Keypoint skeletons keyed by task name, in LDF's own
-            ``(labels, edges)`` shape — pass ``LuxonisDataset.get_skeletons()``
-            directly.
-        keypoint_label_mode: How to label keypoints
-            (``"none"``/``"numbers"``/``"names"``/``"full"``).
-        draw_skeletons: Whether to draw skeleton limbs between keypoints.
-        theme: Theme supplying default style/palette; ``None`` uses the default.
-        text_metadata_key: Metadata key holding a recognized text string (e.g.
-            OCR). It is rendered prominently — on a boxed detection's label chip,
-            or as a large caption for a box-less one — instead of as a small
-            metadata row. ``None`` disables the special treatment.
-        hover_metadata: When ``True``, a boxed detection's remaining metadata
-            (everything but ``text_metadata_key``) is attached to its box as a
-            `Tooltip`, so an interactive viewer can show it on hover instead of
-            crowding the frame. Off by default (static renders have no hover).
-
-    Examples:
-        >>> from luxonis_ml.vizlab import Palette, VizConfig
-        >>> config = VizConfig(
-        ...     palette=Palette(["person"]),
-        ...     skeletons={"pose": (["left", "right"], [(0, 1)])},
-        ...     keypoint_label_mode="names",
-        ...     draw_skeletons=True,
-        ... )
-        >>> config.skeletons["pose"]
-        (['left', 'right'], [(0, 1)])
-
-    """
-
-    palette: Palette | None = None
-    skeletons: dict[str, SkeletonDef] = field(default_factory=dict)
-    keypoint_label_mode: KeypointLabelMode = "numbers"
-    draw_skeletons: bool = False
-    theme: Theme | None = None
-    text_metadata_key: str | None = "text"
-    hover_metadata: bool = False
-
 
 def _spatial_annotations(
-    detection: "Detection", config: VizConfig, task_name: str
+    detection: "Detection", options: VizConfig, task_name: str
 ) -> list[Annotation]:
     """Build the spatial annotations for one detection (no record-level parts).
 
@@ -128,7 +68,7 @@ def _spatial_annotations(
     children. Semantic segmentation and pure classification are handled at the
     record level (see `visualize_record`), not here.
     """
-    palette = config.palette
+    palette = options.theme.palette
     label = detection.class_name
     root: Annotation | None = None
     tops: list[Annotation] = []
@@ -137,13 +77,9 @@ def _spatial_annotations(
         root = BBox.from_ldf(
             detection.boundingbox, label=label, palette=palette
         )
-        # Show recognized text (e.g. OCR) prominently on the box's label chip.
-        text = _text_value(detection, config.text_metadata_key)
-        if text is not None:
-            root.payload = text
-        # The rest of the metadata rides along as hover content, if enabled.
-        if config.hover_metadata:
-            root.tooltip = _detection_tooltip(detection, config)
+        # The box's metadata rides along as hover content, if enabled.
+        if options.hover_metadata:
+            root.tooltip = _detection_tooltip(detection, options)
 
     # Keypoints and the instance mask are children of the box (deriving its
     # color), or top-level when there is no box; they carry no label then.
@@ -153,7 +89,7 @@ def _spatial_annotations(
             root,
             tops,
             _keypoints_annotation(
-                detection.keypoints, config, task_name, child_label
+                detection.keypoints, options, task_name, child_label
             ),
         )
     if detection.instance_segmentation is not None:
@@ -167,7 +103,7 @@ def _spatial_annotations(
             ),
         )
     for name, sub in detection.sub_detections.items():
-        for child in _spatial_annotations(sub, config, f"{task_name}/{name}"):
+        for child in _spatial_annotations(sub, options, f"{task_name}/{name}"):
             _attach(root, tops, child)
 
     return ([root] if root is not None else []) + tops
@@ -185,15 +121,15 @@ def _attach(
 
 def _keypoints_annotation(
     keypoints: "KeypointAnnotation",
-    config: VizConfig,
+    options: VizConfig,
     task_name: str,
     label: str | None,
 ) -> Keypoints:
-    """Build a `Keypoints` annotation, resolving its skeleton from the config."""
-    label_mode = config.keypoint_label_mode
+    """Build a `Keypoints` annotation, resolving its skeleton from the options."""
+    label_mode = options.keypoint_label_mode
     # A skeleton is needed to draw limbs and to resolve joint names.
-    needs_skeleton = config.draw_skeletons or label_mode in ("names", "full")
-    skeleton = config.skeletons.get(task_name) if needs_skeleton else None
+    needs_skeleton = options.draw_skeletons or label_mode in ("names", "full")
+    skeleton = options.skeletons.get(task_name) if needs_skeleton else None
     names, edges = skeleton if skeleton is not None else (None, [])
     return Keypoints.from_ldf(
         keypoints,
@@ -201,13 +137,13 @@ def _keypoints_annotation(
         keypoint_names=names,
         point_labels=label_mode,
         label=label,
-        palette=config.palette,
+        palette=options.theme.palette,
     )
 
 
 def detection_to_annotations(
     detection: "Detection",
-    config: VizConfig | None = None,
+    options: VizConfig | None = None,
     *,
     task_name: str = "",
 ) -> list[Annotation]:
@@ -220,28 +156,28 @@ def detection_to_annotations(
 
     Args:
         detection: The LDF detection to render.
-        config: Rendering context; a default is used when ``None``.
+        options: Rendering context; a default is used when ``None``.
         task_name: Task name this detection belongs to (used to look up its
-            skeleton in ``config.skeletons``).
+            skeleton in ``options.skeletons``).
 
     Returns:
         The vizlab annotations to draw for this detection.
 
     """
-    config = config or VizConfig()
-    annotations = _spatial_annotations(detection, config, task_name)
+    options = options or RenderOptions()
+    annotations = _spatial_annotations(detection, options, task_name)
     if detection.segmentation is not None:
         annotations.append(
             Mask.from_ldf(
                 detection.segmentation,
                 label=detection.class_name,
-                palette=config.palette,
+                palette=options.theme.palette,
             )
         )
     if detection.class_name is not None and not annotations:
         annotations.append(
             Classification.from_ldf(
-                [detection.class_name], palette=config.palette
+                [detection.class_name], palette=options.theme.palette
             )
         )
     return annotations
@@ -249,7 +185,7 @@ def detection_to_annotations(
 
 def blend_records_to_annotations(
     records: "Iterable[DatasetRecord]",
-    config: VizConfig | None = None,
+    options: VizConfig | None = None,
 ) -> list[Annotation]:
     """Merge several records' detections into one flat annotation list.
 
@@ -264,21 +200,21 @@ def blend_records_to_annotations(
 
     Args:
         records: The records whose detections are drawn together; each record's
-            task name is used to look up its detections' skeletons in ``config``.
-        config: Rendering context; a default is used when ``None``.
+            task name is used to look up its detections' skeletons in ``options``.
+        options: Rendering context; a default is used when ``None``.
 
     Returns:
         The vizlab annotations to draw, with redundant classification chips
         dropped when other annotations are present.
 
     """
-    config = config or VizConfig()
+    options = options or RenderOptions()
     annotations = [
         annotation
         for record in records
         for detection in record._annotations()
         for annotation in detection_to_annotations(
-            detection, config, task_name=record.task_name
+            detection, options, task_name=record.task_name
         )
     ]
     if any(not isinstance(a, Classification) for a in annotations):
@@ -286,29 +222,18 @@ def blend_records_to_annotations(
     return annotations
 
 
-def _text_value(detection: "Detection", text_key: str | None) -> str | None:
-    """Return the detection's recognized-text metadata value, if any."""
-    if text_key is None or not detection.metadata:
-        return None
-    value = detection.metadata.get(text_key)
-    return None if value is None else str(value)
-
-
 def _detection_tooltip(
-    detection: "Detection", config: VizConfig
+    detection: "Detection", options: VizConfig
 ) -> Tooltip | None:
-    """Build a hover `Tooltip` from a boxed detection's non-text metadata.
+    """Build a hover `Tooltip` from a boxed detection's metadata.
 
-    Mirrors what the box's chip already shows (recognized text stays on the
-    chip): the class name — with the instance id when present — becomes the
-    title, tinted with the class color, and the remaining metadata becomes the
-    rows. Returns ``None`` when there is no metadata worth hovering.
+    The class name — with the instance id when present — becomes the title,
+    tinted with the class color, and every metadata entry becomes a row. Returns
+    ``None`` when there is no metadata worth hovering.
     """
-    text_key = config.text_metadata_key
     rows = tuple(
         (str(key), str(value))
         for key, value in (detection.metadata or {}).items()
-        if key != text_key
     )
     if not rows:
         return None
@@ -316,59 +241,40 @@ def _detection_tooltip(
     if detection.instance_id is not None:
         title = f"{title} #{detection.instance_id}"
     tint = (
-        config.palette.color_for(detection.class_name)
-        if config.palette is not None and detection.class_name is not None
+        options.theme.palette.color_for(detection.class_name)
+        if options.theme.palette is not None
+        and detection.class_name is not None
         else None
     )
     return Tooltip(title=title, rows=rows, tint=tint)
 
 
-def _append_meta(
-    detection: "Detection",
-    text_key: str | None,
-    texts: list[str],
-    rows: list[str],
-) -> None:
-    """Append one detection's own metadata: text to ``texts``, the rest to ``rows``."""
-    if not detection.metadata:
-        return
-    text = _text_value(detection, text_key)
-    if text is not None:
-        texts.append(text)
-    other = {
-        key: value
-        for key, value in detection.metadata.items()
-        if text_key is None or key != text_key
-    }
-    if other:
-        rows.extend(_meta_rows(detection, other))
+def _append_meta(detection: "Detection", rows: list[str]) -> None:
+    """Append one detection's own metadata to ``rows``."""
+    if detection.metadata:
+        rows.extend(_meta_rows(detection, detection.metadata))
 
 
-def _collect_boxless(
-    detection: "Detection",
-    text_key: str | None,
-    texts: list[str],
-    rows: list[str],
-) -> None:
-    """Split a box-less detection's metadata into text and other rows.
+def _collect_boxless(detection: "Detection", rows: list[str]) -> None:
+    """Collect a box-less detection's metadata as card rows.
 
-    Recognized text (``text_key``) goes to ``texts`` (rendered prominently); all
-    other metadata goes to ``rows`` (a plain card). Recurses sub-detections.
+    A box-less detection has nothing to hover, so its metadata goes to ``rows``
+    (a plain card). Recurses sub-detections.
     """
     if detection.boundingbox is None:
-        _append_meta(detection, text_key, texts, rows)
+        _append_meta(detection, rows)
     for sub in detection.sub_detections.values():
-        _collect_boxless(sub, text_key, texts, rows)
+        _collect_boxless(sub, rows)
 
 
-def _meta_rows(detection: "Detection", other: dict) -> list[str]:
-    """Format a detection's non-text metadata as card rows."""
+def _meta_rows(detection: "Detection", metadata: "Mapping") -> list[str]:
+    """Format a detection's metadata as card rows."""
     rows: list[str] = []
     prefix = ""
     if detection.class_name:
         rows.append(detection.class_name)
         prefix = "  "
-    for key, value in other.items():
+    for key, value in metadata.items():
         rows.append(f"{prefix}{key}: {value}")
     return rows
 
@@ -376,22 +282,17 @@ def _meta_rows(detection: "Detection", other: dict) -> list[str]:
 def metadata_annotations(
     detections: "Iterable[Detection]",
     *,
-    text_key: str | None = "text",
     lone_object_card: bool = False,
 ) -> list[Annotation]:
     """Build in-image cards for metadata that has nothing to hover.
 
     A detection that carries metadata but no bounding box has nothing to anchor a
-    hover tooltip to, so its metadata is surfaced as a corner card. Recognized
-    text (``text_key``) is rendered prominently in its own larger card; the
-    remaining key/value metadata goes in a smaller ``"metadata"`` card. Boxed
-    detections normally contribute nothing here (their metadata is shown on hover,
-    and their text on the label chip).
+    hover tooltip to, so its metadata is surfaced as a ``"metadata"`` corner card.
+    Boxed detections normally contribute nothing here (their metadata is shown on
+    hover).
 
     Args:
         detections: The detections to scan; their sub-detections are included.
-        text_key: Metadata key holding recognized text, or ``None`` to treat all
-            metadata uniformly.
         lone_object_card: When the image holds exactly one detection, also card
             that lone object's metadata even if it is boxed — a single object
             needs no hover. With more than one object, boxed metadata stays
@@ -402,31 +303,25 @@ def metadata_annotations(
 
     """
     detections = list(detections)
-    texts: list[str] = []
     rows: list[str] = []
     for detection in detections:
-        _collect_boxless(detection, text_key, texts, rows)
+        _collect_boxless(detection, rows)
     if (
         lone_object_card
         and len(detections) == 1
         and detections[0].boundingbox is not None
     ):
-        _append_meta(detections[0], text_key, texts, rows)
+        _append_meta(detections[0], rows)
 
-    annotations: list[Annotation] = []
-    if texts:
-        annotations.append(
-            InfoCard(rows=texts, corner=Corner.TOP_LEFT, style=_TEXT_STYLE)
-        )
     if rows:
-        annotations.append(
+        return [
             InfoCard(rows=rows, title="metadata", corner=Corner.BOTTOM_LEFT)
-        )
-    return annotations
+        ]
+    return []
 
 
 def to_render_annotations(
-    obj: "RenderableLDF", config: VizConfig | None = None
+    obj: "RenderableLDF", options: VizConfig | None = None
 ) -> list[Annotation]:
     """Convert one supported LDF object into render annotations.
 
@@ -438,7 +333,7 @@ def to_render_annotations(
 
     Args:
         obj: The LDF object to render.
-        config: Rendering context; a default is used when ``None``.
+        options: Rendering context; a default is used when ``None``.
 
     Returns:
         The vizlab annotations to draw.
@@ -456,32 +351,28 @@ def to_render_annotations(
         SegmentationAnnotation,
     )
 
-    config = config or VizConfig()
+    options = options or RenderOptions()
     if isinstance(obj, DatasetRecord):
         annotations: list[Annotation] = []
         for detection in obj._annotations():
             annotations.extend(
                 detection_to_annotations(
-                    detection, config, task_name=obj.task_name
+                    detection, options, task_name=obj.task_name
                 )
             )
-        annotations.extend(
-            metadata_annotations(
-                obj._annotations(), text_key=config.text_metadata_key
-            )
-        )
+        annotations.extend(metadata_annotations(obj._annotations()))
         return annotations
     if isinstance(obj, Detection):
-        return detection_to_annotations(obj, config)
+        return detection_to_annotations(obj, options)
     annotation: Annotation
     if isinstance(obj, BBoxAnnotation):
-        annotation = BBox.from_ldf(obj, palette=config.palette)
+        annotation = BBox.from_ldf(obj, palette=options.theme.palette)
     elif isinstance(obj, KeypointAnnotation):
-        annotation = Keypoints.from_ldf(obj, palette=config.palette)
+        annotation = Keypoints.from_ldf(obj, palette=options.theme.palette)
     elif isinstance(
         obj, (InstanceSegmentationAnnotation, SegmentationAnnotation)
     ):
-        annotation = Mask.from_ldf(obj, palette=config.palette)
+        annotation = Mask.from_ldf(obj, palette=options.theme.palette)
     else:
         raise TypeError(
             f"Image.add() does not know how to render an LDF object of type "
@@ -494,8 +385,7 @@ def visualize_record(
     record: "DatasetRecord",
     image: "ImageSource",
     *,
-    config: VizConfig | None = None,
-    theme: Theme | None = None,
+    options: VizConfig | None = None,
     panel: dict | None = None,
     size: tuple[int, int] | None = None,
 ) -> "Image":
@@ -513,8 +403,8 @@ def visualize_record(
         record: The LDF record to visualize (its ``annotation`` may be a single
             `Detection` or a list of them).
         image: The base image (any source accepted by `Image`).
-        config: Rendering context; a default is used when ``None``.
-        theme: Theme override; falls back to ``config.theme``.
+        options: Render options (theme, palette, LDF behavior); a default is used
+            when ``None``.
         panel: Extra key/value entries to show in the metadata side-panel.
         size: Optional ``(width, height)`` display size for the image; the panel
             (when present) is drawn crisply beside the scaled image. ``None``
@@ -546,10 +436,8 @@ def visualize_record(
     """
     from .image import Image
 
-    config = config or VizConfig()
-    img = Image(
-        image, theme=theme or config.theme, config=config, render_size=size
-    )
+    options = options or RenderOptions()
+    img = Image(image, options=options, render_size=size)
     task_name = record.task_name
 
     segmentations: list[tuple[str | None, SegmentationAnnotation]] = []
@@ -559,7 +447,7 @@ def visualize_record(
     for detection in record._annotations():
         _scan_detection(
             detection,
-            config,
+            options,
             task_name,
             img,
             segmentations,
@@ -568,12 +456,14 @@ def visualize_record(
         )
 
     if segmentations:
-        img.add(SemanticMask.from_ldf(segmentations, palette=config.palette))
+        img.add(
+            SemanticMask.from_ldf(segmentations, palette=options.theme.palette)
+        )
     if class_tags:
-        img.add(Classification.from_ldf(class_tags, palette=config.palette))
-    for overlay in metadata_annotations(
-        record._annotations(), text_key=config.text_metadata_key
-    ):
+        img.add(
+            Classification.from_ldf(class_tags, palette=options.theme.palette)
+        )
+    for overlay in metadata_annotations(record._annotations()):
         img.add(overlay)
 
     panel_data = _panel_data(record, array_shapes, panel)
@@ -596,7 +486,7 @@ def _is_pure_classification(detection: "Detection") -> bool:
 
 def _scan_detection(
     detection: "Detection",
-    config: VizConfig,
+    options: VizConfig,
     task_name: str,
     img: "Image",
     segmentations: "list[tuple[str | None, SegmentationAnnotation]]",
@@ -604,7 +494,7 @@ def _scan_detection(
     array_shapes: dict[str, list[int]],
 ) -> None:
     """Add a detection's spatial annotations and collect its record-level parts."""
-    for annotation in _spatial_annotations(detection, config, task_name):
+    for annotation in _spatial_annotations(detection, options, task_name):
         img.add(annotation)
     _collect_record_annotations(
         detection,

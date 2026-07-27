@@ -7,15 +7,18 @@ through the render (see `RenderContext`), so an
 annotation's own ``style``/``color``/``palette`` still win; the theme only fills
 the gaps.
 
-Two presets ship: :data:`DARK_THEME` (the default) and :data:`LIGHT_THEME`. Set a
-process-wide default with `set_default_theme`, or pass ``theme=`` to a single
-`Image`.
+Two presets ship: :data:`DARK_THEME` (the default) and :data:`LIGHT_THEME`. A
+theme is carried by a `luxonis_ml.vizlab.RenderOptions`: install one for a scope
+with `luxonis_ml.vizlab.default_options` / `luxonis_ml.vizlab.set_default_options`,
+or pass ``options=`` to a single `Image`. Build variants with `Theme.with_style`,
+`Theme.with_palette`, and `Theme.with_class_colors`.
 """
 
-from dataclasses import dataclass, field
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
 
 from luxonis_ml.utils.color import brand
-from luxonis_ml.vizlab.color import Color
+from luxonis_ml.vizlab.color import Color, ColorLike
 
 from .palette import DEFAULT_PALETTE, GoldenRatioColors, Palette
 from .style import DEFAULT_STYLE, Style
@@ -51,6 +54,30 @@ class Theme:
     palette: Palette = field(default=DEFAULT_PALETTE)
     background: Color = _DARK_BG
 
+    def with_style(self, style: Style) -> "Theme":
+        """Return a copy of this theme using ``style`` as its default style."""
+        return replace(self, style=style)
+
+    def with_palette(self, palette: Palette) -> "Theme":
+        """Return a copy of this theme using ``palette`` for class colors."""
+        return replace(self, palette=palette)
+
+    def with_class_colors(self, colors: Mapping[str, ColorLike]) -> "Theme":
+        """Return a copy whose palette pins the given ``{class: color}`` map.
+
+        Sugar for ``theme.with_palette(theme.palette.with_colors(colors))``: the
+        listed classes get exactly those colors, every other class keeps the
+        palette's generated color. The original theme and palette are untouched.
+
+        Args:
+            colors: ``{class_name: color}`` pins (any :data:`ColorLike`).
+
+        Returns:
+            A new `Theme` with the pinned palette.
+
+        """
+        return replace(self, palette=self.palette.with_colors(colors))
+
 
 DARK_THEME = Theme()
 """The default theme: soft shadows, translucent fills, a dark composite background."""
@@ -65,25 +92,37 @@ LIGHT_THEME = Theme(
 )
 """A light-background counterpart to :data:`DARK_THEME`."""
 
-_default_theme = DARK_THEME
-
 
 def get_default_theme() -> Theme:
-    """Return the process-wide default theme.
+    """Return the theme in effect for the current scope.
+
+    Deprecated: prefer `luxonis_ml.vizlab.current_options`. Reads the theme from
+    the scope's `luxonis_ml.vizlab.RenderOptions` (no mutable module global).
 
     Returns:
         The current default `Theme`.
 
     """
-    return _default_theme
+    from luxonis_ml.vizlab.options import current_options
+
+    return current_options().theme
 
 
 def set_default_theme(theme: Theme) -> None:
-    """Set the process-wide default theme used by images without an explicit one.
+    """Install ``theme`` as the current scope's default.
+
+    Deprecated: prefer `luxonis_ml.vizlab.set_default_options` /
+    `luxonis_ml.vizlab.default_options`. Updates the scope's
+    `luxonis_ml.vizlab.RenderOptions` to use ``theme`` (backed by a `ContextVar`,
+    not a mutable module global).
 
     Args:
         theme: The theme to make the default.
 
     """
-    global _default_theme  # noqa: PLW0603
-    _default_theme = theme
+    from luxonis_ml.vizlab.options import (
+        current_options,
+        set_default_options,
+    )
+
+    set_default_options(current_options().replace(theme=theme))

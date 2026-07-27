@@ -1,12 +1,26 @@
-"""Tests for `VizConfig.hover_metadata` attaching tooltips in convert."""
+"""Tests for `RenderOptions.hover_metadata` attaching tooltips in convert."""
 
 from luxonis_ml.ldf import Detection
-from luxonis_ml.vizlab import BBox, Palette, VizConfig
+from luxonis_ml.vizlab import (
+    DARK_THEME,
+    BBox,
+    Palette,
+    RenderOptions,
+)
 from luxonis_ml.vizlab.convert import detection_to_annotations
 
 
-def _first_box(det: Detection, config: VizConfig) -> BBox:
-    annotations = detection_to_annotations(det, config)
+def _pinned(
+    palette: Palette, *, hover_metadata: bool = False
+) -> RenderOptions:
+    """Render options whose theme pins the given palette."""
+    return RenderOptions(
+        theme=DARK_THEME.with_palette(palette), hover_metadata=hover_metadata
+    )
+
+
+def _first_box(det: Detection, options: RenderOptions) -> BBox:
+    annotations = detection_to_annotations(det, options)
     boxes = [a for a in annotations if isinstance(a, BBox)]
     assert boxes, "expected a BBox annotation"
     return boxes[0]
@@ -25,26 +39,28 @@ def _car(**metadata: object) -> Detection:
 
 def test_hover_metadata_attaches_tooltip() -> None:
     palette = Palette(["car"])
-    config = VizConfig(palette=palette, hover_metadata=True)
-    box = _first_box(_car(text="AB123", track_id=7), config)
+    options = _pinned(palette, hover_metadata=True)
+    box = _first_box(_car(text="AB123", track_id=7), options)
     tip = box.tooltip
     assert tip is not None
     assert tip.title == "car #3"  # class name + instance id
-    assert tip.rows == (("track_id", "7"),)  # the OCR "text" stays on the chip
+    # Every metadata entry becomes a row, "text" included like any other.
+    assert tip.rows == (("text", "AB123"), ("track_id", "7"))
     assert tip.tint == palette.color_for("car")
 
 
 def test_hover_metadata_off_by_default() -> None:
-    box = _first_box(_car(track_id=7), VizConfig(palette=Palette(["car"])))
+    box = _first_box(_car(track_id=7), _pinned(Palette(["car"])))
     assert box.tooltip is None
 
 
-def test_no_tooltip_when_only_text_metadata() -> None:
-    # Recognized text is shown on the chip; with nothing else, no hover.
-    box = _first_box(_car(text="AB123"), VizConfig(hover_metadata=True))
-    assert box.tooltip is None
+def test_text_metadata_is_just_another_row() -> None:
+    # "text" is no longer special: it hovers like the rest of the metadata.
+    box = _first_box(_car(text="AB123"), RenderOptions(hover_metadata=True))
+    assert box.tooltip is not None
+    assert box.tooltip.rows == (("text", "AB123"),)
 
 
 def test_no_tooltip_without_metadata() -> None:
-    box = _first_box(_car(), VizConfig(hover_metadata=True))
+    box = _first_box(_car(), RenderOptions(hover_metadata=True))
     assert box.tooltip is None

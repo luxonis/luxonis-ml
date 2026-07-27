@@ -79,7 +79,8 @@ class Heatmap(Annotation):
         values: The ``(H, W)`` scalar field. May be any resolution; it is
             resampled to the image. ``None`` draws nothing.
         gradient: A `Gradient`, or the name of a preset
-            (see `luxonis_ml.vizlab.gradient.GRADIENTS`).
+            (see `luxonis_ml.vizlab.gradient.GRADIENTS`). ``None`` (the default)
+            inherits the render options' gradient, then the library default.
         alpha: Peak overlay opacity in ``[0, 1]`` (the opacity at the maximum
             value; lower values are more transparent when ``weight_by_value``).
         weight_by_value: When ``True`` (default) each pixel's opacity scales with
@@ -106,7 +107,7 @@ class Heatmap(Annotation):
     """
 
     values: np.ndarray | None = None
-    gradient: Gradient | str = DEFAULT_GRADIENT
+    gradient: Gradient | str | None = None
     alpha: float = 0.8
     weight_by_value: bool = True
     normalize: bool = True
@@ -165,7 +166,10 @@ class Heatmap(Annotation):
         field = self._normalized(np.asarray(self.values))
         field = _resize_field(field, canvas.width, canvas.height)
         field = np.clip(field, 0.0, 1.0)
-        rgb = resolve_gradient(self.gradient).colorize(field)
+        # Own gradient wins; else inherit the render options' default; else the
+        # library default. (Preset names and Gradient objects are all truthy.)
+        gradient = self.gradient or ctx.gradient or DEFAULT_GRADIENT
+        rgb = resolve_gradient(gradient).colorize(field)
         peak = round(max(0.0, min(1.0, self.alpha)) * 255)
         if self.weight_by_value:
             alpha = (field * peak).astype(np.uint8)

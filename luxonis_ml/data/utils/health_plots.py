@@ -28,6 +28,7 @@ from luxonis_ml.vizlab import (
     Heatmap,
     Image,
     Palette,
+    RenderOptions,
     Theme,
     get_default_theme,
     grid,
@@ -84,9 +85,10 @@ def _placeholder(
     text: str, *, theme: Theme, width: int = 240, height: int = 160
 ) -> Image:
     """Build a small themed panel with a muted caption, for missing data."""
-    return Image(_panel_bg(width, height, theme.background), theme=theme).add(
-        Caption(text=text, corner=Corner.TOP_LEFT)
-    )
+    return Image(
+        _panel_bg(width, height, theme.background),
+        options=RenderOptions(theme=theme),
+    ).add(Caption(text=text, corner=Corner.TOP_LEFT))
 
 
 def _distribution_panel(
@@ -122,7 +124,7 @@ def _distribution_panel(
     width, height = dist.content_size(theme=theme)
     return Image(
         _panel_bg(width + 2 * _MARGIN, height + 2 * _MARGIN, theme.background),
-        theme=theme,
+        options=RenderOptions(theme=theme),
     ).add(dist)
 
 
@@ -149,7 +151,10 @@ def _heatmap_panel(
     if matrix is None:
         return _placeholder("no heatmap", theme=theme, width=side, height=side)
     values = np.asarray(matrix, dtype=float)
-    return Image(_panel_bg(side, side, theme.background), theme=theme).add(
+    return Image(
+        _panel_bg(side, side, theme.background),
+        options=RenderOptions(theme=theme),
+    ).add(
         Heatmap(
             values=values,
             gradient=gradient,
@@ -197,7 +202,10 @@ def _class_heatmaps_panel(
     cols = max(1, math.ceil(math.sqrt(len(names))))
     mini = max(_MIN_MINI, side // cols)
     tiles = [
-        Image(_panel_bg(mini, mini, theme.background), theme=theme).add(
+        Image(
+            _panel_bg(mini, mini, theme.background),
+            options=RenderOptions(theme=theme),
+        ).add(
             Heatmap(
                 values=np.asarray(class_matrices[name], dtype=float),
                 gradient=_class_gradient(palette.color_for(name)),

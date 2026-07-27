@@ -6,9 +6,12 @@ a soft shadow is used. Annotations resolve to a style at render time; anything
 the caller does not override falls back to :data:`DEFAULT_STYLE`.
 """
 
+from collections.abc import Generator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 
 FontFamily = Literal["sans", "mono"]
 """Which bundled family a label uses: proportional Inter or monospace JetBrains Mono."""
@@ -134,6 +137,80 @@ class Style:
             else (self.dash[0] * factor, self.dash[1] * factor),
         )
 
+    @contextmanager
+    def as_default(self) -> "Generator[Style, None, None]":
+        """Use this style as the scope's default within a ``with`` block.
+
+        A `ContextVar`-scoped replacement for the theme's style: every annotation
+        rendered inside the block that does not override its own style falls back
+        to this one instead of the active theme's. Nesting and threads are safe.
+
+        Yields:
+            This style.
+
+        Examples:
+            >>> bold = Style(stroke_width=6.0)
+            >>> with bold.as_default():
+            ...     current_default_style() is bold
+            True
+
+        """
+        token = _AMBIENT_STYLE.set(self)
+        try:
+            yield self
+        finally:
+            _AMBIENT_STYLE.reset(token)
+
+    @classmethod
+    @contextmanager
+    def override(
+        cls, **overrides: Any
+    ) -> "Generator[Mapping[str, Any], None, None]":
+        """Layer style ``overrides`` over the default within a ``with`` block.
+
+        Unlike `as_default` (which replaces the whole style), this merges only the
+        named fields over whatever the effective default is — the active theme's
+        style, or an enclosing `as_default`/`override` scope — leaving every other
+        field untouched. Override values are in display pixels (not scaled).
+
+        Args:
+            **overrides: `Style` field values to layer for the scope.
+
+        Yields:
+            The merged override mapping in effect for the scope.
+
+        Examples:
+            >>> with Style.override(stroke_width=6.0):
+            ...     current_style_overrides()["stroke_width"]
+            6.0
+
+        """
+        merged = {**(_AMBIENT_OVERRIDES.get() or {}), **overrides}
+        token = _AMBIENT_OVERRIDES.set(merged)
+        try:
+            yield merged
+        finally:
+            _AMBIENT_OVERRIDES.reset(token)
+
 
 DEFAULT_STYLE = Style()
 """The process-wide default `Style`."""
+
+#: Scoped default style set by `Style.as_default` (``None`` outside any scope).
+_AMBIENT_STYLE: ContextVar[Style | None] = ContextVar(
+    "vizlab_ambient_style", default=None
+)
+#: Scoped field overrides accumulated by `Style.override` (``None`` when unset).
+_AMBIENT_OVERRIDES: ContextVar[Mapping[str, Any] | None] = ContextVar(
+    "vizlab_ambient_style_overrides", default=None
+)
+
+
+def current_default_style() -> Style | None:
+    """Return the scope's default style from `Style.as_default`, or ``None``."""
+    return _AMBIENT_STYLE.get()
+
+
+def current_style_overrides() -> Mapping[str, Any]:
+    """Return the scope's accumulated `Style.override` fields (possibly empty)."""
+    return _AMBIENT_OVERRIDES.get() or {}

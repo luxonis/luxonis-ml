@@ -15,14 +15,15 @@ from luxonis_ml.ldf import (
     SegmentationAnnotation,
 )
 from luxonis_ml.vizlab import (
+    DARK_THEME,
     BBox,
     Classification,
     Image,
     Keypoints,
     Mask,
     Palette,
+    RenderOptions,
     SemanticMask,
-    VizConfig,
     visualize_record,
 )
 from luxonis_ml.vizlab.annotations.base import RenderContext
@@ -131,8 +132,10 @@ def test_visualize_record_renders_with_panel():
         task_name="det",
         sample_metadata={"frame": 3},
     )
-    cfg = VizConfig(palette=Palette(["car"]))
-    img = visualize_record(record, np.zeros((60, 60, 3), np.uint8), config=cfg)
+    options = RenderOptions(theme=DARK_THEME.with_palette(Palette(["car"])))
+    img = visualize_record(
+        record, np.zeros((60, 60, 3), np.uint8), options=options
+    )
     # sample_metadata attaches a side-panel, widening the output.
     assert img.render().shape[1] > 60
 
@@ -256,29 +259,21 @@ def test_metadata_annotations_cards_a_lone_boxed_object():
     assert metadata_annotations([car]) == []
 
 
-def test_metadata_annotations_promotes_text_key():
-    """The recognized-text key renders as a separate, prominent card."""
+def test_metadata_annotations_treats_all_metadata_uniformly():
+    """Every metadata key, "text" included, goes in the one metadata card."""
     from luxonis_ml.vizlab import InfoCard
     from luxonis_ml.vizlab.convert import metadata_annotations
-    from luxonis_ml.vizlab.style import DEFAULT_STYLE
 
     det = Detection(
         class_name="ocr",
         keypoints=KeypointAnnotation(keypoints=[(0.5, 0.5, 2)]),
         metadata={"text": "HELLO", "conf": 0.9},
     )
-    cards = metadata_annotations([det], text_key="text")
-    text_cards = [
-        c for c in cards if isinstance(c, InfoCard) and c.rows == ["HELLO"]
-    ]
-    meta_cards = [
-        c for c in cards if isinstance(c, InfoCard) and c.title == "metadata"
-    ]
-    assert len(text_cards) == 1
-    # Rendered larger than the default style.
-    assert text_cards[0].style is not None
-    assert text_cards[0].style.font_size > DEFAULT_STYLE.font_size
-    assert meta_cards[0].rows == ["ocr", "  conf: 0.9"]
+    cards = metadata_annotations([det])
+    assert len(cards) == 1
+    assert isinstance(cards[0], InfoCard)
+    assert cards[0].title == "metadata"
+    assert cards[0].rows == ["ocr", "  text: HELLO", "  conf: 0.9"]
 
 
 def test_metadata_annotations_recurses_sub_detections():
@@ -295,23 +290,10 @@ def test_metadata_annotations_recurses_sub_detections():
             )
         },
     )
-    cards = metadata_annotations([parent], text_key="text")
+    cards = metadata_annotations([parent])
     assert len(cards) == 1
     assert isinstance(cards[0], InfoCard)
     assert cards[0].rows == ["note: AB123"]
-
-
-def test_boxed_text_metadata_goes_on_chip():
-    """A boxed detection's text metadata becomes the box payload."""
-    from luxonis_ml.vizlab.convert import VizConfig, detection_to_annotations
-
-    det = Detection(
-        class_name="word",
-        boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.2),
-        metadata={"text": "STOP"},
-    )
-    annotations = detection_to_annotations(det, VizConfig())
-    assert annotations[0].payload == "STOP"
 
 
 def _record(task_name: str, *detections: Detection) -> DatasetRecord:

@@ -82,7 +82,9 @@ Examples:
     ...                             "w": 0.13,
     ...                             "h": 0.05,
     ...                         },
-    ...                         "metadata": {"text": "LJ 82-A31"},  # OCR chip
+    ...                         "metadata": {
+    ...                             "text": "LJ 82-A31"
+    ...                         },  # hover meta
     ...                     }
     ...                 },
     ...             },
@@ -136,10 +138,16 @@ Notes:
 
     The public API has four layers:
 
-    - `Image`, `visualize_record`, and `VizConfig` cover LDF and loader workflows.
+    - `Image`, `visualize_record`, and `RenderOptions` cover LDF and loader
+      workflows.
     - `BBox`, `Keypoints`, `Mask`, `SemanticMask`, and `Classification` are
       lower-level render annotations.
-    - `Style`, `Palette`, and `Theme` control appearance.
+    - `Style`, `Palette`, and `Theme` control appearance; a `RenderOptions`
+      bundles them (plus the default gradient and LDF behavior) and is passed via
+      ``Image(options=...)`` or installed for a scope with `default_options` /
+      `set_default_options`. Per-annotation, `Annotation.styled` layers a partial
+      style over the theme and `Annotation.color` / `Palette` pins fix a class's
+      color.
     - `blend`, `hstack`, `vstack`, `grid`, and `with_panel` return new composed
       images and leave their inputs unchanged.
 
@@ -194,6 +202,12 @@ with guard_missing_extra("viz"):
     )
     from .hitmap import HitMap
     from .image import Image
+    from .options import (
+        RenderOptions,
+        current_options,
+        default_options,
+        set_default_options,
+    )
     from .panel import with_panel
     from .presets import COCO_CLASSES
     from .style import (
@@ -238,6 +252,7 @@ __all__ = [
     "Palette",
     "Rect",
     "RenderContext",
+    "RenderOptions",
     "SemanticMask",
     "Style",
     "Theme",
@@ -246,12 +261,15 @@ __all__ = [
     "blend",
     "combine",
     "combine_hits",
+    "current_options",
+    "default_options",
     "fit_grid",
     "get_default_theme",
     "grid",
     "grid_hits",
     "hstack",
     "resolve_gradient",
+    "set_default_options",
     "set_default_theme",
     "visualize_record",
     "vstack",
