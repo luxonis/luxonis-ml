@@ -20,6 +20,18 @@ vizlab feature figures — each a self-contained group that drops into the docs:
 - ``themes.png`` — the same scene in the dark and light themes.
 - ``styling.png`` — the ways to control appearance: theme, palette pins,
   per-annotation overrides, and a scoped default style.
+- ``compare.png`` — ``compare``: ground truth vs prediction — the verdict-colored
+  overlay (hit, false alarm, miss, class error) with a per-class metrics panel,
+  above the identity-colored side-by-side layout.
+- ``compare_verdicts.png`` — the four match results in isolation (the verdict
+  color key): true positive, false positive, false negative, class error.
+- ``compare_detection.png`` — ``compare`` on full LDF detection trees (box and
+  instance mask), each inheriting its verdict color, as a triptych (ground truth
+  | prediction | diff).
+- ``compare_keypoints.png`` — keypoint comparison graded per joint (green
+  correct, red off, amber missed): no match, partial keypoints, full match.
+- ``confusion_matrix.png`` — a dataset-level confusion matrix accumulated with
+  ``ComparisonReport`` (truth × prediction, with a ``∅`` miss/false-alarm row).
 - ``heatmaps.png`` — one field under several gradient themes.
 - ``distributions.png`` — one prediction under every distribution mode.
 - ``compose.png`` — blend / stack / grid composition.
@@ -81,10 +93,15 @@ from luxonis_ml.vizlab import (
     RenderOptions,
     SemanticMask,
     Style,
+    ComparisonReport,
     blend,
     combine,
+    compare,
+    confusion_matrix_figure,
     grid,
     hstack,
+    match_detections,
+    vstack,
 )
 
 OUTPUT_DIR = Path(__file__).parent / "output"
@@ -373,7 +390,10 @@ def _distribution() -> Image:
 def _light_theme() -> Image:
     # DARK_THEME is the default; pass LIGHT_THEME (or your own) for a light look.
     return (
-        Image(np.full((_H, _W, 3), 236, np.uint8), options=RenderOptions(theme=LIGHT_THEME))
+        Image(
+            np.full((_H, _W, 3), 236, np.uint8),
+            options=RenderOptions(theme=LIGHT_THEME),
+        )
         .add(BBox(x=0.08, y=0.16, w=0.5, h=0.68, label="person", score=0.97))
         .add(BBox(x=0.44, y=0.36, w=0.47, h=0.5, label="dog", score=0.86))
     )
@@ -549,6 +569,289 @@ def render_styling() -> Path:
         grid(list(cells.values()), ncols=2, titles=list(cells)),
         "styling.png",
     )
+
+
+def render_compare() -> Path:
+    """Ground truth vs prediction: color is the verdict.
+
+    `compare` matches a model's predictions against the ground truth (COCO-style:
+    greedy by confidence, class-aware, at IoU 0.5) and draws one frame where each
+    box is colored by its outcome:
+
+    - **green** — a true positive; the faint dashed ghost behind it is where the
+      ground truth actually was, so localization drift is visible.
+    - **red** — a false positive (a prediction with no matching ground truth).
+    - **dashed amber** — a false negative (ground truth the model missed).
+    - **orange** — a class error (right box, wrong label, chip ``gt → pred``);
+      scored as a false positive plus a false negative, the orange is just so the
+      mistake is easy to spot.
+
+    The side panel is the aggregate report — precision, recall, F1, mean IoU, the
+    counts, and (``per_class=True``) a per-class breakdown. Every box also carries
+    a hover `Tooltip` explaining its verdict (surfaced by the interactive viewer,
+    not shown in the static figure).
+
+    The top row is this ``"overlay"`` view; the bottom row is ``show=
+    "side_by_side"``, where color instead keys to *identity* — a matched pair
+    shares one hue across the two panels, so the errors are the boxes with no twin
+    (a red solid with no partner, or a faded ghost where the partner is missing).
+    A third ``"triptych"`` layout (ground truth | prediction | diff) is available
+    too.
+    """
+    w, h = 560, 360
+    backdrop = street_scene(w, h)
+    ground_truth = [
+        BBox(x=0.05, y=0.52, w=0.30, h=0.30, label="car"),
+        BBox(x=0.42, y=0.44, w=0.08, h=0.32, label="person"),
+        BBox(x=0.58, y=0.36, w=0.28, h=0.34, label="bus"),
+        BBox(x=0.88, y=0.46, w=0.08, h=0.32, label="person"),  # missed
+    ]
+    predictions = [
+        # A confident car, nudged off the truth -> true positive with a ghost.
+        BBox(x=0.07, y=0.50, w=0.30, h=0.30, label="car", score=0.93),
+        BBox(x=0.42, y=0.44, w=0.08, h=0.32, label="person", score=0.89),
+        # Right box on the bus, wrong label -> class error.
+        BBox(x=0.58, y=0.36, w=0.28, h=0.34, label="truck", score=0.47),
+        # Nothing is there -> false positive.
+        BBox(x=0.30, y=0.74, w=0.12, h=0.15, label="car", score=0.34),
+    ]
+    overlay = compare(
+        backdrop, gt=ground_truth, pred=predictions, per_class=True
+    )
+    side_by_side = compare(
+        backdrop,
+        gt=ground_truth,
+        pred=predictions,
+        show="side_by_side",
+        panel=False,
+    )
+    return save(
+        vstack(
+            [overlay, side_by_side],
+            titles=[
+                "overlay — colored by verdict",
+                "side by side — by identity",
+            ],
+        ),
+        "compare.png",
+    )
+
+
+def render_compare_verdicts() -> Path:
+    """Show the four match results in isolation — the verdict color key.
+
+    One cell per outcome of `compare`, each a minimal one-box scene so the color
+    (and, for a miss, the dashed outline) reads cleanly:
+
+    - **true positive** — green, over its faint dashed ground-truth ghost.
+    - **false positive** — red; a prediction with no ground truth.
+    - **false negative** — dashed amber; ground truth with no prediction.
+    - **class error** — orange, chip ``gt → pred``; scored as a false positive
+      plus a false negative, colored apart only so the mistake shows.
+    """
+    backdrop = gradient(_W, _H, hue=0.6)
+
+    def box(
+        label: str, score: float | None = None, *, x: float = 0.24
+    ) -> BBox:
+        return BBox(x=x, y=0.26, w=0.5, h=0.5, label=label, score=score)
+
+    def cell(gt: list[BBox], pred: list[BBox]) -> Image:
+        return compare(backdrop, gt=gt, pred=pred, panel=False)
+
+    cells = {
+        "true positive": cell([box("car")], [box("car", 0.94, x=0.27)]),
+        "false positive": cell([], [box("car", 0.41)]),
+        "false negative": cell([box("car")], []),
+        "class error": cell([box("bus")], [box("truck", 0.52)]),
+    }
+    return save(
+        grid(list(cells.values()), ncols=2, titles=list(cells)),
+        "compare_verdicts.png",
+    )
+
+
+def render_compare_detection_tree() -> Path:
+    """Full detection trees compared — box and instance mask inherit the verdict.
+
+    `compare` accepts LDF `Detection` objects, not just boxes, and draws each
+    detection's whole tree in its verdict color. Shown as the ``triptych`` layout
+    (ground truth | prediction | diff) over a synthetic street:
+
+    - a boxed object matched cleanly — a green true positive;
+    - a boxed **instance mask** predicted with the wrong label — a class error, so
+      the box *and* its mask turn orange;
+    - a boxed object the model missed — a dashed-amber false negative;
+    - a prediction with nothing under it — a red false positive.
+    """
+    from luxonis_ml.ldf import Detection
+
+    w, h = 460, 320
+    backdrop = street_scene(w, h)
+    person_box = {"x": 0.08, "y": 0.4, "w": 0.15, "h": 0.44}
+    car_box = {"x": 0.4, "y": 0.46, "w": 0.32, "h": 0.3}
+    car_poly = [(0.4, 0.58), (0.72, 0.52), (0.72, 0.72), (0.4, 0.76)]
+    mask = {"height": h, "width": w, "points": car_poly}
+
+    def det(**data: object) -> Detection:
+        return Detection.model_validate(data)
+
+    ground_truth = [
+        det(class_name="person", boundingbox=person_box),
+        det(class_name="car", boundingbox=car_box, instance_segmentation=mask),
+        det(
+            class_name="dog",
+            boundingbox={"x": 0.8, "y": 0.5, "w": 0.15, "h": 0.3},
+        ),
+    ]
+    predictions = [
+        det(class_name="person", boundingbox=person_box),  # TP box
+        # Right box and mask on the car, wrong label -> class error.
+        det(
+            class_name="truck", boundingbox=car_box, instance_segmentation=mask
+        ),
+        # Nothing there -> false positive.
+        det(
+            class_name="bird",
+            boundingbox={"x": 0.05, "y": 0.55, "w": 0.12, "h": 0.14},
+        ),
+    ]
+    return save(
+        compare(
+            backdrop,
+            gt=ground_truth,
+            pred=predictions,
+            show="triptych",
+            panel=False,
+        ),
+        "compare_detection.png",
+    )
+
+
+def render_compare_keypoints() -> Path:
+    """Keypoint comparison graded per joint, at three levels of agreement.
+
+    When a matched detection carries keypoints, `compare` scores each joint on its
+    own — green within tolerance of the ground-truth joint, red when off — rather
+    than coloring the whole pose one color. A skeleton limb between two
+    differently graded joints is drawn as a gradient between their colors. Three
+    cells, left to right:
+
+    - **no match** — the predicted pose lands nowhere near the ground-truth one, so
+      the boxes never match: the ground truth is a dashed-amber miss and the
+      prediction a red false alarm (no per-joint grading without a pair);
+    - **box + partial keypoints** — the boxes match (a true positive), but a few
+      predicted joints are misplaced, so those turn red while the rest stay green
+      and the limbs joining green to red fade between the two;
+    - **full match** — every joint lands on target, so the whole pose is green.
+    """
+    from luxonis_ml.ldf import Detection
+
+    w2, h2 = 260, 320
+    backdrop = gradient(w2, h2, hue=0.55)
+    # A simple 7-joint figure: head, shoulders, hips, feet.
+    base = [
+        (0.5, 0.12, 2),
+        (0.38, 0.28, 2),
+        (0.62, 0.28, 2),
+        (0.42, 0.52, 2),
+        (0.58, 0.52, 2),
+        (0.36, 0.82, 2),
+        (0.64, 0.82, 2),
+    ]
+    # Skeleton limbs: head-shoulders, torso sides, hips, hips-feet. Drawing them
+    # requires ``draw_skeletons`` and a skeleton for the (empty) task name.
+    edges = [(0, 1), (0, 2), (1, 3), (2, 4), (3, 4), (3, 5), (4, 6)]
+    options = RenderOptions(draw_skeletons=True, skeletons={"": ([], edges)})
+
+    def shift(joints: list, dx: float) -> list:
+        return [(x + dx, y, v) for x, y, v in joints]
+
+    def bounds(joints: list) -> dict:
+        xs = [x for x, _, _ in joints]
+        ys = [y for _, y, _ in joints]
+        return {
+            "x": min(xs) - 0.03,
+            "y": min(ys) - 0.03,
+            "w": max(xs) - min(xs) + 0.06,
+            "h": max(ys) - min(ys) + 0.06,
+        }
+
+    def person(joints: list, box: dict) -> Detection:
+        return Detection.model_validate(
+            {
+                "class_name": "person",
+                "boundingbox": box,
+                "keypoints": {"keypoints": joints},
+            }
+        )
+
+    def cell(gt: Detection, pred: Detection) -> Image:
+        return compare(
+            backdrop, gt=[gt], pred=[pred], options=options, panel=False
+        )
+
+    box = bounds(base)
+    # A pose whose right shoulder and both feet are clearly misplaced.
+    partial = list(base)
+    partial[2] = (0.76, 0.22, 2)
+    partial[5] = (0.28, 0.7, 2)
+    partial[6] = (0.72, 0.7, 2)
+
+    left, right = shift(base, -0.22), shift(base, 0.22)
+    cells = {
+        "no match": cell(
+            person(left, bounds(left)), person(right, bounds(right))
+        ),
+        "box + partial keypoints": cell(
+            person(base, box), person(partial, box)
+        ),
+        "full match": cell(person(base, box), person(base, box)),
+    }
+    return save(
+        grid(list(cells.values()), ncols=3, titles=list(cells)),
+        "compare_keypoints.png",
+    )
+
+
+def render_confusion_matrix() -> Path:
+    """Show a dataset-level confusion matrix accumulated with `ComparisonReport`.
+
+    Feeding several images' `compare` matches into a `ComparisonReport` and
+    calling `confusion_matrix_figure` gives the classic model-debugging view:
+    rows are the ground-truth class, columns the prediction, with a trailing
+    ``∅`` for misses (false negatives) and false alarms (false positives). The
+    diagonal is green (correct), off-diagonal red (a confusion), shaded by count.
+    """
+
+    def det(
+        x: float, y: float, label: str, score: float | None = None
+    ) -> BBox:
+        return BBox(x=x, y=y, w=0.22, h=0.22, label=label, score=score)
+
+    scenes = [
+        # (ground truth, prediction) per image — a few realistic outcomes.
+        (
+            [det(0.10, 0.10, "car"), det(0.55, 0.10, "person")],
+            [det(0.10, 0.10, "car", 0.9), det(0.55, 0.10, "person", 0.8)],
+        ),
+        (
+            [det(0.10, 0.55, "bus"), det(0.55, 0.55, "car")],
+            [det(0.10, 0.55, "truck", 0.5), det(0.55, 0.55, "car", 0.85)],
+        ),
+        (
+            [det(0.10, 0.10, "person"), det(0.55, 0.60, "person")],
+            [det(0.10, 0.10, "person", 0.7)],  # the second person is missed
+        ),
+        (
+            [det(0.30, 0.30, "car")],
+            [det(0.30, 0.30, "car", 0.9), det(0.72, 0.72, "car", 0.4)],  # a FP
+        ),
+    ]
+    report = ComparisonReport()
+    for ground_truth, prediction in scenes:
+        report.add(match_detections(ground_truth, prediction))
+    return save(confusion_matrix_figure(report), "confusion_matrix.png")
 
 
 def render_compose() -> Path:
@@ -1208,8 +1511,8 @@ def _aug_viz_config(
     from luxonis_ml.data.loaders.label_converter import _BACKGROUND
     from luxonis_ml.vizlab import (
         Palette,
-        Theme,
         RenderOptions,
+        Theme,
         get_default_theme,
     )
 
@@ -1520,6 +1823,11 @@ def main() -> None:
         render_overlays(),
         render_themes(),
         render_styling(),
+        render_compare(),
+        render_compare_verdicts(),
+        render_compare_detection_tree(),
+        render_compare_keypoints(),
+        render_confusion_matrix(),
         render_heatmap_themes(),
         render_distribution_modes(),
         render_compose(),

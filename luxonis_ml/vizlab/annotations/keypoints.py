@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Literal
 import numpy as np
 
 from luxonis_ml.ldf import KeypointAnnotation
-from luxonis_ml.vizlab.color import Color
+from luxonis_ml.vizlab.color import Color, ColorLike
 from luxonis_ml.vizlab.geometry import XY, Rect
 from luxonis_ml.vizlab.style import Palette, Style
 
@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 _WHITE = Color(255, 255, 255)
 #: Dark outline for occluded joints (vs the white outline of visible ones).
 _DARK = Color(25, 25, 25)
+
 
 #: A diamond (occluded joint) is scaled up so it reads as visually heavy as the
 #: circle (visible joint) of the same nominal radius.
@@ -61,6 +62,11 @@ class Keypoints(KeypointAnnotation, Annotation):
             ``"numbers"`` (its index), ``"names"`` (its keypoint name), or
             ``"full"`` (``index:name``). ``"names"``/``"full"`` fall back to the
             index when no name is available.
+        point_colors: Optional per-joint color overrides, index-aligned to
+            ``keypoints`` (a ``None`` entry, or a short list, falls back to the
+            instance color). A limb between two differently colored joints is
+            drawn as a gradient from one color to the other. Useful for grading
+            individual joints — see `luxonis_ml.vizlab.compare`.
 
     See `Annotation` for the shared
     ``label``, ``color``, ``style``, and ``palette`` fields.
@@ -79,6 +85,7 @@ class Keypoints(KeypointAnnotation, Annotation):
     keypoint_names: list[str] | None = None
     visibility_threshold: float = 0.0
     point_labels: PointLabelMode = "none"
+    point_colors: list[ColorLike | None] | None = None
 
     @classmethod
     def from_ldf(
@@ -211,7 +218,8 @@ class Keypoints(KeypointAnnotation, Annotation):
             np.all((seen > 0) & (seen <= 1.0))
         )
 
-        self._draw_limbs(ctx, xy, visible, color, style)
+        colors = self._joint_colors(color, len(xy))
+        self._draw_limbs(ctx, xy, visible, colors, style)
         for i in range(len(xy)):
             if not visible[i]:
                 continue
@@ -220,17 +228,18 @@ class Keypoints(KeypointAnnotation, Annotation):
             if confidence_like:
                 radius *= 0.55 + 0.45 * v
             center = (float(xy[i, 0]), float(xy[i, 1]))
+            joint = colors[i]
             # COCO visibility: 2 (visible) is a filled dot; 1 (labeled but
             # occluded) is a filled diamond. Both keep the same fill and white
             # outline, so a glance tells them apart by shape alone. Confidence-
             # style visibility is always a dot.
             if not confidence_like and v < 2:
-                self._draw_diamond(canvas, center, radius, color, style)
+                self._draw_diamond(canvas, center, radius, joint, style)
             else:
                 canvas.circle(
                     center,
                     radius,
-                    fill=color,
+                    fill=joint,
                     stroke=_WHITE,
                     stroke_width=style.keypoint_outline_width,
                 )
@@ -310,29 +319,51 @@ class Keypoints(KeypointAnnotation, Annotation):
             stroke_width=style.keypoint_outline_width,
         )
 
+    def _joint_colors(self, color: Color, count: int) -> list[Color]:
+        """Per-joint colors: ``point_colors`` where set, else the instance color."""
+        if not self.point_colors:
+            return [color] * count
+        resolved: list[Color] = []
+        for i in range(count):
+            override = (
+                self.point_colors[i] if i < len(self.point_colors) else None
+            )
+            resolved.append(
+                Color.parse(override) if override is not None else color
+            )
+        return resolved
+
     def _draw_limbs(
         self,
         ctx: RenderContext,
         xy: np.ndarray,
         visible: np.ndarray,
-        color: Color,
+        colors: list[Color],
         style: Style,
     ) -> None:
         """Draw skeleton edges between visible endpoints.
+
+        A limb whose endpoints share a color is a solid line; one spanning two
+        different joint colors is drawn as a linear-gradient stroke between them.
 
         Args:
             ctx: The current render context.
             xy: Resolved ``(K, 2)`` pixel coordinates.
             visible: Boolean visibility mask over the points.
-            color: Limb color.
+            colors: Per-joint colors (index-aligned to ``xy``).
             style: The resolved style.
 
         """
         if not self.edges:
             return
-        limb = color.with_alpha(0.85)
         for a, b in self.edges:
             if a < len(xy) and b < len(xy) and visible[a] and visible[b]:
                 p1: XY = (float(xy[a, 0]), float(xy[a, 1]))
                 p2: XY = (float(xy[b, 0]), float(xy[b, 1]))
-                ctx.canvas.line(p1, p2, limb, width=style.stroke_width)
+                ca, cb = colors[a].with_alpha(0.85), colors[b].with_alpha(0.85)
+                if ca == cb:
+                    ctx.canvas.line(p1, p2, ca, width=style.stroke_width)
+                else:
+                    ctx.canvas.gradient_line(
+                        p1, p2, ca, cb, width=style.stroke_width
+                    )

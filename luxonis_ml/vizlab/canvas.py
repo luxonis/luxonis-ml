@@ -38,6 +38,11 @@ def _color4f(color: Color) -> skia.Color4f:
     )
 
 
+def _skia_color(color: Color) -> int:
+    """Convert a `Color` to a packed Skia ``SkColor`` integer (for shaders)."""
+    return skia.Color(color.r, color.g, color.b, color.a)
+
+
 _DEFAULT_SHADOW_COLOR = Color(0, 0, 0, 90)
 
 
@@ -419,6 +424,31 @@ class Canvas:
         self._canvas.drawLine(
             p1[0], p1[1], p2[0], p2[1], self._stroke_paint(color, width)
         )
+
+    def gradient_line(
+        self, p1: XY, p2: XY, c1: Color, c2: Color, width: float = 2.0
+    ) -> None:
+        """Draw a straight line whose color fades from ``c1`` to ``c2``.
+
+        A single Skia linear-gradient stroke — a true continuous gradient rather
+        than a run of solid sub-segments.
+
+        Args:
+            p1: Start point (takes color ``c1``).
+            p2: End point (takes color ``c2``).
+            c1: Color at ``p1``.
+            c2: Color at ``p2``.
+            width: Line width in pixels.
+
+        """
+        paint = self._stroke_paint(c1, width)
+        paint.setShader(
+            skia.GradientShader.MakeLinear(
+                points=[skia.Point(p1[0], p1[1]), skia.Point(p2[0], p2[1])],
+                colors=[_skia_color(c1), _skia_color(c2)],
+            )
+        )
+        self._canvas.drawLine(p1[0], p1[1], p2[0], p2[1], paint)
 
     def circle(
         self,

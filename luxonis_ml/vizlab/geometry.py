@@ -34,6 +34,8 @@ class Rect:
         Rect(left=0.0, top=0.0, right=20.0, bottom=20.0)
         >>> Rect(0.0, 0.0, 5.0, 5.0).union(Rect(3.0, 3.0, 10.0, 8.0))
         Rect(left=0.0, top=0.0, right=10.0, bottom=8.0)
+        >>> Rect(0.0, 0.0, 4.0, 4.0).iou(Rect(2.0, 2.0, 6.0, 6.0))
+        0.14285714285714285
 
     """
 
@@ -96,6 +98,54 @@ class Rect:
             max(self.right, other.right),
             max(self.bottom, other.bottom),
         )
+
+    def intersection(self, other: "Rect") -> "Rect | None":
+        """Return the overlapping rectangle, or ``None`` if they are disjoint.
+
+        Args:
+            other: The other rectangle.
+
+        Returns:
+            The intersection `Rect`, or ``None`` when the rectangles do not
+            overlap (touching edges count as no overlap).
+
+        Examples:
+            >>> Rect(0.0, 0.0, 4.0, 4.0).intersection(Rect(2.0, 2.0, 6.0, 6.0))
+            Rect(left=2.0, top=2.0, right=4.0, bottom=4.0)
+            >>> Rect(0.0, 0.0, 1.0, 1.0).intersection(Rect(2.0, 2.0, 3.0, 3.0))
+
+        """
+        left = max(self.left, other.left)
+        top = max(self.top, other.top)
+        right = min(self.right, other.right)
+        bottom = min(self.bottom, other.bottom)
+        if right <= left or bottom <= top:
+            return None
+        return Rect(left, top, right, bottom)
+
+    def iou(self, other: "Rect") -> float:
+        """Return the intersection-over-union overlap with ``other`` in ``[0, 1]``.
+
+        Args:
+            other: The other rectangle.
+
+        Returns:
+            The IoU: intersection area divided by union area, or ``0.0`` when the
+            rectangles are disjoint or both empty.
+
+        Examples:
+            >>> Rect(0.0, 0.0, 2.0, 2.0).iou(Rect(0.0, 0.0, 2.0, 2.0))
+            1.0
+            >>> Rect(0.0, 0.0, 2.0, 2.0).iou(Rect(5.0, 5.0, 7.0, 7.0))
+            0.0
+
+        """
+        inter = self.intersection(other)
+        if inter is None:
+            return 0.0
+        inter_area = inter.area
+        union = self.area + other.area - inter_area
+        return inter_area / union if union > 0.0 else 0.0
 
 
 def bounding_rect(points: Sequence[XY]) -> Rect:

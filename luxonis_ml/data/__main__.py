@@ -34,12 +34,93 @@ from luxonis_ml.data.utils.task_utils import get_task_name, get_task_type
 from luxonis_ml.enums import DatasetType
 
 if TYPE_CHECKING:
-    from luxonis_ml.vizlab import Image
+    from luxonis_ml.vizlab import (
+        ComparisonReport,
+        ComparisonResult,
+        Image,
+    )
 
 app = App(help="Dataset utilities.")
 
 
 BucketStorageT: TypeAlias = Annotated[BucketStorage, Parameter(alias="-b")]
+
+
+def _deduped_class_names(
+    dataset: LuxonisDataset, *, show_background: bool
+) -> list[str]:
+    """Dataset class names, deduped across tasks, for a stable palette and legend.
+
+    A class name can appear under several tasks (e.g. "car" in car/boundingbox,
+    car/keypoints and car/classification of a multitask dataset). Names are deduped
+    while preserving first-seen order so the palette and legend carry one row per
+    class, not one per (task, class) pair, and stripped to match the loader (which
+    renders under ``name.strip()``) so a metadata name like " car" keys the same
+    palette slot as the rendered box. Real classes are seeded first, in the same
+    order regardless of ``show_background``, so their colors never shift when it is
+    toggled; background (never drawn for detection/classification) is appended only
+    when ``show_background`` renders its segmentation mask.
+    """
+    from luxonis_ml.data.loaders.label_converter import _BACKGROUND
+
+    stripped = list(
+        dict.fromkeys(
+            name.strip()
+            for names in dataset.get_class_names().values()
+            for name in names
+        )
+    )
+    classes = [n for n in stripped if n != _BACKGROUND]
+    if show_background and _BACKGROUND in stripped:
+        classes.append(_BACKGROUND)
+    return classes
+
+
+def _print_comparison_summary(
+    report: "ComparisonReport",
+    gt_name: str,
+    pred_name: str,
+    per_class: bool,
+) -> None:
+    """Print a `ComparisonReport` as aggregate, per-class, and worst-image tables."""
+    console = Console()
+    summary = report.summary()
+    aggregate = Table(
+        title=f"{pred_name} vs {gt_name} — {summary['images']} images",
+        box=rich.box.ROUNDED,
+    )
+    aggregate.add_column("metric", style="magenta")
+    aggregate.add_column("value", justify="right")
+    for metric in ("precision", "recall", "F1", "mean IoU", "TP", "FP", "FN"):
+        aggregate.add_row(metric, str(summary[metric]))
+    console.print(aggregate)
+
+    if per_class and report.per_class():
+        classes = Table(title="per class", box=rich.box.ROUNDED)
+        classes.add_column("class", style="cyan")
+        for header in ("P", "R", "TP", "FP", "FN"):
+            classes.add_column(header, justify="right")
+        for name, values in report.per_class().items():
+            classes.add_row(
+                name,
+                f"{values['precision']:.3f}",
+                f"{values['recall']:.3f}",
+                str(values["tp"]),
+                str(values["fp"]),
+                str(values["fn"]),
+            )
+        console.print(classes)
+
+    worst = report.worst(5)
+    if worst:
+        table = Table(
+            title="worst images (by error count)", box=rich.box.ROUNDED
+        )
+        table.add_column("errors", justify="right", style="red")
+        table.add_column("image")
+        for count, image_name in worst:
+            table.add_row(str(count), image_name)
+        console.print(table)
 
 
 @app.command
@@ -333,7 +414,6 @@ def inspect(
 
     try:
         from luxonis_ml.data.loaders.label_converter import (
-            _BACKGROUND,
             loader_output_to_records,
         )
         from luxonis_ml.vizlab import (
@@ -361,28 +441,9 @@ def inspect(
             "Install it with `pip install luxonis-ml[viz]`."
         ) from e
 
-    # A class name can appear under several tasks (e.g. "car" in car/boundingbox,
-    # car/keypoints and car/classification of a multitask dataset). Dedupe while
-    # preserving first-seen order so the palette and legend carry one row per
-    # class, not one per (task, class) pair. Names are stripped to match the
-    # loader (which renders detections/masks under ``name.strip()``); without this
-    # a metadata name like " background" or " car" would key a different palette
-    # slot than the rendered mask, so legend colors would not match the drawing.
-    stripped_names = list(
-        dict.fromkeys(
-            class_name.strip()
-            for classes in dataset.get_class_names().values()
-            for class_name in classes
-        )
+    class_names = _deduped_class_names(
+        dataset, show_background=show_background
     )
-    # Real classes are always seeded first, in the same order regardless of the
-    # ``--show-background`` flag, so their colors never change when it is toggled.
-    # Background (never drawn for detection/classification) is only appended — at
-    # the end, taking its own trailing color — when ``--show-background`` renders
-    # its segmentation mask; otherwise it is dropped entirely.
-    class_names: list[str] = [n for n in stripped_names if n != _BACKGROUND]
-    if show_background and _BACKGROUND in stripped_names:
-        class_names.append(_BACKGROUND)
 
     viz_theme = LIGHT_THEME if theme == "light" else DARK_THEME
     # The palette is pinned to the dataset's class order for stable colors; it
@@ -610,6 +671,271 @@ def inspect(
         # Per-instance mode already blocked on each instance; otherwise block for
         # a keypress while hover tooltips redraw.
         if needs_wait and viewer.wait() == "q":
+            break
+
+    viewer.close()
+
+
+@app.command
+def compare(
+    name: str,
+    predictions: str,
+    *,
+    view: Annotated[list[str] | None, Parameter(alias="-v")] = None,
+    layout: Annotated[
+        Literal["overlay", "dual", "triple"],
+        Parameter(alias="-l"),
+    ] = "overlay",
+    iou_threshold: Annotated[float, Parameter(alias="--iou")] = 0.5,
+    score_threshold: Annotated[float, Parameter(alias="--score")] = 0.25,
+    class_agnostic: Annotated[bool, Parameter(negative="")] = False,
+    per_class: Annotated[bool, Parameter(alias="-pc", negative="")] = False,
+    errors_only: Annotated[bool, Parameter(alias="-e", negative="")] = False,
+    summary: Annotated[bool, Parameter(negative="")] = False,
+    size_multiplier: Annotated[
+        float | Literal["auto"], Parameter(alias="-s")
+    ] = "auto",
+    skeletons: Annotated[bool, Parameter(negative="--no-skeletons")] = True,
+    keypoint_labels: Annotated[
+        Literal["none", "numbers", "names", "full"], Parameter()
+    ] = "none",
+    legend: Annotated[bool, Parameter(alias="-lg", negative="")] = False,
+    show_background: Annotated[
+        bool, Parameter(alias="-bg", negative="")
+    ] = False,
+    theme: Annotated[Literal["dark", "light"], Parameter(alias="-t")] = "dark",
+    force_update: Annotated[bool, Parameter(alias="-f", negative="")] = False,
+    bucket_storage: BucketStorageT = BucketStorage.LOCAL,
+):
+    """Compare a prediction dataset against a ground-truth dataset.
+
+    Treats ``predictions`` as a model's outputs and ``name`` as the ground truth,
+    matches them sample by sample (COCO-style: greedy by confidence, class-aware,
+    at ``--iou-threshold``), and draws each frame colored by outcome — green hit,
+    red false alarm, dashed-amber miss, orange class error — with a metrics side
+    panel. Matched poses are graded per keypoint. The two datasets are assumed to
+    share the same samples and settings. Press any key to advance, 'q' to quit.
+
+    Args:
+        name: Name of the ground-truth dataset.
+        predictions: Name of the dataset to treat as predictions.
+        view: Which splits to compare (default: the "train" split).
+        layout: ``overlay`` (verdict colors on one frame, hoverable), ``dual``
+            (ground truth beside prediction, colored by identity), or ``triple``
+            (ground truth | prediction | verdict diff).
+        iou_threshold: Overlap threshold for a localized match.
+        score_threshold: Confidence cutoff for predictions.
+        class_agnostic: Match regardless of class label (no class-error verdict).
+        per_class: Add a per-class precision/recall breakdown to the panel.
+        errors_only: Draw only mistakes (false alarms, misses, class errors),
+            hiding correct detections; the metrics panel still reflects all.
+        summary: Skip the interactive viewer; run the whole view, print
+            dataset-wide precision/recall/F1 (with ``--per-class``, a per-class
+            table) and the worst images, and write a confusion-matrix figure.
+        size_multiplier: Display scale; ``auto`` fits the screen.
+        skeletons: Draw keypoint skeleton limbs (gradient-colored between graded
+            joints).
+        keypoint_labels: How to label keypoints.
+        legend: Draw a class-color legend on each frame.
+        show_background: Render the semantic-segmentation background class.
+        theme: Visual theme: ``dark`` or ``light``.
+        force_update: Force synchronization with remote storage first.
+        bucket_storage: Storage type of the datasets.
+
+    """
+    check_exists(name, bucket_storage)
+    check_exists(predictions, bucket_storage)
+
+    view = view or ["train"]
+    gt_dataset = LuxonisDataset(name, bucket_storage=bucket_storage)
+    pred_dataset = LuxonisDataset(predictions, bucket_storage=bucket_storage)
+    if len(gt_dataset) == 0:
+        raise ValueError(f"Dataset '{name}' is empty.")
+    if len(pred_dataset) == 0:
+        raise ValueError(f"Prediction dataset '{predictions}' is empty.")
+
+    def _loader(dataset: LuxonisDataset) -> LuxonisLoader:
+        return LuxonisLoader(
+            dataset,
+            view=view,
+            update_mode="all" if force_update else "missing",
+        )
+
+    gt_loader, pred_loader = _loader(gt_dataset), _loader(pred_dataset)
+    gt_classes = gt_dataset.get_classes()
+    gt_categorical = gt_dataset.get_categorical_encodings()
+    pred_classes = pred_dataset.get_classes()
+    pred_categorical = pred_dataset.get_categorical_encodings()
+
+    try:
+        from luxonis_ml.data.loaders.label_converter import (
+            loader_output_to_records,
+        )
+        from luxonis_ml.vizlab import (
+            DARK_THEME,
+            LIGHT_THEME,
+            ComparisonReport,
+            Frame,
+            Legend,
+            Palette,
+            RenderOptions,
+            Verdict,
+            confusion_matrix_figure,
+            match_detections,
+            set_default_options,
+        )
+        from luxonis_ml.vizlab import (
+            compare as viz_compare,
+        )
+        from luxonis_ml.vizlab.viewer import Viewer
+    except ImportError as e:
+        raise SystemExit(
+            "Visualization requires the 'viz' extra. "
+            "Install it with `pip install luxonis-ml[viz]`."
+        ) from e
+
+    class_names = _deduped_class_names(
+        gt_dataset, show_background=show_background
+    )
+    viz_theme = LIGHT_THEME if theme == "light" else DARK_THEME
+    palette = Palette(class_names)
+    options = RenderOptions(
+        theme=viz_theme.with_palette(palette),
+        skeletons=gt_dataset.get_skeletons(),
+        keypoint_label_mode=keypoint_labels,
+        draw_skeletons=skeletons,
+    )
+    set_default_options(options)
+    class_legend = (
+        Legend(entries=class_names, palette=palette, title="classes")
+        if legend and class_names
+        else None
+    )
+
+    layout_show: Literal["overlay", "side_by_side", "triptych"]
+    if layout == "overlay":
+        layout_show = "overlay"
+    elif layout == "dual":
+        layout_show = "side_by_side"
+    else:
+        layout_show = "triptych"
+
+    verdicts = (
+        {Verdict.FP, Verdict.FN, Verdict.CLASS_ERROR} if errors_only else None
+    )
+
+    def records_for(data: object, classes: dict, categorical: dict) -> dict:
+        return loader_output_to_records(
+            data.labels,  # type: ignore[attr-defined]
+            classes=classes,
+            categorical_encodings=categorical,
+            render_background=show_background,
+        )
+
+    def match_sample(
+        gt_records: dict, pred_records: dict
+    ) -> "ComparisonResult":
+        gt_dets = [d for r in gt_records.values() for d in r._annotations()]
+        pred_dets = [
+            d for r in pred_records.values() for d in r._annotations()
+        ]
+        return match_detections(
+            gt_dets,
+            pred_dets,
+            iou_threshold=iou_threshold,
+            score_threshold=score_threshold,
+            class_aware=not class_agnostic,
+        )
+
+    def short() -> bool:
+        print(
+            "[yellow]Prediction dataset has fewer samples than the ground "
+            "truth; stopping.[/yellow]"
+        )
+        return True
+
+    pred_iterator = iter(pred_loader)
+
+    # ``--summary``: iterate the whole view headlessly, accumulate a report,
+    # print it, and write a confusion-matrix figure — no interactive window.
+    if summary:
+        report = ComparisonReport()
+        for index, gt_data in enumerate(gt_loader):
+            pred_data = next(pred_iterator, None)
+            if pred_data is None:
+                short()
+                break
+            report.add(
+                match_sample(
+                    records_for(gt_data, gt_classes, gt_categorical),
+                    records_for(pred_data, pred_classes, pred_categorical),
+                ),
+                name=str(index),
+            )
+        _print_comparison_summary(report, name, predictions, per_class)
+        out_path = Path(f"{name}_vs_{predictions}_confusion.png")
+        confusion_matrix_figure(report, options=options).save(out_path)
+        print(f"[green]Wrote confusion matrix to {out_path}[/green]")
+        return
+
+    viewer = Viewer()
+    screen = viewer.screen
+    # The metrics panel is a fixed pixel width; reserve room for it when fitting.
+    panel_reserve = 400.0
+
+    def display_size(width: int, height: int) -> tuple[int, int] | None:
+        """Fit ``width`` x ``height`` to the screen (or apply the multiplier)."""
+        if size_multiplier != "auto":
+            scale = size_multiplier
+        elif screen is not None:
+            avail_w = max(1.0, 0.9 * screen[0] - panel_reserve)
+            avail_h = max(1.0, 0.9 * screen[1])
+            scale = min(avail_w / width, avail_h / height, 1.0)
+        else:
+            return None
+        if scale == 1.0:
+            return None
+        return (max(1, round(width * scale)), max(1, round(height * scale)))
+
+    def build_frame(
+        image: np.ndarray, gt_records: dict, pred_records: dict
+    ) -> Frame:
+        """Match GT vs predictions for one image and build its display frame."""
+        result = match_sample(gt_records, pred_records)
+        viz = viz_compare(
+            image,
+            result=result,
+            options=options,
+            show=layout_show,
+            panel=False,
+            verdicts=verdicts,
+        )
+        viz = viz.render_at(display_size(viz.width, viz.height))
+        frame = viz.frame()
+        display = frame.image
+        if class_legend is not None:
+            display.add(class_legend)
+        metrics: dict = dict(result.summary())
+        if per_class and len(result.per_class) > 1:
+            metrics["by class"] = result.per_class_panel()
+        return frame.with_image(
+            display.with_panel(metrics, title="Comparison")
+        )
+
+    for gt_data in gt_loader:
+        pred_data = next(pred_iterator, None)
+        if pred_data is None:
+            short()
+            break
+        gt_records = records_for(gt_data, gt_classes, gt_categorical)
+        pred_records = records_for(pred_data, pred_classes, pred_categorical)
+        for source_name, image in gt_data.images.items():
+            viewer.show(
+                source_name,
+                build_frame(image.astype(np.uint8), gt_records, pred_records),
+            )
+        viewer.destroy_stale(set(gt_data.images.keys()))
+        if viewer.wait() == "q":
             break
 
     viewer.close()

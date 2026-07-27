@@ -1,6 +1,6 @@
 """End-to-end coverage for the ``data inspect`` command (thin viewer adapter)."""
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -40,6 +40,9 @@ class _FakeBackend:
         pass
 
     def set_mouse_handler(self, name: str, handler: object) -> None:
+        pass
+
+    def set_key_handler(self, handler: object) -> None:
         pass
 
     def poll_key(self, timeout_ms: int) -> int:
@@ -235,3 +238,163 @@ def test_inspect_grid_renders_real_frames(
 
     # One composited window was presented for the sole source image.
     assert backend.shown == ["image"]
+
+
+def _compare_mocks(
+    monkeypatch: pytest.MonkeyPatch,
+    image: np.ndarray,
+    real_viewer: Callable[..., object] | None = None,
+) -> "tuple[_FakeBackend, list]":
+    """Wire the ``compare`` command onto a fake dataset/loader/viewer.
+
+    Returns the fake backend and a list capturing every ``with_panel`` call.
+    ``real_viewer`` lets a caller pass the real `Viewer` class captured *before*
+    any patch, so repeated calls do not re-import an already-patched name.
+    """
+
+    def _record() -> DatasetRecord:
+        return DatasetRecord.model_construct(
+            files={},
+            sample_metadata={},
+            annotation=[
+                Detection(
+                    class_name="car",
+                    instance_id=1,
+                    boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
+                )
+            ],
+            task_name="objects",
+        )
+
+    class _Dataset:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def __len__(self) -> int:
+            return 1
+
+        def get_classes(self) -> dict[str, dict[str, int]]:
+            return {"objects": {"car": 0}}
+
+        def get_class_names(self) -> dict[str, list[str]]:
+            return {"objects": ["car"]}
+
+        def get_categorical_encodings(self) -> dict[str, object]:
+            return {}
+
+        def get_skeletons(self) -> dict[str, object]:
+            return {}
+
+    class _Loader:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            self._augmentations = None
+
+        def __iter__(self) -> Iterator[SimpleNamespace]:
+            yield SimpleNamespace(
+                images={"image": image}, labels={}, metadata={}
+            )
+
+    from luxonis_ml.data.loaders import label_converter
+    from luxonis_ml.vizlab import Image
+
+    if real_viewer is None:
+        from luxonis_ml.vizlab.viewer import Viewer
+
+        real_viewer = Viewer
+
+    panels: list[tuple[object, object]] = []
+
+    def capture_panel(self: Image, data: object, **kwargs: object) -> Image:
+        panels.append((kwargs.get("title"), data))
+        return self
+
+    backend = _FakeBackend(keys=[ord("q")])
+    monkeypatch.setattr(data_main, "check_exists", lambda *_args: None)
+    monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
+    monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
+    monkeypatch.setattr(viewer_module, "Viewer", lambda: real_viewer(backend))
+    monkeypatch.setattr(
+        label_converter,
+        "loader_output_to_records",
+        lambda *_args, **_kwargs: {"objects": _record()},
+    )
+    monkeypatch.setattr(Image, "with_panel", capture_panel)
+    return backend, panels
+
+
+def test_compare_command_renders_verdict_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # `data compare gt preds` matches predictions against ground truth and shows a
+    # verdict overlay with a metrics panel. Matching, rendering, and render_hits
+    # run for real; only the window backend is faked.
+    backend, panels = _compare_mocks(
+        monkeypatch, np.zeros((40, 60, 3), dtype=np.uint8)
+    )
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    try:
+        data_main.compare("ground_truth", "predictions")
+    finally:
+        set_default_options(RenderOptions())
+
+    assert backend.shown == ["image"]  # the comparison frame was presented
+    # Identical GT and predictions -> a single true positive, no false positives.
+    metrics = next(data for title, data in panels if title == "Comparison")
+    assert isinstance(metrics, dict)
+    assert metrics["TP"] == 1
+    assert metrics["FP"] == 0
+
+
+def test_compare_command_supports_dual_and_triple_layouts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+    from luxonis_ml.vizlab.viewer import Viewer as RealViewer
+
+    for layout in ("dual", "triple"):
+        backend, _ = _compare_mocks(
+            monkeypatch, np.zeros((40, 60, 3), dtype=np.uint8), RealViewer
+        )
+        try:
+            data_main.compare("gt", "preds", layout=layout)  # type: ignore[arg-type]
+        finally:
+            set_default_options(RenderOptions())
+        assert backend.shown == [
+            "image"
+        ]  # the multi-panel frame was presented
+
+
+def test_compare_command_errors_only_still_shows_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    backend, _ = _compare_mocks(
+        monkeypatch, np.zeros((40, 60, 3), dtype=np.uint8)
+    )
+    try:
+        # Identical GT/preds -> a lone true positive is filtered out, but the
+        # frame (with its metrics panel) is still presented.
+        data_main.compare("gt", "preds", errors_only=True)
+    finally:
+        set_default_options(RenderOptions())
+    assert backend.shown == ["image"]
+
+
+def test_compare_command_summary_writes_confusion_figure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    monkeypatch.chdir(tmp_path)
+    backend, _ = _compare_mocks(
+        monkeypatch, np.zeros((40, 60, 3), dtype=np.uint8)
+    )
+    try:
+        data_main.compare("gt", "preds", summary=True, per_class=True)
+    finally:
+        set_default_options(RenderOptions())
+
+    assert backend.shown == []  # headless: no interactive window
+    assert (tmp_path / "gt_vs_preds_confusion.png").exists()

@@ -191,6 +191,9 @@ class Image:
         )
         self._cache: np.ndarray | None = None
         self._cache_key: tuple[tuple[int, int], bytes] | None = None
+        # A precomputed hover map (in this image's own pixels), carried by
+        # composites whose tiles were baked to pixels — see `with_hitmap`.
+        self._hits: HitMap | None = None
 
     @property
     def width(self) -> int:
@@ -321,6 +324,7 @@ class Image:
         clone._render_size = self._render_size
         clone._cache = None
         clone._cache_key = None
+        clone._hits = self._hits
         return clone
 
     def render(self, size: tuple[int, int] | None = None) -> np.ndarray:
@@ -368,6 +372,24 @@ class Image:
         """
         rgba, hits = self._render(size, capture=True)
         return rgba, hits if hits is not None else HitMap.empty()
+
+    def with_hitmap(self, hitmap: HitMap) -> "Image":
+        """Attach a precomputed hover `HitMap` (in this image's pixels).
+
+        For composites whose tiles were flattened to pixels (so their tooltips no
+        longer live on annotations): the map is remembered and returned by
+        `render_hits` / `frame`, scaled to the render size like an annotation's
+        would be. Mutates and returns this image.
+
+        Args:
+            hitmap: The hover map, in this image's current pixel coordinates.
+
+        Returns:
+            This image, to allow chaining.
+
+        """
+        self._hits = hitmap
+        return self
 
     def frame(self) -> "Frame":
         """Pair this image with its hover `HitMap` as a `Frame`.
@@ -433,7 +455,13 @@ class Image:
             self._cache = rgba
             self._cache_key = key
             return rgba.copy(), None
-        return rgba.copy(), HitMap(hits if hits is not None else [])
+        hitmap = HitMap(hits if hits is not None else [])
+        if self._hits is not None:
+            # Carried composite hits live in this image's own pixels; scale them
+            # to the render size the same way annotation hits are captured at it.
+            factor = render_size[0] / self.width if self.width else 1.0
+            hitmap = hitmap.merge(self._hits.scaled(factor))
+        return rgba.copy(), hitmap
 
     def _render_fills(
         self,

@@ -22,6 +22,26 @@ def test_line_and_circle_draw() -> None:
     assert out[..., 3].max() > 0  # something was drawn
 
 
+def test_gradient_line_fades_between_endpoints() -> None:
+    # A wide horizontal gradient line from green to red: the left end reads
+    # greener, the right end redder, and the middle sits between the two.
+    canvas = Canvas.blank(60, 12)
+    green, red = Color(40, 200, 120), Color(230, 60, 60)
+    canvas.gradient_line((2, 6), (58, 6), green, red, width=10.0)
+    out = canvas.to_rgba()[6]  # the center scanline
+
+    def sample(x: int) -> tuple[int, int]:
+        return int(out[x, 0]), int(out[x, 1])  # (r, g)
+
+    left_r, left_g = sample(5)
+    mid_r, mid_g = sample(30)
+    right_r, right_g = sample(54)
+    assert left_g > left_r  # green-dominant near the start
+    assert right_r > right_g  # red-dominant near the end
+    assert left_r < mid_r < right_r  # red rises left -> right
+    assert left_g > mid_g > right_g  # green falls left -> right
+
+
 def test_measure_and_text() -> None:
     canvas = _blank()
     metrics = canvas.measure_text("Ag", 16.0, weight=600)

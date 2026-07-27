@@ -235,6 +235,41 @@ def test_keypoints_render_with_skeleton_and_names() -> None:
     assert base.render()[..., 3].max() > 0
 
 
+def test_keypoints_point_colors_differ_from_single_color() -> None:
+    # Coloring individual joints changes the pixels vs one uniform color.
+    joints = [(0.25, 0.2, 2), (0.5, 0.4, 2), (0.75, 0.7, 2)]
+    uniform = _canvas().add(
+        Keypoints(keypoints=joints, color="#35d6a6")  # type: ignore
+    )
+    graded = _canvas().add(
+        Keypoints(
+            keypoints=joints,  # type: ignore
+            color="#35d6a6",
+            point_colors=[
+                "#35d6a6",
+                "#ff6b6b",
+                None,
+            ],  # None -> instance color
+        )
+    )
+    assert not np.array_equal(uniform.render(), graded.render())
+
+
+def test_keypoints_gradient_limb_between_two_colors() -> None:
+    # A limb spanning two joint colors renders differently from a solid one.
+    solid = _canvas().add(
+        Keypoints(keypoints=[(0.2, 0.5, 2), (0.8, 0.5, 2)], edges=[(0, 1)])
+    )
+    two_tone = _canvas().add(
+        Keypoints(
+            keypoints=[(0.2, 0.5, 2), (0.8, 0.5, 2)],
+            edges=[(0, 1)],
+            point_colors=["#35d6a6", "#ff6b6b"],
+        )
+    )
+    assert not np.array_equal(solid.render(), two_tone.render())
+
+
 def test_keypoints_point_labels_numbers_render_without_skeleton() -> None:
     # "numbers" mode labels each joint by index and needs no skeleton.
     plain = _canvas().render()
