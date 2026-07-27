@@ -48,6 +48,11 @@ viz = { file = [
   "luxonis_ml/ldf/requirements.txt",
   "luxonis_ml/vizlab/requirements.txt",
 ] }
+notebook = { file = [
+  "luxonis_ml/ldf/requirements.txt",
+  "luxonis_ml/vizlab/requirements.txt",
+  "extra_requirements/notebook.txt",
+] }
 utils = { file = ["luxonis_ml/utils/requirements.txt"] }
 tracker = { file = ["luxonis_ml/tracker/requirements.txt"] }
 telemetry = { file = ["extra_requirements/posthog.txt"] }
@@ -71,6 +76,7 @@ file = [
   "extra_requirements/s3.txt",
   "extra_requirements/mlflow.txt",
   "extra_requirements/posthog.txt",
+  "extra_requirements/notebook.txt",
 ]
 
 [tool.setuptools.dynamic.optional-dependencies.dev]
@@ -86,6 +92,7 @@ file = [
   "extra_requirements/s3.txt",
   "extra_requirements/mlflow.txt",
   "extra_requirements/posthog.txt",
+  "extra_requirements/notebook.txt",
   "requirements-dev.txt",
 ]
 

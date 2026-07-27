@@ -7,6 +7,7 @@ frames and hit maps (see `Image.render_hits`, `luxonis_ml.vizlab.grid_hits`) and
 never touch windowing themselves.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -40,10 +41,17 @@ def _key_char(key: int) -> str:
 class Viewer:
     """Show `Image` frames interactively, with screen-fit and hover tooltips.
 
-    Typical use is one frame per named window per step: call `show` for each
-    window, then `wait` to block for a keypress while hover tooltips redraw. Use
-    `show_blocking` for a single non-interactive frame (no hover), `destroy_stale`
-    to close windows no longer in use, and `close` to tear everything down.
+    Two interaction models, matching the backend flavor (see `WindowBackend`):
+
+    - **pull** (the default `Cv2Backend`): call `show` for each window, then
+      `wait` to block for a keypress while hover tooltips redraw; `show_blocking`
+      shows a single non-interactive frame.
+    - **push** (event-driven backends): call `show`, then `run` once with an
+      ``on_key`` callback and return to the backend's own loop; hover tooltips
+      then redraw inline on each mouse move.
+
+    Use `destroy_stale` to close windows no longer in use and `close` to tear
+    everything down.
 
     Args:
         backend: The window backend to drive; defaults to `Cv2Backend`.
@@ -57,6 +65,8 @@ class Viewer:
         self._screen = self._backend.screen_size()
         self._windows: dict[str, _HoverState] = {}
         self._live: set[str] = set()
+        # Push (event-driven) backends redraw hover inline instead of in a loop.
+        self._driven = False
 
     @property
     def screen(self) -> tuple[int, int] | None:
@@ -113,7 +123,7 @@ class Viewer:
         self._open(name, frame)
         state = _HoverState(base=frame, hitmap=hitmap)
         self._windows[name] = state
-        self._backend.set_mouse_handler(name, self._handler(state))
+        self._backend.set_mouse_handler(name, self._handler(name, state))
         self._backend.show(name, frame)
 
     def show_blocking(self, name: str, display: Image) -> str:
@@ -125,21 +135,46 @@ class Viewer:
         return _key_char(self._backend.poll_key(0))
 
     def wait(self) -> str:
-        """Block for a keypress, redrawing hover tooltips; return its char."""
+        """Block for a keypress, redrawing hover tooltips; return its char.
+
+        For pull backends (`Cv2Backend`); push backends use `run` instead.
+        """
         while True:
             key = self._backend.poll_key(20)
             if key != -1:
                 return _key_char(key)
             for name, state in self._windows.items():
-                if not state.dirty:
-                    continue
-                state.dirty = False
-                if state.hover is None:
-                    self._backend.show(name, state.base)
-                else:
-                    frame = state.base.copy()
-                    draw_tooltip(frame, state.hover, state.mouse)
-                    self._backend.show(name, frame)
+                if state.dirty:
+                    state.dirty = False
+                    self._render_hover(name, state)
+
+    def run(self, on_key: Callable[[str], None]) -> None:
+        """Enter driven mode: the backend's own event loop delivers events.
+
+        Present frames with `show` as usual; hover tooltips then redraw inline on
+        each mouse move (there is no `wait` loop), and every keypress is delivered
+        to ``on_key`` as a one-character string. Returns immediately — the
+        backend's native loop (Qt, a notebook kernel, a web socket) keeps calling
+        back until `close`; the caller keeps that loop alive.
+
+        Requires a push-capable backend; pull backends like `Cv2Backend` raise
+        ``NotImplementedError`` (use `wait` instead).
+
+        Args:
+            on_key: Called with the pressed key's character on each keypress.
+
+        """
+        self._driven = True
+        self._backend.set_key_handler(lambda key: on_key(_key_char(key)))
+
+    def _render_hover(self, name: str, state: _HoverState) -> None:
+        """Present ``state``'s base frame, with its current tooltip if any."""
+        if state.hover is None:
+            self._backend.show(name, state.base)
+        else:
+            frame = state.base.copy()
+            draw_tooltip(frame, state.hover, state.mouse)
+            self._backend.show(name, frame)
 
     def destroy_stale(self, current: set[str]) -> None:
         """Close every open window whose name is not in ``current``."""
@@ -154,17 +189,26 @@ class Viewer:
         self._live.clear()
         self._windows.clear()
 
-    def _handler(self, state: _HoverState) -> MouseHandler:
-        """Build the mouse-move handler that tracks the hovered tooltip."""
+    def _handler(self, name: str, state: _HoverState) -> MouseHandler:
+        """Build the mouse-move handler that tracks the hovered tooltip.
+
+        Pull mode marks the window dirty for `wait` to repaint; driven mode
+        repaints inline (there is no loop to defer to).
+        """
 
         def handler(x: int, y: int) -> None:
             tooltip = state.hitmap.hit(x, y)
             pos = (int(x), int(y))
-            if tooltip is not state.hover or (
+            changed = tooltip is not state.hover or (
                 tooltip is not None and pos != state.mouse
-            ):
-                state.hover = tooltip
-                state.mouse = pos
+            )
+            if not changed:
+                return
+            state.hover = tooltip
+            state.mouse = pos
+            if self._driven:
+                self._render_hover(name, state)
+            else:
                 state.dirty = True
 
         return handler

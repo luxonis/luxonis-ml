@@ -8,11 +8,13 @@ actually used.
 
 from .backend import WindowBackend
 from .cv2_backend import Cv2Backend
+from .notebook_backend import NotebookBackend
 from .tooltip_render import draw_tooltip, render_tooltip_card
 from .viewer import Viewer
 
 __all__ = [
     "Cv2Backend",
+    "NotebookBackend",
     "Viewer",
     "WindowBackend",
     "draw_tooltip",

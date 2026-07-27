@@ -7,7 +7,7 @@ actual window is opened (mirroring `luxonis_ml.vizlab.annotations.mask`).
 
 import numpy as np
 
-from .backend import MouseHandler
+from .backend import KeyHandler, MouseHandler
 
 
 class Cv2Backend:
@@ -86,6 +86,12 @@ class Cv2Backend:
         import cv2
 
         return cv2.waitKey(timeout_ms)
+
+    def set_key_handler(self, handler: KeyHandler) -> None:
+        raise NotImplementedError(
+            "Cv2Backend is pull-based (keys come from poll_key); use "
+            "Viewer.wait(), not Viewer.run()."
+        )
 
     def close(self) -> None:
         import cv2

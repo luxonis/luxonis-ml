@@ -1,10 +1,16 @@
 """Tests for the interactive `Viewer`, driven by a fake window backend."""
 
 import numpy as np
+import pytest
 
 from luxonis_ml.vizlab import BBox, Image, Tooltip
-from luxonis_ml.vizlab.viewer import Viewer, draw_tooltip, render_tooltip_card
-from luxonis_ml.vizlab.viewer.backend import MouseHandler
+from luxonis_ml.vizlab.viewer import (
+    Cv2Backend,
+    Viewer,
+    draw_tooltip,
+    render_tooltip_card,
+)
+from luxonis_ml.vizlab.viewer.backend import KeyHandler, MouseHandler
 
 
 class FakeBackend:
@@ -21,6 +27,7 @@ class FakeBackend:
         self.created: list[str] = []
         self.destroyed: list[str] = []
         self.handlers: dict[str, MouseHandler] = {}
+        self.key_handler: KeyHandler | None = None
 
     def screen_size(self) -> tuple[int, int] | None:
         return self._screen
@@ -47,6 +54,9 @@ class FakeBackend:
 
     def poll_key(self, timeout_ms: int) -> int:
         return self._keys.pop(0) if self._keys else -1
+
+    def set_key_handler(self, handler: KeyHandler) -> None:
+        self.key_handler = handler
 
     def close(self) -> None:
         pass
@@ -137,3 +147,29 @@ def test_render_tooltip_card_is_rgba() -> None:
     card = render_tooltip_card(Tooltip(title="car", rows=(("id", "7"),)), 14)
     assert card.ndim == 3
     assert card.shape[2] == 4
+
+
+def test_run_delivers_keys_and_hovers_inline() -> None:
+    backend = FakeBackend()
+    viewer = Viewer(backend)
+    image, _ = _tooltip_image()
+    _, hits = image.render_hits()
+    viewer.show("w", image, hits)
+    got: list[str] = []
+    viewer.run(got.append)
+
+    # A key event from the backend's own loop reaches on_key as a character.
+    assert backend.key_handler is not None
+    backend.key_handler(ord("n"))
+    assert got == ["n"]
+
+    # Hover now repaints inline (no wait loop): the shown frame changes.
+    base = backend.shown[-1][1]
+    backend.handlers["w"](100, 60)  # over the box center
+    assert not np.array_equal(backend.shown[-1][1], base)
+
+
+def test_cv2_backend_is_pull_only() -> None:
+    # Constructing it touches neither cv2 nor Tk; only the raise is exercised.
+    with pytest.raises(NotImplementedError):
+        Cv2Backend().set_key_handler(lambda _key: None)
