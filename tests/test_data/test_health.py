@@ -293,6 +293,33 @@ def test_build_health_grid_renders() -> None:
     assert rendered[..., 3].max() > 0
 
 
+def test_build_health_grid_omits_metadata_and_task_name_from_titles() -> None:
+    """Only spatial types render, and subplot titles do not repeat the task."""
+    pytest.importorskip("luxonis_ml.vizlab")
+    from luxonis_ml.data.utils import health_plots
+
+    spatial_class_dist = {
+        "boundingbox": [{"class_name": "person", "count": 1}]
+    }
+    heatmaps = {"boundingbox": [[1] * 15 for _ in range(15)]}
+    with_metadata = health_plots.build_health_grid(
+        "multitask",
+        {
+            **spatial_class_dist,
+            "metadata": [{"class_name": "sunny", "count": 1}],
+        },
+        heatmaps,
+    ).render()
+    without_metadata = health_plots.build_health_grid(
+        "multitask", spatial_class_dist, heatmaps
+    ).render()
+
+    np.testing.assert_array_equal(with_metadata, without_metadata)
+    assert health_plots._panel_title("boundingbox", "Spatial density") == (
+        "<b>Spatial density</b>\n<code>boundingbox</code>"
+    )
+
+
 def test_many_task_types_use_a_wide_layout() -> None:
     """Several task types pack two pairs per row, so the grid is wide, not tall.
 

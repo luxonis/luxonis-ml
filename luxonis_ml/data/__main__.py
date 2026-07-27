@@ -801,7 +801,7 @@ def health(
     distribution: Annotated[
         Literal["bars", "chips", "stacked", "pie", "donut"],
         Parameter(alias="-m"),
-    ] = "stacked",
+    ] = "bars",
     scale: Annotated[
         float,
         Parameter(alias="-c"),
@@ -929,10 +929,9 @@ def health(
             "to automatically remove duplicates and missing entries."
         )
 
-    all_task_names = sorted(
-        set(stats["class_distributions"].keys())
-        | set(stats["heatmaps"].keys())
-    )
+    # Only spatial annotations have heatmaps. Metadata can have class counts,
+    # but it has no meaningful health plot and should not create a window.
+    all_task_names = sorted(stats["heatmaps"])
     if not all_task_names:
         console.print("[info]No plots to display.[/info]")
         return
@@ -964,7 +963,7 @@ def health(
         class_heatmaps_by_type = stats.get("class_heatmaps", {}).get(
             task_name, {}
         )
-        if not (set(class_dist_by_type) | set(heatmaps_by_type)):
+        if not heatmaps_by_type:
             console.print(f"[info]No plots for task name: {task_name}[/info]")
             continue
 
