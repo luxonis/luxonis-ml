@@ -331,6 +331,11 @@ def test_mlflow_active_run_upload(
     local_dir = tempdir / "active-dir-source"
     local_dir.mkdir()
     (local_dir / "active-dir-file.txt").write_text("active dir payload")
+    iterable_files = []
+    for index in range(2):
+        file = tempdir / f"active-iterable-{index}.txt"
+        file.write_text(f"active iterable payload {index}")
+        iterable_files.append(file)
 
     with MLFLOW.start_run(experiment_id=experiment_id) as run:
         fs = LuxonisFileSystem(
@@ -346,6 +351,12 @@ def test_mlflow_active_run_upload(
             == f"mlflow://{experiment_id}/{run.info.run_id}/active/renamed.txt"
         )
         fs.put_dir(local_dir, "active-dir", mlflow_instance=MLFLOW)
+        assert fs.put_dir(
+            iterable_files, "active-iterable", mlflow_instance=MLFLOW
+        ) == {
+            str(file): f"active-iterable/{file.name}"
+            for file in iterable_files
+        }
 
         explicit_fs = LuxonisFileSystem(
             f"mlflow://{experiment_id}/{run.info.run_id}",
@@ -358,6 +369,11 @@ def test_mlflow_active_run_upload(
         assert explicit_fs.read_text("active-dir/active-dir-file.txt") == (
             "active dir payload"
         )
+        for file in iterable_files:
+            assert (
+                explicit_fs.read_text(f"active-iterable/{file.name}")
+                == file.read_text()
+            )
 
 
 def test_mlflow_delete_is_unsupported(

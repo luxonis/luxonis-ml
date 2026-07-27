@@ -819,6 +819,15 @@ class LuxonisFileSystem:
         mlflow_instance: ModuleType | None,
     ) -> dict[str, str]:
         upload_dict = {}
+        if self.is_mlflow and self._is_mlflow_active_run:
+            for local_path in local_paths:
+                local_path = Path(local_path)
+                basename = self._get_upload_basename(local_path, uuid_dict)
+                remote_path = str(PurePosixPath(remote_dir) / basename)
+                upload_dict[str(local_path)] = remote_path
+                self.put_file(local_path, remote_path, mlflow_instance)
+            return upload_dict
+
         futures = []
         with ThreadPoolExecutor() as executor:
             for local_path in local_paths:
