@@ -1,4 +1,13 @@
 repos:
+  - repo: local
+    hooks:
+      - id: export-requirements
+        name: Export pip compatibility requirements
+        entry: scripts/export_requirements.sh
+        language: system
+        pass_filenames: false
+        files: ^(pyproject\.toml|uv\.lock|luxonis_ml/_version\.py)$
+
   - repo: https://github.com/crate-ci/typos
     rev: v1.47.2
     hooks:

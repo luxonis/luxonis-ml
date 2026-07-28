@@ -8,7 +8,19 @@ license = "Apache-2.0"
 authors = [{ name = "Luxonis", email = "support@luxonis.com" }]
 maintainers = [{ name = "Luxonis", email = "support@luxonis.com" }]
 keywords = ["ml", "ops", "camera", "luxonis", "oak"]
-dynamic = ["dependencies", "optional-dependencies", "version"]
+dynamic = ["version"]
+dependencies = [
+  "cyclopts~=4.16",
+  "fsspec==2024.6.1",
+  "loguru~=0.7",
+  "pydantic-extra-types~=2.10",
+  "pydantic-settings~=2.1",
+  "pydantic~=2.7",
+  "PyYAML~=6.0",
+  "rich~=15.0",
+  "semver~=3.0",
+  "typeguard~=4.1",
+]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Programming Language :: Python :: 3.10",
@@ -24,6 +36,97 @@ luxonis_ml = "luxonis_ml.__main__:app"
 repository = "https://github.com/luxonis/luxonis-ml"
 issues = "https://github.com/luxonis/luxonis-ml/issues"
 
+[project.optional-dependencies]
+data = [
+  "albumentations>=2.0.0",
+  "bidict~=0.21",
+  "defusedxml~=0.7",
+  "filelock~=3.0",
+  "gdown~=6.1",
+  "matplotlib~=3.10",
+  "numpy~=2.2",
+  "opencv-python~=4.10",
+  "pillow-heif~=1.5",
+  "polars[timezone]~=1.43",
+  "pyarrow~=23.0",
+  "pycocotools~=2.0",
+  "requests~=2.32",
+]
+gcs = ["gcsfs==2024.6.1"]
+mlflow = ["mlflow~=3.1"]
+nn_archive = []
+roboflow = ["roboflow~=1.4"]
+s3 = ["s3fs==2024.6.1"]
+telemetry = ["posthog~=7.29"]
+tracker = ["unique-names-generator~=1.0"]
+utils = []
+all = [
+  "albumentations>=2.0.0",
+  "bidict~=0.21",
+  "defusedxml~=0.7",
+  "filelock~=3.0",
+  "gcsfs==2024.6.1",
+  "gdown~=6.1",
+  "matplotlib~=3.10",
+  "mlflow~=3.1",
+  "numpy~=2.2",
+  "opencv-python~=4.10",
+  "pillow-heif~=1.5",
+  "polars[timezone]~=1.43",
+  "posthog~=7.29",
+  "pyarrow~=23.0",
+  "pycocotools~=2.0",
+  "requests~=2.32",
+  "roboflow~=1.4",
+  "s3fs==2024.6.1",
+  "unique-names-generator~=1.0",
+]
+dev = [
+  "albumentations>=2.0.0",
+  "bidict~=0.21",
+  "defusedxml~=0.7",
+  "filelock~=3.0",
+  "gcsfs==2024.6.1",
+  "gdown~=6.1",
+  "matplotlib~=3.10",
+  "mlflow~=3.1",
+  "numpy~=2.2",
+  "onnx~=1.22",
+  "opencv-python~=4.10",
+  "pillow-heif~=1.5",
+  "polars[timezone]~=1.43",
+  "posthog~=7.29",
+  "pre-commit>=3.2.1,<4.0.0",
+  "pyarrow~=23.0",
+  "pycocotools~=2.0",
+  "pydoctor~=25.10",
+  "pyright>=1.1.380",
+  "pytest-clarity~=1.0",
+  "pytest-cov~=7.1",
+  "pytest-dependency~=0.6",
+  "pytest-split~=0.11",
+  "pytest-subtests~=0.15",
+  "pytest-xdist~=3.8",
+  "requests~=2.32",
+  "roboflow~=1.4",
+  "s3fs==2024.6.1",
+  "unique-names-generator~=1.0",
+]
+
+[dependency-groups]
+dev = [
+  "onnx~=1.22",
+  "pre-commit>=3.2.1,<4.0.0",
+  "pyright>=1.1.380",
+  "pytest-clarity~=1.0",
+  "pytest-cov~=7.1",
+  "pytest-dependency~=0.6",
+  "pytest-split~=0.11",
+  "pytest-subtests~=0.15",
+  "pytest-xdist~=3.8",
+]
+docs = ["pydoctor~=25.10"]
+
 [build-system]
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
@@ -32,47 +135,7 @@ build-backend = "setuptools.build_meta"
 where = ["."]
 
 [tool.setuptools.dynamic]
-dependencies = { file = ["luxonis_ml/utils/requirements.txt"] }
-version = { attr = "luxonis_ml.__version__" }
-
-[tool.setuptools.dynamic.optional-dependencies]
-data = { file = ["luxonis_ml/data/requirements.txt"] }
-utils = { file = ["luxonis_ml/utils/requirements.txt"] }
-tracker = { file = ["luxonis_ml/tracker/requirements.txt"] }
-telemetry = { file = ["extra_requirements/posthog.txt"] }
-nn_archive = { file = ["luxonis_ml/nn_archive/requirements.txt"] }
-
-roboflow = { file = ["extra_requirements/roboflow.txt"] }
-gcs = { file = ["extra_requirements/gcs.txt"] }
-s3 = { file = ["extra_requirements/s3.txt"] }
-mlflow = { file = ["extra_requirements/mlflow.txt"] }
-
-[tool.setuptools.dynamic.optional-dependencies.all]
-file = [
-  "luxonis_ml/data/requirements.txt",
-  "luxonis_ml/utils/requirements.txt",
-  "luxonis_ml/tracker/requirements.txt",
-  "luxonis_ml/nn_archive/requirements.txt",
-  "extra_requirements/roboflow.txt",
-  "extra_requirements/gcs.txt",
-  "extra_requirements/s3.txt",
-  "extra_requirements/mlflow.txt",
-  "extra_requirements/posthog.txt",
-]
-
-[tool.setuptools.dynamic.optional-dependencies.dev]
-file = [
-  "luxonis_ml/data/requirements.txt",
-  "luxonis_ml/utils/requirements.txt",
-  "luxonis_ml/tracker/requirements.txt",
-  "luxonis_ml/nn_archive/requirements.txt",
-  "extra_requirements/roboflow.txt",
-  "extra_requirements/gcs.txt",
-  "extra_requirements/s3.txt",
-  "extra_requirements/mlflow.txt",
-  "extra_requirements/posthog.txt",
-  "requirements-dev.txt",
-]
+version = { attr = "luxonis_ml._version.__version__" }
 
 [tool.ruff]
 target-version = "py310"

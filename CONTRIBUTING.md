@@ -10,29 +10,30 @@ For API usage details, use the generated docs at
 git clone git@github.com:luxonis/luxonis-ml.git
 cd luxonis-ml
 
-python -m venv .venv
-source .venv/bin/activate
-
-python -m pip install --upgrade pip
-python -m pip install -e '.[dev]'
-
-pre-commit install
-luxonis_ml checkhealth
+uv sync --extra all
+uv run pre-commit install
+uv run luxonis_ml checkhealth
 ```
 
-**Use Python 3.10 or newer.** CI currently runs the core checks on Python
-3.10, so Python 3.10 is the safest local baseline.
+**Use Python 3.10.** CI runs the core checks on Python 3.10, which is pinned
+in `.python-version` as the local baseline.
 
-The editable install (`-e`) keeps your checkout importable while you edit it.
-The `dev` extra installs the package extras plus test, docs, and pre-commit
-tools.
+This creates `.venv`, installs the checkout in editable mode, and installs the
+default development dependency group. The `all` extra adds every optional
+Luxonis ML integration used by the test suite.
 
-If dependency resolution behaves differently from CI, match the CI constraint:
+The `requirements*.txt` files are generated compatibility exports for users
+that still install with pip. Do not edit them manually; after changing
+dependencies, run:
 
 ```bash
-printf 'setuptools<81\n' > /tmp/luxonis-ml-constraints.txt
-PIP_CONSTRAINT=/tmp/luxonis-ml-constraints.txt python -m pip install -e '.[dev]'
+scripts/export_requirements.sh
 ```
+
+The pre-commit hook runs this script automatically when `pyproject.toml`,
+`uv.lock`, or `luxonis_ml/_version.py` is staged. It refreshes `uv.lock` and
+the generated requirements files; review and stage those updates before
+committing again.
 
 ## Repository Map
 
@@ -46,15 +47,14 @@ PIP_CONSTRAINT=/tmp/luxonis-ml-constraints.txt python -m pip install -e '.[dev]'
 | `tests`                        | Pytest suite, fixtures, integration tests, and data workflow coverage.           |
 | `tools/build_pydoctor_docs.py` | The local and CI entrypoint for generated API docs.                              |
 
-Package dependencies are defined in `pyproject.toml` and loaded from the
-module requirement files plus `extra_requirements/`.
+Package dependencies are defined in `pyproject.toml`.
 
 ## Pre-commit checks
 
 Run the same formatting and static checks before pushing:
 
 ```bash
-pre-commit run --all-files
+uv run pre-commit run --all-files
 ```
 
 Pre-commit runs:
@@ -76,9 +76,9 @@ are the expected review path.
 Run focused tests while developing, then broaden the run before opening a PR.
 
 ```bash
-python -m pytest tests/test_utils/test_config.py -q
-python -m pytest tests/test_data/test_loader.py --only-local -q
-python -m pytest tests --only-local -n auto
+uv run pytest tests/test_utils/test_config.py -q
+uv run pytest tests/test_data/test_loader.py --only-local -q
+uv run pytest tests --only-local -n auto
 ```
 
 Use `--only-local` for data tests that are parametrized over local and cloud
@@ -107,7 +107,7 @@ Public API docs are generated from docstrings with pydoctor using the
 Build the current checkout locally:
 
 ```bash
-python tools/build_pydoctor_docs.py --mode current --output apidocs
+uv run --only-group docs tools/build_pydoctor_docs.py --mode current --output apidocs
 ```
 
 Open `apidocs/latest/index.html` to inspect the result.
@@ -129,16 +129,14 @@ Good doc changes should:
 
 ## Type Checking and Security
 
-CI runs Pyright in warning mode against `pyproject.toml` after installing
-`.[dev]`.
+CI runs Pyright in warning mode against `pyproject.toml` using the locked uv
+environment.
 
 ```bash
-pyright --project pyproject.toml
+uv run pyright --warnings --project pyproject.toml
 ```
 
-_Pyright is invoked through the GitHub Action in CI; install it locally through
-your preferred Node or Python wrapper if you want the same feedback before
-pushing._
+Pyright is installed through the `dev` dependency group.
 
 CI also runs Semgrep with automatic rules and secret scanning. Treat those
 findings as required review items unless the team explicitly accepts the risk.
@@ -149,7 +147,7 @@ findings as required review items unless the team explicitly accepts the risk.
    `bugfix/`, `docs/`, or `ci/`.
 1. Keep changes scoped. Update tests and generated-doc docstrings with behavior
    changes.
-1. Run focused tests, then `pre-commit run --all-files`.
+1. Run focused tests, then `uv run pre-commit run --all-files`.
 1. Build docs if public APIs, docstrings, or examples changed.
 1. Open a PR and include the problem, solution, and verification commands.
 
