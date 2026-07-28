@@ -198,6 +198,11 @@ def blend_records_to_annotations(
     redundant corner chip. When nothing but class tags is present, the chips are
     kept.
 
+    It likewise drops a segmentation mask's label chip when a box already labels
+    that same class (see `_suppress_redundant_mask_labels`), so a dataset carrying
+    both a detection and a semantic-segmentation task for the same classes is not
+    labeled twice per class.
+
     Args:
         records: The records whose detections are drawn together; each record's
             task name is used to look up its detections' skeletons in ``options``.
@@ -205,7 +210,8 @@ def blend_records_to_annotations(
 
     Returns:
         The vizlab annotations to draw, with redundant classification chips
-        dropped when other annotations are present.
+        dropped when other annotations are present, and redundant mask chips
+        dropped when a box already labels their class.
 
     """
     options = options or RenderOptions()
@@ -218,8 +224,35 @@ def blend_records_to_annotations(
         )
     ]
     if any(not isinstance(a, Classification) for a in annotations):
-        return [a for a in annotations if not isinstance(a, Classification)]
+        annotations = [
+            a for a in annotations if not isinstance(a, Classification)
+        ]
+    _suppress_redundant_mask_labels(annotations)
     return annotations
+
+
+def _suppress_redundant_mask_labels(annotations: list[Annotation]) -> None:
+    """Drop a mask's label chip when a box already labels that same class.
+
+    A semantic-segmentation mask paints one region per class; blended next to a
+    detection task (the ``--blend-all`` view of a dataset with both a detection
+    and a segmentation task), each class then carries two chips — the box's and
+    the mask's identical restatement. Only the mask's redundant chip is hidden
+    (via ``label_chip``); its label is kept, so the fill and contour still take
+    the class color and the class focus still recognizes it. The class stays
+    labeled on the box, and a segmentation class no box shows (e.g. ``road``)
+    keeps its own chip. Mutates ``annotations`` in place.
+
+    Args:
+        annotations: The blended annotations to prune, edited in place.
+
+    """
+    boxed = {
+        a.label for a in annotations if a.label and not isinstance(a, Mask)
+    }
+    for a in annotations:
+        if isinstance(a, Mask) and a.label in boxed:
+            a.label_chip = False
 
 
 def _detection_tooltip(

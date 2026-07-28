@@ -319,6 +319,87 @@ def test_blend_drops_classification_chip_next_to_spatial() -> None:
     assert any(isinstance(a, BBox) for a in blended)
 
 
+def test_blend_drops_mask_chip_for_a_class_a_box_already_labels() -> None:
+    """A semantic mask's chip is dropped when a box shares its class."""
+    from luxonis_ml.vizlab.convert import blend_records_to_annotations
+
+    car = np.zeros((20, 30), np.uint8)
+    car[2:8, 2:12] = 1
+    road = np.zeros((20, 30), np.uint8)
+    road[12:18, 2:28] = 1
+    car_seg = SegmentationAnnotation(mask=car)  # type: ignore[call-arg]
+    road_seg = SegmentationAnnotation(mask=road)  # type: ignore[call-arg]
+    detection = _record(
+        "detection",
+        Detection(
+            class_name="car",
+            boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
+        ),
+    )
+    segmentation = _record(
+        "segmentation",
+        Detection(class_name="car", segmentation=car_seg),
+        Detection(class_name="road", segmentation=road_seg),
+    )
+    palette = Palette(["car", "road"])
+    options = RenderOptions(theme=DARK_THEME.with_palette(palette))
+    blended = blend_records_to_annotations([detection, segmentation], options)
+
+    masks = {m.label: m for m in blended if isinstance(m, Mask)}
+    assert set(masks) == {"car", "road"}  # both masks keep their label...
+    assert (
+        masks["car"].label_chip is False
+    )  # ...but car's redundant chip hides
+    assert masks["road"].label_chip is True  # road (no box) keeps its chip
+    # Hiding the chip must not change the fill/contour color: a suppressed mask
+    # still resolves to its class color, matching the box (the regression).
+    assert masks["car"].resolve_color(_ctx()) == palette.color_for("car")
+
+
+def test_mask_label_chip_false_hides_chip_but_still_draws(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``label_chip=False`` skips the chip while fill and contour still render."""
+    import luxonis_ml.vizlab.annotations.mask as mask_mod
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        mask_mod, "place_label", lambda *a, **k: calls.append("chip")
+    )
+
+    disc = np.zeros((20, 20), np.uint8)
+    disc[6:14, 6:14] = 1
+    shown = Mask.from_ldf(SegmentationAnnotation(mask=disc), label="car")  # type: ignore[call-arg]
+    hidden = Mask.from_ldf(SegmentationAnnotation(mask=disc), label="car")  # type: ignore[call-arg]
+    hidden.label_chip = False
+
+    Image(np.zeros((20, 20, 3), np.uint8)).add(shown).render()
+    assert calls == ["chip"]  # labeled mask draws exactly one chip
+    calls.clear()
+
+    out = Image(np.zeros((20, 20, 3), np.uint8)).add(hidden).render()
+    assert calls == []  # no chip drawn...
+    assert out[10, 10, 3] > 0  # ...but the fill is still painted
+
+
+def test_blend_keeps_mask_chip_when_no_box_labels_its_class() -> None:
+    """Without a box of the same class, the mask keeps its own chip."""
+    from luxonis_ml.vizlab.convert import blend_records_to_annotations
+
+    road = np.zeros((20, 30), np.uint8)
+    road[12:18, 2:28] = 1
+    road_seg = SegmentationAnnotation(mask=road)  # type: ignore[call-arg]
+    segmentation = _record(
+        "segmentation",
+        Detection(class_name="road", segmentation=road_seg),
+    )
+    blended = blend_records_to_annotations([segmentation])
+    assert all(
+        m.label_chip for m in blended if isinstance(m, Mask)
+    )  # chip kept
+    assert [m.label for m in blended if isinstance(m, Mask)] == ["road"]
+
+
 def test_blend_keeps_classification_when_it_is_the_only_content() -> None:
     """With nothing but class tags, the classification chips are kept."""
     from luxonis_ml.vizlab.convert import blend_records_to_annotations

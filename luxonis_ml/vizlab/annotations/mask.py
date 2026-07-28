@@ -188,6 +188,10 @@ class Mask(InstanceSegmentationAnnotation, Annotation):
     Attributes:
         fill_alpha: Fill opacity override; falls back to ``style.mask_alpha``.
         contour: Whether to stroke the mask outline.
+        label_chip: Whether to draw the class label chip. The fill and contour
+            still draw and keep the class color — this only hides the chip, e.g.
+            when a box already labels the same class (see
+            `luxonis_ml.vizlab.convert.blend_records_to_annotations`).
 
     See `Annotation` for the shared
     ``label``, ``score``, ``payload``, ``color``, ``style``, and ``palette`` fields.
@@ -201,6 +205,7 @@ class Mask(InstanceSegmentationAnnotation, Annotation):
 
     fill_alpha: float | None = None
     contour: bool = True
+    label_chip: bool = True
 
     #: Memoized dense mask. A single render decodes the RLE three times (fill,
     #: contour, and label passes); caching it turns that into one decode. The
@@ -346,9 +351,16 @@ class Mask(InstanceSegmentationAnnotation, Annotation):
                 region.bottom * sy,
             )
             ctx.emit_hit(region, self.tooltip)
-            place_label(
-                ctx, region, self.label, self.score, self.payload, color, style
-            )
+            if self.label_chip:
+                place_label(
+                    ctx,
+                    region,
+                    self.label,
+                    self.score,
+                    self.payload,
+                    color,
+                    style,
+                )
 
 
 class SemanticMask(Annotation):
