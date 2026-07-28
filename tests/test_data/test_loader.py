@@ -341,7 +341,7 @@ def test_loader_merges_metadata_only_for_applied_batch_augmentations(
             1,
         }
         assert {
-            cast(Params, entry["sample_metadata"])["record_id"]
+            cast(int, entry["sample_metadata"]["record_id"])
             for entry in batch_metadata
         } == {0, 1}
         assert (
@@ -357,6 +357,8 @@ def test_loader_merges_metadata_only_for_applied_batch_augmentations(
     [
         (0.0, 0.0, None),
         (1.0, 0.0, [0, 1, 2, 3]),
+        # A skipped Mosaic4 passes through the first input from each group of
+        # four, so MixUp combines source inputs 0 and 4.
         (0.0, 1.0, [0, 4]),
         (1.0, 1.0, list(range(8))),
     ],
@@ -409,7 +411,7 @@ def test_loader_tracks_metadata_through_multiple_batch_augmentations(
     ] == expected_input_indices
     assert len(
         {
-            cast(Params, entry["sample_metadata"])["record_id"]
+            cast(int, entry["sample_metadata"]["record_id"])
             for entry in batch_metadata
         }
     ) == len(expected_input_indices)
