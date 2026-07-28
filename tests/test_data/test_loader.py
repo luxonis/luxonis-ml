@@ -328,7 +328,7 @@ def test_loader_records_augmentations_in_sample_metadata(
     metadata = loader[0].metadata
 
     assert metadata == {
-        "augmentations": {"HorizontalFlip": {"shape": [512, 512, 3]}},
+        "augmentations": {"HorizontalFlip": {}},
         "record_id": "sample-1",
         "batch_augmentation_metadata": [
             {

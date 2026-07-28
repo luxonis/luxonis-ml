@@ -3,7 +3,7 @@ from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping
 from copy import deepcopy
 from math import prod
-from typing import Any, Literal, TypeAlias, cast
+from typing import Any, Final, Literal, TypeAlias, cast
 
 import albumentations as A
 import numpy as np
@@ -30,6 +30,23 @@ from .utils import (
 )
 
 Data: TypeAlias = dict[str, np.ndarray]
+_SKIP_AUGMENTATION_PARAM: Final = object()
+_NON_RANDOM_AUGMENTATION_PARAMS: Final = frozenset(
+    {
+        "fill",
+        "fill_mask",
+        "image_shapes",
+        "interpolation",
+        "mask_interpolation",
+        "out_height",
+        "out_width",
+        "shape",
+        "x_max",
+        "x_min",
+        "y_max",
+        "y_min",
+    }
+)
 TargetType: TypeAlias = Literal[
     "image",
     "array",
@@ -721,32 +738,37 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
 
     @staticmethod
     def _normalize_augmentation_params(value: Any) -> Params:
-        return {
-            str(key): AlbumentationsEngine._normalize_augmentation_value(val)
-            for key, val in value.items()
-        }
+        params: Params = {}
+        for key, val in value.items():
+            key = str(key)
+            if key in _NON_RANDOM_AUGMENTATION_PARAMS:
+                continue
+            normalized = AlbumentationsEngine._normalize_augmentation_value(
+                val
+            )
+            if normalized is not _SKIP_AUGMENTATION_PARAM:
+                params[key] = normalized
+        return params
 
     @staticmethod
     def _normalize_augmentation_value(value: Any) -> Any:
         if isinstance(value, np.ndarray):
-            return AlbumentationsEngine._normalize_augmentation_value(
-                value.tolist()
-            )
+            return _SKIP_AUGMENTATION_PARAM
         if isinstance(value, np.generic):
             return AlbumentationsEngine._normalize_augmentation_value(
                 value.item()
             )
         if isinstance(value, Mapping):
-            return {
-                str(key): AlbumentationsEngine._normalize_augmentation_value(
-                    val
-                )
-                for key, val in value.items()
-            }
+            return AlbumentationsEngine._normalize_augmentation_params(value)
         if isinstance(value, (list, tuple)):
             return [
-                AlbumentationsEngine._normalize_augmentation_value(item)
+                normalized_item
                 for item in value
+                if (
+                    normalized_item
+                    := AlbumentationsEngine._normalize_augmentation_value(item)
+                )
+                is not _SKIP_AUGMENTATION_PARAM
             ]
         if isinstance(value, (str, int, float, bool)) or value is None:
             return value

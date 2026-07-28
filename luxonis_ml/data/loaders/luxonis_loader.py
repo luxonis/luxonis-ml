@@ -70,8 +70,8 @@ class LuxonisLoader(BaseLoader):
     `DatasetRecord.sample_metadata`. When ``autopopulate_metadata`` is enabled,
     the loader also adds a ``"filenames"`` mapping from source name to file
     basename. Augmented outputs additionally include an ``"augmentations"``
-    mapping from configured transformation paths to the runtime parameters
-    selected during augmentation.
+    mapping from configured transformation paths to selected scalar runtime
+    parameters.
 
     Label keys use ``"task_name/task_type"``. If a dataset was created
     without a task name, the default task name is empty and keys look like
