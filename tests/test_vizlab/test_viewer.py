@@ -135,6 +135,66 @@ def test_draw_tooltip_modifies_frame_and_clamps() -> None:
     assert not np.array_equal(frame, before)
 
 
+def test_blit_frost_blurs_the_backdrop_only_under_the_card() -> None:
+    from luxonis_ml.vizlab.viewer.tooltip_render import blit_rgba_on_bgr
+
+    # A high-frequency background so a blur is measurable.
+    rng = np.random.default_rng(0)
+    frame = (rng.integers(0, 2, (200, 300, 1)) * 255).astype(np.uint8)
+    frame = np.repeat(frame, 3, axis=2)
+    card = render_tooltip_card(
+        Tooltip(title="car #1", rows=(("speed", "48"),)), 16
+    )
+    ch, cw = card.shape[:2]
+    x, y = 40, 40
+
+    sharp = frame.copy()
+    blit_rgba_on_bgr(sharp, card, x, y, blur=0.0)
+    frost = frame.copy()
+    blit_rgba_on_bgr(frost, card, x, y, blur=11.0)
+
+    # The frost softens the backdrop under the card body...
+    def local_std(img: np.ndarray) -> float:
+        cy, cx = y + ch // 2, x + cw // 2
+        return float(img[cy - 8 : cy + 8, cx - 8 : cx + 8].std())
+
+    assert local_std(frost) < local_std(sharp)
+    # ...and touches nothing outside the card (a far region is untouched).
+    far = (slice(150, 190), slice(250, 290))
+    assert np.array_equal(frost[far], frame[far])
+    # blur=0 must match the original alpha composite exactly (back-compat).
+    plain = frame.copy()
+    blit_rgba_on_bgr(plain, card, x, y)
+    assert np.array_equal(plain, sharp)
+
+
+def test_frost_backdrop_fills_the_body_but_not_the_shadow_or_margin() -> None:
+    # The frost must fill the colored body at *any* panel opacity, yet leave the
+    # drop shadow sharp (the shadow is pure black, so keying on color not alpha
+    # avoids a blurred halo around the panel) and the transparent margin sharp.
+    from luxonis_ml.vizlab.viewer.tooltip_render import _frost_backdrop
+
+    rng = np.random.default_rng(0)
+    roi = rng.integers(0, 255, (80, 120, 3), dtype=np.uint8)
+    roi_f = roi.astype(np.float32)
+    roi_std = roi_f.std()
+
+    for body_alpha in (230, 150, 90):  # opaque -> quite translucent panel
+        card = np.zeros((80, 120, 4), np.uint8)
+        card[5:75, 5:115, 3] = 90  # soft black drop shadow (rgb stays 0)
+        card[15:65, 20:100, :3] = (29, 41, 57)  # the colored body fill...
+        card[15:65, 20:100, 3] = body_alpha  # ...at the panel's opacity
+        card[30:34, 30:80, :3] = (200, 210, 250)  # opaque "text" on the body
+        card[30:34, 30:80, 3] = 255
+        out = _frost_backdrop(roi, card, 12.0)
+
+        assert out[45:63, 25:95].std() < roi_std * 0.5  # body clearly blurred
+        # The shadow ring (black, translucent) is left sharp -> no blurred halo.
+        assert np.allclose(out[8:12, 40:80], roi_f[8:12, 40:80])
+        # The fully-transparent margin is left sharp too.
+        assert np.allclose(out[:4, :4], roi_f[:4, :4])
+
+
 def test_draw_tooltip_empty_is_noop() -> None:
     frame = np.full((100, 100, 3), 40, np.uint8)
     before = frame.copy()

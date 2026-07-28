@@ -116,9 +116,14 @@ def render_tooltip_card(tooltip: Tooltip, size: int) -> np.ndarray:
 
 
 def blit_rgba_on_bgr(
-    frame: np.ndarray, rgba: np.ndarray, x: int, y: int
+    frame: np.ndarray, rgba: np.ndarray, x: int, y: int, *, blur: float = 0.0
 ) -> None:
-    """Alpha-composite an RGBA card onto a BGR ``frame`` at ``(x, y)``."""
+    """Alpha-composite an RGBA card onto a BGR ``frame`` at ``(x, y)``.
+
+    With ``blur > 0`` the frame behind the card's solid body is Gaussian-blurred
+    first, so the translucent card reads as frosted glass; the soft drop shadow
+    around the body is left sharp (see `_frost_backdrop`).
+    """
     fh, fw = frame.shape[:2]
     ch, cw = rgba.shape[:2]
     x0, y0 = max(0, x), max(0, y)
@@ -129,9 +134,79 @@ def blit_rgba_on_bgr(
     roi = frame[y0:y1, x0:x1]
     alpha = sub[..., 3:4].astype(np.float32) / 255.0
     card_bgr = sub[..., 2::-1].astype(np.float32)  # RGB -> BGR
-    roi[:] = (
-        card_bgr * alpha + roi.astype(np.float32) * (1.0 - alpha)
-    ).astype(np.uint8)
+    backdrop = (
+        _frost_backdrop(roi, sub, blur)
+        if blur > 0.0
+        else roi.astype(np.float32)
+    )
+    roi[:] = (card_bgr * alpha + backdrop * (1.0 - alpha)).astype(np.uint8)
+
+
+#: Card body color (max RGB channel, 0-255) at or above which the backdrop is
+#: fully blurred. The card's soft drop shadow is pure black (max channel 0), so
+#: keying the frost on color — not alpha — confines it to the colored body and
+#: leaves the translucent shadow fringe sharp, avoiding a blurred halo around the
+#: panel. Independent of the panel's opacity.
+_FROST_BODY_MIN_RGB = 12.0
+
+
+def _frost_backdrop(
+    roi: np.ndarray, card: np.ndarray, blur: float
+) -> np.ndarray:
+    """Blur the frame region behind a card, confined to the card's colored body.
+
+    The blur fills the card body (so the translucent panel reads as frosted
+    glass) but not the drop shadow around it: the shadow is pure black, while the
+    body fill and text carry real color, so the mask keys on the card's color
+    rather than its alpha. That keeps the frost off the shadow's translucent
+    fringe (no blurred halo) and holds at any panel opacity. Returns a float BGR
+    array the caller composites the card over.
+
+    Args:
+        roi: The BGR frame region under the card (not mutated).
+        card: The card's ``(H, W, 4)`` ``uint8`` RGBA, aligned to ``roi``.
+        blur: Gaussian blur sigma in pixels.
+
+    Returns:
+        The ``(H, W, 3)`` ``float32`` backdrop: blurred under the body, original
+        elsewhere.
+
+    """
+    blurred = _blur_bgr(roi, blur)
+    # The soft shadow is black (max channel 0); the body fill and text are
+    # colored, so this is ~1 over the whole body and 0 over the shadow, with a
+    # one-pixel feather along the body's anti-aliased edge.
+    body = card[..., :3].max(axis=2).astype(np.float32)
+    mask = np.clip(body / _FROST_BODY_MIN_RGB, 0.0, 1.0)[..., None]
+    return blurred * mask + roi.astype(np.float32) * (1.0 - mask)
+
+
+def _blur_bgr(roi: np.ndarray, sigma: float) -> np.ndarray:
+    """Gaussian-blur a BGR region, returning ``float32`` BGR.
+
+    A frosted backdrop is low-frequency, so for a large ``sigma`` the region is
+    blurred at a reduced resolution and scaled back up — visually identical to a
+    full-resolution blur, but with a cost that stays low and roughly flat as the
+    sigma grows.
+    """
+    from luxonis_ml.vizlab.canvas import Canvas, gaussian_blur
+
+    height, width = roi.shape[:2]
+    rgba = np.empty((height, width, 4), dtype=np.uint8)
+    # Channel order is irrelevant to a symmetric blur, so the BGR data rides in
+    # the RGB slots and returns in the same order; a full alpha keeps edges
+    # opaque (the clamp tile-mode avoids a dark halo).
+    rgba[..., :3] = roi
+    rgba[..., 3] = 255
+    scale = int(min(4, max(1, sigma // 3)))
+    if scale > 1:
+        sw, sh = max(1, width // scale), max(1, height // scale)
+        small = Canvas.from_rgba(rgba).scaled(sw, sh).to_rgba()
+        small = gaussian_blur(small, sigma / scale)
+        rgba = Canvas.from_rgba(small).scaled(width, height).to_rgba()
+    else:
+        rgba = gaussian_blur(rgba, sigma)
+    return rgba[..., :3].astype(np.float32)
 
 
 def draw_tooltip(
@@ -153,4 +228,5 @@ def draw_tooltip(
         return
     x = max(0, min(int(at[0]) + 16, width - cw))
     y = max(0, min(int(at[1]) + 16, height - ch))
-    blit_rgba_on_bgr(frame, card, x, y)
+    # A frosted-glass backdrop behind the translucent card, scaled with the type.
+    blit_rgba_on_bgr(frame, card, x, y, blur=size * 0.7)

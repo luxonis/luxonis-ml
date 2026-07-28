@@ -787,3 +787,37 @@ class Canvas:
         )
         image = skia.Image.fromarray(rgba, colorType=_RGBA)
         self._canvas.drawImage(image, float(x0), float(y0))
+
+
+def gaussian_blur(rgba: np.ndarray, sigma: float) -> np.ndarray:
+    """Gaussian-blur an RGBA image by ``sigma`` pixels, via Skia.
+
+    Used for the frosted-glass backdrop behind translucent UI cards. Edges clamp
+    (no dark halo pulled in from beyond the image), and the same Skia raster path
+    as the rest of `Canvas` is used, so no extra dependency is needed.
+
+    Args:
+        rgba: An ``(H, W, 4)`` ``uint8`` array in RGBA order.
+        sigma: Blur radius (standard deviation) in pixels; ``<= 0`` returns a
+            copy unchanged.
+
+    Returns:
+        A new ``(H, W, 4)`` ``uint8`` RGBA array, blurred.
+
+    """
+    if sigma <= 0.0:
+        return rgba.copy()
+
+    height, width = rgba.shape[:2]
+    info = skia.ImageInfo.Make(int(width), int(height), _RGBA, _UNPREMUL)
+    surface = skia.Surface.MakeRaster(info)
+    canvas = surface.getCanvas()
+    canvas.clear(skia.Color4f(0, 0, 0, 0))
+    image = skia.Image.fromarray(np.ascontiguousarray(rgba), colorType=_RGBA)
+    paint = skia.Paint(
+        ImageFilter=skia.ImageFilters.Blur(
+            float(sigma), float(sigma), skia.TileMode.kClamp
+        )
+    )
+    canvas.drawImage(image, 0.0, 0.0, skia.SamplingOptions(), paint)
+    return surface.makeImageSnapshot().toarray(colorType=_RGBA)

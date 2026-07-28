@@ -2,11 +2,28 @@
 
 import numpy as np
 
-from luxonis_ml.vizlab.canvas import Canvas
+from luxonis_ml.vizlab.canvas import Canvas, gaussian_blur
 from luxonis_ml.vizlab.color import Color
 from luxonis_ml.vizlab.geometry import Rect
 
 _RED = Color(220, 60, 60)
+
+
+def test_gaussian_blur_softens_edges_and_is_a_noop_at_zero() -> None:
+    # A hard black/white vertical edge: a blur spreads it into a ramp of
+    # intermediate values; sigma <= 0 returns the image untouched.
+    img = np.zeros((20, 20, 4), np.uint8)
+    img[..., 3] = 255
+    img[:, 10:, :3] = 255
+
+    blurred = gaussian_blur(img, 3.0)
+    edge = blurred[10, 6:14, 0]
+    assert np.any((edge > 10) & (edge < 245))  # partial values -> softened
+    assert blurred.shape == img.shape
+
+    noop = gaussian_blur(img, 0.0)
+    assert np.array_equal(noop, img)
+    assert noop is not img  # a copy, safe to mutate
 
 
 def _blank() -> Canvas:

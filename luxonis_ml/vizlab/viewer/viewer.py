@@ -169,7 +169,8 @@ class Viewer:
         card = render_controls_card(self._layers.controls(), size)
         inset = round(size * 1.1)
         y = height - card.shape[0] - inset
-        blit_rgba_on_bgr(frame, card, inset, y)
+        # Frosted-glass backdrop behind the card, matching the hover tooltips.
+        blit_rgba_on_bgr(frame, card, inset, y, blur=size * 0.7)
 
     def _controllable(self) -> bool:
         """Whether any open window has a re-render callback (is interactive)."""

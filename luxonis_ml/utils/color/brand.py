@@ -56,7 +56,7 @@ LIGHT_BACKGROUND = Color(237, 239, 248)  # #edeff8
 
 #: Card fill — a translucent navy sitting a touch lighter than ``BACKGROUND`` so
 #: stacked cards (legend, info card, distribution panel) read as one family.
-CARD_BG = INK.with_alpha(224)
+CARD_BG = INK.with_alpha(150)
 #: Caption chips use the same navy, more opaque for a single short line.
 CAPTION_BG = INK.with_alpha(235)
 #: Light-purple (periwinkle) body text — the dark-mode counterpart to the
