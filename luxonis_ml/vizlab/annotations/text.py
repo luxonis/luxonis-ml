@@ -55,8 +55,9 @@ def _wrap_measured(
         wrapped = canvas.wrap_spans(spans, size, max_width=avail) or [
             [Span("")]
         ]
-        for line in wrapped:
-            lines.append((line, canvas.measure_spans(line, size)))
+        lines.extend(
+            (line, canvas.measure_spans(line, size)) for line in wrapped
+        )
     return lines
 
 

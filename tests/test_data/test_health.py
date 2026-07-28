@@ -255,13 +255,13 @@ def test_build_health_grid_per_class_heatmaps() -> None:
         }
     }
     image = build_health_grid(
-        "det", class_dist, heatmaps, class_heatmaps_by_type=class_heatmaps
+        class_dist, heatmaps, class_heatmaps_by_type=class_heatmaps
     )
     rendered = image.render()
     assert rendered.shape[2] == 4
     assert rendered[..., 3].max() > 0
     # The per-class variant differs from the single combined-heatmap render.
-    combined = build_health_grid("det", class_dist, heatmaps).render()
+    combined = build_health_grid(class_dist, heatmaps).render()
     assert rendered.shape != combined.shape or not np.array_equal(
         rendered, combined
     )
@@ -284,7 +284,7 @@ def test_build_health_grid_renders() -> None:
         "boundingbox": [[i + j for j in range(15)] for i in range(15)],
         "keypoints": None,  # exercises the missing-heatmap placeholder
     }
-    image = build_health_grid("detections", class_dist, heatmaps)
+    image = build_health_grid(class_dist, heatmaps)
     rendered = image.render()
     assert rendered.ndim == 3
     assert rendered.shape[2] == 4
@@ -303,7 +303,6 @@ def test_build_health_grid_omits_metadata_and_task_name_from_titles() -> None:
     }
     heatmaps = {"boundingbox": [[1] * 15 for _ in range(15)]}
     with_metadata = health_plots.build_health_grid(
-        "multitask",
         {
             **spatial_class_dist,
             "metadata": [{"class_name": "sunny", "count": 1}],
@@ -311,7 +310,7 @@ def test_build_health_grid_omits_metadata_and_task_name_from_titles() -> None:
         heatmaps,
     ).render()
     without_metadata = health_plots.build_health_grid(
-        "multitask", spatial_class_dist, heatmaps
+        spatial_class_dist, heatmaps
     ).render()
 
     np.testing.assert_array_equal(with_metadata, without_metadata)
@@ -338,7 +337,7 @@ def test_many_task_types_use_a_wide_layout() -> None:
         "instance_segmentation",
     ]
     wide = build_health_grid(
-        "detection", dict.fromkeys(types, cd), dict.fromkeys(types, hm)
+        dict.fromkeys(types, cd), dict.fromkeys(types, hm)
     ).render()
     # Four task types -> four columns -> wider than tall.
     assert wide.shape[1] > wide.shape[0]
@@ -346,7 +345,6 @@ def test_many_task_types_use_a_wide_layout() -> None:
     # Two task types keep the two-column layout, so the four-type grid is packed
     # into more columns (wider) rather than more rows.
     narrow = build_health_grid(
-        "detection",
         dict.fromkeys(types[:2], cd),
         dict.fromkeys(types[:2], hm),
     ).render()
@@ -367,7 +365,6 @@ def test_build_health_grid_theme_style_options() -> None:
     }
     heatmaps = {"boundingbox": [[i + j for j in range(15)] for i in range(15)]}
     image = build_health_grid(
-        "det",
         class_dist,
         heatmaps,
         theme=LIGHT_THEME,
@@ -389,6 +386,6 @@ def test_build_health_grid_theme_style_options() -> None:
 
     # A larger scale yields a larger grid.
     smaller = build_health_grid(
-        "det", class_dist, heatmaps, theme=LIGHT_THEME, scale=0.6
+        class_dist, heatmaps, theme=LIGHT_THEME, scale=0.6
     ).render()
     assert rendered.shape[0] > smaller.shape[0]

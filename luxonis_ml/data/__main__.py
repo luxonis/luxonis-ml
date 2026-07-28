@@ -40,7 +40,7 @@ if TYPE_CHECKING:
     from luxonis_ml.vizlab import (
         ComparisonReport,
         ComparisonResult,
-        Image,
+        Renderable,
     )
 
 app = App(help="Dataset utilities.")
@@ -1567,13 +1567,11 @@ def health(
 
         def render_grid(
             s: float,
-            _task: str = task_name,
             _dist: dict = class_dist_by_type,
             _heat: dict = heatmaps_by_type,
             _cls: dict = class_heatmaps_by_type,
-        ) -> "Image":
+        ) -> "Renderable":
             return health_plots.build_health_grid(
-                _task,
                 _dist,
                 _heat,
                 class_heatmaps_by_type=_cls or None,

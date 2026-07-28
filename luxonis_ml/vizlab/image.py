@@ -11,7 +11,7 @@ from collections.abc import Callable, Hashable
 from dataclasses import fields, is_dataclass
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, TypeVar
+from typing import TYPE_CHECKING
 
 import numpy as np
 from typing_extensions import Self
@@ -124,70 +124,13 @@ def _style_scale(width: int, height: int) -> float:
     return max(lo, min(hi, min(width, height) / _STYLE_REFERENCE_PX))
 
 
-_Output_co = TypeVar("_Output_co", covariant=True)
-#: Invariant twin of `_Output_co` for functions generic over a target's artifact.
-_O = TypeVar("_O")
-
-
-class RenderTarget(Protocol[_Output_co]):
-    """Where a render goes: a raster buffer (`RASTER`) or an SVG document.
-
-    A target is just a blank-canvas factory plus a finalizer: `root` opens a fresh
-    canvas of the render size, a `Renderable` draws its whole scene onto it (photo
-    bases embed as rasters, everything else records as vectors), and `finish` turns
-    the drawn canvas into the artifact — RGBA pixels for `RASTER`, an SVG document
-    for the SVG target. The same drawing code serves every format.
-    """
-
-    def root(self, size: tuple[int, int], *, antialias: bool) -> Canvas:
-        """Open a blank canvas of ``size`` for a scene to draw onto."""
-        ...
-
-    def finish(self, canvas: Canvas) -> _Output_co:
-        """Finalize a fully drawn ``canvas`` into the output artifact."""
-        ...
-
-
-class _RasterTarget:
-    """Render to RGBA pixels: a raster canvas snapshotted to an array."""
-
-    def root(self, size: tuple[int, int], *, antialias: bool) -> Canvas:
-        return Canvas.blank(size[0], size[1], antialias=antialias)
-
-    def finish(self, canvas: Canvas) -> np.ndarray:
-        return canvas.to_rgba()
-
-
-class _SvgTarget:
-    """Render to an SVG document: an SVG canvas recording vectors and embeds."""
-
-    def __init__(self, *, text_as_paths: bool = True) -> None:
-        self._text_as_paths = text_as_paths
-
-    def root(self, size: tuple[int, int], *, antialias: bool) -> Canvas:
-        return Canvas.svg(
-            size[0],
-            size[1],
-            antialias=antialias,
-            text_as_paths=self._text_as_paths,
-        )
-
-    def finish(self, canvas: Canvas) -> bytes:
-        return canvas.finish_svg()
-
-
-#: The default raster render target (RGBA pixels).
-RASTER: "RenderTarget[np.ndarray]" = _RasterTarget()
-
-
 class Renderable:
-    """A scene renderable to any `RenderTarget` — an `Image` or a `Composite`.
+    """A scene that can render to pixels or SVG — an `Image` or a `Composite`.
 
     Subclasses supply their pixel `width`/`height`, their render options
     (`_resolve_options`), and how they paint themselves onto a canvas
-    (`_draw_onto`). This base turns that into the public output API — `render`
-    (RGBA), `render_svg` (vector), and `save` (either, chosen by file extension) —
-    so every format runs the exact same drawing path and can never drift apart.
+    (`_draw_onto`). This base provides `render`, `render_svg`, and `save`; both
+    output formats use the same scene-drawing path.
     """
 
     _render_size: tuple[int, int] | None = None
@@ -266,25 +209,33 @@ class Renderable:
         target = size if size is not None else self._render_size
         return target if target is not None else (self.width, self.height)
 
-    def _paint(
+    def _draw(
         self,
         size: tuple[int, int] | None,
-        target: "RenderTarget[_O]",
         *,
         capture: bool,
-    ) -> "tuple[_O, list[tuple[Rect, Tooltip]] | None, tuple[int, int]]":
-        """Draw the scene into a fresh ``target`` canvas and finalize its artifact.
+        svg: bool = False,
+        text_as_paths: bool = True,
+    ) -> "tuple[Canvas, list[tuple[Rect, Tooltip]] | None, tuple[int, int]]":
+        """Draw the scene and return its canvas, captured hits, and render size.
 
-        Opens a blank canvas of the render size from ``target``, draws the whole
-        scene onto it (`_draw_onto`), and returns the target's artifact, the
-        captured hover ``hits`` (when ``capture``), and the render size.
+        Raster and SVG output differ only in the blank canvas created here. The
+        scene itself always draws through `_draw_onto`.
         """
         render_size = self._resolved_size(size)
         antialias = self._resolve_options().antialias
-        canvas = target.root(render_size, antialias=antialias)
+        canvas = (
+            Canvas.svg(
+                *render_size,
+                antialias=antialias,
+                text_as_paths=text_as_paths,
+            )
+            if svg
+            else Canvas.blank(*render_size, antialias=antialias)
+        )
         hits: list[tuple[Rect, Tooltip]] | None = [] if capture else None
         self._draw_onto(canvas, 0, 0, render_size, hits=hits)
-        return target.finish(canvas), hits, render_size
+        return canvas, hits, render_size
 
     def render(self, size: tuple[int, int] | None = None) -> np.ndarray:
         """Rasterize the scene to an ``(H, W, 4)`` ``uint8`` RGBA array.
@@ -297,7 +248,8 @@ class Renderable:
             A fresh RGBA array; the caller may mutate it freely.
 
         """
-        return self._paint(size, RASTER, capture=False)[0]
+        canvas, _, _ = self._draw(size, capture=False)
+        return canvas.to_rgba()
 
     def render_svg(
         self,
@@ -323,9 +275,13 @@ class Renderable:
             The SVG document as UTF-8 bytes.
 
         """
-        return self._paint(
-            size, _SvgTarget(text_as_paths=text_as_paths), capture=False
-        )[0]
+        canvas, _, _ = self._draw(
+            size,
+            capture=False,
+            svg=True,
+            text_as_paths=text_as_paths,
+        )
+        return canvas.finish_svg()
 
     def save(self, path: str | Path, *, quality: int = 95) -> Self:
         """Render and write the scene to a file (format from the extension).
@@ -368,7 +324,8 @@ class Renderable:
             A ``(rgba, hitmap)`` pair. The RGBA matches what `render` would return.
 
         """
-        rgba, hits, render_size = self._paint(size, RASTER, capture=True)
+        canvas, hits, render_size = self._draw(size, capture=True)
+        rgba = canvas.to_rgba()
         hitmap = HitMap(hits if hits is not None else [])
         if self._hits is not None:
             # A carried map lives in this scene's own pixels; scale it to the
@@ -637,7 +594,8 @@ class Image(Renderable):
         )
         if self._cache is not None and self._cache_key == key:
             return self._cache.copy()
-        rgba = self._paint(size, RASTER, capture=False)[0]
+        canvas, _, _ = self._draw(size, capture=False)
+        rgba = canvas.to_rgba()
         self._cache = rgba
         self._cache_key = key
         return rgba.copy()
@@ -658,7 +616,7 @@ class Image(Renderable):
         resample on a raster canvas, one embedded ``<image>`` on an SVG one — and
         the crisp vector layer (strokes, contours, keypoints, label chips) is drawn
         over it in a `Canvas.viewport` local to the rect. This is how a composite
-        draws a sub-image, and how `_paint` draws the whole image (rect ``(0, 0)``
+        draws a sub-image, and how `_draw` draws the whole image (rect ``(0, 0)``
         to the render size). ``hits`` collects tooltip regions in the rect's local
         pixels when given.
         """
@@ -812,9 +770,9 @@ class Composite(Renderable):
     it holds a natural pixel size and a `ScenePaint` that draws the whole layout —
     child images via their own `Image._draw_onto` (so their annotations stay
     vector in an SVG) and every border, panel, title, and legend as vector
-    primitives. Because it draws through a `RenderTarget` like any `Renderable`,
-    a composite renders to raster or SVG and `save`s to either; rendering at a
-    size other than its natural one scales the whole layout uniformly.
+    primitives. A composite renders to raster or SVG and can save either format;
+    rendering at a size other than its natural one scales the whole layout
+    uniformly.
 
     Attributes:
         width: Composite width in pixels.

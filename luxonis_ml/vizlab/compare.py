@@ -304,6 +304,31 @@ def _best(
     return best_idx, best_iou
 
 
+def _matchable(
+    detections: "Sequence[Detectionish]",
+) -> "list[tuple[Detectionish, Rect]]":
+    """Pair detections that have matchable bounds with those bounds."""
+    bounded = []
+    for detection in detections:
+        rect = _bounds(detection)
+        if rect is not None:
+            bounded.append((detection, rect))
+    return bounded
+
+
+def _ranked_predictions(
+    predictions: "Sequence[Detectionish]", score_threshold: float
+) -> "list[tuple[Detectionish, Rect, float]]":
+    """Return matchable predictions above the score cutoff, highest score first."""
+    ranked = []
+    for prediction, rect in _matchable(predictions):
+        score = _score(prediction)
+        if score is None or score >= score_threshold:
+            ranked.append((prediction, rect, 1.0 if score is None else score))
+    ranked.sort(key=lambda item: item[2], reverse=True)
+    return ranked
+
+
 def match_detections(
     gt: "Sequence[Detectionish]",
     pred: "Sequence[Detectionish]",
@@ -339,24 +364,8 @@ def match_detections(
         A `ComparisonResult` with every `Match` and the aggregate metrics.
 
     """
-    gts: list[tuple[Detectionish, Rect]] = []
-    for obj in gt:
-        rect = _bounds(obj)
-        if rect is not None:
-            gts.append((obj, rect))
-
-    # Predictions above the score cutoff, highest confidence first (unscored
-    # detections sort as fully confident so their given order is preserved).
-    ranked: list[tuple[Detectionish, Rect, float]] = []
-    for obj in pred:
-        rect = _bounds(obj)
-        if rect is None:
-            continue
-        score = _score(obj)
-        if score is not None and score < score_threshold:
-            continue
-        ranked.append((obj, rect, 1.0 if score is None else score))
-    ranked.sort(key=lambda it: it[2], reverse=True)
+    gts = _matchable(gt)
+    ranked = _ranked_predictions(pred, score_threshold)
 
     taken: set[int] = set()
     matches: list[Match] = []
@@ -372,15 +381,6 @@ def match_detections(
             iou_threshold,
             class_filter=class_aware,
         )
-        if idx < 0 and not class_aware:
-            idx, iou = _best(
-                rect,
-                _label(obj),
-                gts,
-                taken,
-                iou_threshold,
-                class_filter=False,
-            )
         if idx >= 0:
             taken.add(idx)
             matches.append(Match(Verdict.TP, gts[idx][0], obj, iou))
@@ -681,19 +681,17 @@ def _side_by_side_image(
     for i, match in enumerate(result.matches):
         color = _IDENTITY_COLORS[i % len(_IDENTITY_COLORS)]
         tooltip = _match_tooltip(match)
-        if match.gt is not None and match.pred is not None:
-            for a in _recolor(match.gt, options, color):
+        if match.gt is not None:
+            gt_tooltip = tooltip if match.pred is None else None
+            for a in _recolor(match.gt, options, color, tooltip=gt_tooltip):
                 gt_img.add(a)
+        if match.pred is not None:
             for a in _recolor(match.pred, options, color, tooltip=tooltip):
                 pred_img.add(a)
-        elif match.gt is not None:  # false negative: no predicted twin
-            for a in _recolor(match.gt, options, color, tooltip=tooltip):
-                gt_img.add(a)
+        if match.gt is not None and match.pred is None:
             for a in _ghost(match.gt, _faded(color)):
                 pred_img.add(a)
-        elif match.pred is not None:  # false positive: no ground-truth twin
-            for a in _recolor(match.pred, options, color, tooltip=tooltip):
-                pred_img.add(a)
+        elif match.pred is not None and match.gt is None:
             for a in _ghost(match.pred, _faded(color)):
                 gt_img.add(a)
     # grid_hits composes exactly like hstack but also captures each panel's hover

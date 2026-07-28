@@ -28,6 +28,7 @@ from luxonis_ml.vizlab import (
     Heatmap,
     Image,
     Palette,
+    Renderable,
     RenderOptions,
     Theme,
     get_default_theme,
@@ -178,7 +179,7 @@ def _class_heatmaps_panel(
     *,
     theme: Theme,
     palette: Palette,
-) -> Image:
+) -> Renderable:
     """Render one heatmap per class, each in its own color, as a small grid.
 
     Each class's spatial density is colormapped through a gradient built from its
@@ -193,7 +194,7 @@ def _class_heatmaps_panel(
         palette: Palette mapping class names to their colors.
 
     Returns:
-        A grid `Image` of per-class heatmap tiles, or a placeholder when empty.
+        A renderable grid of per-class heatmap tiles, or a placeholder when empty.
 
     """
     if not class_matrices:
@@ -229,7 +230,6 @@ def _class_heatmaps_panel(
 
 
 def build_health_grid(
-    task_name: str,
     class_dist_by_type: Mapping[str, list[dict[str, Any]]],
     heatmaps_by_type: Mapping[str, Sequence[Sequence[float]] | None],
     *,
@@ -241,8 +241,8 @@ def build_health_grid(
     gradient: str = "viridis",
     mode: DistributionMode = "bars",
     scale: float = 1.0,
-) -> Image:
-    """Compose the class-distribution and heatmap panels for one task name.
+) -> Renderable:
+    """Compose class-distribution and heatmap panels for one task.
 
     For each task type a distribution panel and a heatmap panel are placed side by
     side (two columns), titled with the task type and either ``"classes"`` or
@@ -252,8 +252,6 @@ def build_health_grid(
     small, class-colored heatmap per class.
 
     Args:
-        task_name: The task name shown by the containing window; it is not
-            repeated in subplot titles.
         class_dist_by_type: Class counts per task type.
         heatmaps_by_type: Density matrices per task type (``None`` when absent).
         class_heatmaps_by_type: Optional per-class density matrices
@@ -265,7 +263,7 @@ def build_health_grid(
         scale: User font/mark multiplier on top of the nominal plot scale.
 
     Returns:
-        A single titled grid `Image` for the task name.
+        A single renderable grid.
 
     """
     theme = theme if theme is not None else get_default_theme()
@@ -274,7 +272,7 @@ def build_health_grid(
     # Class distributions may also include metadata, which must not create a
     # placeholder plot in the health view.
     task_types = sorted(heatmaps_by_type)
-    images: list[Image] = []
+    images: list[Renderable] = []
     titles: list[str] = []
     for task_type in task_types:
         distribution = _distribution_panel(

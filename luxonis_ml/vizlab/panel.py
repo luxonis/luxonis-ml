@@ -965,12 +965,11 @@ def _compose_panel(
     composite background, and the panel's sections are ruled apart. Nothing is
     rasterized here: a `Composite` is returned that draws the image (via its own
     `Image._draw_onto`, so its annotations stay vector in an SVG) and the panel
-    chrome (rounded cards, title, key/value rows, legend) onto whatever
-    `RenderTarget` it is later rendered to. Also returns the ``(dx, dy)`` the
-    source image was translated by (so a caller carrying a hover `HitMap` can
-    shift it to stay aligned) and the ``(region, action)`` click targets of the
-    panel's controls and legend swatches, in composed-image pixels (see
-    `luxonis_ml.vizlab.frame.Frame.with_panel`).
+    chrome (rounded cards, title, key/value rows, legend) to raster or SVG.
+    Also returns the ``(dx, dy)`` the source image was translated by (so a caller
+    carrying a hover `HitMap` can shift it to stay aligned) and the ``(region,
+    action)`` click targets of the panel's controls and legend swatches, in
+    composed-image pixels (see `luxonis_ml.vizlab.frame.Frame.with_panel`).
     """
     style = style or DEFAULT_STYLE
     # The image is placed at its display (render_at) size, not its source size.
