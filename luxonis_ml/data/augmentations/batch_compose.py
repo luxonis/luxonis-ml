@@ -81,6 +81,7 @@ class BatchCompose(A.Compose):
                     data = {key: value[0] for key, value in batch.items()}
 
                 data = self.check_data_post_transform(data)
+                self._reindex_bboxes(data)
                 new_batch.append(data)
             data_batch = new_batch
 
@@ -94,6 +95,21 @@ class BatchCompose(A.Compose):
         data["_original_image_key"] = original_image_key
 
         return data
+
+    def _reindex_bboxes(self, data: dict[str, np.ndarray]) -> None:
+        """Reindex boxes to match their associated batched labels.
+
+        Batch transforms can reduce several input samples to one output. In
+        particular, when a transform is skipped, the retained sample can keep
+        bbox indices assigned for its position in the original input batch.
+        Instance masks and other bbox-associated labels are compacted with the
+        output, so subsequent batch transforms require contiguous indices.
+        """
+        for field_name in self.processors["bboxes"].data_fields:
+            bboxes = data.get(field_name)
+            if bboxes is None or bboxes.size == 0:
+                continue
+            bboxes[:, -1] = np.arange(len(bboxes), dtype=bboxes.dtype)
 
     @staticmethod
     def _make_contiguous(data: dict[str, np.ndarray]) -> dict[str, np.ndarray]:

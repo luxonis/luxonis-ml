@@ -157,3 +157,48 @@ def test_batched_p_0(
         256, 256, targets, n_classes, source_names, config
     )
     augmentations.apply([(images_dict, deepcopy(labels)) for _ in range(8)])
+
+
+def test_skipped_mosaic_before_mixup_reindexes_instance_masks() -> None:
+    image = np.zeros((320, 320, 3), dtype=np.uint8)
+    instance_mask = np.zeros((2, 320, 320), dtype=np.uint8)
+    instance_mask[0, 10:100, 10:100] = 1
+    instance_mask[1, 150:250, 150:250] = 1
+    labels: Labels = {
+        "task/instance_segmentation/boundingbox": np.array(
+            [
+                [0.0, 0.17, 0.17, 0.28, 0.28],
+                [0.0, 0.63, 0.63, 0.31, 0.31],
+            ]
+        ),
+        "task/instance_segmentation/segmentation": instance_mask,
+    }
+    targets = {
+        "task/instance_segmentation/boundingbox": "boundingbox",
+        "task/instance_segmentation/segmentation": "instance_segmentation",
+    }
+    config = [
+        {
+            "name": "Mosaic4",
+            "params": {"p": 0, "out_width": 640, "out_height": 640},
+        },
+        {"name": "MixUp", "params": {"p": 1}},
+    ]
+    augmentations = AlbumentationsEngine(
+        256,
+        256,
+        targets,
+        dict.fromkeys(targets, 1),
+        ["image"],
+        config,
+    )
+
+    _, out_labels = augmentations.apply(
+        [({"image": image}, deepcopy(labels)) for _ in range(8)]
+    )
+
+    assert (
+        out_labels["task/instance_segmentation/boundingbox"].shape[0]
+        == out_labels["task/instance_segmentation/segmentation"].shape[0]
+        == 4
+    )
