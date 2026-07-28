@@ -1,6 +1,6 @@
 import shutil
 from pathlib import Path
-from typing import Annotated, Literal, TypeAlias, cast
+from typing import Annotated, Literal, TypeAlias
 
 import cv2
 import matplotlib.pyplot as plt
@@ -21,6 +21,7 @@ from luxonis_ml.data import (
 )
 from luxonis_ml.data.utils.cli_utils import (
     check_exists,
+    get_applied_augmentations,
     get_dataset_info,
     parse_split_ratio,
     print_info,
@@ -35,7 +36,6 @@ from luxonis_ml.data.utils.visualizations import (
     visualize,
 )
 from luxonis_ml.enums import DatasetType
-from luxonis_ml.typing import Params
 
 app = App(help="Dataset utilities.")
 
@@ -262,12 +262,6 @@ def inspect(
 
     """
 
-    def _get_applied_augmentations(metadata: Params) -> list[str]:
-        augmentations = metadata.get("augmentations")
-        if not isinstance(augmentations, dict):
-            return []
-        return list(cast(Params, augmentations))
-
     check_exists(name, bucket_storage)
 
     view = view or ["train"]
@@ -366,7 +360,7 @@ def inspect(
                     if list_augmentations:
                         instance_image = add_augmentation_footer(
                             instance_image,
-                            _get_applied_augmentations(data.metadata),
+                            get_applied_augmentations(data.metadata),
                         )
                     cv2.resizeWindow(
                         source_name,
@@ -396,7 +390,7 @@ def inspect(
                 if list_augmentations:
                     labeled_image = add_augmentation_footer(
                         labeled_image,
-                        _get_applied_augmentations(data.metadata),
+                        get_applied_augmentations(data.metadata),
                     )
                 cv2.resizeWindow(
                     source_name, labeled_image.shape[1], labeled_image.shape[0]

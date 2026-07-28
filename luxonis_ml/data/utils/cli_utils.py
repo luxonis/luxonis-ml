@@ -10,7 +10,24 @@ from rich.table import Table
 
 from luxonis_ml.data import LuxonisDataset
 from luxonis_ml.data.utils.enums import BucketStorage
-from luxonis_ml.typing import check_type
+from luxonis_ml.typing import Params, check_type
+
+
+def get_applied_augmentations(metadata: Params) -> list[str]:
+    """Safely extracts names of applied augmentations from the sample metadata.
+
+    Args:
+        metadata: A dictionary with sample metadata. Should contain
+            the ``"augmentations"`` key with tracked augmentations.
+
+    Returns:
+        Names of the applied augmentations.
+
+    """
+    augmentations = metadata.get("augmentations")
+    if not isinstance(augmentations, dict):
+        return []
+    return list(augmentations)
 
 
 def parse_split_ratio(

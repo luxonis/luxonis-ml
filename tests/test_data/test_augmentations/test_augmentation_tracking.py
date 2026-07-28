@@ -3,7 +3,7 @@ import json
 import numpy as np
 
 from luxonis_ml.data import AlbumentationsEngine
-from luxonis_ml.data.__main__ import _get_applied_augmentations
+from luxonis_ml.data.utils.cli_utils import get_applied_augmentations
 from luxonis_ml.typing import LoaderMultiOutput, Params
 
 
@@ -12,10 +12,10 @@ def _make_sample(size: int = 64) -> list[LoaderMultiOutput]:
 
 
 def test_inspect_reads_augmentation_metadata():
-    assert _get_applied_augmentations(
+    assert get_applied_augmentations(
         {"augmentations": {"HorizontalFlip": {}}}
     ) == ["HorizontalFlip"]
-    assert _get_applied_augmentations({"augmentations": ["invalid"]}) == []
+    assert get_applied_augmentations({"augmentations": ["invalid"]}) == []
 
 
 def test_tracks_only_configured_augmentations_that_are_applied():
@@ -36,9 +36,7 @@ def test_tracks_only_configured_augmentations_that_are_applied():
             },
         },
     ]
-    engine = AlbumentationsEngine(64, 64, {}, {}, ["image"], config)
-    one_of = engine._spatial_compose.transforms[1]
-    one_of.transforms_ps = [1.0, 0.0]
+    engine = AlbumentationsEngine(64, 64, {}, {}, ["image"], config, seed=2)
 
     engine.apply(_make_sample())
 
@@ -52,6 +50,7 @@ def test_tracks_only_configured_augmentations_that_are_applied():
         applied["OneOf/RandomBrightnessContrast"]["alpha"], float
     )
     assert isinstance(applied["OneOf/RandomBrightnessContrast"]["beta"], float)
+    assert "OneOf/GaussianBlur" not in applied
     assert json.loads(json.dumps(applied)) == applied
 
     applied["OneOf/RandomBrightnessContrast"]["alpha"] = 0.0
@@ -210,10 +209,6 @@ def test_tracks_nested_oneof_selection_without_the_parent_paths():
                                         "name": "RandomBrightnessContrast",
                                         "params": {"p": 1.0},
                                     },
-                                    {
-                                        "name": "GaussianBlur",
-                                        "params": {"p": 1.0},
-                                    },
                                 ],
                                 "p": 1.0,
                             },
@@ -224,8 +219,6 @@ def test_tracks_nested_oneof_selection_without_the_parent_paths():
             }
         ],
     )
-    nested_oneof = engine._spatial_compose.transforms[0].transforms[0]
-    nested_oneof.transforms_ps = [1.0, 0.0]
 
     engine.apply(_make_sample())
 
@@ -270,12 +263,8 @@ def test_tracks_probabilistic_resize_under_its_oneof_path():
                 "use_for_resizing": True,
             }
         ],
+        seed=2,
     )
-
-    resize_oneof = engine._resize_compose.transforms[0]
-    resize_oneof.transforms[0].p = 1.0
-    resize_oneof.transforms[1].p = 0.0
-    resize_oneof.transforms_ps = [1.0, 0.0]
 
     engine.apply(_make_sample(32))
 

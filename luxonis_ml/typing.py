@@ -33,9 +33,7 @@ PrimitiveType: TypeAlias = str | int | float | bool | None
 # To avoid infinite recursion
 if TYPE_CHECKING:  # pragma: no cover
     ParamValue: TypeAlias = (
-        Mapping[PrimitiveType, "ParamValue"]
-        | Sequence["ParamValue"]
-        | PrimitiveType
+        Mapping[str, "ParamValue"] | Sequence["ParamValue"] | PrimitiveType
     )
 else:
     ParamValue: TypeAlias = Any
