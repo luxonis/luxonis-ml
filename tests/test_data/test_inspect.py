@@ -320,6 +320,82 @@ def test_inspect_layer_key_rerenders_and_toggles_state(
     assert backend.shown == ["image", "image"]
 
 
+def test_inspect_show_all_starts_with_decluttering_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Decluttering is on by default; --show-all starts the viewer with it off so
+    # every detection is drawn from the first frame (the `d` key still toggles).
+    image = np.zeros((40, 60, 3), dtype=np.uint8)
+    record = DatasetRecord.model_construct(
+        files={},
+        sample_metadata={},
+        annotation=[
+            Detection(
+                class_name="car",
+                boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
+            )
+        ],
+        task_name="objects",
+    )
+
+    class _Dataset:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def __len__(self) -> int:
+            return 1
+
+        def get_classes(self) -> dict[str, dict[str, int]]:
+            return {"objects": {"car": 0}}
+
+        def get_class_names(self) -> dict[str, list[str]]:
+            return {"objects": ["car"]}
+
+        def get_categorical_encodings(self) -> dict[str, object]:
+            return {}
+
+        def get_skeletons(self) -> dict[str, object]:
+            return {}
+
+    class _Loader:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            self._augmentations = None
+
+        def __iter__(self) -> Iterator[SimpleNamespace]:
+            yield SimpleNamespace(
+                images={"image": image}, labels={}, metadata={}
+            )
+
+    from luxonis_ml.data.loaders import label_converter
+    from luxonis_ml.vizlab.viewer import Viewer as RealViewer
+
+    created: list[RealViewer] = []
+
+    monkeypatch.setattr(data_main, "check_exists", lambda *_args: None)
+    monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
+    monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
+    monkeypatch.setattr(
+        label_converter,
+        "loader_output_to_records",
+        lambda *_args, **_kwargs: {"objects": record},
+    )
+
+    def declutter_after(*, show_all: bool) -> bool:
+        created.clear()
+
+        def make_viewer() -> RealViewer:
+            viewer = RealViewer(_FakeBackend(keys=[ord("q")]))
+            created.append(viewer)
+            return viewer
+
+        monkeypatch.setattr(viewer_module, "Viewer", make_viewer)
+        data_main.inspect("dataset", show_all=show_all)
+        return created[0].layers.declutter
+
+    assert declutter_after(show_all=False) is True  # on by default
+    assert declutter_after(show_all=True) is False  # --show-all turns it off
+
+
 def test_inspect_fast_lightens_the_render_style(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

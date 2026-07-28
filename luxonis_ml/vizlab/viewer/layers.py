@@ -31,6 +31,17 @@ _FILL_START = 0.3
 #: Step per ``[``/``]`` press.
 _FILL_STEP = 0.1
 
+#: Decluttering only touches scenes with at least this many detection boxes;
+#: below it a scene is not busy enough for a tiny box to read as noise.
+_DECLUTTER_MIN_SCENE = 20
+#: A detection counts as "small" when even its longer normalized side is under
+#: this (~4% of the frame, roughly a 30-40px box on a fitted view).
+_DECLUTTER_SMALL_SIDE = 0.04
+#: Radius (in normalized image space) that counts as "all around" a detection.
+_DECLUTTER_RADIUS = 0.15
+#: Number of other detections within that radius that make a spot crowded.
+_DECLUTTER_CROWD = 5
+
 
 @dataclass(frozen=True)
 class Control:
@@ -73,6 +84,10 @@ class LayerState:
             box's color); a box with nothing inside simply disappears.
         labels: Whether label chips are drawn (shapes stay; only the text chips
             are suppressed, and colors are preserved).
+        declutter: Whether tiny detections crowded by many others are dropped in
+            busy scenes, so a dense pile of unreadable specks does not bury the
+            frame (see `_declutter`). On by default; toggle off to see every
+            detection.
         fill_alpha: Fill/mask opacity override in ``[0, 1]``, or ``None`` to keep
             each annotation's own (themed) opacity.
         focus: A single class name to isolate — every detection of another class
@@ -86,6 +101,7 @@ class LayerState:
     keypoints: bool = True
     boxes: bool = True
     labels: bool = True
+    declutter: bool = True
     fill_alpha: float | None = None
     focus: str | None = None
     classes: tuple[str, ...] = field(default_factory=tuple)
@@ -139,6 +155,8 @@ class LayerState:
             self.boxes = not self.boxes
         elif lowered == "l":
             self.labels = not self.labels
+        elif lowered == "d":
+            self.declutter = not self.declutter
         elif lowered == "c":
             self._cycle_focus()
         elif key == "[":
@@ -178,6 +196,7 @@ class LayerState:
             toggle("k", "keypoints", self.keypoints),
             toggle("b", "boxes", self.boxes),
             toggle("l", "labels", self.labels),
+            toggle("d", "declutter", self.declutter),
             Control(
                 "c",
                 "class",
@@ -194,10 +213,12 @@ class LayerState:
     ) -> list[Annotation]:
         """Return ``annotations`` filtered and adjusted for the current state.
 
-        Hidden masks/keypoints (and detections of a non-focused class) are dropped;
-        with labels off, chip text is removed while each shape keeps its color; a
-        fill override is layered onto every shape. Inputs are never mutated — a
-        pruned copy is returned (the same list when nothing is toggled).
+        Tiny crowded detections are dropped first (when `declutter` is on); then
+        hidden masks/keypoints (and detections of a non-focused class) are
+        dropped, with labels off chip text is removed while each shape keeps its
+        color, and a fill override is layered onto every shape. Inputs are never
+        mutated — a pruned copy is returned (the same annotations, in a new list,
+        when nothing changes them).
 
         Args:
             annotations: The scene's top-level annotations.
@@ -205,14 +226,16 @@ class LayerState:
                 so hiding labels never changes an annotation's color.
 
         Returns:
-            A new list of annotations to render (or the input unchanged when
-            `is_default`).
+            A new list of annotations to render.
 
         """
+        kept = list(annotations)
+        if self.declutter:
+            kept = _declutter(kept)
         if self.is_default():
-            return list(annotations)
+            return kept
         out: list[Annotation] = []
-        for annotation in annotations:
+        for annotation in kept:
             if self.focus is not None and not self._in_focus(annotation):
                 continue
             out.extend(self._transform(annotation, palette, None))
@@ -265,6 +288,54 @@ class LayerState:
         if not self.labels:
             _strip_label(clone, palette)
         return [clone]
+
+
+def _declutter(annotations: list[Annotation]) -> list[Annotation]:
+    """Drop tiny detection boxes that sit in a crowd of other detections.
+
+    In a busy scene a detection far smaller than the frame and ringed by many
+    others is unreadable noise — its box and chip only clutter the pile. Such a
+    box (and whatever it nests) is removed; every larger or more isolated
+    detection, and every non-box annotation, is kept. The size test is in
+    normalized image space, so it scales with the frame rather than the display.
+    Sparse scenes (fewer than `_DECLUTTER_MIN_SCENE` boxes) are returned as-is.
+
+    Args:
+        annotations: The scene's top-level annotations.
+
+    Returns:
+        ``annotations`` unchanged when nothing qualifies, else a new list with
+        the crowded tiny boxes removed. Never mutates the input or its members.
+
+    """
+    boxes = [a for a in annotations if isinstance(a, BBox)]
+    if len(boxes) < _DECLUTTER_MIN_SCENE:
+        return annotations
+    small = [i for i, a in enumerate(boxes) if _is_small(a)]
+    if not small:
+        return annotations
+    centers = [(a.x + a.w / 2.0, a.y + a.h / 2.0) for a in boxes]
+    radius_sq = _DECLUTTER_RADIUS**2
+    drop: set[int] = set()
+    for i in small:
+        cx, cy = centers[i]
+        crowd = 0
+        for j, (nx, ny) in enumerate(centers):
+            if j == i:
+                continue
+            if (nx - cx) ** 2 + (ny - cy) ** 2 <= radius_sq:
+                crowd += 1
+                if crowd >= _DECLUTTER_CROWD:
+                    drop.add(id(boxes[i]))
+                    break
+    if not drop:
+        return annotations
+    return [a for a in annotations if id(a) not in drop]
+
+
+def _is_small(box: BBox) -> bool:
+    """Whether a box is small enough (even its longer side) to read as a speck."""
+    return max(box.w, box.h) < _DECLUTTER_SMALL_SIDE
 
 
 def _resolved_color(

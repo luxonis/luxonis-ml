@@ -116,6 +116,61 @@ def test_fill_alpha_override_layers_onto_shapes() -> None:
     assert box.style_overrides["mask_alpha"] == 0.8
 
 
+def _busy_scene() -> list[BBox]:
+    """Build a crowded scene: 20 large boxes, a tiny cluster, one lone speck."""
+    large = [
+        BBox(
+            x=0.4 + 0.01 * (k % 5),
+            y=0.4 + 0.01 * (k // 5),
+            w=0.08,
+            h=0.08,
+            label="car",
+        )
+        for k in range(20)
+    ]
+    cluster = [
+        BBox(x=0.48 + 0.005 * k, y=0.5, w=0.02, h=0.02, label="tiny")
+        for k in range(8)
+    ]
+    lonely = BBox(x=0.02, y=0.02, w=0.02, h=0.02, label="lonely")
+    return [*large, *cluster, lonely]
+
+
+def _labels(annotations: list) -> list[str]:
+    return [a.label for a in annotations]
+
+
+def test_declutter_drops_tiny_boxes_ringed_by_a_crowd() -> None:
+    out = LayerState().apply_layers(_busy_scene(), PALETTE)
+    labels = _labels(out)
+    assert "tiny" not in labels  # the crowded specks are gone
+    assert labels.count("car") == 20  # every large box stays
+    assert labels.count("lonely") == 1  # the isolated speck stays
+
+
+def test_declutter_keeps_an_isolated_tiny_box() -> None:
+    # The lone speck in a corner has no neighbors, so it survives the busy scene.
+    out = LayerState().apply_layers(_busy_scene(), PALETTE)
+    assert "lonely" in _labels(out)
+
+
+def test_declutter_off_keeps_every_detection() -> None:
+    scene = _busy_scene()
+    out = LayerState(declutter=False).apply_layers(scene, PALETTE)
+    assert len(out) == len(scene)
+    assert _labels(out).count("tiny") == 8
+
+
+def test_declutter_leaves_sparse_scenes_untouched() -> None:
+    # A tight cluster of tiny boxes, but too few to be a busy scene: all kept.
+    cluster = [
+        BBox(x=0.48 + 0.005 * k, y=0.5, w=0.02, h=0.02, label="tiny")
+        for k in range(6)
+    ]
+    out = LayerState().apply_layers(cluster, PALETTE)
+    assert _labels(out).count("tiny") == 6
+
+
 def test_handle_toggles_layers_and_reports_control_keys() -> None:
     state = LayerState()
     assert state.handle("m")
@@ -126,6 +181,8 @@ def test_handle_toggles_layers_and_reports_control_keys() -> None:
     assert state.boxes is False
     assert state.handle("l")
     assert state.labels is False
+    assert state.handle("d")
+    assert state.declutter is False
     assert not state.handle("q")  # not a control key -> caller handles it
     assert not state.handle("x")
 
@@ -183,6 +240,7 @@ def test_controls_report_current_state() -> None:
         True,
     )
     assert controls["boxes"].value == "off"
+    assert controls["declutter"].value == "on"  # on by default
 
 
 def test_controls_reflect_class_focus_and_fill() -> None:

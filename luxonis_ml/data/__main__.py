@@ -341,6 +341,10 @@ def inspect(
         bool,
         Parameter(alias="-fa", negative=""),
     ] = False,
+    show_all: Annotated[
+        bool,
+        Parameter(alias="-sa", negative=""),
+    ] = False,
     theme: Annotated[
         Literal["dark", "light"],
         Parameter(alias="-t"),
@@ -355,6 +359,8 @@ def inspect(
     Interactive controls (also shown as a HUD on each window):
 
     - ``m`` / ``k`` / ``b`` / ``l`` — toggle masks / keypoints / boxes / labels.
+    - ``d`` — toggle decluttering (on by default): in busy scenes, tiny
+      detections ringed by many others are hidden as noise; press to show all.
     - ``c`` — cycle a class focus through the classes present in the sample
       (isolating one class at a time; again to show all).
     - ``[`` / ``]`` — decrease / increase the shape fill opacity.
@@ -389,6 +395,9 @@ def inspect(
             and turn off shape anti-aliasing. Shape edges look slightly harder and
             text stays anti-aliased; every mask still shows (the ``m`` key still
             toggles them).
+        show_all: Start with decluttering off, so tiny detections in crowded
+            scenes are drawn instead of hidden (equivalent to pressing ``d`` up
+            front). Toggle it back on any time with the ``d`` key.
         theme: Visual theme of the visualization: ``dark`` or ``light``.
         bucket_storage: Storage type of the dataset.
 
@@ -536,6 +545,9 @@ def inspect(
     # interactive window loop; this command only prepares data and hands frames
     # (and their hit maps) to the viewer.
     viewer = Viewer()
+    # Decluttering hides tiny detections in crowded scenes by default; --show-all
+    # starts with it off (the `d` key still toggles it live either way).
+    viewer.layers.declutter = not show_all
     screen = viewer.screen
     # The `c` key cycles a class focus; the set is refreshed per sample to the
     # classes actually present (see the loop below).
