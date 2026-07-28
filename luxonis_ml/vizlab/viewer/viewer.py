@@ -1,11 +1,12 @@
 """The `Viewer`: an interactive, backend-agnostic image window with hover.
 
-`Viewer` presents `Frame` objects (an `Image` plus its hover `HitMap`), fits them
-to the screen, routes mouse moves through the map to show per-annotation
+`Viewer` presents `Frame` objects (a scene plus its interaction maps), fits them
+to the screen, routes mouse moves through the hover map to show per-annotation
 tooltips, and runs the keyboard loop — all over a pluggable `WindowBackend`
 (OpenCV by default). Callers build frames with `Image.frame` or the ``*_hits``
-compose helpers (`luxonis_ml.vizlab.grid_hits`) and never touch windowing
-themselves.
+compose helpers (such as ``grid_hits``) and never touch windowing
+themselves. Ordinary composition retains interactions automatically, so calling
+`frame()` on a grid or panel works the same way as calling it on one `Image`.
 """
 
 from collections.abc import Callable
@@ -106,17 +107,17 @@ class Viewer:
         """
         return self._layers
 
-    def _prepare(
-        self, display: Renderable, hitmap: HitMap, clickmap: ClickMap
-    ) -> tuple[np.ndarray, HitMap, ClickMap]:
-        """Render ``display`` to a screen-fitted BGR frame and scale the maps.
+    def _prepare(self, frame: Frame) -> tuple[np.ndarray, HitMap, ClickMap]:
+        """Render ``frame`` to a screen-fitted BGR image and scale its maps.
 
         The image is rendered once at its natural size to learn its dimensions
         (which may already reflect a `Image.render_at` size); if that overflows
         the screen it is re-rendered smaller — so labels stay crisp rather than
         being resampled afterwards — and the hit/click maps are scaled to match.
         """
-        rgba = display.render()
+        rgba = frame.render()
+        hitmap = frame.hitmap
+        clickmap = frame.clickmap
         out_h, out_w = rgba.shape[:2]
         fit = 1.0
         if self._screen is not None:
@@ -127,7 +128,7 @@ class Viewer:
             )
         if fit < 1.0:
             size = (max(1, round(out_w * fit)), max(1, round(out_h * fit)))
-            rgba = display.render(size)
+            rgba = frame.render(size)
             hitmap = hitmap.scaled(fit)
             clickmap = clickmap.scaled(fit)
         return io.export(rgba, "bgr"), hitmap, clickmap
@@ -159,9 +160,7 @@ class Viewer:
                 callback and a small controls HUD is drawn on it.
 
         """
-        bgr, hitmap, clickmap = self._prepare(
-            frame.image, frame.hitmap, frame.clickmap
-        )
+        bgr, hitmap, clickmap = self._prepare(frame)
         self._open(name, bgr)
         if render is not None:
             self._draw_hud(bgr)
@@ -199,9 +198,7 @@ class Viewer:
         if state.render is None:
             return
         frame = state.render(self._layers)
-        bgr, hitmap, clickmap = self._prepare(
-            frame.image, frame.hitmap, frame.clickmap
-        )
+        bgr, hitmap, clickmap = self._prepare(frame)
         self._draw_hud(bgr)
         state.base = bgr
         state.hitmap = hitmap
@@ -212,7 +209,7 @@ class Viewer:
 
     def show_blocking(self, name: str, display: Renderable) -> str:
         """Show one frame (no hover) and block until a key; return its char."""
-        bgr, _, _ = self._prepare(display, HitMap.empty(), ClickMap.empty())
+        bgr, _, _ = self._prepare(Frame(display))
         self._open(name, bgr)
         self._windows.pop(name, None)
         self._backend.show(name, bgr)

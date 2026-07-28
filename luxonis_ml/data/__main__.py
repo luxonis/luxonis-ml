@@ -157,7 +157,7 @@ def _flatten_filenames(sample_metadata: dict) -> dict:
     ``filenames`` as a ``{source_name: basename}`` mapping (see
     `luxonis_ml.data.LuxonisLoader`). In the common single-image case that
     renders as a needless one-entry nested block, so this replaces it in place
-    with a ``"filename"`` field wrapped in `luxonis_ml.vizlab.Block` — the panel
+    with a ``"filename"`` field wrapped in ``Block`` — the panel
     then shows it as a labelled line with the name below (full width, ellipsized
     if very long) rather than cramped after an inline prefix. Multi-source
     records keep the full mapping; metadata without ``filenames`` is unchanged.
@@ -1277,9 +1277,7 @@ def compare(
         metrics: dict = dict(result.summary())
         if per_class and len(result.per_class) > 1:
             metrics["by class"] = result.per_class_panel()
-        return frame.with_image(
-            display.with_panel(metrics, title="Comparison")
-        )
+        return display.with_panel(metrics, title="Comparison").frame()
 
     for identity in shared:
         gt_data = gt_loader[gt_indices[identity]]

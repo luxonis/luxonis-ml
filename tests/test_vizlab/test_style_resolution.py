@@ -3,6 +3,7 @@
 from luxonis_ml.vizlab import LIGHT_THEME, BBox, Style
 from luxonis_ml.vizlab.annotations.base import RenderContext
 from luxonis_ml.vizlab.canvas import Canvas
+from luxonis_ml.vizlab.render import RenderEnvironment
 
 
 def _ctx(style_scale: float = 1.0) -> RenderContext:
@@ -86,6 +87,21 @@ def test_as_default_replaces_the_base_style_in_scope() -> None:
         style = BBox(x=0, y=0, w=1, h=1).resolve_style(_ctx())
     assert style.stroke_width == 1.0
     assert style.fill_alpha == 0.9
+
+
+def test_render_environment_is_an_ambient_style_snapshot() -> None:
+    with Style.override(stroke_width=7.0):
+        environment = RenderEnvironment.current()
+
+    ctx = RenderContext(
+        canvas=Canvas.blank(2, 2),
+        theme=LIGHT_THEME,
+        environment=environment,
+    )
+    with Style.override(stroke_width=11.0):
+        style = BBox(x=0, y=0, w=1, h=1).resolve_style(ctx)
+
+    assert style.stroke_width == 7.0
 
 
 def test_theme_base_is_scaled_but_overrides_are_display_pixels() -> None:

@@ -19,6 +19,7 @@ color outright (see `luxonis_ml.vizlab.style.derive` and `Annotation.outline_col
 from abc import abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -26,14 +27,14 @@ from typing_extensions import Self
 
 from luxonis_ml.vizlab.color import Color, ColorLike
 from luxonis_ml.vizlab.geometry import Rect
+from luxonis_ml.vizlab.hitmap import InteractionCapture
+from luxonis_ml.vizlab.render import RenderEnvironment
 from luxonis_ml.vizlab.style import (
     DEFAULT_PALETTE,
     DEFAULT_STYLE,
     Palette,
     Style,
     Theme,
-    current_default_style,
-    current_style_overrides,
     derive_child_color,
     derive_child_style,
 )
@@ -69,6 +70,10 @@ class RenderContext:
             set, annotations that carry a `Tooltip` append their ``(region,
             tooltip)`` to it during the label pass (see `emit_hit`); the regions
             are in final display-pixel coordinates.
+        capture: Render-time interaction collector. New rendering paths use this
+            instead of ``hits`` so nested composites can transform hover and
+            click regions with their pixels.
+        environment: Scoped style state resolved once at the render boundary.
         gradient: Default colormap for heatmaps that set none (from the render
             options); ``None`` falls back to the library default gradient.
 
@@ -82,6 +87,10 @@ class RenderContext:
     theme: Theme | None = None
     style_scale: float = 1.0
     hits: list[tuple[Rect, Tooltip]] | None = None
+    capture: InteractionCapture | None = None
+    environment: RenderEnvironment = dataclass_field(
+        default_factory=RenderEnvironment.current
+    )
     gradient: "Gradient | str | None" = None
 
     def descend(self, color: Color, style: Style) -> "RenderContext":
@@ -105,6 +114,8 @@ class RenderContext:
             theme=self.theme,
             style_scale=self.style_scale,
             hits=self.hits,
+            capture=self.capture,
+            environment=self.environment,
             gradient=self.gradient,
         )
 
@@ -120,7 +131,11 @@ class RenderContext:
             tooltip: The hover content to associate with ``region``, if any.
 
         """
-        if self.hits is not None and tooltip is not None:
+        if tooltip is None:
+            return
+        if self.capture is not None:
+            self.capture.add_hover(region, tooltip)
+        elif self.hits is not None:
             self.hits.append((region, tooltip))
 
 
@@ -329,14 +344,17 @@ class Annotation(BaseModel):
         elif ctx.parent_style is not None:
             base = derive_child_style(ctx.parent_style)
         else:
-            ambient = current_default_style()
+            ambient = ctx.environment.default_style
             if ambient is not None:
                 base = ambient.scaled(ctx.style_scale)
             elif ctx.theme is not None:
                 base = ctx.theme.style.scaled(ctx.style_scale)
             else:
                 base = DEFAULT_STYLE.scaled(ctx.style_scale)
-        overrides = {**current_style_overrides(), **self.style_overrides}
+        overrides = {
+            **ctx.environment.style_overrides,
+            **self.style_overrides,
+        }
         return base.merge(**overrides) if overrides else base
 
     def resolve_color(self, ctx: RenderContext) -> Color:

@@ -609,6 +609,18 @@ def test_with_panel_composite_renders_to_vector_svg() -> None:
     assert composite.render().shape[2] == 4
 
 
+def test_composite_supports_the_shared_numpy_output_contract() -> None:
+    from luxonis_ml.vizlab import grid
+
+    composite = grid([Image(np.zeros((20, 30, 3), np.uint8))])
+
+    assert composite.to_numpy("bgr").shape == (
+        composite.height,
+        composite.width,
+        3,
+    )
+
+
 def test_grid_composite_renders_to_svg() -> None:
     # A grid is a composite too: SVG embeds each tile's photo, tiles' boxes vector.
     from luxonis_ml.vizlab import Composite, grid

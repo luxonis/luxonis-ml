@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from luxonis_ml.vizlab import BBox, Frame, HitMap, Image, Tooltip
+from luxonis_ml.vizlab import BBox, Frame, HitMap, Image, Style, Tooltip
 from luxonis_ml.vizlab.geometry import Rect
 from luxonis_ml.vizlab.hitmap import ClickMap
 
@@ -36,6 +36,15 @@ def test_frame_render_matches_image_render() -> None:
     image = _tooltip_image()
     frame = image.frame()
     assert np.array_equal(frame.render(), image.render())
+
+
+def test_frame_keeps_the_style_scope_used_to_capture_interactions() -> None:
+    image = _tooltip_image()
+    with Style.override(stroke_width=9.0, shadow=False):
+        expected = image.render()
+        frame = image.frame()
+
+    assert np.array_equal(frame.render(), expected)
 
 
 def test_with_image_keeps_hitmap() -> None:

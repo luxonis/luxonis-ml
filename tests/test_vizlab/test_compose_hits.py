@@ -8,8 +8,10 @@ from luxonis_ml.vizlab import (
     Frame,
     Image,
     Tooltip,
+    combine,
     combine_hits,
     fit_grid,
+    grid,
     grid_hits,
 )
 from luxonis_ml.vizlab.compose import grid_placed
@@ -55,6 +57,16 @@ def test_grid_hits_maps_each_tile_to_composite_pixels() -> None:
     assert hits.hit(120 + 50, 10 + 30) is tip_b
 
 
+def test_grid_scene_preserves_interactions_without_hits_variant() -> None:
+    a, tip_a = _tile("A")
+    b, tip_b = _tile("B")
+
+    frame = grid([a, b], ncols=2, pad=10).frame()
+
+    assert frame.hitmap.hit(10 + 50, 10 + 30) is tip_a
+    assert frame.hitmap.hit(120 + 50, 10 + 30) is tip_b
+
+
 def test_combine_hits_threads_through_nesting() -> None:
     a, _ = _tile("A")
     b, _ = _tile("B")
@@ -63,6 +75,33 @@ def test_combine_hits_threads_through_nesting() -> None:
     assert _titles(hits) == {"A", "B", "C"}
     assert len(hits.items) == 3
     assert _within(hits, composite)
+
+
+def test_combine_scene_preserves_interactions_through_nesting() -> None:
+    a, _ = _tile("A")
+    b, _ = _tile("B")
+    c, _ = _tile("C")
+
+    frame = combine(a, [b, c]).frame()
+
+    assert _titles(frame.hitmap) == {"A", "B", "C"}
+    assert _within(frame.hitmap, frame.image)
+
+
+def test_nested_composite_scales_interactions_on_both_axes() -> None:
+    tile, tip = _tile("A", h=100, w=100)
+    scene = grid([tile], ncols=1, pad=0).render_at((200, 50))
+
+    frame = scene.frame()
+
+    assert frame.hitmap.hit(100, 25) is tip
+    rect, _ = frame.hitmap.items[0]
+    assert (rect.left, rect.top, rect.right, rect.bottom) == (
+        20,
+        5,
+        180,
+        45,
+    )
 
 
 def test_combine_hits_titled_mapping() -> None:

@@ -1,6 +1,6 @@
-"""Compatibility façade for comparison workflows."""
+"""Detection matching, comparison views, and dataset-level reports."""
 
-from .comparison.core import (
+from .core import (
     CLASS_ERROR_COLOR,
     FN_COLOR,
     FP_COLOR,

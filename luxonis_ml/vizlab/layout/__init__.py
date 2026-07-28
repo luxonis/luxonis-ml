@@ -1,7 +1,6 @@
-"""Compatibility façade for image composition and layout helpers."""
+"""Scene composition and panel layout implementations."""
 
-from .layout import compose as _impl
-from .layout.compose import (
+from .compose import (
     blend,
     combine,
     combine_hits,
@@ -12,10 +11,12 @@ from .layout.compose import (
     hstack,
     vstack,
 )
-
-_smart_cols = _impl._smart_cols
+from .panel import Block, Controls, Swatches, with_panel
 
 __all__ = [
+    "Block",
+    "Controls",
+    "Swatches",
     "blend",
     "combine",
     "combine_hits",
@@ -25,4 +26,5 @@ __all__ = [
     "grid_placed",
     "hstack",
     "vstack",
+    "with_panel",
 ]

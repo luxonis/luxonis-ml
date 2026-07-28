@@ -106,8 +106,11 @@ Examples:
     ... )
     >>> image = visualize_record(record, np.zeros((360, 640, 3), np.uint8))
     >>> rendered = image.render()
-    >>> rendered.shape[0], rendered.shape[2]  # image height and RGBA channels
-    (360, 4)
+    >>> (
+    ...     rendered.shape[0] >= 360,
+    ...     rendered.shape[2],
+    ... )  # framed height, RGBA channels
+    (True, 4)
     >>> rendered.shape[1] > 640  # a metadata side panel was appended
     True
 
@@ -151,12 +154,18 @@ Notes:
     - `blend`, `hstack`, `vstack`, `grid`, and `with_panel` return new composed
       images and leave their inputs unchanged.
 
+    Internally those responsibilities live in focused ``adapters``, ``scene``,
+    ``render``, ``layout``, ``interaction``, and ``comparison`` packages. The
+    established modules such as ``vizlab.image`` and ``vizlab.compose`` remain
+    compatibility facades, so existing imports do not change.
+
     Interactive display lives in the opt-in `luxonis_ml.vizlab.viewer`
     subpackage (import it explicitly: ``from luxonis_ml.vizlab.viewer import
     Viewer``). It is deliberately *not* re-exported here so the core rendering
     package never imports a windowing/OpenCV backend until a viewer is used. Pair
-    it with `Frame` (an `Image` plus its hover `HitMap`, from `Image.frame` or the
-    ``*_hits`` compose helpers).
+    it with `Frame` (a renderable scene plus the hover/click regions captured by
+    `Renderable.frame`). Composition preserves those regions automatically;
+    the older ``*_hits`` helpers remain convenient viewer-ready wrappers.
 
     See ``vizlab_examples/`` for a runnable feature overview.
 

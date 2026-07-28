@@ -1,6 +1,6 @@
-"""Compatibility façade for the LDF visualization adapter."""
+"""Adapters from external data models into Vizlab scenes."""
 
-from .adapters.ldf import (
+from .ldf import (
     blend_records_to_annotations,
     detection_to_annotations,
     metadata_annotations,

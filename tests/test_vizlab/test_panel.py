@@ -281,6 +281,43 @@ def test_frame_with_panel_builds_a_clickmap_of_controls_and_swatches() -> None:
     assert "classes:toggle" in actions  # the legend's master on/off switch
 
 
+def test_panel_scene_frame_captures_child_hover_and_clicks() -> None:
+    from luxonis_ml.vizlab import Controls, Tooltip
+
+    image = Image(np.zeros((100, 160, 3), np.uint8)).add(
+        BBox(
+            x=0.1,
+            y=0.1,
+            w=0.5,
+            h=0.5,
+            tooltip=Tooltip(title="object"),
+        )
+    )
+    frame = image.with_panel(
+        {"controls": Controls((("m", "masks", "on", True),))}
+    ).frame()
+
+    assert frame.hitmap.items
+    assert {action for _rect, action in frame.clickmap.items} == {"key:m"}
+
+
+def test_frame_with_panel_preserves_existing_clickmap() -> None:
+    from luxonis_ml.vizlab import Controls
+    from luxonis_ml.vizlab.frame import Frame
+    from luxonis_ml.vizlab.geometry import Rect
+    from luxonis_ml.vizlab.hitmap import ClickMap
+
+    frame = Frame(
+        _img(200, 140),
+        clickmap=ClickMap([(Rect(1, 2, 3, 4), "existing")]),
+    ).with_panel({"controls": Controls((("m", "masks", "on", True),))})
+
+    assert {action for _rect, action in frame.clickmap.items} == {
+        "existing",
+        "key:m",
+    }
+
+
 def test_with_panel_renders_controls_and_swatches() -> None:
     from luxonis_ml.vizlab import Controls, Swatches
 
