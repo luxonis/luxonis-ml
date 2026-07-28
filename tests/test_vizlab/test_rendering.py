@@ -7,6 +7,7 @@ visibly apart even for a large number of classes.
 """
 
 import math
+from pathlib import Path
 
 import numpy as np
 
@@ -525,3 +526,72 @@ def test_default_theme_is_used_and_settable() -> None:
         set_default_theme(original_theme)
     assert not np.array_equal(dark_render, light_render)
     assert np.array_equal(light_render, fresh_light_render)
+
+
+def test_render_svg_is_vector_over_an_embedded_base() -> None:
+    image = Image(np.full((60, 90, 3), 40, np.uint8)).add(
+        BBox(x=0.1, y=0.1, w=0.5, h=0.4, label="car", score=0.9)
+    )
+    svg = image.render_svg().decode("utf-8")
+    assert svg.startswith("<?xml")
+    assert 'width="90"' in svg  # native viewport
+    assert 'height="60"' in svg
+    assert "<path" in svg  # box stroke + glyph outlines are vectors
+    assert "<image" in svg or "base64" in svg  # the photo is embedded raster
+
+
+def test_render_svg_honors_the_requested_size() -> None:
+    image = Image(np.full((60, 90, 3), 40, np.uint8)).add(
+        BBox(x=0.1, y=0.1, w=0.5, h=0.4, label="car")
+    )
+    svg = image.render_svg((180, 120)).decode("utf-8")
+    assert 'width="180"' in svg
+    assert 'height="120"' in svg
+
+
+def test_render_svg_keeps_text_when_not_pathified() -> None:
+    image = Image(np.full((40, 60, 3), 40, np.uint8)).add(
+        BBox(x=0.1, y=0.1, w=0.5, h=0.4, label="car")
+    )
+    assert "<text" in image.render_svg(text_as_paths=False).decode("utf-8")
+
+
+def test_save_writes_svg_from_extension(tmp_path: Path) -> None:
+    path = tmp_path / "out.svg"
+    Image(np.zeros((20, 30, 3), np.uint8)).add(
+        BBox(x=0.1, y=0.1, w=0.5, h=0.5, label="car")
+    ).save(path)
+    assert path.read_bytes().startswith(b"<?xml")
+
+
+def test_with_panel_composite_renders_to_vector_svg() -> None:
+    # Target-aware composition: a paneled composite renders to SVG with the photo
+    # embedded once and everything else (boxes, panel chrome) as vectors.
+    from luxonis_ml.vizlab import Composite, with_panel
+
+    img = Image(np.full((60, 90, 3), 40, np.uint8)).add(
+        BBox(x=0.1, y=0.1, w=0.5, h=0.4, label="car", score=0.9)
+    )
+    composite = with_panel(img, {"id": 1, "source": "frame.jpg"})
+    assert isinstance(composite, Composite)
+    svg = composite.render_svg().decode("utf-8")
+    assert svg.count("<image") == 1  # only the photo is raster
+    assert svg.count("<path") > 10  # boxes + panel text are vectors
+    # ...and it still renders to raster identically in shape to a normal render.
+    assert composite.render().shape[2] == 4
+
+
+def test_grid_composite_renders_to_svg() -> None:
+    # A grid is a composite too: SVG embeds each tile's photo, tiles' boxes vector.
+    from luxonis_ml.vizlab import Composite, grid
+
+    tiles = [
+        Image(np.full((40, 40, 3), 30, np.uint8)).add(
+            BBox(x=0.1, y=0.1, w=0.5, h=0.5, label="car")
+        )
+        for _ in range(4)
+    ]
+    composed = grid(tiles, ncols=2)
+    assert isinstance(composed, Composite)
+    svg = composed.render_svg().decode("utf-8")
+    assert svg.count("<image") == 4  # one embedded photo per tile

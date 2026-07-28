@@ -7,8 +7,9 @@ from an ``(H, W, 4)`` RGBA ``uint8`` array so the rest of the library never
 touches Skia types directly.
 """
 
+import contextlib
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -159,31 +160,49 @@ def _span_atoms(
 
 
 class Canvas:
-    """A drawable RGBA raster backed by a Skia surface."""
+    """A drawable Skia canvas backed by a raster buffer or an SVG document.
+
+    The drawing primitives are backend-agnostic — the same calls paint pixels on
+    a raster surface or record vector elements into an SVG document. Which one a
+    canvas is depends on how it was built: `blank` / `from_rgba` make a raster
+    canvas (snapshot it with `to_rgba`), `svg` makes an SVG one (finalize it with
+    `finish_svg`).
+    """
 
     def __init__(
         self,
-        surface: skia.Surface,
+        canvas: skia.Canvas,
+        size: tuple[int, int],
         fonts: FontManager = DEFAULT_FONTS,
         *,
         antialias: bool = True,
+        surface: "skia.Surface | None" = None,
+        svg_stream: "skia.DynamicMemoryWStream | None" = None,
     ) -> None:
-        """Wrap an existing Skia surface.
+        """Wrap a Skia drawing canvas together with its backing output.
 
-        Prefer `blank` or `from_rgba` over calling this directly.
+        Prefer the `blank`, `from_rgba`, and `svg` constructors over calling this
+        directly. Exactly one backing is given: ``surface`` for a raster canvas or
+        ``svg_stream`` for an SVG one; it decides which of `to_rgba` / `finish_svg`
+        the canvas supports.
 
         Args:
-            surface: The Skia surface to draw on.
+            canvas: The Skia canvas to issue draw calls to.
+            size: The ``(width, height)`` of the canvas in pixels.
             fonts: Font manager used for text primitives.
             antialias: Whether shape fills and strokes are anti-aliased. ``False``
                 gives jagged edges but noticeably faster rasterization of dense
                 scenes; text stays anti-aliased regardless, so labels stay legible.
+            surface: The backing raster surface, for a raster canvas.
+            svg_stream: The backing SVG stream, for an SVG canvas.
 
         """
-        self._surface = surface
-        self._canvas = surface.getCanvas()
+        self._canvas: skia.Canvas = canvas
+        self._size = (int(size[0]), int(size[1]))
         self._fonts = fonts
         self._antialias = antialias
+        self._surface = surface
+        self._svg_stream = svg_stream
 
     @classmethod
     def blank(
@@ -208,9 +227,63 @@ class Canvas:
         """
         info = skia.ImageInfo.Make(int(width), int(height), _RGBA, _UNPREMUL)
         surface = skia.Surface.MakeRaster(info)
-        canvas = cls(surface, fonts, antialias=antialias)
+        canvas = cls(
+            surface.getCanvas(),
+            (int(width), int(height)),
+            fonts,
+            antialias=antialias,
+            surface=surface,
+        )
         canvas._canvas.clear(skia.Color4f(0, 0, 0, 0))
         return canvas
+
+    @classmethod
+    def svg(
+        cls,
+        width: int,
+        height: int,
+        fonts: FontManager = DEFAULT_FONTS,
+        *,
+        antialias: bool = True,
+        text_as_paths: bool = True,
+    ) -> "Canvas":
+        """Create an SVG-recording canvas of the given size.
+
+        Draw primitives (rectangles, polygons, text, lines) record as real SVG
+        vector elements; blitted rasters (a base photo, a mask-fill patch) embed
+        as base64 ``<image>`` elements. Finalize with `finish_svg` to get the SVG
+        document bytes. Unlike a raster canvas this has no pixel buffer, so
+        `to_rgba`, `scaled`, and snapshots are unavailable.
+
+        Args:
+            width: Viewport width in pixels.
+            height: Viewport height in pixels.
+            fonts: Font manager used for text primitives.
+            antialias: Whether shape fills/strokes set the anti-alias paint flag
+                (SVG renderers anti-alias regardless; kept for API parity).
+            text_as_paths: Emit glyphs as ``<path>`` outlines rather than
+                ``<text>``, so the file renders identically anywhere without the
+                fonts installed. On by default; turn off for smaller,
+                text-selectable output that depends on the viewer's fonts.
+
+        Returns:
+            A new SVG-backed `Canvas`.
+
+        """
+        stream = skia.DynamicMemoryWStream()
+        # 0x01 = SkSVGCanvas::kConvertTextToPaths_Flag (skia-python exposes no
+        # named constant), so glyphs become self-contained path outlines.
+        flags = 0x01 if text_as_paths else 0
+        svg_canvas = skia.SVGCanvas.Make(
+            skia.Rect.MakeWH(int(width), int(height)), stream, flags
+        )
+        return cls(
+            svg_canvas,
+            (int(width), int(height)),
+            fonts,
+            antialias=antialias,
+            svg_stream=stream,
+        )
 
     @classmethod
     def from_rgba(
@@ -242,12 +315,12 @@ class Canvas:
     @property
     def width(self) -> int:
         """Canvas width in pixels."""
-        return self._surface.width()
+        return self._size[0]
 
     @property
     def height(self) -> int:
         """Canvas height in pixels."""
-        return self._surface.height()
+        return self._size[1]
 
     def to_rgba(self) -> np.ndarray:
         """Snapshot the current canvas as an RGBA array.
@@ -256,6 +329,8 @@ class Canvas:
             An ``(H, W, 4)`` ``uint8`` array in RGBA order.
 
         """
+        if self._surface is None:
+            raise ValueError("to_rgba is unavailable on an SVG canvas")
         image = self._surface.makeImageSnapshot()
         return image.toarray(colorType=_RGBA)
 
@@ -275,6 +350,8 @@ class Canvas:
             copy at the same size when the dimensions already match.
 
         """
+        if self._surface is None:
+            raise ValueError("scaled is unavailable on an SVG canvas")
         image = self._surface.makeImageSnapshot()
         out = Canvas.blank(
             int(width), int(height), self._fonts, antialias=self._antialias
@@ -317,6 +394,159 @@ class Canvas:
             self._canvas.restore()
         else:
             self._canvas.drawImage(image, float(x), float(y))
+
+    def blit_scaled(
+        self,
+        rgba: np.ndarray,
+        x: float,
+        y: float,
+        width: float,
+        height: float,
+        *,
+        radius: float = 0.0,
+    ) -> None:
+        """Draw an RGBA raster into the rect ``(x, y, width, height)``, scaled.
+
+        The backend-agnostic way to lay a sub-image's raster down: a raster canvas
+        resamples it into the rect, an SVG canvas embeds it as one ``<image>`` with
+        that placement. Used to embed a photo-plus-fills base under a crisp vector
+        layer, at native size or scaled to a display box.
+
+        Args:
+            rgba: An ``(H, W, 4)`` ``uint8`` RGBA array (any size).
+            x: Destination left in pixels.
+            y: Destination top in pixels.
+            width: Destination width in pixels.
+            height: Destination height in pixels.
+            radius: Corner radius in pixels; ``> 0`` clips to a rounded rectangle.
+
+        """
+        image = skia.Image.fromarray(
+            np.ascontiguousarray(rgba), colorType=_RGBA
+        )
+        dst = skia.Rect.MakeXYWH(
+            float(x), float(y), float(width), float(height)
+        )
+        clipped = radius > 0.0
+        if clipped:
+            self._canvas.save()
+            self._canvas.clipRRect(
+                skia.RRect.MakeRectXY(dst, radius, radius), doAntiAlias=True
+            )
+        self._canvas.drawImageRect(
+            image,
+            skia.Rect.MakeWH(rgba.shape[1], rgba.shape[0]),
+            dst,
+            skia.SamplingOptions(skia.FilterMode.kLinear),
+            skia.Paint(AntiAlias=True),
+        )
+        if clipped:
+            self._canvas.restore()
+
+    def draw_base(self, rgba: np.ndarray) -> None:
+        """Draw an RGBA raster scaled to fill the whole canvas (the base layer)."""
+        self.blit_scaled(rgba, 0.0, 0.0, self.width, self.height)
+
+    @contextlib.contextmanager
+    def clip_rounded(self, rect: Rect, radius: float) -> "Iterator[None]":
+        """Clip drawing to a rounded rectangle for the duration of the block.
+
+        Used to draw a sub-scene (e.g. a composited image) with rounded corners:
+        everything drawn inside the ``with`` is masked to the rounded ``rect``.
+
+        Args:
+            rect: The rectangle to clip to.
+            radius: Corner radius in pixels.
+
+        """
+        self._canvas.save()
+        self._canvas.clipRRect(
+            skia.RRect.MakeRectXY(
+                skia.Rect.MakeLTRB(
+                    rect.left, rect.top, rect.right, rect.bottom
+                ),
+                radius,
+                radius,
+            ),
+            doAntiAlias=True,
+        )
+        try:
+            yield
+        finally:
+            self._canvas.restore()
+
+    @contextlib.contextmanager
+    def viewport(
+        self,
+        x: float,
+        y: float,
+        width: float,
+        height: float,
+        *,
+        logical: tuple[int, int] | None = None,
+    ) -> "Iterator[Canvas]":
+        """Draw into a sub-rectangle, yielding a canvas local to that region.
+
+        Clips to ``(x, y, width, height)`` and translates the origin there, so the
+        yielded canvas' draw calls land inside the rect. Pass ``logical`` to map a
+        different logical coordinate space onto the rect (its content is scaled to
+        fit) — e.g. drawing a natural-size composite into a smaller display box.
+        The yielded canvas shares this one's backing and reports ``logical`` (or the
+        rect) as its size; it is only valid inside the ``with`` block.
+
+        Args:
+            x: Sub-rect left in the current coordinate space.
+            y: Sub-rect top.
+            width: Sub-rect width.
+            height: Sub-rect height.
+            logical: The ``(width, height)`` the yielded canvas reports and draws
+                in; scaled onto the rect. Defaults to the rect's own size.
+
+        Yields:
+            A `Canvas` drawing into the region (sharing this canvas' backing).
+
+        """
+        lw, lh = (
+            logical if logical is not None else (round(width), round(height))
+        )
+        self._canvas.save()
+        self._canvas.translate(float(x), float(y))
+        self._canvas.clipRect(
+            skia.Rect.MakeWH(float(width), float(height)), doAntiAlias=True
+        )
+        if (lw, lh) != (width, height):
+            self._canvas.scale(width / lw, height / lh)
+        try:
+            yield Canvas(
+                self._canvas,
+                (int(lw), int(lh)),
+                self._fonts,
+                antialias=self._antialias,
+            )
+        finally:
+            self._canvas.restore()
+
+    def finish_svg(self) -> bytes:
+        """Finalize an SVG canvas (from `svg`) and return the SVG document bytes.
+
+        Dropping the recording canvas flushes its buffered draw commands to the
+        backing stream, which is then detached. The canvas is spent afterwards.
+
+        Returns:
+            The SVG document as UTF-8 bytes.
+
+        Raises:
+            ValueError: If this is a raster canvas rather than one from `svg`.
+
+        """
+        if self._svg_stream is None:
+            raise ValueError(
+                "finish_svg is only valid for an SVG canvas (see Canvas.svg)"
+            )
+        # The SVG backend buffers; releasing the canvas flushes it to the stream.
+        self._canvas = None  # type: ignore[assignment]
+        self._svg_stream.flush()
+        return bytes(self._svg_stream.detachAsData())
 
     # -- primitives ---------------------------------------------------------
 

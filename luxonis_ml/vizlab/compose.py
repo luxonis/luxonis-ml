@@ -21,7 +21,7 @@ from .color import Color, ColorLike
 from .frame import Frame
 from .geometry import Rect
 from .hitmap import HitMap
-from .image import Image, _style_scale
+from .image import Composite, Image, Renderable, _style_scale
 from .markup import Span, parse
 from .style import DARK_THEME, DEFAULT_STYLE, Style
 
@@ -177,13 +177,13 @@ def _pad_annotation(
 
 
 def hstack(
-    images: Sequence[Image],
+    images: Sequence[Renderable],
     *,
     pad: int = 10,
     bg: ColorLike = _DEFAULT_BG,
     titles: Sequence[str] | None = None,
     style: Style = DEFAULT_STYLE,
-) -> Image:
+) -> Renderable:
     """Render images into a new, left-to-right row.
 
     Each input is rendered before composition. Cells use the tallest input
@@ -222,13 +222,13 @@ def hstack(
 
 
 def vstack(
-    images: Sequence[Image],
+    images: Sequence[Renderable],
     *,
     pad: int = 10,
     bg: ColorLike = _DEFAULT_BG,
     titles: Sequence[str] | None = None,
     style: Style = DEFAULT_STYLE,
-) -> Image:
+) -> Renderable:
     """Render images into a new, top-to-bottom column.
 
     Cells use the widest input width, and smaller images are centered within
@@ -254,7 +254,7 @@ def vstack(
 
 
 def grid(
-    images: Sequence[Image],
+    images: Sequence[Renderable],
     *,
     ncols: int | None = None,
     pad: int = 10,
@@ -262,7 +262,7 @@ def grid(
     titles: Sequence[str] | None = None,
     style: Style = DEFAULT_STYLE,
     emphasize_titles: bool = True,
-) -> Image:
+) -> Renderable:
     """Render images into a new row-major grid of uniform cells.
 
     Cell width and height come from the largest rendered input. Smaller images
@@ -310,7 +310,7 @@ def grid(
 
 
 def grid_placed(
-    images: Sequence[Image],
+    images: Sequence[Renderable],
     *,
     ncols: int | None = None,
     pad: int = 10,
@@ -318,7 +318,7 @@ def grid_placed(
     titles: Sequence[str] | None = None,
     style: Style = DEFAULT_STYLE,
     emphasize_titles: bool = True,
-) -> tuple[Image, list[tuple[int, int, int, int]]]:
+) -> tuple[Renderable, list[tuple[int, int, int, int]]]:
     """Like `grid`, but also return each tile's ``(x, y, w, h)`` placement.
 
     The placements (one per input image, in order) give where each tile's raster
@@ -357,7 +357,7 @@ def grid_placed(
 
 
 def grid_hits(
-    images: Sequence[Image],
+    images: Sequence[Renderable],
     *,
     ncols: int | None = None,
     pad: int = 10,
@@ -404,7 +404,7 @@ def grid_hits(
 
 
 def fit_grid(
-    images: Sequence[Image],
+    images: Sequence[Renderable],
     *,
     target: tuple[int, int],
     ncols: int | None = None,
@@ -501,7 +501,9 @@ def _fit_title_h(
 
 #: A single image, a flat group of images, or a titled group of images.
 CombineGroup = (
-    Image | Sequence[Image] | Mapping[str, "Image | Sequence[Image]"]
+    Renderable
+    | Sequence[Renderable]
+    | Mapping[str, "Renderable | Sequence[Renderable]"]
 )
 
 
@@ -510,7 +512,7 @@ def combine(
     pad: int = 10,
     bg: ColorLike = _DEFAULT_BG,
     style: Style = DEFAULT_STYLE,
-) -> Image:
+) -> Renderable:
     """Lay out a mixed set of images (and grouped images) into one figure.
 
     A smart, layout-free counterpart to `hstack`/`vstack`/`grid`: pass any mix
@@ -602,6 +604,8 @@ def combine_hits(
         _resolve_group_hits(g, pad=pad, bg=bg, style=style) for g in groups
     ]
     if len(resolved) == 1:
+        # Honor the "brand-new scene" contract even for a single group: never
+        # hand back the caller's own object.
         frame = resolved[0]
         return Frame(frame.image.copy(), frame.hitmap)
     images = [frame.image for frame in resolved]
@@ -638,12 +642,12 @@ def _as_images(member: "Sequence[object]") -> list[Image]:
 
 
 def _resolve_member(
-    member: "Image | Sequence[Image]",
+    member: "Renderable | Sequence[Renderable]",
     *,
     pad: int,
     bg: ColorLike,
     style: Style,
-) -> Image:
+) -> Renderable:
     """Resolve a single mapping value / list to one image (nested sub-grid)."""
     if isinstance(member, Image):
         return member
@@ -664,7 +668,7 @@ def _resolve_member(
 
 def _resolve_group(
     group: CombineGroup, *, pad: int, bg: ColorLike, style: Style
-) -> Image:
+) -> Renderable:
     if isinstance(group, Image):
         return group
     if isinstance(group, Mapping):
@@ -689,7 +693,7 @@ def _resolve_group(
 
 
 def _resolve_member_hits(
-    member: "Image | Sequence[Image]",
+    member: "Renderable | Sequence[Renderable]",
     *,
     pad: int,
     bg: ColorLike,
@@ -745,7 +749,7 @@ def _resolve_group_hits(
     raise TypeError(f"unsupported group type: {type(group)!r}")
 
 
-def _smart_cols(images: Sequence[Image]) -> int:
+def _smart_cols(images: Sequence[Renderable]) -> int:
     """Choose a column count that keeps the composite roughly square.
 
     Uses the tiles' mean aspect ratio: with ``c`` columns the composite is about
@@ -808,7 +812,7 @@ def _wrap_titles(
 
 
 def _grid(
-    images: Sequence[Image],
+    images: Sequence[Renderable],
     *,
     ncols: int,
     pad: int,
@@ -817,29 +821,28 @@ def _grid(
     style: Style,
     emphasize_titles: bool = True,
     capture: bool = False,
-) -> tuple[Image, list[tuple[int, int, int, int]], list[HitMap] | None]:
+) -> tuple[Renderable, list[tuple[int, int, int, int]], list[HitMap] | None]:
     """Shared tiling used by `grid`, `hstack`, `vstack`, and `grid_hits`.
 
-    Returns the composed image; for each input image (in order) the
-    ``(x, y, w, h)`` rectangle its raster occupies in the composite; and, when
-    ``capture`` is set, each tile's own hover `HitMap` (else ``None``). Capturing
-    renders every tile once via `Image.render_hits`, so `grid_hits` need not
-    render the tiles a second time to collect their maps.
+    Returns a `Composite` that draws the tiles (each via its own
+    `Renderable._draw_onto`, so their annotations stay vector in an SVG) with
+    titles as vector text; for each input image (in order) the ``(x, y, w, h)``
+    rectangle its tile occupies in the composite; and, when ``capture`` is set,
+    each tile's own hover `HitMap` (else ``None``).
     """
-    if capture:
-        rendered = [img.render_hits() for img in images]
-        rasters = [raster for raster, _ in rendered]
-        tile_hits: list[HitMap] | None = [hits for _, hits in rendered]
-    else:
-        rasters = [img.render() for img in images]
-        tile_hits = None
-    if not rasters:
+    if not images:
         raise ValueError("cannot compose an empty sequence of images")
+    # Tiles are placed at their display (render_at) size; capturing also collects
+    # each tile's hover map (rendering it once), for `grid_hits` to offset.
+    sizes = [img._resolved_size(None) for img in images]
+    tile_hits: list[HitMap] | None = (
+        [img.render_hits()[1] for img in images] if capture else None
+    )
 
-    cols = min(ncols, len(rasters))
-    rows = math.ceil(len(rasters) / cols)
-    cell_w = max(r.shape[1] for r in rasters)
-    cell_h = max(r.shape[0] for r in rasters)
+    cols = min(ncols, len(images))
+    rows = math.ceil(len(images) / cols)
+    cell_w = max(w for w, _ in sizes)
+    cell_h = max(h for _, h in sizes)
 
     # Scale titles to the tile size so they don't shrink against large images.
     # Emphasized titles (the default) render a step larger and bold so they read
@@ -854,9 +857,7 @@ def _grid(
         else base_title
     )
     title_pad = _TITLE_PAD * _style_scale(cell_w, cell_h)
-    wrapped = _wrap_titles(
-        titles, len(rasters), cell_w, title_style, title_pad
-    )
+    wrapped = _wrap_titles(titles, len(images), cell_w, title_style, title_pad)
     # Row height from the tallest actual line (mono runs have a taller ink box),
     # falling back to a plain measurement when there are no titles.
     line_h = max(
@@ -874,37 +875,41 @@ def _grid(
 
     width = pad + cols * (cell_w + pad)
     height = round(pad + rows * (title_h + cell_h + pad))
-
     background = Color.parse(bg)
-    canvas = Canvas.blank(width, height)
-    canvas.rounded_rect(Rect(0, 0, width, height), 0.0, fill=background)
     # Titles use the on-brand heading color for the background (deep purple on a
     # light grid, near-white on a dark one) rather than plain black/white.
     text_color = brand.chrome_for(background).card_title
 
+    cells: list[tuple[int, int]] = []  # (cell_x, cell_y) per tile
     placements: list[tuple[int, int, int, int]] = []
-    for i, raster in enumerate(rasters):
+    for i, (w, h) in enumerate(sizes):
         row, col = divmod(i, cols)
         cell_x = pad + col * (cell_w + pad)
         cell_y = round(pad + row * (title_h + cell_h + pad))
-        if wrapped[i]:
-            _draw_title(
-                canvas,
-                wrapped[i],
-                cell_x + cell_w / 2,
-                cell_y,
-                title_style,
-                text_color,
-                line_h,
-                title_pad,
-            )
-        h, w = raster.shape[:2]
+        cells.append((cell_x, cell_y))
         x = cell_x + (cell_w - w) // 2
         y = round(cell_y + title_h) + (cell_h - h) // 2
-        canvas.blit(raster, x, y)
         placements.append((x, y, w, h))
 
-    return Image(canvas.to_rgba()), placements, tile_hits
+    def paint(canvas: Canvas) -> None:
+        canvas.rounded_rect(Rect(0, 0, width, height), 0.0, fill=background)
+        for i, img in enumerate(images):
+            cell_x, cell_y = cells[i]
+            if wrapped[i]:
+                _draw_title(
+                    canvas,
+                    wrapped[i],
+                    cell_x + cell_w / 2,
+                    cell_y,
+                    title_style,
+                    text_color,
+                    line_h,
+                    title_pad,
+                )
+            x, y, w, h = placements[i]
+            img._draw_onto(canvas, x, y, (w, h))
+
+    return Composite((width, height), paint), placements, tile_hits
 
 
 def _draw_title(

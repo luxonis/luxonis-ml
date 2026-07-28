@@ -186,9 +186,13 @@ def _blank() -> np.ndarray:
 
 
 def test_compare_returns_image_with_panel() -> None:
+    from luxonis_ml.vizlab.image import Renderable
+
     gt, pred = _mock_scene()
     img = compare(_blank(), gt=gt, pred=pred)
-    assert isinstance(img, Image)
+    assert isinstance(
+        img, Renderable
+    )  # a panel composite, renderable to any target
     # A metrics panel widens the composite beyond the source image.
     assert img.render().shape[1] > 120
 

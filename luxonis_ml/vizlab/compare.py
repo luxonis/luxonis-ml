@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     from luxonis_ml.ldf import Detection
 
     from .canvas import Canvas
-    from .image import Image
+    from .image import Image, Renderable
     from .io import ImageSource
     from .panel import PanelData
 
@@ -667,7 +667,7 @@ def _overlay_image(
 
 def _side_by_side_image(
     image: "ImageSource", result: ComparisonResult, options: RenderOptions
-) -> "Image":
+) -> "Renderable":
     """Ground truth beside prediction, color keyed to identity not verdict.
 
     A matched pair shares one hue across both panels, so the eye tracks a single
@@ -706,7 +706,7 @@ def _side_by_side_image(
 
 def _triptych_image(
     image: "ImageSource", result: ComparisonResult, options: RenderOptions
-) -> "Image":
+) -> "Renderable":
     """Ground truth, prediction, and the verdict-colored diff, side by side."""
     from . import compose
 
@@ -751,7 +751,7 @@ def compare(
     panel: bool = True,
     per_class: bool = False,
     verdicts: "Collection[Verdict] | None" = None,
-) -> "Image":
+) -> "Renderable":
     """Render a ground-truth vs prediction comparison over ``image``.
 
     Pass ``gt`` and ``pred`` to match here, or a precomputed ``result``. Each is a

@@ -7,11 +7,11 @@ in one pass.
 """
 
 import hashlib
-from collections.abc import Hashable
+from collections.abc import Callable, Hashable
 from dataclasses import fields, is_dataclass
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, TypeVar
 
 import numpy as np
 from typing_extensions import Self
@@ -124,7 +124,316 @@ def _style_scale(width: int, height: int) -> float:
     return max(lo, min(hi, min(width, height) / _STYLE_REFERENCE_PX))
 
 
-class Image:
+_Output_co = TypeVar("_Output_co", covariant=True)
+#: Invariant twin of `_Output_co` for functions generic over a target's artifact.
+_O = TypeVar("_O")
+
+
+class RenderTarget(Protocol[_Output_co]):
+    """Where a render goes: a raster buffer (`RASTER`) or an SVG document.
+
+    A target is just a blank-canvas factory plus a finalizer: `root` opens a fresh
+    canvas of the render size, a `Renderable` draws its whole scene onto it (photo
+    bases embed as rasters, everything else records as vectors), and `finish` turns
+    the drawn canvas into the artifact — RGBA pixels for `RASTER`, an SVG document
+    for the SVG target. The same drawing code serves every format.
+    """
+
+    def root(self, size: tuple[int, int], *, antialias: bool) -> Canvas:
+        """Open a blank canvas of ``size`` for a scene to draw onto."""
+        ...
+
+    def finish(self, canvas: Canvas) -> _Output_co:
+        """Finalize a fully drawn ``canvas`` into the output artifact."""
+        ...
+
+
+class _RasterTarget:
+    """Render to RGBA pixels: a raster canvas snapshotted to an array."""
+
+    def root(self, size: tuple[int, int], *, antialias: bool) -> Canvas:
+        return Canvas.blank(size[0], size[1], antialias=antialias)
+
+    def finish(self, canvas: Canvas) -> np.ndarray:
+        return canvas.to_rgba()
+
+
+class _SvgTarget:
+    """Render to an SVG document: an SVG canvas recording vectors and embeds."""
+
+    def __init__(self, *, text_as_paths: bool = True) -> None:
+        self._text_as_paths = text_as_paths
+
+    def root(self, size: tuple[int, int], *, antialias: bool) -> Canvas:
+        return Canvas.svg(
+            size[0],
+            size[1],
+            antialias=antialias,
+            text_as_paths=self._text_as_paths,
+        )
+
+    def finish(self, canvas: Canvas) -> bytes:
+        return canvas.finish_svg()
+
+
+#: The default raster render target (RGBA pixels).
+RASTER: "RenderTarget[np.ndarray]" = _RasterTarget()
+
+
+class Renderable:
+    """A scene renderable to any `RenderTarget` — an `Image` or a `Composite`.
+
+    Subclasses supply their pixel `width`/`height`, their render options
+    (`_resolve_options`), and how they paint themselves onto a canvas
+    (`_draw_onto`). This base turns that into the public output API — `render`
+    (RGBA), `render_svg` (vector), and `save` (either, chosen by file extension) —
+    so every format runs the exact same drawing path and can never drift apart.
+    """
+
+    _render_size: tuple[int, int] | None = None
+    _options: RenderOptions | None = None
+    #: A precomputed hover map (in this scene's own pixels), carried by composites
+    #: whose tiles' tooltips no longer live on annotations — see `with_hitmap`.
+    _hits: "HitMap | None" = None
+
+    @property
+    def width(self) -> int:
+        """Scene width in pixels."""
+        raise NotImplementedError
+
+    @property
+    def height(self) -> int:
+        """Scene height in pixels."""
+        raise NotImplementedError
+
+    def copy(self) -> "Renderable":
+        """Return an independent clone that renders the same scene."""
+        raise NotImplementedError
+
+    @property
+    def options(self) -> RenderOptions | None:
+        """The explicit `RenderOptions` set on this scene, or ``None``."""
+        return self._options
+
+    @property
+    def theme(self) -> Theme:
+        """The theme this scene renders with (its options', else the scope's)."""
+        return self._resolve_options().theme
+
+    def _resolve_options(self) -> RenderOptions:
+        """Return this scene's options, falling back to the current scope's."""
+        return (
+            self._options if self._options is not None else current_options()
+        )
+
+    def _draw_onto(
+        self,
+        canvas: Canvas,
+        x: float,
+        y: float,
+        size: tuple[int, int],
+        *,
+        hits: "list[tuple[Rect, Tooltip]] | None" = None,
+    ) -> None:
+        """Draw the whole scene into ``canvas`` at the rect ``(x, y, size)``."""
+        raise NotImplementedError
+
+    def _invalidate(self) -> None:
+        """Drop any cached render (a no-op unless a subclass caches)."""
+
+    def render_at(self, size: tuple[int, int] | None) -> Self:
+        """Set the display render size and return ``self`` for chaining.
+
+        Changes the default used by `render`; passing ``size`` directly to
+        `render` overrides it for that call without updating this setting.
+
+        Args:
+            size: ``(width, height)`` to render at, or ``None`` for the natural
+                size.
+
+        Returns:
+            This scene, to allow fluent chaining.
+
+        """
+        self._render_size = (
+            None if size is None else (int(size[0]), int(size[1]))
+        )
+        self._invalidate()
+        return self
+
+    def _resolved_size(self, size: tuple[int, int] | None) -> tuple[int, int]:
+        """Return the render size for ``size`` (falling back to `render_at`)."""
+        target = size if size is not None else self._render_size
+        return target if target is not None else (self.width, self.height)
+
+    def _paint(
+        self,
+        size: tuple[int, int] | None,
+        target: "RenderTarget[_O]",
+        *,
+        capture: bool,
+    ) -> "tuple[_O, list[tuple[Rect, Tooltip]] | None, tuple[int, int]]":
+        """Draw the scene into a fresh ``target`` canvas and finalize its artifact.
+
+        Opens a blank canvas of the render size from ``target``, draws the whole
+        scene onto it (`_draw_onto`), and returns the target's artifact, the
+        captured hover ``hits`` (when ``capture``), and the render size.
+        """
+        render_size = self._resolved_size(size)
+        antialias = self._resolve_options().antialias
+        canvas = target.root(render_size, antialias=antialias)
+        hits: list[tuple[Rect, Tooltip]] | None = [] if capture else None
+        self._draw_onto(canvas, 0, 0, render_size, hits=hits)
+        return target.finish(canvas), hits, render_size
+
+    def render(self, size: tuple[int, int] | None = None) -> np.ndarray:
+        """Rasterize the scene to an ``(H, W, 4)`` ``uint8`` RGBA array.
+
+        Args:
+            size: ``(width, height)`` to render at; ``None`` uses the `render_at`
+                size (the natural size if unset).
+
+        Returns:
+            A fresh RGBA array; the caller may mutate it freely.
+
+        """
+        return self._paint(size, RASTER, capture=False)[0]
+
+    def render_svg(
+        self,
+        size: tuple[int, int] | None = None,
+        *,
+        text_as_paths: bool = True,
+    ) -> bytes:
+        """Render the scene as an SVG: vectors over embedded raster bases.
+
+        Each image's photo (plus mask fills) embeds once as a base64 ``<image>``;
+        every other mark — box strokes, mask contours, keypoints, label chips, and
+        all panel/grid chrome — is emitted as true SVG vector elements, crisp at
+        any zoom.
+
+        Args:
+            size: ``(width, height)`` to render at; ``None`` uses the `render_at`
+                size (the natural size if unset).
+            text_as_paths: Emit glyphs as outlines so the SVG renders identically
+                anywhere without the fonts installed (default); turn off to keep
+                selectable ``<text>`` that depends on the viewer's fonts.
+
+        Returns:
+            The SVG document as UTF-8 bytes.
+
+        """
+        return self._paint(
+            size, _SvgTarget(text_as_paths=text_as_paths), capture=False
+        )[0]
+
+    def save(self, path: str | Path, *, quality: int = 95) -> Self:
+        """Render and write the scene to a file (format from the extension).
+
+        A ``.svg`` destination writes a vector render (`render_svg`); every other
+        extension writes a raster encode of `render`.
+
+        Args:
+            path: Destination path; the format is inferred from the extension.
+            quality: Encoder quality for lossy raster formats (0-100).
+
+        Returns:
+            This scene, to allow chaining.
+
+        Raises:
+            ValueError: If the destination extension is not SVG, PNG, JPEG, or
+                WebP.
+
+        """
+        if Path(path).suffix.lower() == ".svg":
+            Path(path).write_bytes(self.render_svg())
+        else:
+            io.save(self.render(), path, quality=quality)
+        return self
+
+    def render_hits(
+        self, size: tuple[int, int] | None = None
+    ) -> "tuple[np.ndarray, HitMap]":
+        """Render the scene, also returning a hover `HitMap`.
+
+        The map holds the display-pixel region of every annotation that carries a
+        `Tooltip`, so an interactive viewer can resolve the annotation under the
+        cursor. Not cached (meant to run once per displayed frame).
+
+        Args:
+            size: ``(width, height)`` to render at; ``None`` uses the `render_at`
+                size (the natural size if unset).
+
+        Returns:
+            A ``(rgba, hitmap)`` pair. The RGBA matches what `render` would return.
+
+        """
+        rgba, hits, render_size = self._paint(size, RASTER, capture=True)
+        hitmap = HitMap(hits if hits is not None else [])
+        if self._hits is not None:
+            # A carried map lives in this scene's own pixels; scale it to the
+            # render size the same way annotation hits are captured at it.
+            factor = render_size[0] / self.width if self.width else 1.0
+            hitmap = hitmap.merge(self._hits.scaled(factor))
+        return rgba, hitmap
+
+    def with_hitmap(self, hitmap: HitMap) -> Self:
+        """Attach a precomputed hover `HitMap` (in this scene's pixels).
+
+        For composites whose tiles were flattened so their tooltips no longer
+        live on annotations: the map is remembered and returned by `render_hits`
+        / `frame`, scaled to the render size like an annotation's would be.
+
+        Args:
+            hitmap: The hover map, in this scene's current pixel coordinates.
+
+        Returns:
+            This scene, to allow chaining.
+
+        """
+        self._hits = hitmap
+        return self
+
+    def frame(self) -> "Frame":
+        """Pair this scene with its hover `HitMap` as a `Frame` for a `Viewer`."""
+        from .frame import Frame
+
+        _, hitmap = self.render_hits()
+        return Frame(self, hitmap)
+
+    def with_panel(
+        self,
+        data: "PanelData",
+        *,
+        side: str = "right",
+        width: float | None = None,
+        title: str | None = None,
+    ) -> "Renderable":
+        """Append a metadata panel showing ``data`` and return a composed scene.
+
+        Nested mappings and sequences are formatted as an indented tree. The
+        panel is placed outside the rendered scene, so it cannot cover pixels or
+        labels. See `vizlab.panel.with_panel`.
+
+        Args:
+            data: JSON-like metadata (mapping/sequence/scalar, nested arbitrarily).
+            side: Which edge to attach the panel to: ``"right"``, ``"left"``, or
+                ``"bottom"``.
+            width: Panel width in pixels; ``None`` auto-sizes from the content.
+            title: Optional bold heading drawn above the tree.
+
+        Returns:
+            A `Composite` of this scene plus the panel — renders to raster or SVG.
+
+        """
+        from . import panel
+
+        return panel.with_panel(
+            self, data, side=side, width=width, title=title
+        )
+
+
+class Image(Renderable):
     """Collect annotations over a base raster and render them as one scene.
 
     `Image` is mutable: `add` and `render_at` update the scene and return
@@ -219,22 +528,6 @@ class Image:
         """
         return self._annotations
 
-    @property
-    def theme(self) -> Theme:
-        """The theme this image renders with (its options', else the scope's)."""
-        return self._resolve_options().theme
-
-    @property
-    def options(self) -> RenderOptions | None:
-        """The explicit `RenderOptions` set on this image, or ``None``."""
-        return self._options
-
-    def _resolve_options(self) -> RenderOptions:
-        """Return this image's options, falling back to the current scope's."""
-        return (
-            self._options if self._options is not None else current_options()
-        )
-
     def base_rgba(self) -> np.ndarray:
         """Return a copy of the base raster, without any annotations drawn.
 
@@ -285,25 +578,9 @@ class Image:
         self._cache = None
         return self
 
-    def render_at(self, size: tuple[int, int] | None) -> Self:
-        """Set the display render size and return ``self`` for chaining.
-
-        This changes the default used by `render`; passing ``size`` directly to
-        `render` overrides it for that call without updating this setting.
-
-        Args:
-            size: ``(width, height)`` to render at, or ``None`` for the source
-                resolution. See `render` for how the size is used.
-
-        Returns:
-            This image, to allow fluent chaining.
-
-        """
-        self._render_size = (
-            None if size is None else (int(size[0]), int(size[1]))
-        )
+    def _invalidate(self) -> None:
+        """Drop the render cache (called when the render size changes)."""
         self._cache = None
-        return self
 
     def copy(self) -> "Image":
         """Return a shallow clone sharing the base raster.
@@ -349,95 +626,45 @@ class Image:
             freely; the cache holds a separate copy.
 
         """
-        return self._render(size, capture=False)[0]
-
-    def render_hits(
-        self, size: tuple[int, int] | None = None
-    ) -> tuple[np.ndarray, HitMap]:
-        """Render like `render`, also returning a hover `HitMap`.
-
-        The map holds the display-pixel region of every annotation that carries a
-        `Tooltip` (see `Annotation.tooltip`), so an interactive viewer can resolve
-        the annotation under the cursor. Unlike `render`, this call is not cached;
-        it is meant to run once per displayed frame.
-
-        Args:
-            size: ``(width, height)`` to render at; ``None`` uses the size set via
-                `render_at` (the source resolution if unset).
-
-        Returns:
-            A ``(rgba, hitmap)`` pair. The RGBA array matches what `render` would
-            return for the same ``size``.
-
-        """
-        rgba, hits = self._render(size, capture=True)
-        return rgba, hits if hits is not None else HitMap.empty()
-
-    def with_hitmap(self, hitmap: HitMap) -> "Image":
-        """Attach a precomputed hover `HitMap` (in this image's pixels).
-
-        For composites whose tiles were flattened to pixels (so their tooltips no
-        longer live on annotations): the map is remembered and returned by
-        `render_hits` / `frame`, scaled to the render size like an annotation's
-        would be. Mutates and returns this image.
-
-        Args:
-            hitmap: The hover map, in this image's current pixel coordinates.
-
-        Returns:
-            This image, to allow chaining.
-
-        """
-        self._hits = hitmap
-        return self
-
-    def frame(self) -> "Frame":
-        """Pair this image with its hover `HitMap` as a `Frame`.
-
-        Captures the display-pixel region of every tooltip-bearing annotation
-        (see `render_hits`) at the native render size and bundles it with the
-        image, ready to hand to a `Viewer`. The map matches what `render` (no
-        size) returns, which is the size the viewer renders before screen-fitting.
-
-        Returns:
-            A `Frame` wrapping this image and its hit map.
-
-        """
-        from .frame import Frame
-
-        _, hitmap = self.render_hits()
-        return Frame(self, hitmap)
-
-    def _render(
-        self, size: tuple[int, int] | None, *, capture: bool
-    ) -> tuple[np.ndarray, HitMap | None]:
-        """Shared render body for `render` (cached) and `render_hits` (uncapped).
-
-        When ``capture`` is ``False`` the result is served from / stored in the
-        render cache exactly as before and the second tuple element is ``None``.
-        When ``capture`` is ``True`` the cache is bypassed and a `HitMap` of every
-        tooltip-bearing annotation's region is collected instead.
-        """
-        target = size if size is not None else self._render_size
-        render_size = (
-            target if target is not None else (self.width, self.height)
+        # Cache by render size, theme, and mutable scene state; render_hits (the
+        # capture path) runs once per frame and never consults this cache.
+        options = self._resolve_options()
+        key = (
+            self._resolved_size(size),
+            _render_signature(
+                self._annotations, options.theme, options.gradient
+            ),
         )
+        if self._cache is not None and self._cache_key == key:
+            return self._cache.copy()
+        rgba = self._paint(size, RASTER, capture=False)[0]
+        self._cache = rgba
+        self._cache_key = key
+        return rgba.copy()
+
+    def _draw_onto(
+        self,
+        canvas: Canvas,
+        x: float,
+        y: float,
+        size: tuple[int, int],
+        *,
+        hits: "list[tuple[Rect, Tooltip]] | None" = None,
+    ) -> None:
+        """Draw this image's scene into ``canvas`` at the rect ``(x, y, size)``.
+
+        Two passes, backend-agnostic: the base (photo plus mask fills, painted at
+        the source resolution) is laid into the rect via `Canvas.blit_scaled` — a
+        resample on a raster canvas, one embedded ``<image>`` on an SVG one — and
+        the crisp vector layer (strokes, contours, keypoints, label chips) is drawn
+        over it in a `Canvas.viewport` local to the rect. This is how a composite
+        draws a sub-image, and how `_paint` draws the whole image (rect ``(0, 0)``
+        to the render size). ``hits`` collects tooltip regions in the rect's local
+        pixels when given.
+        """
         options = self._resolve_options()
         theme = options.theme
         gradient = options.gradient
-        # The render cache is only consulted/filled on the plain `render` path;
-        # `render_hits` runs once per displayed frame and never reuses a cached
-        # result, so it skips signing the scene (a full freeze + hash of every
-        # annotation) entirely.
-        key: tuple[tuple[int, int], bytes] | None = None
-        if not capture:
-            key = (
-                render_size,
-                _render_signature(self._annotations, theme, gradient),
-            )
-            if self._cache is not None and self._cache_key == key:
-                return self._cache.copy(), None
-
         # Background layers (semantic segmentation) render beneath every other
         # spatial annotation; overlays (image-level chrome) render on top. A
         # stable sort keeps add-order within each tier.
@@ -446,30 +673,12 @@ class Image:
             key=lambda a: not a.BACKGROUND,
         )
         overlays = [a for a in self._annotations if a.OVERLAY]
-
-        # Pass 1: raster fills at the source resolution.
-        canvas = self._render_fills(
-            spatial, theme, gradient, options.antialias
-        )
-        # Scale the filled raster once to the display size.
-        if target is not None and target != (canvas.width, canvas.height):
-            canvas = canvas.scaled(target[0], target[1])
-        # Pass 2: sharp vector content at the display resolution.
-        hits: list[tuple[Rect, Tooltip]] | None = [] if capture else None
-        self._render_vectors(canvas, spatial, overlays, theme, gradient, hits)
-
-        rgba = canvas.to_rgba()
-        if not capture:
-            self._cache = rgba
-            self._cache_key = key
-            return rgba.copy(), None
-        hitmap = HitMap(hits if hits is not None else [])
-        if self._hits is not None:
-            # Carried composite hits live in this image's own pixels; scale them
-            # to the render size the same way annotation hits are captured at it.
-            factor = render_size[0] / self.width if self.width else 1.0
-            hitmap = hitmap.merge(self._hits.scaled(factor))
-        return rgba.copy(), hitmap
+        base = self._render_fills(spatial, theme, gradient, options.antialias)
+        canvas.blit_scaled(base.to_rgba(), x, y, size[0], size[1])
+        with canvas.viewport(x, y, size[0], size[1]) as region:
+            self._render_vectors(
+                region, spatial, overlays, theme, gradient, hits
+            )
 
     def _render_fills(
         self,
@@ -555,23 +764,6 @@ class Image:
         """
         return io.to_pil(self.render())
 
-    def save(self, path: str | Path, *, quality: int = 95) -> Self:
-        """Render and write the image to a file.
-
-        Args:
-            path: Destination path; the format is inferred from the extension.
-            quality: Encoder quality for lossy formats (0-100).
-
-        Returns:
-            This image, to allow chaining.
-
-        Raises:
-            ValueError: If the destination extension is not PNG, JPEG, or WebP.
-
-        """
-        io.save(self.render(), path, quality=quality)
-        return self
-
     def show(self) -> None:
         """Render and open the image in Pillow's default viewer.
 
@@ -602,37 +794,92 @@ class Image:
 
         return compose.blend(self, other, alpha)
 
-    def with_panel(
-        self,
-        data: "PanelData",
-        *,
-        side: str = "right",
-        width: float | None = None,
-        title: str | None = None,
-    ) -> "Image":
-        """Append a metadata panel showing ``data`` and return a new image.
-
-        Nested mappings and sequences are formatted as an indented tree. The
-        panel is placed outside the rendered image, so it cannot cover pixels or
-        labels. See `vizlab.panel.with_panel`.
-
-        Args:
-            data: JSON-like metadata (mapping/sequence/scalar, nested arbitrarily).
-            side: Which edge to attach the panel to: ``"right"``, ``"left"``, or
-                ``"bottom"``.
-            width: Panel width in pixels; ``None`` auto-sizes from the content.
-            title: Optional bold heading drawn above the tree.
-
-        Returns:
-            A new `Image` of this image plus the panel; not mutated.
-
-        """
-        from . import panel
-
-        return panel.with_panel(
-            self, data, side=side, width=width, title=title
-        )
-
     def __repr__(self) -> str:
         """Return a compact source-size and annotation-count summary."""
         return f"Image(size={self.width}x{self.height}, annotations={len(self._annotations)})"
+
+
+#: A composite's scene painter: draws the whole layout, at natural coordinates,
+#: onto the canvas it is given (child images via their own `Image._draw_onto`,
+#: chrome via vector primitives).
+ScenePaint = Callable[["Canvas"], None]
+
+
+class Composite(Renderable):
+    """A renderable assembled from placed child scenes plus vector chrome.
+
+    Produced by the composition helpers (`vizlab.with_panel`, the grid builders):
+    it holds a natural pixel size and a `ScenePaint` that draws the whole layout —
+    child images via their own `Image._draw_onto` (so their annotations stay
+    vector in an SVG) and every border, panel, title, and legend as vector
+    primitives. Because it draws through a `RenderTarget` like any `Renderable`,
+    a composite renders to raster or SVG and `save`s to either; rendering at a
+    size other than its natural one scales the whole layout uniformly.
+
+    Attributes:
+        width: Composite width in pixels.
+        height: Composite height in pixels.
+
+    """
+
+    def __init__(
+        self,
+        size: tuple[int, int],
+        paint: ScenePaint,
+        *,
+        options: RenderOptions | None = None,
+    ) -> None:
+        """Assemble a composite.
+
+        Args:
+            size: The composite's natural ``(width, height)`` in pixels.
+            paint: Draws the layout at natural coordinates onto a given canvas.
+            options: Render options (theme/antialias); ``None`` uses the scope's.
+
+        """
+        self._size = (int(size[0]), int(size[1]))
+        self._scene = paint
+        self._options = options
+        self._render_size: tuple[int, int] | None = None
+
+    @property
+    def width(self) -> int:
+        """Composite width in pixels."""
+        return self._size[0]
+
+    @property
+    def height(self) -> int:
+        """Composite height in pixels."""
+        return self._size[1]
+
+    def _draw_onto(
+        self,
+        canvas: Canvas,
+        x: float,
+        y: float,
+        size: tuple[int, int],
+        *,
+        hits: "list[tuple[Rect, Tooltip]] | None" = None,
+    ) -> None:
+        """Draw the composite into ``canvas`` at ``(x, y, size)``.
+
+        The scene is painted at its natural coordinates in a `Canvas.viewport`
+        that maps them onto the rect (scaling uniformly when ``size`` differs from
+        the natural size). Hover regions are captured by the composition helper
+        when it builds the composite, not here.
+        """
+        with canvas.viewport(
+            x, y, size[0], size[1], logical=self._size
+        ) as region:
+            self._scene(region)
+
+    def copy(self) -> "Composite":
+        """Return a clone sharing the scene painter but with its own state."""
+        clone = Composite(self._size, self._scene, options=self._options)
+        clone._render_size = self._render_size
+        clone._hits = self._hits
+        return clone
+
+    def __repr__(self) -> str:
+        """Return a compact size summary."""
+        return f"Composite(size={self.width}x{self.height})"

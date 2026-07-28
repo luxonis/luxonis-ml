@@ -17,7 +17,7 @@ from ._util import is_sequence
 from .canvas import Canvas
 from .color import Color, ColorLike
 from .geometry import Rect
-from .image import Image, _style_scale
+from .image import Composite, Renderable, _style_scale
 from .style import DEFAULT_STYLE, Style
 
 
@@ -651,13 +651,13 @@ def _layout_controls(
                 weight=600,
                 mono=True,
             )
-            if clicks is not None:
-                clicks.append(
-                    (
-                        Rect(x0, y0 + y, x0 + content_w, y0 + y + row_h),
-                        f"key:{key}",
-                    )
+        if clicks is not None:
+            clicks.append(
+                (
+                    Rect(x0, y0 + y, x0 + content_w, y0 + y + row_h),
+                    f"key:{key}",
                 )
+            )
         y += row_h
     return y
 
@@ -797,13 +797,10 @@ def _layout_swatches(
                     m.muted,
                     width=max(1.0, m.border_width),
                 )
-            if clicks is not None:
-                clicks.append(
-                    (
-                        Rect(cx, cy, cx + col_w, cy + row_h),
-                        f"class:{label}",
-                    )
-                )
+        if clicks is not None:
+            clicks.append(
+                (Rect(cx, cy, cx + col_w, cy + row_h), f"class:{label}")
+            )
     rows = (len(items) + cols - 1) // cols
     return y + rows * row_h
 
@@ -903,7 +900,7 @@ def _tracked_width(
 
 
 def with_panel(
-    image: Image,
+    image: Renderable,
     data: "PanelData",
     *,
     side: str = "right",
@@ -911,13 +908,13 @@ def with_panel(
     title: str | None = None,
     style: Style | None = None,
     bg: ColorLike | None = None,
-) -> Image:
-    """Render an image and append a non-overlapping metadata panel.
+) -> Renderable:
+    """Attach a non-overlapping metadata panel, returning a target-aware scene.
 
     Mappings and sequences are flattened into an indented tree; long scalar
     values wrap to the available width. A right or left panel may increase the
     output height to fit its content. A bottom panel keeps the source image above
-    the panel. The input image is rendered but not mutated.
+    the panel. The input image is not mutated.
 
     .. image:: TODO-HOST/panel.png
        :alt: A metadata side panel beside the annotated image.
@@ -934,8 +931,8 @@ def with_panel(
         bg: Panel background color; defaults to the image's theme background.
 
     Returns:
-        A new `Image` of the image plus the panel. The input is
-        not mutated.
+        A `Composite` of the image plus the panel — render it to raster or SVG,
+        or `save` it to either. The input image is not mutated.
 
     Examples:
         >>> import numpy as np
@@ -952,7 +949,7 @@ def with_panel(
 
 
 def _compose_panel(
-    image: Image,
+    image: Renderable,
     data: "PanelData",
     *,
     side: str = "right",
@@ -960,20 +957,24 @@ def _compose_panel(
     title: str | None = None,
     style: Style | None = None,
     bg: ColorLike | None = None,
-) -> tuple[Image, tuple[float, float], list[tuple[Rect, str]]]:
-    """Render the framed image-plus-panel and report where the image landed.
+) -> tuple[Renderable, tuple[float, float], list[tuple[Rect, str]]]:
+    """Assemble the framed image-plus-panel as a lazy, target-aware `Composite`.
 
-    The image and the panel are drawn as two separate rounded surfaces — each
+    The image and the panel are laid out as two separate rounded surfaces — each
     bordered, with a uniform outer margin and a gap between them — floating on the
-    composite background, and the panel's sections are ruled apart. Returns the
-    composed `Image`, the ``(dx, dy)`` the source image was translated by (so a
-    caller carrying a hover `HitMap` can shift it to stay aligned), and the
-    ``(region, action)`` click targets of the panel's controls and legend swatches
-    in composed-image pixels (see `luxonis_ml.vizlab.frame.Frame.with_panel`).
+    composite background, and the panel's sections are ruled apart. Nothing is
+    rasterized here: a `Composite` is returned that draws the image (via its own
+    `Image._draw_onto`, so its annotations stay vector in an SVG) and the panel
+    chrome (rounded cards, title, key/value rows, legend) onto whatever
+    `RenderTarget` it is later rendered to. Also returns the ``(dx, dy)`` the
+    source image was translated by (so a caller carrying a hover `HitMap` can
+    shift it to stay aligned) and the ``(region, action)`` click targets of the
+    panel's controls and legend swatches, in composed-image pixels (see
+    `luxonis_ml.vizlab.frame.Frame.with_panel`).
     """
     style = style or DEFAULT_STYLE
-    base = image.render()
-    img_h, img_w = base.shape[:2]
+    # The image is placed at its display (render_at) size, not its source size.
+    img_w, img_h = image._resolved_size(None)
     background = Color.parse(bg) if bg is not None else image.theme.background
     m = _metrics(_style_scale(img_w, img_h), background)
 
@@ -986,11 +987,10 @@ def _compose_panel(
     body = [s for s in sections if s.swatches is None]
     footer = [s for s in sections if s.swatches is not None]
     body_h = _layout_body(None, body, 0.0, 0.0, content_w, m)
-    footer_h = (
-        m.section_gap * 2 + _layout_body(None, footer, 0.0, 0.0, content_w, m)
-        if footer
-        else 0.0
+    footer_inner = (
+        _layout_body(None, footer, 0.0, 0.0, content_w, m) if footer else 0.0
     )
+    footer_h = m.section_gap * 2 + footer_inner if footer else 0.0
 
     title_metrics = (
         _MEASURE.measure_text(
@@ -1022,57 +1022,62 @@ def _compose_panel(
         panel_y = m.margin + img_h + m.gap
         panel_card_h = panel_h
 
-    canvas = Canvas.blank(out_w, out_h)
-    # The "ultimate" background is inverted vs the theme, so the surfaces read as
-    # distinct floating cards and the gap between them is clearly visible.
-    canvas.rounded_rect(Rect(0, 0, out_w, out_h), 0.0, fill=m.page)
-    # The image, as its own rounded, bordered surface.
-    canvas.blit(base, image_x, image_y, radius=m.radius)
-    canvas.rounded_rect(
-        Rect(image_x, image_y, image_x + img_w, image_y + img_h),
-        m.radius,
-        stroke=m.border,
-        stroke_width=m.border_width,
-    )
-    # The panel, as its own opaque rounded card (opaque so the inverted page does
-    # not bleed through its translucency and wash the text out).
-    canvas.rounded_rect(
-        Rect(panel_x, panel_y, panel_x + panel_w, panel_y + panel_card_h),
-        m.radius,
-        fill=m.surface,
-        stroke=m.border,
-        stroke_width=m.border_width,
-    )
     x0 = panel_x + m.pad
-    y0 = panel_y + m.pad
-    if title is not None and title_metrics is not None:
-        _draw_tracked(
-            canvas,
-            x0,
-            y0 + title_metrics.ascent,
-            title.upper(),
-            m.size * _TITLE_SCALE,
-            m.title,
-            _TITLE_WEIGHT,
-            _TITLE_TRACKING,
-        )
-        y0 += title_metrics.height + m.line_gap * 2
+    body_y0 = panel_y + m.pad + title_h
+    footer_top = panel_y + panel_card_h - m.pad - footer_inner
+
+    # Collect click targets up front (a measure pass at the final positions), so
+    # the caller has the click map without forcing a render.
     clicks: list[tuple[Rect, str]] = []
-    _layout_body(canvas, body, x0, y0, content_w, m, clicks)
+    _layout_body(None, body, x0, body_y0, content_w, m, clicks)
     if footer:
-        # Pin the legend to the bottom: its own top sits so its bottom lands at
-        # the card's inner edge, with a separating rule just above it. When the
-        # card is taller than the content, the space opens up above the legend,
-        # not below — so it appears to grow upward.
-        inner_h = _layout_body(None, footer, 0.0, 0.0, content_w, m)
-        footer_top = panel_y + panel_card_h - m.pad - inner_h
-        rule_y = footer_top - m.section_gap
-        canvas.line(
-            (x0, rule_y), (x0 + content_w, rule_y), m.divider, width=1.0
+        _layout_body(None, footer, x0, footer_top, content_w, m, clicks)
+
+    image_rect = Rect(image_x, image_y, image_x + img_w, image_y + img_h)
+
+    def paint(canvas: Canvas) -> None:
+        # The "ultimate" background is inverted vs the theme, so the surfaces read
+        # as distinct floating cards and the gap between them is clearly visible.
+        canvas.rounded_rect(Rect(0, 0, out_w, out_h), 0.0, fill=m.page)
+        # The image, as its own rounded, bordered surface — drawn through its own
+        # scene so its annotations vectorize in an SVG rather than baking to px.
+        with canvas.clip_rounded(image_rect, m.radius):
+            image._draw_onto(canvas, image_x, image_y, (img_w, img_h))
+        canvas.rounded_rect(
+            image_rect, m.radius, stroke=m.border, stroke_width=m.border_width
         )
-        _layout_body(canvas, footer, x0, footer_top, content_w, m, clicks)
-    composed = Image(canvas.to_rgba(), options=image.options)
-    return composed, (float(image_x), float(image_y)), clicks
+        # The panel, as its own opaque rounded card (opaque so the inverted page
+        # does not bleed through and wash the text out).
+        canvas.rounded_rect(
+            Rect(panel_x, panel_y, panel_x + panel_w, panel_y + panel_card_h),
+            m.radius,
+            fill=m.surface,
+            stroke=m.border,
+            stroke_width=m.border_width,
+        )
+        if title is not None and title_metrics is not None:
+            _draw_tracked(
+                canvas,
+                x0,
+                panel_y + m.pad + title_metrics.ascent,
+                title.upper(),
+                m.size * _TITLE_SCALE,
+                m.title,
+                _TITLE_WEIGHT,
+                _TITLE_TRACKING,
+            )
+        _layout_body(canvas, body, x0, body_y0, content_w, m)
+        if footer:
+            # Pin the legend to the bottom: a separating rule sits just above it,
+            # and any slack opens up above it — so it appears to grow upward.
+            rule_y = footer_top - m.section_gap
+            canvas.line(
+                (x0, rule_y), (x0 + content_w, rule_y), m.divider, width=1.0
+            )
+            _layout_body(canvas, footer, x0, footer_top, content_w, m)
+
+    composite = Composite((out_w, out_h), paint, options=image.options)
+    return composite, (float(image_x), float(image_y)), clicks
 
 
 def _draw_tracked(

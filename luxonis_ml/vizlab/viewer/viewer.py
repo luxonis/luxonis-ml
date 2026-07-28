@@ -16,7 +16,7 @@ import numpy as np
 from luxonis_ml.vizlab import io
 from luxonis_ml.vizlab.frame import Frame
 from luxonis_ml.vizlab.hitmap import ClickMap, HitMap
-from luxonis_ml.vizlab.image import Image
+from luxonis_ml.vizlab.image import Renderable
 from luxonis_ml.vizlab.tooltip import Tooltip
 
 from .backend import MouseHandler, WindowBackend
@@ -107,7 +107,7 @@ class Viewer:
         return self._layers
 
     def _prepare(
-        self, display: Image, hitmap: HitMap, clickmap: ClickMap
+        self, display: Renderable, hitmap: HitMap, clickmap: ClickMap
     ) -> tuple[np.ndarray, HitMap, ClickMap]:
         """Render ``display`` to a screen-fitted BGR frame and scale the maps.
 
@@ -210,7 +210,7 @@ class Viewer:
         state.dirty = False
         self._backend.show(name, bgr)
 
-    def show_blocking(self, name: str, display: Image) -> str:
+    def show_blocking(self, name: str, display: Renderable) -> str:
         """Show one frame (no hover) and block until a key; return its char."""
         bgr, _, _ = self._prepare(display, HitMap.empty(), ClickMap.empty())
         self._open(name, bgr)

@@ -43,7 +43,7 @@ if TYPE_CHECKING:
         SegmentationAnnotation,
     )
 
-    from .image import Image
+    from .image import Image, Renderable
     from .io import ImageSource
 
     #: Any LDF object `Image.add`/`to_render_annotations` renders: a whole
@@ -421,7 +421,7 @@ def visualize_record(
     options: VizConfig | None = None,
     panel: dict | None = None,
     size: tuple[int, int] | None = None,
-) -> "Image":
+) -> "Renderable":
     """Build one complete record visualization over its source image.
 
     Draws every detection's spatial annotations, aggregates all nested

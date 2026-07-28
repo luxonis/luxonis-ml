@@ -427,6 +427,18 @@ def inspect(
         Literal["dark", "light"],
         Parameter(alias="-t"),
     ] = "dark",
+    plain: Annotated[
+        bool,
+        Parameter(alias="-p", negative=""),
+    ] = False,
+    save: Annotated[
+        Path | None,
+        Parameter(alias="-o"),
+    ] = None,
+    save_format: Annotated[
+        Literal["png", "svg"],
+        Parameter(alias="-fmt"),
+    ] = "png",
     bucket_storage: BucketStorageT = BucketStorage.LOCAL,
 ):
     """Inspect images and annotations in a dataset.
@@ -479,6 +491,16 @@ def inspect(
             scenes are drawn instead of hidden (equivalent to pressing ``d`` up
             front). Toggle it back on any time with the ``d`` key.
         theme: Visual theme of the visualization: ``dark`` or ``light``.
+        plain: Render just the framed image, without the side panel (controls,
+            class legend, and sample metadata).
+        save: Directory to write renders to instead of opening a window. One file
+            is written per source image (annotations blended onto it); the viewer
+            is never opened, so this works headless. The directory is created if
+            needed.
+        save_format: File format when ``--save`` is set: ``png`` (raster) or
+            ``svg`` (annotations and metadata panel as crisp vectors over the
+            embedded photo, scalable to any zoom). Both keep the panel unless
+            ``--plain``.
         bucket_storage: Storage type of the dataset.
 
     """
@@ -548,6 +570,7 @@ def inspect(
             Image,
             MaskOutline,
             Palette,
+            Renderable,
             RenderOptions,
             Swatches,
             fit_grid,
@@ -560,7 +583,7 @@ def inspect(
             detection_to_annotations,
             metadata_annotations,
         )
-        from luxonis_ml.vizlab.viewer import Viewer
+        from luxonis_ml.vizlab.viewer import LayerState, Viewer
     except ImportError as e:
         raise SystemExit(
             "Visualization requires the 'viz' extra. "
@@ -600,36 +623,60 @@ def inspect(
     # stable width sample to sample.
     longest_class = max(class_names, key=len, default="")[:24]
 
-    def sidebar(panel: dict, *, controls: bool = True) -> dict:
+    def sidebar(
+        panel: dict, layers: "LayerState", *, controls: bool = True
+    ) -> dict:
         """Prepend the CONTROLS and CLASSES sections to a sample's metadata panel.
 
         The interactive controls and the class-color legend live in the side
-        panel now (not floated over the image): controls come from the shared
-        `viewer.layers` (so they reflect the current toggles and refresh on every
-        keypress-triggered re-render), and the class swatches are keyed to the
-        classes present in the sample (``viewer.layers.classes``) with stable
-        full-dataset palette colors. ``controls=False`` omits the controls for the
-        non-interactive per-instance view, whose stepping toggles nothing.
+        panel (not floated over the image): controls come from ``layers`` (so they
+        reflect the current toggles and refresh on every re-render), and the class
+        swatches are keyed to the classes present in the sample (``layers.classes``)
+        with stable full-dataset palette colors. ``controls=False`` omits the
+        controls where they do not apply — the per-instance stepping view and the
+        non-interactive saved renders.
         """
         out: dict = {}
         if controls:
             out["controls"] = Controls(
                 tuple(
                     (c.key, c.name, c.value, c.active)
-                    for c in viewer.layers.controls()
+                    for c in layers.controls()
                 )
             )
-        names = viewer.layers.classes
+        names = layers.classes
         if legend and names:
             out["classes"] = Swatches(
                 tuple((palette.color_for(name), name) for name in names),
-                disabled=frozenset(viewer.layers.hidden),
+                disabled=frozenset(layers.hidden),
                 # Hold the legend (and panel) width to the dataset's longest class
                 # name so it stays put as the per-sample class set changes.
                 reserve=longest_class,
             )
         out.update(panel)
         return out
+
+    def blend_annotations(
+        image: np.ndarray, records: dict, layers: "LayerState"
+    ) -> Image:
+        """Draw every record's annotations onto one image, layer toggles applied.
+
+        Shared by the interactive single/blended view and the headless save path.
+        Detections from all tasks are blended together (a redundant classification
+        chip is dropped next to boxes/keypoints/masks), the current ``layers``
+        filter what is shown, and box-less metadata is added as hover-free cards.
+        The image is returned unsized; the caller sets any display size.
+        """
+        viz = Image(image, options=options)
+        detections = blend_records_to_annotations(records.values(), options)
+        for annotation in layers.apply_layers(detections, palette):
+            viz.add(annotation)
+        for overlay in metadata_annotations(
+            [d for r in records.values() for d in r._annotations()],
+            lone_object_card=True,
+        ):
+            viz.add(overlay)
+        return viz
 
     def build_panel(sample_labels: dict, sample_metadata: dict) -> dict:
         panel = (
@@ -649,6 +696,57 @@ def inspect(
             if applied:
                 panel["augmentations"] = list(applied)
         return panel
+
+    def save_size(width: int, height: int) -> tuple[int, int] | None:
+        """File render size: the ``--size-multiplier``, or native when ``auto``.
+
+        There is no screen to fit to when saving, so ``auto`` keeps the source
+        resolution rather than scaling.
+        """
+        if isinstance(size_multiplier, str):  # "auto"
+            return None
+        return (
+            max(1, round(width * size_multiplier)),
+            max(1, round(height * size_multiplier)),
+        )
+
+    def save_renders(directory: Path) -> None:
+        """Write each source image to a file instead of opening a window.
+
+        Fully headless (no viewer, no screen): every source image is built with
+        `blend_annotations`, framed with the metadata panel (unless ``--plain``),
+        and written by `Renderable.save`, whose extension picks the format — a
+        ``png`` raster or a crisp vector ``svg`` (annotations and panel as vectors
+        over the embedded photo). Decluttering follows ``--show-all``.
+        """
+        directory.mkdir(parents=True, exist_ok=True)
+        layers = LayerState(declutter=not show_all)
+        count = 0
+        for data in loader:
+            records = loader_output_to_records(
+                data.labels,
+                classes=classes,
+                categorical_encodings=categorical_encodings,
+                render_background=show_background,
+            )
+            layers.update_classes(_present_classes(records.values()))
+            panel = build_panel(data.labels, data.metadata)
+            for source_name, image in data.images.items():
+                viz: Renderable = blend_annotations(
+                    image.astype(np.uint8), records, layers
+                ).render_at(save_size(image.shape[1], image.shape[0]))
+                if not plain:
+                    viz = viz.with_panel(
+                        sidebar(panel, layers, controls=False)
+                    )
+                stem = f"{count:04d}_{Path(source_name).stem or 'image'}"
+                viz.save(directory / f"{stem}.{save_format}")
+                count += 1
+        print(f"[green]Saved {count} render(s) to '{directory}'.[/green]")
+
+    if save is not None:
+        save_renders(save)
+        return
 
     # vizlab now owns layout, screen-fit sizing, hover hit-testing, and the
     # interactive window loop; this command only prepares data and hands frames
@@ -689,7 +787,7 @@ def inspect(
         return (max(1, round(width * scale)), max(1, round(height * scale)))
 
     def compose_tiles(
-        tiles: list[Image], cols: int, titles: list[str], reserve: float
+        tiles: list[Renderable], cols: int, titles: list[str], reserve: float
     ) -> Frame:
         """Grid record tiles, sizing them for the screen (or the multiplier)."""
         if size_multiplier != "auto":
@@ -727,7 +825,7 @@ def inspect(
         surface at a margin offset, so `Frame.with_panel` shifts the hover map to
         match. It is always attached now — the controls make it non-empty.
         """
-        return frame.with_panel(sidebar(panel))
+        return frame.with_panel(sidebar(panel, viewer.layers))
 
     def build_frame(
         image: np.ndarray, records: dict, panel: dict, reserve: float
@@ -735,29 +833,11 @@ def inspect(
         """Build the display `Frame` for one non-per-instance source."""
         height, width = image.shape[:2]
         # The viewer's interactive layer toggles (masks/keypoints/labels, a class
-        # focus, fill opacity) filter what is drawn without disturbing the metadata
-        # cards, legend, or panel — so they are applied to the detection
-        # annotations only, just before they are composed.
-        layers = viewer.layers
+        # focus) filter what is drawn without disturbing the metadata cards,
+        # legend, or panel — `blend_annotations` applies them to the detections.
         if blend_all or len(records) <= 1:
-            viz = Image(image, options=options).render_at(
-                display_size(width, height, reserve)
-            )
-            # Blending several tasks onto one image: a classification task's
-            # corner chip is redundant next to boxes/keypoints/masks, so it is
-            # dropped unless a class tag is all there is to show.
-            detections = blend_records_to_annotations(
-                records.values(), options
-            )
-            for annotation in layers.apply_layers(detections, palette):
-                viz.add(annotation)
-            # Box-less metadata has nothing to hover, so show it as a card; a
-            # lone object is carded too, so a single detection needs no hover.
-            for overlay in metadata_annotations(
-                [d for r in records.values() for d in r._annotations()],
-                lone_object_card=True,
-            ):
-                viz.add(overlay)
+            viz = blend_annotations(image, records, viewer.layers)
+            viz.render_at(display_size(width, height, reserve))
             return framed(viz.frame(), panel)
         # A grid of per-record tiles; compose_tiles sizes them so the whole
         # composite fits the screen and returns the composed hit map.
@@ -767,9 +847,12 @@ def inspect(
             for record in records.values()
         ]
         for tile in tiles:
-            tile.annotations[:] = layers.apply_layers(
-                tile.annotations, palette
-            )
+            # Grid tiles carry no per-record panel here, so they are plain images
+            # whose annotations the layer toggles filter.
+            if isinstance(tile, Image):
+                tile.annotations[:] = viewer.layers.apply_layers(
+                    tile.annotations, palette
+                )
         return framed(
             compose_tiles(tiles, cols, list(records), reserve), panel
         )
@@ -798,7 +881,7 @@ def inspect(
                 viz.add(overlay)
             # Per-instance stepping is non-interactive, so the panel carries the
             # class legend and metadata but no (inapplicable) controls.
-            side = sidebar(panel, controls=False)
+            side = sidebar(panel, viewer.layers, controls=False)
             display = viz.with_panel(side) if side else viz
             if viewer.show_blocking(source_name, display) == "q":
                 return True
@@ -964,6 +1047,7 @@ def compare(
             LIGHT_THEME,
             ComparisonReport,
             Frame,
+            Image,
             Legend,
             Palette,
             RenderOptions,
@@ -1098,10 +1182,16 @@ def compare(
             panel=False,
             verdicts=verdicts,
         )
-        viz = viz.render_at(display_size(viz.width, viz.height))
+        # panel=False, so viz is the plain comparison scene (an image for the
+        # overlay layout, a grid composite for side-by-side / triptych).
+        viz.render_at(display_size(viz.width, viz.height))
         frame = viz.frame()
         display = frame.image
         if class_legend is not None:
+            # Overlay the class legend; bake a grid composite to an image first
+            # so it carries a mutable annotation list to `add` onto.
+            if not isinstance(display, Image):
+                display = Image(frame.render()).with_hitmap(frame.hitmap)
             display.add(class_legend)
         metrics: dict = dict(result.summary())
         if per_class and len(result.per_class) > 1:

@@ -1,6 +1,7 @@
 """Coverage for the Skia canvas primitives."""
 
 import numpy as np
+import pytest
 
 from luxonis_ml.vizlab.canvas import Canvas, gaussian_blur
 from luxonis_ml.vizlab.color import Color
@@ -114,6 +115,44 @@ def test_blit_places_image() -> None:
     patch[..., :] = (200, 100, 50, 255)
     canvas.blit(patch, 4, 4)
     assert tuple(canvas.to_rgba()[8, 8, :3]) == (200, 100, 50)
+
+
+def test_svg_records_vectors_and_embeds_rasters() -> None:
+    canvas = Canvas.svg(120, 80)
+    base = np.zeros((40, 60, 4), np.uint8)
+    base[..., :] = (30, 40, 50, 255)
+    canvas.draw_base(base)  # scaled to fill -> one embedded <image>
+    canvas.rounded_rect(Rect(8, 8, 60, 50), radius=4, stroke=_RED)
+    canvas.text((12, 40), "car", size=14, color=Color(255, 255, 255))
+    svg = canvas.finish_svg().decode("utf-8")
+    assert svg.startswith("<?xml")
+    assert 'width="120"' in svg  # viewport size
+    assert 'height="80"' in svg
+    assert "<path" in svg  # the box stroke (and glyphs) are true vectors
+    assert "<image" in svg or "base64" in svg  # the base raster is embedded
+
+
+def test_svg_glyphs_are_paths_by_default_but_text_when_asked() -> None:
+    def render(text_as_paths: bool) -> str:
+        canvas = Canvas.svg(80, 40, text_as_paths=text_as_paths)
+        canvas.text((5, 25), "hi", size=16, color=_RED)
+        return canvas.finish_svg().decode("utf-8")
+
+    assert "<text" not in render(True)  # glyphs become <path> outlines
+    assert "<text" in render(False)  # ...unless selectable text is kept
+
+
+def test_svg_canvas_rejects_raster_only_ops() -> None:
+    canvas = Canvas.svg(20, 20)
+    with pytest.raises(ValueError, match="SVG canvas"):
+        canvas.to_rgba()
+    with pytest.raises(ValueError, match="SVG canvas"):
+        canvas.scaled(10, 10)
+
+
+def test_finish_svg_rejects_a_raster_canvas() -> None:
+    with pytest.raises(ValueError, match="SVG canvas"):
+        _blank().finish_svg()
 
 
 def test_rounded_rect_dashed_and_shadow() -> None:

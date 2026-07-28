@@ -210,7 +210,7 @@ with guard_missing_extra("viz"):
         resolve_gradient,
     )
     from .hitmap import HitMap
-    from .image import Image
+    from .image import RASTER, Composite, Image, Renderable, RenderTarget
     from .options import (
         RenderOptions,
         current_options,
@@ -241,6 +241,7 @@ __all__ = [
     "DEFAULT_PALETTE",
     "GRADIENTS",
     "LIGHT_THEME",
+    "RASTER",
     "Annotation",
     "BBox",
     "Block",
@@ -250,6 +251,7 @@ __all__ = [
     "Color",
     "ComparisonReport",
     "ComparisonResult",
+    "Composite",
     "Controls",
     "Corner",
     "Frame",
@@ -269,6 +271,8 @@ __all__ = [
     "Rect",
     "RenderContext",
     "RenderOptions",
+    "RenderTarget",
+    "Renderable",
     "SemanticMask",
     "Style",
     "Swatches",

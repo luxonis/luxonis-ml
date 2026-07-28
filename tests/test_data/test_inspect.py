@@ -732,3 +732,105 @@ def test_compare_command_summary_writes_confusion_figure(
 
     assert backend.shown == []  # headless: no interactive window
     assert (tmp_path / "gt_vs_preds_confusion.png").exists()
+
+
+def _save_mocks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Wire fakes so ``inspect`` runs headless over one 60x40 car sample."""
+    image = np.zeros((40, 60, 3), dtype=np.uint8)
+    record = DatasetRecord.model_construct(
+        files={},
+        sample_metadata={"weather": "clear"},
+        annotation=[
+            Detection(
+                class_name="car",
+                instance_id=1,
+                boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
+            )
+        ],
+        task_name="a",
+    )
+    records = {"a": record}
+
+    class _Dataset:
+        def __init__(self, *_a: object, **_k: object) -> None:
+            pass
+
+        def __len__(self) -> int:
+            return 1
+
+        def get_classes(self) -> dict[str, dict[str, int]]:
+            return {"a": {"car": 0}}
+
+        def get_class_names(self) -> dict[str, list[str]]:
+            return {"a": ["car"]}
+
+        def get_categorical_encodings(self) -> dict[str, object]:
+            return {}
+
+        def get_skeletons(self) -> dict[str, object]:
+            return {}
+
+    class _Loader:
+        def __init__(self, *_a: object, **_k: object) -> None:
+            self._augmentations = None
+
+        def __iter__(self) -> Iterator[SimpleNamespace]:
+            yield SimpleNamespace(
+                images={"frame01.jpg": image}, labels={}, metadata={}
+            )
+
+    from luxonis_ml.data.loaders import label_converter
+
+    monkeypatch.setattr(data_main, "check_exists", lambda *_a: None)
+    monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
+    monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
+    monkeypatch.setattr(
+        label_converter,
+        "loader_output_to_records",
+        lambda *_a, **_k: records,
+    )
+
+
+def test_inspect_save_writes_svg_and_png(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    _save_mocks(monkeypatch)
+    try:
+        data_main.inspect("ds", save=tmp_path / "svg", save_format="svg")
+        data_main.inspect("ds", save=tmp_path / "png", save_format="png")
+    finally:
+        set_default_options(RenderOptions())
+
+    svg = tmp_path / "svg" / "0000_frame01.svg"
+    png = tmp_path / "png" / "0000_frame01.png"
+    assert svg.read_bytes().startswith(b"<?xml")  # a vector document
+    assert b"<image" in svg.read_bytes()  # with the photo embedded
+    assert png.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"  # a raster encode
+
+
+def test_inspect_save_plain_drops_the_panel(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import cv2
+
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    _save_mocks(monkeypatch)
+    try:
+        data_main.inspect(
+            "ds", save=tmp_path / "panel", legend=True, plain=False
+        )
+        data_main.inspect(
+            "ds", save=tmp_path / "plain", legend=True, plain=True
+        )
+    finally:
+        set_default_options(RenderOptions())
+
+    paneled = cv2.imread(str(tmp_path / "panel" / "0000_frame01.png"))
+    plain = cv2.imread(str(tmp_path / "plain" / "0000_frame01.png"))
+    assert plain.shape[1] == 60  # just the source image, no panel
+    assert paneled.shape[1] > plain.shape[1]  # the panel widened it

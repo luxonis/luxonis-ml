@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from .hitmap import ClickMap, HitMap
-from .image import Image
+from .image import Renderable
 
 if TYPE_CHECKING:
     from .color import ColorLike
@@ -28,7 +28,7 @@ class Frame:
     `Viewer` scales it to match when it screen-fits the frame.
 
     Attributes:
-        image: The image to display.
+        image: The scene to display — an `Image` or a composed `Renderable`.
         hitmap: Hover regions in the image's native render pixels; defaults to an
             empty map (no hover).
         clickmap: Clickable regions (panel controls / legend swatches) in native
@@ -37,15 +37,15 @@ class Frame:
 
     """
 
-    image: Image
+    image: Renderable
     hitmap: HitMap = field(default_factory=HitMap.empty)
     clickmap: ClickMap = field(default_factory=ClickMap.empty)
 
     def render(self, size: tuple[int, int] | None = None) -> np.ndarray:
-        """Render the underlying image (see `Image.render`)."""
+        """Render the underlying scene (see `Renderable.render`)."""
         return self.image.render(size)
 
-    def with_image(self, image: Image) -> "Frame":
+    def with_image(self, image: Renderable) -> "Frame":
         """Return a copy carrying ``image`` but this frame's hit map.
 
         For coordinate-preserving changes only: an overlay (e.g. a `Legend`) drawn
