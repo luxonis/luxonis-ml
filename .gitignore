@@ -118,3 +118,6 @@ tests/data
 *.zip
 .idea/*
 apidocs/
+
+CLAUDE.md
+AGENTS.md
