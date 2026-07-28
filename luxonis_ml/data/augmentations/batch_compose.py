@@ -80,8 +80,8 @@ class BatchCompose(A.Compose):
                 if isinstance(next(iter(data.values())), list):
                     data = {key: value[0] for key, value in batch.items()}
 
-                data = self.check_data_post_transform(data)
                 self._reindex_bboxes(data)
+                data = self.check_data_post_transform(data)
                 new_batch.append(data)
             data_batch = new_batch
 
@@ -104,6 +104,18 @@ class BatchCompose(A.Compose):
         bbox indices assigned for its position in the original input batch.
         Instance masks and other bbox-associated labels are compacted with the
         output, so subsequent batch transforms require contiguous indices.
+
+        The last bbox column is the stable index that ``_postprocess`` uses to
+        pair each surviving box with its instance mask channel (and keypoints,
+        arrays, metadata). After a batch transform those labels are
+        concatenated in the same order as the boxes, so position ``i`` in the
+        box array lines up with channel ``i`` in the concatenated labels.
+        Assigning ``arange`` restores that alignment only while the two are
+        still in lockstep, so this must run on the *complete* set of boxes,
+        before ``check_data_post_transform`` drops any of them. Reindexing
+        after a drop would renumber the survivors ``0..M-1`` while the label
+        channels stay un-dropped, silently pairing boxes with the wrong
+        instances.
         """
         for field_name in self.processors["bboxes"].data_fields:
             bboxes = data.get(field_name)

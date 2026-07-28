@@ -7,6 +7,35 @@ from luxonis_ml.data import AlbumentationsEngine
 from luxonis_ml.typing import Labels
 
 
+def assert_boxes_match_masks(
+    boxes: np.ndarray, masks: np.ndarray, tol: float = 0.05
+) -> None:
+    """Assert every instance mask is paired with the correct bounding box.
+
+    Box and instance mask undergo the same geometric transforms, so a
+    correctly paired mask always has its nonzero pixels inside its box.
+    A reindexing bug that scrambles the box-to-mask mapping (e.g. pairing a
+    box with a mask blob located elsewhere in the image) is caught here even
+    when the row counts still match.
+    """
+    assert boxes.shape[0] == masks.shape[0]
+    _, height, width = masks.shape
+    for i, (box, mask) in enumerate(zip(boxes, masks, strict=True)):
+        ys, xs = np.nonzero(mask)
+        assert ys.size > 0, f"instance {i} has an empty mask"
+        cx = xs.mean() / width
+        cy = ys.mean() / height
+        x, y, w, h = box[1:5]
+        assert x - tol <= cx <= x + w + tol, (
+            f"instance {i}: mask centroid x={cx:.3f} outside box "
+            f"[{x:.3f}, {x + w:.3f}] — box paired with the wrong mask"
+        )
+        assert y - tol <= cy <= y + h + tol, (
+            f"instance {i}: mask centroid y={cy:.3f} outside box "
+            f"[{y:.3f}, {y + h:.3f}] — box paired with the wrong mask"
+        )
+
+
 @pytest.fixture(
     params=[
         {"image": np.zeros((320, 320, 3), dtype=np.uint8)},
@@ -161,14 +190,16 @@ def test_batched_p_0(
 
 def test_skipped_mosaic_before_mixup_reindexes_instance_masks() -> None:
     image = np.zeros((320, 320, 3), dtype=np.uint8)
+    # Two instances whose masks are centered inside their boxes, so a
+    # box-to-mask mispairing is detectable geometrically.
     instance_mask = np.zeros((2, 320, 320), dtype=np.uint8)
-    instance_mask[0, 10:100, 10:100] = 1
-    instance_mask[1, 150:250, 150:250] = 1
+    instance_mask[0, 48:112, 48:112] = 1  # box 0 spans [0.15, 0.35]
+    instance_mask[1, 192:256, 192:256] = 1  # box 1 spans [0.60, 0.80]
     labels: Labels = {
         "task/instance_segmentation/boundingbox": np.array(
             [
-                [0.0, 0.17, 0.17, 0.28, 0.28],
-                [0.0, 0.63, 0.63, 0.31, 0.31],
+                [0.0, 0.15, 0.15, 0.20, 0.20],
+                [0.0, 0.60, 0.60, 0.20, 0.20],
             ]
         ),
         "task/instance_segmentation/segmentation": instance_mask,
@@ -197,8 +228,64 @@ def test_skipped_mosaic_before_mixup_reindexes_instance_masks() -> None:
         [({"image": image}, deepcopy(labels)) for _ in range(8)]
     )
 
-    assert (
-        out_labels["task/instance_segmentation/boundingbox"].shape[0]
-        == out_labels["task/instance_segmentation/segmentation"].shape[0]
-        == 4
+    boxes = out_labels["task/instance_segmentation/boundingbox"]
+    masks = out_labels["task/instance_segmentation/segmentation"]
+    assert boxes.shape[0] == masks.shape[0] == 4
+    assert_boxes_match_masks(boxes, masks)
+
+
+def test_mosaic_drops_boxes_keeps_masks_aligned() -> None:
+    """Boxes dropped by ``min_bbox_visibility`` must not scramble masks.
+
+    When a batch transform (here Mosaic4) crops instances so some boxes fall
+    below the visibility threshold, ``check_data_post_transform`` drops those
+    boxes while every instance-mask channel remains. The surviving boxes must
+    still be paired with their own masks; reindexing them to a contiguous
+    range after the drop would silently pair them with the wrong masks.
+    """
+    image = np.zeros((320, 320, 3), dtype=np.uint8)
+    # Four instances in the four corners, each mask centered in its box.
+    corners = [(0.05, 0.05), (0.80, 0.05), (0.05, 0.80), (0.80, 0.80)]
+    size = 0.15
+    instance_mask = np.zeros((4, 320, 320), dtype=np.uint8)
+    boxes_in = []
+    for i, (x, y) in enumerate(corners):
+        r0, r1 = int(y * 320), int((y + size) * 320)
+        c0, c1 = int(x * 320), int((x + size) * 320)
+        instance_mask[i, r0:r1, c0:c1] = 1
+        boxes_in.append([0.0, x, y, size, size])
+    labels: Labels = {
+        "task/instance_segmentation/boundingbox": np.array(boxes_in),
+        "task/instance_segmentation/segmentation": instance_mask,
+    }
+    targets = {
+        "task/instance_segmentation/boundingbox": "boundingbox",
+        "task/instance_segmentation/segmentation": "instance_segmentation",
+    }
+    config = [
+        {
+            "name": "Mosaic4",
+            "params": {"p": 1.0, "out_width": 640, "out_height": 640},
+        }
+    ]
+    augmentations = AlbumentationsEngine(
+        256,
+        256,
+        targets,
+        dict.fromkeys(targets, 1),
+        ["image"],
+        config,
+        min_bbox_visibility=0.1,
+        seed=42,
     )
+
+    _, out_labels = augmentations.apply(
+        [({"image": image}, deepcopy(labels)) for _ in range(4)]
+    )
+
+    boxes = out_labels["task/instance_segmentation/boundingbox"]
+    masks = out_labels["task/instance_segmentation/segmentation"]
+    # The mosaic crop must drop at least one of the 16 candidate instances,
+    # otherwise the non-contiguous-index path is never exercised.
+    assert 0 < boxes.shape[0] < 16
+    assert_boxes_match_masks(boxes, masks)
