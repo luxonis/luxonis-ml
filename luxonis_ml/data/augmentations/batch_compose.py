@@ -38,6 +38,7 @@ class BatchCompose(A.Compose):
         np.random.seed(self.seed)
 
         self.batch_size = 1
+        self.batch_augmentation_indices = [0]
         for transform in self.transforms:
             self.batch_size *= transform.batch_size
 
@@ -65,6 +66,7 @@ class BatchCompose(A.Compose):
                 f"but got {len(data_batch)}."
             )
 
+        input_indices = [[i] for i in range(len(data_batch))]
         if not self.transforms:
             return data_batch[0]
 
@@ -74,17 +76,34 @@ class BatchCompose(A.Compose):
 
         for transform in self.transforms:
             new_batch = []
-            for batch in yield_batches(data_batch, transform.batch_size):
+            new_indices = []
+            for i, batch in enumerate(
+                yield_batches(data_batch, transform.batch_size)
+            ):
                 data = transform(**batch)  # type: ignore
+                batch_indices = input_indices[
+                    i * transform.batch_size : (i + 1) * transform.batch_size
+                ]
 
-                if isinstance(next(iter(data.values())), list):
+                if not transform.params:
                     data = {key: value[0] for key, value in batch.items()}
+                    new_indices.append(batch_indices[0])
+                else:
+                    new_indices.append(
+                        [
+                            index
+                            for indices in batch_indices
+                            for index in indices
+                        ]
+                    )
 
                 data = self.check_data_post_transform(data)
                 new_batch.append(data)
             data_batch = new_batch
+            input_indices = new_indices
 
         assert len(data_batch) == 1
+        self.batch_augmentation_indices = input_indices[0]
         data = data_batch[0]
 
         data = self._make_contiguous(data)

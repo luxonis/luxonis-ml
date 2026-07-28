@@ -107,3 +107,12 @@ class AugmentationEngine(
         the batch size should be :math:`8 = \left(2 \cdot 4\right)`.
         """
         ...
+
+    @property
+    def batch_augmentation_indices(self) -> list[int]:
+        """Input positions contributing to the last augmented output.
+
+        Engines that do not expose this information return the first input
+        position, so loaders preserve its metadata.
+        """
+        return [0]

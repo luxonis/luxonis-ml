@@ -589,17 +589,26 @@ class LuxonisLoader(BaseLoader):
             sample_metadata_list.append(sample_etadata)
 
         img_dict, labels = self._augmentations.apply(loaded_anns)
-        sample_etadata = self._merge_sample_metadata(sample_metadata_list)
+        sample_etadata = sample_metadata_list[0]
+        metadata_indices = self._augmentations.batch_augmentation_indices
+        if len(metadata_indices) > 1:
+            sample_etadata = self._merge_sample_metadata(
+                [sample_metadata_list[i] for i in metadata_indices],
+                metadata_indices,
+            )
         return img_dict, labels, sample_etadata
 
     @staticmethod
-    def _merge_sample_metadata(metadata_batch: list[Params]) -> Params:
+    def _merge_sample_metadata(
+        metadata_batch: list[Params], input_indices: list[int] | None = None
+    ) -> Params:
         """Merge metadata from samples used by a batch augmentation.
 
         The first sample's metadata remains at the top level. Metadata from
-        every input sample is also preserved in
+        every contributing input sample is also preserved in
         ``"batch_augmentation_metadata"`` so consumers can inspect which
-        records contributed to the augmented output.
+        records contributed to the augmented output. ``input_index`` is the
+        source sample's position in the original augmentation batch.
 
         Example:
             .. python::
@@ -623,6 +632,9 @@ class LuxonisLoader(BaseLoader):
         if not metadata_batch:
             return {}
 
+        if input_indices is None:
+            input_indices = list(range(len(metadata_batch)))
+
         metadata = deepcopy(metadata_batch[0])
 
         metadata["batch_augmentation_metadata"] = [  # type: ignore
@@ -630,7 +642,7 @@ class LuxonisLoader(BaseLoader):
                 "input_index": i,
                 "sample_metadata": deepcopy(m),
             }
-            for i, m in enumerate(metadata_batch)
+            for i, m in zip(input_indices, metadata_batch, strict=True)
         ]
         return metadata
 

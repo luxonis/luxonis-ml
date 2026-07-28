@@ -301,6 +301,120 @@ def test_loader_passes_is_validation_pipeline_to_legacy_engines(
     assert CompatibilityOnlyEngine.last_is_validation_pipeline is True
 
 
+@pytest.mark.parametrize(
+    ("probability", "metadata_is_merged"), [(0.0, False), (1.0, True)]
+)
+def test_loader_merges_metadata_only_for_applied_batch_augmentations(
+    dataset_name: str,
+    tempdir: Path,
+    probability: float,
+    metadata_is_merged: bool,
+) -> None:
+    def generator() -> DatasetIterator:
+        for i in range(2):
+            yield {
+                "file": create_image(i, tempdir),
+                "sample_metadata": {"record_id": i},
+            }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    loader = LuxonisLoader(
+        dataset,
+        view="train",
+        height=256,
+        width=256,
+        autopopulate_metadata=False,
+        augmentation_config=[{"name": "MixUp", "params": {"p": probability}}],
+    )
+
+    metadata = loader[0].metadata
+
+    assert ("batch_augmentation_metadata" in metadata) is metadata_is_merged
+    if metadata_is_merged:
+        batch_metadata = cast(
+            list[dict[str, Params]], metadata["batch_augmentation_metadata"]
+        )
+        assert {
+            cast(int, entry["input_index"]) for entry in batch_metadata
+        } == {
+            0,
+            1,
+        }
+        assert {
+            cast(Params, entry["sample_metadata"])["record_id"]
+            for entry in batch_metadata
+        } == {0, 1}
+        assert (
+            metadata["record_id"]
+            == cast(Params, batch_metadata[0]["sample_metadata"])["record_id"]
+        )
+    else:
+        assert metadata in ({"record_id": 0}, {"record_id": 1})
+
+
+@pytest.mark.parametrize(
+    ("mosaic_probability", "mixup_probability", "expected_input_indices"),
+    [
+        (0.0, 0.0, None),
+        (1.0, 0.0, [0, 1, 2, 3]),
+        (0.0, 1.0, [0, 4]),
+        (1.0, 1.0, list(range(8))),
+    ],
+)
+def test_loader_tracks_metadata_through_multiple_batch_augmentations(
+    dataset_name: str,
+    tempdir: Path,
+    mosaic_probability: float,
+    mixup_probability: float,
+    expected_input_indices: list[int] | None,
+) -> None:
+    def generator() -> DatasetIterator:
+        for i in range(8):
+            yield {
+                "file": create_image(i, tempdir),
+                "sample_metadata": {"record_id": i},
+            }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    loader = LuxonisLoader(
+        dataset,
+        view="train",
+        height=256,
+        width=256,
+        autopopulate_metadata=False,
+        augmentation_config=[
+            {
+                "name": "Mosaic4",
+                "params": {
+                    "p": mosaic_probability,
+                    "out_width": 256,
+                    "out_height": 256,
+                },
+            },
+            {"name": "MixUp", "params": {"p": mixup_probability}},
+        ],
+    )
+
+    metadata = loader[0].metadata
+
+    if expected_input_indices is None:
+        assert "batch_augmentation_metadata" not in metadata
+        return
+
+    batch_metadata = cast(
+        list[dict[str, Params]], metadata["batch_augmentation_metadata"]
+    )
+    assert [
+        cast(int, entry["input_index"]) for entry in batch_metadata
+    ] == expected_input_indices
+    assert len(
+        {
+            cast(Params, entry["sample_metadata"])["record_id"]
+            for entry in batch_metadata
+        }
+    ) == len(expected_input_indices)
+
+
 def load_annotations(annotation_name: str) -> list[dict[str, Any]]:
     dest_dir = Path("./tests/data/")
     local_path = dest_dir / annotation_name
