@@ -34,6 +34,9 @@ from luxonis_ml.data.utils.task_utils import get_task_name, get_task_type
 from luxonis_ml.enums import DatasetType
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    from luxonis_ml.ldf import DatasetRecord
     from luxonis_ml.vizlab import (
         ComparisonReport,
         ComparisonResult,
@@ -74,6 +77,22 @@ def _deduped_class_names(
     if show_background and _BACKGROUND in stripped:
         classes.append(_BACKGROUND)
     return classes
+
+
+def _present_classes(records: "Iterable[DatasetRecord]") -> list[str]:
+    """Class names present in ``records``, first-seen order, stripped.
+
+    Drives which classes the inspector's ``c`` key cycles focus through, so it
+    only offers what is actually on screen. Matches the loader's rendered names
+    (``class_name.strip()``) and skips blank names.
+    """
+    seen: dict[str, None] = {}
+    for record in records:
+        for detection in record._annotations():
+            name = (detection.class_name or "").strip()
+            if name:
+                seen.setdefault(name, None)
+    return list(seen)
 
 
 def _print_comparison_summary(
@@ -327,8 +346,15 @@ def inspect(
     """Inspect images and annotations in a dataset.
 
     Hovering the mouse over a detection that carries annotation metadata shows
-    that metadata in a tooltip, so dense scenes stay uncluttered. Press any key
-    to advance to the next sample, or 'q' to quit.
+    that metadata in a tooltip, so dense scenes stay uncluttered.
+
+    Interactive controls (also shown as a HUD on each window):
+
+    - ``m`` / ``k`` / ``b`` / ``l`` — toggle masks / keypoints / boxes / labels.
+    - ``c`` — cycle a class focus through the classes present in the sample
+      (isolating one class at a time; again to show all).
+    - ``[`` / ``]`` — decrease / increase the shape fill opacity.
+    - any other key advances to the next sample; ``q`` quits.
 
     Args:
         name: Name of the dataset to inspect.
@@ -486,6 +512,8 @@ def inspect(
     # (and their hit maps) to the viewer.
     viewer = Viewer()
     screen = viewer.screen
+    # The `c` key cycles a class focus; the set is refreshed per sample to the
+    # classes actually present (see the loop below).
     # The metadata panel is a fixed pixel width, independent of the image scale,
     # so reserve horizontal room for it when fitting a composite to the screen.
     panel_reserve = 400.0
@@ -561,6 +589,11 @@ def inspect(
     ) -> Frame:
         """Build the display `Frame` for one non-per-instance source."""
         height, width = image.shape[:2]
+        # The viewer's interactive layer toggles (masks/keypoints/labels, a class
+        # focus, fill opacity) filter what is drawn without disturbing the metadata
+        # cards, legend, or panel — so they are applied to the detection
+        # annotations only, just before they are composed.
+        layers = viewer.layers
         if blend_all or len(records) <= 1:
             viz = Image(image, options=options).render_at(
                 display_size(width, height, reserve)
@@ -568,9 +601,10 @@ def inspect(
             # Blending several tasks onto one image: a classification task's
             # corner chip is redundant next to boxes/keypoints/masks, so it is
             # dropped unless a class tag is all there is to show.
-            for annotation in blend_records_to_annotations(
+            detections = blend_records_to_annotations(
                 records.values(), options
-            ):
+            )
+            for annotation in layers.apply_layers(detections, palette):
                 viz.add(annotation)
             # Box-less metadata has nothing to hover, so show it as a card; a
             # lone object is carded too, so a single detection needs no hover.
@@ -587,6 +621,10 @@ def inspect(
             visualize_record(record, image, options=options)
             for record in records.values()
         ]
+        for tile in tiles:
+            tile.annotations[:] = layers.apply_layers(
+                tile.annotations, palette
+            )
         return framed(
             compose_tiles(tiles, cols, list(records), reserve), panel
         )
@@ -632,6 +670,8 @@ def inspect(
             categorical_encodings=categorical_encodings,
             render_background=show_background,
         )
+        # Cycle the class focus (`c`) over just the classes in this sample.
+        viewer.layers.update_classes(_present_classes(records.values()))
         panel = build_panel(data.labels, data.metadata)
         instances = [
             (record.task_name, detection)
@@ -660,7 +700,13 @@ def inspect(
                     f"this dataset. Showing all labels for '{source_name}'.[/yellow]"
                 )
             viewer.show(
-                source_name, build_frame(image, records, panel, reserve)
+                source_name,
+                build_frame(image, records, panel, reserve),
+                # Re-render this window's frame whenever a layer toggle changes;
+                # bind the loop-varying data so each window rebuilds its own.
+                render=lambda _, image=image, records=records, panel=panel, reserve=reserve: (
+                    build_frame(image, records, panel, reserve)
+                ),
             )
             needs_wait = True
 

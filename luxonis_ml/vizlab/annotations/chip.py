@@ -152,5 +152,36 @@ def place_label(
     candidates = label_candidates(
         region, chip_w, chip_h, style.label_placement
     )
-    placed = layout.place(chip_w, chip_h, candidates)
-    draw_chip(canvas, (placed.left, placed.top), text, color, style)
+    placement = layout.place(chip_w, chip_h, candidates, region=region)
+    rect = placement.rect
+    if placement.leader is not None:
+        _draw_leader(canvas, placement.leader, rect, color, style)
+    draw_chip(canvas, (rect.left, rect.top), text, color, style)
+
+
+def _draw_leader(
+    canvas: Canvas, anchor: XY, chip: Rect, color: Color, style: Style
+) -> None:
+    """Connect a pushed-out chip back to its box with a thin leader line.
+
+    Drawn before the chip (so the chip sits on top), from ``anchor`` on the box to
+    the nearest point on the chip, with a small dot pinning the box end.
+
+    Args:
+        canvas: The canvas to draw on.
+        anchor: The point on the labeled box to lead from.
+        chip: The placed chip rectangle.
+        color: The chip color (the connector is a faded shade of it).
+        style: The resolved style (sets the line weight).
+
+    """
+    ax, ay = anchor
+    tip = (
+        max(chip.left, min(ax, chip.right)),
+        max(chip.top, min(ay, chip.bottom)),
+    )
+    line_color = color.with_alpha(0.55)
+    canvas.line(
+        anchor, tip, line_color, width=max(1.0, style.stroke_width * 0.4)
+    )
+    canvas.circle(anchor, max(1.5, style.stroke_width * 0.7), fill=line_color)

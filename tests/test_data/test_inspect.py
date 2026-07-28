@@ -240,6 +240,86 @@ def test_inspect_grid_renders_real_frames(
     assert backend.shown == ["image"]
 
 
+def test_inspect_layer_key_rerenders_and_toggles_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A layer-control key ('m') is intercepted by the viewer: it toggles the
+    # shared state and re-renders the window in place instead of advancing.
+    image = np.zeros((40, 60, 3), dtype=np.uint8)
+    record = DatasetRecord.model_construct(
+        files={},
+        sample_metadata={},
+        annotation=[
+            Detection(
+                class_name="car",
+                boundingbox=BBoxAnnotation(x=0.1, y=0.1, w=0.3, h=0.3),
+            )
+        ],
+        task_name="objects",
+    )
+
+    class _Dataset:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def __len__(self) -> int:
+            return 1
+
+        def get_classes(self) -> dict[str, dict[str, int]]:
+            return {"objects": {"car": 0}}
+
+        def get_class_names(self) -> dict[str, list[str]]:
+            return {"objects": ["car"]}
+
+        def get_categorical_encodings(self) -> dict[str, object]:
+            return {}
+
+        def get_skeletons(self) -> dict[str, object]:
+            return {}
+
+    class _Loader:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            self._augmentations = None
+
+        def __iter__(self) -> Iterator[SimpleNamespace]:
+            yield SimpleNamespace(
+                images={"image": image}, labels={}, metadata={}
+            )
+
+    from luxonis_ml.data.loaders import label_converter
+    from luxonis_ml.vizlab.viewer import Viewer as RealViewer
+
+    backend = _FakeBackend(keys=[ord("m"), ord("q")])
+    created: list[RealViewer] = []
+
+    def make_viewer() -> RealViewer:
+        viewer = RealViewer(backend)
+        created.append(viewer)
+        return viewer
+
+    monkeypatch.setattr(data_main, "check_exists", lambda *_args: None)
+    monkeypatch.setattr(data_main, "LuxonisDataset", _Dataset)
+    monkeypatch.setattr(data_main, "LuxonisLoader", _Loader)
+    monkeypatch.setattr(viewer_module, "Viewer", make_viewer)
+    monkeypatch.setattr(
+        label_converter,
+        "loader_output_to_records",
+        lambda *_args, **_kwargs: {"objects": record},
+    )
+
+    from luxonis_ml.vizlab import RenderOptions, set_default_options
+
+    try:
+        data_main.inspect("dataset")
+    finally:
+        set_default_options(RenderOptions())
+
+    viewer = created[0]
+    assert viewer.layers.masks is False  # 'm' toggled masks off
+    # The window was painted twice: the initial show plus the 'm' re-render.
+    assert backend.shown == ["image", "image"]
+
+
 def _compare_mocks(
     monkeypatch: pytest.MonkeyPatch,
     image: np.ndarray,

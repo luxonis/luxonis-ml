@@ -28,10 +28,16 @@ from luxonis_ml.vizlab import (
     set_default_theme,
 )
 from luxonis_ml.vizlab.annotations.base import RenderContext
-from luxonis_ml.vizlab.annotations.layout import LabelLayout, _overlap_area
+from luxonis_ml.vizlab.annotations.layout import (
+    LabelLayout,
+    Placement,
+    _overlap_area,
+    label_candidates,
+)
 from luxonis_ml.vizlab.canvas import Canvas
 from luxonis_ml.vizlab.style import (
     DEFAULT_STYLE,
+    LabelPlacement,
     Palette,
     Style,
     derive_child_color,
@@ -401,6 +407,67 @@ def test_many_stacked_boxes_minimize_label_overlap() -> None:
     )
     single_area = chips[0].width * chips[0].height
     assert total < single_area
+
+
+def _place_repeatedly(
+    region: Rect, n: int, w: float = 70.0, h: float = 26.0
+) -> list[Placement]:
+    """Place ``n`` chips all labeling the same ``region`` and return placements."""
+    layout = LabelLayout(600, 600)
+    out = []
+    for _ in range(n):
+        cands = label_candidates(region, w, h, LabelPlacement.TOP)
+        out.append(layout.place(w, h, cands, region=region))
+    return out
+
+
+def test_clear_box_places_chip_against_it_without_a_leader() -> None:
+    region = Rect(200.0, 200.0, 320.0, 260.0)
+    (placement,) = _place_repeatedly(region, 1)
+    assert placement.leader is None  # nothing to escape — sits on the box
+
+
+def test_dense_labels_escape_with_leaders_back_to_their_box() -> None:
+    """When a box's neighborhood fills up, later chips push out on leader lines."""
+    region = Rect(250.0, 250.0, 350.0, 310.0)
+    placements = _place_repeatedly(region, 7)
+
+    detached = [p for p in placements if p.leader is not None]
+    assert detached, (
+        "expected some chips to be pushed clear of the crowded box"
+    )
+    # Every leader anchors on the box it belongs to.
+    for p in detached:
+        ax, ay = p.leader
+        assert region.left <= ax <= region.right
+        assert region.top <= ay <= region.bottom
+
+    # Declutter actually worked: total pairwise overlap stays well under what a
+    # naive same-corner stack (every chip on top of the last) would produce.
+    rects = [p.rect for p in placements]
+    total = sum(
+        _overlap_area(rects[i], rects[j])
+        for i in range(len(rects))
+        for j in range(i + 1, len(rects))
+    )
+    single_area = rects[0].width * rects[0].height
+    assert total < single_area
+
+
+def test_small_overlap_keeps_the_chip_on_the_box_rather_than_leading_out() -> (
+    None
+):
+    """A single mild collision is tolerated in place — no gratuitous leader."""
+    layout = LabelLayout(600, 600)
+    region = Rect(250.0, 250.0, 350.0, 310.0)
+    first = label_candidates(region, 70.0, 26.0, LabelPlacement.TOP)
+    layout.place(70.0, 26.0, first, region=region)
+    # A second, slightly offset box: adjacent slots are still mostly free, so it
+    # should settle against its box without a leader line.
+    near = Rect(258.0, 254.0, 358.0, 314.0)
+    cands = label_candidates(near, 70.0, 26.0, LabelPlacement.TOP)
+    placement = layout.place(70.0, 26.0, cands, region=near)
+    assert placement.leader is None
 
 
 def test_label_alpha_fades_the_chip() -> None:

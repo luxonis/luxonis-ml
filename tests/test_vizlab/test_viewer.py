@@ -4,8 +4,10 @@ import numpy as np
 import pytest
 
 from luxonis_ml.vizlab import BBox, Image, Tooltip
+from luxonis_ml.vizlab.frame import Frame
 from luxonis_ml.vizlab.viewer import (
     Cv2Backend,
+    LayerState,
     Viewer,
     draw_tooltip,
     render_tooltip_card,
@@ -186,3 +188,64 @@ def test_cv2_backend_is_pull_only() -> None:
     # Constructing it touches neither cv2 nor Tk; only the raise is exercised.
     with pytest.raises(NotImplementedError):
         Cv2Backend().set_key_handler(lambda _key: None)
+
+
+def _layer_image() -> Image:
+    return Image(np.zeros((300, 400, 3), np.uint8)).add(
+        BBox(
+            x=0.1, y=0.1, w=0.6, h=0.6, label="car", tooltip=Tooltip(title="c")
+        )
+    )
+
+
+def test_control_key_rerenders_and_is_not_returned_to_caller() -> None:
+    backend = FakeBackend(keys=[ord("m"), ord("q")])
+    viewer = Viewer(backend)
+    seen: list[bool] = []
+
+    def render(state: LayerState) -> Frame:
+        seen.append(state.masks)
+        return _layer_image().frame()
+
+    viewer.show("w", _layer_image().frame(), render=render)
+    shown_before = len(backend.shown)
+    key = viewer.wait()  # 'm' toggles + re-renders, then 'q' returns
+    assert key == "q"
+    assert seen == [False]  # render ran once, with masks toggled off
+    assert len(backend.shown) > shown_before  # the window was repainted
+
+
+def test_control_keys_pass_through_without_a_render_callback() -> None:
+    backend = FakeBackend(keys=[ord("m")])
+    viewer = Viewer(backend)
+    viewer.show("w", _layer_image().frame())  # not interactive
+    assert viewer.wait() == "m"  # forwarded to the caller unchanged
+
+
+def test_hud_is_drawn_only_on_interactive_windows() -> None:
+    backend = FakeBackend()
+    viewer = Viewer(backend)
+    frame = _layer_image().frame()
+    viewer.show("plain", frame)
+    plain = backend.shown[-1][1]
+    viewer.show("live", frame, render=lambda _state: frame)
+    live = backend.shown[-1][1]
+    assert not np.array_equal(plain, live)  # the HUD card was composited on
+
+
+def test_run_swallows_control_keys_and_forwards_the_rest() -> None:
+    backend = FakeBackend()
+    viewer = Viewer(backend)
+    viewer.show(
+        "w",
+        _layer_image().frame(),
+        render=lambda _state: _layer_image().frame(),
+    )
+    got: list[str] = []
+    viewer.run(got.append)
+    assert backend.key_handler is not None
+
+    backend.key_handler(ord("k"))  # control key: consumed, re-renders
+    backend.key_handler(ord("n"))  # non-control: forwarded
+    assert got == ["n"]
+    assert viewer.layers.keypoints is False
