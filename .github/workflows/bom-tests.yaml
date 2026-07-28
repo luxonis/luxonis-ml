@@ -65,6 +65,8 @@ jobs:
        github.event.pull_request.base.ref == 'main')
     uses: Luxonis/luxonis-train/.github/workflows/ci.yaml@main
     with:
+      concurrency_group: bom-${{ github.workflow }}-${{ github.ref }}
+      cancel_in_progress: true
       ml_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ml_ref   || github.head_ref }}
       train_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.train_ref || 'main' }}
     secrets:

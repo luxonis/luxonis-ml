@@ -1,1 +1,1 @@
-posthog
+posthog~=7.29

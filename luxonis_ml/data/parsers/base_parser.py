@@ -26,7 +26,7 @@ class BaseParser(ABC):
 
     _SPLIT_NAMES: tuple[str, ...] = ("train", "valid", "test")
     _CANONICAL_SPLIT_NAMES: tuple[str, ...] = ("train", "val", "test")
-    _SKIPPED_WARNING_LIMIT: int = 50
+    _SKIPPED_WARNING_LIMIT: int = 10
 
     def __init__(
         self,
@@ -566,10 +566,14 @@ class BaseParser(ABC):
         """Compare sets of files by stem.
 
         Example:
-            >>> BaseParser._compare_stem_files([Path("a.jpg"), Path("b.jpg")],
-            ...                                [Path("a.xml"), Path("b.xml")])
+            >>> BaseParser._compare_stem_files(
+            ...     [Path("a.jpg"), Path("b.jpg")],
+            ...     [Path("a.xml"), Path("b.xml")],
+            ... )
             True
-            >>> BaseParser._compare_stem_files([Path("a.jpg")], [Path("b.txt")])
+            >>> BaseParser._compare_stem_files(
+            ...     [Path("a.jpg")], [Path("b.txt")]
+            ... )
             False
 
         Args:

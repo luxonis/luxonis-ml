@@ -1,6 +1,8 @@
 from pathlib import Path
 
 import pytest
+from PIL import Image
+from pillow_heif import from_pillow
 
 from luxonis_ml.data.utils import RemoteFileDownloader, download_remote_file
 
@@ -41,6 +43,20 @@ def test_download_remote_file_accepts_valid_file_url_image(
 
     assert downloaded == destination
     assert destination.is_file()
+    assert destination.read_bytes() == source.read_bytes()
+    assert_no_temporary_artifacts(destination)
+
+
+def test_download_remote_file_accepts_heic_image(tempdir: Path) -> None:
+    source = tempdir / "source.heic"
+    from_pillow(Image.new("RGB", (4, 3), "red")).save(source)
+    destination = tempdir / "downloads" / "copied.heic"
+
+    downloaded = download_remote_file(
+        source.resolve().as_uri(), destination, validate_image=True
+    )
+
+    assert downloaded == destination
     assert destination.read_bytes() == source.read_bytes()
     assert_no_temporary_artifacts(destination)
 

@@ -85,7 +85,6 @@ class LuxonisFileSystem:
         ... def put_file_plugin(*args, **kwargs) -> str:
         ...     print("Custom put_file called!")
         ...     return "remote_path"
-        ...
         >>> fs = LuxonisFileSystem(
         ...     "file:///tmp/luxonis-ml",
         ...     put_file_plugin="put_file_plugin",
@@ -897,7 +896,7 @@ def _check_package_installed(protocol: str) -> None:  # pragma: no cover
     elif protocol == "s3" and find_spec("s3fs") is None:
         _pip_install(protocol, "s3fs==2024.6.1")
     elif protocol == "mlflow" and find_spec("mlflow") is None:
-        _pip_install(protocol, "mlflow~=2.10.0")
+        _pip_install(protocol, "mlflow~=3.1")
 
 
 def _get_protocol_and_path(path: str) -> tuple[str, str | None]:
