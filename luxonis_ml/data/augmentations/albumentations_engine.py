@@ -636,6 +636,12 @@ class AlbumentationsEngine(AugmentationEngine, register_name="albumentations"):
         """Configured paths and runtime parameters from the latest call."""
         return deepcopy(self._applied_augmentations)
 
+    @property
+    @override
+    def batch_augmentation_indices(self) -> list[int]:
+        """Input positions contributing to the last augmented output."""
+        return self._batch_transform.batch_augmentation_indices
+
     @override
     def apply(self, input_batch: list[LoaderMultiOutput]) -> LoaderMultiOutput:
         self._applied_augmentations.clear()

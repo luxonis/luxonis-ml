@@ -161,6 +161,25 @@ class CompatibilityOnlyEngine(
         return 1
 
 
+class CompatibilityBatchEngine(
+    CompatibilityOnlyEngine, register_name="compatibility_batch_engine"
+):
+    @property
+    def batch_size(self) -> int:
+        return 2
+
+
+class SelectiveBatchEngine(
+    CompatibilityBatchEngine, register_name="selective_batch_engine"
+):
+    def apply(self, data: list[LoaderMultiOutput]) -> LoaderMultiOutput:
+        return data[1]
+
+    @property
+    def batch_augmentation_indices(self) -> list[int]:
+        return [1]
+
+
 @contextmanager
 def set_seed(seed: int):
     np_state = np.random.get_state()
@@ -330,16 +349,189 @@ def test_loader_records_augmentations_in_sample_metadata(
     assert metadata == {
         "augmentations": {"HorizontalFlip": {}},
         "record_id": "sample-1",
-        "batch_augmentation_metadata": [
-            {
-                "input_index": 0,
-                "sample_metadata": {
-                    "augmentations": ["stored-value"],
-                    "record_id": "sample-1",
-                },
-            }
-        ],
     }
+
+
+def test_loader_preserves_metadata_for_custom_batch_engines(
+    dataset_name: str, tempdir: Path
+) -> None:
+    def generator() -> DatasetIterator:
+        for i in range(2):
+            yield {
+                "file": create_image(i, tempdir),
+                "sample_metadata": {"record_id": i},
+            }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    loader = LuxonisLoader(
+        dataset,
+        view="train",
+        height=256,
+        width=256,
+        autopopulate_metadata=False,
+        augmentation_engine="compatibility_batch_engine",
+        augmentation_config=[{"name": "Normalize"}],
+    )
+
+    metadata = loader[0].metadata
+    batch_metadata = cast(
+        list[dict[str, Params]], metadata["batch_augmentation_metadata"]
+    )
+
+    assert [cast(int, entry["input_index"]) for entry in batch_metadata] == [
+        0,
+        1,
+    ]
+    assert {
+        cast(int, entry["sample_metadata"]["record_id"])
+        for entry in batch_metadata
+    } == {0, 1}
+
+
+def test_loader_uses_metadata_from_custom_engine_single_contributor(
+    dataset_name: str, tempdir: Path
+) -> None:
+    def generator() -> DatasetIterator:
+        for i in range(2):
+            yield {
+                "file": create_image(i, tempdir),
+                "sample_metadata": {"record_id": i},
+            }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    loader = LuxonisLoader(
+        dataset,
+        view="train",
+        height=256,
+        width=256,
+        autopopulate_metadata=False,
+        augmentation_engine="selective_batch_engine",
+        augmentation_config=[{"name": "Normalize"}],
+    )
+
+    metadata = loader[0].metadata
+
+    assert metadata["record_id"] in {0, 1}
+    assert metadata["augmentations"] == {}
+
+
+@pytest.mark.parametrize(
+    ("probability", "metadata_is_merged"), [(0.0, False), (1.0, True)]
+)
+def test_loader_merges_metadata_only_for_applied_batch_augmentations(
+    dataset_name: str,
+    tempdir: Path,
+    probability: float,
+    metadata_is_merged: bool,
+) -> None:
+    def generator() -> DatasetIterator:
+        for i in range(2):
+            yield {
+                "file": create_image(i, tempdir),
+                "sample_metadata": {"record_id": i},
+            }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    loader = LuxonisLoader(
+        dataset,
+        view="train",
+        height=256,
+        width=256,
+        autopopulate_metadata=False,
+        augmentation_config=[{"name": "MixUp", "params": {"p": probability}}],
+    )
+
+    metadata = loader[0].metadata
+
+    assert ("batch_augmentation_metadata" in metadata) is metadata_is_merged
+    if metadata_is_merged:
+        batch_metadata = cast(
+            list[dict[str, Params]], metadata["batch_augmentation_metadata"]
+        )
+        assert {
+            cast(int, entry["input_index"]) for entry in batch_metadata
+        } == {
+            0,
+            1,
+        }
+        assert {
+            cast(int, entry["sample_metadata"]["record_id"])
+            for entry in batch_metadata
+        } == {0, 1}
+        assert (
+            metadata["record_id"]
+            == cast(Params, batch_metadata[0]["sample_metadata"])["record_id"]
+        )
+    else:
+        assert metadata in (
+            {"record_id": 0, "augmentations": {}},
+            {"record_id": 1, "augmentations": {}},
+        )
+
+
+@pytest.mark.parametrize(
+    ("mosaic_probability", "mixup_probability", "expected_input_indices"),
+    [
+        (0.0, 0.0, None),
+        (1.0, 0.0, [0, 1, 2, 3]),
+        # A skipped Mosaic4 passes through the first input from each group of
+        # four, so MixUp combines source inputs 0 and 4.
+        (0.0, 1.0, [0, 4]),
+        (1.0, 1.0, list(range(8))),
+    ],
+)
+def test_loader_tracks_metadata_through_multiple_batch_augmentations(
+    dataset_name: str,
+    tempdir: Path,
+    mosaic_probability: float,
+    mixup_probability: float,
+    expected_input_indices: list[int] | None,
+) -> None:
+    def generator() -> DatasetIterator:
+        for i in range(8):
+            yield {
+                "file": create_image(i, tempdir),
+                "sample_metadata": {"record_id": i},
+            }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    loader = LuxonisLoader(
+        dataset,
+        view="train",
+        height=256,
+        width=256,
+        autopopulate_metadata=False,
+        augmentation_config=[
+            {
+                "name": "Mosaic4",
+                "params": {
+                    "p": mosaic_probability,
+                    "out_width": 256,
+                    "out_height": 256,
+                },
+            },
+            {"name": "MixUp", "params": {"p": mixup_probability}},
+        ],
+    )
+
+    metadata = loader[0].metadata
+
+    if expected_input_indices is None:
+        assert "batch_augmentation_metadata" not in metadata
+        return
+
+    batch_metadata = cast(
+        list[dict[str, Params]], metadata["batch_augmentation_metadata"]
+    )
+    assert [
+        cast(int, entry["input_index"]) for entry in batch_metadata
+    ] == expected_input_indices
+    assert len(
+        {
+            cast(int, entry["sample_metadata"]["record_id"])
+            for entry in batch_metadata
+        }
+    ) == len(expected_input_indices)
 
 
 def load_annotations(annotation_name: str) -> list[dict[str, Any]]:
