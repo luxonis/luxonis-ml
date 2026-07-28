@@ -17,6 +17,7 @@ from luxonis_ml.vizlab.markup import Span, parse
 from luxonis_ml.vizlab.style import Style
 
 from .base import RenderContext
+from .card import draw_card_background
 from .overlay import (
     Cell,
     Corner,
@@ -124,14 +125,7 @@ def _draw_card(
     chrome: brand.Chrome,
 ) -> None:
     """Paint a card background, its title lines, then its (optionally swatched) rows."""
-    cv.rounded_rect(
-        rect,
-        radius=9.0,
-        fill=chrome.card_bg,
-        stroke=chrome.border,
-        stroke_width=1.0 if chrome.border is not None else 0.0,
-        shadow=Shadow(blur=6.0, dy=2.0) if style.shadow else None,
-    )
+    draw_card_background(cv, rect, style, chrome)
     title_size = style.font_size * 1.05
     y = rect.top + _PAD
     for line, metrics in title_lines:
@@ -270,14 +264,7 @@ def _legend_columns_cell(
     card_h = 2 * _PAD + title_h + per_col * step - _ROW_GAP
 
     def _draw(cv: Canvas, rect: Rect) -> None:
-        cv.rounded_rect(
-            rect,
-            radius=9.0,
-            fill=chrome.card_bg,
-            stroke=chrome.border,
-            stroke_width=1.0 if chrome.border is not None else 0.0,
-            shadow=Shadow(blur=6.0, dy=2.0) if style.shadow else None,
-        )
+        draw_card_background(cv, rect, style, chrome)
         y0 = rect.top + _PAD
         for line, metrics in title_lines:
             cv.draw_spans(

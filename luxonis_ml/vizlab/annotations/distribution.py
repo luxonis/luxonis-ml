@@ -14,17 +14,18 @@ dataset path. It is an image-level corner overlay, built on the same
 """
 
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
 from luxonis_ml.utils.color import brand
-from luxonis_ml.vizlab.canvas import Canvas, Shadow, TextMetrics
+from luxonis_ml.vizlab.canvas import Canvas, TextMetrics
 from luxonis_ml.vizlab.color import Color
 from luxonis_ml.vizlab.geometry import XY, Rect
 from luxonis_ml.vizlab.style import Palette, Style
 
 from .base import RenderContext
+from .card import draw_card_background
 from .chip import chip_size, draw_chip
 from .overlay import (
     Cell,
@@ -70,6 +71,19 @@ def _pct(prob: float) -> str:
 def _edge_w(style: Style) -> float:
     """Hairline width for chart-element outlines, tracking the font size."""
     return max(1.0, style.font_size * 0.09)
+
+
+@dataclass(frozen=True)
+class _SegmentData:
+    """Shared selected-distribution data for proportional chart modes."""
+
+    canvas: Canvas
+    palette: Palette
+    size: float
+    weight: int
+    segments: list[tuple[str, float]]
+    total: float
+    keys: list[tuple[str, float]]
 
 
 class ClassDistribution(CornerStack):
@@ -233,19 +247,6 @@ class ClassDistribution(CornerStack):
             return self._pie_cells(ctx, style)
         return self._bars_cells(ctx, style)
 
-    def _card_bg(
-        self, cv: Canvas, rect: Rect, style: Style, chrome: brand.Chrome
-    ) -> None:
-        """Paint the shared rounded card background (theme-aware fill/border)."""
-        cv.rounded_rect(
-            rect,
-            radius=9.0,
-            fill=chrome.card_bg,
-            stroke=chrome.border,
-            stroke_width=1.0 if chrome.border is not None else 0.0,
-            shadow=Shadow(blur=6.0, dy=2.0) if style.shadow else None,
-        )
-
     def _title_metrics(
         self, canvas: Canvas, size: float
     ) -> TextMetrics | None:
@@ -401,7 +402,7 @@ class ClassDistribution(CornerStack):
         card_h = 2 * _PAD + header_h + 8.0 + bar_h
 
         def _draw(cv: Canvas, rect: Rect) -> None:
-            self._card_bg(cv, rect, style, chrome)
+            draw_card_background(cv, rect, style, chrome)
             y = rect.top + _PAD
             cv.text(
                 (
@@ -451,16 +452,10 @@ class ClassDistribution(CornerStack):
     # -- stacked -------------------------------------------------------------
 
     def _stacked_cells(self, ctx: RenderContext, style: Style) -> list[Cell]:
-        canvas = ctx.canvas
-        palette = self.resolved_palette(ctx)
-        size, weight = style.font_size, style.font_weight
-        segs = self._selected()
-        if not segs:
+        data = self._segment_data(ctx, style)
+        if data is None:
             return []
-
-        total = self._total()
-        keys = self._keyed_segments(segs, total)
-
+        canvas, size, weight = data.canvas, data.size, data.weight
         strip_w = size * 14.0
         strip_h = size * 1.1
         swatch = size
@@ -468,14 +463,14 @@ class ClassDistribution(CornerStack):
             (
                 name,
                 value,
-                self._value_label(value, total),
+                self._value_label(value, data.total),
                 canvas.measure_text(
-                    f"{name}  {self._value_label(value, total)}",
+                    f"{name}  {self._value_label(value, data.total)}",
                     size,
                     weight=weight,
                 ),
             )
-            for name, value in keys
+            for name, value in data.keys
         ]
         row_h = max(m.height for _, _, _, m in key_measured)
         key_w = max(swatch + _COL_GAP + m.width for _, _, _, m in key_measured)
@@ -494,10 +489,10 @@ class ClassDistribution(CornerStack):
             + _ROW_GAP * (len(key_measured) - 1)
         )
         layout = _StackedLayout(
-            segs=segs,
+            segs=data.segments,
             key_measured=key_measured,
-            palette=palette,
-            total=total,
+            palette=data.palette,
+            total=data.total,
             strip_h=strip_h,
             swatch=swatch,
             row_h=row_h,
@@ -523,28 +518,43 @@ class ClassDistribution(CornerStack):
             return [*segs, ("other", other)]
         return list(segs)
 
-    def _pie_cells(self, ctx: RenderContext, style: Style) -> list[Cell]:
-        canvas = ctx.canvas
-        palette = self.resolved_palette(ctx)
-        size, weight = style.font_size, style.font_weight
-        segs = self._selected()
-        if not segs:
-            return []
-
+    def _segment_data(
+        self,
+        ctx: RenderContext,
+        style: Style,
+    ) -> _SegmentData | None:
+        """Resolve shared inputs for stacked, pie, and donut layouts."""
+        segments = self._selected()
+        if not segments:
+            return None
         total = self._total()
-        keys = self._keyed_segments(segs, total)
+        return _SegmentData(
+            canvas=ctx.canvas,
+            palette=self.resolved_palette(ctx),
+            size=style.font_size,
+            weight=style.font_weight,
+            segments=segments,
+            total=total,
+            keys=self._keyed_segments(segments, total),
+        )
+
+    def _pie_cells(self, ctx: RenderContext, style: Style) -> list[Cell]:
+        data = self._segment_data(ctx, style)
+        if data is None:
+            return []
+        canvas, size, weight = data.canvas, data.size, data.weight
         diameter = size * 8.0
         swatch = size
         key_measured = [
             (
                 name,
                 canvas.measure_text(
-                    f"{name}  {self._value_label(value, total)}",
+                    f"{name}  {self._value_label(value, data.total)}",
                     size,
                     weight=weight,
                 ),
             )
-            for name, value in keys
+            for name, value in data.keys
         ]
         row_h = max(m.height for _, m in key_measured)
         key_w = max(swatch + _COL_GAP + m.width for _, m in key_measured)
@@ -563,11 +573,11 @@ class ClassDistribution(CornerStack):
             + _ROW_GAP * (len(key_measured) - 1)
         )
         layout = _PieLayout(
-            segs=segs,
-            keys=keys,
+            segs=data.segments,
+            keys=data.keys,
             key_measured=key_measured,
-            palette=palette,
-            total=total,
+            palette=data.palette,
+            total=data.total,
             diameter=diameter,
             swatch=swatch,
             row_h=row_h,
@@ -599,6 +609,25 @@ class _BarsLayout:
     chrome: brand.Chrome
 
 
+def _draw_chart_header(
+    cv: Canvas,
+    rect: Rect,
+    dist: ClassDistribution,
+    style: Style,
+    chrome: brand.Chrome,
+    *,
+    has_title: bool,
+    title_h: float,
+) -> float:
+    """Draw the shared chart card/title and return its content y coordinate."""
+    draw_card_background(cv, rect, style, chrome)
+    y = rect.top + _PAD
+    if has_title:
+        dist._draw_title(cv, rect.left + _PAD, y, style.font_size, chrome)
+        y += title_h
+    return y
+
+
 def _draw_bars(
     cv: Canvas,
     rect: Rect,
@@ -608,12 +637,16 @@ def _draw_bars(
 ) -> None:
     """Paint a ranked bar chart: per row a name, a value bar, and a label."""
     chrome = ll.chrome
-    dist._card_bg(cv, rect, style, chrome)
     size, weight = style.font_size, style.font_weight
-    y = rect.top + _PAD
-    if ll.has_title:
-        dist._draw_title(cv, rect.left + _PAD, y, size, chrome)
-        y += ll.title_h
+    y = _draw_chart_header(
+        cv,
+        rect,
+        dist,
+        style,
+        chrome,
+        has_title=ll.has_title,
+        title_h=ll.title_h,
+    )
     bar_x = rect.left + _PAD + ll.name_w + _COL_GAP
     val_x = bar_x + ll.bar_w + _COL_GAP
     for name, value, label, m in ll.measured:
@@ -722,21 +755,25 @@ def _draw_key_swatch(
     )
 
 
-def _draw_stacked_key(
+def _draw_distribution_key(
     cv: Canvas,
     rect: Rect,
     dist: "ClassDistribution",
     style: Style,
-    ll: _StackedLayout,
+    ll: "_StackedLayout | _PieLayout",
+    rows: Iterable[tuple[str, str, TextMetrics]],
     y: float,
 ) -> None:
-    """Paint the inline swatch + name key beneath the strip."""
+    """Paint shared inline swatch, name, and value rows."""
     size, weight = style.font_size, style.font_weight
-    for name, _value, label, m in ll.key_measured:
+    for name, label, metrics in rows:
         color = _OTHER if name == "other" else ll.palette.color_for(name)
         _draw_key_swatch(cv, rect.left + _PAD, y, color, ll)
         cv.text(
-            (rect.left + _PAD + ll.swatch + _COL_GAP, y + m.ascent),
+            (
+                rect.left + _PAD + ll.swatch + _COL_GAP,
+                y + metrics.ascent,
+            ),
             f"{name}  {label}",
             size=size,
             color=ll.chrome.card_text,
@@ -753,13 +790,29 @@ def _draw_stacked(
     ll: _StackedLayout,
 ) -> None:
     """Paint a stacked proportion strip with an inline key below it."""
-    dist._card_bg(cv, rect, style, ll.chrome)
-    y = rect.top + _PAD
-    if ll.has_title:
-        dist._draw_title(cv, rect.left + _PAD, y, style.font_size, ll.chrome)
-        y += ll.title_h
+    y = _draw_chart_header(
+        cv,
+        rect,
+        dist,
+        style,
+        ll.chrome,
+        has_title=ll.has_title,
+        title_h=ll.title_h,
+    )
     _draw_stacked_strip(cv, rect, dist, ll, y, _edge_w(style))
-    _draw_stacked_key(cv, rect, dist, style, ll, y + ll.strip_h + _ROW_GAP)
+    rows = (
+        (name, label, metrics)
+        for name, _value, label, metrics in ll.key_measured
+    )
+    _draw_distribution_key(
+        cv,
+        rect,
+        dist,
+        style,
+        ll,
+        rows,
+        y + ll.strip_h + _ROW_GAP,
+    )
 
 
 @dataclass(frozen=True)
@@ -870,31 +923,6 @@ def _draw_wedges(
         angle = a1
 
 
-def _draw_pie_key(
-    cv: Canvas,
-    rect: Rect,
-    dist: "ClassDistribution",
-    style: Style,
-    ll: _PieLayout,
-    y: float,
-) -> None:
-    """Paint the swatch + name + value key beneath the pie."""
-    size, weight = style.font_size, style.font_weight
-    for (name, value), (_name, m) in zip(
-        ll.keys, ll.key_measured, strict=True
-    ):
-        color = _OTHER if name == "other" else ll.palette.color_for(name)
-        _draw_key_swatch(cv, rect.left + _PAD, y, color, ll)
-        cv.text(
-            (rect.left + _PAD + ll.swatch + _COL_GAP, y + m.ascent),
-            f"{name}  {dist._value_label(value, ll.total)}",
-            size=size,
-            color=ll.chrome.card_text,
-            weight=700 if name == dist.ground_truth else weight,
-        )
-        y += ll.row_h + _ROW_GAP
-
-
 def _draw_pie(
     cv: Canvas,
     rect: Rect,
@@ -903,11 +931,15 @@ def _draw_pie(
     ll: _PieLayout,
 ) -> None:
     """Paint a pie/donut chart with an inline key below it."""
-    dist._card_bg(cv, rect, style, ll.chrome)
-    y = rect.top + _PAD
-    if ll.has_title:
-        dist._draw_title(cv, rect.left + _PAD, y, style.font_size, ll.chrome)
-        y += ll.title_h
+    y = _draw_chart_header(
+        cv,
+        rect,
+        dist,
+        style,
+        ll.chrome,
+        has_title=ll.has_title,
+        title_h=ll.title_h,
+    )
     # Reserve a little room inside the diameter box so an exploded ground-truth
     # slice never spills past it.
     pop = ll.diameter * 0.035 if dist.ground_truth is not None else 0.0
@@ -933,7 +965,23 @@ def _draw_pie(
             weight=700,
             mono=True,
         )
-    _draw_pie_key(cv, rect, dist, style, ll, y + ll.diameter + _PIE_KEY_GAP)
+    rows = (
+        (name, dist._value_label(value, ll.total), metrics)
+        for (name, value), (_measured_name, metrics) in zip(
+            ll.keys,
+            ll.key_measured,
+            strict=True,
+        )
+    )
+    _draw_distribution_key(
+        cv,
+        rect,
+        dist,
+        style,
+        ll,
+        rows,
+        y + ll.diameter + _PIE_KEY_GAP,
+    )
 
 
 def _draw_verdict(

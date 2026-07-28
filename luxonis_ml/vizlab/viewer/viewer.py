@@ -193,6 +193,18 @@ class Viewer:
         """Whether any open window has a re-render callback (is interactive)."""
         return any(s.render is not None for s in self._windows.values())
 
+    def _rerender_all(self) -> None:
+        """Rebuild every open interactive window."""
+        for name, state in self._windows.items():
+            self._rerender(name, state)
+
+    def _handle_layer_key(self, char: str) -> bool:
+        """Apply a layer key and re-render, returning whether it was handled."""
+        if not self._controllable() or not self._layers.handle(char):
+            return False
+        self._rerender_all()
+        return True
+
     def _rerender(self, name: str, state: _HoverState) -> None:
         """Rebuild ``state``'s frame for the current layers and repaint it."""
         if state.render is None:
@@ -221,31 +233,47 @@ class Viewer:
         For pull backends (`Cv2Backend`); push backends use `run` instead.
         """
         while True:
-            key = self._backend.poll_key(20)
-            if key != -1:
-                char = _key_char(key)
-                if self._controllable() and self._layers.handle(char):
-                    for name, state in self._windows.items():
-                        self._rerender(name, state)
-                    continue
-                return char
-            pending = next(
-                (
-                    s.pending
-                    for s in self._windows.values()
-                    if s.pending is not None
-                ),
-                None,
-            )
-            if pending is not None:
-                for state in self._windows.values():
-                    state.pending = None
-                self._apply_action(pending)
+            key_result = self._handle_polled_key(self._backend.poll_key(20))
+            if key_result is not None:
+                handled, char = key_result
+                if not handled:
+                    return char
                 continue
-            for name, state in self._windows.items():
-                if state.dirty:
-                    state.dirty = False
-                    self._render_hover(name, state)
+            if self._consume_pending_action():
+                continue
+            self._flush_hover()
+
+    def _handle_polled_key(self, key: int) -> tuple[bool, str] | None:
+        """Return ``(handled, char)`` for a key, or ``None`` when none arrived."""
+        if key == -1:
+            return None
+        char = _key_char(key)
+        return self._handle_layer_key(char), char
+
+    def _consume_pending_action(self) -> bool:
+        """Apply and clear the first queued panel action, if any."""
+        pending = next(
+            (
+                state.pending
+                for state in self._windows.values()
+                if state.pending is not None
+            ),
+            None,
+        )
+        if pending is None:
+            return False
+        for state in self._windows.values():
+            state.pending = None
+        self._apply_action(pending)
+        return True
+
+    def _flush_hover(self) -> None:
+        """Redraw every window whose hover state changed."""
+        for name, state in self._windows.items():
+            if not state.dirty:
+                continue
+            state.dirty = False
+            self._render_hover(name, state)
 
     def run(self, on_key: Callable[[str], None]) -> None:
         """Enter driven mode: the backend's own event loop delivers events.
@@ -267,9 +295,7 @@ class Viewer:
 
         def dispatch(key: int) -> None:
             char = _key_char(key)
-            if self._controllable() and self._layers.handle(char):
-                for name, state in self._windows.items():
-                    self._rerender(name, state)
+            if self._handle_layer_key(char):
                 return
             on_key(char)
 
@@ -308,29 +334,43 @@ class Viewer:
 
         def handler(x: int, y: int, clicked: bool) -> None:
             if clicked:
-                action = state.clickmap.hit(x, y)
-                if action is None:
-                    return
-                if self._driven:
-                    self._apply_action(action)
-                else:
-                    state.pending = action
+                self._handle_click(state, x, y)
                 return
-            tooltip = state.hitmap.hit(x, y)
-            pos = (int(x), int(y))
-            changed = tooltip is not state.hover or (
-                tooltip is not None and pos != state.mouse
-            )
-            if not changed:
-                return
-            state.hover = tooltip
-            state.mouse = pos
-            if self._driven:
-                self._render_hover(name, state)
-            else:
-                state.dirty = True
+            self._handle_hover(name, state, x, y)
 
         return handler
+
+    def _handle_click(self, state: _HoverState, x: int, y: int) -> None:
+        """Dispatch or queue the click-map action at ``(x, y)``."""
+        action = state.clickmap.hit(x, y)
+        if action is None:
+            return
+        if self._driven:
+            self._apply_action(action)
+        else:
+            state.pending = action
+
+    def _handle_hover(
+        self,
+        name: str,
+        state: _HoverState,
+        x: int,
+        y: int,
+    ) -> None:
+        """Update one window's hover state and schedule its redraw."""
+        tooltip = state.hitmap.hit(x, y)
+        position = (int(x), int(y))
+        changed = tooltip is not state.hover or (
+            tooltip is not None and position != state.mouse
+        )
+        if not changed:
+            return
+        state.hover = tooltip
+        state.mouse = position
+        if self._driven:
+            self._render_hover(name, state)
+        else:
+            state.dirty = True
 
     def _apply_action(self, action: str) -> None:
         """Apply a panel-click ``action`` to the layers and re-render every window.
@@ -348,5 +388,4 @@ class Viewer:
             self._layers.toggle_all_classes()
         else:
             return
-        for name, state in self._windows.items():
-            self._rerender(name, state)
+        self._rerender_all()

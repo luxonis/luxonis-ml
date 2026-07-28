@@ -327,25 +327,35 @@ def _declutter(annotations: list[Annotation]) -> list[Annotation]:
     if len(boxes) < _DECLUTTER_MIN_SCENE:
         return annotations
     small = [i for i, a in enumerate(boxes) if _is_small(a)]
-    if not small:
-        return annotations
     centers = [(a.x + a.w / 2.0, a.y + a.h / 2.0) for a in boxes]
     radius_sq = _DECLUTTER_RADIUS**2
-    drop: set[int] = set()
-    for i in small:
-        cx, cy = centers[i]
-        crowd = 0
-        for j, (nx, ny) in enumerate(centers):
-            if j == i:
-                continue
-            if (nx - cx) ** 2 + (ny - cy) ** 2 <= radius_sq:
-                crowd += 1
-                if crowd >= _DECLUTTER_CROWD:
-                    drop.add(id(boxes[i]))
-                    break
+    drop = {
+        id(boxes[index])
+        for index in small
+        if _is_crowded(index, centers, radius_sq)
+    }
     if not drop:
         return annotations
     return [a for a in annotations if id(a) not in drop]
+
+
+def _is_crowded(
+    index: int,
+    centers: list[tuple[float, float]],
+    radius_sq: float,
+) -> bool:
+    """Whether ``centers[index]`` has enough neighbors within the radius."""
+    cx, cy = centers[index]
+    neighbors = 0
+    for other, (nx, ny) in enumerate(centers):
+        if other == index:
+            continue
+        if (nx - cx) ** 2 + (ny - cy) ** 2 > radius_sq:
+            continue
+        neighbors += 1
+        if neighbors >= _DECLUTTER_CROWD:
+            return True
+    return False
 
 
 def _is_small(box: BBox) -> bool:

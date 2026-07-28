@@ -10,7 +10,9 @@ import functools
 
 import numpy as np
 
-from luxonis_ml.vizlab.canvas import Canvas
+from luxonis_ml.vizlab.canvas import Canvas, TextMetrics
+from luxonis_ml.vizlab.color import Color
+from luxonis_ml.vizlab.geometry import Rect
 from luxonis_ml.vizlab.tooltip import Tooltip
 
 
@@ -18,6 +20,76 @@ from luxonis_ml.vizlab.tooltip import Tooltip
 def _measure_canvas() -> Canvas:
     """Return a cached tiny canvas used only to measure tooltip text."""
     return Canvas.blank(2, 2)
+
+
+def _draw_tooltip_header(
+    canvas: Canvas,
+    *,
+    title: str | None,
+    title_metrics: TextMetrics | None,
+    title_size: float,
+    title_color: Color,
+    tint: Color | None,
+    x: float,
+    y: float,
+    line_h: float,
+    gap: int,
+    swatch: int,
+    swatch_gap: int,
+) -> float:
+    """Draw the optional tooltip swatch/title and return the next y offset."""
+    if title_metrics is None and not swatch:
+        return y
+    text_x = x
+    if tint is not None and swatch:
+        swatch_y = y + (line_h - swatch) / 2
+        canvas.rounded_rect(
+            Rect(text_x, swatch_y, text_x + swatch, swatch_y + swatch),
+            radius=round(swatch * 0.3),
+            fill=tint,
+        )
+        text_x += swatch + swatch_gap
+    if title_metrics is not None:
+        canvas.text(
+            (text_x, y + title_metrics.ascent),
+            str(title),
+            size=title_size,
+            color=title_color,
+            weight=700,
+        )
+    return y + line_h + gap
+
+
+def _draw_tooltip_rows(
+    canvas: Canvas,
+    rows: list[tuple[str, str, float, float]],
+    *,
+    x: float,
+    y: float,
+    size: int,
+    metrics: TextMetrics,
+) -> None:
+    """Draw aligned tooltip key/value rows."""
+    from luxonis_ml.utils.color import brand
+
+    for key, value, key_width, _value_width in rows:
+        baseline = y + metrics.ascent
+        canvas.text(
+            (x, baseline),
+            key,
+            size=size,
+            color=brand.CARD_KEY,
+            weight=600,
+        )
+        canvas.text(
+            (x + key_width, baseline),
+            value,
+            size=size,
+            color=brand.CARD_TEXT,
+            weight=500,
+            mono=True,
+        )
+        y += metrics.height
 
 
 def render_tooltip_card(tooltip: Tooltip, size: int) -> np.ndarray:
@@ -34,7 +106,6 @@ def render_tooltip_card(tooltip: Tooltip, size: int) -> np.ndarray:
     """
     from luxonis_ml.utils.color import brand
     from luxonis_ml.vizlab.canvas import Shadow
-    from luxonis_ml.vizlab.geometry import Rect
 
     measure = _measure_canvas()
     title = tooltip.title
@@ -79,39 +150,21 @@ def render_tooltip_card(tooltip: Tooltip, size: int) -> np.ndarray:
         shadow=Shadow(blur=size * 0.5, dy=size * 0.14),
     )
     x0, y = mg + pad, float(mg + pad)
-    if title_m is not None or swatch:
-        tx = float(x0)
-        if tint is not None and swatch:
-            sy = y + (header_line_h - swatch) / 2
-            canvas.rounded_rect(
-                Rect(tx, sy, tx + swatch, sy + swatch),
-                radius=round(swatch * 0.3),
-                fill=tint,
-            )
-            tx += swatch + swatch_gap
-        if title_m is not None:
-            canvas.text(
-                (tx, y + title_m.ascent),
-                str(title),
-                size=title_size,
-                color=title_color,
-                weight=700,
-            )
-        y += header_line_h + gap
-    for key, val, kw, _vw in rows:
-        base = y + row.ascent
-        canvas.text(
-            (x0, base), key, size=size, color=brand.CARD_KEY, weight=600
-        )
-        canvas.text(
-            (x0 + kw, base),
-            val,
-            size=size,
-            color=brand.CARD_TEXT,
-            weight=500,
-            mono=True,
-        )
-        y += row.height
+    y = _draw_tooltip_header(
+        canvas,
+        title=title,
+        title_metrics=title_m,
+        title_size=title_size,
+        title_color=title_color,
+        tint=tint,
+        x=float(x0),
+        y=y,
+        line_h=header_line_h,
+        gap=gap,
+        swatch=swatch,
+        swatch_gap=swatch_gap,
+    )
+    _draw_tooltip_rows(canvas, rows, x=x0, y=y, size=size, metrics=row)
     return canvas.to_rgba()
 
 

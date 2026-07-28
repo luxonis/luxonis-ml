@@ -8,12 +8,12 @@ never occludes pixels or labels and the original is untouched.
 """
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import NamedTuple, TypeAlias
 
 from luxonis_ml.utils.color import brand
 from luxonis_ml.vizlab._util import is_sequence
-from luxonis_ml.vizlab.canvas import Canvas
+from luxonis_ml.vizlab.canvas import Canvas, TextMetrics
 from luxonis_ml.vizlab.color import Color, ColorLike
 from luxonis_ml.vizlab.geometry import Rect
 from luxonis_ml.vizlab.hitmap import InteractionCapture
@@ -460,15 +460,172 @@ def _line_ops(
 def _build_ops(
     lines: list[Line], content_w: float, m: _Metrics
 ) -> tuple[list[_Op], float]:
-    """Lay out logical lines into positioned text ops; return them and total height."""
+    """Lay out logical lines into positioned text operations."""
     metrics = _MEASURE.measure_text("Ag", m.size)
     row_h = metrics.height + m.line_gap
     ops: list[_Op] = []
     y = 0.0
     for line in lines:
-        line_ops, y = _line_ops(line, content_w, m, row_h, metrics.ascent, y)
+        line_ops, y = _line_ops(
+            line,
+            content_w,
+            m,
+            row_h,
+            metrics.ascent,
+            y,
+        )
         ops.extend(line_ops)
     return ops, y
+
+
+@dataclass
+class _BodyLayout:
+    """Shared measurement/drawing state for a panel body."""
+
+    canvas: Canvas | None
+    x0: float
+    y0: float
+    content_w: float
+    metrics: _Metrics
+    clicks: list[tuple[Rect, str]] | None = None
+    text: TextMetrics = field(init=False)
+    row_h: float = field(init=False)
+    header: TextMetrics = field(init=False)
+    header_h: float = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.text = _MEASURE.measure_text("Ag", self.metrics.size)
+        self.row_h = self.text.height + self.metrics.line_gap
+        self.header = _MEASURE.measure_text(
+            "Ag",
+            self.metrics.header_size,
+            weight=_HEADER_WEIGHT,
+        )
+        self.header_h = self.header.height + self.metrics.line_gap
+
+    def run(self, sections: list[Section]) -> float:
+        """Lay out ``sections`` and return their total local height."""
+        y = 0.0
+        for index, section in enumerate(sections):
+            if index:
+                y = self._separator(y)
+            y = self._heading(section, y)
+            y = self._content(section, y)
+        return y
+
+    def _separator(self, y: float) -> float:
+        """Draw one section rule and return the following content offset."""
+        y += self.metrics.section_gap
+        if self.canvas is not None:
+            self.canvas.line(
+                (self.x0, self.y0 + y),
+                (self.x0 + self.content_w, self.y0 + y),
+                self.metrics.divider,
+                width=1.0,
+            )
+        return y + self.metrics.section_gap
+
+    def _heading(self, section: Section, y: float) -> float:
+        """Draw a section heading and optional legend master toggle."""
+        if section.heading is None:
+            return y
+        if self.canvas is not None:
+            _draw_tracked(
+                self.canvas,
+                self.x0,
+                self.y0 + y + self.header.ascent,
+                section.heading.upper(),
+                self.metrics.header_size,
+                self.metrics.muted,
+                _HEADER_WEIGHT,
+                _HEADER_TRACKING,
+            )
+        if section.swatches is not None:
+            _layout_legend_toggle(
+                self.canvas,
+                section.swatches,
+                self.x0,
+                self.y0 + y,
+                self.content_w,
+                self.header.ascent,
+                self.header_h,
+                self.metrics,
+                self.clicks,
+            )
+        return y + self.header_h
+
+    def _content(self, section: Section, y: float) -> float:
+        """Lay out the populated body variant of ``section``."""
+        if section.controls is not None:
+            return _layout_controls(
+                self.canvas,
+                section.controls,
+                self.x0,
+                self.y0,
+                y,
+                self.content_w,
+                self.metrics,
+                self.row_h,
+                self.clicks,
+            )
+        if section.swatches is not None:
+            return _layout_swatches(
+                self.canvas,
+                section.swatches,
+                self.x0,
+                self.y0,
+                y,
+                self.content_w,
+                self.metrics,
+                self.row_h,
+                self.clicks,
+                section.swatch_reserve,
+            )
+        if section.block:
+            return self._block(section, y)
+        return self._lines(section.lines, y)
+
+    def _block(self, section: Section, y: float) -> float:
+        """Draw a full-width block value and return the next row offset."""
+        if self.canvas is not None:
+            value = _middle_ellipsize(
+                section.lines[0][3],
+                self.content_w,
+                self.metrics,
+            )
+            self.canvas.text(
+                (self.x0, self.y0 + y + self.text.ascent),
+                value,
+                size=self.metrics.size,
+                color=self.metrics.value,
+                weight=400,
+                mono=True,
+            )
+        return y + self.row_h
+
+    def _lines(self, lines: list[Line], y: float) -> float:
+        """Draw ordinary wrapped key/value lines."""
+        for line in lines:
+            ops, y = _line_ops(
+                line,
+                self.content_w,
+                self.metrics,
+                self.row_h,
+                self.text.ascent,
+                y,
+            )
+            if self.canvas is None:
+                continue
+            for op_y, op_x, text, weight, color, mono in ops:
+                self.canvas.text(
+                    (self.x0 + op_x, self.y0 + op_y),
+                    text,
+                    size=self.metrics.size,
+                    color=color,
+                    weight=weight,
+                    mono=mono,
+                )
+        return y
 
 
 def _layout_body(
@@ -480,112 +637,8 @@ def _layout_body(
     m: _Metrics,
     clicks: "list[tuple[Rect, str]] | None" = None,
 ) -> float:
-    """Measure (``canvas`` ``None``) or draw the panel body; return its height.
-
-    Walks the sections top-down: a rule between them, an uppercase label for each
-    headed one, then its typed body — key/value text rows, a `Block` value on its
-    own line, a `Swatches` color legend, or `Controls` rows. Positions are
-    absolute (``x0``, ``y0 + local y``); the return value is the total local
-    height so the caller can size the card before a second, drawing pass. When
-    ``clicks`` is given, each control row and legend swatch appends its
-    ``(region, action)`` to it (in the same absolute pixels) for a click map.
-    """
-    metrics = _MEASURE.measure_text("Ag", m.size)
-    row_h = metrics.height + m.line_gap
-    header = _MEASURE.measure_text("Ag", m.header_size, weight=_HEADER_WEIGHT)
-    header_h = header.height + m.line_gap
-    y = 0.0
-    for i, section in enumerate(sections):
-        if i > 0:
-            y += m.section_gap
-            if canvas is not None:
-                canvas.line(
-                    (x0, y0 + y),
-                    (x0 + content_w, y0 + y),
-                    m.divider,
-                    width=1.0,
-                )
-            y += m.section_gap
-        if section.heading is not None:
-            if canvas is not None:
-                _draw_tracked(
-                    canvas,
-                    x0,
-                    y0 + y + header.ascent,
-                    section.heading.upper(),
-                    m.header_size,
-                    m.muted,
-                    _HEADER_WEIGHT,
-                    _HEADER_TRACKING,
-                )
-            if section.swatches is not None:
-                _layout_legend_toggle(
-                    canvas,
-                    section.swatches,
-                    x0,
-                    y0 + y,
-                    content_w,
-                    header.ascent,
-                    header_h,
-                    m,
-                    clicks,
-                )
-            y += header_h
-        if section.controls is not None:
-            y = _layout_controls(
-                canvas,
-                section.controls,
-                x0,
-                y0,
-                y,
-                content_w,
-                m,
-                row_h,
-                clicks,
-            )
-        elif section.swatches is not None:
-            y = _layout_swatches(
-                canvas,
-                section.swatches,
-                x0,
-                y0,
-                y,
-                content_w,
-                m,
-                row_h,
-                clicks,
-                section.swatch_reserve,
-            )
-        elif section.block:
-            if canvas is not None:
-                # One full-width line, middle-ellipsized on overrun so a long
-                # path keeps its start and end (e.g. the name and extension).
-                value = _middle_ellipsize(section.lines[0][3], content_w, m)
-                canvas.text(
-                    (x0, y0 + y + metrics.ascent),
-                    value,
-                    size=m.size,
-                    color=m.value,
-                    weight=400,
-                    mono=True,
-                )
-            y += row_h
-        else:
-            for line in section.lines:
-                ops, y = _line_ops(
-                    line, content_w, m, row_h, metrics.ascent, y
-                )
-                if canvas is not None:
-                    for op_y, op_x, text, weight, color, mono in ops:
-                        canvas.text(
-                            (x0 + op_x, y0 + op_y),
-                            text,
-                            size=m.size,
-                            color=color,
-                            weight=weight,
-                            mono=mono,
-                        )
-    return y
+    """Measure or draw the panel body and return its height."""
+    return _BodyLayout(canvas, x0, y0, content_w, m, clicks).run(sections)
 
 
 def _key_label(key: str) -> str:
@@ -830,60 +883,104 @@ def _auto_width(
     sections: list[Section], title: str | None, m: _Metrics
 ) -> float:
     """Pick a panel width from the content, clamped to a sensible range."""
-    widest = 0.0
-    if title is not None:
-        widest = _tracked_width(
-            title.upper(),
-            m.size * _TITLE_SCALE,
-            _TITLE_WEIGHT,
-            _TITLE_TRACKING,
-        )
+    widest = _title_width(title, m)
     for section in sections:
-        if section.heading is not None:
-            head_w = _tracked_width(
-                section.heading.upper(),
-                m.header_size,
-                _HEADER_WEIGHT,
-                _HEADER_TRACKING,
-            )
-            if section.swatches is not None:
-                # The legend heading also carries a right-aligned master toggle.
-                head_w += m.indent + _legend_toggle_width(m)
-            widest = max(widest, head_w)
-        if section.block:
-            # A block value gets its own line and ellipsizes to fit, so it never
-            # forces the panel wider — only its (already counted) label does.
-            continue
-        if section.controls is not None:
-            key_w = _control_key_width(section.controls, m)
-            for _key, name, value, _active in section.controls:
-                name_w = _MEASURE.measure_text(name, m.size).width
-                value_w = _MEASURE.measure_text(
-                    value, m.size, weight=600, mono=True
-                ).width
-                row = key_w + m.line_gap * 2 + name_w + m.indent + value_w
-                widest = max(widest, row)
-            continue
-        if section.swatches is not None:
-            # Reserve the full two-column legend width up front (from the widest
-            # label, or the reserved one), so the panel keeps a stable width and
-            # the legend can fold into `_LEGEND_COLS` columns.
-            labels = [label for _c, label, _e in section.swatches]
-            if section.swatch_reserve:
-                labels.append(section.swatch_reserve)
-            col_w = _swatch_col_width(labels, m)
-            widest = max(widest, _LEGEND_COLS * col_w - m.indent)
-            continue
-        for depth, prefix, is_key, body in section.lines:
-            weight = 600 if is_key else 400
-            prefix_w = _MEASURE.measure_text(
-                prefix, m.size, weight=weight
-            ).width
-            body_w = _MEASURE.measure_text(
-                body, m.size, weight=400, mono=True
-            ).width
-            widest = max(widest, depth * m.indent + prefix_w + body_w)
+        widest = max(widest, _section_width(section, m))
     return min(m.max_width, max(m.min_width, widest + 2 * m.pad))
+
+
+def _title_width(title: str | None, m: _Metrics) -> float:
+    """Return the tracked title width, or zero when there is no title."""
+    if title is None:
+        return 0.0
+    return _tracked_width(
+        title.upper(),
+        m.size * _TITLE_SCALE,
+        _TITLE_WEIGHT,
+        _TITLE_TRACKING,
+    )
+
+
+def _section_width(section: Section, m: _Metrics) -> float:
+    """Return the natural content width of one typed panel section."""
+    heading = _section_heading_width(section, m)
+    if section.block:
+        return heading
+    if section.controls is not None:
+        return max(heading, _controls_width(section.controls, m))
+    if section.swatches is not None:
+        return max(heading, _swatches_width(section, m))
+    return max(heading, _lines_width(section.lines, m))
+
+
+def _section_heading_width(section: Section, m: _Metrics) -> float:
+    """Measure a section heading, including the legend master toggle."""
+    if section.heading is None:
+        return 0.0
+    width = _tracked_width(
+        section.heading.upper(),
+        m.header_size,
+        _HEADER_WEIGHT,
+        _HEADER_TRACKING,
+    )
+    if section.swatches is not None:
+        width += m.indent + _legend_toggle_width(m)
+    return width
+
+
+def _controls_width(
+    rows: tuple[tuple[str, str, str, bool | None], ...],
+    m: _Metrics,
+) -> float:
+    """Return the widest interactive-control row."""
+    key_w = _control_key_width(rows, m)
+    return max(
+        (
+            key_w
+            + m.line_gap * 2
+            + _MEASURE.measure_text(name, m.size).width
+            + m.indent
+            + _MEASURE.measure_text(
+                value,
+                m.size,
+                weight=600,
+                mono=True,
+            ).width
+            for _key, name, value, _active in rows
+        ),
+        default=0.0,
+    )
+
+
+def _swatches_width(section: Section, m: _Metrics) -> float:
+    """Return the reserved multi-column width of a swatch section."""
+    items = section.swatches or ()
+    labels = [label for _color, label, _enabled in items]
+    if section.swatch_reserve:
+        labels.append(section.swatch_reserve)
+    return _LEGEND_COLS * _swatch_col_width(labels, m) - m.indent
+
+
+def _lines_width(lines: list[Line], m: _Metrics) -> float:
+    """Return the widest unwrapped key/value line."""
+    return max(
+        (
+            depth * m.indent
+            + _MEASURE.measure_text(
+                prefix,
+                m.size,
+                weight=600 if is_key else 400,
+            ).width
+            + _MEASURE.measure_text(
+                body,
+                m.size,
+                weight=400,
+                mono=True,
+            ).width
+            for depth, prefix, is_key, body in lines
+        ),
+        default=0.0,
+    )
 
 
 def _tracked_width(
@@ -897,6 +994,271 @@ def _tracked_width(
             _MEASURE.measure_text(char, size, weight=weight).width + tracking
         )
     return total
+
+
+@dataclass(frozen=True)
+class _PanelContent:
+    """Measured body, footer, and title of one panel."""
+
+    body: list[Section]
+    footer: list[Section]
+    footer_inner: float
+    title_metrics: TextMetrics | None
+    title_h: float
+    panel_h: float
+
+
+def _measure_panel_content(
+    sections: list[Section],
+    title: str | None,
+    content_w: float,
+    m: _Metrics,
+) -> _PanelContent:
+    """Split and measure the panel's flowing body and pinned footer."""
+    body = [section for section in sections if section.swatches is None]
+    footer = [section for section in sections if section.swatches is not None]
+    body_h = _layout_body(None, body, 0.0, 0.0, content_w, m)
+    footer_inner = (
+        _layout_body(None, footer, 0.0, 0.0, content_w, m) if footer else 0.0
+    )
+    footer_h = m.section_gap * 2 + footer_inner if footer else 0.0
+    title_metrics = (
+        _MEASURE.measure_text(
+            title,
+            m.size * _TITLE_SCALE,
+            weight=_TITLE_WEIGHT,
+        )
+        if title is not None
+        else None
+    )
+    title_h = (
+        title_metrics.height + m.line_gap * 2
+        if title_metrics is not None
+        else 0.0
+    )
+    return _PanelContent(
+        body=body,
+        footer=footer,
+        footer_inner=footer_inner,
+        title_metrics=title_metrics,
+        title_h=title_h,
+        panel_h=2 * m.pad + title_h + body_h + footer_h,
+    )
+
+
+@dataclass(frozen=True)
+class _PanelPlacement:
+    """Resolved canvas and card coordinates for one panel side."""
+
+    out_w: int
+    out_h: int
+    image_x: float
+    image_y: float
+    panel_x: float
+    panel_y: float
+    panel_card_h: float
+
+
+def _place_panel(
+    side: str,
+    image_size: tuple[int, int],
+    panel_w: float,
+    panel_h: float,
+    m: _Metrics,
+) -> _PanelPlacement:
+    """Resolve image and panel cards for the requested side."""
+    img_w, img_h = image_size
+    if side not in ("right", "left"):
+        return _PanelPlacement(
+            out_w=int(2 * m.margin + max(float(img_w), panel_w)),
+            out_h=int(2 * m.margin + m.gap + img_h + panel_h),
+            image_x=m.margin,
+            image_y=m.margin,
+            panel_x=m.margin,
+            panel_y=m.margin + img_h + m.gap,
+            panel_card_h=panel_h,
+        )
+
+    surface_h = max(float(img_h), panel_h)
+    panel_x = m.margin
+    image_x = m.margin + panel_w + m.gap
+    if side == "right":
+        image_x = m.margin
+        panel_x = m.margin + img_w + m.gap
+    return _PanelPlacement(
+        out_w=int(2 * m.margin + m.gap + img_w + panel_w),
+        out_h=int(2 * m.margin + surface_h),
+        image_x=image_x,
+        image_y=m.margin,
+        panel_x=panel_x,
+        panel_y=m.margin,
+        panel_card_h=surface_h,
+    )
+
+
+def _collect_panel_clicks(
+    content: _PanelContent,
+    *,
+    x0: float,
+    body_y0: float,
+    footer_top: float,
+    content_w: float,
+    m: _Metrics,
+) -> list[tuple[Rect, str]]:
+    """Measure interactive rows at their final positions."""
+    clicks: list[tuple[Rect, str]] = []
+    _layout_body(
+        None,
+        content.body,
+        x0,
+        body_y0,
+        content_w,
+        m,
+        clicks,
+    )
+    if content.footer:
+        _layout_body(
+            None,
+            content.footer,
+            x0,
+            footer_top,
+            content_w,
+            m,
+            clicks,
+        )
+    return clicks
+
+
+@dataclass(frozen=True)
+class _PanelPainter:
+    """Paint a measured image-and-panel composition."""
+
+    image: Renderable
+    image_size: tuple[int, int]
+    panel_w: float
+    content_w: float
+    title: str | None
+    content: _PanelContent
+    placement: _PanelPlacement
+    metrics: _Metrics
+    clicks: list[tuple[Rect, str]]
+
+    @property
+    def _x0(self) -> float:
+        return self.placement.panel_x + self.metrics.pad
+
+    @property
+    def _body_y0(self) -> float:
+        return self.placement.panel_y + self.metrics.pad + self.content.title_h
+
+    @property
+    def _footer_top(self) -> float:
+        return (
+            self.placement.panel_y
+            + self.placement.panel_card_h
+            - self.metrics.pad
+            - self.content.footer_inner
+        )
+
+    def __call__(
+        self,
+        canvas: Canvas,
+        environment: RenderEnvironment,
+        capture: InteractionCapture | None,
+    ) -> None:
+        """Paint the scene and register its panel click regions."""
+        self._draw_surfaces(canvas, environment, capture)
+        self._draw_content(canvas)
+        if capture is not None:
+            for rect, action in self.clicks:
+                capture.add_click(rect, action)
+
+    def _draw_surfaces(
+        self,
+        canvas: Canvas,
+        environment: RenderEnvironment,
+        capture: InteractionCapture | None,
+    ) -> None:
+        """Draw the page, clipped image card, and panel card."""
+        p = self.placement
+        m = self.metrics
+        img_w, img_h = self.image_size
+        canvas.rounded_rect(Rect(0, 0, p.out_w, p.out_h), 0.0, fill=m.page)
+        image_rect = Rect(
+            p.image_x,
+            p.image_y,
+            p.image_x + img_w,
+            p.image_y + img_h,
+        )
+        with canvas.clip_rounded(image_rect, m.radius):
+            self.image._draw_onto(
+                canvas,
+                p.image_x,
+                p.image_y,
+                self.image_size,
+                environment=environment,
+                capture=capture,
+            )
+        canvas.rounded_rect(
+            image_rect,
+            m.radius,
+            stroke=m.border,
+            stroke_width=m.border_width,
+        )
+        canvas.rounded_rect(
+            Rect(
+                p.panel_x,
+                p.panel_y,
+                p.panel_x + self.panel_w,
+                p.panel_y + p.panel_card_h,
+            ),
+            m.radius,
+            fill=m.surface,
+            stroke=m.border,
+            stroke_width=m.border_width,
+        )
+
+    def _draw_content(self, canvas: Canvas) -> None:
+        """Draw the optional title, flowing body, and pinned footer."""
+        title_metrics = self.content.title_metrics
+        if self.title is not None and title_metrics is not None:
+            _draw_tracked(
+                canvas,
+                self._x0,
+                self.placement.panel_y
+                + self.metrics.pad
+                + title_metrics.ascent,
+                self.title.upper(),
+                self.metrics.size * _TITLE_SCALE,
+                self.metrics.title,
+                _TITLE_WEIGHT,
+                _TITLE_TRACKING,
+            )
+        _layout_body(
+            canvas,
+            self.content.body,
+            self._x0,
+            self._body_y0,
+            self.content_w,
+            self.metrics,
+        )
+        if not self.content.footer:
+            return
+        rule_y = self._footer_top - self.metrics.section_gap
+        canvas.line(
+            (self._x0, rule_y),
+            (self._x0 + self.content_w, rule_y),
+            self.metrics.divider,
+            width=1.0,
+        )
+        _layout_body(
+            canvas,
+            self.content.footer,
+            self._x0,
+            self._footer_top,
+            self.content_w,
+            self.metrics,
+        )
 
 
 def with_panel(
@@ -971,7 +1333,7 @@ def _compose_panel(
     action)`` click targets of the panel's controls and legend swatches, in
     composed-image pixels (see `luxonis_ml.vizlab.frame.Frame.with_panel`).
     """
-    style = style or DEFAULT_STYLE
+    _ = style or DEFAULT_STYLE
     # The image is placed at its display (render_at) size, not its source size.
     img_w, img_h = image._resolved_size(None)
     background = Color.parse(bg) if bg is not None else image.theme.background
@@ -980,117 +1342,51 @@ def _compose_panel(
     sections = _format_sections(data)
     panel_w = width if width is not None else _auto_width(sections, title, m)
     content_w = panel_w - 2 * m.pad
-    # A color legend (Swatches) is pinned to the card's bottom and grows upward,
-    # so the controls and metadata above it never shift as the per-sample class
-    # set changes — the rest of the panel stays put frame to frame.
-    body = [s for s in sections if s.swatches is None]
-    footer = [s for s in sections if s.swatches is not None]
-    body_h = _layout_body(None, body, 0.0, 0.0, content_w, m)
-    footer_inner = (
-        _layout_body(None, footer, 0.0, 0.0, content_w, m) if footer else 0.0
+    content = _measure_panel_content(sections, title, content_w, m)
+    placement = _place_panel(
+        side,
+        (img_w, img_h),
+        panel_w,
+        content.panel_h,
+        m,
     )
-    footer_h = m.section_gap * 2 + footer_inner if footer else 0.0
-
-    title_metrics = (
-        _MEASURE.measure_text(
-            title, m.size * _TITLE_SCALE, weight=_TITLE_WEIGHT
-        )
-        if title is not None
-        else None
+    x0 = placement.panel_x + m.pad
+    body_y0 = placement.panel_y + m.pad + content.title_h
+    footer_top = (
+        placement.panel_y
+        + placement.panel_card_h
+        - m.pad
+        - content.footer_inner
     )
-    title_h = title_metrics.height + m.line_gap * 2 if title_metrics else 0.0
-    panel_h = 2 * m.pad + title_h + body_h + footer_h
-
-    if side in ("right", "left"):
-        surface_h = max(float(img_h), panel_h)  # stretch both to the taller
-        out_w = int(2 * m.margin + m.gap + img_w + panel_w)
-        out_h = int(2 * m.margin + surface_h)
-        image_y = panel_y = m.margin
-        panel_card_h = surface_h
-        if side == "left":
-            panel_x = m.margin
-            image_x = m.margin + panel_w + m.gap
-        else:
-            image_x = m.margin
-            panel_x = m.margin + img_w + m.gap
-    else:  # bottom
-        out_w = int(2 * m.margin + max(float(img_w), panel_w))
-        out_h = int(2 * m.margin + m.gap + img_h + panel_h)
-        image_x = panel_x = m.margin
-        image_y = m.margin
-        panel_y = m.margin + img_h + m.gap
-        panel_card_h = panel_h
-
-    x0 = panel_x + m.pad
-    body_y0 = panel_y + m.pad + title_h
-    footer_top = panel_y + panel_card_h - m.pad - footer_inner
-
-    # Collect click targets up front (a measure pass at the final positions), so
-    # the caller has the click map without forcing a render.
-    clicks: list[tuple[Rect, str]] = []
-    _layout_body(None, body, x0, body_y0, content_w, m, clicks)
-    if footer:
-        _layout_body(None, footer, x0, footer_top, content_w, m, clicks)
-
-    image_rect = Rect(image_x, image_y, image_x + img_w, image_y + img_h)
-
-    def paint(
-        canvas: Canvas,
-        environment: RenderEnvironment,
-        capture: InteractionCapture | None,
-    ) -> None:
-        # The "ultimate" background is inverted vs the theme, so the surfaces read
-        # as distinct floating cards and the gap between them is clearly visible.
-        canvas.rounded_rect(Rect(0, 0, out_w, out_h), 0.0, fill=m.page)
-        # The image, as its own rounded, bordered surface — drawn through its own
-        # scene so its annotations vectorize in an SVG rather than baking to px.
-        with canvas.clip_rounded(image_rect, m.radius):
-            image._draw_onto(
-                canvas,
-                image_x,
-                image_y,
-                (img_w, img_h),
-                environment=environment,
-                capture=capture,
-            )
-        canvas.rounded_rect(
-            image_rect, m.radius, stroke=m.border, stroke_width=m.border_width
-        )
-        # The panel, as its own opaque rounded card (opaque so the inverted page
-        # does not bleed through and wash the text out).
-        canvas.rounded_rect(
-            Rect(panel_x, panel_y, panel_x + panel_w, panel_y + panel_card_h),
-            m.radius,
-            fill=m.surface,
-            stroke=m.border,
-            stroke_width=m.border_width,
-        )
-        if title is not None and title_metrics is not None:
-            _draw_tracked(
-                canvas,
-                x0,
-                panel_y + m.pad + title_metrics.ascent,
-                title.upper(),
-                m.size * _TITLE_SCALE,
-                m.title,
-                _TITLE_WEIGHT,
-                _TITLE_TRACKING,
-            )
-        _layout_body(canvas, body, x0, body_y0, content_w, m)
-        if footer:
-            # Pin the legend to the bottom: a separating rule sits just above it,
-            # and any slack opens up above it — so it appears to grow upward.
-            rule_y = footer_top - m.section_gap
-            canvas.line(
-                (x0, rule_y), (x0 + content_w, rule_y), m.divider, width=1.0
-            )
-            _layout_body(canvas, footer, x0, footer_top, content_w, m)
-        if capture is not None:
-            for rect, action in clicks:
-                capture.add_click(rect, action)
-
-    composite = Composite((out_w, out_h), paint, options=image.options)
-    return composite, (float(image_x), float(image_y)), clicks
+    clicks = _collect_panel_clicks(
+        content,
+        x0=x0,
+        body_y0=body_y0,
+        footer_top=footer_top,
+        content_w=content_w,
+        m=m,
+    )
+    paint = _PanelPainter(
+        image=image,
+        image_size=(img_w, img_h),
+        panel_w=panel_w,
+        content_w=content_w,
+        title=title,
+        content=content,
+        placement=placement,
+        metrics=m,
+        clicks=clicks,
+    )
+    composite = Composite(
+        (placement.out_w, placement.out_h),
+        paint,
+        options=image.options,
+    )
+    return (
+        composite,
+        (float(placement.image_x), float(placement.image_y)),
+        clicks,
+    )
 
 
 def _draw_tracked(

@@ -114,6 +114,38 @@ class Match:
         return _score(self.pred) if self.pred is not None else None
 
 
+def _metric_row(counts: Sequence[int]) -> dict[str, float | int]:
+    """Build precision/recall and raw counts from ``(tp, fp, fn)``."""
+    tp, fp, fn = counts
+    return {
+        "precision": tp / (tp + fp) if tp + fp else 0.0,
+        "recall": tp / (tp + fn) if tp + fn else 0.0,
+        "tp": tp,
+        "fp": fp,
+        "fn": fn,
+    }
+
+
+def _class_tally_updates(
+    match: Match,
+) -> list[tuple[str | None, int]]:
+    """Return the class/slot increments contributed by ``match``."""
+    if match.verdict is Verdict.CLASS_ERROR:
+        candidates = ((match.pred, 1), (match.gt, 2))
+    else:
+        field_name, slot = {
+            Verdict.TP: ("gt", 0),
+            Verdict.FP: ("pred", 1),
+            Verdict.FN: ("gt", 2),
+        }[match.verdict]
+        candidates = ((getattr(match, field_name), slot),)
+    return [
+        (_label(detection), slot)
+        for detection, slot in candidates
+        if detection is not None
+    ]
+
+
 @dataclass(frozen=True)
 class ComparisonResult:
     """The matches between a prediction set and the ground truth, plus metrics.
@@ -193,33 +225,12 @@ class ComparisonResult:
         false negative to its true class, mirroring the aggregate counting.
         """
         tally: dict[str, list[int]] = {}
-
-        def bump(label: str | None, slot: int) -> None:
-            tally.setdefault(label or "object", [0, 0, 0])[slot] += 1
-
-        for m in self.matches:
-            if m.verdict is Verdict.TP and m.gt is not None:
-                bump(_label(m.gt), 0)
-            elif m.verdict is Verdict.FP and m.pred is not None:
-                bump(_label(m.pred), 1)
-            elif m.verdict is Verdict.FN and m.gt is not None:
-                bump(_label(m.gt), 2)
-            elif m.verdict is Verdict.CLASS_ERROR:
-                if m.pred is not None:
-                    bump(_label(m.pred), 1)
-                if m.gt is not None:
-                    bump(_label(m.gt), 2)
-
-        out: dict[str, dict[str, float | int]] = {}
-        for name, (tp, fp, fn) in sorted(tally.items()):
-            out[name] = {
-                "precision": tp / (tp + fp) if tp + fp else 0.0,
-                "recall": tp / (tp + fn) if tp + fn else 0.0,
-                "tp": tp,
-                "fp": fp,
-                "fn": fn,
-            }
-        return out
+        for match in self.matches:
+            for label, slot in _class_tally_updates(match):
+                tally.setdefault(label or "object", [0, 0, 0])[slot] += 1
+        return {
+            name: _metric_row(counts) for name, counts in sorted(tally.items())
+        }
 
     def summary(self) -> dict[str, str | int]:
         """Aggregate metrics as a panel-ready mapping."""
@@ -666,9 +677,42 @@ def _overlay_image(
     """One frame, every detection colored by its verdict (the default view)."""
     img = _base(image, options)
     for match in result.matches:
-        for annotation in _render_match(match, options):
-            img.add(annotation)
+        _add_annotations(img, _render_match(match, options))
     return img
+
+
+def _add_annotations(
+    image: "Image", annotations: Sequence[Annotation]
+) -> None:
+    """Add ``annotations`` to ``image`` in order."""
+    for annotation in annotations:
+        image.add(annotation)
+
+
+def _add_identity_match(
+    gt_image: "Image",
+    pred_image: "Image",
+    match: Match,
+    color: Color,
+    options: RenderOptions,
+) -> None:
+    """Paint one identity-colored match across the two comparison panels."""
+    tooltip = _match_tooltip(match)
+    if match.gt is not None:
+        gt_tooltip = tooltip if match.pred is None else None
+        _add_annotations(
+            gt_image,
+            _recolor(match.gt, options, color, tooltip=gt_tooltip),
+        )
+    if match.pred is not None:
+        _add_annotations(
+            pred_image,
+            _recolor(match.pred, options, color, tooltip=tooltip),
+        )
+    if match.gt is not None and match.pred is None:
+        _add_annotations(pred_image, _ghost(match.gt, _faded(color)))
+    if match.pred is not None and match.gt is None:
+        _add_annotations(gt_image, _ghost(match.pred, _faded(color)))
 
 
 def _side_by_side_image(
@@ -686,20 +730,7 @@ def _side_by_side_image(
     pred_img = _base(image, options)
     for i, match in enumerate(result.matches):
         color = _IDENTITY_COLORS[i % len(_IDENTITY_COLORS)]
-        tooltip = _match_tooltip(match)
-        if match.gt is not None:
-            gt_tooltip = tooltip if match.pred is None else None
-            for a in _recolor(match.gt, options, color, tooltip=gt_tooltip):
-                gt_img.add(a)
-        if match.pred is not None:
-            for a in _recolor(match.pred, options, color, tooltip=tooltip):
-                pred_img.add(a)
-        if match.gt is not None and match.pred is None:
-            for a in _ghost(match.gt, _faded(color)):
-                pred_img.add(a)
-        elif match.pred is not None and match.gt is None:
-            for a in _ghost(match.pred, _faded(color)):
-                gt_img.add(a)
+        _add_identity_match(gt_img, pred_img, match, color, options)
     return compose.grid(
         [gt_img, pred_img], ncols=2, titles=["ground truth", "prediction"]
     )
@@ -715,11 +746,9 @@ def _triptych_image(
     pred_img = _base(image, options)
     for match in result.matches:
         if match.gt is not None:
-            for a in _recolor(match.gt, options, None):
-                gt_img.add(a)
+            _add_annotations(gt_img, _recolor(match.gt, options, None))
         if match.pred is not None:
-            for a in _recolor(match.pred, options, None):
-                pred_img.add(a)
+            _add_annotations(pred_img, _recolor(match.pred, options, None))
     diff_img = _overlay_image(image, result, options)
     return compose.grid(
         [gt_img, pred_img, diff_img],
@@ -930,18 +959,11 @@ class ComparisonReport:
 
     def per_class(self) -> dict[str, dict[str, float | int]]:
         """Per-class ``{precision, recall, tp, fp, fn}`` across the dataset."""
-        out: dict[str, dict[str, float | int]] = {}
-        for name, (tp, fp, fn) in sorted(self._class.items()):
-            if name == NONE_LABEL:
-                continue
-            out[name] = {
-                "precision": tp / (tp + fp) if tp + fp else 0.0,
-                "recall": tp / (tp + fn) if tp + fn else 0.0,
-                "tp": tp,
-                "fp": fp,
-                "fn": fn,
-            }
-        return out
+        return {
+            name: _metric_row(counts)
+            for name, counts in sorted(self._class.items())
+            if name != NONE_LABEL
+        }
 
     def confusion_matrix(self) -> tuple[list[str], list[list[int]]]:
         """Return ``(labels, matrix)`` with ``matrix[gt][pred]`` counts.
@@ -1000,6 +1022,44 @@ def _draw_text(
     canvas.text((tx, ty), text, size=size, color=color, weight=weight)
 
 
+def _draw_confusion_cell(
+    canvas: "Canvas",
+    *,
+    row: int,
+    column: int,
+    count: int,
+    correct: bool,
+    peak: int,
+    left: int,
+    top: int,
+    cell: int,
+    grid: Color,
+) -> None:
+    """Draw one shaded confusion-matrix cell and its count."""
+    x0, y0 = float(left + column * cell), float(top + row * cell)
+    x1, y1 = x0 + cell, y0 + cell
+    corners: list[XY] = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+    fill = (
+        (TP_COLOR if correct else FP_COLOR).with_alpha(
+            0.18 + 0.72 * (count / peak)
+        )
+        if count
+        else None
+    )
+    canvas.polygon(corners, fill=fill, stroke=grid, stroke_width=1.0)
+    if not count:
+        return
+    _draw_text(
+        canvas,
+        str(count),
+        x0 + cell / 2,
+        y0 + cell / 2,
+        13.0,
+        _WHITE,
+        weight=700,
+    )
+
+
 def confusion_matrix_figure(
     report: ComparisonReport,
     *,
@@ -1044,28 +1104,18 @@ def confusion_matrix_figure(
     for i in range(n):
         for j in range(n):
             count = matrix[i][j]
-            x0, y0 = float(left + j * cell), float(top + i * cell)
-            x1, y1 = x0 + cell, y0 + cell
-            corners: list[XY] = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
-            fill = None
-            if count:
-                base = (
-                    TP_COLOR
-                    if (i == j and labels[i] != NONE_LABEL)
-                    else FP_COLOR
-                )
-                fill = base.with_alpha(0.18 + 0.72 * (count / peak))
-            canvas.polygon(corners, fill=fill, stroke=grid, stroke_width=1.0)
-            if count:
-                _draw_text(
-                    canvas,
-                    str(count),
-                    x0 + cell / 2,
-                    y0 + cell / 2,
-                    13.0,
-                    _WHITE,
-                    weight=700,
-                )
+            _draw_confusion_cell(
+                canvas,
+                row=i,
+                column=j,
+                count=count,
+                correct=i == j and labels[i] != NONE_LABEL,
+                peak=peak,
+                left=left,
+                top=top,
+                cell=cell,
+                grid=grid,
+            )
 
     for j, name in enumerate(shown):
         _draw_text(
