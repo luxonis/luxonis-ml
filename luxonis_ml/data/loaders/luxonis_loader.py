@@ -589,8 +589,8 @@ class LuxonisLoader(BaseLoader):
             sample_metadata_list.append(sample_etadata)
 
         img_dict, labels = self._augmentations.apply(loaded_anns)
-        sample_etadata = sample_metadata_list[0]
         metadata_indices = self._augmentations.batch_augmentation_indices
+        sample_etadata = sample_metadata_list[metadata_indices[0]]
         if len(metadata_indices) > 1:
             sample_etadata = self._merge_sample_metadata(
                 [sample_metadata_list[i] for i in metadata_indices],

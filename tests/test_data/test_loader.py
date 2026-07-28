@@ -169,6 +169,17 @@ class CompatibilityBatchEngine(
         return 2
 
 
+class SelectiveBatchEngine(
+    CompatibilityBatchEngine, register_name="selective_batch_engine"
+):
+    def apply(self, data: list[LoaderMultiOutput]) -> LoaderMultiOutput:
+        return data[1]
+
+    @property
+    def batch_augmentation_indices(self) -> list[int]:
+        return [1]
+
+
 @contextmanager
 def set_seed(seed: int):
     np_state = np.random.get_state()
@@ -343,6 +354,32 @@ def test_loader_preserves_metadata_for_custom_batch_engines(
         cast(int, entry["sample_metadata"]["record_id"])
         for entry in batch_metadata
     } == {0, 1}
+
+
+def test_loader_uses_metadata_from_custom_engine_single_contributor(
+    dataset_name: str, tempdir: Path
+) -> None:
+    def generator() -> DatasetIterator:
+        for i in range(2):
+            yield {
+                "file": create_image(i, tempdir),
+                "sample_metadata": {"record_id": i},
+            }
+
+    dataset = create_dataset(dataset_name, generator(), splits={"train": 1.0})
+    loader = LuxonisLoader(
+        dataset,
+        view="train",
+        height=256,
+        width=256,
+        autopopulate_metadata=False,
+        augmentation_engine="selective_batch_engine",
+        augmentation_config=[{"name": "Normalize"}],
+    )
+
+    metadata = loader[0].metadata
+
+    assert metadata == {"record_id": 1}
 
 
 @pytest.mark.parametrize(
